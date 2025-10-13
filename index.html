@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Flexible Views App</title>
     <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
 </head>
 
 <body>
@@ -34,13 +35,19 @@
             </div>
             <div class="divider vertical-divider" id="vertical-divider-2"></div>
             <div class="view view-4" id="view4">
-                <h3>View 4</h3>
-                <p>This is the fourth view. Drag the dividers to adjust the layout.</p>
+                <div id="python-console">
+                    <div id="console-output"></div>
+                    <div id="console-input-line">
+                        <span id="console-prompt">>>> </span>
+                        <input type="text" id="console-input" placeholder="Enter Python code..." autocomplete="off" spellcheck="false">
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <script src="js/resizer.js"></script>
+    <script src="js/python-console-new.js"></script>
 </body>
 
 </html>
