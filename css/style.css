@@ -79,21 +79,21 @@ body {
     /* Fixed size, no growing or shrinking */
 }
 
-/* View specific colors for better distinction */
+/* View specific colors for better distinction - Cyberpunk style */
 .view-1 {
-    border-left: 3px solid #4a90e2;
+    border-left: 4px solid #00ffff;
 }
 
 .view-2 {
-    border-left: 3px solid #7ed321;
+    border-left: 4px solid #ff00ff;
 }
 
 .view-3 {
-    border-left: 3px solid #f5a623;
+    border-left: 4px solid #ffff00;
 }
 
 .view-4 {
-    border-left: 3px solid #d0021b;
+    border-left: 4px solid #ff3300;
 }
 
 /* Responsive design */
