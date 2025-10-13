@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flexible Views App</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <!-- Top row with two views -->
+        <div class="top-row">
+            <div class="view view-1" id="view1">
+                <h3>View 1</h3>
+                <p>This is the first view. You can resize this view by dragging the dividers.</p>
+            </div>
+            <div class="divider vertical-divider" id="vertical-divider-1"></div>
+            <div class="view view-2" id="view2">
+                <h3>View 2</h3>
+                <p>This is the second view. Content can be added here.</p>
+            </div>
+        </div>
+
+        <!-- Horizontal divider -->
+        <div class="divider horizontal-divider" id="horizontal-divider"></div>
+
+        <!-- Bottom row with two views -->
+        <div class="bottom-row">
+            <div class="view view-3" id="view3">
+                <h3>View 3</h3>
+                <p>This is the third view. All views are flexible and resizable.</p>
+            </div>
+            <div class="divider vertical-divider" id="vertical-divider-2"></div>
+            <div class="view view-4" id="view4">
+                <h3>View 4</h3>
+                <p>This is the fourth view. Drag the dividers to adjust the layout.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/resizer.js"></script>
+</body>
+
+</html>
