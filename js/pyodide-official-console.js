@@ -163,6 +163,23 @@ async function initPyodideConsole() {
         };
         term.ready = Promise.resolve();
 
+        // Make console output functions globally available
+        window.consoleEcho = echo;
+        window.consoleError = (s) => term.error(s);
+
+        // Set global stdout/stderr callbacks for pyodide.runPython() calls
+        pyodide.setStdout({
+            batched: (s) => {
+                // Add newline if the string doesn't end with one
+                if (s && !s.endsWith('\n')) {
+                    echo(s);  // Default behavior adds newline
+                } else {
+                    echo(s, { newline: false });
+                }
+            }
+        });
+        pyodide.setStderr({ batched: (s) => term.error(s.trimEnd()) });
+
         pyodide._api.on_fatal = async (e) => {
             if (e.name === "Exit") {
                 term.error(e);
@@ -181,10 +198,10 @@ async function initPyodideConsole() {
             term.pause();
         };
 
-        // Set up directory mounting if supported
-        if ("showDirectoryPicker" in window) {
-            const pyodide_py = pyodide.runPython;
-            pyodide.runPython = (...args) => {
+        // Wrap pyodide.runPython to handle errors properly
+        const pyodide_py = pyodide.runPython;
+        pyodide.runPython = (...args) => {
+            try {
                 const result = pyodide_py(...args);
                 if (result && typeof result.then !== "undefined") {
                     return result.then((r) => {
@@ -192,6 +209,14 @@ async function initPyodideConsole() {
                             r = r.toJs();
                         }
                         return r;
+                    }).catch((e) => {
+                        // Handle Python exceptions and display in console
+                        if (e.constructor.name === "PythonError") {
+                            term.error(e.message);
+                        } else {
+                            term.error(e.toString());
+                        }
+                        throw e; // Re-throw for caller to handle if needed
                     });
                 } else {
                     if (result && result.toJs) {
@@ -199,7 +224,19 @@ async function initPyodideConsole() {
                     }
                     return result;
                 }
-            };
+            } catch (e) {
+                // Handle synchronous Python exceptions
+                if (e.constructor.name === "PythonError") {
+                    term.error(e.message);
+                } else {
+                    term.error(e.toString());
+                }
+                throw e; // Re-throw for caller to handle if needed
+            }
+        };
+
+        // Set up directory mounting if supported
+        if ("showDirectoryPicker" in window) {
 
             async function mountDirectory() {
                 const opts = {
