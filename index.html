@@ -11,7 +11,11 @@
         href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/js/jquery.terminal.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/js/unix_formatting.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/css/jquery.terminal.min.css" rel="stylesheet">
 </head>
 
 <body>
@@ -19,13 +23,17 @@
         <!-- Top row with two views -->
         <div class="top-row">
             <div class="view view-1" id="view1">
-                <h3>View 1</h3>
-                <p>This is the first view. You can resize this view by dragging the dividers.</p>
+                <div class="view-content">
+                    <h3>View 1</h3>
+                    <p>This is the first view. You can resize this view by dragging the dividers.</p>
+                </div>
             </div>
             <div class="divider vertical-divider" id="vertical-divider-1"></div>
             <div class="view view-2" id="view2">
-                <h3>View 2</h3>
-                <p>This is the second view. Content can be added here.</p>
+                <div class="view-content">
+                    <h3>View 2</h3>
+                    <p>This is the second view. Content can be added here.</p>
+                </div>
             </div>
         </div>
 
@@ -35,18 +43,22 @@
         <!-- Bottom row with two views -->
         <div class="bottom-row">
             <div class="view view-3" id="view3">
-                <h3>View 3</h3>
-                <p>This is the third view. All views are flexible and resizable.</p>
+                <div class="view-content">
+                    <h3>View 3</h3>
+                    <p>This is the third view. All views are flexible and resizable.</p>
+                </div>
             </div>
             <div class="divider vertical-divider" id="vertical-divider-2"></div>
             <div class="view view-4" id="view4">
-                <h3>View 4</h3>
-                <p>This is the fourth view. Content can be added here.</p>
+                <div id="console-container">
+                    <div id="loading"></div>
+                </div>
             </div>
         </div>
     </div>
 
     <script src="js/resizer.js"></script>
+    <script src="js/pyodide-official-console.js"></script>
 </body>
 
 </html>
