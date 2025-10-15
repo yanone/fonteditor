@@ -116,6 +116,11 @@ body {
     }
 }
 
+.terminal .terminal-output>:not(.raw) .terminal-error,
+.terminal .terminal-output>:not(.raw) .terminal-error * {
+    color: #ff3300 !important;
+}
+
 #console-container {
     width: 100%;
     height: 100%;
