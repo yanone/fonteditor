@@ -1,0 +1,65 @@
+// FontEditor initialization
+// Loads and initializes Python packages for font editing
+
+async function initFontEditor() {
+    "use strict";
+
+    try {
+        // Ensure pyodide is available
+        if (!window.pyodide) {
+            console.error("Pyodide not available. Make sure it's loaded first.");
+            return false;
+        }
+
+        console.log("Initializing FontEditor...");
+
+        // First load micropip package
+        await window.pyodide.loadPackage("micropip");
+        console.log("micropip loaded successfully");
+
+        // Install defcon package using micropip
+        await window.pyodide.runPythonAsync(`
+            import micropip
+            await micropip.install('defcon')
+        `);
+
+        // Import defcon and make it available
+        await window.pyodide.runPython(`
+            import defcon
+            
+            # Make defcon available globally in Python namespace
+            globals()['defcon'] = defcon
+        `);
+
+        console.log("FontEditor initialized successfully");
+        return true;
+
+    } catch (error) {
+        console.error("Error initializing FontEditor:", error);
+        if (window.term) {
+            window.term.error("Failed to initialize FontEditor: " + error.message);
+        }
+        return false;
+    }
+}
+
+// Initialize FontEditor when Pyodide is ready
+document.addEventListener('DOMContentLoaded', () => {
+    // Wait for pyodide to be available
+    const checkPyodide = () => {
+        if (window.pyodide) {
+            // Wait a bit more to ensure pyodide is fully initialized
+            setTimeout(() => {
+                initFontEditor();
+            }, 1000);
+        } else {
+            // Check again in 500ms
+            setTimeout(checkPyodide, 500);
+        }
+    };
+
+    checkPyodide();
+});
+
+// Export for manual initialization if needed
+window.initFontEditor = initFontEditor;
