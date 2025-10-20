@@ -44,8 +44,11 @@
         <div class="bottom-row">
             <div class="view view-3" id="view3">
                 <div class="view-content">
-                    <h3>View 3</h3>
-                    <p>This is the third view. All views are flexible and resizable.</p>
+                    <h3>File Browser</h3>
+                    <button id="refresh-files-btn" onclick="refreshFileSystem()">🔄 Refresh</button>
+                    <div id="file-browser">
+                        <div id="file-tree"></div>
+                    </div>
                 </div>
             </div>
             <div class="divider vertical-divider" id="vertical-divider-2"></div>
@@ -59,6 +62,7 @@
 
     <script src="js/resizer.js"></script>
     <script src="js/pyodide-official-console.js"></script>
+    <script src="js/fonteditor.js"></script>
     <script src="js/file-browser.js"></script>
 </body>
 

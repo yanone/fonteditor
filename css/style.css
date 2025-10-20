@@ -208,3 +208,75 @@ body {
 .view::-webkit-scrollbar-thumb:hover {
     background: #666666;
 }
+
+/* File Browser Styles */
+#refresh-files-btn {
+    background: linear-gradient(45deg, #00ffff, #ff00ff);
+    border: none;
+    color: #1a1a1a;
+    padding: 8px 16px;
+    margin-bottom: 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+#refresh-files-btn:hover {
+    background: linear-gradient(45deg, #ff00ff, #ffff00);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 255, 255, 0.3);
+}
+
+#file-browser {
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+}
+
+#file-tree {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.file-item {
+    padding: 4px 0;
+    cursor: pointer;
+    border-radius: 3px;
+    padding-left: 8px;
+    margin: 1px 0;
+    transition: background-color 0.2s ease;
+}
+
+.file-item:hover {
+    background-color: rgba(0, 255, 255, 0.1);
+}
+
+.file-item.directory {
+    color: #00ffff;
+    font-weight: 500;
+}
+
+.file-item.file {
+    color: #e0e0e0;
+}
+
+.file-item.python-file {
+    color: #ffff00;
+}
+
+.file-item .file-size {
+    color: #888;
+    font-size: 11px;
+    margin-left: 10px;
+}
+
+.file-path {
+    color: #ff00ff;
+    margin-bottom: 8px;
+    font-weight: 500;
+    border-bottom: 1px solid #404040;
+    padding-bottom: 4px;
+}
