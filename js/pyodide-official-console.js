@@ -157,8 +157,20 @@ async function initPyodideConsole() {
         });
 
         window.term = term;
-        pyconsole.stdout_callback = (s) => echo(s, { newline: false });
+        pyconsole.stdout_callback = (s) => {
+            // Filter system messages from interactive console too
+            if (isSystemMessage(s)) {
+                console.log('[Pyodide Interactive]:', s.trim());
+                return;
+            }
+            echo(s, { newline: false });
+        };
         pyconsole.stderr_callback = (s) => {
+            // Filter stderr system messages from interactive console
+            if (isSystemMessage(s)) {
+                console.warn('[Pyodide Interactive]:', s.trim());
+                return;
+            }
             term.error(s.trimEnd());
         };
         term.ready = Promise.resolve();
@@ -167,10 +179,42 @@ async function initPyodideConsole() {
         window.consoleEcho = echo;
         window.consoleError = (s) => term.error(s);
 
+        // Filter function to identify system messages vs user print output
+        function isSystemMessage(message) {
+            const systemPatterns = [
+                /^Loading\s+\w+/i,
+                /^Loaded\s+\w+/i,
+                /^Installing\s+\w+/i,
+                /^Installed\s+\w+/i,
+                /^Downloading\s+/i,
+                /^Downloaded\s+/i,
+                /^Building\s+/i,
+                /^Built\s+/i,
+                /^Collecting\s+/i,
+                /^Successfully\s+installed\s+/i,
+                /^Requirement\s+already\s+satisfied/i,
+                /^WARNING:\s+/i,
+                /^Note:\s+/i,
+                /micropip\s+install/i,
+                /package\s+installed/i,
+                /imported\s+successfully/i,
+                /^Initializing/i,
+                /^FontEditor/i
+            ];
+
+            return systemPatterns.some(pattern => pattern.test(message.trim()));
+        }
+
         // Set global stdout/stderr callbacks for pyodide.runPython() calls
         pyodide.setStdout({
             batched: (s) => {
-                // Add newline if the string doesn't end with one
+                // Filter out system messages - send them to browser console instead
+                if (isSystemMessage(s)) {
+                    console.log('[Pyodide System]:', s.trim());
+                    return;
+                }
+
+                // Only show user print() output in the Python console
                 if (s && !s.endsWith('\n')) {
                     echo(s);  // Default behavior adds newline
                 } else {
@@ -178,7 +222,16 @@ async function initPyodideConsole() {
                 }
             }
         });
-        pyodide.setStderr({ batched: (s) => term.error(s.trimEnd()) });
+        pyodide.setStderr({
+            batched: (s) => {
+                // Filter stderr system messages too
+                if (isSystemMessage(s)) {
+                    console.warn('[Pyodide System]:', s.trim());
+                    return;
+                }
+                term.error(s.trimEnd());
+            }
+        });
 
         pyodide._api.on_fatal = async (e) => {
             if (e.name === "Exit") {
