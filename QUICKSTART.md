@@ -15,6 +15,7 @@ This clones and builds Simon Cozens' fontc-web (first time takes 5-10 minutes).
 ### 2. Start the server with CORS headers
 
 ```bash
+cd webapp
 python3 serve-with-cors.py
 ```
 
@@ -75,14 +76,15 @@ print(result)
 
 ### "Worker initialization timeout"
 
-- Make sure WASM files were built: check `wasm-dist/` directory
-- Make sure you're using the CORS server: `python3 serve-with-cors.py`
+- Make sure WASM files were built: check `webapp/wasm-dist/` directory
+- Make sure you're using the CORS server: `cd webapp && python3 serve-with-cors.py`
 - Check browser console for specific errors
 
 ### "SharedArrayBuffer is not defined"
 
 You're not serving with the correct CORS headers. Must use:
 ```bash
+cd webapp
 python3 serve-with-cors.py
 ```
 

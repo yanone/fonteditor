@@ -17,6 +17,7 @@ A web-based font editor with Python scripting and fontc WASM compilation.
 ./build-fontc-wasm.sh
 
 # 2. Start server with CORS headers (required for threading)
+cd webapp
 python3 serve-with-cors.py
 
 # 3. Open http://localhost:8000

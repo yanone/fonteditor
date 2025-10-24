@@ -40,7 +40,7 @@ The script will:
 2. Install wasm-pack if needed
 3. Clone Simon Cozens' fontc-web repository
 4. Build with threading support (`+atomics,+bulk-memory`)
-5. Copy WASM files to `wasm-dist/`
+5. Copy WASM files to `webapp/wasm-dist/`
 
 This may take 5-10 minutes the first time.
 
@@ -51,6 +51,7 @@ This may take 5-10 minutes the first time.
 Use the provided server:
 
 ```bash
+cd webapp
 python3 serve-with-cors.py
 ```
 
@@ -87,17 +88,16 @@ The build may encounter compatibility issues with some dependencies. If the buil
 
 ## Integration with This App
 
-If a WASM build succeeds, integrate it by:
+The WASM files are automatically placed in the correct location:
 
-1. Copy `wasm-dist/` files to `js/wasm/`
-2. Load in HTML:
-```html
-<script type="module" src="js/wasm/fontc_wasm.js"></script>
-```
+1. Build script outputs to `webapp/wasm-dist/`
+2. WASM files are loaded by `js/fontc-worker.js`
+3. Web Worker runs in separate thread
 
-3. Use in JavaScript:
+Usage in JavaScript:
 ```javascript
-import init, { FontCompiler } from './js/wasm/fontc_wasm.js';
+// Via the FontCompilation wrapper
+await fontCompilation.compile('/input.glyphs', '/output.ttf');
 
 await init();
 const compiler = new FontCompiler();

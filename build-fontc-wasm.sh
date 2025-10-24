@@ -5,6 +5,7 @@
 set -e  # Exit on error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WEBAPP_DIR="$SCRIPT_DIR/webapp"
 WASM_DIR="$SCRIPT_DIR/fontc-web-build"
 
 echo "🦀 Building fontc for WebAssembly..."
@@ -63,22 +64,22 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "📦 Copying WASM files to project..."
     
-    # Copy the built files to our wasm-dist directory
-    mkdir -p "$SCRIPT_DIR/wasm-dist"
-    cp -r pkg/* "$SCRIPT_DIR/wasm-dist/"
+    # Copy the built files to our wasm-dist directory in webapp
+    mkdir -p "$WEBAPP_DIR/wasm-dist"
+    cp -r pkg/* "$WEBAPP_DIR/wasm-dist/"
     
     echo ""
     echo "✅ Build complete!"
-    echo "📦 WASM files copied to: $SCRIPT_DIR/wasm-dist/"
+    echo "📦 WASM files copied to: $WEBAPP_DIR/wasm-dist/"
     echo ""
     echo "Files created:"
-    ls -lh "$SCRIPT_DIR/wasm-dist/"
+    ls -lh "$WEBAPP_DIR/wasm-dist/"
     echo ""
     echo "⚠️  IMPORTANT: You need to serve this app with proper CORS headers:"
     echo "   Cross-Origin-Embedder-Policy: require-corp"
     echo "   Cross-Origin-Opener-Policy: same-origin"
     echo ""
-    echo "Use the provided server: python3 serve-with-cors.py"
+    echo "Use the provided server: cd webapp && python3 serve-with-cors.py"
 else
     echo ""
     echo "❌ Build failed."
@@ -167,16 +168,16 @@ if cargo build --target wasm32-unknown-unknown --release; then
     
     if [ -f "$WASM_FILE" ]; then
         wasm-bindgen "$WASM_FILE" \
-            --out-dir "$SCRIPT_DIR/wasm-dist" \
+            --out-dir "$WEBAPP_DIR/wasm-dist" \
             --target web \
             --no-typescript
         
         echo ""
         echo "✅ Build complete!"
-        echo "📦 WASM files generated in: $SCRIPT_DIR/wasm-dist/"
+        echo "📦 WASM files generated in: $WEBAPP_DIR/wasm-dist/"
         echo ""
         echo "Files created:"
-        ls -lh "$SCRIPT_DIR/wasm-dist/"
+        ls -lh "$WEBAPP_DIR/wasm-dist/"
         echo ""
         echo "⚠️  IMPORTANT: This is a minimal wrapper. Full fontc functionality"
         echo "   requires significant additional work to adapt for WASM."

@@ -2,7 +2,7 @@
 fontc-web-build/
 
 # WASM distribution files (optional - uncomment if you don't want to commit these)
-# wasm-dist/
+# webapp/wasm-dist/
 
 # Python cache
 __pycache__/
