@@ -280,3 +280,105 @@ body {
     border-bottom: 1px solid #404040;
     padding-bottom: 4px;
 }
+
+/* File Browser Toolbar */
+.file-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #404040;
+    flex-wrap: wrap;
+}
+
+.file-action-btn {
+    background: linear-gradient(135deg, #404040, #555555);
+    border: 1px solid #666666;
+    color: #e0e0e0;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.file-action-btn:hover {
+    background: linear-gradient(135deg, #555555, #666666);
+    border-color: #00ffff;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 255, 255, 0.2);
+}
+
+.file-action-btn:active {
+    transform: translateY(0);
+}
+
+/* File Item Layout */
+.file-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    cursor: pointer;
+    border-radius: 3px;
+    margin: 2px 0;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.file-item .file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-item .delete-btn {
+    opacity: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #ff3300;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    margin-left: 8px;
+}
+
+.file-item:hover .delete-btn {
+    opacity: 1;
+}
+
+.file-item .delete-btn:hover {
+    background: rgba(255, 51, 0, 0.2);
+    border-color: #ff3300;
+    transform: scale(1.1);
+}
+
+/* Drag and Drop Styling */
+#file-tree.drag-over {
+    background-color: rgba(0, 255, 255, 0.1);
+    border: 2px dashed #00ffff;
+    border-radius: 8px;
+}
+
+#file-tree.drag-over::after {
+    content: '📤 Drop files here to upload';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 255, 255, 0.05);
+    color: #00ffff;
+    font-size: 18px;
+    font-weight: 500;
+    pointer-events: none;
+    z-index: 10;
+}

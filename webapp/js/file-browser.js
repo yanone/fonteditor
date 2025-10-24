@@ -85,9 +85,140 @@ json.dumps(scan_directory('${path}'))
     }
 }
 
-async function buildFileTree(rootPath = '/') {
+async function createFolder() {
+    const currentPath = fileSystemCache.currentPath || '/';
+    const folderName = prompt('Enter folder name:');
+
+    if (!folderName) return;
+
+    // Validate folder name
+    if (folderName.includes('/') || folderName.includes('\\')) {
+        alert('Folder name cannot contain / or \\');
+        return;
+    }
+
+    try {
+        await window.pyodide.runPython(`
+import os
+path = '${currentPath}/${folderName}'
+os.makedirs(path, exist_ok=True)
+        `);
+
+        if (window.term) {
+            window.term.echo(`Created folder: ${currentPath}/${folderName}`);
+        }
+
+        await refreshFileSystem();
+    } catch (error) {
+        console.error("Error creating folder:", error);
+        alert(`Error creating folder: ${error.message}`);
+    }
+}
+
+async function deleteItem(itemPath, itemName, isDir) {
+    const confirmMsg = isDir ?
+        `Delete folder "${itemName}" and all its contents?` :
+        `Delete file "${itemName}"?`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+        await window.pyodide.runPython(`
+import os
+import shutil
+
+path = '${itemPath}'
+if os.path.isdir(path):
+    shutil.rmtree(path)
+else:
+    os.remove(path)
+        `);
+
+        if (window.term) {
+            window.term.echo(`Deleted: ${itemPath}`);
+        }
+
+        await refreshFileSystem();
+    } catch (error) {
+        console.error("Error deleting item:", error);
+        alert(`Error deleting item: ${error.message}`);
+    }
+}
+
+async function uploadFiles(files) {
+    const currentPath = fileSystemCache.currentPath || '/';
+    let uploadedCount = 0;
+    let folderCount = 0;
+    
+    for (const file of files) {
+        try {
+            const content = await file.arrayBuffer();
+            const uint8Array = new Uint8Array(content);
+            
+            // Handle files with relative paths (from folder upload)
+            // file.webkitRelativePath contains the full path including folder structure
+            const relativePath = file.webkitRelativePath || file.name;
+            const fullPath = `${currentPath}/${relativePath}`;
+            
+            // Create all parent directories
+            await window.pyodide.runPython(`
+import os
+path = '${fullPath}'
+parent_dir = os.path.dirname(path)
+if parent_dir:
+    os.makedirs(parent_dir, exist_ok=True)
+            `);
+            
+            // Write file to Pyodide filesystem
+            window.pyodide.FS.writeFile(fullPath, uint8Array);
+            uploadedCount++;
+            
+            // Count unique folders created
+            const pathParts = relativePath.split('/');
+            if (pathParts.length > 1) {
+                folderCount = Math.max(folderCount, pathParts.length - 1);
+            }
+            
+            if (window.term) {
+                window.term.echo(`Uploaded: ${relativePath} (${formatFileSize(file.size)})`);
+            }
+        } catch (error) {
+            console.error(`Error uploading ${file.name}:`, error);
+            if (window.term) {
+                window.term.echo(`Error uploading ${file.name}: ${error.message}`, { style: 'color: #ff3300' });
+            }
+        }
+    }
+    
+    if (uploadedCount > 0) {
+        if (window.term && folderCount > 0) {
+            window.term.echo(`Uploaded ${uploadedCount} file(s) with folder structure preserved`);
+        }
+        await refreshFileSystem();
+    }
+}async function buildFileTree(rootPath = '/') {
     const items = await scanDirectory(rootPath);
     let html = '';
+
+    // Toolbar with actions
+    html += `<div class="file-toolbar">
+        <button onclick="createFolder()" class="file-action-btn" title="Create new folder">
+            📁 New Folder
+        </button>
+        <button onclick="document.getElementById('file-upload-input').click()" class="file-action-btn" title="Upload files">
+            📤 Upload Files
+        </button>
+        <button onclick="document.getElementById('folder-upload-input').click()" class="file-action-btn" title="Upload folder with structure">
+            📂 Upload Folder
+        </button>
+        <button onclick="refreshFileSystem()" class="file-action-btn" title="Refresh">
+            🔄 Refresh
+        </button>
+    </div>
+    <input type="file" id="file-upload-input" multiple style="display: none;" 
+           onchange="handleFileUpload(event)">
+    <input type="file" id="folder-upload-input" webkitdirectory directory multiple style="display: none;" 
+           onchange="handleFileUpload(event)">`;
 
     if (rootPath !== '/') {
         const parentPath = rootPath.substring(0, rootPath.lastIndexOf('/')) || '/';
@@ -112,12 +243,23 @@ async function buildFileTree(rootPath = '/') {
             `navigateToPath('${data.path}')` :
             `selectFile('${data.path}')`;
 
+        const deleteBtn = `<button class="delete-btn" onclick="event.stopPropagation(); deleteItem('${data.path}', '${name}', ${data.is_dir})" title="Delete">🗑️</button>`;
+
         html += `<div class="file-item ${fileClass}" onclick="${clickHandler}">
-            ${icon} ${name}${sizeText}
+            <span class="file-name">${icon} ${name}</span>${sizeText}${deleteBtn}
         </div>`;
     }
 
     return html;
+}
+
+function handleFileUpload(event) {
+    const files = Array.from(event.target.files);
+    if (files.length > 0) {
+        uploadFiles(files);
+    }
+    // Reset input so same file can be uploaded again
+    event.target.value = '';
 }
 
 async function navigateToPath(path) {
@@ -133,12 +275,42 @@ async function navigateToPath(path) {
 
         // Cache the current path
         fileSystemCache.currentPath = path;
+
+        // Setup drag & drop on the file tree
+        setupDragAndDrop();
     } catch (error) {
         console.error("Error navigating to path:", error);
         document.getElementById('file-tree').innerHTML = `
             <div style="color: #ff3300;">Error loading directory: ${error.message}</div>
         `;
     }
+}
+
+function setupDragAndDrop() {
+    const fileTree = document.getElementById('file-tree');
+
+    fileTree.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        fileTree.classList.add('drag-over');
+    });
+
+    fileTree.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        fileTree.classList.remove('drag-over');
+    });
+
+    fileTree.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        fileTree.classList.remove('drag-over');
+
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length > 0) {
+            await uploadFiles(files);
+        }
+    });
 }
 
 function selectFile(filePath) {
@@ -190,3 +362,7 @@ window.refreshFileSystem = refreshFileSystem;
 window.navigateToPath = navigateToPath;
 window.selectFile = selectFile;
 window.initFileBrowser = initFileBrowser;
+window.createFolder = createFolder;
+window.deleteItem = deleteItem;
+window.uploadFiles = uploadFiles;
+window.handleFileUpload = handleFileUpload;
