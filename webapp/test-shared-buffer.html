@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>SharedArrayBuffer Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+
+        .success {
+            color: #0f0;
+        }
+
+        .error {
+            color: #f00;
+        }
+
+        .warning {
+            color: #ff0;
+        }
+
+        pre {
+            background: #000;
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>SharedArrayBuffer Availability Test</h1>
+
+    <h2>Headers Check:</h2>
+    <pre id="headers"></pre>
+
+    <h2>SharedArrayBuffer Test:</h2>
+    <pre id="sab-test"></pre>
+
+    <h2>CrossOriginIsolated:</h2>
+    <pre id="isolated"></pre>
+
+    <script>
+        async function checkHeaders() {
+            try {
+                const response = await fetch(window.location.href);
+                const headers = {};
+                for (let [key, value] of response.headers.entries()) {
+                    if (key.toLowerCase().includes('cross-origin')) {
+                        headers[key] = value;
+                    }
+                }
+                document.getElementById('headers').innerHTML = JSON.stringify(headers, null, 2);
+
+                if (headers['cross-origin-embedder-policy'] && headers['cross-origin-opener-policy']) {
+                    document.getElementById('headers').className = 'success';
+                } else {
+                    document.getElementById('headers').className = 'error';
+                    document.getElementById('headers').innerHTML += '\n\n❌ Missing required headers!';
+                }
+            } catch (e) {
+                document.getElementById('headers').innerHTML = '❌ Error: ' + e.message;
+                document.getElementById('headers').className = 'error';
+            }
+        }
+
+        function checkSAB() {
+            const sabEl = document.getElementById('sab-test');
+            if (typeof SharedArrayBuffer !== 'undefined') {
+                try {
+                    const sab = new SharedArrayBuffer(1024);
+                    sabEl.innerHTML = '✅ SharedArrayBuffer is available!\nCreated buffer of size: ' + sab.byteLength;
+                    sabEl.className = 'success';
+                } catch (e) {
+                    sabEl.innerHTML = '⚠️  SharedArrayBuffer exists but error creating: ' + e.message;
+                    sabEl.className = 'warning';
+                }
+            } else {
+                sabEl.innerHTML = '❌ SharedArrayBuffer is NOT available';
+                sabEl.className = 'error';
+            }
+        }
+
+        function checkIsolated() {
+            const isolatedEl = document.getElementById('isolated');
+            if (typeof crossOriginIsolated !== 'undefined') {
+                if (crossOriginIsolated) {
+                    isolatedEl.innerHTML = '✅ Page is cross-origin isolated: ' + crossOriginIsolated;
+                    isolatedEl.className = 'success';
+                } else {
+                    isolatedEl.innerHTML = '❌ Page is NOT cross-origin isolated';
+                    isolatedEl.className = 'error';
+                }
+            } else {
+                isolatedEl.innerHTML = '⚠️  crossOriginIsolated property not available (older browser?)';
+                isolatedEl.className = 'warning';
+            }
+        }
+
+        checkHeaders();
+        checkSAB();
+        checkIsolated();
+    </script>
+</body>
+
+</html>

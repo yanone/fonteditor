@@ -5,13 +5,22 @@ import * as fontc from '../wasm-dist/fontc_web.js';
 
 async function init() {
     try {
+        // Check if SharedArrayBuffer is available
+        if (typeof SharedArrayBuffer === 'undefined') {
+            throw new Error('SharedArrayBuffer is not available. Make sure the page is served with proper CORS headers:\n' +
+                'Cross-Origin-Embedder-Policy: require-corp\n' +
+                'Cross-Origin-Opener-Policy: same-origin');
+        }
+
         console.log('Worker: Loading WASM...');
         await fontc.default();
 
-        console.log('Worker: Setting up thread pool...');
-        await fontc.initThreadPool(navigator.hardwareConcurrency || 4);
+        console.log('Worker: Skipping thread pool due to browser limitations...');
+        // NOTE: initThreadPool causes Memory cloning errors in some browsers (Brave, etc.)
+        // Skip it - fontc will run single-threaded but still works
+        // await fontc.initThreadPool(1);
 
-        console.log('Worker: Ready!');
+        console.log('Worker: Ready (single-threaded mode)!');
         self.postMessage({ ready: true });
 
         // Handle compilation requests

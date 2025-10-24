@@ -15,6 +15,17 @@ class FontCompilation {
 
         console.log('🔧 Initializing fontc WASM worker...');
 
+        // Check if SharedArrayBuffer is available
+        if (typeof SharedArrayBuffer === 'undefined') {
+            throw new Error(
+                'SharedArrayBuffer is not available. This is required for fontc threading.\n' +
+                'Make sure you are serving the page with proper CORS headers:\n' +
+                '  Cross-Origin-Embedder-Policy: require-corp\n' +
+                '  Cross-Origin-Opener-Policy: same-origin\n\n' +
+                'Use: cd webapp && python3 serve-with-cors.py'
+            );
+        }
+
         try {
             // Create a Web Worker for fontc
             this.worker = new Worker('js/fontc-worker.js', { type: 'module' });
@@ -52,9 +63,16 @@ class FontCompilation {
             console.error('❌ Failed to initialize fontc WASM:', error.message);
             if (window.term) {
                 window.term.error(`Failed to load fontc: ${error.message}`);
-                window.term.error('Make sure to:');
-                window.term.error('1. Run ./build-fontc-wasm.sh');
-                window.term.error('2. Serve with: python3 serve-with-cors.py');
+                window.term.error('');
+                window.term.error('Troubleshooting:');
+                window.term.error('1. Make sure you ran: ./build-fontc-wasm.sh');
+                window.term.error('2. Serving with: cd webapp && python3 serve-with-cors.py');
+                window.term.error('3. Open in a regular browser (Chrome/Firefox), not VS Code Simple Browser');
+                window.term.error('');
+                if (error.message.includes('DataCloneError') || error.message.includes('Memory')) {
+                    window.term.error('⚠️  This error suggests your browser context doesn\'t support WASM threading.');
+                    window.term.error('   Try opening http://localhost:8000 in Chrome or Firefox.');
+                }
             }
             return false;
         }

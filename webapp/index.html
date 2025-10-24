@@ -24,8 +24,14 @@
         <div class="top-row">
             <div class="view view-1" id="view1">
                 <div class="view-content">
-                    <h3>View 1</h3>
-                    <p>This is the first view. You can resize this view by dragging the dividers.</p>
+                    <h3>Font Editor</h3>
+                    <p>Web-based font editor with Python scripting and fontc WASM compilation.</p>
+                    <div id="browser-compat"
+                        style="margin-top: 20px; padding: 10px; border: 1px solid #0ff; border-radius: 5px; display: none;">
+                        <strong>⚠️ Browser Compatibility Notice</strong>
+                        <p style="margin: 5px 0;">For best results, open this app in Chrome, Firefox, or Safari.</p>
+                        <p style="margin: 5px 0;">SharedArrayBuffer support required for fontc WASM threading.</p>
+                    </div>
                 </div>
             </div>
             <div class="divider vertical-divider" id="vertical-divider-1"></div>
@@ -64,7 +70,30 @@
     <script src="js/pyodide-official-console.js"></script>
     <script src="js/fonteditor.js"></script>
     <script src="js/file-browser.js"></script>
-    <script src="js/font-compilation.js"></script>
+    <script type="module" src="js/font-compilation.js"></script>
+
+    <!-- Browser compatibility check -->
+    <script>
+        // Detect if we're in a limited browser context
+        setTimeout(() => {
+            const isVSCode = navigator.userAgent.includes('Code') || navigator.userAgent.includes('Electron');
+            const hasSAB = typeof SharedArrayBuffer !== 'undefined';
+            const isIsolated = typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : false;
+
+            if (isVSCode || !hasSAB || !isIsolated) {
+                const notice = document.getElementById('browser-compat');
+                if (notice) {
+                    notice.style.display = 'block';
+                    if (isVSCode) {
+                        notice.innerHTML = '<strong>⚠️ VS Code Simple Browser Detected</strong>' +
+                            '<p style="margin: 5px 0;">For fontc WASM compilation, please open this URL in a regular browser:</p>' +
+                            '<p style="margin: 5px 0;"><code>http://localhost:8000</code></p>' +
+                            '<p style="margin: 5px 0;">Recommended: Chrome, Firefox, or Safari</p>';
+                    }
+                }
+            }
+        }, 500);
+    </script>
 </body>
 
 </html>

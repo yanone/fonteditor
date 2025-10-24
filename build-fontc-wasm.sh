@@ -80,6 +80,9 @@ if [ $? -eq 0 ]; then
     echo "   Cross-Origin-Opener-Policy: same-origin"
     echo ""
     echo "Use the provided server: cd webapp && python3 serve-with-cors.py"
+    
+    # Exit here - we're done! Don't run the experimental build below
+    exit 0
 else
     echo ""
     echo "❌ Build failed."
@@ -91,6 +94,7 @@ else
     exit 1
 fi
 
+# EXPERIMENTAL: Custom wrapper (not used, Simon's build above is complete)
 # Create the wrapper Rust code
 mkdir -p src
 cat > src/lib.rs << 'EOF'
