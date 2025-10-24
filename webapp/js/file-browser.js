@@ -149,17 +149,17 @@ async function uploadFiles(files) {
     const currentPath = fileSystemCache.currentPath || '/';
     let uploadedCount = 0;
     let folderCount = 0;
-    
+
     for (const file of files) {
         try {
             const content = await file.arrayBuffer();
             const uint8Array = new Uint8Array(content);
-            
+
             // Handle files with relative paths (from folder upload)
             // file.webkitRelativePath contains the full path including folder structure
             const relativePath = file.webkitRelativePath || file.name;
             const fullPath = `${currentPath}/${relativePath}`;
-            
+
             // Create all parent directories
             await window.pyodide.runPython(`
 import os
@@ -168,17 +168,17 @@ parent_dir = os.path.dirname(path)
 if parent_dir:
     os.makedirs(parent_dir, exist_ok=True)
             `);
-            
+
             // Write file to Pyodide filesystem
             window.pyodide.FS.writeFile(fullPath, uint8Array);
             uploadedCount++;
-            
+
             // Count unique folders created
             const pathParts = relativePath.split('/');
             if (pathParts.length > 1) {
                 folderCount = Math.max(folderCount, pathParts.length - 1);
             }
-            
+
             if (window.term) {
                 window.term.echo(`Uploaded: ${relativePath} (${formatFileSize(file.size)})`);
             }
@@ -189,14 +189,14 @@ if parent_dir:
             }
         }
     }
-    
+
     if (uploadedCount > 0) {
         if (window.term && folderCount > 0) {
             window.term.echo(`Uploaded ${uploadedCount} file(s) with folder structure preserved`);
         }
         await refreshFileSystem();
     }
-}async function buildFileTree(rootPath = '/') {
+} async function buildFileTree(rootPath = '/') {
     const items = await scanDirectory(rootPath);
     let html = '';
 
