@@ -1,0 +1,15 @@
+{
+  "name": "fontc-web",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "fontc_web_bg.wasm",
+    "fontc_web.js",
+    "fontc_web.d.ts"
+  ],
+  "main": "fontc_web.js",
+  "types": "fontc_web.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
