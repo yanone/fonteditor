@@ -104,9 +104,7 @@ path = '${currentPath}/${folderName}'
 os.makedirs(path, exist_ok=True)
         `);
 
-        if (window.term) {
-            window.term.echo(`Created folder: ${currentPath}/${folderName}`);
-        }
+        console.log(`Created folder: ${currentPath}/${folderName}`);
 
         await refreshFileSystem();
     } catch (error) {
@@ -134,9 +132,7 @@ else:
     os.remove(path)
         `);
 
-        if (window.term) {
-            window.term.echo(`Deleted: ${itemPath}`);
-        }
+        console.log(`Deleted: ${itemPath}`);
 
         await refreshFileSystem();
     } catch (error) {
@@ -179,20 +175,15 @@ if parent_dir:
                 folderCount = Math.max(folderCount, pathParts.length - 1);
             }
 
-            if (window.term) {
-                window.term.echo(`Uploaded: ${relativePath} (${formatFileSize(file.size)})`);
-            }
+            console.log(`Uploaded: ${relativePath} (${formatFileSize(file.size)})`);
         } catch (error) {
             console.error(`Error uploading ${file.name}:`, error);
-            if (window.term) {
-                window.term.echo(`Error uploading ${file.name}: ${error.message}`, { style: 'color: #ff3300' });
-            }
         }
     }
 
     if (uploadedCount > 0) {
-        if (window.term && folderCount > 0) {
-            window.term.echo(`Uploaded ${uploadedCount} file(s) with folder structure preserved`);
+        if (folderCount > 0) {
+            console.log(`Uploaded ${uploadedCount} file(s) with folder structure preserved`);
         }
         await refreshFileSystem();
     }
@@ -316,9 +307,6 @@ function setupDragAndDrop() {
 function selectFile(filePath) {
     console.log("Selected file:", filePath);
     // TODO: Add file selection handling (e.g., show content, download, etc.)
-    if (window.term) {
-        window.term.echo(`Selected file: ${filePath}`);
-    }
 }
 
 async function refreshFileSystem() {
@@ -331,9 +319,7 @@ async function refreshFileSystem() {
     // Reload current directory
     await navigateToPath(currentPath);
 
-    if (window.term) {
-        window.term.echo("File system refreshed");
-    }
+    console.log("File system refreshed");
 }
 
 // Initialize file browser when Pyodide is ready

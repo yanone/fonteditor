@@ -154,9 +154,7 @@ with open(output_path, 'wb') as f:
 print(f"Compiled font saved to: {output_path}")
             `);
 
-            if (window.term) {
-                window.term.echo(`✅ Compiled in ${result.time_taken}ms: ${outputFilename}`);
-            }
+            console.log(`✅ Compiled in ${result.time_taken}ms: ${outputFilename}`);
 
             // Refresh file browser
             if (window.refreshFileSystem) {
@@ -171,10 +169,6 @@ print(f"Compiled font saved to: {output_path}")
 
         } catch (error) {
             console.error('fontc compilation error:', error);
-
-            if (window.term) {
-                window.term.error(`❌ Compilation failed: ${error.message}`);
-            }
 
             return {
                 success: false,
