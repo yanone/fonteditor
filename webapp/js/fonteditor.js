@@ -17,18 +17,20 @@ async function initFontEditor() {
         await window.pyodide.loadPackage("micropip");
         console.log("micropip loaded successfully");
 
-        // Install defcon package using micropip
+        // Install babelfont package from local wheel
         await window.pyodide.runPythonAsync(`
             import micropip
-            await micropip.install('defcon')
+            await micropip.install('fonttools==4.60.1')
+            await micropip.install('ufomerge')
+            await micropip.install('/wheels/babelfont-3.1.4.dev2+g60a255a-py3-none-any.whl')
         `);
 
-        // Import defcon and make it available
+        // Import babelfont and make it available
         await window.pyodide.runPython(`
-            import defcon
+            import babelfont
             
-            # Make defcon available globally in Python namespace
-            globals()['defcon'] = defcon
+            # Make babelfont available globally in Python namespace
+            globals()['babelfont'] = babelfont
         `);
 
         console.log("FontEditor initialized successfully");
