@@ -165,7 +165,7 @@ babelfont.generate_all_docs()
         const systemPrompt = `You are a Python code generator for a font editor using the babelfont library.
 
 CRITICAL RULES:
-1. ALWAYS use CurrentFont() to get the main font object - DO NOT assume a variable name
+1. ALWAYS use CurrentFont() to get the main font object - DO NOT assume a variable name. If you need to use a variable name, assign it to '__font' to not overwrite user variables.
 2. Generate ONLY executable Python code - no markdown, no explanations outside of code
 3. Include print() statements in your code to show results to the user
 4. Handle errors gracefully within your code
@@ -209,8 +209,30 @@ Generate Python code for: ${userPrompt}`;
             });
         }
 
-        // Call Anthropic API
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
+        // Call Anthropic API via proxy
+        // Uses local proxy (localhost:8001) if available, otherwise falls back to public CORS proxy
+        const localProxyUrl = 'http://localhost:8001';
+        const publicProxyUrl = 'https://corsproxy.io/?https%3A%2F%2Fapi.anthropic.com%2Fv1%2Fmessages';
+
+        // Try local proxy first, fall back to public proxy
+        let apiUrl = localProxyUrl;
+        let useLocalProxy = true;
+
+        // Check if local proxy is available
+        try {
+            const testResponse = await fetch(localProxyUrl, { method: 'HEAD' }).catch(() => null);
+            if (!testResponse || !testResponse.ok) {
+                useLocalProxy = false;
+                apiUrl = publicProxyUrl;
+                console.log('Local proxy not available, using public CORS proxy');
+            }
+        } catch (e) {
+            useLocalProxy = false;
+            apiUrl = publicProxyUrl;
+            console.log('Local proxy not available, using public CORS proxy');
+        }
+
+        const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'x-api-key': this.apiKey,
