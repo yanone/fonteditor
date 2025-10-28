@@ -79,6 +79,20 @@
                 <div class="view-content">
                     <h3>AI Assistant <button id="ai-clear-btn" title="Clear conversation history">🗑️ Clear</button>
                     </h3>
+                    <div id="ai-info" class="ai-info">
+                        <p><strong>🤖 AI-Powered Font Editing</strong></p>
+                        <p>Describe what you want to do with your font in plain English. The AI will generate Python
+                            code using the babelfont library and execute it automatically.</p>
+                        <ul>
+                            <li>💬 <strong>Natural conversation:</strong> Context is preserved across prompts until chat
+                                is cleared</li>
+                            <li>🔄 <strong>Auto-retry:</strong> If code fails, the AI will fix and retry</li>
+                            <li>👁️ <strong>Transparent:</strong> Click "Show Code" to see what's was executed</li>
+                            <li>🔑 <strong>Privacy:</strong> Your font data never leaves the browser</li>
+                        </ul>
+                        <p><em>Examples: "List all glyph names", "Make glyphs 10% wider", "Add 50 units to left
+                                sidebearings"</em></p>
+                    </div>
                     <div id="ai-chat-container">
                         <div id="ai-messages"></div>
                         <div id="ai-input-container">

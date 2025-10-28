@@ -477,10 +477,43 @@ body {
 }
 
 /* AI Assistant Styles */
+.ai-info {
+    background-color: rgba(0, 255, 255, 0.05);
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 15px;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.ai-info p {
+    margin: 8px 0;
+}
+
+.ai-info strong {
+    color: #00ffff;
+}
+
+.ai-info ul {
+    margin: 10px 0 10px 20px;
+    padding: 0;
+}
+
+.ai-info li {
+    margin: 6px 0;
+    color: #b0b0b0;
+}
+
+.ai-info em {
+    color: #888;
+    font-size: 12px;
+}
+
 #ai-chat-container {
     display: flex;
     flex-direction: column;
-    height: calc(100% - 60px);
+    height: calc(100% - 220px);
 }
 
 #ai-clear-btn {
