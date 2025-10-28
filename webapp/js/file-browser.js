@@ -215,7 +215,6 @@ if parent_dir:
                 folderCount = Math.max(folderCount, pathParts.length - 1);
             }
 
-            console.log(`Uploaded: ${relativePath} (${formatFileSize(file.size)})`);
         } catch (error) {
             console.error(`Error uploading ${file.name}:`, error);
         }
