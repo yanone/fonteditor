@@ -22,7 +22,7 @@ async function initFontEditor() {
             import micropip
             await micropip.install('fonttools==4.60.1')
             await micropip.install('ufomerge')
-            await micropip.install('/wheels/babelfont-3.1.4.dev2+g60a255a-py3-none-any.whl')
+            await micropip.install('/wheels/babelfont-3.1.4.dev10+gbaebb37-py3-none-any.whl')
         `);
 
         // Import babelfont and make it available
