@@ -206,6 +206,7 @@ CRITICAL RULES:
 3. Include print() statements in your code to show results to the user
 4. Handle errors gracefully within your code
 5. The font object is a babelfont Font instance
+6. Only set data in the font object if there is a clear instruction to do so in the user prompt.
 
 BABELFONT API DOCUMENTATION:
 ${apiDocs}
