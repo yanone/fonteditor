@@ -58,7 +58,7 @@
         <!-- Horizontal divider -->
         <div class="divider horizontal-divider" id="horizontal-divider"></div>
 
-        <!-- Bottom row with two views -->
+        <!-- Bottom row with three views -->
         <div class="bottom-row">
             <div class="view view-3" id="view3">
                 <div class="view-content">
@@ -74,6 +74,21 @@
                     <div id="loading"></div>
                 </div>
             </div>
+            <div class="divider vertical-divider" id="vertical-divider-3"></div>
+            <div class="view view-5" id="view5">
+                <div class="view-content">
+                    <h3>AI Assistant</h3>
+                    <div id="ai-chat-container">
+                        <div id="ai-messages"></div>
+                        <div id="ai-input-container">
+                            <input type="password" id="ai-api-key" placeholder="Anthropic API Key" />
+                            <textarea id="ai-prompt"
+                                placeholder="Ask the AI to modify your font... (e.g., 'Make all glyphs 10% wider')"></textarea>
+                            <button id="ai-send-btn">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -82,6 +97,7 @@
     <script src="js/fonteditor.js"></script>
     <script src="js/font-dropdown.js"></script>
     <script src="js/file-browser.js"></script>
+    <script src="js/ai-assistant.js"></script>
     <script type="module" src="js/font-compilation.js"></script>
 
     <!-- Browser compatibility check -->
