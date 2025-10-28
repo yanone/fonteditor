@@ -332,6 +332,13 @@ Generate Python code for: ${userPrompt}`;
             })
         });
 
+        // Log the full prompt to console for debugging
+        console.group('🤖 AI Prompt Sent to Claude');
+        console.log('System Prompt:', systemPrompt);
+        console.log('Messages:', messages);
+        console.log('Model:', 'claude-sonnet-4-20250514');
+        console.groupEnd();
+
         if (!response.ok) {
             const errorData = await response.json();
             throw new Error(`API error: ${errorData.error?.message || response.statusText}`);
