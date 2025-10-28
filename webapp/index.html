@@ -101,6 +101,22 @@
     <script src="js/ai-assistant.js"></script>
     <script type="module" src="js/font-compilation.js"></script>
 
+    <!-- Cache busting for local assets -->
+    <script>
+        // Add cache busting to all local CSS and JS files
+        const version = Date.now();
+        document.querySelectorAll('link[rel="stylesheet"][href^="css/"]').forEach(link => {
+            link.href = link.href.split('?')[0] + '?v=' + version;
+        });
+        document.querySelectorAll('script[src^="js/"]').forEach(script => {
+            const newScript = document.createElement('script');
+            const srcWithoutQuery = script.src.split('?')[0];
+            newScript.src = srcWithoutQuery + '?v=' + version;
+            if (script.type) newScript.type = script.type;
+            script.parentNode.replaceChild(newScript, script);
+        });
+    </script>
+
     <!-- Browser compatibility check -->
     <script>
         // Detect if we're in a limited browser context
