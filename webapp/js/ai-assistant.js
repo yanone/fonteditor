@@ -43,6 +43,11 @@ class AIAssistant {
     }
 
     addMessage(role, content, isCode = false, isCollapsible = false) {
+        // Show messages container on first message
+        if (this.messagesContainer.style.display === 'none' || !this.messagesContainer.style.display) {
+            this.messagesContainer.style.display = 'block';
+        }
+
         const messageDiv = document.createElement('div');
         messageDiv.className = `ai-message ai-message-${role}`;
 
@@ -94,6 +99,7 @@ class AIAssistant {
         if (confirm('Clear conversation history? This will start a fresh conversation.')) {
             this.conversationHistory = [];
             this.messagesContainer.innerHTML = '';
+            this.messagesContainer.style.display = 'none'; // Hide when cleared
             console.log('Conversation history cleared');
         }
     }

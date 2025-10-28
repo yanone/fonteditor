@@ -516,6 +516,13 @@ body {
     height: calc(100% - 220px);
 }
 
+#ai-api-key-container {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    margin-bottom: 15px;
+}
+
 #ai-clear-btn {
     background-color: transparent;
     border: 1px solid #555;
@@ -540,7 +547,10 @@ body {
     background-color: #1f1f1f;
     border-radius: 4px;
     margin-bottom: 15px;
+    /* Space before input at bottom */
     min-height: 200px;
+    display: none;
+    /* Hidden initially, shown when first message is added */
 }
 
 .ai-message {
@@ -596,8 +606,9 @@ body {
 }
 
 .ai-message-content {
-    font-size: 14px;
-    line-height: 1.5;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
     white-space: pre-wrap;
 }
 
@@ -646,6 +657,8 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    flex-shrink: 0;
+    /* Don't shrink when content grows */
 }
 
 #ai-api-key {
