@@ -17,6 +17,7 @@ class AIAssistant {
         this.apiKeyInput = document.getElementById('ai-api-key');
         this.promptInput = document.getElementById('ai-prompt');
         this.sendButton = document.getElementById('ai-send-btn');
+        this.clearButton = document.getElementById('ai-clear-btn');
         this.messagesContainer = document.getElementById('ai-messages');
 
         // Set saved API key
@@ -31,6 +32,8 @@ class AIAssistant {
         });
 
         this.sendButton.addEventListener('click', () => this.sendPrompt());
+        
+        this.clearButton.addEventListener('click', () => this.clearConversation());
 
         this.promptInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -77,6 +80,14 @@ class AIAssistant {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    clearConversation() {
+        if (confirm('Clear conversation history? This will start a fresh conversation.')) {
+            this.conversationHistory = [];
+            this.messagesContainer.innerHTML = '';
+            console.log('Conversation history cleared');
+        }
     }
 
     async sendPrompt() {
@@ -182,7 +193,7 @@ babelfont.generate_all_docs()
         const systemPrompt = `You are a Python code generator for a font editor using the babelfont library.
 
 CRITICAL RULES:
-1. ALWAYS use CurrentFont() to get the main font object - DO NOT assume a variable name. If you need to use a variable name, assign it to '__font' to not overwrite user variables.
+1. ALWAYS use CurrentFont() and assign it to __font to get the main font object - DO NOT overwrite existing variables.
 2. Generate ONLY executable Python code - no markdown, no explanations outside of code
 3. Include print() statements in your code to show results to the user
 4. Handle errors gracefully within your code
@@ -210,10 +221,10 @@ for glyph in font.glyphs:
 
 Generate Python code for: ${userPrompt}`;
 
-        // Build conversation messages
-        const messages = [];
+        // Build conversation messages with full conversation history
+        const messages = [...this.conversationHistory];
 
-        // Add previous error context if retrying
+        // Add current prompt (or retry with error context)
         if (previousError && attemptNumber > 0) {
             messages.push({
                 role: 'user',
@@ -276,6 +287,23 @@ Generate Python code for: ${userPrompt}`;
 
         // Remove markdown code blocks if present
         pythonCode = pythonCode.replace(/```python\n?/g, '').replace(/```\n?/g, '').trim();
+
+        // Add to conversation history (only if not a retry)
+        if (!previousError || attemptNumber === 0) {
+            this.conversationHistory.push({
+                role: 'user',
+                content: userPrompt
+            });
+            this.conversationHistory.push({
+                role: 'assistant',
+                content: data.content[0].text
+            });
+
+            // Keep conversation history manageable (last 10 exchanges = 20 messages)
+            if (this.conversationHistory.length > 20) {
+                this.conversationHistory = this.conversationHistory.slice(-20);
+            }
+        }
 
         return pythonCode;
     }

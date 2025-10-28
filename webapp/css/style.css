@@ -483,6 +483,23 @@ body {
     height: calc(100% - 60px);
 }
 
+#ai-clear-btn {
+    background-color: transparent;
+    border: 1px solid #555;
+    color: #ff3300;
+    padding: 4px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    margin-left: 10px;
+    transition: all 0.2s ease;
+}
+
+#ai-clear-btn:hover {
+    background-color: rgba(255, 51, 0, 0.2);
+    border-color: #ff3300;
+}
+
 #ai-messages {
     flex: 1;
     overflow-y: auto;
