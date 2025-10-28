@@ -523,20 +523,27 @@ body {
     margin-bottom: 15px;
 }
 
+#ai-button-container {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
 #ai-clear-btn {
-    background-color: transparent;
+    background-color: #2a2a2a;
     border: 1px solid #555;
     color: #ff3300;
-    padding: 4px 8px;
-    border-radius: 3px;
+    padding: 8px 14px;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 11px;
-    margin-left: 10px;
+    font-size: 12px;
+    font-weight: 600;
     transition: all 0.2s ease;
+    flex-shrink: 0;
 }
 
 #ai-clear-btn:hover {
-    background-color: rgba(255, 51, 0, 0.2);
+    background-color: rgba(255, 51, 0, 0.15);
     border-color: #ff3300;
 }
 
@@ -575,6 +582,11 @@ body {
 .ai-message-user {
     background-color: rgba(0, 255, 255, 0.1);
     border-left: 3px solid #00ffff;
+}
+
+.ai-message-user .ai-message-content {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
 }
 
 .ai-message-assistant {
@@ -709,6 +721,8 @@ body {
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
+    flex: 1;
+    /* Take up remaining space */
 }
 
 #ai-send-btn:hover {

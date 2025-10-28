@@ -18,10 +18,10 @@
     <script src="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/js/jquery.terminal.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/js/unix_formatting.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/css/jquery.terminal.min.css" rel="stylesheet">
-    
+
     <!-- Cache busting for local development only -->
     <script>
-        (function() {
+        (function () {
             const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
             if (isLocal) {
                 const version = Date.now();
@@ -37,7 +37,7 @@
     <!-- Toolbar -->
     <div class="toolbar">
         <div class="toolbar-left">
-            <h1 class="app-name">Ascender/Counter/Punch App</h1>
+            <h1 class="app-name">Ascender Font Editor</h1>
         </div>
         <div class="toolbar-right">
             <select id="open-fonts-dropdown" class="fonts-dropdown">
@@ -92,19 +92,20 @@
             <div class="divider vertical-divider" id="vertical-divider-3"></div>
             <div class="view view-5" id="view5">
                 <div class="view-content">
-                    <h3>AI Assistant <button id="ai-clear-btn" title="Clear conversation history">🗑️ Clear</button>
-                    </h3>
+                    <h3>AI Assistant</h3>
                     <div id="ai-info" class="ai-info">
                         <p><strong>🤖 AI-Powered Font Editing</strong></p>
-                        <p>Describe what you want to do with your font in plain English. The AI will generate Python
-                            code using the babelfont library and execute it automatically.</p>
+                        <p>Describe what you want to do with your font in natural language. The AI will generate Python
+                            code using the <strong>babelfont</strong> library and run it.</p>
                         <ul>
                             <li>💬 <strong>Natural conversation:</strong> Context is preserved across prompts until chat
                                 is cleared</li>
                             <li>🔄 <strong>Auto-retry:</strong> If code fails, the AI will fix and retry</li>
-                            <li>👁️ <strong>Transparent:</strong> Click "Show Code" to see what's was executed</li>
                             <li>🔑 <strong>Privacy:</strong> Your font data never leaves the browser. The AI simply
-                                generates Python codes which is exted locally.</li>
+                                generates Python codes which is run locally.</li>
+                            <li>👁️ <strong>Transparent:</strong> Click "Show Code" to see what's was being run</li>
+                            <li>⚠️ <strong>Warning:</strong> AI makes mistakes both in handling your data as well as in
+                                generating code. Use at your own risk.</li>
                         </ul>
                         <p><em>Examples: "List all glyph names", "Make glyphs 10% wider", "Add 50 units to left
                                 sidebearings"</em></p>
@@ -117,7 +118,10 @@
                         <div id="ai-input-container">
                             <textarea id="ai-prompt"
                                 placeholder="Ask the AI to modify your font... (e.g., 'Make all glyphs 10% wider')"></textarea>
-                            <button id="ai-send-btn">Send</button>
+                            <div id="ai-button-container">
+                                <button id="ai-send-btn">Send</button>
+                                <button id="ai-clear-btn" title="Clear conversation history">🗑️ Clear</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -135,7 +139,7 @@
 
     <!-- Cache busting for local development -->
     <script>
-        (function() {
+        (function () {
             const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
             if (isLocal) {
                 const version = Date.now();

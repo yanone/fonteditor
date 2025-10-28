@@ -37,6 +37,7 @@ class AIAssistant {
 
         this.promptInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault(); // Prevent newline
                 this.sendPrompt();
             }
         });
