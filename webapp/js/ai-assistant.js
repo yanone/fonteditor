@@ -8,6 +8,7 @@ class AIAssistant {
         this.messages = [];
         this.conversationHistory = [];
         this.maxRetries = 3;
+        this.cachedApiDocs = null; // Cache for babelfont API documentation
 
         this.initUI();
     }
@@ -187,22 +188,26 @@ class AIAssistant {
     }
 
     async callClaude(userPrompt, previousError = null, attemptNumber = 0) {
-        // Get API documentation from babelfont
-        let apiDocs = '';
-        try {
-            apiDocs = await window.pyodide.runPythonAsync(`
+        // Get API documentation from babelfont (cached after first generation)
+        if (!this.cachedApiDocs) {
+            try {
+                this.cachedApiDocs = await window.pyodide.runPythonAsync(`
 import babelfont
 babelfont.generate_all_docs()
-            `);
-        } catch (error) {
-            console.warn('Could not generate babelfont API docs, using fallback:', error);
-            apiDocs = `API documentation not available. Use standard babelfont attributes:
+                `);
+                console.log('Babelfont API documentation cached');
+            } catch (error) {
+                console.warn('Could not generate babelfont API docs, using fallback:', error);
+                this.cachedApiDocs = `API documentation not available. Use standard babelfont attributes:
 - font.glyphs, font.names, font.masters, etc.
 - glyph.name, glyph.width, glyph.layers
 - layer.paths, layer.width
 - path.nodes
 - node.x, node.y, node.type`;
+            }
         }
+
+        const apiDocs = this.cachedApiDocs;
 
         // Build the system prompt with API documentation
         const systemPrompt = `You are a Python code generator for a font editor using the babelfont library.
