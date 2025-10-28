@@ -32,7 +32,7 @@ class AIAssistant {
         });
 
         this.sendButton.addEventListener('click', () => this.sendPrompt());
-        
+
         this.clearButton.addEventListener('click', () => this.clearConversation());
 
         this.promptInput.addEventListener('keydown', (e) => {
@@ -55,11 +55,19 @@ class AIAssistant {
             if (isCollapsible) {
                 // Collapsible code block
                 const codeId = 'code-' + Date.now() + Math.random().toString(36).substr(2, 9);
+                const btnId = 'btn-' + Date.now() + Math.random().toString(36).substr(2, 9);
                 body = `
                     <div class="ai-code-collapsible">
-                        <button class="ai-code-toggle" onclick="document.getElementById('${codeId}').classList.toggle('collapsed')">
-                            ▼ Show Python Code
-                        </button>
+                        <button class="ai-code-toggle" id="${btnId}" onclick="
+                            const code = document.getElementById('${codeId}');
+                            const btn = document.getElementById('${btnId}');
+                            code.classList.toggle('collapsed');
+                            if (code.classList.contains('collapsed')) {
+                                btn.textContent = '▶ Show Python Code';
+                            } else {
+                                btn.textContent = '▼ Hide Python Code';
+                            }
+                        ">▶ Show Python Code</button>
                         <pre class="ai-code collapsed" id="${codeId}"><code>${this.escapeHtml(content)}</code></pre>
                     </div>`;
             } else {

@@ -609,15 +609,6 @@ body {
     display: none;
 }
 
-.ai-code-toggle::before {
-    content: '▼ ';
-}
-
-.ai-code.collapsed+.ai-code-toggle::before,
-button:has(+ .ai-code.collapsed)::before {
-    content: '▶ ';
-}
-
 #ai-input-container {
     display: flex;
     flex-direction: column;
