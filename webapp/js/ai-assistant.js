@@ -91,6 +91,49 @@ class AIAssistant {
         return messageDiv;
     }
 
+    addOutputWithCode(output, code) {
+        // Show messages container on first message
+        if (this.messagesContainer.style.display === 'none' || !this.messagesContainer.style.display) {
+            this.messagesContainer.style.display = 'block';
+        }
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'ai-message ai-message-output';
+
+        const timestamp = new Date().toLocaleTimeString();
+
+        // Generate unique IDs
+        const codeId = 'code-' + Date.now() + Math.random().toString(36).substr(2, 9);
+        const btnId = 'btn-' + Date.now() + Math.random().toString(36).substr(2, 9);
+
+        const header = `
+            <div class="ai-message-header">
+                <span>📤 Output - ${timestamp}</span>
+                <span class="ai-code-toggle-link" id="${btnId}" onclick="
+                    const code = document.getElementById('${codeId}');
+                    const btn = document.getElementById('${btnId}');
+                    code.classList.toggle('collapsed');
+                    if (code.classList.contains('collapsed')) {
+                        btn.textContent = '▶ Show Code';
+                    } else {
+                        btn.textContent = '▼ Hide Code';
+                    }
+                ">▶ Show Code</span>
+            </div>`;
+
+        const body = `
+            <div class="ai-output-with-code">
+                <pre class="ai-code collapsed" id="${codeId}"><code>${this.escapeHtml(code)}</code></pre>
+                <div class="ai-message-content">${output && output.trim() ? this.escapeHtml(output) : '(No output)'}</div>
+            </div>`;
+
+        messageDiv.innerHTML = header + body;
+        this.messagesContainer.appendChild(messageDiv);
+        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+
+        return messageDiv;
+    }
+
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
@@ -153,18 +196,11 @@ class AIAssistant {
             // Get Python code from Claude
             const pythonCode = await this.callClaude(originalPrompt, previousError, attemptNumber);
 
-            // Show the generated code (collapsed by default)
-            this.addMessage('assistant', pythonCode, true, true);
-
             // Execute the Python code and capture output
             const output = await this.executePython(pythonCode);
 
-            // Show the output in AI chat
-            if (output && output.trim()) {
-                this.addMessage('output', output, false, false);
-            } else {
-                this.addMessage('system', 'Execution completed successfully (no output)');
-            }
+            // Show output with collapsible code
+            this.addOutputWithCode(output, pythonCode);
 
             // Update font dropdown if fonts were modified
             if (window.fontDropdownManager) {
