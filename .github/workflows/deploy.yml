@@ -30,21 +30,6 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      - name: Add CORS headers configuration
-        run: |
-          # Create _headers file for GitHub Pages CORS support
-          cat > webapp/_headers << 'EOF'
-          /*
-            Cross-Origin-Opener-Policy: same-origin
-            Cross-Origin-Embedder-Policy: require-corp
-            Access-Control-Allow-Origin: *
-            Access-Control-Allow-Methods: GET, POST, OPTIONS
-            Access-Control-Allow-Headers: *
-          EOF
-          
-          # Create a custom 404 page for SPA routing
-          cp webapp/index.html webapp/404.html
-
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

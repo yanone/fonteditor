@@ -5,17 +5,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Font Editor</title>
+    <!-- Service Worker for COOP/COEP headers (enables SharedArrayBuffer) -->
+    <script src="coi-serviceworker.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
         href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css" id="local-css">
     <script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jquery"></script>
     <script src="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/js/jquery.terminal.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/js/unix_formatting.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/css/jquery.terminal.min.css" rel="stylesheet">
+    
+    <!-- Cache busting for local development only -->
+    <script>
+        (function() {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            if (isLocal) {
+                const version = Date.now();
+                // Update CSS
+                const css = document.getElementById('local-css');
+                if (css) css.href = 'css/style.css?v=' + version;
+            }
+        })();
+    </script>
 </head>
 
 <body>
@@ -88,7 +103,8 @@
                                 is cleared</li>
                             <li>🔄 <strong>Auto-retry:</strong> If code fails, the AI will fix and retry</li>
                             <li>👁️ <strong>Transparent:</strong> Click "Show Code" to see what's was executed</li>
-                            <li>🔑 <strong>Privacy:</strong> Your font data never leaves the browser</li>
+                            <li>🔑 <strong>Privacy:</strong> Your font data never leaves the browser. The AI simply
+                                generates Python codes which is exted locally.</li>
                         </ul>
                         <p><em>Examples: "List all glyph names", "Make glyphs 10% wider", "Add 50 units to left
                                 sidebearings"</em></p>
@@ -107,28 +123,31 @@
         </div>
     </div>
 
-    <script src="js/resizer.js"></script>
-    <script src="js/pyodide-official-console.js"></script>
-    <script src="js/fonteditor.js"></script>
-    <script src="js/font-dropdown.js"></script>
-    <script src="js/file-browser.js"></script>
-    <script src="js/ai-assistant.js"></script>
-    <script type="module" src="js/font-compilation.js"></script>
+    <script src="js/resizer.js" id="script-resizer"></script>
+    <script src="js/pyodide-official-console.js" id="script-console"></script>
+    <script src="js/fonteditor.js" id="script-fonteditor"></script>
+    <script src="js/font-dropdown.js" id="script-dropdown"></script>
+    <script src="js/file-browser.js" id="script-browser"></script>
+    <script src="js/ai-assistant.js" id="script-ai"></script>
+    <script type="module" src="js/font-compilation.js" id="script-compilation"></script>
 
-    <!-- Cache busting for local assets -->
+    <!-- Cache busting for local development -->
     <script>
-        // Add cache busting to all local CSS and JS files
-        const version = Date.now();
-        document.querySelectorAll('link[rel="stylesheet"][href^="css/"]').forEach(link => {
-            link.href = link.href.split('?')[0] + '?v=' + version;
-        });
-        document.querySelectorAll('script[src^="js/"]').forEach(script => {
-            const newScript = document.createElement('script');
-            const srcWithoutQuery = script.src.split('?')[0];
-            newScript.src = srcWithoutQuery + '?v=' + version;
-            if (script.type) newScript.type = script.type;
-            script.parentNode.replaceChild(newScript, script);
-        });
+        (function() {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            if (isLocal) {
+                const version = Date.now();
+                // Update all local scripts
+                document.querySelectorAll('script[id^="script-"]').forEach(script => {
+                    const newScript = document.createElement('script');
+                    const srcWithoutQuery = script.src.split('?')[0];
+                    newScript.src = srcWithoutQuery + '?v=' + version;
+                    if (script.type) newScript.type = script.type;
+                    if (script.id) newScript.id = script.id + '-loaded';
+                    script.parentNode.replaceChild(newScript, script);
+                });
+            }
+        })();
     </script>
 
     <!-- Browser compatibility check -->
@@ -148,6 +167,10 @@
                             '<p style="margin: 5px 0;">For fontc WASM compilation, please open this URL in a regular browser:</p>' +
                             '<p style="margin: 5px 0;"><code>http://localhost:8000</code></p>' +
                             '<p style="margin: 5px 0;">Recommended: Chrome, Firefox, or Safari</p>';
+                    } else if (!isIsolated) {
+                        notice.innerHTML = '<strong>⚠️ Cross-Origin Isolation Required</strong>' +
+                            '<p style="margin: 5px 0;">The page will reload automatically to enable SharedArrayBuffer support.</p>' +
+                            '<p style="margin: 5px 0;">If this message persists, try clearing your browser cache.</p>';
                     }
                 }
             }

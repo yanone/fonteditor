@@ -24,9 +24,14 @@ The app requires specific CORS headers for SharedArrayBuffer (needed by Pyodide 
 - `Cross-Origin-Opener-Policy: same-origin`
 - `Cross-Origin-Embedder-Policy: require-corp`
 
-These are configured via:
-- `webapp/_headers` file (for some hosting providers)
-- GitHub Actions workflow automatically applies these headers
+**GitHub Pages Solution:**
+Since GitHub Pages doesn't support custom headers, we use a Service Worker (`coi-serviceworker.js`) to add these headers to all responses. This enables cross-origin isolation without server configuration.
+
+**How it works:**
+1. On first page load, the service worker registers itself
+2. Page reloads automatically to activate the service worker
+3. All subsequent requests go through the service worker which adds COOP/COEP headers
+4. SharedArrayBuffer becomes available for Pyodide and fontc WASM
 
 ### Manual Deployment
 
@@ -68,10 +73,20 @@ For the AI Assistant to work on GitHub Pages, you'll need to either:
 
 ### Troubleshooting
 
-**SharedArrayBuffer not available:**
+**SharedArrayBuffer not available on first load:**
+- The service worker needs to register on first visit
+- Page will automatically reload to activate it
+- SharedArrayBuffer should work after the reload
+
+**"SharedArrayBuffer is not available" error:**
 - Check browser console for COOP/COEP errors
-- Ensure `_headers` file is being served
-- GitHub Pages should handle this automatically
+- Clear browser cache and reload
+- Some browsers (Safari) may need additional configuration
+
+**Service worker not registering:**
+- Must be served over HTTPS or localhost
+- Check browser console for service worker errors
+- Try clearing site data and reloading
 
 **AI Assistant CORS errors:**
 - The app will automatically fall back to public proxy
