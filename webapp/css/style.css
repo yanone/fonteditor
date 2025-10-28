@@ -217,6 +217,10 @@ body {
     font-weight: bold;
 }
 
+.terminal-wrapper {
+    margin-left: 4px;
+}
+
 #loading {
     display: inline-block;
     width: 30px;
