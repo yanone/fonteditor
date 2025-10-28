@@ -533,6 +533,11 @@ body {
     border-left: 3px solid #ff3300;
 }
 
+.ai-message-output {
+    background-color: rgba(0, 255, 0, 0.1);
+    border-left: 3px solid #00ff00;
+}
+
 .ai-message-header {
     font-weight: 600;
     font-size: 12px;
@@ -559,6 +564,41 @@ body {
 
 .ai-code code {
     color: #e0e0e0;
+}
+
+.ai-code-collapsible {
+    margin-top: 8px;
+}
+
+.ai-code-toggle {
+    background-color: #2a2a2a;
+    border: 1px solid #555;
+    color: #00ffff;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    margin-bottom: 8px;
+    transition: all 0.2s ease;
+}
+
+.ai-code-toggle:hover {
+    background-color: #333;
+    border-color: #00ffff;
+}
+
+.ai-code.collapsed {
+    display: none;
+}
+
+.ai-code-toggle::before {
+    content: '▼ ';
+}
+
+.ai-code.collapsed+.ai-code-toggle::before,
+button:has(+ .ai-code.collapsed)::before {
+    content: '▶ ';
 }
 
 #ai-input-container {

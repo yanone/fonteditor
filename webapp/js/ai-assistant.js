@@ -39,16 +39,29 @@ class AIAssistant {
         });
     }
 
-    addMessage(role, content, isCode = false) {
+    addMessage(role, content, isCode = false, isCollapsible = false) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `ai-message ai-message-${role}`;
 
         const timestamp = new Date().toLocaleTimeString();
-        const header = `<div class="ai-message-header">${role === 'user' ? '👤 You' : '🤖 AI'} - ${timestamp}</div>`;
+        const roleLabel = role === 'user' ? '👤 You' : role === 'output' ? '📤 Output' : '🤖 AI';
+        const header = `<div class="ai-message-header">${roleLabel} - ${timestamp}</div>`;
 
         let body;
         if (isCode) {
-            body = `<pre class="ai-code"><code>${this.escapeHtml(content)}</code></pre>`;
+            if (isCollapsible) {
+                // Collapsible code block
+                const codeId = 'code-' + Date.now() + Math.random().toString(36).substr(2, 9);
+                body = `
+                    <div class="ai-code-collapsible">
+                        <button class="ai-code-toggle" onclick="document.getElementById('${codeId}').classList.toggle('collapsed')">
+                            ▼ Show Python Code
+                        </button>
+                        <pre class="ai-code collapsed" id="${codeId}"><code>${this.escapeHtml(content)}</code></pre>
+                    </div>`;
+            } else {
+                body = `<pre class="ai-code"><code>${this.escapeHtml(content)}</code></pre>`;
+            }
         } else {
             body = `<div class="ai-message-content">${this.escapeHtml(content)}</div>`;
         }
@@ -56,6 +69,8 @@ class AIAssistant {
         messageDiv.innerHTML = header + body;
         this.messagesContainer.appendChild(messageDiv);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+
+        return messageDiv;
     }
 
     escapeHtml(text) {
@@ -111,15 +126,17 @@ class AIAssistant {
             // Get Python code from Claude
             const pythonCode = await this.callClaude(originalPrompt, previousError, attemptNumber);
 
-            // Show the generated code
-            this.addMessage('assistant', pythonCode, true);
+            // Show the generated code (collapsed by default)
+            this.addMessage('assistant', pythonCode, true, true);
 
-            // Execute the Python code
-            const result = await this.executePython(pythonCode);
+            // Execute the Python code and capture output
+            const output = await this.executePython(pythonCode);
 
-            // Show success (output should be included in the Python code via print statements)
-            if (result) {
-                this.addMessage('system', 'Execution completed successfully');
+            // Show the output in AI chat
+            if (output && output.trim()) {
+                this.addMessage('output', output, false, false);
+            } else {
+                this.addMessage('system', 'Execution completed successfully (no output)');
             }
 
             // Update font dropdown if fonts were modified
@@ -269,10 +286,50 @@ Generate Python code for: ${userPrompt}`;
         }
 
         try {
+            // Capture stdout
+            let capturedOutput = '';
+
+            // Set up output capturing
+            await window.pyodide.runPythonAsync(`
+import sys
+from io import StringIO
+
+# Create a string buffer to capture output
+_ai_output_buffer = StringIO()
+_original_stdout = sys.stdout
+sys.stdout = _ai_output_buffer
+            `);
+
             // Execute the Python code
-            const result = await window.pyodide.runPythonAsync(code);
-            return result;
+            await window.pyodide.runPythonAsync(code);
+
+            // Get captured output
+            capturedOutput = await window.pyodide.runPythonAsync(`
+# Get the captured output
+output = _ai_output_buffer.getvalue()
+
+# Restore original stdout
+sys.stdout = _original_stdout
+
+# Clean up
+del _ai_output_buffer
+del _original_stdout
+
+output
+            `);
+
+            return capturedOutput;
         } catch (error) {
+            // Restore stdout on error
+            try {
+                await window.pyodide.runPythonAsync(`
+if '_original_stdout' in dir():
+    sys.stdout = _original_stdout
+                `);
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+
             // Re-throw with cleaned up error message
             throw new Error(error.message || String(error));
         }
