@@ -12,10 +12,74 @@ body {
     overflow: hidden;
 }
 
+/* Toolbar styles */
+.toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #252525;
+    border-bottom: 2px solid #404040;
+    padding: 12px 20px;
+    height: 50px;
+    flex-shrink: 0;
+}
+
+.toolbar-left {
+    display: flex;
+    align-items: center;
+}
+
+.app-name {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    background: linear-gradient(45deg, #00ffff, #ff00ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+
+.toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.fonts-dropdown {
+    background-color: #2a2a2a;
+    border: 1px solid #555555;
+    color: #e0e0e0;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    cursor: pointer;
+    min-width: 200px;
+    transition: all 0.2s ease;
+}
+
+.fonts-dropdown:hover {
+    border-color: #00ffff;
+    background-color: #333333;
+}
+
+.fonts-dropdown:focus {
+    outline: none;
+    border-color: #ff00ff;
+    box-shadow: 0 0 8px rgba(255, 0, 255, 0.3);
+}
+
+.fonts-dropdown option {
+    background-color: #2a2a2a;
+    color: #e0e0e0;
+}
+
 .container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: calc(100vh - 50px);
     width: 100vw;
 }
 
@@ -333,6 +397,31 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.file-item .open-font-btn {
+    opacity: 0;
+    background: linear-gradient(135deg, #00ffff, #0099cc);
+    border: 1px solid #00ffff;
+    color: #1a1a1a;
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    margin-left: 8px;
+    font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.file-item:hover .open-font-btn {
+    opacity: 1;
+}
+
+.file-item .open-font-btn:hover {
+    background: linear-gradient(135deg, #00ffff, #00ccff);
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(0, 255, 255, 0.4);
 }
 
 .file-item .delete-btn {

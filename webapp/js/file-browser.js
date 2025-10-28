@@ -38,6 +38,46 @@ function getFileClass(filename, isDir) {
     return 'file';
 }
 
+function isSupportedFontFormat(name, isDir) {
+    // Check if it's a .babelfont folder
+    if (isDir && name.endsWith('.babelfont')) {
+        return true;
+    }
+    // Add more formats in the future (.glyphs, .ufo, etc.)
+    return false;
+}
+
+async function openFont(path) {
+    if (!window.pyodide) {
+        alert('Python not ready yet. Please wait a moment and try again.');
+        return;
+    }
+
+    try {
+        console.log(`Opening font: ${path}`);
+
+        // Call Python's OpenFont function
+        await window.pyodide.runPythonAsync(`
+font = OpenFont('${path}')
+# Try to get font name from font.names.familyName['dflt']
+font_name = 'Untitled'
+if hasattr(font, 'names') and hasattr(font.names, 'familyName') and isinstance(font.names.familyName, dict) and 'dflt' in font.names.familyName:
+    font_name = font.names.familyName['dflt']
+print(f"Opened font: {font_name}")
+        `);
+
+        // Update the font dropdown
+        if (window.fontDropdownManager) {
+            await window.fontDropdownManager.updateDropdown();
+        }
+
+        console.log(`Successfully opened font: ${path}`);
+    } catch (error) {
+        console.error("Error opening font:", error);
+        alert(`Error opening font: ${error.message}`);
+    }
+}
+
 async function scanDirectory(path = '/') {
     if (!window.pyodide) {
         console.error("Pyodide not available");
@@ -236,8 +276,14 @@ if parent_dir:
 
         const deleteBtn = `<button class="delete-btn" onclick="event.stopPropagation(); deleteItem('${data.path}', '${name}', ${data.is_dir})" title="Delete">🗑️</button>`;
 
+        // Add "Open" button for supported font formats
+        const isSupported = isSupportedFontFormat(name, data.is_dir);
+        const openBtn = isSupported ?
+            `<button class="open-font-btn" onclick="event.stopPropagation(); openFont('${data.path}')" title="Open font">📂 Open</button>` :
+            '';
+
         html += `<div class="file-item ${fileClass}" onclick="${clickHandler}">
-            <span class="file-name">${icon} ${name}</span>${sizeText}${deleteBtn}
+            <span class="file-name">${icon} ${name}</span>${sizeText}${openBtn}${deleteBtn}
         </div>`;
     }
 
@@ -352,3 +398,4 @@ window.createFolder = createFolder;
 window.deleteItem = deleteItem;
 window.uploadFiles = uploadFiles;
 window.handleFileUpload = handleFileUpload;
+window.openFont = openFont;

@@ -33,6 +33,12 @@ async function initFontEditor() {
             globals()['babelfont'] = babelfont
         `);
 
+        // Load the fonteditor Python module
+        const fonteditorModule = await fetch('/py/fonteditor.py');
+        const fonteditorCode = await fonteditorModule.text();
+        await window.pyodide.runPython(fonteditorCode);
+        console.log("fonteditor.py module loaded");
+
         console.log("FontEditor initialized successfully");
         return true;
 
