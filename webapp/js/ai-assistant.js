@@ -102,7 +102,7 @@ class AIAssistant {
 
         // Scroll the view-content container
         setTimeout(() => {
-            const viewContent = document.querySelector('#view5 .view-content');
+            const viewContent = document.querySelector('#view-assistant .view-content');
             if (viewContent) {
                 viewContent.scrollTop = viewContent.scrollHeight;
             }

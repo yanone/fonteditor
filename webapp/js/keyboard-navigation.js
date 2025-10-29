@@ -5,11 +5,11 @@
 
     // Map of views with their keyboard shortcuts
     const viewMap = {
-        'view4': { // Konsole
+        'view-console': { // Console
             shortcut: 'k',
             modifiers: { cmd: true, shift: true }
         },
-        'view5': { // Assistant
+        'view-assistant': { // Assistant
             shortcut: 'a',
             modifiers: { cmd: true, shift: true }
         }
@@ -35,7 +35,7 @@
             currentFocusedView = viewId;
 
             // If activating console, blur the assistant's text field and focus terminal
-            if (viewId === 'view4') {
+            if (viewId === 'view-console') {
                 const prompt = document.getElementById('ai-prompt');
                 if (prompt) {
                     prompt.blur();
@@ -50,7 +50,7 @@
             }
 
             // If activating assistant, blur the console by clicking on console container
-            if (viewId === 'view5') {
+            if (viewId === 'view-assistant') {
                 // Blur the console terminal cursor
                 if (window.term && window.term.disable) {
                     window.term.disable();
@@ -82,7 +82,7 @@
                     }
 
                     // Scroll the view-content to bottom
-                    const viewContent = document.querySelector('#view5 .view-content');
+                    const viewContent = document.querySelector('#view-assistant .view-content');
                     if (viewContent) {
                         viewContent.scrollTop = viewContent.scrollHeight;
                     }

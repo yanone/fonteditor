@@ -207,23 +207,23 @@ body {
 }
 
 /* View specific colors for better distinction - Cyberpunk style */
-.view-1 {
+.view-editor {
     border-left: 4px solid #00ffff;
 }
 
-.view-2 {
+.view-preview {
     border-left: 4px solid #ff00ff;
 }
 
-.view-3 {
+.view-files {
     border-left: 4px solid #ffff00;
 }
 
-.view-4 {
+.view-console {
     border-left: 4px solid #ff3300;
 }
 
-.view-5 {
+.view-assistant {
     border-left: 4px solid #00ff00;
 }
 
