@@ -54,7 +54,7 @@ class AIAssistant {
         messageDiv.className = `ai-message ai-message-${role}`;
 
         const timestamp = new Date().toLocaleTimeString();
-        const roleLabel = role === 'user' ? '👤 You' : role === 'output' ? '📤 Output' : '🤖 AI';
+        const roleLabel = role === 'user' ? '👽 You' : role === 'output' ? '🤖 Output' : '🤖 AI';
         const header = `<div class="ai-message-header">${roleLabel} - ${timestamp}</div>`;
 
         let body;
@@ -108,7 +108,7 @@ class AIAssistant {
 
         const header = `
             <div class="ai-message-header">
-                <span>📤 Output - ${timestamp}</span>
+                <span>🤖 Output - ${timestamp}</span>
                 <span class="ai-code-toggle-link" id="${btnId}" onclick="
                     const code = document.getElementById('${codeId}');
                     const btn = document.getElementById('${btnId}');
