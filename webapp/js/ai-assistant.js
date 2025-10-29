@@ -254,7 +254,9 @@ CRITICAL RULES:
 3. Include print() statements in your code to show results to the user
 4. Handle errors gracefully within your code
 5. The font object is a babelfont Font instance
-6. Only set data in the font object if there is a clear instruction to do so in the user prompt.
+6. Only set data in the font object if there is a clear instruction to do so in the user prompt
+7. Gently annotate the code with comments
+8. But never return single-line Python comments. If you want to return just a comment, wrap it in a print statement anyway so the user gets to see it.
 
 BABELFONT API DOCUMENTATION:
 ${apiDocs}
