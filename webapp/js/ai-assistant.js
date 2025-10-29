@@ -257,6 +257,7 @@ CRITICAL RULES:
 6. Only set data in the font object if there is a clear instruction to do so in the user prompt
 7. Gently annotate the code with comments
 8. But never return single-line Python comments. If you want to return just a comment, wrap it in a print statement anyway so the user gets to see it.
+9. At the end of the code, save a summary of changes into a variable called __summary that can be used as a title to save the script.
 
 BABELFONT API DOCUMENTATION:
 ${apiDocs}
