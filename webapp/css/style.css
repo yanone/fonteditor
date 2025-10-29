@@ -673,6 +673,15 @@ body {
     font-style: normal;
 }
 
+.ai-examples {
+    margin: 8px 0;
+}
+
+.ai-example-text {
+    font-family: 'IBM Plex Sans', sans-serif;
+    color: rgba(255, 255, 255, 0.6);
+}
+
 #ai-chat-container {
     display: flex;
     flex-direction: column;
@@ -730,6 +739,10 @@ body {
 .ai-message-user {
     color: rgba(255, 255, 255, 0.8);
     background-color: rgba(0, 255, 255, 0.1);
+}
+
+.ai-message-user .ai-message-content {
+    font-family: 'IBM Plex Sans', sans-serif;
 }
 
 .ai-message-assistant {
@@ -842,7 +855,7 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 0;
     color: rgba(255, 255, 255, 0.8);
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'IBM Plex Sans', sans-serif;
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
     min-height: 60px;
     resize: vertical;
