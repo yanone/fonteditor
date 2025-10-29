@@ -30,14 +30,15 @@
         // Run button click handler
         runButton.addEventListener('click', runScript);
 
-        // Handle Cmd+R keyboard shortcut when script view is focused
+        // Handle Cmd+Alt+R keyboard shortcut when script view is focused
         document.addEventListener('keydown', (event) => {
             const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
             const cmdKey = isMac ? event.metaKey : event.ctrlKey;
-            const key = event.key.toLowerCase();
+            const altKey = event.altKey;
+            const code = event.code; // Use code instead of key for alt combinations
 
-            // Check if Cmd+R and script view is focused
-            if (cmdKey && key === 'r' && isScriptViewFocused) {
+            // Check if Cmd+Alt+R and script view is focused
+            if (cmdKey && altKey && code === 'KeyR' && isScriptViewFocused) {
                 event.preventDefault();
                 runScript();
             }
@@ -48,8 +49,9 @@
             isScriptViewFocused = event.detail.viewId === 'view-scripts';
         });
 
-        // Handle Tab key to insert tabs instead of changing focus
+        // Handle keyboard shortcuts in the script editor
         scriptEditor.addEventListener('keydown', (event) => {
+            // Handle Tab key to insert tabs instead of changing focus
             if (event.key === 'Tab') {
                 event.preventDefault();
                 const start = scriptEditor.selectionStart;
@@ -61,6 +63,19 @@
 
                 // Move cursor after the tab
                 scriptEditor.selectionStart = scriptEditor.selectionEnd = start + 4;
+                return;
+            }
+
+            // Handle Cmd+Alt+R to run script
+            const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+            const cmdKey = isMac ? event.metaKey : event.ctrlKey;
+            const altKey = event.altKey;
+            const code = event.code; // Use code instead of key for alt combinations
+
+            if (cmdKey && altKey && code === 'KeyR') {
+                event.preventDefault();
+                event.stopPropagation();
+                runScript();
             }
         });
 
@@ -92,11 +107,6 @@
         runButton.textContent = '⏳ Running...';
 
         try {
-            // Focus the console view to show output
-            if (window.focusView) {
-                window.focusView('view-console');
-            }
-
             // Run the Python code in the console terminal
             if (window.term) {
                 // Print a separator in the console
@@ -131,7 +141,7 @@
         } finally {
             // Re-enable the run button
             runButton.disabled = false;
-            runButton.textContent = '▶ Run';
+            runButton.innerHTML = 'Run <span style="opacity: 0.5;">cmd+alt+r</span>';
         }
     }
 
