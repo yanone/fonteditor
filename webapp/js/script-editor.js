@@ -161,6 +161,11 @@
                 await window.fontDropdownManager.updateDropdown();
             }
 
+            // Play done sound
+            if (window.playSound) {
+                window.playSound('done');
+            }
+
         } catch (error) {
             console.error('Script execution error:', error);
 

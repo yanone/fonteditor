@@ -72,6 +72,11 @@ print(f"Opened font: {font_name}")
         }
 
         console.log(`Successfully opened font: ${path}`);
+
+        // Play done sound
+        if (window.playSound) {
+            window.playSound('done');
+        }
     } catch (error) {
         console.error("Error opening font:", error);
         alert(`Error opening font: ${error.message}`);
@@ -225,6 +230,11 @@ if parent_dir:
             console.log(`Uploaded ${uploadedCount} file(s) with folder structure preserved`);
         }
         await refreshFileSystem();
+
+        // Play done sound
+        if (window.playSound) {
+            window.playSound('done');
+        }
     }
 } async function buildFileTree(rootPath = '/') {
     const items = await scanDirectory(rootPath);

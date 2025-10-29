@@ -111,6 +111,11 @@ async function initPyodideConsole() {
                     if (value instanceof pyodide.ffi.PyProxy) {
                         value.destroy();
                     }
+
+                    // Play done sound after successful execution
+                    if (window.playSound) {
+                        window.playSound('done');
+                    }
                 } catch (e) {
                     if (e.constructor.name === "PythonError") {
                         const message = fut.formatted_error || e.message;
