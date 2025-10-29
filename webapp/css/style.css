@@ -105,7 +105,7 @@ body {
 }
 
 .view.focused {
-    background-color: #000000;
+    background-color: #1f1f1f;
     color: #ffffff;
 }
 
@@ -302,7 +302,7 @@ body {
 
 /* Background color based on view focus state */
 .view-scripts.focused #script-editor .cm-editor {
-    background-color: #000000;
+    background-color: #1f1f1f;
 }
 
 .view-scripts:not(.focused) #script-editor .cm-editor {
@@ -311,7 +311,7 @@ body {
 
 /* Override OneDark theme background */
 .view-scripts.focused #script-editor .cm-editor.cm-focused {
-    background-color: #000000;
+    background-color: #1f1f1f;
 }
 
 .view-scripts:not(.focused) #script-editor .cm-editor.cm-focused {
@@ -349,7 +349,7 @@ body {
 }
 
 .view.focused #console-container {
-    background-color: #000000;
+    background-color: #1f1f1f;
 }
 
 #console-container .terminal {
@@ -817,7 +817,7 @@ body {
 }
 
 .ai-code {
-    background-color: #000000;
+    background-color: #1f1f1f;
     padding: 8px;
     overflow-x: auto;
     font-family: 'IBM Plex Mono', monospace;
