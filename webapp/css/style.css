@@ -10,6 +10,7 @@ body {
     color: #e0e0e0;
     height: 100vh;
     overflow: hidden;
+    letter-spacing: 0.02em;
 }
 
 /* Toolbar styles */
@@ -859,6 +860,7 @@ body {
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
     min-height: 60px;
     resize: vertical;
+    letter-spacing: 0.02em;
 }
 
 #ai-prompt::placeholder {
