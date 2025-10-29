@@ -99,44 +99,60 @@ class ResizableViews {
         const dividerIndex = dividers.indexOf(this.currentDivider);
         if (dividerIndex === -1) return;
 
-        // Get the views on either side of this divider
-        const leftView = views[dividerIndex];
-        const rightView = views[dividerIndex + 1];
+        // Get all views on the left and right of this divider
+        const leftViews = views.slice(0, dividerIndex + 1);
+        const rightViews = views.slice(dividerIndex + 1);
 
-        if (!leftView || !rightView) return;
+        if (leftViews.length === 0 || rightViews.length === 0) return;
 
-        const leftStartWidth = this.startWidths[dividerIndex];
-        const rightStartWidth = this.startWidths[dividerIndex + 1];
+        // Calculate total widths of left and right groups
+        let leftTotalWidth = 0;
+        let rightTotalWidth = 0;
+        
+        leftViews.forEach((view, i) => {
+            leftTotalWidth += this.startWidths[i];
+        });
+        
+        rightViews.forEach((view, i) => {
+            rightTotalWidth += this.startWidths[dividerIndex + 1 + i];
+        });
 
-        const newLeftWidth = leftStartWidth + deltaX;
-        const newRightWidth = rightStartWidth - deltaX;
+        // Calculate new total widths
+        const newLeftTotalWidth = leftTotalWidth + deltaX;
+        const newRightTotalWidth = rightTotalWidth - deltaX;
 
-        // Enforce minimum widths
+        // Calculate minimum width for each group (minWidth per view)
         const minWidth = 100;
-        if (newLeftWidth >= minWidth && newRightWidth >= minWidth) {
+        const minLeftTotalWidth = minWidth * leftViews.length;
+        const minRightTotalWidth = minWidth * rightViews.length;
+
+        // Check if the resize respects minimum widths
+        if (newLeftTotalWidth >= minLeftTotalWidth && newRightTotalWidth >= minRightTotalWidth) {
+            // Calculate scaling factors for each group
+            const leftScale = newLeftTotalWidth / leftTotalWidth;
+            const rightScale = newRightTotalWidth / rightTotalWidth;
+
+            // Calculate new widths for all views
+            const newWidths = {};
+            
+            leftViews.forEach((view, i) => {
+                newWidths[i] = this.startWidths[i] * leftScale;
+            });
+            
+            rightViews.forEach((view, i) => {
+                const index = dividerIndex + 1 + i;
+                newWidths[index] = this.startWidths[index] * rightScale;
+            });
+
             // Calculate total width of all views
             let totalWidth = 0;
             views.forEach((view, index) => {
-                if (index === dividerIndex) {
-                    totalWidth += newLeftWidth;
-                } else if (index === dividerIndex + 1) {
-                    totalWidth += newRightWidth;
-                } else {
-                    totalWidth += this.startWidths[index];
-                }
+                totalWidth += newWidths[index];
             });
 
             // Set flex values for all views
             views.forEach((view, index) => {
-                let width;
-                if (index === dividerIndex) {
-                    width = newLeftWidth;
-                } else if (index === dividerIndex + 1) {
-                    width = newRightWidth;
-                } else {
-                    width = this.startWidths[index];
-                }
-                view.style.flex = `${width / totalWidth}`;
+                view.style.flex = `${newWidths[index] / totalWidth}`;
             });
         }
     }
