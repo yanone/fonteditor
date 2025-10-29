@@ -86,6 +86,29 @@
             }
         });
 
+        // Handle Tab key manually to prevent focus change while adding indentation
+        container.addEventListener('keydown', (event) => {
+            if (event.key === 'Tab') {
+                event.preventDefault();
+                event.stopPropagation();
+
+                if (!event.shiftKey) {
+                    // Insert 2 spaces for indentation
+                    editorView.dispatch({
+                        changes: {
+                            from: editorView.state.selection.main.from,
+                            to: editorView.state.selection.main.to,
+                            insert: '  '
+                        },
+                        selection: {
+                            anchor: editorView.state.selection.main.from + 2
+                        }
+                    });
+                }
+                // Shift+Tab for de-indent could be added here if needed
+            }
+        }, true);
+
         console.log('Script editor initialized with CodeMirror');
     }
 
