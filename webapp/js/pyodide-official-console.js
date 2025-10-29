@@ -157,6 +157,18 @@ async function initPyodideConsole() {
         });
 
         window.term = term;
+
+        // Helper function to play error sound
+        const playErrorSound = () => {
+            if (window.playSound) {
+                window.playSound('error');
+            } else {
+                // Fallback if preloader not loaded yet
+                const errorSound = new Audio('assets/sounds/error.wav');
+                errorSound.play().catch(e => console.warn('Could not play error sound:', e));
+            }
+        };
+
         pyconsole.stdout_callback = (s) => {
             // Filter system messages from interactive console too
             if (isSystemMessage(s)) {
@@ -174,6 +186,13 @@ async function initPyodideConsole() {
             term.error(s.trimEnd());
         };
         term.ready = Promise.resolve();
+
+        // Wrap term.error to play error sound on ALL error calls
+        const originalTermError = term.error.bind(term);
+        term.error = function (...args) {
+            playErrorSound();
+            return originalTermError(...args);
+        };
 
         // Make console output functions globally available
         window.consoleEcho = echo;

@@ -163,6 +163,7 @@
 
         } catch (error) {
             console.error('Script execution error:', error);
+
             if (window.term) {
                 window.term.error('❌ Error: ' + error.message);
             } else {
