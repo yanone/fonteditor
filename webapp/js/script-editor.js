@@ -165,7 +165,24 @@
             console.error('Script execution error:', error);
 
             if (window.term) {
-                window.term.error('❌ Error: ' + error.message);
+                let errorMessage = error.message;
+
+                // Shorten the error message by removing internal Pyodide traceback
+                const tracebackStart = 'Traceback (most recent call last):';
+                const tracebackEnd = '    coroutine = eval(self.code, globals, locals)';
+
+                if (errorMessage.includes(tracebackStart) && errorMessage.includes(tracebackEnd)) {
+                    const startIndex = errorMessage.indexOf(tracebackStart) + tracebackStart.length;
+                    const endIndex = errorMessage.indexOf(tracebackEnd) + tracebackEnd.length;
+
+                    // Remove everything between these markers (but keep the "Traceback..." line)
+                    errorMessage = errorMessage.slice(0, startIndex) + errorMessage.slice(endIndex);
+
+                    // Clean up any extra newlines
+                    errorMessage = errorMessage.replace(/\n{3,}/g, '\n\n').trim();
+                }
+
+                window.term.error(errorMessage);
             } else {
                 alert('Script error: ' + error.message);
             }
