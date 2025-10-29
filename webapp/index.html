@@ -165,7 +165,7 @@
         (function () {
             const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
             const version = isLocal ? '?v=' + Date.now() : '';
-            
+
             const scripts = [
                 'js/resizer.js',
                 'js/keyboard-navigation.js',
@@ -176,11 +176,11 @@
                 'js/script-editor.js',
                 'js/ai-assistant.js'
             ];
-            
+
             scripts.forEach(src => {
                 document.write('<script src="' + src + version + '"><\/script>');
             });
-            
+
             // Module script
             document.write('<script type="module" src="js/font-compilation.js' + version + '"><\/script>');
         })();
