@@ -148,16 +148,12 @@
             // Run the Python code in the console terminal
             if (window.term) {
                 // Print a separator in the console
-                window.term.echo('─'.repeat(60));
                 window.term.echo('🚀 Running script...');
-                window.term.echo('─'.repeat(60));
 
                 // Execute the code
                 await window.pyodide.runPythonAsync(code);
 
-                window.term.echo('─'.repeat(60));
                 window.term.echo('✅ Script completed');
-                window.term.echo('─'.repeat(60));
             } else {
                 // Fallback: just execute the code
                 await window.pyodide.runPythonAsync(code);
