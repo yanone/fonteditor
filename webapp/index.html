@@ -51,8 +51,6 @@
         <div class="top-row">
             <div class="view view-1" id="view1">
                 <div class="view-content">
-                    <h3>Font Editor</h3>
-                    <p>Web-based font editor with Python scripting and fontc WASM compilation.</p>
                     <div id="browser-compat"
                         style="margin-top: 20px; padding: 10px; border: 1px solid #0ff; border-radius: 5px; display: none;">
                         <strong>⚠️ Browser Compatibility Notice</strong>
@@ -64,8 +62,6 @@
             <div class="divider vertical-divider" id="vertical-divider-1"></div>
             <div class="view view-2" id="view2">
                 <div class="view-content">
-                    <h3>View 2</h3>
-                    <p>This is the second view. Content can be added here.</p>
                 </div>
             </div>
         </div>
@@ -76,8 +72,12 @@
         <!-- Bottom row with three views -->
         <div class="bottom-row">
             <div class="view view-3" id="view3">
+                <div class="view-title-bar">
+                    <div class="view-title-left">
+                        <span class="view-title-name">File Browser</span>
+                    </div>
+                </div>
                 <div class="view-content">
-                    <h3>File Browser</h3>
                     <div id="file-browser">
                         <div id="file-tree"></div>
                     </div>
@@ -85,12 +85,24 @@
             </div>
             <div class="divider vertical-divider" id="vertical-divider-2"></div>
             <div class="view view-4" id="view4">
+                <div class="view-title-bar">
+                    <div class="view-title-left">
+                        <span class="view-title-name">Konsole</span>
+                        <span class="view-title-shortcut">cmd+shift+k</span>
+                    </div>
+                </div>
                 <div id="console-container">
                     <div id="loading"></div>
                 </div>
             </div>
             <div class="divider vertical-divider" id="vertical-divider-3"></div>
             <div class="view view-5" id="view5">
+                <div class="view-title-bar">
+                    <div class="view-title-left">
+                        <span class="view-title-name">Assistant</span>
+                        <span class="view-title-shortcut">cmd+shift+a</span>
+                    </div>
+                </div>
                 <div class="view-content">
                     <div id="ai-info" class="ai-info">
                         <p>Describe what you want to do with your font in your natural language. I will generate
@@ -115,7 +127,7 @@
                         <div id="ai-messages"></div>
                         <div id="ai-input-container">
                             <textarea id="ai-prompt"
-                                placeholder="Ask the AI to modify your font... (e.g., 'Make all glyphs 10% wider')"></textarea>
+                                placeholder="Ask the assistant to modify your font... (e.g., 'Make all glyphs 10% wider')"></textarea>
                             <div id="ai-button-container">
                                 <button id="ai-send-btn">Send</button>
                                 <button id="ai-clear-btn" title="Clear conversation history">🗑️ Clear</button>
@@ -128,6 +140,7 @@
     </div>
 
     <script src="js/resizer.js" id="script-resizer"></script>
+    <script src="js/keyboard-navigation.js" id="script-keyboard"></script>
     <script src="js/pyodide-official-console.js" id="script-console"></script>
     <script src="js/fonteditor.js" id="script-fonteditor"></script>
     <script src="js/font-dropdown.js" id="script-dropdown"></script>

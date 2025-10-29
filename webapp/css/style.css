@@ -93,28 +93,85 @@ body {
 .view {
     background-color: #2a2a2a;
     border: 1px solid #404040;
-    overflow: auto;
+    overflow: hidden;
     min-width: 100px;
     flex: 1;
     position: relative;
+    color: #b0b0b0;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+.view.focused {
+    background-color: #000000;
+    color: #ffffff;
+}
+
+/* View Title Bar */
+.view-title-bar {
+    height: 22px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    border-bottom: 1px solid #404040;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    background-color: inherit;
+    flex-shrink: 0;
+    box-sizing: border-box;
+}
+
+.view-title-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.view-title-name {
+    color: inherit;
+    font-weight: 500;
+}
+
+.view-title-shortcut {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 10px;
 }
 
 /* Content containers for views with text content */
 .view-content {
     margin: 20px;
-    margin-left: 12px;
-    margin-top: 9px;
+    margin-left: 15px;
+    margin-top: 2px;
+    overflow: auto;
+    flex: 1;
+}
+
+/* Hide scrollbar for view-content */
+.view-content::-webkit-scrollbar {
+    width: 0;
+    display: none;
+}
+
+.view-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.view-content::-webkit-scrollbar-thumb {
+    background: transparent;
 }
 
 .view-content h3 {
-    color: #ffffff;
+    color: inherit;
     margin-bottom: 10px;
     font-weight: 500;
 }
 
 .view-content p {
     line-height: 1.6;
-    color: #b0b0b0;
+    color: inherit;
 }
 
 /* Divider styles */
@@ -193,8 +250,15 @@ body {
 
 #console-container {
     width: 100%;
-    height: 100%;
+    flex: 1;
     position: relative;
+    overflow: hidden;
+    background-color: #2a2a2a;
+    transition: background-color 0.2s ease;
+}
+
+.view.focused #console-container {
+    background-color: #000000;
 }
 
 #console-container .terminal {
@@ -307,6 +371,7 @@ body {
 #file-browser {
     max-height: calc(100vh - 120px);
     overflow-y: auto;
+    margin-top: 7px;
 }
 
 #file-tree {
@@ -521,7 +586,6 @@ body {
 #ai-chat-container {
     display: flex;
     flex-direction: column;
-    height: calc(100% - 220px);
 }
 
 #ai-api-key-container {
@@ -557,12 +621,12 @@ body {
 }
 
 #ai-messages {
-    flex: 1;
+    flex: 0 1 auto;
     overflow-y: auto;
     padding: 4px;
     background-color: transparent;
     margin-bottom: 15px;
-    min-height: 200px;
+    max-height: 400px;
     display: none;
     font-family: 'IBM Plex Mono', monospace;
 }
@@ -735,7 +799,8 @@ body {
 
 /* AI Messages Scrollbar */
 #ai-messages::-webkit-scrollbar {
-    width: 8px;
+    width: 0;
+    display: none;
 }
 
 #ai-messages::-webkit-scrollbar-track {
@@ -743,10 +808,9 @@ body {
 }
 
 #ai-messages::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 0;
+    background: transparent;
 }
 
 #ai-messages::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.5);
+    background: transparent;
 }

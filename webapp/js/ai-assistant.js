@@ -88,7 +88,25 @@ class AIAssistant {
         this.messagesContainer.appendChild(messageDiv);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
+        // Scroll the view-content to bottom
+        this.scrollToBottom();
+
         return messageDiv;
+    }
+
+    scrollToBottom() {
+        // Scroll the messages container
+        if (this.messagesContainer) {
+            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        }
+
+        // Scroll the view-content container
+        setTimeout(() => {
+            const viewContent = document.querySelector('#view5 .view-content');
+            if (viewContent) {
+                viewContent.scrollTop = viewContent.scrollHeight;
+            }
+        }, 50);
     }
 
     addOutputWithCode(output, code) {
@@ -108,7 +126,7 @@ class AIAssistant {
 
         const header = `
             <div class="ai-message-header">
-                <span>🤖 Output - ${timestamp}</span>
+                <span>🤖 Assistant - ${timestamp}</span>
                 <span class="ai-code-toggle-link" id="${btnId}" onclick="
                     const code = document.getElementById('${codeId}');
                     const btn = document.getElementById('${btnId}');
@@ -130,6 +148,9 @@ class AIAssistant {
         messageDiv.innerHTML = header + body;
         this.messagesContainer.appendChild(messageDiv);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+
+        // Scroll the view-content to bottom
+        this.scrollToBottom();
 
         return messageDiv;
     }
