@@ -1,14 +1,17 @@
 # FontEditor
 
-A web-based font editor with Python scripting and fontc WASM compilation.
+A browser-based font editor with Python scripting, AI assistance, and fontc WASM compilation.
 
 ## Features
 
-- 🐍 **Python Console**: Full Python environment with Pyodide
-- 🦀 **fontc Compiler**: Google's Rust-based font compiler running in browser via WASM
+- 🐍 **Python Console**: Full Python environment with Pyodide and babelfont library
+- � **AI Assistant**: Natural language font editing with Claude (Anthropic API)
+- 📝 **Script Editor**: Write and run Python scripts with syntax highlighting (CodeMirror 6)
+- �🦀 **fontc Compiler**: Google's Rust-based font compiler running in browser via WASM
 - 📁 **File Browser**: View and manage files in the virtual filesystem
-- 🎨 **Cyberpunk UI**: Resizable 4-view layout with neon styling
+- 🎨 **Terminal UI**: IBM Plex fonts with 6-panel resizable layout
 - ⚡ **Multi-threaded**: Uses Web Workers for non-blocking compilation
+- ⌨️ **Keyboard Navigation**: Fast switching between views with keyboard shortcuts
 
 ## Quick Start
 
@@ -27,43 +30,75 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed instructions.
 
 ## Usage
 
-### Compile a Font
+### AI Assistant
 
-In the Python console:
+Simply describe what you want to do in natural language:
+
+- "List all glyph names"
+- "Make all glyphs 10% wider"
+- "Add 50 units to left sidebearings"
+
+The assistant generates and executes Python code using the babelfont library, with automatic retry on errors.
+
+### Script Editor
+
+Write Python scripts with syntax highlighting and run them with `cmd+alt+r`:
+
+```python
+# Access the current font
+font = CurrentFont()
+
+# Modify glyphs
+for glyph in font.glyphs:
+    for layer in glyph.layers:
+        layer.width *= 1.1  # Make 10% wider
+
+print(f"Modified {len(font.glyphs)} glyphs")
+```
+
+### Python Console
+
+Interactive Python REPL with babelfont:
+
+```python
+import babelfont
+
+# Load a font
+font = babelfont.load('/path/to/font.glyphs')
+
+# Access font properties
+print(f"Family: {font.names.familyName}")
+print(f"Glyphs: {len(font.glyphs)}")
+
+# Modify and save
+for glyph in font.glyphs:
+    glyph.width += 100
+    
+font.save('/output.glyphs')
+```
+
+### Compile a Font
 
 ```python
 # Compile from .glyphs file
 import js
 result = await js.fontCompilation.compile('/path/to/font.glyphs', '/output.ttf')
 
-# Or parse command-line style
+# Or use command-line style
 result = await js.compileFontFromPython('fontc /input.glyphs -o /output.ttf')
-```
-
-### Work with defcon
-
-```python
-import defcon
-
-# Create a font
-font = defcon.Font()
-font.info.familyName = "MyFont"
-
-# Add a glyph
-glyph = font.newGlyph('A')
-glyph.width = 600
-
-# Save (to virtual filesystem)
-font.save('/myfont.ufo')
 ```
 
 ## Architecture
 
-- **Frontend**: HTML/CSS/JS with cyberpunk styling
-- **Python Runtime**: Pyodide 0.28.3
-- **Font Libraries**: defcon, fontc (WASM)
+- **Frontend**: HTML/CSS/Vanilla JavaScript with terminal styling
+- **Python Runtime**: Pyodide 0.28.3 (WebAssembly)
+- **Font Library**: babelfont (Python font manipulation)
+- **AI**: Anthropic Claude API (claude-sonnet-4-20250514)
+- **Code Editor**: CodeMirror 6 with Python language support
 - **Console**: jQuery Terminal 2.35.2
-- **Compiler**: fontc via wasm-bindgen + rayon
+- **Compiler**: fontc (Rust) via wasm-bindgen + rayon
+- **Fonts**: IBM Plex Sans & IBM Plex Mono
+- **Audio**: Sound effects for user feedback
 
 ## Documentation
 
@@ -71,11 +106,23 @@ font.save('/myfont.ufo')
 - [fontc WASM Build](FONTC_WASM_BUILD.md) - Technical build details
 - [Font Compilation Guide](FONT_COMPILATION_GUIDE.md) - API reference
 
+## Keyboard Shortcuts
+
+- `cmd+shift+e` - Editor view
+- `cmd+shift+p` - Preview view  
+- `cmd+shift+f` - Files view
+- `cmd+shift+s` - Scripts view
+- `cmd+shift+k` - Console view
+- `cmd+shift+a` - Assistant view
+- `cmd+alt+r` - Run script (when in Scripts view)
+- `t` - Add test messages (development)
+
 ## Requirements
 
-- **Build**: Rust + wasm-pack
-- **Runtime**: Modern browser with SharedArrayBuffer support
-- **Server**: Python 3 (for CORS headers)
+- **Build**: Rust + wasm-pack (for fontc WASM compilation)
+- **Runtime**: Modern browser with SharedArrayBuffer support (Chrome, Firefox, Safari)
+- **Server**: Python 3 (for CORS headers enabling SharedArrayBuffer)
+- **AI Features**: Anthropic API key (optional, for AI Assistant)
 
 ## Credits
 
