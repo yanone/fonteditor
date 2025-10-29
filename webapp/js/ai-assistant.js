@@ -126,7 +126,7 @@ class AIAssistant {
 
         const header = `
             <div class="ai-message-header">
-                <span>🤖 Assistant - ${timestamp}</span>
+                <span>📎 Assistant - ${timestamp}</span>
                 <span class="ai-code-toggle-link" id="${btnId}" onclick="
                     const code = document.getElementById('${codeId}');
                     const btn = document.getElementById('${btnId}');
@@ -367,7 +367,7 @@ Generate Python code for: ${userPrompt}`;
         });
 
         // Log the full prompt to console for debugging
-        console.group('🤖 AI Prompt Sent to Claude');
+        console.group('📎 AI Prompt Sent to Claude');
         console.log('System Prompt:', systemPrompt);
         console.log('Messages:', messages);
         console.log('Model:', 'claude-sonnet-4-20250514');

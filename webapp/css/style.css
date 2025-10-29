@@ -639,10 +639,15 @@ body {
 }
 
 /* AI Assistant Styles - Terminal Style */
+.view-assistant .view-content {
+    margin-left: 0;
+    margin-right: 0;
+}
+
 .ai-info {
     background-color: transparent;
     border: none;
-    padding: 0;
+    padding: 0 15px;
     margin-bottom: 15px;
     font-family: 'IBM Plex Mono', monospace;
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
@@ -692,7 +697,7 @@ body {
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    margin-bottom: 15px;
+    margin: 0 15px 15px 15px;
 }
 
 #ai-button-container {
@@ -723,7 +728,7 @@ body {
 #ai-messages {
     flex: 0 1 auto;
     overflow-y: auto;
-    padding: 4px;
+    padding: 0;
     background-color: transparent;
     margin-bottom: 15px;
     max-height: 400px;
@@ -732,14 +737,19 @@ body {
 }
 
 .ai-message {
-    margin-bottom: 8px;
-    padding: 8px;
+    margin-bottom: 2px;
+    padding: 12px 15px;
     border: none;
 }
 
 .ai-message-user {
-    color: rgba(255, 255, 255, 0.8);
-    background-color: rgba(0, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+    background-color: rgba(100, 200, 255, 0.3);
+}
+
+.ai-message-user .ai-message-header {
+    color: rgba(150, 220, 255, 1);
+    font-weight: bold;
 }
 
 .ai-message-user .ai-message-content {
@@ -747,8 +757,13 @@ body {
 }
 
 .ai-message-assistant {
-    color: rgba(255, 255, 255, 0.8);
-    background-color: rgba(255, 0, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+    background-color: rgba(200, 150, 255, 0.3);
+}
+
+.ai-message-assistant .ai-message-header {
+    color: rgba(220, 180, 255, 1);
+    font-weight: bold;
 }
 
 .ai-message-system {
@@ -762,8 +777,13 @@ body {
 }
 
 .ai-message-output {
-    color: rgba(255, 255, 255, 0.8);
-    background-color: rgba(255, 0, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+    background-color: rgba(200, 150, 255, 0.3);
+}
+
+.ai-message-output .ai-message-header {
+    color: rgba(220, 180, 255, 1);
+    font-weight: bold;
 }
 
 .ai-message-header {
@@ -833,6 +853,7 @@ body {
     flex-direction: column;
     gap: 10px;
     flex-shrink: 0;
+    margin: 0 15px;
     /* Don't shrink when content grows */
 }
 
