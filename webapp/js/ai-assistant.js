@@ -197,6 +197,11 @@ class AIAssistant {
         // Add user message
         this.addMessage('user', prompt);
 
+        // Play message sent sound
+        if (window.playSound) {
+            window.playSound('message_sent');
+        }
+
         try {
             await this.executeWithRetry(prompt, 0);
         } catch (error) {
@@ -222,6 +227,11 @@ class AIAssistant {
 
             // Show output with collapsible code
             this.addOutputWithCode(output, pythonCode);
+
+            // Play incoming message sound
+            if (window.playSound) {
+                window.playSound('incoming_message');
+            }
 
             // Update font dropdown if fonts were modified
             if (window.fontDropdownManager) {
