@@ -75,7 +75,7 @@
                 event.preventDefault();
                 runScript();
             }
-            
+
             // Check if Cmd+K to clear console
             if (cmdKey && !altKey && code === 'KeyK' && isScriptViewFocused) {
                 event.preventDefault();
