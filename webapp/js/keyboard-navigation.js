@@ -23,22 +23,13 @@
      * Blur the console terminal cursor
      */
     function blurConsole() {
-        if (window.term) {
-            // Try to blur the terminal element itself
-            const termElement = document.querySelector('.terminal');
-            if (termElement) {
-                termElement.blur();
-            }
+        if (!window.term) return;
 
-            // Also disable/re-enable to remove cursor
-            if (window.term.disable) {
-                window.term.disable();
-                setTimeout(() => {
-                    if (window.term && window.term.enable) {
-                        window.term.enable();
-                    }
-                }, 10);
-            }
+        // Find and blur the actual hidden input element that jQuery Terminal uses
+        const terminalInput = document.querySelector('.cmd textarea, .cmd input, #console-container .terminal');
+        if (terminalInput) {
+            // Use blur on the actual input element
+            terminalInput.blur();
         }
     }
 
@@ -61,20 +52,20 @@
             view.classList.add('focused');
             currentFocusedView = viewId;
 
-            // Blur console for non-console views
+            // Blur console for all non-console views first
             if (viewId !== 'view-console') {
                 blurConsole();
             }
 
-            // If activating scripts, focus the script editor
+            // If activating scripts, focus the script editor after blurring console
             if (viewId === 'view-scripts') {
-                // Focus the script editor
                 setTimeout(() => {
                     const scriptEditor = document.getElementById('script-editor');
                     if (scriptEditor) {
                         scriptEditor.focus();
+                        scriptEditor.click();
                     }
-                }, 50);
+                }, 100);
             }
 
             // If activating console, blur the assistant's text field and focus terminal
@@ -94,17 +85,6 @@
 
             // If activating assistant, focus and scroll
             if (viewId === 'view-assistant') {
-                const consoleContainer = document.getElementById('console-container');
-                if (consoleContainer) {
-                    // Simulate a click to unfocus the terminal cursor
-                    const clickEvent = new MouseEvent('mousedown', {
-                        bubbles: true,
-                        cancelable: true,
-                        view: window
-                    });
-                    consoleContainer.dispatchEvent(clickEvent);
-                }
-
                 // Focus on the assistant's text input field and scroll to bottom
                 setTimeout(() => {
                     const prompt = document.getElementById('ai-prompt');
