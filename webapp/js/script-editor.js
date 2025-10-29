@@ -63,7 +63,7 @@
         // Run button click handler
         runButton.addEventListener('click', runScript);
 
-        // Handle Cmd+Alt+R keyboard shortcut when script view is focused
+        // Handle keyboard shortcuts when script view is focused
         document.addEventListener('keydown', (event) => {
             const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
             const cmdKey = isMac ? event.metaKey : event.ctrlKey;
@@ -74,6 +74,14 @@
             if (cmdKey && altKey && code === 'KeyR' && isScriptViewFocused) {
                 event.preventDefault();
                 runScript();
+            }
+            
+            // Check if Cmd+K to clear console
+            if (cmdKey && !altKey && code === 'KeyK' && isScriptViewFocused) {
+                event.preventDefault();
+                if (window.term) {
+                    window.term.clear();
+                }
             }
         });
 

@@ -149,6 +149,16 @@ async function initPyodideConsole() {
                     term.set_command("");
                     term.set_prompt(ps1);
                 },
+                "CTRL+K": function (event, original) {
+                    // Clear the terminal output
+                    term.clear();
+                    return false;
+                },
+                "META+K": function (event, original) {
+                    // Clear the terminal output (for macOS cmd+k)
+                    term.clear();
+                    return false;
+                },
                 TAB: (event, original) => {
                     const command = term.before_cursor();
                     // Disable completion for whitespaces.
