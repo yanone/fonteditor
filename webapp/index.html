@@ -79,7 +79,7 @@
         <!-- Horizontal divider -->
         <div class="divider horizontal-divider" id="horizontal-divider"></div>
 
-        <!-- Bottom row with three views -->
+        <!-- Bottom row with four views -->
         <div class="bottom-row">
             <div class="view view-files" id="view-files">
                 <div class="view-title-bar">
@@ -94,6 +94,17 @@
                 </div>
             </div>
             <div class="divider vertical-divider" id="vertical-divider-2"></div>
+            <div class="view view-scripts" id="view-scripts">
+                <div class="view-title-bar">
+                    <div class="view-title-left">
+                        <span class="view-title-name">Scripts</span>
+                        <span class="view-title-shortcut">cmd+shift+s</span>
+                    </div>
+                    <button id="run-script-btn" class="view-title-button" title="Run script (Cmd+R)">▶ Run</button>
+                </div>
+                <textarea id="script-editor" placeholder="# Write your Python script here..."></textarea>
+            </div>
+            <div class="divider vertical-divider" id="vertical-divider-3"></div>
             <div class="view view-console" id="view-console">
                 <div class="view-title-bar">
                     <div class="view-title-left">
@@ -105,7 +116,7 @@
                     <div id="loading"></div>
                 </div>
             </div>
-            <div class="divider vertical-divider" id="vertical-divider-3"></div>
+            <div class="divider vertical-divider" id="vertical-divider-4"></div>
             <div class="view view-assistant" id="view-assistant">
                 <div class="view-title-bar">
                     <div class="view-title-left">
@@ -149,31 +160,29 @@
         </div>
     </div>
 
-    <script src="js/resizer.js" id="script-resizer"></script>
-    <script src="js/keyboard-navigation.js" id="script-keyboard"></script>
-    <script src="js/pyodide-official-console.js" id="script-console"></script>
-    <script src="js/fonteditor.js" id="script-fonteditor"></script>
-    <script src="js/font-dropdown.js" id="script-dropdown"></script>
-    <script src="js/file-browser.js" id="script-browser"></script>
-    <script src="js/ai-assistant.js" id="script-ai"></script>
-    <script type="module" src="js/font-compilation.js" id="script-compilation"></script>
-
-    <!-- Cache busting for local development -->
+    <!-- Local scripts loaded with cache-busting for development -->
     <script>
         (function () {
             const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            if (isLocal) {
-                const version = Date.now();
-                // Update all local scripts
-                document.querySelectorAll('script[id^="script-"]').forEach(script => {
-                    const newScript = document.createElement('script');
-                    const srcWithoutQuery = script.src.split('?')[0];
-                    newScript.src = srcWithoutQuery + '?v=' + version;
-                    if (script.type) newScript.type = script.type;
-                    if (script.id) newScript.id = script.id + '-loaded';
-                    script.parentNode.replaceChild(newScript, script);
-                });
-            }
+            const version = isLocal ? '?v=' + Date.now() : '';
+            
+            const scripts = [
+                'js/resizer.js',
+                'js/keyboard-navigation.js',
+                'js/pyodide-official-console.js',
+                'js/fonteditor.js',
+                'js/font-dropdown.js',
+                'js/file-browser.js',
+                'js/script-editor.js',
+                'js/ai-assistant.js'
+            ];
+            
+            scripts.forEach(src => {
+                document.write('<script src="' + src + version + '"><\/script>');
+            });
+            
+            // Module script
+            document.write('<script type="module" src="js/font-compilation.js' + version + '"><\/script>');
         })();
     </script>
 

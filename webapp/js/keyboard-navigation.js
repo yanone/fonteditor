@@ -5,6 +5,10 @@
 
     // Map of views with their keyboard shortcuts
     const viewMap = {
+        'view-scripts': { // Scripts
+            shortcut: 's',
+            modifiers: { cmd: true, shift: true }
+        },
         'view-console': { // Console
             shortcut: 'k',
             modifiers: { cmd: true, shift: true }
@@ -14,6 +18,29 @@
             modifiers: { cmd: true, shift: true }
         }
     };
+
+    /**
+     * Blur the console terminal cursor
+     */
+    function blurConsole() {
+        if (window.term) {
+            // Try to blur the terminal element itself
+            const termElement = document.querySelector('.terminal');
+            if (termElement) {
+                termElement.blur();
+            }
+
+            // Also disable/re-enable to remove cursor
+            if (window.term.disable) {
+                window.term.disable();
+                setTimeout(() => {
+                    if (window.term && window.term.enable) {
+                        window.term.enable();
+                    }
+                }, 10);
+            }
+        }
+    }
 
     /**
      * Focus a view by ID
@@ -34,6 +61,22 @@
             view.classList.add('focused');
             currentFocusedView = viewId;
 
+            // Blur console for non-console views
+            if (viewId !== 'view-console') {
+                blurConsole();
+            }
+
+            // If activating scripts, focus the script editor
+            if (viewId === 'view-scripts') {
+                // Focus the script editor
+                setTimeout(() => {
+                    const scriptEditor = document.getElementById('script-editor');
+                    if (scriptEditor) {
+                        scriptEditor.focus();
+                    }
+                }, 50);
+            }
+
             // If activating console, blur the assistant's text field and focus terminal
             if (viewId === 'view-console') {
                 const prompt = document.getElementById('ai-prompt');
@@ -49,19 +92,8 @@
                 }, 50);
             }
 
-            // If activating assistant, blur the console by clicking on console container
+            // If activating assistant, focus and scroll
             if (viewId === 'view-assistant') {
-                // Blur the console terminal cursor
-                if (window.term && window.term.disable) {
-                    window.term.disable();
-                    // Re-enable it immediately so it's still usable, just not focused
-                    setTimeout(() => {
-                        if (window.term && window.term.enable) {
-                            window.term.enable();
-                        }
-                    }, 10);
-                }
-
                 const consoleContainer = document.getElementById('console-container');
                 if (consoleContainer) {
                     // Simulate a click to unfocus the terminal cursor
