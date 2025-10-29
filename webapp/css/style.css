@@ -30,7 +30,7 @@ body {
 }
 
 .app-name {
-    font-family: 'IBM Plex Sans', sans-serif;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 24px;
     font-weight: 700;
     background: linear-gradient(45deg, #00ffff, #ff00ff);
