@@ -1,30 +1,63 @@
 // Script Editor for Python code execution
 (function () {
-    let scriptEditor = null;
+    let editorView = null;
     let runButton = null;
     let isScriptViewFocused = false;
 
     /**
      * Initialize the script editor
      */
-    function init() {
-        scriptEditor = document.getElementById('script-editor');
+    async function init() {
+        // Wait for CodeMirror to be loaded
+        if (!window.CodeMirror) {
+            await new Promise(resolve => {
+                window.addEventListener('codemirror-loaded', resolve, { once: true });
+            });
+        }
+
+        if (!window.CodeMirror) {
+            console.error('CodeMirror not loaded');
+            return;
+        }
+
+        const container = document.getElementById('script-editor');
         runButton = document.getElementById('run-script-btn');
 
-        if (!scriptEditor || !runButton) {
+        if (!container || !runButton) {
             console.error('Script editor elements not found');
             return;
         }
 
-        // Load saved script from localStorage
-        const savedScript = localStorage.getItem('python_script');
-        if (savedScript) {
-            scriptEditor.value = savedScript;
-        }
+        const { EditorView, basicSetup, python, oneDark, keymap } = window.CodeMirror;
 
-        // Save script to localStorage on change
-        scriptEditor.addEventListener('input', () => {
-            localStorage.setItem('python_script', scriptEditor.value);
+        // Load saved script from localStorage
+        const savedScript = localStorage.getItem('python_script') || '# Write your Python script here...\n';
+
+        // Custom keymap for Cmd+Alt+R
+        const runKeymap = keymap.of([{
+            key: "Mod-Alt-r",
+            run: () => {
+                runScript();
+                return true;
+            }
+        }]);
+
+        // Create CodeMirror editor
+        editorView = new EditorView({
+            doc: savedScript,
+            extensions: [
+                basicSetup,
+                python(),
+                oneDark,
+                runKeymap,
+                EditorView.updateListener.of((update) => {
+                    if (update.docChanged) {
+                        // Save to localStorage on change
+                        localStorage.setItem('python_script', update.state.doc.toString());
+                    }
+                })
+            ],
+            parent: container
         });
 
         // Run button click handler
@@ -35,7 +68,7 @@
             const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
             const cmdKey = isMac ? event.metaKey : event.ctrlKey;
             const altKey = event.altKey;
-            const code = event.code; // Use code instead of key for alt combinations
+            const code = event.code;
 
             // Check if Cmd+Alt+R and script view is focused
             if (cmdKey && altKey && code === 'KeyR' && isScriptViewFocused) {
@@ -47,46 +80,20 @@
         // Listen for view focus events
         window.addEventListener('viewFocused', (event) => {
             isScriptViewFocused = event.detail.viewId === 'view-scripts';
-        });
-
-        // Handle keyboard shortcuts in the script editor
-        scriptEditor.addEventListener('keydown', (event) => {
-            // Handle Tab key to insert tabs instead of changing focus
-            if (event.key === 'Tab') {
-                event.preventDefault();
-                const start = scriptEditor.selectionStart;
-                const end = scriptEditor.selectionEnd;
-                const value = scriptEditor.value;
-
-                // Insert tab character
-                scriptEditor.value = value.substring(0, start) + '    ' + value.substring(end);
-
-                // Move cursor after the tab
-                scriptEditor.selectionStart = scriptEditor.selectionEnd = start + 4;
-                return;
-            }
-
-            // Handle Cmd+Alt+R to run script
-            const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-            const cmdKey = isMac ? event.metaKey : event.ctrlKey;
-            const altKey = event.altKey;
-            const code = event.code; // Use code instead of key for alt combinations
-
-            if (cmdKey && altKey && code === 'KeyR') {
-                event.preventDefault();
-                event.stopPropagation();
-                runScript();
+            if (isScriptViewFocused && editorView) {
+                // Focus the editor when view is focused
+                editorView.focus();
             }
         });
 
-        console.log('Script editor initialized');
+        console.log('Script editor initialized with CodeMirror');
     }
 
     /**
      * Run the Python script
      */
     async function runScript() {
-        if (!scriptEditor) {
+        if (!editorView) {
             console.error('Script editor not initialized');
             return;
         }
@@ -96,7 +103,7 @@
             return;
         }
 
-        const code = scriptEditor.value.trim();
+        const code = editorView.state.doc.toString().trim();
         if (!code) {
             alert('Please write some Python code first');
             return;
