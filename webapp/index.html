@@ -24,6 +24,11 @@
     <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/mode-python.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/theme-monokai.js"></script>
 
+    <!-- Diff libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/diff@5.1.0/dist/diff.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html@3.4.47/bundles/css/diff2html.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/diff2html@3.4.47/bundles/js/diff2html-ui.min.js"></script>
+
     <!-- Cache busting for local development only -->
     <script>
         (function () {
@@ -205,6 +210,21 @@
             document.write('<script type="module" src="js/font-compilation.js' + version + '"><\/script>');
         })();
     </script>
+
+    <!-- Diff Review Modal -->
+    <div id="diff-review-modal" class="diff-modal">
+        <div class="diff-modal-content">
+            <div class="diff-modal-header">
+                <h2>Review Code Changes</h2>
+                <button class="diff-modal-close" id="diff-modal-close-btn">✕</button>
+            </div>
+            <div class="diff-modal-body" id="diff-container"></div>
+            <div class="diff-modal-footer">
+                <button class="diff-modal-button diff-cancel-btn" id="diff-cancel-btn">Cancel</button>
+                <button class="diff-modal-button diff-accept-btn" id="diff-accept-btn">Open in Script Editor</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Browser compatibility check -->
     <script>

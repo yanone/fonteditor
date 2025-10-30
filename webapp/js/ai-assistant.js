@@ -96,14 +96,19 @@ class AIAssistant {
                 }
             }
 
-            // Check if Cmd+Alt+O to open last visible code in script editor
+            // Check if Cmd+Alt+O to open last visible code in script editor or review changes
             if (cmdKey && event.altKey && !event.shiftKey && code === 'KeyO' && this.isAssistantViewFocused) {
                 event.preventDefault();
-                // Find all visible open in editor buttons
+                // Find all visible open in editor buttons and review changes buttons
                 const openButtons = document.querySelectorAll('.ai-open-in-editor-btn');
-                if (openButtons.length > 0) {
+                const reviewButtons = document.querySelectorAll('.ai-review-changes-btn');
+
+                // Prefer review buttons if they exist (script context), otherwise use open buttons
+                const targetButtons = reviewButtons.length > 0 ? reviewButtons : openButtons;
+
+                if (targetButtons.length > 0) {
                     // Get the last button and trigger it
-                    const lastButton = openButtons[openButtons.length - 1];
+                    const lastButton = targetButtons[targetButtons.length - 1];
                     if (!lastButton.disabled) {
                         lastButton.click();
                     }
@@ -258,6 +263,26 @@ class AIAssistant {
                 lastButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut">⌘⌥O</span>';
             }
         }
+
+        // Find all review changes buttons
+        const reviewButtons = document.querySelectorAll('.ai-review-changes-btn');
+
+        // Remove shortcut from all review buttons
+        reviewButtons.forEach(btn => {
+            const text = btn.textContent || btn.innerText;
+            if (text.includes('Review Changes')) {
+                btn.innerHTML = 'Review Changes';
+            }
+        });
+
+        // Add shortcut only to the last review button
+        if (reviewButtons.length > 0) {
+            const lastButton = reviewButtons[reviewButtons.length - 1];
+            const text = lastButton.textContent || lastButton.innerText;
+            if (text.includes('Review Changes')) {
+                lastButton.innerHTML = 'Review Changes <span class="ai-button-shortcut">⌘⌥O</span>';
+            }
+        }
     } addMessage(role, content, isCode = false, isCollapsible = false) {
         // Show messages container on first message
         if (this.messagesContainer.style.display === 'none' || !this.messagesContainer.style.display) {
@@ -358,10 +383,10 @@ class AIAssistant {
         // Show appropriate buttons based on context
         let buttonContainerHtml = '';
         if (this.context === 'script') {
-            // Script context: always show "Open in Script Editor" button
+            // Script context: show "Review Changes" button
             buttonContainerHtml = `
                 <div class="ai-button-group">
-                    <button class="ai-open-in-editor-btn" id="${openBtnId}">Open in Script Editor</button>
+                    <button class="ai-review-changes-btn" id="${openBtnId}">Review Changes</button>
                 </div>`;
         } else if (showRunButton) {
             // Font context: show both buttons
@@ -395,9 +420,17 @@ class AIAssistant {
         // Add event listeners for buttons if they exist
         const openBtn = document.getElementById(openBtnId);
         if (openBtn) {
-            openBtn.addEventListener('click', () => {
-                this.openCodeInEditor(code);
-            });
+            if (this.context === 'script') {
+                // In script context, open diff review modal
+                openBtn.addEventListener('click', () => {
+                    this.showDiffReview(code);
+                });
+            } else {
+                // In font context, open directly in editor
+                openBtn.addEventListener('click', () => {
+                    this.openCodeInEditor(code);
+                });
+            }
         }
 
         if (showRunButton && this.context !== 'script') {
@@ -477,6 +510,78 @@ class AIAssistant {
                 scriptView.click(); // This will trigger the focus
             }
         }
+    }
+
+    showDiffReview(newCode) {
+        // Get current code from script editor
+        const oldCode = (window.scriptEditor && window.scriptEditor.editor)
+            ? window.scriptEditor.editor.getValue()
+            : '';
+
+        // Store new code for later use
+        this.pendingCode = newCode;
+
+        // Generate unified diff using jsdiff
+        const diff = Diff.createPatch('script.py', oldCode, newCode, 'Current', 'Proposed');
+
+        // Get modal elements
+        const modal = document.getElementById('diff-review-modal');
+        const diffContainer = document.getElementById('diff-container');
+        const closeBtn = document.getElementById('diff-modal-close-btn');
+        const cancelBtn = document.getElementById('diff-cancel-btn');
+        const acceptBtn = document.getElementById('diff-accept-btn');
+
+        // Render diff with diff2html
+        const configuration = {
+            drawFileList: false,
+            matching: 'lines',
+            outputFormat: 'side-by-side',
+            renderNothingWhenEmpty: false,
+        };
+
+        const diff2htmlUi = new Diff2HtmlUI(diffContainer, diff, configuration);
+        diff2htmlUi.draw();
+
+        // Show modal
+        modal.classList.add('active');
+
+        // Close handlers
+        const closeModal = () => {
+            modal.classList.remove('active');
+            this.pendingCode = null;
+        };
+
+        const handleEscape = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', handleEscape);
+            }
+        };
+
+        // Set up event listeners (remove old ones first to prevent duplicates)
+        const newCloseBtn = closeBtn.cloneNode(true);
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+        newCloseBtn.addEventListener('click', closeModal);
+
+        const newCancelBtn = cancelBtn.cloneNode(true);
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+        newCancelBtn.addEventListener('click', closeModal);
+
+        const newAcceptBtn = acceptBtn.cloneNode(true);
+        acceptBtn.parentNode.replaceChild(newAcceptBtn, acceptBtn);
+        newAcceptBtn.addEventListener('click', () => {
+            this.openCodeInEditor(this.pendingCode);
+            closeModal();
+        });
+
+        document.addEventListener('keydown', handleEscape);
+
+        // Close on backdrop click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
     }
 
     escapeHtml(text) {

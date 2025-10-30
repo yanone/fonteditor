@@ -982,17 +982,20 @@ body {
     border-color: #ff3300;
 }
 
-.ai-open-in-editor-btn {
+.ai-open-in-editor-btn,
+.ai-review-changes-btn {
     border-color: #9900ff;
 }
 
 .ai-run-in-console-btn:hover,
-.ai-open-in-editor-btn:hover {
+.ai-open-in-editor-btn:hover,
+.ai-review-changes-btn:hover {
     filter: brightness(1.1);
 }
 
 .ai-run-in-console-btn:disabled,
-.ai-open-in-editor-btn:disabled {
+.ai-open-in-editor-btn:disabled,
+.ai-review-changes-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
@@ -1092,4 +1095,174 @@ body {
 
 #ai-messages::-webkit-scrollbar-thumb:hover {
     background: transparent;
+}
+
+/* Diff Review Modal */
+.diff-modal {
+    display: none;
+    position: fixed;
+    z-index: 10000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+}
+
+.diff-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.diff-modal-content {
+    background-color: #1a1a1a;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    width: 90%;
+    max-width: 1400px;
+    height: 85%;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.diff-modal-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #0d0d0d;
+}
+
+.diff-modal-header h2 {
+    margin: 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: calc(var(--size, 1) * (16px / var(--pixel-density, 1)));
+    font-weight: bold;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.diff-modal-close {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 24px;
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: all 0.2s ease;
+    font-family: 'IBM Plex Mono', monospace;
+    line-height: 1;
+}
+
+.diff-modal-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.6);
+}
+
+.diff-modal-body {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+    background-color: #0d0d0d;
+}
+
+.diff-modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    background-color: #0d0d0d;
+}
+
+.diff-modal-button {
+    padding: 10px 24px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+    border: 2px solid;
+    background-color: rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: normal;
+}
+
+.diff-cancel-btn {
+    border-color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.diff-cancel-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.diff-accept-btn {
+    border-color: #9900ff;
+    color: rgba(255, 255, 255, 0.9);
+    background-color: rgba(153, 0, 255, 0.2);
+}
+
+.diff-accept-btn:hover {
+    background-color: rgba(153, 0, 255, 0.3);
+    border-color: #bb00ff;
+}
+
+/* Override diff2html styles for dark theme */
+#diff-container .d2h-wrapper {
+    background-color: transparent;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+}
+
+#diff-container .d2h-file-header {
+    background-color: #1a1a1a;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+#diff-container .d2h-file-diff {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+#diff-container .d2h-code-side-linenumber,
+#diff-container .d2h-code-linenumber {
+    background-color: #0d0d0d;
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.4);
+}
+
+#diff-container .d2h-ins {
+    background-color: rgba(0, 255, 0, 0.15);
+}
+
+#diff-container .d2h-ins .d2h-code-side-linenumber,
+#diff-container .d2h-ins .d2h-code-linenumber {
+    background-color: rgba(0, 255, 0, 0.2);
+    border-color: rgba(0, 255, 0, 0.3);
+}
+
+#diff-container .d2h-del {
+    background-color: rgba(255, 0, 0, 0.15);
+}
+
+#diff-container .d2h-del .d2h-code-side-linenumber,
+#diff-container .d2h-del .d2h-code-linenumber {
+    background-color: rgba(255, 0, 0, 0.2);
+    border-color: rgba(255, 0, 0, 0.3);
+}
+
+#diff-container .d2h-code-line {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+#diff-container .d2h-info {
+    background-color: rgba(100, 150, 255, 0.1);
+    color: rgba(100, 150, 255, 0.9);
 }
