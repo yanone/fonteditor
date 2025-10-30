@@ -99,33 +99,41 @@ class AIAssistant {
                 }
             }
 
-            // Check if Cmd+Alt+R to run last visible "Run in Console" button
+            // Check if Cmd+Alt+R
             if (cmdKey && event.altKey && code === 'KeyR' && this.isAssistantViewFocused) {
                 event.preventDefault();
-                // Find all visible run buttons
-                const runButtons = document.querySelectorAll('.ai-run-in-console-btn');
-                if (runButtons.length > 0) {
-                    // Get the last button and trigger it
-                    const lastButton = runButtons[runButtons.length - 1];
-                    if (!lastButton.disabled) {
-                        lastButton.click();
+
+                if (this.context === 'script') {
+                    // In script context: trigger Review Changes button
+                    const reviewButtons = document.querySelectorAll('.ai-review-changes-btn');
+                    if (reviewButtons.length > 0) {
+                        const lastButton = reviewButtons[reviewButtons.length - 1];
+                        if (!lastButton.disabled) {
+                            lastButton.click();
+                        }
+                    }
+                } else {
+                    // In font context: trigger Run in Console button
+                    const runButtons = document.querySelectorAll('.ai-run-in-console-btn');
+                    if (runButtons.length > 0) {
+                        const lastButton = runButtons[runButtons.length - 1];
+                        if (!lastButton.disabled) {
+                            lastButton.click();
+                        }
                     }
                 }
             }
 
-            // Check if Cmd+Alt+O to open last visible code in script editor or review changes
+            // Check if Cmd+Alt+O to open last visible code in script editor
             if (cmdKey && event.altKey && !event.shiftKey && code === 'KeyO' && this.isAssistantViewFocused) {
                 event.preventDefault();
-                // Find all visible open in editor buttons and review changes buttons
+
+                // Find all visible open in editor buttons
                 const openButtons = document.querySelectorAll('.ai-open-in-editor-btn');
-                const reviewButtons = document.querySelectorAll('.ai-review-changes-btn');
 
-                // Prefer review buttons if they exist (script context), otherwise use open buttons
-                const targetButtons = reviewButtons.length > 0 ? reviewButtons : openButtons;
-
-                if (targetButtons.length > 0) {
+                if (openButtons.length > 0) {
                     // Get the last button and trigger it
-                    const lastButton = targetButtons[targetButtons.length - 1];
+                    const lastButton = openButtons[openButtons.length - 1];
                     if (!lastButton.disabled) {
                         lastButton.click();
                     }
@@ -300,7 +308,29 @@ class AIAssistant {
             const lastButton = reviewButtons[reviewButtons.length - 1];
             const text = lastButton.textContent || lastButton.innerText;
             if (text.includes('Review Changes')) {
-                lastButton.innerHTML = 'Review Changes <span class="ai-button-shortcut">⌘⌥O</span>';
+                lastButton.innerHTML = 'Review Changes <span class="ai-button-shortcut">⌘⌥R</span>';
+            }
+        }
+
+        // In script context, also update the "Open in Script Editor" buttons
+        if (this.context === 'script') {
+            const scriptOpenButtons = document.querySelectorAll('.ai-button-group .ai-open-in-editor-btn');
+
+            // Remove shortcut from all
+            scriptOpenButtons.forEach(btn => {
+                const text = btn.textContent || btn.innerText;
+                if (text.includes('Open in Script Editor')) {
+                    btn.innerHTML = 'Open in Script Editor';
+                }
+            });
+
+            // Add shortcut only to the last one
+            if (scriptOpenButtons.length > 0) {
+                const lastButton = scriptOpenButtons[scriptOpenButtons.length - 1];
+                const text = lastButton.textContent || lastButton.innerText;
+                if (text.includes('Open in Script Editor')) {
+                    lastButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut">⌘⌥O</span>';
+                }
             }
         }
     } addMessage(role, content, isCode = false, isCollapsible = false) {
@@ -403,10 +433,12 @@ class AIAssistant {
         // Show appropriate buttons based on context
         let buttonContainerHtml = '';
         if (this.context === 'script') {
-            // Script context: show "Review Changes" button
+            // Script context: show both Review Changes and Open in Script Editor buttons
+            const directOpenBtnId = 'direct-open-' + Date.now() + Math.random().toString(36).substr(2, 9);
             buttonContainerHtml = `
                 <div class="ai-button-group">
                     <button class="ai-review-changes-btn" id="${openBtnId}">Review Changes</button>
+                    <button class="ai-open-in-editor-btn" id="${directOpenBtnId}">Open in Script Editor</button>
                 </div>`;
         } else if (showRunButton) {
             // Font context: show both buttons
@@ -441,13 +473,24 @@ class AIAssistant {
         const openBtn = document.getElementById(openBtnId);
         if (openBtn) {
             if (this.context === 'script') {
-                // In script context, open diff review modal
+                // In script context, this is the Review Changes button
                 openBtn.addEventListener('click', () => {
                     this.showDiffReview(code, markdownText);
                 });
             } else {
                 // In font context, open directly in editor
                 openBtn.addEventListener('click', () => {
+                    this.openCodeInEditor(code);
+                });
+            }
+        }
+
+        // Handle direct open button in script context
+        if (this.context === 'script') {
+            const directOpenBtnId = messageDiv.querySelector('.ai-button-group .ai-open-in-editor-btn')?.id;
+            const directOpenBtn = document.getElementById(directOpenBtnId);
+            if (directOpenBtn) {
+                directOpenBtn.addEventListener('click', () => {
                     this.openCodeInEditor(code);
                 });
             }
@@ -752,7 +795,7 @@ class AIAssistant {
                     }
 
                     // Construct the prompt with error information
-                    const prompt = `The script produced an error. Please analyze and fix it.\n\nError traceback:\n\`\`\`\n${errorTraceback}\n\`\`\``;
+                    const prompt = `The script produced an error. Please analyze and fix it, but don't refactor any other parts of the code.\n\nError traceback:\n\`\`\`\n${errorTraceback}\n\`\`\``;
 
                     // Disable the button
                     fixBtn.disabled = true;
