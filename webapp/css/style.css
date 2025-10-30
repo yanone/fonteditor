@@ -213,10 +213,12 @@ body {
 /* View specific colors for better distinction - Cyberpunk style */
 .view-editor {
     border-left: 4px solid #00ffff;
+    flex: 1;
 }
 
 .view-preview {
     border-left: 4px solid #ff00ff;
+    flex: 2;
 }
 
 .view-files {
