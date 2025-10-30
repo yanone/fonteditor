@@ -56,6 +56,11 @@ class AIAssistant {
 
         this.promptInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                // Don't send if modal is open
+                const modal = document.getElementById('diff-review-modal');
+                if (modal && modal.classList.contains('active')) {
+                    return;
+                }
                 e.preventDefault(); // Prevent newline
                 this.sendPrompt();
             }
@@ -562,10 +567,23 @@ class AIAssistant {
             this.pendingCode = null;
         };
 
-        const handleEscape = (e) => {
+        const handleKeydown = (e) => {
+            // Escape to close
             if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
                 closeModal();
-                document.removeEventListener('keydown', handleEscape);
+                document.removeEventListener('keydown', handleKeydown);
+                modal.removeEventListener('keydown', handleKeydown);
+            }
+            // Cmd+Enter to accept
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                this.openCodeInEditor(this.pendingCode);
+                closeModal();
+                document.removeEventListener('keydown', handleKeydown);
+                modal.removeEventListener('keydown', handleKeydown);
             }
         };
 
@@ -585,7 +603,8 @@ class AIAssistant {
             closeModal();
         });
 
-        document.addEventListener('keydown', handleEscape);
+        document.addEventListener('keydown', handleKeydown);
+        modal.addEventListener('keydown', handleKeydown);
 
         // Close on backdrop click
         modal.addEventListener('click', (e) => {
