@@ -44,6 +44,15 @@ class AIAssistant {
             this.contextScriptButton.classList.add('active');
         }
 
+        // Set initial placeholder text based on context
+        if (this.promptInput) {
+            if (this.context === 'font') {
+                this.promptInput.placeholder = 'Font context: Ask me to analyze or modify your font...';
+            } else {
+                this.promptInput.placeholder = 'Script context: Ask me to modify your script...';
+            }
+        }
+
         // Update auto-run button state
         this.updateAutoRunButton();
 
@@ -175,6 +184,15 @@ class AIAssistant {
         } else {
             this.contextFontButton.classList.remove('active');
             this.contextScriptButton.classList.add('active');
+        }
+
+        // Update placeholder text based on context
+        if (this.promptInput) {
+            if (context === 'font') {
+                this.promptInput.placeholder = 'Font context: Ask me to analyze or modify your font...';
+            } else {
+                this.promptInput.placeholder = 'Script context: Ask me to modify your script...';
+            }
         }
 
         // Update button colors
