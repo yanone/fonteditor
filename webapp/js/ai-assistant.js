@@ -423,7 +423,7 @@ class AIAssistant {
             if (this.context === 'script') {
                 // In script context, open diff review modal
                 openBtn.addEventListener('click', () => {
-                    this.showDiffReview(code);
+                    this.showDiffReview(code, markdownText);
                 });
             } else {
                 // In font context, open directly in editor
@@ -512,7 +512,7 @@ class AIAssistant {
         }
     }
 
-    showDiffReview(newCode) {
+    showDiffReview(newCode, markdownText = '') {
         // Get current code from script editor
         const oldCode = (window.scriptEditor && window.scriptEditor.editor)
             ? window.scriptEditor.editor.getValue()
@@ -527,6 +527,7 @@ class AIAssistant {
         // Get modal elements
         const modal = document.getElementById('diff-review-modal');
         const diffContainer = document.getElementById('diff-container');
+        const explanationContainer = document.getElementById('diff-explanation');
         const closeBtn = document.getElementById('diff-modal-close-btn');
         const cancelBtn = document.getElementById('diff-cancel-btn');
         const acceptBtn = document.getElementById('diff-accept-btn');
@@ -543,6 +544,14 @@ class AIAssistant {
         const diff2htmlUi = new Diff2HtmlUI(diffContainer, diff, configuration);
         diff2htmlUi.draw();
         diff2htmlUi.synchronisedScroll();
+
+        // Display markdown explanation if present
+        if (markdownText && markdownText.trim()) {
+            explanationContainer.innerHTML = this.formatMarkdown(markdownText);
+            explanationContainer.style.display = 'block';
+        } else {
+            explanationContainer.style.display = 'none';
+        }
 
         // Show modal
         modal.classList.add('active');
