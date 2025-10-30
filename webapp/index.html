@@ -19,19 +19,10 @@
     <script src="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/js/unix_formatting.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/jquery.terminal@2.35.2/css/jquery.terminal.min.css" rel="stylesheet">
 
-    <!-- CodeMirror 6 for Python editor -->
-    <script type="module">
-        import { EditorView, basicSetup } from "https://esm.sh/codemirror@6.0.1";
-        import { python } from "https://esm.sh/@codemirror/lang-python@6.1.6";
-        import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@6.1.2";
-        import { keymap } from "https://esm.sh/@codemirror/view@6.26.3";
-
-        // Make available globally
-        window.CodeMirror = { EditorView, basicSetup, python, oneDark, keymap };
-
-        // Dispatch event when loaded
-        window.dispatchEvent(new CustomEvent('codemirror-loaded'));
-    </script>
+    <!-- Ace Editor for Python -->
+    <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/ace.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/mode-python.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.2/src-min-noconflict/theme-monokai.js"></script>
 
     <!-- Cache busting for local development only -->
     <script>

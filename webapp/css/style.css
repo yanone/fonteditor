@@ -261,63 +261,35 @@ body {
 }
 
 /* Script Editor */
-/* Script Editor Container */
+/* Ace Editor Container */
 #script-editor {
     width: 100%;
     height: 100%;
+    position: relative;
     flex: 1;
-    overflow: auto;
 }
 
-/* CodeMirror customizations - match assistant styling */
-#script-editor .cm-editor {
-    height: 100%;
+/* Ace Editor customizations */
+#script-editor .ace_editor {
     font-family: 'IBM Plex Mono', monospace;
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
-    background-color: transparent;
-}
-
-#script-editor .cm-scroller {
-    overflow: auto;
-    font-family: 'IBM Plex Mono', monospace;
     line-height: 1.6;
 }
 
-#script-editor .cm-content {
-    padding: 8px 0;
-}
-
-#script-editor .cm-line {
-    padding: 0 4px 0 13px;
+#script-editor .ace_line {
     line-height: 1.6;
 }
 
-/* Adjust CodeMirror gutters to match our style */
-#script-editor .cm-gutters {
+#script-editor .ace_gutter {
     background-color: transparent;
-    border: none;
-    padding-left: 4px;
-}
-
-#script-editor .cm-lineNumbers .cm-gutterElement {
-    padding: 0 8px 0 0;
 }
 
 /* Background color based on view focus state */
-.view-scripts.focused #script-editor .cm-editor {
+.view-scripts.focused #script-editor {
     background-color: #1f1f1f;
 }
 
-.view-scripts:not(.focused) #script-editor .cm-editor {
-    background-color: #2a2a2a;
-}
-
-/* Override OneDark theme background */
-.view-scripts.focused #script-editor .cm-editor.cm-focused {
-    background-color: #1f1f1f;
-}
-
-.view-scripts:not(.focused) #script-editor .cm-editor.cm-focused {
+.view-scripts:not(.focused) #script-editor {
     background-color: #2a2a2a;
 }
 

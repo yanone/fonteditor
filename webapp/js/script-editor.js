@@ -1,6 +1,6 @@
 // Script Editor for Python code execution
 (function () {
-    let editorView = null;
+    let editor = null;
     let runButton = null;
     let isScriptViewFocused = false;
 
@@ -8,15 +8,9 @@
      * Initialize the script editor
      */
     async function init() {
-        // Wait for CodeMirror to be loaded
-        if (!window.CodeMirror) {
-            await new Promise(resolve => {
-                window.addEventListener('codemirror-loaded', resolve, { once: true });
-            });
-        }
-
-        if (!window.CodeMirror) {
-            console.error('CodeMirror not loaded');
+        // Wait for Ace to be loaded
+        if (!window.ace) {
+            console.error('Ace Editor not loaded');
             return;
         }
 
@@ -28,36 +22,53 @@
             return;
         }
 
-        const { EditorView, basicSetup, python, oneDark, keymap } = window.CodeMirror;
-
         // Load saved script from localStorage
         const savedScript = localStorage.getItem('python_script') || '# Write your Python script here...\n';
 
-        // Custom keymap for Cmd+Alt+R
-        const runKeymap = keymap.of([{
-            key: "Mod-Alt-r",
-            run: () => {
-                runScript();
-                return true;
-            }
-        }]);
+        // Create Ace editor
+        editor = ace.edit('script-editor');
+        editor.setTheme('ace/theme/monokai');
+        editor.session.setMode('ace/mode/python');
+        editor.setValue(savedScript, -1); // -1 moves cursor to start
 
-        // Create CodeMirror editor
-        editorView = new EditorView({
-            doc: savedScript,
-            extensions: [
-                basicSetup,
-                python(),
-                oneDark,
-                runKeymap,
-                EditorView.updateListener.of((update) => {
-                    if (update.docChanged) {
-                        // Save to localStorage on change
-                        localStorage.setItem('python_script', update.state.doc.toString());
-                    }
-                })
-            ],
-            parent: container
+        // Set top margin on the container
+        container.style.marginTop = '11px';
+
+        // Configure editor options
+        editor.setOptions({
+            fontSize: '12px',
+            fontFamily: "'IBM Plex Mono', monospace",
+            showPrintMargin: false,
+            highlightActiveLine: true,
+            enableBasicAutocompletion: true,
+            enableLiveAutocompletion: false,
+            tabSize: 4,
+            useSoftTabs: true, // Use spaces instead of tabs
+            wrap: false
+        });
+
+        // Save to localStorage on change
+        editor.session.on('change', function () {
+            localStorage.setItem('python_script', editor.getValue());
+        });
+
+        // Add custom keyboard shortcuts
+        editor.commands.addCommand({
+            name: 'runScript',
+            bindKey: { win: 'Ctrl-Alt-R', mac: 'Command-Alt-R' },
+            exec: function () {
+                runScript();
+            }
+        });
+
+        editor.commands.addCommand({
+            name: 'clearConsole',
+            bindKey: { win: 'Ctrl-K', mac: 'Command-K' },
+            exec: function () {
+                if (window.term) {
+                    window.term.clear();
+                }
+            }
         });
 
         // Run button click handler
@@ -88,43 +99,20 @@
         // Listen for view focus events
         window.addEventListener('viewFocused', (event) => {
             isScriptViewFocused = event.detail.viewId === 'view-scripts';
-            if (isScriptViewFocused && editorView) {
+            if (isScriptViewFocused && editor) {
                 // Focus the editor when view is focused
-                editorView.focus();
+                editor.focus();
             }
         });
 
-        // Handle Tab key manually to prevent focus change while adding indentation
-        container.addEventListener('keydown', (event) => {
-            if (event.key === 'Tab') {
-                event.preventDefault();
-                event.stopPropagation();
-
-                if (!event.shiftKey) {
-                    // Insert 2 spaces for indentation
-                    editorView.dispatch({
-                        changes: {
-                            from: editorView.state.selection.main.from,
-                            to: editorView.state.selection.main.to,
-                            insert: '  '
-                        },
-                        selection: {
-                            anchor: editorView.state.selection.main.from + 2
-                        }
-                    });
-                }
-                // Shift+Tab for de-indent could be added here if needed
-            }
-        }, true);
-
-        console.log('Script editor initialized with CodeMirror');
+        console.log('Script editor initialized with Ace Editor');
     }
 
     /**
      * Run the Python script
      */
     async function runScript() {
-        if (!editorView) {
+        if (!editor) {
             console.error('Script editor not initialized');
             return;
         }
@@ -134,7 +122,7 @@
             return;
         }
 
-        const code = editorView.state.doc.toString().trim();
+        const code = editor.getValue().trim();
         if (!code) {
             alert('Please write some Python code first');
             return;
