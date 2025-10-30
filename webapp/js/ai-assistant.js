@@ -54,6 +54,7 @@ class AIAssistant {
         // Listen for view focus events
         window.addEventListener('viewFocused', (event) => {
             this.isAssistantViewFocused = event.detail.viewId === 'view-assistant';
+            this.updateAutoRunButton(); // Update button appearance based on focus
         });
 
         // Add global keyboard shortcuts when assistant is focused
@@ -97,6 +98,12 @@ class AIAssistant {
                     }
                 }
             }
+
+            // Check if Alt+R to toggle auto-run (no cmd key)
+            if (!cmdKey && event.altKey && !event.shiftKey && code === 'KeyR' && this.isAssistantViewFocused) {
+                event.preventDefault();
+                this.toggleAutoRun();
+            }
         });
     }
 
@@ -108,15 +115,28 @@ class AIAssistant {
 
     updateAutoRunButton() {
         if (this.autoRunButton) {
-            this.autoRunButton.textContent = this.autoRun ? 'Auto-Run: ON' : 'Auto-Run: OFF';
-            this.autoRunButton.style.opacity = this.autoRun ? '1' : '0.5';
+            if (this.autoRun) {
+                // Use darker green when not focused
+                const bgColor = this.isAssistantViewFocused ? '#00ff00' : '#006600';
+                const borderColor = this.isAssistantViewFocused ? '#00ff00' : '#006600';
+
+                this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut" style="color: rgba(0, 0, 0, 0.5);">⌥R</span>';
+                this.autoRunButton.style.backgroundColor = bgColor;
+                this.autoRunButton.style.color = '#1a1a1a';
+                this.autoRunButton.style.borderColor = borderColor;
+            } else {
+                this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut">⌥R</span>';
+                this.autoRunButton.style.backgroundColor = 'transparent';
+                this.autoRunButton.style.color = 'rgba(255, 255, 255, 0.8)';
+                this.autoRunButton.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+            }
         }
     }
 
     updateButtonShortcuts() {
         // Find all run buttons
         const runButtons = document.querySelectorAll('.ai-run-in-console-btn');
-        
+
         // Remove shortcut from all run buttons
         runButtons.forEach(btn => {
             const text = btn.textContent || btn.innerText;
@@ -136,7 +156,7 @@ class AIAssistant {
 
         // Find all open in editor buttons
         const openButtons = document.querySelectorAll('.ai-open-in-editor-btn');
-        
+
         // Remove shortcut from all open buttons
         openButtons.forEach(btn => {
             const text = btn.textContent || btn.innerText;
@@ -153,7 +173,7 @@ class AIAssistant {
                 lastButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut">⌘⌥O</span>';
             }
         }
-    }    addMessage(role, content, isCode = false, isCollapsible = false) {
+    } addMessage(role, content, isCode = false, isCollapsible = false) {
         // Show messages container on first message
         if (this.messagesContainer.style.display === 'none' || !this.messagesContainer.style.display) {
             this.messagesContainer.style.display = 'block';
@@ -344,7 +364,7 @@ class AIAssistant {
         if (window.scriptEditor && window.scriptEditor.editor) {
             // Set the code in the editor
             window.scriptEditor.editor.setValue(code, -1); // -1 moves cursor to start
-            
+
             // Focus the script editor view
             const scriptView = document.getElementById('view-scripts');
             if (scriptView) {
