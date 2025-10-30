@@ -537,10 +537,12 @@ class AIAssistant {
             matching: 'lines',
             outputFormat: 'side-by-side',
             renderNothingWhenEmpty: false,
+            synchronisedScroll: true,
         };
 
         const diff2htmlUi = new Diff2HtmlUI(diffContainer, diff, configuration);
         diff2htmlUi.draw();
+        diff2htmlUi.synchronisedScroll();
 
         // Show modal
         modal.classList.add('active');

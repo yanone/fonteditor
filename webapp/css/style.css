@@ -1217,9 +1217,23 @@ body {
 }
 
 /* Override diff2html styles for dark theme */
+#diff-container {
+    --d2h-empty-placeholder-bg-color: none;
+}
+
 #diff-container,
 #diff-container * {
     font-family: 'IBM Plex Mono', monospace !important;
+}
+
+#diff-container .d2h-code-line ins,
+#diff-container .d2h-code-side-line ins {
+    color: #000000 !important;
+}
+
+#diff-container .d2h-code-line del,
+#diff-container .d2h-code-side-line del {
+    color: #000000 !important;
 }
 
 #diff-container .d2h-file-header {
