@@ -1217,10 +1217,9 @@ body {
 }
 
 /* Override diff2html styles for dark theme */
-#diff-container .d2h-wrapper {
-    background-color: transparent;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+#diff-container,
+#diff-container * {
+    font-family: 'IBM Plex Mono', monospace !important;
 }
 
 #diff-container .d2h-file-header {
