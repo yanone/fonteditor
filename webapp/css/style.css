@@ -1226,6 +1226,10 @@ body {
     font-family: 'IBM Plex Mono', monospace !important;
 }
 
+#diff-container .d2h-file-header {
+    display: none !important;
+}
+
 #diff-container .d2h-code-line ins,
 #diff-container .d2h-code-side-line ins {
     color: #000000 !important;
