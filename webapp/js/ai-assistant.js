@@ -9,6 +9,7 @@ class AIAssistant {
         this.conversationHistory = [];
         this.maxRetries = 3;
         this.cachedApiDocs = null; // Cache for babelfont API documentation
+        this.autoRun = localStorage.getItem('ai_auto_run') !== 'false'; // Default to true
 
         this.initUI();
     }
@@ -20,12 +21,16 @@ class AIAssistant {
         this.sendButton = document.getElementById('ai-send-btn');
         this.clearButton = document.getElementById('ai-clear-btn');
         this.messagesContainer = document.getElementById('ai-messages');
+        this.autoRunButton = document.getElementById('ai-auto-run-btn');
         this.isAssistantViewFocused = false;
 
         // Set saved API key
         if (this.apiKey) {
             this.apiKeyInput.value = this.apiKey;
         }
+
+        // Update auto-run button state
+        this.updateAutoRunButton();
 
         // Event listeners
         this.apiKeyInput.addEventListener('change', () => {
@@ -36,6 +41,8 @@ class AIAssistant {
         this.sendButton.addEventListener('click', () => this.sendPrompt());
 
         this.clearButton.addEventListener('click', () => this.clearConversation());
+
+        this.autoRunButton.addEventListener('click', () => this.toggleAutoRun());
 
         this.promptInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -49,7 +56,7 @@ class AIAssistant {
             this.isAssistantViewFocused = event.detail.viewId === 'view-assistant';
         });
 
-        // Add global keyboard shortcut for Cmd+K when assistant is focused
+        // Add global keyboard shortcuts when assistant is focused
         document.addEventListener('keydown', (event) => {
             const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
             const cmdKey = isMac ? event.metaKey : event.ctrlKey;
@@ -62,7 +69,56 @@ class AIAssistant {
                     window.term.clear();
                 }
             }
+
+            // Check if Cmd+Alt+R to run last visible "Run in Console" button
+            if (cmdKey && event.altKey && code === 'KeyR' && this.isAssistantViewFocused) {
+                event.preventDefault();
+                // Find all visible run buttons
+                const runButtons = document.querySelectorAll('.ai-run-in-console-btn');
+                if (runButtons.length > 0) {
+                    // Get the last button and trigger it
+                    const lastButton = runButtons[runButtons.length - 1];
+                    if (!lastButton.disabled) {
+                        lastButton.click();
+                    }
+                }
+            }
         });
+    }
+
+    toggleAutoRun() {
+        this.autoRun = !this.autoRun;
+        localStorage.setItem('ai_auto_run', this.autoRun);
+        this.updateAutoRunButton();
+    }
+
+    updateAutoRunButton() {
+        if (this.autoRunButton) {
+            this.autoRunButton.textContent = this.autoRun ? 'Auto-Run: ON' : 'Auto-Run: OFF';
+            this.autoRunButton.style.opacity = this.autoRun ? '1' : '0.5';
+        }
+    }
+
+    updateRunButtonShortcuts() {
+        // Find all run buttons
+        const runButtons = document.querySelectorAll('.ai-run-in-console-btn');
+
+        // Remove shortcut from all buttons
+        runButtons.forEach(btn => {
+            const text = btn.textContent || btn.innerText;
+            if (text.includes('Run in Console')) {
+                btn.innerHTML = 'Run in Console';
+            }
+        });
+
+        // Add shortcut only to the last button
+        if (runButtons.length > 0) {
+            const lastButton = runButtons[runButtons.length - 1];
+            const text = lastButton.textContent || lastButton.innerText;
+            if (text.includes('Run in Console')) {
+                lastButton.innerHTML = 'Run in Console <span class="ai-run-shortcut">⌘⌥R</span>';
+            }
+        }
     }
 
     addMessage(role, content, isCode = false, isCollapsible = false) {
@@ -130,7 +186,7 @@ class AIAssistant {
         }, 50);
     }
 
-    addOutputWithCode(output, code) {
+    addOutputWithCode(output, code, showRunButton = false) {
         // Show messages container on first message
         if (this.messagesContainer.style.display === 'none' || !this.messagesContainer.style.display) {
             this.messagesContainer.style.display = 'block';
@@ -144,6 +200,7 @@ class AIAssistant {
         // Generate unique IDs
         const codeId = 'code-' + Date.now() + Math.random().toString(36).substr(2, 9);
         const btnId = 'btn-' + Date.now() + Math.random().toString(36).substr(2, 9);
+        const runBtnId = 'run-' + Date.now() + Math.random().toString(36).substr(2, 9);
 
         const header = `
             <div class="ai-message-header">
@@ -160,20 +217,82 @@ class AIAssistant {
                 ">▶ Show Code</span>
             </div>`;
 
+        const runButtonHtml = showRunButton ? `<button class="ai-run-in-console-btn" id="${runBtnId}">Run in Console</button>` : '';
+
         const body = `
             <div class="ai-output-with-code">
                 <pre class="ai-code collapsed" id="${codeId}"><code>${this.escapeHtml(code)}</code></pre>
-                <div class="ai-message-content">${output && output.trim() ? this.escapeHtml(output) : '(No output)'}</div>
+                <div class="ai-message-content">${output && output.trim() ? this.escapeHtml(output) : '(Code ready to run)'}</div>
+                ${runButtonHtml}
             </div>`;
 
         messageDiv.innerHTML = header + body;
         this.messagesContainer.appendChild(messageDiv);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
+        // Add event listener for run button if it exists
+        if (showRunButton) {
+            const runBtn = document.getElementById(runBtnId);
+            if (runBtn) {
+                runBtn.addEventListener('click', async () => {
+                    runBtn.disabled = true;
+                    runBtn.innerHTML = 'Running...';
+                    try {
+                        await this.runCodeInConsole(code);
+                        runBtn.innerHTML = '✓ Executed';
+                        setTimeout(() => {
+                            runBtn.innerHTML = 'Run in Console';
+                            this.updateRunButtonShortcuts();
+                            runBtn.disabled = false;
+                        }, 2000);
+                    } catch (error) {
+                        runBtn.innerHTML = '✗ Error';
+                        setTimeout(() => {
+                            runBtn.innerHTML = 'Run in Console';
+                            this.updateRunButtonShortcuts();
+                            runBtn.disabled = false;
+                        }, 2000);
+                    }
+                });
+            }
+        }
+
+        // Update which button shows the shortcut (only the last one)
+        this.updateRunButtonShortcuts();
+
         // Scroll the view-content to bottom
         this.scrollToBottom();
 
         return messageDiv;
+    }
+
+    async runCodeInConsole(code) {
+        if (!window.term) {
+            throw new Error('Console not available');
+        }
+
+        if (!window.pyodide) {
+            throw new Error('Python environment not ready');
+        }
+
+        try {
+            window.term.echo('🚀 Running AI-generated code...');
+            await window.pyodide.runPythonAsync(code);
+            window.term.echo('✅ Code executed successfully');
+
+            // Update font dropdown if fonts were modified
+            if (window.fontDropdownManager) {
+                await window.fontDropdownManager.updateDropdown();
+            }
+
+            // Play done sound
+            if (window.playSound) {
+                window.playSound('done');
+            }
+        } catch (error) {
+            window.term.error('Error: ' + error.message);
+            throw error;
+        }
     }
 
     escapeHtml(text) {
@@ -243,20 +362,30 @@ class AIAssistant {
             // Get Python code from Claude
             const pythonCode = await this.callClaude(originalPrompt, previousError, attemptNumber);
 
-            // Execute the Python code and capture output
-            const output = await this.executePython(pythonCode);
+            if (this.autoRun) {
+                // Auto-run mode: Execute the Python code and capture output
+                const output = await this.executePython(pythonCode);
 
-            // Show output with collapsible code
-            this.addOutputWithCode(output, pythonCode);
+                // Show output with collapsible code and run button
+                this.addOutputWithCode(output, pythonCode, true);
 
-            // Play incoming message sound
-            if (window.playSound) {
-                window.playSound('incoming_message');
-            }
+                // Play incoming message sound
+                if (window.playSound) {
+                    window.playSound('incoming_message');
+                }
 
-            // Update font dropdown if fonts were modified
-            if (window.fontDropdownManager) {
-                await window.fontDropdownManager.updateDropdown();
+                // Update font dropdown if fonts were modified
+                if (window.fontDropdownManager) {
+                    await window.fontDropdownManager.updateDropdown();
+                }
+            } else {
+                // Manual mode: Just show the code with a run button
+                this.addOutputWithCode('', pythonCode, true);
+
+                // Play incoming message sound
+                if (window.playSound) {
+                    window.playSound('incoming_message');
+                }
             }
 
         } catch (error) {
@@ -265,8 +394,8 @@ class AIAssistant {
             // Add error message
             this.addMessage('error', `Execution error: ${error.message}`);
 
-            // Retry with error context
-            if (attemptNumber < this.maxRetries - 1) {
+            // Only retry in auto-run mode
+            if (this.autoRun && attemptNumber < this.maxRetries - 1) {
                 this.addMessage('system', `Retrying (attempt ${attemptNumber + 2}/${this.maxRetries})...`);
                 await this.executeWithRetry(originalPrompt, attemptNumber + 1, error.message);
             } else {

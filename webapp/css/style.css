@@ -823,6 +823,35 @@ body {
     display: none;
 }
 
+.ai-run-in-console-btn {
+    background-color: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.8);
+    padding: 6px 12px;
+    border-radius: 0;
+    cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+    font-weight: normal;
+    transition: all 0.2s ease;
+    margin-top: 8px;
+}
+
+.ai-run-in-console-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.6);
+}
+
+.ai-run-in-console-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ai-run-shortcut {
+    color: rgba(255, 255, 255, 0.5);
+    margin-left: 8px;
+}
+
 #ai-input-container {
     display: flex;
     flex-direction: column;
