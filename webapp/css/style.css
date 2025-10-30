@@ -823,7 +823,6 @@ body {
     line-height: 1.6;
     color: rgba(255, 255, 255, 0.9);
     padding: 8px 0;
-    white-space: pre-wrap;
 }
 
 .ai-python-output {
