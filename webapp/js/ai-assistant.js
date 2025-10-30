@@ -1030,6 +1030,7 @@ GENERAL RULES (APPLY TO BOTH CONTEXTS):
 7. Never return single-line Python comments. If you want to return just a comment, wrap it in a print statement anyway so the user gets to see it
 8. Always include a summary of the user prompt in the first line of the code as a comment (max 40 characters, pose as a command, not a question), followed by an empty line, followed by one or several comment lines explaining briefly what the script does. Cap the description at 40 characters per line
 9. Always include an explanation of the code in markdown format outside the code block
+10. Answer in the language used in the user prompt
 
 BABELFONT API DOCUMENTATION:
 ${apiDocs}
