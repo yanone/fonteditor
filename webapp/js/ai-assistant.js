@@ -726,15 +726,24 @@ Generate Python code for: ${userPrompt}`;
         // Add current prompt (or retry with error context) with context information
         const contextPrefix = `[Context: ${this.context === 'script' ? 'Script Editing' : 'Font Editing'}]\n\n`;
 
+        // In script context, include the current script editor content
+        let fullPrompt = userPrompt;
+        if (this.context === 'script' && window.scriptEditor && window.scriptEditor.editor) {
+            const currentScript = window.scriptEditor.editor.getValue();
+            if (currentScript && currentScript.trim()) {
+                fullPrompt = `Current script in editor:\n\`\`\`python\n${currentScript}\n\`\`\`\n\nUser request: ${userPrompt}`;
+            }
+        }
+
         if (previousError && attemptNumber > 0) {
             messages.push({
                 role: 'user',
-                content: `${contextPrefix}${userPrompt}\n\nPrevious attempt ${attemptNumber} failed with error:\n${previousError}\n\nPlease fix the code and try again.`
+                content: `${contextPrefix}${fullPrompt}\n\nPrevious attempt ${attemptNumber} failed with error:\n${previousError}\n\nPlease fix the code and try again.`
             });
         } else {
             messages.push({
                 role: 'user',
-                content: `${contextPrefix}${userPrompt}`
+                content: `${contextPrefix}${fullPrompt}`
             });
         }
 
