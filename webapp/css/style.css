@@ -817,6 +817,27 @@ body {
     margin-bottom: 4px;
 }
 
+.ai-markdown-explanation {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.9);
+    padding: 8px 0;
+    white-space: pre-wrap;
+}
+
+.ai-python-output {
+    background-color: rgba(31, 31, 31, 0.8);
+    padding: 8px;
+    margin-top: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.8);
+    white-space: pre-wrap;
+    border-left: 2px solid rgba(200, 150, 255, 0.5);
+}
+
 .ai-code.collapsed {
     display: none;
 }

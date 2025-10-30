@@ -238,7 +238,7 @@ class AIAssistant {
         }, 50);
     }
 
-    addOutputWithCode(output, code, showRunButton = false) {
+    addOutputWithCode(output, code, markdownText = '', showRunButton = false) {
         // Show messages container on first message
         if (this.messagesContainer.style.display === 'none' || !this.messagesContainer.style.display) {
             this.messagesContainer.style.display = 'block';
@@ -276,10 +276,19 @@ class AIAssistant {
                 <button class="ai-run-in-console-btn" id="${runBtnId}">Run in Console</button>
             </div>` : '';
 
+        // Show markdown explanation if present
+        const markdownHtml = markdownText && markdownText.trim() ?
+            `<div class="ai-markdown-explanation">${this.escapeHtml(markdownText)}</div>` : '';
+
+        // Show Python output if present
+        const outputHtml = output && output.trim() ?
+            `<div class="ai-python-output">${this.escapeHtml(output)}</div>` : '';
+
         const body = `
             <div class="ai-output-with-code">
                 <pre class="ai-code collapsed" id="${codeId}"><code>${this.escapeHtml(code)}</code></pre>
-                <div class="ai-message-content">${output && output.trim() ? this.escapeHtml(output) : '(Code ready to run)'}</div>
+                ${markdownHtml}
+                ${outputHtml}
                 ${buttonContainerHtml}
             </div>`;
 
@@ -438,15 +447,15 @@ class AIAssistant {
         }
 
         try {
-            // Get Python code from Claude
-            const pythonCode = await this.callClaude(originalPrompt, previousError, attemptNumber);
+            // Get Python code and markdown from Claude
+            const { pythonCode, markdownText } = await this.callClaude(originalPrompt, previousError, attemptNumber);
 
             if (this.autoRun) {
                 // Auto-run mode: Execute the Python code and capture output
                 const output = await this.executePython(pythonCode);
 
                 // Show output with collapsible code and run button
-                this.addOutputWithCode(output, pythonCode, true);
+                this.addOutputWithCode(output, pythonCode, markdownText, true);
 
                 // Play incoming message sound
                 if (window.playSound) {
@@ -459,7 +468,7 @@ class AIAssistant {
                 }
             } else {
                 // Manual mode: Just show the code with a run button
-                this.addOutputWithCode('', pythonCode, true);
+                this.addOutputWithCode('', pythonCode, markdownText, true);
 
                 // Play incoming message sound
                 if (window.playSound) {
@@ -510,7 +519,7 @@ babelfont.generate_all_docs()
 
 CRITICAL RULES:
 1. ALWAYS use CurrentFont() and assign it to __font to get the main font object - DO NOT overwrite existing variables.
-2. Generate ONLY executable Python code - no markdown, no explanations outside of code
+2. Python code MUST be wrapped in one single \`\`\`python code block. You may include explanations in markdown format outside the code block.
 3. Include print() statements in your code to show results to the user
 4. Handle errors gracefully within your code
 5. The font object is a babelfont Font instance
@@ -519,6 +528,7 @@ CRITICAL RULES:
 8. But never return single-line Python comments. If you want to return just a comment, wrap it in a print statement anyway so the user gets to see it.
 9. Always include a summary print statement at the end indicating what was done
 10. Always include a summary of the user prompt in the first line of the code as a comment (max 40 characters, pose as a command, not a question), followed by an empty line, followed by one or several comment lines explaining briefly what the script does. Cap the description at 40 characters per line.
+11. Always include an explanation of the code in markdown format outside the code block.
 
 BABELFONT API DOCUMENTATION:
 ${apiDocs}
@@ -610,11 +620,33 @@ Generate Python code for: ${userPrompt}`;
 
         const data = await response.json();
 
-        // Extract Python code from response
-        let pythonCode = data.content[0].text;
+        // Extract Python code and markdown from response
+        const fullResponse = data.content[0].text;
+        let pythonCode = '';
+        let markdownText = fullResponse;
 
-        // Remove markdown code blocks if present
-        pythonCode = pythonCode.replace(/```python\n?/g, '').replace(/```\n?/g, '').trim();
+        // Extract code from ```python code blocks
+        const codeBlockRegex = /```python\s*\n([\s\S]*?)```/g;
+        const matches = fullResponse.matchAll(codeBlockRegex);
+
+        for (const match of matches) {
+            pythonCode += match[1];
+        }
+
+        // If no python blocks found, try generic code blocks
+        if (!pythonCode.trim()) {
+            const genericCodeBlockRegex = /```\s*\n([\s\S]*?)```/g;
+            const genericMatches = fullResponse.matchAll(genericCodeBlockRegex);
+
+            for (const match of genericMatches) {
+                pythonCode += match[1];
+            }
+        }
+
+        pythonCode = pythonCode.trim();
+
+        // Remove code blocks from markdown text, leaving only the explanations
+        markdownText = markdownText.replace(/```python\s*\n[\s\S]*?```/g, '').replace(/```\s*\n[\s\S]*?```/g, '').trim();
 
         // Add to conversation history (only if not a retry)
         if (!previousError || attemptNumber === 0) {
@@ -633,7 +665,7 @@ Generate Python code for: ${userPrompt}`;
             }
         }
 
-        return pythonCode;
+        return { pythonCode, markdownText };
     }
 
     async executePython(code) {
