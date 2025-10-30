@@ -40,7 +40,7 @@ body {
 .loading-logo {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 72px;
-    font-weight: 700;
+    font-weight: 400;
     color: #ffffff;
     animation: pulse 2s ease-in-out infinite;
 }
@@ -65,6 +65,7 @@ body {
     background-color: #252525;
     border-bottom: 2px solid #404040;
     padding: 12px 20px;
+    padding-left: 9px;
     height: 50px;
     flex-shrink: 0;
 }
@@ -77,11 +78,11 @@ body {
 .app-name {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 24px;
-    font-weight: 700;
-    background: linear-gradient(45deg, #00ffff, #ff00ff);
+    font-weight: 400;
+    /* background: linear-gradient(45deg, #00ffff, #ff00ff);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    background-clip: text;
+    background-clip: text; */
     margin: 0;
     letter-spacing: 0.5px;
 }
