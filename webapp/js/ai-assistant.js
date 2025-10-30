@@ -514,10 +514,11 @@ CRITICAL RULES:
 3. Include print() statements in your code to show results to the user
 4. Handle errors gracefully within your code
 5. The font object is a babelfont Font instance
-6. Only set data in the font object if there is a clear instruction to do so in the user prompt
-7. Gently annotate the code with comments
+6. Only set data in the font object if there is a clear instruction to do so in the user prompt, otherwise just read or analyze data, or ask for precise instructions.
+7. Annotate the code with comments
 8. But never return single-line Python comments. If you want to return just a comment, wrap it in a print statement anyway so the user gets to see it.
-9. At the end of the code, save a summary of the user prompt (ca. 50 characters max) into a variable called __summary that can be used as a title to save the script.
+9. Always include a summary print statement at the end indicating what was done
+10. Always include a summary of the user prompt in the first line of the code as a comment (max 40 characters, pose as a command, not a question), followed by an empty line, followed by one or several comment lines explaining briefly what the script does. Cap the description at 40 characters per line.
 
 BABELFONT API DOCUMENTATION:
 ${apiDocs}
