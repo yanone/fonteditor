@@ -506,14 +506,50 @@ class AIAssistant {
         // Links
         html = html.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>');
 
-        // Lists (unordered)
-        html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
-        html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+        // Lists - process line by line to properly wrap consecutive items
+        const lines = html.split('\n');
+        const result = [];
+        let inUnorderedList = false;
+        let inOrderedList = false;
 
-        // Lists (ordered)
-        html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const isUnorderedItem = /^[*-] (.+)$/.test(line);
+            const isOrderedItem = /^\d+\. (.+)$/.test(line);
 
-        return html;
+            if (isUnorderedItem) {
+                if (!inUnorderedList) {
+                    result.push('<ul>');
+                    inUnorderedList = true;
+                }
+                result.push(line.replace(/^[*-] (.+)$/, '<li>$1</li>'));
+            } else {
+                if (inUnorderedList) {
+                    result.push('</ul>');
+                    inUnorderedList = false;
+                }
+
+                if (isOrderedItem) {
+                    if (!inOrderedList) {
+                        result.push('<ol>');
+                        inOrderedList = true;
+                    }
+                    result.push(line.replace(/^\d+\. (.+)$/, '<li>$1</li>'));
+                } else {
+                    if (inOrderedList) {
+                        result.push('</ol>');
+                        inOrderedList = false;
+                    }
+                    result.push(line);
+                }
+            }
+        }
+
+        // Close any open lists at the end
+        if (inUnorderedList) result.push('</ul>');
+        if (inOrderedList) result.push('</ol>');
+
+        return result.join('\n');
     }
 
     clearConversation() {
