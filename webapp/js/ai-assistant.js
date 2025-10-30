@@ -272,8 +272,8 @@ class AIAssistant {
 
         const buttonContainerHtml = showRunButton ? `
             <div class="ai-button-group">
-                <button class="ai-run-in-console-btn" id="${runBtnId}">Run in Console</button>
                 <button class="ai-open-in-editor-btn" id="${openBtnId}">Open in Script Editor</button>
+                <button class="ai-run-in-console-btn" id="${runBtnId}">Run in Console</button>
             </div>` : '';
 
         const body = `

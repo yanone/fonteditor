@@ -831,9 +831,9 @@ body {
 
 .ai-run-in-console-btn,
 .ai-open-in-editor-btn {
-    background-color: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    color: rgba(255, 255, 255, 0.8);
+    border: 2px solid;
+    background-color: rgba(0, 0, 0, 0.2);
+    color: rgba(255, 255, 255, 0.9);
     padding: 6px 12px;
     border-radius: 0;
     cursor: pointer;
@@ -844,10 +844,17 @@ body {
     flex: 1;
 }
 
+.ai-run-in-console-btn {
+    border-color: #ff3300;
+}
+
+.ai-open-in-editor-btn {
+    border-color: #9900ff;
+}
+
 .ai-run-in-console-btn:hover,
 .ai-open-in-editor-btn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.6);
+    filter: brightness(1.1);
 }
 
 .ai-run-in-console-btn:disabled,
