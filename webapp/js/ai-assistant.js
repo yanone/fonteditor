@@ -49,7 +49,7 @@ class AIAssistant {
             if (this.context === 'font') {
                 this.promptInput.placeholder = 'Font context: Ask me to analyze or modify your font...';
             } else {
-                this.promptInput.placeholder = 'Script context: Ask me to modify your script...';
+                this.promptInput.placeholder = 'Script context: Ask me to create or modify your script...';
             }
         }
 
@@ -191,7 +191,7 @@ class AIAssistant {
             if (context === 'font') {
                 this.promptInput.placeholder = 'Font context: Ask me to analyze or modify your font...';
             } else {
-                this.promptInput.placeholder = 'Script context: Ask me to modify your script...';
+                this.promptInput.placeholder = 'Script context: Ask me to create or modify your script...';
             }
         }
 
