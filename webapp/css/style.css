@@ -702,11 +702,9 @@ body {
 
 #ai-messages {
     flex: 0 1 auto;
-    overflow-y: auto;
     padding: 0;
     background-color: transparent;
     margin-bottom: 15px;
-    max-height: 400px;
     display: none;
     font-family: 'IBM Plex Mono', monospace;
 }
