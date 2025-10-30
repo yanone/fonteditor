@@ -52,6 +52,9 @@
             view.classList.add('focused');
             currentFocusedView = viewId;
 
+            // Save the last active view to localStorage
+            localStorage.setItem('last_active_view', viewId);
+
             // Blur console for all non-console views first
             if (viewId !== 'view-console') {
                 blurConsole();

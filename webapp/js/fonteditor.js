@@ -45,6 +45,15 @@ async function initFontEditor() {
         const loadingOverlay = document.getElementById('loading-overlay');
         if (loadingOverlay) {
             loadingOverlay.classList.add('hidden');
+
+            // After overlay is hidden, restore the last active view
+            setTimeout(() => {
+                const lastActiveView = localStorage.getItem('last_active_view');
+                if (lastActiveView && window.focusView) {
+                    // Restore the last active view
+                    window.focusView(lastActiveView);
+                }
+            }, 600); // Wait for fade-out animation to complete (500ms) plus small buffer
         }
 
         return true;
