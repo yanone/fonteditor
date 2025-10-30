@@ -42,7 +42,6 @@ body {
     font-size: 72px;
     font-weight: 700;
     color: #ffffff;
-    letter-spacing: 0.1em;
     animation: pulse 2s ease-in-out infinite;
 }
 
