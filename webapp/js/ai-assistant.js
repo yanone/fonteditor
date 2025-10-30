@@ -340,7 +340,7 @@ class AIAssistant {
         }
 
         try {
-            window.term.echo('🚀 Running AI-generated code...');
+            window.term.echo('🚀 Running assistant-generated code...');
             await window.pyodide.runPythonAsync(code);
             window.term.echo('✅ Code executed successfully');
 
