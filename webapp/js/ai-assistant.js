@@ -25,11 +25,23 @@ class AIAssistant {
         this.contextFontButton = document.getElementById('ai-context-font-btn');
         this.contextScriptButton = document.getElementById('ai-context-script-btn');
         this.isAssistantViewFocused = false;
-        this.context = 'font'; // Default context
+
+        // Restore saved context or default to 'font'
+        const savedContext = localStorage.getItem('ai_context');
+        this.context = savedContext || 'font';
 
         // Set saved API key
         if (this.apiKey) {
             this.apiKeyInput.value = this.apiKey;
+        }
+
+        // Set context button states based on restored context
+        if (this.context === 'font') {
+            this.contextFontButton.classList.add('active');
+            this.contextScriptButton.classList.remove('active');
+        } else {
+            this.contextFontButton.classList.remove('active');
+            this.contextScriptButton.classList.add('active');
         }
 
         // Update auto-run button state
@@ -144,6 +156,9 @@ class AIAssistant {
 
     setContext(context) {
         this.context = context;
+
+        // Save context to localStorage
+        localStorage.setItem('ai_context', context);
 
         // Update button states
         if (context === 'font') {
