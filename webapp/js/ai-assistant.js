@@ -344,7 +344,13 @@ class AIAssistant {
 
         const timestamp = new Date().toLocaleTimeString();
         const roleLabel = role === 'user' ? '👽 You' : role === 'output' ? '🤖 Output' : '🤖 AI';
-        const header = `<div class="ai-message-header">${roleLabel} - ${timestamp}</div>`;
+
+        // Add context tag with appropriate color
+        const contextTag = this.context === 'script'
+            ? '<span class="ai-context-tag ai-context-tag-script">Script</span>'
+            : '<span class="ai-context-tag ai-context-tag-font">Font</span>';
+
+        const header = `<div class="ai-message-header"><span>${roleLabel} - ${timestamp}</span>${contextTag}</div>`;
 
         let body;
         if (isCode) {
@@ -415,19 +421,27 @@ class AIAssistant {
         const runBtnId = 'run-' + Date.now() + Math.random().toString(36).substr(2, 9);
         const openBtnId = 'open-' + Date.now() + Math.random().toString(36).substr(2, 9);
 
+        // Add context tag with appropriate color
+        const contextTag = this.context === 'script'
+            ? '<span class="ai-context-tag ai-context-tag-script">Script</span>'
+            : '<span class="ai-context-tag ai-context-tag-font">Font</span>';
+
         const header = `
             <div class="ai-message-header">
                 <span>📎 Assistant - ${timestamp}</span>
-                <span class="ai-code-toggle-link" id="${btnId}" onclick="
-                    const code = document.getElementById('${codeId}');
-                    const btn = document.getElementById('${btnId}');
-                    code.classList.toggle('collapsed');
-                    if (code.classList.contains('collapsed')) {
-                        btn.textContent = '▶ Show Code';
-                    } else {
-                        btn.textContent = '▼ Hide Code';
-                    }
-                ">▶ Show Code</span>
+                <div class="ai-message-header-right">
+                    ${contextTag}
+                    <span class="ai-code-toggle-link" id="${btnId}" onclick="
+                        const code = document.getElementById('${codeId}');
+                        const btn = document.getElementById('${btnId}');
+                        code.classList.toggle('collapsed');
+                        if (code.classList.contains('collapsed')) {
+                            btn.textContent = '▶ Show Code';
+                        } else {
+                            btn.textContent = '▼ Hide Code';
+                        }
+                    ">▶ Show Code</span>
+                </div>
             </div>`;
 
         // Show appropriate buttons based on context

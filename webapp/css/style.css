@@ -918,6 +918,32 @@ body {
     align-items: center;
 }
 
+.ai-message-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ai-context-tag {
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: calc(var(--size, 1) * (10px / var(--pixel-density, 1)));
+    font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.ai-context-tag-script {
+    background-color: #9900ff;
+    color: #1a1a1a;
+}
+
+.ai-context-tag-font {
+    background-color: #ff00ff;
+    color: #1a1a1a;
+}
+
 .ai-code-toggle-link {
     color: rgba(255, 255, 255, 0.6);
     cursor: pointer;
