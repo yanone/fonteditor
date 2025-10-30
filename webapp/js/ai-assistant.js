@@ -357,21 +357,19 @@ class AIAssistant {
 
         // Show appropriate buttons based on context
         let buttonContainerHtml = '';
-        if (showRunButton) {
-            if (this.context === 'script') {
-                // Script context: only show "Open in Script Editor" button
-                buttonContainerHtml = `
-                    <div class="ai-button-group">
-                        <button class="ai-open-in-editor-btn" id="${openBtnId}">Open in Script Editor</button>
-                    </div>`;
-            } else {
-                // Font context: show both buttons
-                buttonContainerHtml = `
-                    <div class="ai-button-group">
-                        <button class="ai-open-in-editor-btn" id="${openBtnId}">Open in Script Editor</button>
-                        <button class="ai-run-in-console-btn" id="${runBtnId}">Run in Console</button>
-                    </div>`;
-            }
+        if (this.context === 'script') {
+            // Script context: always show "Open in Script Editor" button
+            buttonContainerHtml = `
+                <div class="ai-button-group">
+                    <button class="ai-open-in-editor-btn" id="${openBtnId}">Open in Script Editor</button>
+                </div>`;
+        } else if (showRunButton) {
+            // Font context: show both buttons
+            buttonContainerHtml = `
+                <div class="ai-button-group">
+                    <button class="ai-open-in-editor-btn" id="${openBtnId}">Open in Script Editor</button>
+                    <button class="ai-run-in-console-btn" id="${runBtnId}">Run in Console</button>
+                </div>`;
         }
 
         // Show markdown explanation if present
@@ -395,7 +393,14 @@ class AIAssistant {
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
         // Add event listeners for buttons if they exist
-        if (showRunButton) {
+        const openBtn = document.getElementById(openBtnId);
+        if (openBtn) {
+            openBtn.addEventListener('click', () => {
+                this.openCodeInEditor(code);
+            });
+        }
+
+        if (showRunButton && this.context !== 'script') {
             const runBtn = document.getElementById(runBtnId);
             if (runBtn) {
                 runBtn.addEventListener('click', async () => {
@@ -417,13 +422,6 @@ class AIAssistant {
                             runBtn.disabled = false;
                         }, 2000);
                     }
-                });
-            }
-
-            const openBtn = document.getElementById(openBtnId);
-            if (openBtn) {
-                openBtn.addEventListener('click', () => {
-                    this.openCodeInEditor(code);
                 });
             }
         }
@@ -579,8 +577,17 @@ class AIAssistant {
             // Get Python code and markdown from Claude
             const { pythonCode, markdownText } = await this.callClaude(originalPrompt, previousError, attemptNumber);
 
-            if (this.autoRun) {
-                // Auto-run mode: Execute the Python code and capture output
+            // In script context, never auto-run - only show code with "Open in Script Editor" button
+            if (this.context === 'script') {
+                // Script mode: Just show the code, no execution
+                this.addOutputWithCode('', pythonCode, markdownText, false);
+
+                // Play incoming message sound
+                if (window.playSound) {
+                    window.playSound('incoming_message');
+                }
+            } else if (this.autoRun) {
+                // Font mode with auto-run: Execute the Python code and capture output
                 const output = await this.executePython(pythonCode);
 
                 // Show output with collapsible code and run button
@@ -596,7 +603,7 @@ class AIAssistant {
                     await window.fontDropdownManager.updateDropdown();
                 }
             } else {
-                // Manual mode: Just show the code with a run button
+                // Font mode, manual: Just show the code with a run button
                 this.addOutputWithCode('', pythonCode, markdownText, true);
 
                 // Play incoming message sound
@@ -611,8 +618,8 @@ class AIAssistant {
             // Add error message
             this.addMessage('error', `Execution error: ${error.message}`);
 
-            // Only retry in auto-run mode
-            if (this.autoRun && attemptNumber < this.maxRetries - 1) {
+            // Only retry in font mode with auto-run (never retry in script context since we don't execute)
+            if (this.context !== 'script' && this.autoRun && attemptNumber < this.maxRetries - 1) {
                 this.addMessage('system', `Retrying (attempt ${attemptNumber + 2}/${this.maxRetries})...`);
                 await this.executeWithRetry(originalPrompt, attemptNumber + 1, error.message);
             } else {
