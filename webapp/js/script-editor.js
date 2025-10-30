@@ -197,6 +197,11 @@
         init();
     }
 
-    // Expose runScript globally for other scripts
-    window.runScript = runScript;
+    // Expose scriptEditor API globally for other scripts
+    window.scriptEditor = {
+        get editor() {
+            return editor;
+        },
+        runScript: runScript
+    };
 })();

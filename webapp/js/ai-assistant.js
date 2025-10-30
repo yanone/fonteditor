@@ -83,6 +83,20 @@ class AIAssistant {
                     }
                 }
             }
+
+            // Check if Cmd+Alt+O to open last visible code in script editor
+            if (cmdKey && event.altKey && !event.shiftKey && code === 'KeyO' && this.isAssistantViewFocused) {
+                event.preventDefault();
+                // Find all visible open in editor buttons
+                const openButtons = document.querySelectorAll('.ai-open-in-editor-btn');
+                if (openButtons.length > 0) {
+                    // Get the last button and trigger it
+                    const lastButton = openButtons[openButtons.length - 1];
+                    if (!lastButton.disabled) {
+                        lastButton.click();
+                    }
+                }
+            }
         });
     }
 
@@ -99,11 +113,11 @@ class AIAssistant {
         }
     }
 
-    updateRunButtonShortcuts() {
+    updateButtonShortcuts() {
         // Find all run buttons
         const runButtons = document.querySelectorAll('.ai-run-in-console-btn');
-
-        // Remove shortcut from all buttons
+        
+        // Remove shortcut from all run buttons
         runButtons.forEach(btn => {
             const text = btn.textContent || btn.innerText;
             if (text.includes('Run in Console')) {
@@ -111,17 +125,35 @@ class AIAssistant {
             }
         });
 
-        // Add shortcut only to the last button
+        // Add shortcut only to the last run button
         if (runButtons.length > 0) {
             const lastButton = runButtons[runButtons.length - 1];
             const text = lastButton.textContent || lastButton.innerText;
             if (text.includes('Run in Console')) {
-                lastButton.innerHTML = 'Run in Console <span class="ai-run-shortcut">⌘⌥R</span>';
+                lastButton.innerHTML = 'Run in Console <span class="ai-button-shortcut">⌘⌥R</span>';
             }
         }
-    }
 
-    addMessage(role, content, isCode = false, isCollapsible = false) {
+        // Find all open in editor buttons
+        const openButtons = document.querySelectorAll('.ai-open-in-editor-btn');
+        
+        // Remove shortcut from all open buttons
+        openButtons.forEach(btn => {
+            const text = btn.textContent || btn.innerText;
+            if (text.includes('Open in Script Editor')) {
+                btn.innerHTML = 'Open in Script Editor';
+            }
+        });
+
+        // Add shortcut only to the last open button
+        if (openButtons.length > 0) {
+            const lastButton = openButtons[openButtons.length - 1];
+            const text = lastButton.textContent || lastButton.innerText;
+            if (text.includes('Open in Script Editor')) {
+                lastButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut">⌘⌥O</span>';
+            }
+        }
+    }    addMessage(role, content, isCode = false, isCollapsible = false) {
         // Show messages container on first message
         if (this.messagesContainer.style.display === 'none' || !this.messagesContainer.style.display) {
             this.messagesContainer.style.display = 'block';
@@ -201,6 +233,7 @@ class AIAssistant {
         const codeId = 'code-' + Date.now() + Math.random().toString(36).substr(2, 9);
         const btnId = 'btn-' + Date.now() + Math.random().toString(36).substr(2, 9);
         const runBtnId = 'run-' + Date.now() + Math.random().toString(36).substr(2, 9);
+        const openBtnId = 'open-' + Date.now() + Math.random().toString(36).substr(2, 9);
 
         const header = `
             <div class="ai-message-header">
@@ -217,20 +250,24 @@ class AIAssistant {
                 ">▶ Show Code</span>
             </div>`;
 
-        const runButtonHtml = showRunButton ? `<button class="ai-run-in-console-btn" id="${runBtnId}">Run in Console</button>` : '';
+        const buttonContainerHtml = showRunButton ? `
+            <div class="ai-button-group">
+                <button class="ai-run-in-console-btn" id="${runBtnId}">Run in Console</button>
+                <button class="ai-open-in-editor-btn" id="${openBtnId}">Open in Script Editor</button>
+            </div>` : '';
 
         const body = `
             <div class="ai-output-with-code">
                 <pre class="ai-code collapsed" id="${codeId}"><code>${this.escapeHtml(code)}</code></pre>
                 <div class="ai-message-content">${output && output.trim() ? this.escapeHtml(output) : '(Code ready to run)'}</div>
-                ${runButtonHtml}
+                ${buttonContainerHtml}
             </div>`;
 
         messageDiv.innerHTML = header + body;
         this.messagesContainer.appendChild(messageDiv);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
-        // Add event listener for run button if it exists
+        // Add event listeners for buttons if they exist
         if (showRunButton) {
             const runBtn = document.getElementById(runBtnId);
             if (runBtn) {
@@ -242,23 +279,30 @@ class AIAssistant {
                         runBtn.innerHTML = '✓ Executed';
                         setTimeout(() => {
                             runBtn.innerHTML = 'Run in Console';
-                            this.updateRunButtonShortcuts();
+                            this.updateButtonShortcuts();
                             runBtn.disabled = false;
                         }, 2000);
                     } catch (error) {
                         runBtn.innerHTML = '✗ Error';
                         setTimeout(() => {
                             runBtn.innerHTML = 'Run in Console';
-                            this.updateRunButtonShortcuts();
+                            this.updateButtonShortcuts();
                             runBtn.disabled = false;
                         }, 2000);
                     }
                 });
             }
+
+            const openBtn = document.getElementById(openBtnId);
+            if (openBtn) {
+                openBtn.addEventListener('click', () => {
+                    this.openCodeInEditor(code);
+                });
+            }
         }
 
-        // Update which button shows the shortcut (only the last one)
-        this.updateRunButtonShortcuts();
+        // Update which buttons show shortcuts (only the last ones)
+        this.updateButtonShortcuts();
 
         // Scroll the view-content to bottom
         this.scrollToBottom();
@@ -292,6 +336,20 @@ class AIAssistant {
         } catch (error) {
             window.term.error('Error: ' + error.message);
             throw error;
+        }
+    }
+
+    openCodeInEditor(code) {
+        // Get the script editor instance
+        if (window.scriptEditor && window.scriptEditor.editor) {
+            // Set the code in the editor
+            window.scriptEditor.editor.setValue(code, -1); // -1 moves cursor to start
+            
+            // Focus the script editor view
+            const scriptView = document.getElementById('view-scripts');
+            if (scriptView) {
+                scriptView.click(); // This will trigger the focus
+            }
         }
     }
 

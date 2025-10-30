@@ -823,7 +823,14 @@ body {
     display: none;
 }
 
-.ai-run-in-console-btn {
+.ai-button-group {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.ai-run-in-console-btn,
+.ai-open-in-editor-btn {
     background-color: transparent;
     border: 1px solid rgba(255, 255, 255, 0.3);
     color: rgba(255, 255, 255, 0.8);
@@ -834,20 +841,22 @@ body {
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
     font-weight: normal;
     transition: all 0.2s ease;
-    margin-top: 8px;
+    flex: 1;
 }
 
-.ai-run-in-console-btn:hover {
+.ai-run-in-console-btn:hover,
+.ai-open-in-editor-btn:hover {
     background-color: rgba(255, 255, 255, 0.1);
     border-color: rgba(255, 255, 255, 0.6);
 }
 
-.ai-run-in-console-btn:disabled {
+.ai-run-in-console-btn:disabled,
+.ai-open-in-editor-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
-.ai-run-shortcut {
+.ai-button-shortcut {
     color: rgba(255, 255, 255, 0.5);
     margin-left: 8px;
 }
