@@ -286,7 +286,7 @@ body {
 .view-title-button {
     background-color: transparent;
     border: none;
-    border-left: 1px solid rgba(255, 255, 255, 0.3);
+    border-left: 1px solid #404040;
     color: rgba(255, 255, 255, 0.8);
     padding: 0 12px;
     border-radius: 0;
@@ -323,8 +323,7 @@ body {
     display: flex;
     align-items: stretch;
     gap: 0;
-    margin-right: 7px;
-    border-right: 1px solid rgba(255, 255, 255, 0.3);
+    border-right: 4px solid #404040;
     height: 100%;
 }
 
