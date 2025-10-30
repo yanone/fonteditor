@@ -22,7 +22,10 @@ class AIAssistant {
         this.clearButton = document.getElementById('ai-clear-btn');
         this.messagesContainer = document.getElementById('ai-messages');
         this.autoRunButton = document.getElementById('ai-auto-run-btn');
+        this.contextFontButton = document.getElementById('ai-context-font-btn');
+        this.contextScriptButton = document.getElementById('ai-context-script-btn');
         this.isAssistantViewFocused = false;
+        this.context = 'font'; // Default context
 
         // Set saved API key
         if (this.apiKey) {
@@ -31,6 +34,9 @@ class AIAssistant {
 
         // Update auto-run button state
         this.updateAutoRunButton();
+
+        // Update context buttons state
+        this.updateContextButtons();
 
         // Event listeners
         this.apiKeyInput.addEventListener('change', () => {
@@ -44,6 +50,10 @@ class AIAssistant {
 
         this.autoRunButton.addEventListener('click', () => this.toggleAutoRun());
 
+        this.contextFontButton.addEventListener('click', () => this.setContext('font'));
+
+        this.contextScriptButton.addEventListener('click', () => this.setContext('script'));
+
         this.promptInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault(); // Prevent newline
@@ -55,6 +65,7 @@ class AIAssistant {
         window.addEventListener('viewFocused', (event) => {
             this.isAssistantViewFocused = event.detail.viewId === 'view-assistant';
             this.updateAutoRunButton(); // Update button appearance based on focus
+            this.updateContextButtons(); // Update context button appearance based on focus
         });
 
         // Add global keyboard shortcuts when assistant is focused
@@ -99,12 +110,75 @@ class AIAssistant {
                 }
             }
 
-            // Check if Alt+R to toggle auto-run (no cmd key)
+            // Check if Alt+R to toggle auto-run (no cmd key, and only when not in script context)
             if (!cmdKey && event.altKey && !event.shiftKey && code === 'KeyR' && this.isAssistantViewFocused) {
                 event.preventDefault();
-                this.toggleAutoRun();
+                if (this.context !== 'script') {
+                    this.toggleAutoRun();
+                }
+            }
+
+            // Check if Alt+F to switch to font context
+            if (!cmdKey && event.altKey && !event.shiftKey && code === 'KeyF' && this.isAssistantViewFocused) {
+                event.preventDefault();
+                this.setContext('font');
+            }
+
+            // Check if Alt+S to switch to script context
+            if (!cmdKey && event.altKey && !event.shiftKey && code === 'KeyS' && this.isAssistantViewFocused) {
+                event.preventDefault();
+                this.setContext('script');
             }
         });
+    }
+
+    setContext(context) {
+        this.context = context;
+
+        // Update button states
+        if (context === 'font') {
+            this.contextFontButton.classList.add('active');
+            this.contextScriptButton.classList.remove('active');
+        } else {
+            this.contextFontButton.classList.remove('active');
+            this.contextScriptButton.classList.add('active');
+        }
+
+        // Update button colors
+        this.updateContextButtons();
+
+        // Update Auto-Run button state
+        this.updateAutoRunButton();
+    }
+
+    updateContextButtons() {
+        if (!this.contextFontButton || !this.contextScriptButton) return;
+
+        // Update font button
+        if (this.contextFontButton.classList.contains('active')) {
+            const fontBgColor = this.isAssistantViewFocused ? '#ff00ff' : '#660066';
+            const fontBorderColor = this.isAssistantViewFocused ? '#ff00ff' : '#660066';
+            this.contextFontButton.style.backgroundColor = fontBgColor;
+            this.contextFontButton.style.borderColor = fontBorderColor;
+            this.contextFontButton.style.color = '#1a1a1a';
+        } else {
+            this.contextFontButton.style.backgroundColor = 'transparent';
+            this.contextFontButton.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+            this.contextFontButton.style.color = 'rgba(255, 255, 255, 0.8)';
+        }
+
+        // Update script button
+        if (this.contextScriptButton.classList.contains('active')) {
+            const scriptBgColor = this.isAssistantViewFocused ? '#9900ff' : '#4d0080';
+            const scriptBorderColor = this.isAssistantViewFocused ? '#9900ff' : '#4d0080';
+            this.contextScriptButton.style.backgroundColor = scriptBgColor;
+            this.contextScriptButton.style.borderColor = scriptBorderColor;
+            this.contextScriptButton.style.color = '#1a1a1a';
+        } else {
+            this.contextScriptButton.style.backgroundColor = 'transparent';
+            this.contextScriptButton.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+            this.contextScriptButton.style.color = 'rgba(255, 255, 255, 0.8)';
+        }
     }
 
     toggleAutoRun() {
@@ -115,20 +189,31 @@ class AIAssistant {
 
     updateAutoRunButton() {
         if (this.autoRunButton) {
-            if (this.autoRun) {
-                // Use darker green when not focused
-                const bgColor = this.isAssistantViewFocused ? '#00ff00' : '#006600';
-                const borderColor = this.isAssistantViewFocused ? '#00ff00' : '#006600';
-
-                this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut" style="color: rgba(0, 0, 0, 0.5);">⌥R</span>';
-                this.autoRunButton.style.backgroundColor = bgColor;
-                this.autoRunButton.style.color = '#1a1a1a';
-                this.autoRunButton.style.borderColor = borderColor;
-            } else {
+            // Disable when context is script
+            if (this.context === 'script') {
+                this.autoRunButton.disabled = true;
                 this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut">⌥R</span>';
                 this.autoRunButton.style.backgroundColor = 'transparent';
-                this.autoRunButton.style.color = 'rgba(255, 255, 255, 0.8)';
-                this.autoRunButton.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                this.autoRunButton.style.color = 'rgba(255, 255, 255, 0.3)';
+                this.autoRunButton.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+            } else {
+                this.autoRunButton.disabled = false;
+
+                if (this.autoRun) {
+                    // Use darker green when not focused
+                    const bgColor = this.isAssistantViewFocused ? '#00ff00' : '#006600';
+                    const borderColor = this.isAssistantViewFocused ? '#00ff00' : '#006600';
+
+                    this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut" style="color: rgba(0, 0, 0, 0.5);">⌥R</span>';
+                    this.autoRunButton.style.backgroundColor = bgColor;
+                    this.autoRunButton.style.color = '#1a1a1a';
+                    this.autoRunButton.style.borderColor = borderColor;
+                } else {
+                    this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut">⌥R</span>';
+                    this.autoRunButton.style.backgroundColor = 'transparent';
+                    this.autoRunButton.style.color = 'rgba(255, 255, 255, 0.8)';
+                    this.autoRunButton.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                }
             }
         }
     }

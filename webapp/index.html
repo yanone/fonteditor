@@ -105,8 +105,17 @@
                         <span class="view-title-name">Assistant</span>
                         <span class="view-title-shortcut">⌘↑A</span>
                     </div>
+                    <span class="ai-context-label">Context:</span>
+                    <div class="ai-context-toggle">
+                        <button id="ai-context-script-btn" class="ai-context-btn"
+                            title="Script context: The assistant will work on the code in the script editor (Alt+S)">Script
+                            <span class="ai-button-shortcut">⌥S</span></button>
+                        <button id="ai-context-font-btn" class="ai-context-btn active"
+                            title="Font context: The assistant will work on the font object (Alt+F)">Font
+                            <span class="ai-button-shortcut">⌥F</span></button>
+                    </div>
                     <button id="ai-auto-run-btn" class="view-title-button"
-                        title="Automatically run assistant-generated code">Auto-Run <span
+                        title="Automatically run assistant-generated code (Alt+R)">Auto-Run <span
                             class="ai-button-shortcut">⌥R</span></button>
                 </div>
                 <div class="view-content">
@@ -114,8 +123,8 @@
                         <p>Describe what you want to do with your font in your natural language. I will generate
                             Python code using the <strong>babelfont</strong> library and run it.</p>
                         <ul>
-                            <li>💬 <strong>Natural conversation:</strong> Context is preserved across prompts until chat
-                                is cleared</li>
+                            <li>🎯 <strong>Context matters:</strong> Work either on the font directly, or on a user-made
+                                script in the script editor</li>
                             <li>🔄 <strong>Auto-retry:</strong> If code fails, I will fix and retry</li>
                             <li>🔑 <strong>Privacy:</strong> Your font data never leaves the browser. I simply
                                 generate Python code which is run locally like a user-made script.</li>

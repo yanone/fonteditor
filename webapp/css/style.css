@@ -251,7 +251,6 @@ body {
     font-weight: normal;
     transition: all 0.2s ease;
     height: 100%;
-    margin-left: auto;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -260,6 +259,50 @@ body {
 .view-title-button:hover {
     background-color: rgba(255, 255, 255, 0.1);
     border-left-color: rgba(255, 255, 255, 0.6);
+}
+
+/* AI Context Label */
+.ai-context-label {
+    color: rgba(255, 255, 255, 0.6);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: normal;
+    margin-left: auto;
+    margin-right: 8px;
+    display: flex;
+    align-items: center;
+}
+
+/* AI Context Toggle */
+.ai-context-toggle {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin-right: 7px;
+    border-right: 1px solid rgba(255, 255, 255, 0.3);
+    height: 100%;
+}
+
+.ai-context-btn {
+    background-color: transparent;
+    border: none;
+    border-left: 1px solid rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.8);
+    padding: 0 12px;
+    border-radius: 0;
+    cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: normal;
+    transition: all 0.2s ease;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ai-context-btn:hover:not(.active) {
+    background-color: rgba(255, 255, 255, 0.05);
 }
 
 /* Script Editor */
@@ -637,8 +680,7 @@ body {
 }
 
 .ai-info strong {
-    color: rgba(255, 255, 255, 0.8);
-    font-weight: normal;
+    color: rgba(255, 255, 255, 1);
 }
 
 .ai-info ul {
