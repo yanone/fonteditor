@@ -869,6 +869,78 @@ body {
     padding: 8px 0;
 }
 
+.ai-markdown-explanation h1,
+.ai-markdown-explanation h2,
+.ai-markdown-explanation h3 {
+    font-family: 'IBM Plex Mono', monospace;
+    color: rgba(255, 255, 255, 1);
+    margin: 12px 0 8px 0;
+    font-weight: bold;
+}
+
+.ai-markdown-explanation h1 {
+    font-size: calc(var(--size, 1) * (18px / var(--pixel-density, 1)));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    padding-bottom: 4px;
+}
+
+.ai-markdown-explanation h2 {
+    font-size: calc(var(--size, 1) * (16px / var(--pixel-density, 1)));
+}
+
+.ai-markdown-explanation h3 {
+    font-size: calc(var(--size, 1) * (14px / var(--pixel-density, 1)));
+}
+
+.ai-markdown-explanation strong {
+    font-weight: bold;
+    color: rgba(255, 255, 255, 1);
+}
+
+.ai-markdown-explanation em {
+    font-style: italic;
+    color: rgba(255, 200, 255, 0.9);
+}
+
+.ai-markdown-explanation code {
+    font-family: 'IBM Plex Mono', monospace;
+    background-color: rgba(255, 255, 255, 0.1);
+    padding: 2px 4px;
+    border-radius: 2px;
+    color: rgba(255, 200, 100, 0.9);
+}
+
+.ai-markdown-explanation a {
+    color: rgba(100, 200, 255, 0.9);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(100, 200, 255, 0.3);
+    transition: all 0.2s ease;
+}
+
+.ai-markdown-explanation a:hover {
+    color: rgba(150, 220, 255, 1);
+    border-bottom-color: rgba(150, 220, 255, 0.6);
+}
+
+.ai-markdown-explanation ul,
+.ai-markdown-explanation ol {
+    margin: 8px 0;
+    padding-left: 24px;
+}
+
+.ai-markdown-explanation li {
+    margin: 4px 0;
+    list-style-position: outside;
+}
+
+.ai-markdown-explanation ul li {
+    list-style-type: disc;
+}
+
+.ai-markdown-explanation ol li {
+    list-style-type: decimal;
+}
+
 .ai-python-output {
     background-color: rgba(31, 31, 31, 0.8);
     padding: 8px;

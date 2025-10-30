@@ -355,15 +355,28 @@ class AIAssistant {
                 ">▶ Show Code</span>
             </div>`;
 
-        const buttonContainerHtml = showRunButton ? `
-            <div class="ai-button-group">
-                <button class="ai-open-in-editor-btn" id="${openBtnId}">Open in Script Editor</button>
-                <button class="ai-run-in-console-btn" id="${runBtnId}">Run in Console</button>
-            </div>` : '';
+        // Show appropriate buttons based on context
+        let buttonContainerHtml = '';
+        if (showRunButton) {
+            if (this.context === 'script') {
+                // Script context: only show "Open in Script Editor" button
+                buttonContainerHtml = `
+                    <div class="ai-button-group">
+                        <button class="ai-open-in-editor-btn" id="${openBtnId}">Open in Script Editor</button>
+                    </div>`;
+            } else {
+                // Font context: show both buttons
+                buttonContainerHtml = `
+                    <div class="ai-button-group">
+                        <button class="ai-open-in-editor-btn" id="${openBtnId}">Open in Script Editor</button>
+                        <button class="ai-run-in-console-btn" id="${runBtnId}">Run in Console</button>
+                    </div>`;
+            }
+        }
 
         // Show markdown explanation if present
         const markdownHtml = markdownText && markdownText.trim() ?
-            `<div class="ai-markdown-explanation">${this.escapeHtml(markdownText)}</div>` : '';
+            `<div class="ai-markdown-explanation">${this.formatMarkdown(markdownText)}</div>` : '';
 
         // Show Python output if present
         const outputHtml = output && output.trim() ?
@@ -472,6 +485,37 @@ class AIAssistant {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    formatMarkdown(text) {
+        // First escape HTML to prevent XSS
+        let html = this.escapeHtml(text);
+
+        // Headers (must come before bold/italic to avoid conflicts)
+        html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+        html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+        html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+        // Bold and italic
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+        html = html.replace(/_(.+?)_/g, '<em>$1</em>');
+
+        // Inline code
+        html = html.replace(/`(.+?)`/g, '<code>$1</code>');
+
+        // Links
+        html = html.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+        // Lists (unordered)
+        html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
+        html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+
+        // Lists (ordered)
+        html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+        return html;
     }
 
     clearConversation() {
@@ -599,27 +643,56 @@ babelfont.generate_all_docs()
 
         const apiDocs = this.cachedApiDocs;
 
+        // Build context-specific instructions
+        const contextInstructions = this.context === 'script'
+            ? `CONTEXT: SCRIPT EDITING MODE
+You are helping to improve and modify Python scripts that will be run inside the font editor using the babelfont library. The user has an existing script open in their editor that they want to enhance or modify, or the script may also be empty still.
+
+PRIMARY FOCUS:
+- Write Python scripts from scratch or improve existing ones
+- Add new functionality to scripts
+- Refactor and optimize code
+- Adapt code to babelfont API changes (see API docs below)
+- Help write complete, reusable scripts
+- Scripts should be designed to work on fonts using the babelfont library
+
+CRITICAL RULES FOR SCRIPT MODE:
+1. Generate complete, standalone Python scripts that can be saved and reused
+2. ALWAYS use CurrentFont() and assign it to the "font" variable to get the main font object
+3. Scripts should be self-contained and well-documented
+4. Include proper error handling and user feedback via print statements
+5. The babelfont API documentation below is provided for reference when writing scripts`
+
+            : `CONTEXT: FONT EDITING MODE
+You are working directly on the user's currently open font. Generate Python code that will be executed immediately on the active font using the babelfont library.
+
+CRITICAL RULES FOR FONT MODE:
+1. ALWAYS use CurrentFont() and assign it to the "font" variable to get the main font object
+2. Only set data in the font object if there is a clear instruction to do so in the user prompt, otherwise just read or analyze data
+3. Code will be executed immediately - keep it focused and efficient`;
+
         // Build the system prompt with API documentation
         const systemPrompt = `You are a Python code generator for a font editor using the babelfont library.
 
-CRITICAL RULES:
-1. ALWAYS use CurrentFont() and assign it to __font to get the main font object - DO NOT overwrite existing variables.
-2. Python code MUST be wrapped in one single \`\`\`python code block. You may include explanations in markdown format outside the code block.
+${contextInstructions}
+
+GENERAL RULES (APPLY TO BOTH CONTEXTS):
+1. Python code MUST be wrapped in one single \`\`\`python code block
+2. You may include explanations in markdown format outside the code block
 3. Include print() statements in your code to show results to the user
 4. Handle errors gracefully within your code
 5. The font object is a babelfont Font instance
-6. Only set data in the font object if there is a clear instruction to do so in the user prompt, otherwise just read or analyze data, or ask for precise instructions.
-7. Annotate the code with comments
-8. But never return single-line Python comments. If you want to return just a comment, wrap it in a print statement anyway so the user gets to see it.
-9. Always include a summary print statement at the end indicating what was done
-10. Always include a summary of the user prompt in the first line of the code as a comment (max 40 characters, pose as a command, not a question), followed by an empty line, followed by one or several comment lines explaining briefly what the script does. Cap the description at 40 characters per line.
-11. Always include an explanation of the code in markdown format outside the code block.
+6. Annotate the code with comments
+7. Never return single-line Python comments. If you want to return just a comment, wrap it in a print statement anyway so the user gets to see it
+8. Always include a summary print statement at the end indicating what was done
+9. Always include a summary of the user prompt in the first line of the code as a comment (max 40 characters, pose as a command, not a question), followed by an empty line, followed by one or several comment lines explaining briefly what the script does. Cap the description at 40 characters per line
+10. Always include an explanation of the code in markdown format outside the code block
 
 BABELFONT API DOCUMENTATION:
 ${apiDocs}
 
 EXAMPLE OPERATIONS:
-# Make all glyphs 10% wider
+${this.context === 'font' ? `# Make all glyphs 10% wider (FONT MODE)
 font = CurrentFont()
 for glyph in font.glyphs:
     for layer in glyph.layers:
@@ -629,27 +702,39 @@ for glyph in font.glyphs:
                 node.x = node.x * 1.1
 print(f"Made {len(font.glyphs)} glyphs 10% wider")
 
-# List all glyph names
+# List all glyph names (FONT MODE)
 font = CurrentFont()
 print(f"Font has {len(font.glyphs)} glyphs:")
 for glyph in font.glyphs:
-    print(f"  - {glyph.name}")
+    print(f"  - {glyph.name}")` : `# Example script for batch processing (SCRIPT MODE)
+import babelfont
+
+def process_font(font_path):
+    font = babelfont.load(font_path)
+    # Process the font
+    print(f"Processing {font.names.familyName}")
+    # Your modifications here
+    return font
+
+# This is a script that can be saved and reused`}
 
 Generate Python code for: ${userPrompt}`;
 
         // Build conversation messages with full conversation history
         const messages = [...this.conversationHistory];
 
-        // Add current prompt (or retry with error context)
+        // Add current prompt (or retry with error context) with context information
+        const contextPrefix = `[Context: ${this.context === 'script' ? 'Script Editing' : 'Font Editing'}]\n\n`;
+
         if (previousError && attemptNumber > 0) {
             messages.push({
                 role: 'user',
-                content: `${userPrompt}\n\nPrevious attempt ${attemptNumber} failed with error:\n${previousError}\n\nPlease fix the code and try again.`
+                content: `${contextPrefix}${userPrompt}\n\nPrevious attempt ${attemptNumber} failed with error:\n${previousError}\n\nPlease fix the code and try again.`
             });
         } else {
             messages.push({
                 role: 'user',
-                content: userPrompt
+                content: `${contextPrefix}${userPrompt}`
             });
         }
 
@@ -735,9 +820,10 @@ Generate Python code for: ${userPrompt}`;
 
         // Add to conversation history (only if not a retry)
         if (!previousError || attemptNumber === 0) {
+            const contextPrefix = `[Context: ${this.context === 'script' ? 'Script Editing' : 'Font Editing'}]\n\n`;
             this.conversationHistory.push({
                 role: 'user',
-                content: userPrompt
+                content: `${contextPrefix}${userPrompt}`
             });
             this.conversationHistory.push({
                 role: 'assistant',
