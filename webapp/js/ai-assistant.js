@@ -20,6 +20,7 @@ class AIAssistant {
         this.sendButton = document.getElementById('ai-send-btn');
         this.clearButton = document.getElementById('ai-clear-btn');
         this.messagesContainer = document.getElementById('ai-messages');
+        this.isAssistantViewFocused = false;
 
         // Set saved API key
         if (this.apiKey) {
@@ -40,6 +41,26 @@ class AIAssistant {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault(); // Prevent newline
                 this.sendPrompt();
+            }
+        });
+
+        // Listen for view focus events
+        window.addEventListener('viewFocused', (event) => {
+            this.isAssistantViewFocused = event.detail.viewId === 'view-assistant';
+        });
+
+        // Add global keyboard shortcut for Cmd+K when assistant is focused
+        document.addEventListener('keydown', (event) => {
+            const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+            const cmdKey = isMac ? event.metaKey : event.ctrlKey;
+            const code = event.code;
+
+            // Check if Cmd+K to clear console when assistant is focused
+            if (cmdKey && !event.altKey && code === 'KeyK' && this.isAssistantViewFocused) {
+                event.preventDefault();
+                if (window.term) {
+                    window.term.clear();
+                }
             }
         });
     }
