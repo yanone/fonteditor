@@ -40,6 +40,13 @@ async function initFontEditor() {
         console.log("fonteditor.py module loaded");
 
         console.log("FontEditor initialized successfully");
+
+        // Hide loading overlay
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) {
+            loadingOverlay.classList.add('hidden');
+        }
+
         return true;
 
     } catch (error) {
