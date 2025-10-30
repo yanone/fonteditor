@@ -838,6 +838,66 @@ body {
     background-color: rgba(255, 51, 0, 0.1);
 }
 
+.ai-message-error-fix {
+    color: rgba(255, 255, 255, 0.9);
+    background-color: rgba(255, 165, 0, 0.2);
+    animation: error-blink 0.4s ease-in-out 6;
+}
+
+@keyframes error-blink {
+
+    0%,
+    100% {
+        background-color: rgba(255, 165, 0, 0.2);
+    }
+
+    50% {
+        background-color: rgba(255, 165, 0, 0.5);
+    }
+}
+
+.ai-error-fix-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ai-error-fix-text {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+    line-height: 1.6;
+}
+
+.ai-error-fix-text p {
+    margin: 0 0 8px 0;
+}
+
+.ai-error-fix-text p:last-child {
+    margin-bottom: 0;
+}
+
+.ai-fix-code-btn {
+    align-self: flex-start;
+    padding: 8px 16px;
+    background-color: transparent;
+    border: 1px solid rgba(255, 165, 0, 0.6);
+    color: rgba(255, 255, 255, 0.9);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.ai-fix-code-btn:hover {
+    background-color: rgba(255, 165, 0, 0.2);
+    border-color: rgba(255, 165, 0, 0.8);
+}
+
+.ai-fix-code-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .ai-message-output {
     color: rgba(255, 255, 255, 0.9);
     background-color: rgba(200, 150, 255, 0.3);

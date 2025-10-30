@@ -162,6 +162,9 @@
         } catch (error) {
             console.error('Script execution error:', error);
 
+            // Store the full traceback for the AI assistant
+            const fullTraceback = error.message;
+
             if (window.term) {
                 let errorMessage = error.message;
 
@@ -183,6 +186,11 @@
                 window.term.error(errorMessage);
             } else {
                 alert('Script error: ' + error.message);
+            }
+
+            // Notify the AI assistant about the error
+            if (window.aiAssistant && window.aiAssistant.addErrorFixMessage) {
+                window.aiAssistant.addErrorFixMessage(fullTraceback, code);
             }
         } finally {
             // Re-enable the run button

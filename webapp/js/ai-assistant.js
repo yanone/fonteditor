@@ -702,6 +702,77 @@ class AIAssistant {
         return result.join('\n');
     }
 
+    addErrorFixMessage(errorTraceback, scriptCode) {
+        // Delay showing the message by 1.5 seconds + estimated sound duration (attention.wav ~1 second)
+        setTimeout(() => {
+            // Show messages container
+            if (this.messagesContainer.style.display === 'none' || !this.messagesContainer.style.display) {
+                this.messagesContainer.style.display = 'block';
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'ai-message ai-message-error-fix';
+
+            const timestamp = new Date().toLocaleTimeString();
+            const fixBtnId = 'fix-' + Date.now() + Math.random().toString(36).substr(2, 9);
+
+            const header = `<div class="ai-message-header">⚠️ Script Error - ${timestamp}</div>`;
+
+            const body = `
+                <div class="ai-error-fix-content">
+                    <div class="ai-error-fix-text">
+                        <p><strong>An error occurred while running your script.</strong></p>
+                        <p>Would you like me to analyze the error and suggest a fix?</p>
+                    </div>
+                    <button class="ai-fix-code-btn" id="${fixBtnId}">Fix Code</button>
+                </div>`;
+
+            messageDiv.innerHTML = header + body;
+            this.messagesContainer.appendChild(messageDiv);
+            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+
+            // Play attention sound
+            if (window.playSound) {
+                window.playSound('attention');
+            }
+
+            // Scroll to bottom
+            this.scrollToBottom();
+
+            // Add event listener to fix button
+            const fixBtn = document.getElementById(fixBtnId);
+            if (fixBtn) {
+                fixBtn.addEventListener('click', () => {
+                    // Switch to script context
+                    this.setContext('script');
+
+                    // Switch to assistant view
+                    if (window.focusView) {
+                        window.focusView('view-assistant');
+                    }
+
+                    // Construct the prompt with error information
+                    const prompt = `The script produced an error. Please analyze and fix it.\n\nError traceback:\n\`\`\`\n${errorTraceback}\n\`\`\``;
+
+                    // Disable the button
+                    fixBtn.disabled = true;
+                    fixBtn.textContent = 'Sending to AI...';
+
+                    // Stop the blinking animation
+                    messageDiv.classList.remove('ai-message-error-fix');
+
+                    // Set the prompt in the input and send it
+                    this.promptInput.value = prompt;
+
+                    // Send the prompt
+                    setTimeout(() => {
+                        this.sendPrompt();
+                    }, 100);
+                });
+            }
+        }, 2500); // 1500ms delay + ~1000ms for attention sound
+    }
+
     clearConversation() {
         if (confirm('Clear conversation history? This will start a fresh conversation.')) {
             this.conversationHistory = [];
@@ -883,6 +954,10 @@ GENERAL RULES (APPLY TO BOTH CONTEXTS):
 
 BABELFONT API DOCUMENTATION:
 ${apiDocs}
+
+CHANGELOG to API:
+Oct. 23rd 2025:
+- Layer.anchor_objects changed to Layer.anchors
 
 EXAMPLE OPERATIONS:
 ${this.context === 'font' ? `# Make all glyphs 10% wider (FONT MODE)
