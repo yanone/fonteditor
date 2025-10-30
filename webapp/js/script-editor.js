@@ -136,6 +136,7 @@
             // Run the Python code in the console terminal
             if (window.term) {
                 // Print a separator in the console
+                window.term.echo('---');
                 window.term.echo('🚀 Running script...');
 
                 // Execute the code
