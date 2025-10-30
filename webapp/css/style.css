@@ -1294,6 +1294,7 @@ body {
     background-color: #0d0d0d;
     border-color: rgba(255, 255, 255, 0.1);
     color: rgba(255, 255, 255, 0.4);
+    position: static !important;
 }
 
 #diff-container .d2h-ins {
