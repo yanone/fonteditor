@@ -280,86 +280,54 @@ class AIAssistant {
     }
 
     updateButtonShortcuts() {
-        // Find all run buttons
-        const runButtons = document.querySelectorAll('.ai-run-in-console-btn');
-
-        // Remove shortcut from all run buttons
-        runButtons.forEach(btn => {
+        // Remove shortcuts from ALL buttons first
+        const allRunButtons = document.querySelectorAll('.ai-run-in-console-btn');
+        allRunButtons.forEach(btn => {
             const text = btn.textContent || btn.innerText;
             if (text.includes('Run in Console')) {
                 btn.innerHTML = 'Run in Console';
             }
         });
 
-        // Add shortcut only to the last run button
-        if (runButtons.length > 0) {
-            const lastButton = runButtons[runButtons.length - 1];
-            const text = lastButton.textContent || lastButton.innerText;
-            if (text.includes('Run in Console')) {
-                lastButton.innerHTML = 'Run in Console <span class="ai-button-shortcut">⌘⌥R</span>';
-            }
-        }
-
-        // Find all open in editor buttons
-        const openButtons = document.querySelectorAll('.ai-open-in-editor-btn');
-
-        // Remove shortcut from all open buttons
-        openButtons.forEach(btn => {
+        const allOpenButtons = document.querySelectorAll('.ai-open-in-editor-btn');
+        allOpenButtons.forEach(btn => {
             const text = btn.textContent || btn.innerText;
             if (text.includes('Open in Script Editor')) {
                 btn.innerHTML = 'Open in Script Editor';
             }
         });
 
-        // Add shortcut only to the last open button
-        if (openButtons.length > 0) {
-            const lastButton = openButtons[openButtons.length - 1];
-            const text = lastButton.textContent || lastButton.innerText;
-            if (text.includes('Open in Script Editor')) {
-                lastButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut">⌘⌥O</span>';
-            }
-        }
-
-        // Find all review changes buttons
-        const reviewButtons = document.querySelectorAll('.ai-review-changes-btn');
-
-        // Remove shortcut from all review buttons
-        reviewButtons.forEach(btn => {
+        const allReviewButtons = document.querySelectorAll('.ai-review-changes-btn');
+        allReviewButtons.forEach(btn => {
             const text = btn.textContent || btn.innerText;
             if (text.includes('Review Changes')) {
                 btn.innerHTML = 'Review Changes';
             }
         });
 
-        // Add shortcut only to the last review button
-        if (reviewButtons.length > 0) {
-            const lastButton = reviewButtons[reviewButtons.length - 1];
-            const text = lastButton.textContent || lastButton.innerText;
-            if (text.includes('Review Changes')) {
-                lastButton.innerHTML = 'Review Changes <span class="ai-button-shortcut">⌘⌥R</span>';
-            }
+        // Find the last message with buttons (most recent output message)
+        const allMessages = document.querySelectorAll('.ai-message-output');
+        if (allMessages.length === 0) return;
+
+        const lastMessage = allMessages[allMessages.length - 1];
+
+        // Add shortcuts ONLY to buttons in the last message
+        // Check for Run in Console button (font context)
+        const runButton = lastMessage.querySelector('.ai-run-in-console-btn');
+        if (runButton) {
+            runButton.innerHTML = 'Run in Console <span class="ai-button-shortcut">⌘⌥R</span>';
         }
 
-        // In script context, also update the "Open in Script Editor" buttons
-        if (this.context === 'script') {
-            const scriptOpenButtons = document.querySelectorAll('.ai-button-group .ai-open-in-editor-btn');
+        // Check for Review Changes button (script context)
+        const reviewButton = lastMessage.querySelector('.ai-review-changes-btn');
+        if (reviewButton) {
+            reviewButton.innerHTML = 'Review Changes <span class="ai-button-shortcut">⌘⌥R</span>';
+        }
 
-            // Remove shortcut from all
-            scriptOpenButtons.forEach(btn => {
-                const text = btn.textContent || btn.innerText;
-                if (text.includes('Open in Script Editor')) {
-                    btn.innerHTML = 'Open in Script Editor';
-                }
-            });
-
-            // Add shortcut only to the last one
-            if (scriptOpenButtons.length > 0) {
-                const lastButton = scriptOpenButtons[scriptOpenButtons.length - 1];
-                const text = lastButton.textContent || lastButton.innerText;
-                if (text.includes('Open in Script Editor')) {
-                    lastButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut">⌘⌥O</span>';
-                }
-            }
+        // Check for Open in Script Editor button
+        const openButton = lastMessage.querySelector('.ai-open-in-editor-btn');
+        if (openButton) {
+            openButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut">⌘⌥O</span>';
         }
     } addMessage(role, content, isCode = false, isCollapsible = false) {
         // Show messages container on first message
