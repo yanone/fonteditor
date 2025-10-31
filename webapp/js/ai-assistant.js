@@ -717,6 +717,36 @@ class AIAssistant {
     }
 
     addErrorFixMessage(errorTraceback, scriptCode) {
+        // Check if the last message is already an error fix message
+        const allMessages = this.messagesContainer.querySelectorAll('.ai-message');
+        const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+
+        if (lastMessage && lastMessage.classList.contains('ai-message-error-fix')) {
+            // Update the existing message with new traceback and make it blink again
+            this.currentErrorTraceback = errorTraceback;
+
+            // Delay to avoid overlap with error sound (same delay as first time)
+            setTimeout(() => {
+                // Remove and re-add the animation class to restart it
+                lastMessage.classList.remove('ai-message-error-fix');
+                void lastMessage.offsetWidth; // Force reflow
+                lastMessage.classList.add('ai-message-error-fix');
+
+                // Play attention sound
+                if (window.playSound) {
+                    window.playSound('attention');
+                }
+
+                // Scroll to bottom
+                this.scrollToBottom();
+            }, 2500); // Same delay as first time to avoid sound overlap
+
+            return;
+        }
+
+        // Store the current error traceback
+        this.currentErrorTraceback = errorTraceback;
+
         // Delay showing the message by 1.5 seconds + estimated sound duration (attention.wav ~1 second)
         setTimeout(() => {
             // Show messages container
@@ -757,6 +787,9 @@ class AIAssistant {
             const fixBtn = document.getElementById(fixBtnId);
             if (fixBtn) {
                 fixBtn.addEventListener('click', () => {
+                    // Use the latest stored traceback
+                    const latestTraceback = this.currentErrorTraceback;
+
                     // Remove the error message from UI
                     messageDiv.remove();
 
@@ -769,10 +802,10 @@ class AIAssistant {
                     }
 
                     // Construct the prompt with error information
-                    const prompt = `The script produced an error. Please analyze and fix it, but don't refactor any other parts of the code.\n\nError traceback:\n\`\`\`\n${errorTraceback}\n\`\`\``;
+                    const prompt = `The script produced an error. Please analyze and fix it, but don't refactor any other parts of the code.\n\nError traceback:\n\`\`\`\n${latestTraceback}\n\`\`\``;
 
                     // Add a custom user message with traceback displayed as code block
-                    this.addErrorTracebackMessage(errorTraceback);
+                    this.addErrorTracebackMessage(latestTraceback);
 
                     // Play message sent sound
                     if (window.playSound) {
