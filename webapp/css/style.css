@@ -1056,27 +1056,27 @@ body {
 
 .ai-markdown-explanation em {
     font-style: italic;
-    color: rgba(255, 200, 255, 0.9);
+    color: rgba(255, 255, 255, 0.8);
 }
 
 .ai-markdown-explanation code {
     font-family: 'IBM Plex Mono', monospace;
-    background-color: rgba(255, 255, 255, 0.1);
-    padding: 2px 4px;
-    border-radius: 2px;
-    color: rgba(255, 200, 100, 0.9);
+    background-color: rgba(0, 0, 0, 0.3);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: rgba(255, 255, 255, 0.9);
 }
 
 .ai-markdown-explanation a {
-    color: rgba(100, 200, 255, 0.9);
+    color: rgba(150, 200, 255, 0.9);
     text-decoration: none;
-    border-bottom: 1px solid rgba(100, 200, 255, 0.3);
+    border-bottom: 1px solid rgba(150, 200, 255, 0.3);
     transition: all 0.2s ease;
 }
 
 .ai-markdown-explanation a:hover {
-    color: rgba(150, 220, 255, 1);
-    border-bottom-color: rgba(150, 220, 255, 0.6);
+    color: rgba(180, 220, 255, 1);
+    border-bottom-color: rgba(180, 220, 255, 0.6);
 }
 
 .ai-markdown-explanation ul,
@@ -1323,7 +1323,8 @@ body {
     top: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.8);
+    background-color: rgb(0 0 0 / 34%);
+    ;
     backdrop-filter: blur(4px);
 }
 
@@ -1350,7 +1351,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background-color: #0d0d0d;
+    background-color: #3d3d3d;
 }
 
 .diff-modal-header h2 {
@@ -1387,7 +1388,7 @@ body {
     flex: 1;
     overflow: auto;
     padding: 16px;
-    background-color: #0d0d0d;
+    background-color: #2b2b2b;
 }
 
 .diff-explanation {
@@ -1399,6 +1400,9 @@ body {
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
     line-height: 1.6;
     color: rgba(255, 255, 255, 0.9);
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 /* Apply same markdown styles to diff explanation */
@@ -1432,27 +1436,27 @@ body {
 
 .diff-explanation em {
     font-style: italic;
-    color: rgba(255, 200, 255, 0.9);
+    color: rgba(255, 255, 255, 0.8);
 }
 
 .diff-explanation code {
     font-family: 'IBM Plex Mono', monospace;
-    background-color: rgba(255, 255, 255, 0.1);
-    padding: 2px 4px;
-    border-radius: 2px;
-    color: rgba(255, 200, 100, 0.9);
+    background-color: rgba(0, 0, 0, 0.3);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: rgba(255, 255, 255, 0.9);
 }
 
 .diff-explanation a {
-    color: rgba(100, 200, 255, 0.9);
+    color: rgba(150, 200, 255, 0.9);
     text-decoration: none;
-    border-bottom: 1px solid rgba(100, 200, 255, 0.3);
+    border-bottom: 1px solid rgba(150, 200, 255, 0.3);
     transition: all 0.2s ease;
 }
 
 .diff-explanation a:hover {
-    color: rgba(150, 220, 255, 1);
-    border-bottom-color: rgba(150, 220, 255, 0.6);
+    color: rgba(180, 220, 255, 1);
+    border-bottom-color: rgba(180, 220, 255, 0.6);
 }
 
 .diff-explanation ul,
@@ -1539,7 +1543,7 @@ body {
     display: flex;
     justify-content: flex-end;
     gap: 12px;
-    background-color: #0d0d0d;
+    background-color: #3d3d3d;
 }
 
 .diff-modal-button {

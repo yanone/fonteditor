@@ -49,7 +49,7 @@ else
 fi
 
 echo ""
-echo "📎 Building WASM module with threading support..."
+echo "👽 Building WASM module with threading support..."
 echo "This may take several minutes..."
 echo ""
 

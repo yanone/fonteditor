@@ -346,7 +346,7 @@ class AIAssistant {
         messageDiv.className = `ai-message ai-message-${role}`;
 
         const timestamp = new Date().toLocaleTimeString();
-        const roleLabel = role === 'user' ? '👽 You' : role === 'output' ? '🤖 Output' : '🤖 AI';
+        const roleLabel = role === 'user' ? '😀 You' : role === 'output' ? '🤖 Output' : '🤖 AI';
 
         // Add context tag with appropriate color
         const contextTag = this.context === 'script'
@@ -431,7 +431,7 @@ class AIAssistant {
 
         const header = `
             <div class="ai-message-header">
-                <span>📎 Assistant - ${timestamp}</span>
+                <span>👽 Assistant - ${timestamp}</span>
                 <div class="ai-message-header-right">
                     ${contextTag}
                     <span class="ai-code-toggle-link" id="${btnId}" onclick="
@@ -817,7 +817,7 @@ class AIAssistant {
             ? '<span class="ai-context-tag ai-context-tag-script">Script</span>'
             : '<span class="ai-context-tag ai-context-tag-font">Font</span>';
 
-        const header = `<div class="ai-message-header"><span>👽 You - ${timestamp}</span>${contextTag}</div>`;
+        const header = `<div class="ai-message-header"><span>😀 You - ${timestamp}</span>${contextTag}</div>`;
 
         // Format as markdown for consistent styling with assistant messages
         const markdownContent = `The script produced an error. Please analyze and fix it, but don't refactor any other parts of the code.
@@ -1105,7 +1105,7 @@ Generate Python code for: ${userPrompt}`;
         });
 
         // Log the full prompt to console for debugging
-        console.group('📎 AI Prompt Sent to Claude');
+        console.group('👽 AI Prompt Sent to Claude');
         console.log('System Prompt:', systemPrompt);
         console.log('Messages:', messages);
         console.log('Model:', 'claude-sonnet-4-20250514');
