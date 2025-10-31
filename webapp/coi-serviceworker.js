@@ -70,9 +70,16 @@ if (typeof window === 'undefined') {
         }
 
         const coepCredentialless = !coepDegrading && window.credentialless;
+
+        // Calculate scope - ensure it ends with /
+        let scope = window.location.pathname.replace(/\/[^\/]*$/, "");
+        if (!scope.endsWith("/")) {
+            scope += "/";
+        }
+
         navigator.serviceWorker
             .register(window.document.currentScript.src, {
-                scope: window.location.pathname.replace(/\/[^\/]*$/, ""),
+                scope: scope,
             })
             .then(
                 (registration) => {

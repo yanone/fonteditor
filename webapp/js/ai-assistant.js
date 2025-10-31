@@ -84,7 +84,7 @@ class AIAssistant {
             this.apiKey = this.apiKeyInput.value;
             localStorage.setItem('anthropic_api_key', this.apiKey);
         });
-        
+
         // Also save on input (immediate save while typing/pasting)
         this.apiKeyInput.addEventListener('input', () => {
             this.apiKey = this.apiKeyInput.value;
