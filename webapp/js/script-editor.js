@@ -195,7 +195,7 @@
         } finally {
             // Re-enable the run button
             runButton.disabled = false;
-            runButton.innerHTML = 'Run <span style="opacity: 0.5;">cmd+alt+r</span>';
+            runButton.innerHTML = 'Run <span style="opacity: 0.5;">⌘⌥R</span>';
         }
     }
 
