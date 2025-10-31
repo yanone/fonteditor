@@ -54,24 +54,31 @@ async function openFont(path) {
     }
 
     try {
+        const startTime = performance.now();
         console.log(`Opening font: ${path}`);
 
         // Call Python's OpenFont function
         await window.pyodide.runPythonAsync(`
+import time
+start_time = time.time()
 font = OpenFont('${path}')
 # Try to get font name from font.names.familyName['dflt']
 font_name = 'Untitled'
 if hasattr(font, 'names') and hasattr(font.names, 'familyName') and isinstance(font.names.familyName, dict) and 'dflt' in font.names.familyName:
     font_name = font.names.familyName['dflt']
-print(f"Opened font: {font_name}")
+duration = time.time() - start_time
+print(f"Opened font: {font_name} (Python processing: {duration:.2f}s)")
         `);
+
+        const endTime = performance.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
 
         // Update the font dropdown
         if (window.fontDropdownManager) {
             await window.fontDropdownManager.updateDropdown();
         }
 
-        console.log(`Successfully opened font: ${path}`);
+        console.log(`Successfully opened font: ${path} (total: ${duration}s)`);
 
         // Play done sound
         if (window.playSound) {
@@ -187,6 +194,7 @@ else:
 }
 
 async function uploadFiles(files) {
+    const startTime = performance.now();
     const currentPath = fileSystemCache.currentPath || '/';
     let uploadedCount = 0;
     let folderCount = 0;
@@ -226,9 +234,16 @@ if parent_dir:
     }
 
     if (uploadedCount > 0) {
+        const endTime = performance.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+
         if (folderCount > 0) {
-            console.log(`Uploaded ${uploadedCount} file(s) with folder structure preserved`);
+            await window.pyodide.runPythonAsync(`print("Uploaded ${uploadedCount} file(s) with folder structure preserved in ${duration} seconds")`);
+        } else {
+            await window.pyodide.runPythonAsync(`print("Uploaded ${uploadedCount} file(s) in ${duration} seconds")`);
         }
+
+
         await refreshFileSystem();
 
         // Play done sound
