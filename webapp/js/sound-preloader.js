@@ -13,7 +13,9 @@
     window.preloadedSounds = {};
 
     // Get volume from localStorage or default to 40
-    let currentVolume = parseInt(localStorage.getItem('sound_volume')) || 40;
+    // Use nullish coalescing to properly handle 0 value
+    const savedVolume = localStorage.getItem('sound_volume');
+    let currentVolume = savedVolume !== null ? parseInt(savedVolume) : 40;
 
     // Preload each sound file
     soundFiles.forEach(soundPath => {
