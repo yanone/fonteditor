@@ -292,7 +292,9 @@ class AIAssistant {
         const allOpenButtons = document.querySelectorAll('.ai-open-in-editor-btn');
         allOpenButtons.forEach(btn => {
             const text = btn.textContent || btn.innerText;
-            if (text.includes('Open in Script Editor')) {
+            if (text.includes('Open in Script Editor Without Review')) {
+                btn.innerHTML = 'Open in Script Editor Without Review';
+            } else if (text.includes('Open in Script Editor')) {
                 btn.innerHTML = 'Open in Script Editor';
             }
         });
@@ -327,7 +329,12 @@ class AIAssistant {
         // Check for Open in Script Editor button
         const openButton = lastMessage.querySelector('.ai-open-in-editor-btn');
         if (openButton) {
-            openButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut">⌘⌥O</span>';
+            const text = openButton.textContent || openButton.innerText;
+            if (text.includes('Open in Script Editor Without Review')) {
+                openButton.innerHTML = 'Open in Script Editor Without Review <span class="ai-button-shortcut">⌘⌥O</span>';
+            } else {
+                openButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut">⌘⌥O</span>';
+            }
         }
     } addMessage(role, content, isCode = false, isCollapsible = false) {
         // Show messages container on first message
@@ -448,7 +455,7 @@ class AIAssistant {
             buttonContainerHtml = `
                 <div class="ai-button-group">
                     <button class="ai-review-changes-btn" id="${openBtnId}">Review Changes</button>
-                    <button class="ai-open-in-editor-btn" id="${directOpenBtnId}">Open in Script Editor</button>
+                    <button class="ai-open-in-editor-btn" id="${directOpenBtnId}">Open in Script Editor Without Review</button>
                 </div>`;
         } else if (showRunButton) {
             // Font context: show both buttons
