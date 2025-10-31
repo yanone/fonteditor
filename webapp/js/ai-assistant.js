@@ -757,6 +757,9 @@ class AIAssistant {
             const fixBtn = document.getElementById(fixBtnId);
             if (fixBtn) {
                 fixBtn.addEventListener('click', () => {
+                    // Remove the error message from UI
+                    messageDiv.remove();
+
                     // Switch to script context
                     this.setContext('script');
 
@@ -768,23 +771,73 @@ class AIAssistant {
                     // Construct the prompt with error information
                     const prompt = `The script produced an error. Please analyze and fix it, but don't refactor any other parts of the code.\n\nError traceback:\n\`\`\`\n${errorTraceback}\n\`\`\``;
 
-                    // Disable the button
-                    fixBtn.disabled = true;
-                    fixBtn.textContent = 'Sending to AI...';
+                    // Add a custom user message with traceback displayed as code block
+                    this.addErrorTracebackMessage(errorTraceback);
 
-                    // Stop the blinking animation
-                    messageDiv.classList.remove('ai-message-error-fix');
+                    // Play message sent sound
+                    if (window.playSound) {
+                        window.playSound('message_sent');
+                    }
 
-                    // Set the prompt in the input and send it
-                    this.promptInput.value = prompt;
+                    // Clear input and disable controls
+                    this.promptInput.value = '';
+                    this.promptInput.disabled = true;
+                    this.sendButton.disabled = true;
 
-                    // Send the prompt
-                    setTimeout(() => {
-                        this.sendPrompt();
+                    // Execute directly without adding another user message
+                    setTimeout(async () => {
+                        try {
+                            await this.executeWithRetry(prompt, 0);
+                        } catch (error) {
+                            this.addMessage('error', `Failed after ${this.maxRetries} attempts: ${error.message}`);
+                        } finally {
+                            this.promptInput.disabled = false;
+                            this.sendButton.disabled = false;
+                            this.promptInput.focus();
+                        }
                     }, 100);
                 });
             }
         }, 2500); // 1500ms delay + ~1000ms for attention sound
+    }
+
+    addErrorTracebackMessage(errorTraceback) {
+        // Show messages container
+        if (this.messagesContainer.style.display === 'none' || !this.messagesContainer.style.display) {
+            this.messagesContainer.style.display = 'block';
+        }
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'ai-message ai-message-user';
+
+        const timestamp = new Date().toLocaleTimeString();
+
+        // Add context tag
+        const contextTag = this.context === 'script'
+            ? '<span class="ai-context-tag ai-context-tag-script">Script</span>'
+            : '<span class="ai-context-tag ai-context-tag-font">Font</span>';
+
+        const header = `<div class="ai-message-header"><span>👽 You - ${timestamp}</span>${contextTag}</div>`;
+
+        // Format as markdown for consistent styling with assistant messages
+        const markdownContent = `The script produced an error. Please analyze and fix it, but don't refactor any other parts of the code.
+
+**Error traceback:**
+
+\`\`\`
+${errorTraceback}
+\`\`\``;
+
+        const body = `<div class="ai-markdown-explanation">${this.formatMarkdown(markdownContent)}</div>`;
+
+        messageDiv.innerHTML = header + body;
+        this.messagesContainer.appendChild(messageDiv);
+        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+
+        // Scroll the view-content to bottom
+        this.scrollToBottom();
+
+        return messageDiv;
     }
 
     clearConversation() {

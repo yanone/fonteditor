@@ -817,6 +817,19 @@ body {
     font-family: 'IBM Plex Sans', sans-serif;
 }
 
+.ai-message-user .ai-message-content p {
+    margin: 4px 0 !important;
+    line-height: 1.4 !important;
+}
+
+.ai-message-user .ai-message-content p:first-child {
+    margin-top: 0 !important;
+}
+
+.ai-message-user .ai-message-content p:last-child {
+    margin-bottom: 0 !important;
+}
+
 .ai-message-assistant {
     color: rgba(255, 255, 255, 0.9);
     background-color: rgba(200, 150, 255, 0.3);
@@ -961,6 +974,20 @@ body {
     line-height: 1.6;
     white-space: pre-wrap;
     color: rgba(255, 255, 255, 0.8);
+}
+
+.ai-message-content p {
+    margin: 2px 0 !important;
+    line-height: 1.4 !important;
+    white-space: normal !important;
+}
+
+.ai-message-content p:first-child {
+    margin-top: 0 !important;
+}
+
+.ai-message-content p:last-child {
+    margin-bottom: 0 !important;
 }
 
 .ai-code {
