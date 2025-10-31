@@ -189,6 +189,16 @@ body {
     font-size: 10px;
 }
 
+/* Hide button shortcuts in view title bars when view is not focused */
+.view:not(.focused) .view-title-button .ai-button-shortcut {
+    display: none;
+}
+
+/* Hide button shortcuts in view title bars when view is not focused (inline shortcuts) */
+.view:not(.focused) .view-title-button span[style*="opacity"] {
+    display: none;
+}
+
 /* Content containers for views with text content */
 .view-content {
     margin: 20px;
@@ -1313,6 +1323,16 @@ body {
 
 .ai-button-shortcut {
     color: rgba(255, 255, 255, 0.5);
+}
+
+/* Hide AI button shortcuts in messages when assistant view is not focused */
+.view-assistant:not(.focused) .ai-message .ai-button-shortcut {
+    display: none;
+}
+
+/* Hide AI button shortcuts in header buttons when assistant view is not focused */
+.view-assistant:not(.focused) .view-title-bar .ai-button-shortcut {
+    display: none;
 }
 
 #ai-input-container {
