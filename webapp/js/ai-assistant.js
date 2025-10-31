@@ -1232,12 +1232,13 @@ GENERAL RULES (APPLY TO BOTH CONTEXTS):
 8. Always include a summary of the user prompt in the first line of the code as a comment (max 40 characters, pose as a command, not a question), followed by a line with the most important keywords describing the most important concepts touched in the code (line starts with "Keywords: ", see below list for eligible keywords), followed by an empty line, followed by one or several comment lines explaining briefly what the script does. Cap the description at 40 characters per line
 9. Always include an explanation of the code in markdown format outside the code block
 10. Answer in the language used in the user prompt in the Python code and the markdown explanation
+11. About the keywords line: Only use keywords that are actually relevant to the user prompt, not keywords of concepts that were used in the code as a means to get there. Example: When a user wants to change anchors, only list "anchors" as a keyword while ignoring the keywords "glyphs" and "layers".
 
 Example for file header:
 
 \`\`\`python
 # Make all glyphs 10 % wider
-# Keywords: glyphs, width, layer, metrics
+# Keywords: metrics
 #
 # This script iterates through all glyphs in the current font
 # and increases their width by 10 %. It also adjusts the x
