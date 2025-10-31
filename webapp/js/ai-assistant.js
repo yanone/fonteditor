@@ -416,27 +416,59 @@ class AIAssistant {
             const prompt = messageDiv.getAttribute('data-prompt');
             if (!prompt) continue;
 
-            // Create reuse button
-            const btnId = 'reuse-' + Date.now() + '-' + i + '-' + Math.random().toString(36).substr(2, 9);
+            // Create buttons container with both reuse and copy buttons
+            const reuseId = 'reuse-' + Date.now() + '-' + i + '-' + Math.random().toString(36).substr(2, 9);
+            const copyId = 'copy-' + Date.now() + '-' + i + '-' + Math.random().toString(36).substr(2, 9);
             const buttonDiv = document.createElement('div');
             buttonDiv.className = 'ai-reuse-prompt-container';
-            buttonDiv.innerHTML = `<button class="ai-reuse-prompt-btn" id="${btnId}">↻ Reuse prompt</button>`;
+            buttonDiv.innerHTML = `
+                <button class="ai-reuse-prompt-btn" id="${reuseId}">↻ Reuse prompt</button>
+                <button class="ai-copy-prompt-btn" id="${copyId}">📋 Copy prompt</button>
+            `;
 
-            // Add button after the content
+            // Add buttons after the content
             const contentDiv = messageDiv.querySelector('.ai-message-content');
             if (contentDiv) {
                 messageDiv.appendChild(buttonDiv);
-                
-                // Add click handler immediately
-                const btn = document.getElementById(btnId);
-                if (btn) {
-                    btn.addEventListener('click', () => {
+
+                // Add click handler for reuse button
+                const reuseBtn = document.getElementById(reuseId);
+                if (reuseBtn) {
+                    reuseBtn.addEventListener('click', () => {
                         this.promptInput.value = prompt;
                         this.promptInput.focus();
 
                         // Play a subtle click sound if available
                         if (window.playSound) {
                             window.playSound('click');
+                        }
+                    });
+                }
+
+                // Add click handler for copy button
+                const copyBtn = document.getElementById(copyId);
+                if (copyBtn) {
+                    copyBtn.addEventListener('click', async () => {
+                        try {
+                            await navigator.clipboard.writeText(prompt);
+                            
+                            // Show feedback
+                            const originalText = copyBtn.innerHTML;
+                            copyBtn.innerHTML = '✓ Copied!';
+                            setTimeout(() => {
+                                copyBtn.innerHTML = originalText;
+                            }, 2000);
+
+                            // Play a subtle click sound if available
+                            if (window.playSound) {
+                                window.playSound('click');
+                            }
+                        } catch (err) {
+                            console.error('Failed to copy text:', err);
+                            copyBtn.innerHTML = '✗ Failed';
+                            setTimeout(() => {
+                                copyBtn.innerHTML = '📋 Copy prompt';
+                            }, 2000);
                         }
                     });
                 }
@@ -922,10 +954,10 @@ ${errorTraceback}
         const body = `<div class="ai-markdown-explanation">${this.formatMarkdown(markdownContent)}</div>`;
 
         messageDiv.innerHTML = header + body;
-        
+
         // Mark this as an error traceback message (don't add reuse button to these)
         messageDiv.setAttribute('data-error-traceback', 'true');
-        
+
         this.messagesContainer.appendChild(messageDiv);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
@@ -1152,9 +1184,23 @@ GENERAL RULES (APPLY TO BOTH CONTEXTS):
 5. The font object is a babelfont Font instance
 6. Annotate the code with comments
 7. Never return single-line Python comments. If you want to return just a comment, wrap it in a print statement anyway so the user gets to see it
-8. Always include a summary of the user prompt in the first line of the code as a comment (max 40 characters, pose as a command, not a question), followed by an empty line, followed by one or several comment lines explaining briefly what the script does. Cap the description at 40 characters per line
+8. Always include a summary of the user prompt in the first line of the code as a comment (max 40 characters, pose as a command, not a question), followed by a line with the most important keywords describing the most important concepts touched in the code (line starts with "Keywords: ", see below list for eligible keywords), followed by an empty line, followed by one or several comment lines explaining briefly what the script does. Cap the description at 40 characters per line
 9. Always include an explanation of the code in markdown format outside the code block
 10. Answer in the language used in the user prompt in the Python code and the markdown explanation
+
+Example for file header:
+
+\`\`\`python
+# Make all glyphs 10 % wider
+# Keywords: glyphs, width, layer, metrics
+#
+# This script iterates through all glyphs in the current font
+# and increases their width by 10 %. It also adjusts the x
+# coordinates of all nodes in each layer accordingly.
+\`\`\`
+
+Eligible keyword are:
+glyphs, layers, paths, nodes, anchors, components, metrics, names, masters, unicode, kerning, groups, features, guidelines
 
 BABELFONT API DOCUMENTATION:
 ${apiDocs}

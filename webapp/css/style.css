@@ -985,6 +985,25 @@ body {
     color: rgba(100, 200, 255, 1);
 }
 
+.ai-copy-prompt-btn {
+    padding: 6px 12px;
+    background-color: transparent;
+    border: 1px solid rgba(100, 200, 255, 0.4);
+    color: rgba(100, 200, 255, 0.8);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: calc(var(--size, 1) * (11px / var(--pixel-density, 1)));
+    cursor: pointer;
+    transition: all 0.2s;
+    border-radius: 3px;
+    margin-left: 8px;
+}
+
+.ai-copy-prompt-btn:hover {
+    background-color: rgba(100, 200, 255, 0.15);
+    border-color: rgba(100, 200, 255, 0.6);
+    color: rgba(100, 200, 255, 1);
+}
+
 .ai-message-output {
     color: rgba(255, 255, 255, 0.9);
     background-color: rgba(200, 150, 255, 0.3);
