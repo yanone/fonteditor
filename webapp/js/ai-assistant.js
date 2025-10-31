@@ -12,6 +12,9 @@ class AIAssistant {
         this.autoRun = localStorage.getItem('ai_auto_run') !== 'false'; // Default to true
         this.isShowingErrorFix = false; // Flag to prevent duplicate error fix messages
 
+        // Detect environment and set proxy URL
+        this.proxyUrl = this.getProxyUrl();
+
         // Configure marked.js for markdown parsing
         if (typeof marked !== 'undefined') {
             marked.setOptions({
@@ -23,6 +26,12 @@ class AIAssistant {
         }
 
         this.initUI();
+    }
+
+    getProxyUrl() {
+        // Use Cloudflare Worker for both local and production
+        // TODO: Replace with your actual Cloudflare Worker URL after deployment
+        return 'https://late-firefly-13f5.post-adf.workers.dev';
     }
 
     initUI() {
@@ -1311,9 +1320,9 @@ Generate Python code for: ${userPrompt}`;
             });
         }
 
-        // Call Anthropic API through corsproxy.io
-        const targetUrl = encodeURIComponent('https://api.anthropic.com/v1/messages');
-        const response = await fetch(`https://corsproxy.io/?url=${targetUrl}`, {
+        // Call Anthropic API through proxy (local or Cloudflare Worker)
+        const model = 'claude-sonnet-4-5-20250929';
+        const response = await fetch(this.proxyUrl, {
             method: 'POST',
             headers: {
                 'x-api-key': this.apiKey,
@@ -1321,7 +1330,7 @@ Generate Python code for: ${userPrompt}`;
                 'content-type': 'application/json'
             },
             body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
+                model: model,
                 max_tokens: 8192,
                 system: systemPrompt,
                 messages: messages
@@ -1332,7 +1341,7 @@ Generate Python code for: ${userPrompt}`;
         console.group('👽 AI Prompt Sent to Claude');
         console.log('System Prompt:', systemPrompt);
         console.log('Messages:', messages);
-        console.log('Model:', 'claude-sonnet-4-20250514');
+        console.log('Model:', model);
         console.groupEnd();
 
         if (!response.ok) {
