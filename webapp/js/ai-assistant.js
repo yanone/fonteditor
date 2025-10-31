@@ -383,6 +383,12 @@ class AIAssistant {
         }
 
         messageDiv.innerHTML = header + body;
+
+        // Store the original prompt content in a data attribute for user messages
+        if (role === 'user') {
+            messageDiv.setAttribute('data-prompt', content);
+        }
+
         this.messagesContainer.appendChild(messageDiv);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
@@ -390,6 +396,52 @@ class AIAssistant {
         this.scrollToBottom();
 
         return messageDiv;
+    }
+
+    addReuseButtonsToOldMessages() {
+        // Find all user messages that are not error tracebacks
+        const allUserMessages = this.messagesContainer.querySelectorAll('.ai-message-user');
+        const userMessages = Array.from(allUserMessages).filter(msg => !msg.hasAttribute('data-error-traceback'));
+
+        if (userMessages.length === 0) return;
+
+        // Add reuse buttons to ALL user messages (including the last one)
+        for (let i = 0; i < userMessages.length; i++) {
+            const messageDiv = userMessages[i];
+
+            // Check if button already exists
+            if (messageDiv.querySelector('.ai-reuse-prompt-btn')) continue;
+
+            // Get the stored prompt
+            const prompt = messageDiv.getAttribute('data-prompt');
+            if (!prompt) continue;
+
+            // Create reuse button
+            const btnId = 'reuse-' + Date.now() + '-' + i + '-' + Math.random().toString(36).substr(2, 9);
+            const buttonDiv = document.createElement('div');
+            buttonDiv.className = 'ai-reuse-prompt-container';
+            buttonDiv.innerHTML = `<button class="ai-reuse-prompt-btn" id="${btnId}">↻ Reuse prompt</button>`;
+
+            // Add button after the content
+            const contentDiv = messageDiv.querySelector('.ai-message-content');
+            if (contentDiv) {
+                messageDiv.appendChild(buttonDiv);
+                
+                // Add click handler immediately
+                const btn = document.getElementById(btnId);
+                if (btn) {
+                    btn.addEventListener('click', () => {
+                        this.promptInput.value = prompt;
+                        this.promptInput.focus();
+
+                        // Play a subtle click sound if available
+                        if (window.playSound) {
+                            window.playSound('click');
+                        }
+                    });
+                }
+            }
+        }
     }
 
     scrollToBottom() {
@@ -847,7 +899,7 @@ class AIAssistant {
         }
 
         const messageDiv = document.createElement('div');
-        messageDiv.className = 'ai-message ai-message-user';
+        messageDiv.className = 'ai-message ai-message-user ai-message-error-traceback';
 
         const timestamp = new Date().toLocaleTimeString();
 
@@ -870,6 +922,10 @@ ${errorTraceback}
         const body = `<div class="ai-markdown-explanation">${this.formatMarkdown(markdownContent)}</div>`;
 
         messageDiv.innerHTML = header + body;
+        
+        // Mark this as an error traceback message (don't add reuse button to these)
+        messageDiv.setAttribute('data-error-traceback', 'true');
+        
         this.messagesContainer.appendChild(messageDiv);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
@@ -1008,6 +1064,9 @@ ${errorTraceback}
                     window.playSound('incoming_message');
                 }
             }
+
+            // Add reuse buttons to previous user messages now that we have a response
+            this.addReuseButtonsToOldMessages();
 
         } catch (error) {
             console.error(`Attempt ${attemptNumber + 1} failed:`, error);
