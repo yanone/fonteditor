@@ -817,6 +817,9 @@ class AIAssistant {
                     this.promptInput.disabled = true;
                     this.sendButton.disabled = true;
 
+                    // Show typing indicator
+                    this.showTypingIndicator();
+
                     // Execute directly without adding another user message
                     setTimeout(async () => {
                         try {
@@ -824,6 +827,9 @@ class AIAssistant {
                         } catch (error) {
                             this.addMessage('error', `Failed after ${this.maxRetries} attempts: ${error.message}`);
                         } finally {
+                            // Hide typing indicator
+                            this.hideTypingIndicator();
+
                             this.promptInput.disabled = false;
                             this.sendButton.disabled = false;
                             this.promptInput.focus();
@@ -873,6 +879,34 @@ ${errorTraceback}
         return messageDiv;
     }
 
+    showTypingIndicator() {
+        // Remove any existing typing indicator first
+        this.hideTypingIndicator();
+
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'ai-typing-indicator';
+        typingDiv.id = 'ai-typing-indicator';
+        typingDiv.innerHTML = `
+            <span>Assistant is thinking</span>
+            <div class="ai-typing-dots">
+                <div class="ai-typing-dot"></div>
+                <div class="ai-typing-dot"></div>
+                <div class="ai-typing-dot"></div>
+            </div>
+        `;
+
+        this.messagesContainer.appendChild(typingDiv);
+        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        this.scrollToBottom();
+    }
+
+    hideTypingIndicator() {
+        const typingIndicator = document.getElementById('ai-typing-indicator');
+        if (typingIndicator) {
+            typingIndicator.remove();
+        }
+    }
+
     clearConversation() {
         if (confirm('Clear conversation history? This will start a fresh conversation.')) {
             this.conversationHistory = [];
@@ -914,11 +948,17 @@ ${errorTraceback}
             window.playSound('message_sent');
         }
 
+        // Show typing indicator
+        this.showTypingIndicator();
+
         try {
             await this.executeWithRetry(prompt, 0);
         } catch (error) {
             this.addMessage('error', `Failed after ${this.maxRetries} attempts: ${error.message}`);
         } finally {
+            // Hide typing indicator
+            this.hideTypingIndicator();
+
             this.promptInput.disabled = false;
             this.sendButton.disabled = false;
             this.promptInput.focus();

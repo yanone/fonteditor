@@ -868,6 +868,57 @@ body {
     }
 }
 
+.ai-typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: calc(var(--size, 1) * (11px / var(--pixel-density, 1)));
+    color: rgba(255, 255, 255, 0.5);
+    font-style: italic;
+}
+
+.ai-typing-dots {
+    display: flex;
+    gap: 4px;
+}
+
+.ai-typing-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.5);
+    animation: typing-bounce 1.4s infinite ease-in-out;
+}
+
+.ai-typing-dot:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.ai-typing-dot:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.ai-typing-dot:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typing-bounce {
+
+    0%,
+    60%,
+    100% {
+        transform: translateY(0);
+        opacity: 0.5;
+    }
+
+    30% {
+        transform: translateY(-8px);
+        opacity: 1;
+    }
+}
+
 .ai-error-fix-content {
     display: flex;
     flex-direction: column;
