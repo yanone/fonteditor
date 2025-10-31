@@ -10,6 +10,7 @@ class AIAssistant {
         this.maxRetries = 3;
         this.cachedApiDocs = null; // Cache for babelfont API documentation
         this.autoRun = localStorage.getItem('ai_auto_run') !== 'false'; // Default to true
+        this.isShowingErrorFix = false; // Flag to prevent duplicate error fix messages
 
         // Configure marked.js for markdown parsing
         if (typeof marked !== 'undefined') {
@@ -451,7 +452,7 @@ class AIAssistant {
                 if (reuseBtn) {
                     reuseBtn.addEventListener('click', (event) => {
                         event.stopPropagation(); // Prevent view focus
-                        
+
                         this.promptInput.value = prompt;
                         this.promptInput.focus();
 
@@ -472,7 +473,7 @@ class AIAssistant {
                 if (copyBtn) {
                     copyBtn.addEventListener('click', async (event) => {
                         event.stopPropagation(); // Prevent view focus
-                        
+
                         try {
                             await navigator.clipboard.writeText(prompt);
 
@@ -829,6 +830,13 @@ class AIAssistant {
     }
 
     addErrorFixMessage(errorTraceback, scriptCode) {
+        // Check if we're already showing or about to show an error fix message
+        if (this.isShowingErrorFix) {
+            // Just update the traceback for the existing/pending message
+            this.currentErrorTraceback = errorTraceback;
+            return;
+        }
+
         // Check if the last message is already an error fix message
         const allMessages = this.messagesContainer.querySelectorAll('.ai-message');
         const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
@@ -855,6 +863,9 @@ class AIAssistant {
 
             return;
         }
+
+        // Set flag to prevent duplicates
+        this.isShowingErrorFix = true;
 
         // Store the current error traceback
         this.currentErrorTraceback = errorTraceback;
@@ -887,6 +898,9 @@ class AIAssistant {
             this.messagesContainer.appendChild(messageDiv);
             this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
+            // Clear the flag now that the message is actually shown
+            this.isShowingErrorFix = false;
+
             // Play attention sound
             if (window.playSound) {
                 window.playSound('attention');
@@ -900,12 +914,13 @@ class AIAssistant {
             if (fixBtn) {
                 fixBtn.addEventListener('click', (event) => {
                     event.stopPropagation(); // Prevent view focus initially
-                    
+
                     // Use the latest stored traceback
                     const latestTraceback = this.currentErrorTraceback;
 
-                    // Remove the error message from UI
+                    // Remove the error message from UI and clear the flag
                     messageDiv.remove();
+                    this.isShowingErrorFix = false;
 
                     // Switch to script context
                     this.setContext('script');
