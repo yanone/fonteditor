@@ -149,11 +149,6 @@
                 console.log('Script executed successfully');
             }
 
-            // Update font dropdown if fonts were modified
-            if (window.fontDropdownManager) {
-                await window.fontDropdownManager.updateDropdown();
-            }
-
             // Play done sound
             if (window.playSound) {
                 window.playSound('done');

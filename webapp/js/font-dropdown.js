@@ -95,17 +95,17 @@ SetCurrentFont("${fontId}")
 document.addEventListener('DOMContentLoaded', () => {
     window.fontDropdownManager = new FontDropdownManager();
 
-    // Poll for updates every 2 seconds
-    // (Better approach would be to call updateDropdown() explicitly after OpenFont())
+    // Initial check after a delay to populate dropdown
     const checkForUpdates = async () => {
         if (window.pyodide && window.fontDropdownManager) {
             await window.fontDropdownManager.updateDropdown();
         }
     };
 
-    // Initial check after a delay
     setTimeout(checkForUpdates, 2000);
 
-    // Periodic updates
-    setInterval(checkForUpdates, 2000);
+    // Note: Dropdown updates are now triggered explicitly by calling
+    // window.fontDropdownManager.updateDropdown() after font operations
+    // (e.g., after OpenFont(), CloseFont(), etc.)
+    // This avoids unnecessary polling and the infinite loop issue
 });

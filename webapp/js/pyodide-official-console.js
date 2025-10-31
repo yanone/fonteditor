@@ -75,6 +75,18 @@ async function initPyodideConsole() {
         }
 
         async function interpreter(command) {
+            // Call before-execution hook
+            if (window.beforePythonExecution) {
+                window.beforePythonExecution();
+            }
+
+            // Log command to browser console
+            if (command && command.trim()) {
+                console.group('🐍 Python Console Command');
+                console.log(command);
+                console.groupEnd();
+            }
+
             const unlock = await lock();
             term.pause();
             // multiline should be split (useful when pasting)
@@ -112,11 +124,16 @@ async function initPyodideConsole() {
                         value.destroy();
                     }
 
+                    // Log completion to browser console
+                    console.log('✅ Console command completed successfully');
+
                     // Play done sound after successful execution
                     if (window.playSound) {
                         window.playSound('done');
                     }
                 } catch (e) {
+                    // Log error to browser console
+                    console.error('❌ Console command failed:', e.message || e);
                     if (e.constructor.name === "PythonError") {
                         const message = fut.formatted_error || e.message;
                         term.error(message.trimEnd());
@@ -131,6 +148,11 @@ async function initPyodideConsole() {
             term.resume();
             await sleep(10);
             unlock();
+
+            // Call after-execution hook (always, after all commands processed)
+            if (window.afterPythonExecution) {
+                window.afterPythonExecution();
+            }
         }
 
         // Initialize terminal in the console container

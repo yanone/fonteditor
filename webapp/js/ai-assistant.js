@@ -691,11 +691,6 @@ class AIAssistant {
             await window.pyodide.runPythonAsync(code);
             window.term.echo('✅ Code executed successfully');
 
-            // Update font dropdown if fonts were modified
-            if (window.fontDropdownManager) {
-                await window.fontDropdownManager.updateDropdown();
-            }
-
             // Play done sound
             if (window.playSound) {
                 window.playSound('done');
@@ -1141,11 +1136,6 @@ ${errorTraceback}
                 // Play incoming message sound
                 if (window.playSound) {
                     window.playSound('incoming_message');
-                }
-
-                // Update font dropdown if fonts were modified
-                if (window.fontDropdownManager) {
-                    await window.fontDropdownManager.updateDropdown();
                 }
             } else {
                 // Font mode, manual: Just show the code with a run button
