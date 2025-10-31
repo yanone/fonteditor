@@ -75,15 +75,30 @@ class AIAssistant {
             localStorage.setItem('anthropic_api_key', this.apiKey);
         });
 
-        this.sendButton.addEventListener('click', () => this.sendPrompt());
+        this.sendButton.addEventListener('click', (event) => {
+            event.stopPropagation(); // Prevent view focus
+            this.sendPrompt();
+        });
 
-        this.clearButton.addEventListener('click', () => this.clearConversation());
+        this.clearButton.addEventListener('click', (event) => {
+            event.stopPropagation(); // Prevent view focus
+            this.clearConversation();
+        });
 
-        this.autoRunButton.addEventListener('click', () => this.toggleAutoRun());
+        this.autoRunButton.addEventListener('click', (event) => {
+            event.stopPropagation(); // Prevent view focus
+            this.toggleAutoRun();
+        });
 
-        this.contextFontButton.addEventListener('click', () => this.setContext('font'));
+        this.contextFontButton.addEventListener('click', (event) => {
+            event.stopPropagation(); // Prevent view focus
+            this.setContext('font');
+        });
 
-        this.contextScriptButton.addEventListener('click', () => this.setContext('script'));
+        this.contextScriptButton.addEventListener('click', (event) => {
+            event.stopPropagation(); // Prevent view focus
+            this.setContext('script');
+        });
 
         this.promptInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -434,9 +449,16 @@ class AIAssistant {
                 // Add click handler for reuse button
                 const reuseBtn = document.getElementById(reuseId);
                 if (reuseBtn) {
-                    reuseBtn.addEventListener('click', () => {
+                    reuseBtn.addEventListener('click', (event) => {
+                        event.stopPropagation(); // Prevent view focus
+                        
                         this.promptInput.value = prompt;
                         this.promptInput.focus();
+
+                        // Manually activate assistant view after focusing input
+                        if (window.focusView) {
+                            window.focusView('view-assistant');
+                        }
 
                         // Play a subtle click sound if available
                         if (window.playSound) {
@@ -448,10 +470,12 @@ class AIAssistant {
                 // Add click handler for copy button
                 const copyBtn = document.getElementById(copyId);
                 if (copyBtn) {
-                    copyBtn.addEventListener('click', async () => {
+                    copyBtn.addEventListener('click', async (event) => {
+                        event.stopPropagation(); // Prevent view focus
+                        
                         try {
                             await navigator.clipboard.writeText(prompt);
-                            
+
                             // Show feedback
                             const originalText = copyBtn.innerHTML;
                             copyBtn.innerHTML = '✓ Copied!';
@@ -575,12 +599,14 @@ class AIAssistant {
         if (openBtn) {
             if (this.context === 'script') {
                 // In script context, this is the Review Changes button
-                openBtn.addEventListener('click', () => {
+                openBtn.addEventListener('click', (event) => {
+                    event.stopPropagation(); // Prevent view focus
                     this.showDiffReview(code, markdownText);
                 });
             } else {
                 // In font context, open directly in editor
-                openBtn.addEventListener('click', () => {
+                openBtn.addEventListener('click', (event) => {
+                    event.stopPropagation(); // Prevent view focus
                     this.openCodeInEditor(code);
                 });
             }
@@ -591,7 +617,8 @@ class AIAssistant {
             const directOpenBtnId = messageDiv.querySelector('.ai-button-group .ai-open-in-editor-btn')?.id;
             const directOpenBtn = document.getElementById(directOpenBtnId);
             if (directOpenBtn) {
-                directOpenBtn.addEventListener('click', () => {
+                directOpenBtn.addEventListener('click', (event) => {
+                    event.stopPropagation(); // Prevent view focus
                     this.openCodeInEditor(code);
                 });
             }
@@ -600,7 +627,8 @@ class AIAssistant {
         if (showRunButton && this.context !== 'script') {
             const runBtn = document.getElementById(runBtnId);
             if (runBtn) {
-                runBtn.addEventListener('click', async () => {
+                runBtn.addEventListener('click', async (event) => {
+                    event.stopPropagation(); // Prevent view focus
                     runBtn.disabled = true;
                     runBtn.innerHTML = 'Running...';
                     try {
@@ -870,7 +898,9 @@ class AIAssistant {
             // Add event listener to fix button
             const fixBtn = document.getElementById(fixBtnId);
             if (fixBtn) {
-                fixBtn.addEventListener('click', () => {
+                fixBtn.addEventListener('click', (event) => {
+                    event.stopPropagation(); // Prevent view focus initially
+                    
                     // Use the latest stored traceback
                     const latestTraceback = this.currentErrorTraceback;
 
@@ -880,7 +910,7 @@ class AIAssistant {
                     // Switch to script context
                     this.setContext('script');
 
-                    // Switch to assistant view
+                    // Switch to assistant view (explicitly after context switch)
                     if (window.focusView) {
                         window.focusView('view-assistant');
                     }
