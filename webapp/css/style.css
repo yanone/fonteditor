@@ -1071,6 +1071,65 @@ body {
     list-style-type: decimal;
 }
 
+.ai-markdown-explanation p {
+    margin: 8px 0;
+}
+
+.ai-markdown-explanation p:first-child {
+    margin-top: 0;
+}
+
+.ai-markdown-explanation p:last-child {
+    margin-bottom: 0;
+}
+
+.ai-markdown-explanation pre {
+    background-color: rgba(0, 0, 0, 0.3);
+    padding: 12px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+
+.ai-markdown-explanation pre code {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.ai-markdown-explanation blockquote {
+    border-left: 3px solid rgba(100, 200, 255, 0.5);
+    padding-left: 12px;
+    margin: 8px 0;
+    color: rgba(255, 255, 255, 0.7);
+    font-style: italic;
+}
+
+.ai-markdown-explanation hr {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    margin: 16px 0;
+}
+
+.ai-markdown-explanation table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    width: 100%;
+}
+
+.ai-markdown-explanation th,
+.ai-markdown-explanation td {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 6px 12px;
+    text-align: left;
+}
+
+.ai-markdown-explanation th {
+    background-color: rgba(255, 255, 255, 0.1);
+    font-weight: bold;
+}
+
 .ai-python-output {
     background-color: rgba(31, 31, 31, 0.8);
     padding: 8px;
@@ -1313,6 +1372,138 @@ body {
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
     line-height: 1.6;
     color: rgba(255, 255, 255, 0.9);
+}
+
+/* Apply same markdown styles to diff explanation */
+.diff-explanation h1,
+.diff-explanation h2,
+.diff-explanation h3 {
+    font-family: 'IBM Plex Mono', monospace;
+    color: rgba(255, 255, 255, 1);
+    margin: 12px 0 8px 0;
+    font-weight: bold;
+}
+
+.diff-explanation h1 {
+    font-size: calc(var(--size, 1) * (18px / var(--pixel-density, 1)));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    padding-bottom: 4px;
+}
+
+.diff-explanation h2 {
+    font-size: calc(var(--size, 1) * (16px / var(--pixel-density, 1)));
+}
+
+.diff-explanation h3 {
+    font-size: calc(var(--size, 1) * (14px / var(--pixel-density, 1)));
+}
+
+.diff-explanation strong {
+    font-weight: bold;
+    color: rgba(255, 255, 255, 1);
+}
+
+.diff-explanation em {
+    font-style: italic;
+    color: rgba(255, 200, 255, 0.9);
+}
+
+.diff-explanation code {
+    font-family: 'IBM Plex Mono', monospace;
+    background-color: rgba(255, 255, 255, 0.1);
+    padding: 2px 4px;
+    border-radius: 2px;
+    color: rgba(255, 200, 100, 0.9);
+}
+
+.diff-explanation a {
+    color: rgba(100, 200, 255, 0.9);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(100, 200, 255, 0.3);
+    transition: all 0.2s ease;
+}
+
+.diff-explanation a:hover {
+    color: rgba(150, 220, 255, 1);
+    border-bottom-color: rgba(150, 220, 255, 0.6);
+}
+
+.diff-explanation ul,
+.diff-explanation ol {
+    margin: 8px 0;
+    padding-left: 24px;
+}
+
+.diff-explanation li {
+    margin: 4px 0;
+    list-style-position: outside;
+}
+
+.diff-explanation ul li {
+    list-style-type: disc;
+}
+
+.diff-explanation ol li {
+    list-style-type: decimal;
+}
+
+.diff-explanation p {
+    margin: 8px 0;
+}
+
+.diff-explanation p:first-child {
+    margin-top: 0;
+}
+
+.diff-explanation p:last-child {
+    margin-bottom: 0;
+}
+
+.diff-explanation pre {
+    background-color: rgba(0, 0, 0, 0.3);
+    padding: 12px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+
+.diff-explanation pre code {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.diff-explanation blockquote {
+    border-left: 3px solid rgba(100, 200, 255, 0.5);
+    padding-left: 12px;
+    margin: 8px 0;
+    color: rgba(255, 255, 255, 0.7);
+    font-style: italic;
+}
+
+.diff-explanation hr {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    margin: 16px 0;
+}
+
+.diff-explanation table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    width: 100%;
+}
+
+.diff-explanation th,
+.diff-explanation td {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 6px 12px;
+    text-align: left;
+}
+
+.diff-explanation th {
+    background-color: rgba(255, 255, 255, 0.1);
+    font-weight: bold;
 }
 
 .diff-modal-footer {

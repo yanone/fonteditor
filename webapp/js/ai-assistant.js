@@ -11,6 +11,16 @@ class AIAssistant {
         this.cachedApiDocs = null; // Cache for babelfont API documentation
         this.autoRun = localStorage.getItem('ai_auto_run') !== 'false'; // Default to true
 
+        // Configure marked.js for markdown parsing
+        if (typeof marked !== 'undefined') {
+            marked.setOptions({
+                breaks: true,
+                gfm: true,
+                headerIds: false,
+                mangle: false
+            });
+        }
+
         this.initUI();
     }
 
@@ -711,70 +721,24 @@ class AIAssistant {
     }
 
     formatMarkdown(text) {
-        // First escape HTML to prevent XSS
-        let html = this.escapeHtml(text);
+        if (!text || !text.trim()) {
+            return '';
+        }
 
-        // Headers (must come before bold/italic to avoid conflicts)
-        html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-        html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-        html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-
-        // Bold and italic
-        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-        html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-        html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
-        html = html.replace(/_(.+?)_/g, '<em>$1</em>');
-
-        // Inline code
-        html = html.replace(/`(.+?)`/g, '<code>$1</code>');
-
-        // Links
-        html = html.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>');
-
-        // Lists - process line by line to properly wrap consecutive items
-        const lines = html.split('\n');
-        const result = [];
-        let inUnorderedList = false;
-        let inOrderedList = false;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            const isUnorderedItem = /^[*-] (.+)$/.test(line);
-            const isOrderedItem = /^\d+\. (.+)$/.test(line);
-
-            if (isUnorderedItem) {
-                if (!inUnorderedList) {
-                    result.push('<ul>');
-                    inUnorderedList = true;
-                }
-                result.push(line.replace(/^[*-] (.+)$/, '<li>$1</li>'));
-            } else {
-                if (inUnorderedList) {
-                    result.push('</ul>');
-                    inUnorderedList = false;
-                }
-
-                if (isOrderedItem) {
-                    if (!inOrderedList) {
-                        result.push('<ol>');
-                        inOrderedList = true;
-                    }
-                    result.push(line.replace(/^\d+\. (.+)$/, '<li>$1</li>'));
-                } else {
-                    if (inOrderedList) {
-                        result.push('</ol>');
-                        inOrderedList = false;
-                    }
-                    result.push(line);
-                }
+        // Use marked.js for professional markdown parsing
+        if (typeof marked !== 'undefined') {
+            try {
+                return marked.parse(text);
+            } catch (error) {
+                console.error('Markdown parsing error:', error);
+                // Fallback to escaped text if parsing fails
+                return this.escapeHtml(text).replace(/\n/g, '<br>');
             }
         }
 
-        // Close any open lists at the end
-        if (inUnorderedList) result.push('</ul>');
-        if (inOrderedList) result.push('</ol>');
-
-        return result.join('\n');
+        // Fallback if marked.js is not loaded
+        console.warn('marked.js not loaded, using fallback');
+        return this.escapeHtml(text).replace(/\n/g, '<br>');
     }
 
     addErrorFixMessage(errorTraceback, scriptCode) {
