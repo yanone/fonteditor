@@ -1059,30 +1059,9 @@ Generate Python code for: ${userPrompt}`;
             });
         }
 
-        // Call Anthropic API via proxy
-        // Uses local proxy (localhost:8001) if available, otherwise falls back to public CORS proxy
-        const localProxyUrl = 'http://localhost:8001';
-        const publicProxyUrl = 'https://corsproxy.io/?https%3A%2F%2Fapi.anthropic.com%2Fv1%2Fmessages';
-
-        // Try local proxy first, fall back to public proxy
-        let apiUrl = localProxyUrl;
-        let useLocalProxy = true;
-
-        // Check if local proxy is available
-        try {
-            const testResponse = await fetch(localProxyUrl, { method: 'HEAD' }).catch(() => null);
-            if (!testResponse || !testResponse.ok) {
-                useLocalProxy = false;
-                apiUrl = publicProxyUrl;
-                console.log('Local proxy not available, using public CORS proxy');
-            }
-        } catch (e) {
-            useLocalProxy = false;
-            apiUrl = publicProxyUrl;
-            console.log('Local proxy not available, using public CORS proxy');
-        }
-
-        const response = await fetch(apiUrl, {
+        // Call Anthropic API through corsproxy.io
+        const targetUrl = encodeURIComponent('https://api.anthropic.com/v1/messages');
+        const response = await fetch(`https://corsproxy.io/?url=${targetUrl}`, {
             method: 'POST',
             headers: {
                 'x-api-key': this.apiKey,
