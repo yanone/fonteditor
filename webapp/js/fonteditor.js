@@ -17,15 +17,10 @@ async function initFontEditor() {
         await window.pyodide.loadPackage("micropip");
         console.log("micropip loaded successfully");
 
-        // Fetch the list of wheel files from the wheels directory
-        const response = await fetch('./wheels/');
-        const text = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(text, 'text/html');
-        const links = Array.from(doc.querySelectorAll('a'));
-        const wheelFiles = links
-            .map(a => a.textContent.trim())
-            .filter(name => name.endsWith('.whl'));
+        // Fetch the list of wheel files from the manifest
+        const manifestResponse = await fetch('./wheels/wheels.json');
+        const manifest = await manifestResponse.json();
+        const wheelFiles = manifest.wheels;
         console.log('Found wheel files:', wheelFiles);
 
         // Install context package from local wheels
