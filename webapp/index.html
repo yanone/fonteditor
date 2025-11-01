@@ -59,9 +59,13 @@
             </div>
         </div>
         <div class="toolbar-right">
-            <select id="open-fonts-dropdown" class="fonts-dropdown">
-                <option value="">No fonts open</option>
-            </select>
+            <button id="save-font-btn" class="toolbar-button" title="Save font (Cmd+S)" disabled>Save</button>
+            <div class="font-dropdown-container">
+                <span id="file-dirty-indicator" class="file-dirty-indicator" title="File has unsaved changes">●</span>
+                <select id="open-fonts-dropdown" class="fonts-dropdown">
+                    <option value="">No fonts open</option>
+                </select>
+            </div>
         </div>
     </div>
 
@@ -215,6 +219,7 @@
                 'js/pyodide-official-console.js',
                 'js/fonteditor.js',
                 'js/font-dropdown.js',
+                'js/save-button.js',
                 'js/file-browser.js',
                 'js/script-editor.js',
                 'js/ai-assistant.js'

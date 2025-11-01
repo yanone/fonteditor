@@ -154,11 +154,61 @@ body {
     gap: 12px;
 }
 
+.toolbar-button {
+    background-color: #2a2a2a;
+    border: 1px solid #555555;
+    color: #e0e0e0;
+    padding: 6px 16px;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.toolbar-button:hover:not(:disabled) {
+    border-color: #00ffff;
+    background-color: #333333;
+    color: #00ffff;
+}
+
+.toolbar-button:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.toolbar-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.font-dropdown-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.file-dirty-indicator {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    color: #ff6b6b;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 10;
+    transition: opacity 0.3s ease;
+}
+
+.file-dirty-indicator.visible {
+    opacity: 1;
+}
+
 .fonts-dropdown {
     background-color: #2a2a2a;
     border: 1px solid #555555;
     color: #e0e0e0;
-    padding: 6px 12px;
+    padding: 6px 12px 6px 28px;
     border-radius: 4px;
     font-family: 'IBM Plex Mono', monospace;
     font-size: 13px;

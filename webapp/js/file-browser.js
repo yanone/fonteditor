@@ -75,7 +75,7 @@ print(f"Opened font: {font_name} (Python processing: {duration:.2f}s)")
 
         // Update the font dropdown
         if (window.fontDropdownManager) {
-            await window.fontDropdownManager.updateDropdown();
+            await window.fontDropdownManager.onFontOpened();
         }
 
         console.log(`Successfully opened font: ${path} (total: ${duration}s)`);

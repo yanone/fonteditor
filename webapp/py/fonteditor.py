@@ -29,6 +29,10 @@ def OpenFont(path):
 
     __font_to_load = load(path)
 
+    # Ensure the filename is set (should be done by loader, but make sure)
+    if not hasattr(__font_to_load, "filename") or __font_to_load.filename is None:
+        __font_to_load.filename = path
+
     # Generate a unique ID for this font
     font_id = str(uuid.uuid4())
 
@@ -73,6 +77,33 @@ def SetCurrentFont(font_id):
         __current_font_id = font_id
         return True
     return False
+
+
+def SaveFont(path=None):
+    """
+    Save the current font to disk.
+
+    Args:
+        path (str, optional): Path to save the font. If not provided,
+                             uses the font's stored filename.
+
+    Returns:
+        bool: True if successful, False if no font is open
+
+    Example:
+        >>> SaveFont()  # Saves to original location
+        >>> SaveFont("/path/to/newfont.glyphs")  # Save As
+    """
+    current_font = CurrentFont()
+    if current_font is None:
+        return False
+
+    try:
+        current_font.save(path)
+        return True
+    except Exception as e:
+        print(f"Error saving font: {e}")
+        return False
 
 
 def GetOpenFonts():
