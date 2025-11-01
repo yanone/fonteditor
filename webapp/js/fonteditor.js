@@ -17,13 +17,34 @@ async function initFontEditor() {
         await window.pyodide.loadPackage("micropip");
         console.log("micropip loaded successfully");
 
-        // Install context package from local wheel
+        // Fetch the list of wheel files from the wheels directory
+        const response = await fetch('./wheels/');
+        const text = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, 'text/html');
+        const links = Array.from(doc.querySelectorAll('a'));
+        const wheelFiles = links
+            .map(a => a.textContent.trim())
+            .filter(name => name.endsWith('.whl'));
+        console.log('Found wheel files:', wheelFiles);
+
+        // Install context package from local wheels
         await window.pyodide.runPythonAsync(`
             import micropip
             await micropip.install('fonttools==4.60.1')
             await micropip.install('ufomerge')
-            await micropip.install('./wheels/contextfonteditor.whl')
         `);
+
+        // Install each wheel file
+        for (const wheelFile of wheelFiles) {
+            console.log(`Installing wheel: ${wheelFile}`);
+            const wheelUrl = `./wheels/${wheelFile}`;
+            await window.pyodide.runPythonAsync(`
+                import micropip
+                print(f"Installing from URL: ${wheelUrl}")
+                await micropip.install("${wheelUrl}")
+            `);
+        }
 
         // Import context and make it available
         await window.pyodide.runPython(`
