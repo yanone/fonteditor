@@ -8,7 +8,7 @@ class AIAssistant {
         this.messages = [];
         this.conversationHistory = [];
         this.maxRetries = 3;
-        this.cachedApiDocs = null; // Cache for babelfont API documentation
+        this.cachedApiDocs = null; // Cache for context API documentation
         this.autoRun = localStorage.getItem('ai_auto_run') !== 'false'; // Default to true
         this.isShowingErrorFix = false; // Flag to prevent duplicate error fix messages
 
@@ -1167,17 +1167,17 @@ ${errorTraceback}
     }
 
     async callClaude(userPrompt, previousError = null, attemptNumber = 0) {
-        // Get API documentation from babelfont (cached after first generation)
+        // Get API documentation from context (cached after first generation)
         if (!this.cachedApiDocs) {
             try {
                 this.cachedApiDocs = await window.pyodide.runPythonAsync(`
-import babelfont
-babelfont.generate_all_docs()
+import context
+context.generate_all_docs()
                 `);
-                console.log('Babelfont API documentation cached');
+                console.log('Context API documentation cached');
             } catch (error) {
-                console.warn('Could not generate babelfont API docs, using fallback:', error);
-                this.cachedApiDocs = `API documentation not available. Use standard babelfont attributes:
+                console.warn('Could not generate context API docs, using fallback:', error);
+                this.cachedApiDocs = `API documentation not available. Use standard context attributes:
 - font.glyphs, font.names, font.masters, etc.
 - glyph.name, glyph.width, glyph.layers
 - layer.paths, layer.width
@@ -1191,29 +1191,29 @@ babelfont.generate_all_docs()
         // Build context-specific instructions
         const contextInstructions = this.context === 'script'
             ? `CONTEXT: SCRIPT EDITING MODE
-You are helping to improve and modify Python scripts that will be run inside the font editor using the babelfont library. The user has an existing script open in their editor that they want to enhance or modify or fix, or the script may also be empty still.
+You are helping to improve and modify Python scripts that will be run inside the font editor using the context-py library. The user has an existing script open in their editor that they want to enhance or modify or fix, or the script may also be empty still.
 
 PRIMARY FOCUS:
 - Write Python scripts from scratch or improve existing ones
 - Add new functionality to scripts only when explicitly requested
 - Refactor and optimize code only when explicitly requested
 - Fix errors in existing scripts when provided with error tracebacks
-- Adapt code to babelfont API changes (see API docs below)
+- Adapt code to context-py API changes (see API docs below)
 - Help write complete, reusable scripts
-- Scripts should be designed to work on fonts using the babelfont library
+- Scripts should be designed to work on fonts using the context-py library
 
 CRITICAL RULES FOR SCRIPT MODE:
 1. Generate complete, standalone Python scripts that can be saved and reused
 2. ALWAYS use CurrentFont() and assign it to the "font" variable to get the main font object
 3. Scripts should be self-contained and well-documented
 4. Include proper error handling and user feedback via print statements
-5. The babelfont API documentation below is provided for reference when writing scripts
+5. The context-py API documentation below is provided for reference when writing scripts
 6. Only refactor code when explicitly requested by the user. When fixing errors, only change the parts that are necessary to fix the error
 `
 
 
             : `CONTEXT: FONT EDITING MODE
-You are working directly on the user's currently open font. Generate Python code that will be executed immediately on the active font using the babelfont library.
+You are working directly on the user's currently open font. Generate Python code that will be executed immediately on the active font using the context-py library.
 
 CRITICAL RULES FOR FONT MODE:
 1. ALWAYS use CurrentFont() and assign it to the "font" variable to get the main font object
@@ -1222,7 +1222,7 @@ CRITICAL RULES FOR FONT MODE:
 4. Always include a summary print statement at the end indicating what was done`;
 
         // Build the system prompt with API documentation
-        const systemPrompt = `You are a Python code generator for a font editor using the babelfont library.
+        const systemPrompt = `You are a Python code generator for a font editor using the context-py library.
 
 ${contextInstructions}
 
@@ -1231,7 +1231,7 @@ GENERAL RULES (APPLY TO BOTH CONTEXTS):
 2. You may include explanations in markdown format outside the code block
 3. Include print() statements in your code to show results to the user
 4. Handle errors gracefully within your code
-5. The font object is a babelfont Font instance
+5. The font object is a context-py Font instance
 6. Annotate the code with comments
 7. Never return single-line Python comments. If you want to return just a comment, wrap it in a print statement anyway so the user gets to see it
 8. Always include a summary of the user prompt in the first line of the code as a comment (max 40 characters, pose as a command, not a question), followed by a line with the most important keywords describing the most important concepts touched in the code (line starts with "Keywords: ", see below list for eligible keywords), followed by an empty line, followed by one or several comment lines explaining briefly what the script does. Cap the description at 40 characters per line
@@ -1253,7 +1253,7 @@ Example for file header:
 Eligible keyword are:
 glyphs, layers, paths, nodes, anchors, components, metrics, names, masters, unicode, kerning, groups, features, guidelines
 
-BABELFONT API DOCUMENTATION:
+CONTEXT-PY API DOCUMENTATION:
 ${apiDocs}
 
 CHANGELOG to API:
@@ -1276,10 +1276,10 @@ font = CurrentFont()
 print(f"Font has {len(font.glyphs)} glyphs:")
 for glyph in font.glyphs:
     print(f"  - {glyph.name}")` : `# Example script for batch processing (SCRIPT MODE)
-import babelfont
+import context
 
 def process_font(font_path):
-    font = babelfont.load(font_path)
+    font = context.load(font_path)
     # Process the font
     print(f"Processing {font.names.familyName}")
     # Your modifications here

@@ -3,7 +3,7 @@ FontEditor Python Module
 Core functionality for font editing operations
 """
 
-from babelfont import load
+from context import load
 import uuid
 
 
@@ -19,7 +19,7 @@ def OpenFont(path):
         path (str): Path to the font file (.glyphs, .ufo, .designspace, etc.)
 
     Returns:
-        Font: A babelfont Font object
+        Font: A context Font object
 
     Example:
         >>> font = OpenFont("/project/MyFont.glyphs")
@@ -46,7 +46,7 @@ def CurrentFont():
     Get the currently active font.
 
     Returns:
-        Font: The currently active babelfont Font object, or None if no font is open
+        Font: The currently active context Font object, or None if no font is open
 
     Example:
         >>> font = CurrentFont()
@@ -92,7 +92,7 @@ def GetOpenFonts():
         # Try to get a display name for the font
         name = "Untitled Font"
 
-        # Try font.names.familyName['dflt'] first (babelfont)
+        # Try font.names.familyName['dflt'] first (context)
         if (
             hasattr(font, "names")
             and hasattr(font.names, "familyName")

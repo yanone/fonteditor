@@ -39,8 +39,8 @@ function getFileClass(filename, isDir) {
 }
 
 function isSupportedFontFormat(name, isDir) {
-    // Check if it's a .babelfont folder
-    if (isDir && name.endsWith('.babelfont')) {
+    // Check if it's a .context folder
+    if (isDir && name.endsWith('.context')) {
         return true;
     }
     // Add more formats in the future (.glyphs, .ufo, etc.)

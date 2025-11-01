@@ -17,20 +17,20 @@ async function initFontEditor() {
         await window.pyodide.loadPackage("micropip");
         console.log("micropip loaded successfully");
 
-        // Install babelfont package from local wheel
+        // Install context package from local wheel
         await window.pyodide.runPythonAsync(`
             import micropip
             await micropip.install('fonttools==4.60.1')
             await micropip.install('ufomerge')
-            await micropip.install('./wheels/babelfont-3.1.4.dev10+gbaebb37-py3-none-any.whl')
+            await micropip.install('./wheels/contextfonteditor.whl')
         `);
 
-        // Import babelfont and make it available
+        // Import context and make it available
         await window.pyodide.runPython(`
-            import babelfont
+            import context
             
-            # Make babelfont available globally in Python namespace
-            globals()['babelfont'] = babelfont
+            # Make context available globally in Python namespace
+            globals()['context'] = context
         `);
 
         // Load the fonteditor Python module

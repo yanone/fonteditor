@@ -4,7 +4,7 @@ A browser-based font editor with Python scripting, AI assistance, and fontc WASM
 
 ## Features
 
-- 🐍 **Python Console**: Full Python environment with Pyodide and babelfont library
+- 🐍 **Python Console**: Full Python environment with Pyodide and context library
 - � **AI Assistant**: Natural language font editing with Claude (Anthropic API)
 - 📝 **Script Editor**: Write and run Python scripts with syntax highlighting (CodeMirror 6)
 - �🦀 **fontc Compiler**: Google's Rust-based font compiler running in browser via WASM
@@ -38,7 +38,7 @@ Simply describe what you want to do in natural language:
 - "Make all glyphs 10% wider"
 - "Add 50 units to left sidebearings"
 
-The assistant generates and executes Python code using the babelfont library, with automatic retry on errors.
+The assistant generates and executes Python code using the context library, with automatic retry on errors.
 
 ### Script Editor
 
@@ -58,13 +58,13 @@ print(f"Modified {len(font.glyphs)} glyphs")
 
 ### Python Console
 
-Interactive Python REPL with babelfont:
+Interactive Python REPL with context:
 
 ```python
-import babelfont
+import context
 
 # Load a font
-font = babelfont.load('/path/to/font.glyphs')
+font = context.load('/path/to/font.glyphs')
 
 # Access font properties
 print(f"Family: {font.names.familyName}")
@@ -92,7 +92,7 @@ result = await js.compileFontFromPython('fontc /input.glyphs -o /output.ttf')
 
 - **Frontend**: HTML/CSS/Vanilla JavaScript with terminal styling
 - **Python Runtime**: Pyodide 0.28.3 (WebAssembly)
-- **Font Library**: babelfont (Python font manipulation)
+- **Font Library**: context (Python font manipulation)
 - **AI**: Anthropic Claude API (claude-sonnet-4-20250514)
 - **Code Editor**: CodeMirror 6 with Python language support
 - **Console**: jQuery Terminal 2.35.2
