@@ -139,12 +139,53 @@
             }
         });
 
+        // Track cursor position and focus state
+        let savedCursorPosition = null;
+        let isPreventingCursorJump = false;
+
+        // Intercept ALL mouse events on the container when not focused
+        container.addEventListener('mousedown', (e) => {
+            if (!isScriptViewFocused) {
+                // Save cursor position before any click
+                savedCursorPosition = editor.getCursorPosition();
+                isPreventingCursorJump = true;
+                
+                // Prevent the event from reaching the editor
+                e.stopPropagation();
+                e.preventDefault();
+                
+                // Manually trigger focus on the view
+                const scriptView = document.getElementById('view-scripts');
+                if (scriptView) {
+                    scriptView.click();
+                }
+                
+                // Restore cursor after focus
+                setTimeout(() => {
+                    if (savedCursorPosition) {
+                        editor.moveCursorToPosition(savedCursorPosition);
+                        editor.clearSelection();
+                    }
+                    isPreventingCursorJump = false;
+                }, 50);
+            }
+        }, true); // Use capture phase to intercept before Ace
+
         // Listen for view focus events
         window.addEventListener('viewFocused', (event) => {
             isScriptViewFocused = event.detail.viewId === 'view-scripts';
+            
             if (isScriptViewFocused && editor) {
-                // Focus the editor when view is focused
+                // Focus the editor
                 editor.focus();
+                
+                // If we saved a position, restore it
+                if (isPreventingCursorJump && savedCursorPosition) {
+                    setTimeout(() => {
+                        editor.moveCursorToPosition(savedCursorPosition);
+                        editor.clearSelection();
+                    }, 0);
+                }
             }
         });
 
