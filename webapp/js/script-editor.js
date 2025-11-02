@@ -47,6 +47,49 @@
             wrap: false
         });
 
+        let cursorWidth = '7px';
+        let opacityLevel = '0.5';
+
+        // Force wider cursor by injecting custom style and directly manipulating the cursor
+        setTimeout(() => {
+            // Method 1: Add a style tag to override cursor width
+            const styleId = 'ace-cursor-width-override';
+            if (!document.getElementById(styleId)) {
+                const style = document.createElement('style');
+                style.id = styleId;
+                style.textContent = `
+                    .ace_cursor {
+                        width: ${cursorWidth} !important;
+                        // opacity: ${opacityLevel} !important;
+                        top: 2px !important;
+                        left: -0px !important;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            // Method 2: Direct DOM manipulation
+            const cursorLayer = editor.renderer.$cursorLayer;
+            if (cursorLayer && cursorLayer.element) {
+                const cursor = cursorLayer.element.querySelector('.ace_cursor');
+                if (cursor) {
+                    cursor.style.width = cursorWidth;
+                    cursor.style.borderLeftWidth = cursorWidth;
+                    // cursor.style.opacity = opacityLevel;
+                }
+            }
+
+            // Method 3: Update on every cursor move
+            editor.renderer.on('afterRender', () => {
+                const cursor = editor.container.querySelector('.ace_cursor');
+                if (cursor && cursor.style.width !== cursorWidth) {
+                    cursor.style.width = cursorWidth;
+                    cursor.style.borderLeftWidth = cursorWidth;
+                    // cursor.style.opacity = opacityLevel;
+                }
+            });
+        }, 100);
+
         // Save to localStorage on change
         editor.session.on('change', function () {
             localStorage.setItem('python_script', editor.getValue());
