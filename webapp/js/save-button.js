@@ -14,7 +14,8 @@ class SaveButton {
         // Global keyboard shortcut
         $(document).on('keydown', (e) => {
             // Cmd+S (Mac) or Ctrl+S (Windows/Linux)
-            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+            // BUT NOT Cmd+Shift+S (that's for focusing script editor)
+            if ((e.metaKey || e.ctrlKey) && e.key === 's' && !e.shiftKey) {
                 e.preventDefault();
                 this.handleSave();
             }
