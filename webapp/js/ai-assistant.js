@@ -155,19 +155,19 @@ class AIAssistant {
             this.updateContextLabel(); // Update context label appearance based on focus
         });
 
-        // Click on view content to focus text field (except messages)
+        // Click on view content to focus text field (except interactive elements)
         const assistantView = document.getElementById('view-assistant');
         if (assistantView) {
             const viewContent = assistantView.querySelector('.view-content');
             if (viewContent) {
                 viewContent.addEventListener('click', (event) => {
-                    // Don't focus if clicking on messages container or its children
-                    const messagesContainer = document.getElementById('ai-messages');
-                    if (messagesContainer && (event.target === messagesContainer || messagesContainer.contains(event.target))) {
-                        return;
-                    }
-                    // Don't focus if clicking on buttons or interactive elements
-                    if (event.target.tagName === 'BUTTON' || event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+                    // Don't focus if clicking on interactive elements
+                    if (event.target.tagName === 'BUTTON' || 
+                        event.target.tagName === 'INPUT' || 
+                        event.target.tagName === 'TEXTAREA' ||
+                        event.target.tagName === 'A' ||
+                        event.target.closest('button') ||
+                        event.target.closest('a')) {
                         return;
                     }
                     // Focus the text field
