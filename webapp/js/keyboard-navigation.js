@@ -43,7 +43,7 @@
             return;
         }
         isFocusing = true;
-        
+
         console.log('focusView called with:', viewId);
 
         // Remove focus from all views
@@ -87,7 +87,7 @@
                 setTimeout(() => {
                     // Try to get terminal instance from window.term or directly from jQuery
                     let term = window.term;
-                    
+
                     // If window.term doesn't exist, try to get it from the jQuery terminal plugin
                     if (!term) {
                         const consoleElement = $('#console-container');
@@ -95,12 +95,12 @@
                             term = consoleElement.terminal();
                         }
                     }
-                    
+
                     if (term && term.focus) {
                         // Call terminal focus method
                         term.focus();
                     }
-                    
+
                     // Always try to focus the input element directly as well
                     const cmdInput = document.querySelector('#console-container .cmd textarea');
                     if (cmdInput) {
