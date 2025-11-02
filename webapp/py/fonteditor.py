@@ -17,9 +17,9 @@ def OpenFont(path):
     """
     Open a font file and return a Font object.
 
-    Note: Dirty tracking is initialized asynchronously after loading to keep
-    the UI responsive. Use IsTrackingReady() to check if tracking is initialized,
-    or call WaitForTracking() to wait for initialization to complete.
+    Note: Dirty tracking is initialized separately after loading via
+    InitializeTracking() to keep the UI responsive. Use IsTrackingReady()
+    to check if tracking is initialized.
 
     Args:
         path (str): Path to the font file (.glyphs, .ufo, .designspace, etc.)
@@ -52,8 +52,8 @@ def OpenFont(path):
     # Register save callbacks for UI integration
     _register_ui_callbacks(__font_to_load, font_id)
 
-    # Note: Dirty tracking will be initialized asynchronously from JavaScript
-    # to avoid blocking the UI. See InitializeTrackingNow()
+    # Note: Dirty tracking will be initialized from JavaScript
+    # via InitializeTracking() call (synchronous, optimized with lazy loading)
 
     return __font_to_load
 
@@ -62,6 +62,9 @@ def _register_ui_callbacks(font, font_id):
     """
     Register UI callbacks on a font object.
     These callbacks will be called when font.save() is invoked.
+
+    Note: Clears any existing callbacks before registering to prevent
+    duplicates.
     """
     from context.BaseObject import DIRTY_FILE_SAVING
 
@@ -105,6 +108,12 @@ def _register_ui_callbacks(font, font_id):
                 js._fontSaveCallbacks.onError(font_id, filename, str(error))
         except Exception as e:
             print(f"Error in on_error callback: {e}")
+
+    # Clear any existing callbacks to prevent duplicates
+    # from multiple OpenFont calls
+    font.clear_callbacks("before_save")
+    font.clear_callbacks("after_save")
+    font.clear_callbacks("on_error")
 
     # Register the callbacks
     font.register_callback("before_save", before_save_callback)
@@ -156,51 +165,46 @@ def SetCurrentFont(font_id):
     return False
 
 
-def InitializeTrackingAsync(font_id):
+def InitializeTracking(font_id=None):
     """
-    Start asynchronous initialization of dirty tracking for a font.
-    This should be called from JavaScript using setTimeout to avoid
-    blocking the UI during font loading.
-
-    Args:
-        font_id (str): The ID of the font to initialize tracking for
-    """
-    # This function just marks intent - actual initialization happens
-    # when JavaScript calls InitializeTrackingNow()
-    pass
-
-
-def InitializeTrackingNow(font_id=None):
-    """
-    Actually initialize dirty tracking for a font.
-    This is called from JavaScript after a timeout to keep UI responsive.
+    Initialize dirty tracking for a font.
 
     Args:
         font_id (str, optional): Font ID. If None, uses current font.
 
     Returns:
-        bool: True if successful, False otherwise
+        dict: Result with 'success', 'duration'
     """
     if font_id is None:
         font_id = __current_font_id
 
     if font_id is None or font_id not in __open_fonts:
-        return False
+        return {"error": "Font not found", "success": False}
 
     if __tracking_initialized.get(font_id, False):
-        return True  # Already initialized
+        return {
+            "success": True,
+            "already_initialized": True,
+            "duration": 0,
+        }
 
     import time
 
     start_time = time.time()
     font = __open_fonts[font_id]
-    font.initialize_dirty_tracking()
-    duration = time.time() - start_time
 
+    # Initialize tracking (runs synchronously, optimized with lazy loading)
+    font.initialize_dirty_tracking()
+
+    duration = time.time() - start_time
     __tracking_initialized[font_id] = True
+
     print(f"✅ Dirty tracking initialized in {duration:.2f}s")
 
-    return True
+    return {
+        "success": True,
+        "duration": round(duration, 2),
+    }
 
 
 def IsTrackingReady(font_id=None):

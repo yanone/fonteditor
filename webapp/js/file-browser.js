@@ -69,9 +69,9 @@ if hasattr(font, 'names') and hasattr(font.names, 'familyName') and isinstance(f
     font_name = font.names.familyName['dflt']
 duration = time.time() - start_time
 print(f"✅ Font loaded: {font_name} ({duration:.2f}s)")
-print("⏳ Initializing dirty tracking asynchronously...")
+print("⏳ Initializing dirty tracking...")
 
-# Get the current font ID for async tracking init
+# Get the current font ID for tracking init
 font_id = GetCurrentFontId()
 json.dumps({"font_name": font_name, "font_id": font_id, "load_time": duration})
         `);
@@ -80,36 +80,43 @@ json.dumps({"font_name": font_name, "font_id": font_id, "load_time": duration})
         const endTime = performance.now();
         const duration = ((endTime - startTime) / 1000).toFixed(2);
 
-        // Update the font dropdown immediately (font is ready to use)
-        if (window.fontDropdownManager) {
-            await window.fontDropdownManager.onFontOpened();
+        console.log(`Successfully opened font: ${path} (${duration}s)`);
+
+        // Initialize dirty tracking synchronously (blocks UI, but simpler)
+        console.log('⏳ Initializing dirty tracking...');
+        const trackingStart = performance.now();
+
+        try {
+            const resultJson = await window.pyodide.runPythonAsync(`
+import json
+result = InitializeTracking('${data.font_id}')
+json.dumps(result)
+`);
+
+            const result = JSON.parse(resultJson);
+
+            if (result.error) {
+                console.error(`Error initializing tracking: ${result.error}`);
+            }
+        } catch (error) {
+            console.error('Error initializing tracking:', error);
         }
 
-        // Initialize dirty tracking asynchronously (after UI is responsive)
-        // Store the tracking promise so save can wait for it if needed
-        window._trackingInitPromise = (async () => {
-            // Small delay to let UI update and become responsive first
-            await new Promise(resolve => setTimeout(resolve, 10));
+        const trackingEnd = performance.now();
+        const trackingDuration = ((trackingEnd - trackingStart) / 1000).toFixed(2);
+        console.log(`✅ Dirty tracking ready (${trackingDuration}s)`);
 
-            const trackingStart = performance.now();
-            try {
-                await window.pyodide.runPythonAsync(`
-InitializeTrackingNow('${data.font_id}')
-                `);
-                const trackingDuration = ((performance.now() - trackingStart) / 1000).toFixed(2);
-                console.log(`✅ Dirty tracking ready (${trackingDuration}s)`);
-
-                // Print to Python console
-                await window.pyodide.runPythonAsync(`
-print(f"📊 Font ready for editing (tracking: ${trackingDuration}s)")
-                `);
-            } catch (error) {
-                console.error('Error initializing tracking:', error);
-                throw error;
+        // Update the font dropdown and dirty indicator
+        if (window.fontDropdownManager) {
+            await window.fontDropdownManager.updateDropdown();
+            if (window.saveButton) {
+                window.saveButton.updateButtonState();
             }
-        })();
+            await window.fontDropdownManager.updateDirtyIndicator();
+        }
 
-        console.log(`Successfully opened font: ${path} (total: ${duration}s)`);
+        // Clear tracking promise (for save button compatibility)
+        window._trackingInitPromise = Promise.resolve();
 
         // Play done sound
         if (window.playSound) {

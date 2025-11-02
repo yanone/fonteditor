@@ -98,13 +98,13 @@ IsTrackingReady()
 font = CurrentFont()
 if font:
     font.save()
-    True
+    "success"  # Return a truthy value
 else:
-    False
+    None
             `);
 
             if (!result) {
-                throw new Error('No font open');
+                throw new Error('No font open or save failed');
             }
 
             // Success - callbacks have already handled UI updates
@@ -112,8 +112,12 @@ else:
 
         } catch (error) {
             console.error('Error saving font:', error);
-            this.isSaving = false;
-            this.showError();
+            // Only show error if callbacks haven't already handled it
+            // (callbacks might have been called even if we got an error here)
+            if (this.isSaving) {
+                this.isSaving = false;
+                this.showError();
+            }
         }
     }
 
