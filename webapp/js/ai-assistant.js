@@ -39,7 +39,6 @@ class AIAssistant {
         this.apiKeyInput = document.getElementById('ai-api-key');
         this.promptInput = document.getElementById('ai-prompt');
         this.sendButton = document.getElementById('ai-send-btn');
-        this.clearButton = document.getElementById('ai-clear-btn');
         this.messagesContainer = document.getElementById('ai-messages');
         this.autoRunButton = document.getElementById('ai-auto-run-btn');
         this.contextFontButton = document.getElementById('ai-context-font-btn');
@@ -64,14 +63,7 @@ class AIAssistant {
             this.contextScriptButton.classList.add('active');
         }
 
-        // Set initial placeholder text based on context
-        if (this.promptInput) {
-            if (this.context === 'font') {
-                this.promptInput.placeholder = 'Font context: Ask me to analyze or modify your font...';
-            } else {
-                this.promptInput.placeholder = 'Script context: Ask me to create or modify your script...';
-            }
-        }
+        // No placeholder needed - we have the >>> prefix and "Talk to me..." label
 
         // Update auto-run button state
         this.updateAutoRunButton();
@@ -96,11 +88,6 @@ class AIAssistant {
             this.sendPrompt();
         });
 
-        this.clearButton.addEventListener('click', (event) => {
-            event.stopPropagation(); // Prevent view focus
-            this.clearConversation();
-        });
-
         this.autoRunButton.addEventListener('click', (event) => {
             event.stopPropagation(); // Prevent view focus
             this.toggleAutoRun();
@@ -115,6 +102,19 @@ class AIAssistant {
             event.stopPropagation(); // Prevent view focus
             this.setContext('script');
         });
+
+        // Add wider cursor styling for the prompt textarea
+        this.addWideCursorStyle();
+
+        // Auto-resize textarea based on content
+        this.promptInput.addEventListener('input', () => {
+            this.autoResizeTextarea();
+        });
+
+        // Set initial height
+        setTimeout(() => {
+            this.autoResizeTextarea();
+        }, 100);
 
         this.promptInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -225,15 +225,6 @@ class AIAssistant {
         } else {
             this.contextFontButton.classList.remove('active');
             this.contextScriptButton.classList.add('active');
-        }
-
-        // Update placeholder text based on context
-        if (this.promptInput) {
-            if (context === 'font') {
-                this.promptInput.placeholder = 'Font context: Ask me to analyze or modify your font...';
-            } else {
-                this.promptInput.placeholder = 'Script context: Ask me to create or modify your script...';
-            }
         }
 
         // Update button colors
@@ -953,6 +944,7 @@ class AIAssistant {
 
                     // Clear input and disable controls
                     this.promptInput.value = '';
+                    this.autoResizeTextarea();
                     this.promptInput.disabled = true;
                     this.sendButton.disabled = true;
 
@@ -971,6 +963,7 @@ class AIAssistant {
 
                             this.promptInput.disabled = false;
                             this.sendButton.disabled = false;
+                            this.autoResizeTextarea();
                             this.promptInput.focus();
                         }
                     }, 100);
@@ -1080,6 +1073,7 @@ ${errorTraceback}
 
         // Clear input
         this.promptInput.value = '';
+        this.autoResizeTextarea();
         this.promptInput.disabled = true;
         this.sendButton.disabled = true;
 
@@ -1104,6 +1098,7 @@ ${errorTraceback}
 
             this.promptInput.disabled = false;
             this.sendButton.disabled = false;
+            this.autoResizeTextarea();
             this.promptInput.focus();
         }
     }
@@ -1448,6 +1443,176 @@ if '_original_stdout' in dir():
 
             // Re-throw with cleaned up error message
             throw new Error(error.message || String(error));
+        }
+    }
+
+    /**
+     * Add wider cursor styling to the prompt textarea
+     */
+    addWideCursorStyle() {
+        const styleId = 'ai-prompt-cursor-override';
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+                #ai-prompt {
+                    caret-color: transparent;
+                }
+                .custom-textarea-cursor {
+                    position: absolute;
+                    width: 7px;
+                    background-color: rgba(255, 255, 255, 0.8);
+                    pointer-events: none;
+                    z-index: 1;
+                    animation: cursor-blink 1s step-end infinite;
+                }
+                @keyframes cursor-blink {
+                    0%, 50% { opacity: 1; }
+                    51%, 100% { opacity: 0; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        // Create custom cursor element
+        const cursor = document.createElement('div');
+        cursor.className = 'custom-textarea-cursor';
+        cursor.id = 'ai-prompt-custom-cursor';
+
+        const wrapper = document.getElementById('ai-prompt-wrapper');
+        if (wrapper) {
+            wrapper.style.position = 'relative';
+            wrapper.appendChild(cursor);
+        }
+
+        // Track last cursor position to detect changes
+        let lastPosition = { left: 0, top: 0 };
+
+        // Update cursor position
+        const updateCursor = () => {
+            if (!this.promptInput || this.promptInput.disabled) {
+                cursor.style.display = 'none';
+                return;
+            }
+            cursor.style.display = 'block';
+
+            const textarea = this.promptInput;
+            const textBeforeCursor = textarea.value.substring(0, textarea.selectionStart);
+            const lines = textBeforeCursor.split('\n');
+            const currentLine = lines.length - 1;
+            const currentLineText = lines[currentLine];
+
+            // Get styles
+            const style = window.getComputedStyle(textarea);
+            const lineHeight = parseFloat(style.lineHeight);
+            const fontSize = parseFloat(style.fontSize);
+
+            // Calculate character width (monospace font)
+            const charWidth = fontSize * 0.6; // Approximate for IBM Plex Mono
+
+            // Get prefix width
+            const prefix = document.getElementById('ai-prompt-prefix');
+            const prefixWidth = prefix ? prefix.offsetWidth : 0;
+
+            // Calculate position
+            const left = prefixWidth + (currentLineText.length * charWidth);
+            const top = currentLine * lineHeight;
+
+            // Check if cursor position changed
+            if (left !== lastPosition.left || top !== lastPosition.top) {
+                // Reset animation by removing and re-adding the animation
+                cursor.style.animation = 'none';
+                // Force reflow
+                void cursor.offsetHeight;
+                cursor.style.animation = 'cursor-blink 1s step-end infinite';
+
+                // Update last position
+                lastPosition = { left, top };
+            }
+
+            cursor.style.left = left + 'px';
+            cursor.style.top = top + 'px';
+            cursor.style.height = lineHeight + 'px';
+        };
+
+        // Store last selection position for continuous monitoring
+        let lastSelectionStart = -1;
+
+        // Continuously monitor cursor position for instant updates
+        const monitorCursor = () => {
+            if (this.promptInput && !this.promptInput.disabled && document.activeElement === this.promptInput) {
+                const currentPos = this.promptInput.selectionStart;
+                if (currentPos !== lastSelectionStart) {
+                    updateCursor();
+                    lastSelectionStart = currentPos;
+                }
+            }
+            requestAnimationFrame(monitorCursor);
+        };
+
+        // Start monitoring
+        requestAnimationFrame(monitorCursor);
+
+        // Update on various events as backup
+        this.promptInput.addEventListener('input', updateCursor);
+        this.promptInput.addEventListener('click', updateCursor);
+        this.promptInput.addEventListener('keyup', updateCursor);
+        this.promptInput.addEventListener('keydown', (e) => {
+            // For arrow keys and navigation, schedule update after event processes
+            const navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
+            if (navKeys.includes(e.key)) {
+                requestAnimationFrame(updateCursor);
+            }
+        });
+        this.promptInput.addEventListener('focus', () => {
+            cursor.style.display = 'block';
+            lastSelectionStart = this.promptInput.selectionStart;
+            updateCursor();
+        });
+        this.promptInput.addEventListener('blur', () => {
+            cursor.style.display = 'none';
+            lastSelectionStart = -1;
+        });
+
+        // Initial update
+        setTimeout(updateCursor, 100);
+
+        // Store update function for external calls
+        this._updateCursor = updateCursor;
+    }
+
+    /**
+     * Auto-resize textarea based on content (3 to 10 lines)
+     */
+    autoResizeTextarea() {
+        const textarea = this.promptInput;
+        const viewContent = document.querySelector('#view-assistant .view-content');
+
+        // Reset height to auto to get the correct scrollHeight
+        textarea.style.height = 'auto';
+
+        // Calculate line height in pixels
+        const style = window.getComputedStyle(textarea);
+        const lineHeight = parseFloat(style.lineHeight);
+
+        // Calculate min height for 3 lines and max height for 10 lines
+        const minHeight = lineHeight * 3;
+        const maxHeight = lineHeight * 10;
+
+        // Set new height based on content, with min of 3 lines and max of 10 lines
+        const newHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
+        textarea.style.height = newHeight + 'px';
+
+        // Update custom cursor position after resize
+        if (this._updateCursor) {
+            setTimeout(() => this._updateCursor(), 0);
+        }
+
+        // Scroll the view to the bottom
+        if (viewContent) {
+            setTimeout(() => {
+                viewContent.scrollTop = viewContent.scrollHeight;
+            }, 0);
         }
     }
 }

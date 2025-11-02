@@ -314,6 +314,7 @@ body {
     margin: 20px;
     margin-left: 15px;
     margin-top: 2px;
+    margin-bottom: 10px;
     overflow: auto;
     flex: 1;
 }
@@ -886,33 +887,14 @@ body {
 #ai-button-container {
     display: flex;
     gap: 10px;
-    align-items: center;
-}
-
-#ai-clear-btn {
-    background-color: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    color: rgba(255, 255, 255, 0.8);
-    padding: 8px 14px;
-    border-radius: 0;
-    cursor: pointer;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
-    font-weight: normal;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-}
-
-#ai-clear-btn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.6);
+    align-items: flex-start;
 }
 
 #ai-messages {
     flex: 0 1 auto;
     padding: 0;
     background-color: transparent;
-    margin-bottom: 15px;
+    margin-bottom: 11px;
     display: none;
     font-family: 'IBM Plex Mono', monospace;
 }
@@ -1448,9 +1430,9 @@ body {
 #ai-input-container {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 3px;
     flex-shrink: 0;
-    margin: 0 15px;
+    margin: 0 12px;
     /* Don't shrink when content grows */
 }
 
@@ -1468,17 +1450,46 @@ body {
     color: rgba(255, 255, 255, 0.4);
 }
 
+#ai-prompt-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 0;
+    font-style: italic;
+}
+
+#ai-prompt-wrapper {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+}
+
+#ai-prompt-prefix {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+    color: rgba(255, 255, 255, 0.8);
+    line-height: 1.6;
+    pointer-events: none;
+    user-select: none;
+    white-space: pre;
+    flex-shrink: 0;
+}
+
 #ai-prompt {
-    padding: 10px 12px;
+    padding: 0;
     background-color: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: none;
     border-radius: 0;
     color: rgba(255, 255, 255, 0.8);
-    font-family: 'IBM Plex Sans', sans-serif;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
-    min-height: 60px;
-    resize: vertical;
-    letter-spacing: 0.02em;
+    min-height: 0;
+    max-height: none;
+    resize: none;
+    letter-spacing: 0;
+    line-height: 1.6;
+    flex: 1;
+    overflow-y: auto;
 }
 
 #ai-prompt::placeholder {
@@ -1488,31 +1499,30 @@ body {
 #ai-prompt:focus,
 #ai-api-key:focus {
     outline: none;
-    border-color: rgba(255, 255, 255, 0.6);
+    border-color: transparent;
     box-shadow: none;
 }
 
 #ai-send-btn {
-    padding: 10px 20px;
+    padding: 0;
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 0;
-    color: rgba(255, 255, 255, 0.8);
+    border: none;
+    color: rgba(255, 255, 255, 0.5);
     font-family: 'IBM Plex Mono', monospace;
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
     font-weight: normal;
+    font-style: italic;
     cursor: pointer;
-    transition: all 0.2s ease;
-    flex: 1;
+    text-align: left;
+    margin-top: 0px;
 }
 
 #ai-send-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.7);
 }
 
 #ai-send-btn:active {
-    background: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.9);
 }
 
 #ai-send-btn:disabled {

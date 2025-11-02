@@ -167,11 +167,13 @@
                         </div>
                         <div id="ai-messages"></div>
                         <div id="ai-input-container">
-                            <textarea id="ai-prompt"
-                                placeholder="Ask the assistant to modify your font... (e.g., 'Make all glyphs 10% wider')"></textarea>
+                            <div id="ai-prompt-label">Talk to me...</div>
+                            <div id="ai-prompt-wrapper">
+                                <div id="ai-prompt-prefix">>>> </div>
+                                <textarea id="ai-prompt" placeholder=""></textarea>
+                            </div>
                             <div id="ai-button-container">
-                                <button id="ai-send-btn">Send <span class="ai-button-shortcut">⌘↩</span></button>
-                                <button id="ai-clear-btn" title="Clear conversation history">🗑️ Clear</button>
+                                <button id="ai-send-btn">Send with ⌘↩</button>
                             </div>
                         </div>
                     </div>
