@@ -66,7 +66,6 @@ def _register_ui_callbacks(font, font_id):
     Note: Clears any existing callbacks before registering to prevent
     duplicates.
     """
-    from context.BaseObject import DIRTY_FILE_SAVING
 
     def before_save_callback(font, filename):
         """Called before saving begins."""
@@ -81,9 +80,8 @@ def _register_ui_callbacks(font, font_id):
 
     def after_save_callback(font, filename, duration):
         """Called after successful save."""
-        # Mark font as clean after save
-        if hasattr(font, "mark_clean"):
-            font.mark_clean(DIRTY_FILE_SAVING, recursive=True)
+        # Note: Font is already marked clean by font.save() itself,
+        # no need to do it again here (it's expensive for large fonts)
 
         print(f"Saved font to {filename} in {duration:.2f}s")
 
@@ -196,14 +194,14 @@ def InitializeTracking(font_id=None):
     # Initialize tracking (runs synchronously, optimized with lazy loading)
     font.initialize_dirty_tracking()
 
-    duration = time.time() - start_time
+    total_duration = time.time() - start_time
     __tracking_initialized[font_id] = True
 
-    print(f"✅ Dirty tracking initialized in {duration:.2f}s")
+    print(f"✅ Dirty tracking initialized in {total_duration:.2f}s")
 
     return {
         "success": True,
-        "duration": round(duration, 2),
+        "duration": round(total_duration, 2),
     }
 
 

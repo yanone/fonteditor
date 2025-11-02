@@ -31,16 +31,18 @@ class SaveButton {
         // Create JavaScript functions that Python can call via js._fontSaveCallbacks
         window._fontSaveCallbacks = {
             beforeSave: (fontId, filename) => {
-                console.log(`Starting save: ${filename}`);
+                console.log(`🔵 beforeSave callback: ${filename}`);
             },
 
             afterSave: (fontId, filename, duration) => {
+                const callbackStart = performance.now();
                 const fname = filename.split('/').pop();
-                console.log(`✅ Font saved: ${fname} (${duration.toFixed(2)}s)`);
+                console.log(`🟢 afterSave callback: ${fname} (Python reported: ${duration.toFixed(2)}s)`);
 
-                // Update dirty indicator
-                if (window.fontDropdown) {
-                    window.fontDropdown.updateDirtyIndicator();
+                // Hide dirty indicator immediately (font was just saved, so it's clean)
+                // No need to check via Python - we know it's clean!
+                if (window.fontDropdown && window.fontDropdown.dirtyIndicator) {
+                    window.fontDropdown.dirtyIndicator.classList.remove('visible');
                 }
 
                 // Play done sound
@@ -51,6 +53,9 @@ class SaveButton {
                 // Update save button state
                 this.isSaving = false;
                 this.showSuccess();
+
+                const callbackDuration = performance.now() - callbackStart;
+                console.log(`⏱️ afterSave callback completed in ${callbackDuration.toFixed(0)}ms`);
             },
 
             onError: (fontId, filename, error) => {
@@ -71,14 +76,19 @@ class SaveButton {
             return;
         }
 
+        const saveStartTime = performance.now();
+        console.log('🔵 Save button clicked');
+
         this.isSaving = true;
         this.button.prop('disabled', true).text('Saving...');
 
         try {
             // Check if tracking is ready, and wait if needed
+            const trackingCheckStart = performance.now();
             const trackingReady = await window.pyodide.runPythonAsync(`
 IsTrackingReady()
             `);
+            console.log(`⏱️ Tracking check: ${(performance.now() - trackingCheckStart).toFixed(0)}ms`);
 
             if (!trackingReady) {
                 console.log('Waiting for dirty tracking to initialize...');
@@ -93,6 +103,8 @@ IsTrackingReady()
             }
 
             // Simply call font.save() - callbacks will handle everything else
+            const pythonSaveStart = performance.now();
+            console.log('🔵 Calling Python font.save()...');
             const result = await window.pyodide.runPythonAsync(`
 # Get font and call save - this triggers all registered callbacks
 font = CurrentFont()
@@ -102,6 +114,8 @@ if font:
 else:
     None
             `);
+            const pythonSaveDuration = performance.now() - pythonSaveStart;
+            console.log(`⏱️ Python save returned: ${pythonSaveDuration.toFixed(0)}ms`);
 
             if (!result) {
                 throw new Error('No font open or save failed');
@@ -109,6 +123,8 @@ else:
 
             // Success - callbacks have already handled UI updates
             // Note: isSaving is set to false by afterSave callback
+            const totalDuration = performance.now() - saveStartTime;
+            console.log(`⏱️ Total save duration: ${totalDuration.toFixed(0)}ms`);
 
         } catch (error) {
             console.error('Error saving font:', error);
