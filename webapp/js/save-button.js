@@ -35,6 +35,51 @@ class SaveButton {
         const startTime = performance.now();
 
         try {
+            // Check if tracking is ready, and wait if needed
+            const trackingReady = await window.pyodide.runPythonAsync(`
+IsTrackingReady()
+            `);
+
+            if (!trackingReady) {
+                console.log('Waiting for dirty tracking to initialize...');
+                this.button.text('Preparing...');
+
+                // If there's a tracking init promise, wait for it
+                if (window._trackingInitPromise) {
+                    try {
+                        await window._trackingInitPromise;
+                        console.log('Tracking ready, proceeding with save');
+                        this.button.text('Saving...');
+                    } catch (error) {
+                        throw new Error('Tracking initialization failed: ' + error.message);
+                    }
+                } else {
+                    // Fallback: poll for tracking readiness
+                    let attempts = 0;
+                    const maxAttempts = 300; // 30 seconds
+
+                    while (attempts < maxAttempts) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+
+                        const ready = await window.pyodide.runPythonAsync(`
+IsTrackingReady()
+                        `);
+
+                        if (ready) {
+                            console.log('Tracking ready, proceeding with save');
+                            this.button.text('Saving...');
+                            break;
+                        }
+
+                        attempts++;
+                    }
+
+                    if (attempts >= maxAttempts) {
+                        throw new Error('Timeout waiting for tracking initialization');
+                    }
+                }
+            }
+
             // Call Python SaveFont() function
             const result = await window.pyodide.runPythonAsync(`
 import json
@@ -75,7 +120,7 @@ if font:
 
                 // Reset saving state first
                 this.isSaving = false;
-                
+
                 // Show success feedback
                 this.showSuccess();
             } else {

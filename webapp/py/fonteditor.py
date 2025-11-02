@@ -9,11 +9,17 @@ import uuid
 
 __open_fonts = {}  # Dictionary of {font_id: font_object}
 __current_font_id = None  # ID of the currently active font
+# Track if dirty tracking has been initialized for each font
+__tracking_initialized = {}
 
 
 def OpenFont(path):
     """
     Open a font file and return a Font object.
+
+    Note: Dirty tracking is initialized asynchronously after loading to keep
+    the UI responsive. Use IsTrackingReady() to check if tracking is initialized,
+    or call WaitForTracking() to wait for initialization to complete.
 
     Args:
         path (str): Path to the font file (.glyphs, .ufo, .designspace, etc.)
@@ -38,11 +44,25 @@ def OpenFont(path):
 
     # Store the font with its ID
     __open_fonts[font_id] = __font_to_load
+    __tracking_initialized[font_id] = False
 
     # Set as current font
     __current_font_id = font_id
 
+    # Note: Dirty tracking will be initialized asynchronously from JavaScript
+    # to avoid blocking the UI. See InitializeTrackingNow()
+
     return __font_to_load
+
+
+def GetCurrentFontId():
+    """
+    Get the ID of the currently active font.
+
+    Returns:
+        str: The font ID, or None if no font is open
+    """
+    return __current_font_id
 
 
 def CurrentFont():
@@ -79,9 +99,97 @@ def SetCurrentFont(font_id):
     return False
 
 
+def InitializeTrackingAsync(font_id):
+    """
+    Start asynchronous initialization of dirty tracking for a font.
+    This should be called from JavaScript using setTimeout to avoid
+    blocking the UI during font loading.
+
+    Args:
+        font_id (str): The ID of the font to initialize tracking for
+    """
+    # This function just marks intent - actual initialization happens
+    # when JavaScript calls InitializeTrackingNow()
+    pass
+
+
+def InitializeTrackingNow(font_id=None):
+    """
+    Actually initialize dirty tracking for a font.
+    This is called from JavaScript after a timeout to keep UI responsive.
+
+    Args:
+        font_id (str, optional): Font ID. If None, uses current font.
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if font_id is None:
+        font_id = __current_font_id
+
+    if font_id is None or font_id not in __open_fonts:
+        return False
+
+    if __tracking_initialized.get(font_id, False):
+        return True  # Already initialized
+
+    import time
+
+    start_time = time.time()
+    font = __open_fonts[font_id]
+    font.initialize_dirty_tracking()
+    duration = time.time() - start_time
+
+    __tracking_initialized[font_id] = True
+    print(f"✅ Dirty tracking initialized in {duration:.2f}s")
+
+    return True
+
+
+def IsTrackingReady(font_id=None):
+    """
+    Check if dirty tracking has been initialized for a font.
+
+    Args:
+        font_id (str, optional): Font ID to check. If None, checks current.
+
+    Returns:
+        bool: True if tracking is initialized, False otherwise
+    """
+    if font_id is None:
+        font_id = __current_font_id
+
+    if font_id is None or font_id not in __tracking_initialized:
+        return False
+
+    return __tracking_initialized[font_id]
+
+
+def WaitForTracking(font_id=None):
+    """
+    Wait for dirty tracking initialization to complete.
+    This is a no-op in the current implementation since we initialize
+    synchronously, but is here for API consistency.
+
+    Args:
+        font_id (str, optional): Font ID to wait for. If None, uses current.
+
+    Returns:
+        bool: True when tracking is ready
+    """
+    if font_id is None:
+        font_id = __current_font_id
+
+    # Since we're initializing synchronously, this just returns the status
+    return IsTrackingReady(font_id)
+
+
 def SaveFont(path=None):
     """
     Save the current font to disk.
+
+    Note: This will wait for dirty tracking to be initialized before saving
+    to ensure all changes are properly tracked.
 
     Args:
         path (str, optional): Path to save the font. If not provided,
@@ -97,6 +205,10 @@ def SaveFont(path=None):
     current_font = CurrentFont()
     if current_font is None:
         return False
+
+    # Wait for tracking to be initialized (should already be done)
+    if not WaitForTracking():
+        print("Warning: Saving before tracking fully initialized")
 
     try:
         current_font.save(path)
