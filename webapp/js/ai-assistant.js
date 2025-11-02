@@ -36,7 +36,7 @@ class AIAssistant {
 
     initUI() {
         // Get DOM elements
-        this.apiKeyInput = document.getElementById('ai-api-key');
+        this.apiKeyInput = document.getElementById('ai-api-key'); // May be null (moved to modal)
         this.promptInput = document.getElementById('ai-prompt');
         this.sendButton = document.getElementById('ai-send-btn');
         this.messagesContainer = document.getElementById('ai-messages');
@@ -49,8 +49,8 @@ class AIAssistant {
         const savedContext = localStorage.getItem('ai_context');
         this.context = savedContext || 'font';
 
-        // Set saved API key
-        if (this.apiKey) {
+        // Set saved API key (if old input exists)
+        if (this.apiKey && this.apiKeyInput) {
             this.apiKeyInput.value = this.apiKey;
         }
 
@@ -74,17 +74,27 @@ class AIAssistant {
         // Update context label
         this.updateContextLabel();
 
-        // Event listeners
-        this.apiKeyInput.addEventListener('change', () => {
-            this.apiKey = this.apiKeyInput.value;
-            localStorage.setItem('anthropic_api_key', this.apiKey);
-        });
+        // Event listeners (only if old API key input exists)
+        if (this.apiKeyInput) {
+            this.apiKeyInput.addEventListener('change', () => {
+                this.apiKey = this.apiKeyInput.value;
+                localStorage.setItem('anthropic_api_key', this.apiKey);
+                this.updateApiKeyWarning();
+                // Sync with modal input
+                const modalInput = document.getElementById('ai-api-key-modal');
+                if (modalInput) modalInput.value = this.apiKey;
+            });
 
-        // Also save on input (immediate save while typing/pasting)
-        this.apiKeyInput.addEventListener('input', () => {
-            this.apiKey = this.apiKeyInput.value;
-            localStorage.setItem('anthropic_api_key', this.apiKey);
-        });
+            // Also save on input (immediate save while typing/pasting)
+            this.apiKeyInput.addEventListener('input', () => {
+                this.apiKey = this.apiKeyInput.value;
+                localStorage.setItem('anthropic_api_key', this.apiKey);
+                this.updateApiKeyWarning();
+                // Sync with modal input
+                const modalInput = document.getElementById('ai-api-key-modal');
+                if (modalInput) modalInput.value = this.apiKey;
+            });
+        }
 
         this.sendButton.addEventListener('click', (event) => {
             event.stopPropagation(); // Prevent view focus
@@ -105,6 +115,12 @@ class AIAssistant {
             event.stopPropagation(); // Prevent view focus
             this.setContext('script');
         });
+
+        // Setup info modal
+        this.setupInfoModal();
+
+        // Update API key warning visibility
+        this.updateApiKeyWarning();
 
         // Add wider cursor styling for the prompt textarea
         this.addWideCursorStyle();
@@ -138,6 +154,29 @@ class AIAssistant {
             this.updateContextButtons(); // Update context button appearance based on focus
             this.updateContextLabel(); // Update context label appearance based on focus
         });
+
+        // Click on view content to focus text field (except messages)
+        const assistantView = document.getElementById('view-assistant');
+        if (assistantView) {
+            const viewContent = assistantView.querySelector('.view-content');
+            if (viewContent) {
+                viewContent.addEventListener('click', (event) => {
+                    // Don't focus if clicking on messages container or its children
+                    const messagesContainer = document.getElementById('ai-messages');
+                    if (messagesContainer && (event.target === messagesContainer || messagesContainer.contains(event.target))) {
+                        return;
+                    }
+                    // Don't focus if clicking on buttons or interactive elements
+                    if (event.target.tagName === 'BUTTON' || event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+                        return;
+                    }
+                    // Focus the text field
+                    if (this.promptInput) {
+                        this.promptInput.focus();
+                    }
+                });
+            }
+        }
 
         // Add global keyboard shortcuts when assistant is focused
         document.addEventListener('keydown', (event) => {
@@ -262,6 +301,65 @@ class AIAssistant {
         }
     }
 
+    setupInfoModal() {
+        const infoButton = document.getElementById('ai-info-btn');
+        const modal = document.getElementById('ai-info-modal');
+        const closeBtn = document.getElementById('ai-info-modal-close-btn');
+        const apiKeyModalInput = document.getElementById('ai-api-key-modal');
+
+        if (!infoButton || !modal || !closeBtn || !apiKeyModalInput) return;
+
+        // Set initial API key value in modal
+        if (this.apiKey) {
+            apiKeyModalInput.value = this.apiKey;
+        }
+
+        // Open modal
+        infoButton.addEventListener('click', (event) => {
+            event.stopPropagation();
+            modal.classList.add('active');
+        });
+
+        // Close modal
+        const closeModal = () => {
+            modal.classList.remove('active');
+        };
+
+        closeBtn.addEventListener('click', closeModal);
+
+        // Close on backdrop click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('active')) {
+                closeModal();
+            }
+        });
+
+        // Sync API key from modal to main storage
+        apiKeyModalInput.addEventListener('input', () => {
+            this.apiKey = apiKeyModalInput.value;
+            localStorage.setItem('anthropic_api_key', this.apiKey);
+            this.updateApiKeyWarning();
+        });
+    }
+
+    updateApiKeyWarning() {
+        const warning = document.getElementById('ai-api-key-warning');
+        if (!warning) return;
+
+        if (!this.apiKey || this.apiKey.trim() === '') {
+            warning.style.display = 'block';
+        } else {
+            warning.style.display = 'none';
+        }
+    }
+
     updateContextButtons() {
         if (!this.contextFontButton || !this.contextScriptButton) return;
 
@@ -344,6 +442,21 @@ class AIAssistant {
                     this.autoRunButton.style.borderColor = 'rgba(255, 255, 255, 0.3)';
                 }
             }
+        }
+
+        // Update auto-run indicator
+        this.updateAutoRunIndicator();
+    }
+
+    updateAutoRunIndicator() {
+        const indicator = document.getElementById('ai-auto-run-indicator');
+        if (!indicator) return;
+
+        // Show only when auto-run is on AND in font context
+        if (this.autoRun && this.context === 'font') {
+            indicator.style.display = 'flex';
+        } else {
+            indicator.style.display = 'none';
         }
     }
 

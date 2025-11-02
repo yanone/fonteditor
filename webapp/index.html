@@ -133,8 +133,10 @@
                         <span class="view-title-shortcut"><span
                                 class="material-symbols-outlined">keyboard_command_key</span><span
                                 class="material-symbols-outlined">arrow_upward</span>A</span>
+                        <button id="ai-info-btn" class="ai-info-button" title="Assistant info and settings">
+                            <span class="material-symbols-outlined">help</span>
+                        </button>
                     </div>
-                    <span class="ai-context-label">Context:</span>
                     <div class="ai-context-toggle">
                         <button id="ai-context-script-btn" class="ai-context-btn"
                             title="Script context: The assistant will work on the code in the script editor (Alt+S)">Script
@@ -151,39 +153,26 @@
                                 class="material-symbols-outlined">keyboard_option_key</span>R</span></button>
                 </div>
                 <div class="view-content">
-                    <div id="ai-info" class="ai-info">
-                        <p>Describe what you want to do with your font in your natural language. I will generate
-                            Python code using the <strong>context</strong> library and run it.</p>
-                        <ul>
-                            <li>🎯 <strong>Context matters:</strong> Work either on the font directly, or on a user-made
-                                script in the script editor</li>
-                            <li>🔄 <strong>Auto-retry:</strong> If code fails, I will fix and retry</li>
-                            <li>🔑 <strong>Privacy:</strong> Your font data never leaves the browser. I simply
-                                generate Python code which is run locally like a user-made script.</li>
-                            <li>👁️ <strong>Transparent:</strong> Click "Show Code" to see what was being run</li>
-                            <li>⚠️ <strong>Warning:</strong> I make mistakes both in handling your data as well as in
-                                generating code. Use at your own risk.</li>
-                        </ul>
-                        <p class="ai-examples"><em>Examples: </em><span class="ai-example-text">"List all glyph names",
-                                "Make glyphs 10% wider", "Add 50 units to left
-                                sidebearings"</span></p>
-                    </div>
                     <div id="ai-chat-container">
-                        <div id="ai-api-key-container">
-                            <input type="password" id="ai-api-key" placeholder="Anthropic API Key" />
-                        </div>
                         <div id="ai-messages"></div>
+                        <div id="ai-api-key-warning" class="ai-api-key-warning" style="display: none;">
+                            ⚠️ <strong>API Key Missing:</strong> Click the <span class="material-symbols-outlined"
+                                style="font-size: 14px; vertical-align: middle;">info</span> button to enter your
+                            Anthropic API key.
+                        </div>
                         <div id="ai-input-container">
-                            <div id="ai-prompt-label"><span id="ai-context-label">Font Context</span> Talk to me...
+                            <div id="ai-prompt-label">I’m your assistant. How may I help?
                             </div>
+                            <div id="ai-context-label-line"><span id="ai-context-label">Font Context</span></div>
                             <div id="ai-prompt-wrapper">
                                 <div id="ai-prompt-prefix">>>> </div>
-                                <textarea id="ai-prompt" placeholder=""></textarea>
+                                <textarea id="ai-prompt" placeholder="" data-1p-ignore></textarea>
                             </div>
                             <div id="ai-button-container">
                                 <button id="ai-send-btn">Send with <span
                                         class="material-symbols-outlined">keyboard_command_key</span><span
                                         class="material-symbols-outlined">keyboard_return</span></button>
+                                <span id="ai-auto-run-indicator" style="display: none;">Script will auto-run</span>
                             </div>
                         </div>
                     </div>
@@ -299,6 +288,47 @@
             }
         }, 500);
     </script>
+
+    <!-- AI Assistant Info Modal -->
+    <div id="ai-info-modal" class="modal">
+        <div class="modal-content ai-info-modal-content">
+            <div class="modal-header">
+                <h2>AI Assistant</h2>
+                <button class="modal-close-btn" id="ai-info-modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="ai-info-section">
+                    <h3>API Key</h3>
+                    <p>Enter your Anthropic API key to use the assistant:</p>
+                    <input type="password" id="ai-api-key-modal" placeholder="Anthropic API Key"
+                        class="ai-api-key-modal-input" />
+                    <p class="ai-info-note">Your API key is stored locally in your browser and never sent anywhere
+                        except to Anthropic's API.</p>
+                </div>
+                <div class="ai-info-section">
+                    <h3>About</h3>
+                    <p>Describe what you want to do with your font in your natural language. The assistant will generate
+                        Python code using the <strong>context</strong> library and run it.</p>
+                    <ul>
+                        <li>🎯 <strong>Context matters:</strong> Work either on the font directly (Font Context), or on
+                            a user-made
+                            script in the script editor (Script Context)</li>
+                        <li>🔄 <strong>Auto-retry:</strong> If code fails, the assistant will fix and retry</li>
+                        <li>🔑 <strong>Privacy:</strong> Your font data never leaves the browser. The assistant simply
+                            generates Python code which is run locally like a user-made script.</li>
+                        <li>👁️ <strong>Transparent:</strong> Click "Show Code" to see what was generated</li>
+                        <li>👁️ <strong>Auto-Run:</strong> Decide whether to run the generated code right away or wait
+                            and review before running</li>
+                        <li>⚠️ <strong>Warning:</strong> The assistant makes mistakes both in handling your data as well
+                            as in generating code. Use at your own risk.</li>
+                    </ul>
+                    <p class="ai-examples"><em>Examples: </em><span class="ai-example-text">"List all glyph names",
+                            "Make glyphs 10% wider", "Add 50 units to left sidebearings"</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </body>
 
 </html>
