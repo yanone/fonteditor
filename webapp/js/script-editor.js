@@ -149,17 +149,17 @@
                 // Save cursor position before any click
                 savedCursorPosition = editor.getCursorPosition();
                 isPreventingCursorJump = true;
-                
+
                 // Prevent the event from reaching the editor
                 e.stopPropagation();
                 e.preventDefault();
-                
+
                 // Manually trigger focus on the view
                 const scriptView = document.getElementById('view-scripts');
                 if (scriptView) {
                     scriptView.click();
                 }
-                
+
                 // Restore cursor after focus
                 setTimeout(() => {
                     if (savedCursorPosition) {
@@ -174,11 +174,11 @@
         // Listen for view focus events
         window.addEventListener('viewFocused', (event) => {
             isScriptViewFocused = event.detail.viewId === 'view-scripts';
-            
+
             if (isScriptViewFocused && editor) {
                 // Focus the editor
                 editor.focus();
-                
+
                 // If we saved a position, restore it
                 if (isPreventingCursorJump && savedCursorPosition) {
                     setTimeout(() => {
