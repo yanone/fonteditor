@@ -38,8 +38,13 @@
      */
     function focusView(viewId) {
         // Prevent recursive calls
-        if (isFocusing) return;
+        if (isFocusing) {
+            console.warn('focusView already in progress, skipping');
+            return;
+        }
         isFocusing = true;
+        
+        console.log('focusView called with:', viewId);
 
         // Remove focus from all views
         document.querySelectorAll('.view').forEach(view => {
@@ -78,10 +83,28 @@
                     prompt.blur();
                 }
 
-                // Focus the terminal to make cursor blink again
+                // Focus the terminal
                 setTimeout(() => {
-                    if (window.term && window.term.focus) {
-                        window.term.focus();
+                    // Try to get terminal instance from window.term or directly from jQuery
+                    let term = window.term;
+                    
+                    // If window.term doesn't exist, try to get it from the jQuery terminal plugin
+                    if (!term) {
+                        const consoleElement = $('#console-container');
+                        if (consoleElement.length && consoleElement.terminal) {
+                            term = consoleElement.terminal();
+                        }
+                    }
+                    
+                    if (term && term.focus) {
+                        // Call terminal focus method
+                        term.focus();
+                    }
+                    
+                    // Always try to focus the input element directly as well
+                    const cmdInput = document.querySelector('#console-container .cmd textarea');
+                    if (cmdInput) {
+                        cmdInput.focus();
                     }
                 }, 50);
             }
