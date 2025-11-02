@@ -162,8 +162,8 @@ class AIAssistant {
             if (viewContent) {
                 viewContent.addEventListener('click', (event) => {
                     // Don't focus if clicking on interactive elements
-                    if (event.target.tagName === 'BUTTON' || 
-                        event.target.tagName === 'INPUT' || 
+                    if (event.target.tagName === 'BUTTON' ||
+                        event.target.tagName === 'INPUT' ||
                         event.target.tagName === 'TEXTAREA' ||
                         event.target.tagName === 'A' ||
                         event.target.closest('button') ||
