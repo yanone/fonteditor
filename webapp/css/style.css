@@ -13,6 +13,26 @@ body {
     letter-spacing: 0.02em;
 }
 
+/* Material Symbols */
+.material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 1.2em;
+    display: inline-block;
+    line-height: 1;
+    text-transform: none;
+    letter-spacing: 0em;
+    word-wrap: normal;
+    white-space: nowrap;
+    direction: ltr;
+    vertical-align: middle;
+}
+
+.material-symbols-outlined+.material-symbols-outlined {
+    margin-left: -0.12em;
+}
+
 /* Loading overlay */
 .loading-overlay {
     position: fixed;
@@ -84,6 +104,7 @@ body {
     top: -1px;
     margin: 0;
     letter-spacing: 0.5px;
+    word-spacing: -8px;
 }
 
 .toolbar-center {
@@ -283,7 +304,7 @@ body {
 .view-title-left {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
 }
 
 .view-title-name {
@@ -409,7 +430,7 @@ body {
     border: none;
     border-left: 1px solid #404040;
     color: rgba(255, 255, 255, 0.8);
-    padding: 0 12px;
+    padding: 0 8px;
     border-radius: 0;
     cursor: pointer;
     font-family: 'IBM Plex Mono', monospace;
@@ -419,7 +440,7 @@ body {
     height: 100%;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 3px;
 }
 
 .view-title-button:hover {
@@ -453,7 +474,7 @@ body {
     border: none;
     border-left: 1px solid rgba(255, 255, 255, 0.3);
     color: rgba(255, 255, 255, 0.8);
-    padding: 0 12px;
+    padding: 0 8px;
     border-radius: 0;
     cursor: pointer;
     font-family: 'IBM Plex Mono', monospace;
@@ -463,7 +484,7 @@ body {
     height: 100%;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 3px;
 }
 
 .ai-context-btn:hover:not(.active) {
@@ -967,6 +988,26 @@ body {
 
     50% {
         background-color: rgba(255, 165, 0, 0.5);
+    }
+}
+
+/* Error blink for buttons */
+.ai-context-btn.error-blink,
+.view-title-button.error-blink {
+    animation: button-error-blink 0.3s ease-in-out 2;
+}
+
+@keyframes button-error-blink {
+
+    0%,
+    100% {
+        background-color: transparent;
+        border-color: rgba(255, 165, 0, 0.3);
+    }
+
+    50% {
+        background-color: rgba(255, 165, 0, 0.3);
+        border-color: rgba(255, 165, 0, 0.8);
     }
 }
 

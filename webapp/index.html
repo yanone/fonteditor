@@ -12,6 +12,8 @@
     <link
         href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap"
         rel="stylesheet">
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
     <link rel="stylesheet" href="css/style.css" id="local-css">
     <script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jquery"></script>
@@ -128,20 +130,25 @@
                 <div class="view-title-bar">
                     <div class="view-title-left">
                         <span class="view-title-name">Assistant</span>
-                        <span class="view-title-shortcut">⌘↑A</span>
+                        <span class="view-title-shortcut"><span
+                                class="material-symbols-outlined">keyboard_command_key</span><span
+                                class="material-symbols-outlined">arrow_upward</span>A</span>
                     </div>
                     <span class="ai-context-label">Context:</span>
                     <div class="ai-context-toggle">
                         <button id="ai-context-script-btn" class="ai-context-btn"
                             title="Script context: The assistant will work on the code in the script editor (Alt+S)">Script
-                            <span class="ai-button-shortcut">⌥S</span></button>
+                            <span class="ai-button-shortcut"><span
+                                    class="material-symbols-outlined">keyboard_option_key</span>S</span></button>
                         <button id="ai-context-font-btn" class="ai-context-btn active"
                             title="Font context: The assistant will work on the font object (Alt+F)">Font
-                            <span class="ai-button-shortcut">⌥F</span></button>
+                            <span class="ai-button-shortcut"><span
+                                    class="material-symbols-outlined">keyboard_option_key</span>F</span></button>
                     </div>
                     <button id="ai-auto-run-btn" class="view-title-button"
                         title="Automatically run assistant-generated code (Alt+R)">Auto-Run <span
-                            class="ai-button-shortcut">⌥R</span></button>
+                            class="ai-button-shortcut"><span
+                                class="material-symbols-outlined">keyboard_option_key</span>R</span></button>
                 </div>
                 <div class="view-content">
                     <div id="ai-info" class="ai-info">
@@ -173,7 +180,9 @@
                                 <textarea id="ai-prompt" placeholder=""></textarea>
                             </div>
                             <div id="ai-button-container">
-                                <button id="ai-send-btn">Send with ⌘↩</button>
+                                <button id="ai-send-btn">Send with <span
+                                        class="material-symbols-outlined">keyboard_command_key</span><span
+                                        class="material-symbols-outlined">keyboard_return</span></button>
                             </div>
                         </div>
                     </div>
@@ -184,10 +193,14 @@
                 <div class="view-title-bar">
                     <div class="view-title-left">
                         <span class="view-title-name">Scripts</span>
-                        <span class="view-title-shortcut">⌘↑S</span>
+                        <span class="view-title-shortcut"><span
+                                class="material-symbols-outlined">keyboard_command_key</span><span
+                                class="material-symbols-outlined">arrow_upward</span>S</span>
                     </div>
                     <button id="run-script-btn" class="view-title-button" title="Run script (Cmd+Alt+R)">Run <span
-                            style="opacity: 0.5;">⌘⌥R</span></button>
+                            style="opacity: 0.5;"><span
+                                class="material-symbols-outlined">keyboard_command_key</span><span
+                                class="material-symbols-outlined">keyboard_option_key</span>R</span></button>
                 </div>
                 <div id="script-editor"></div>
             </div>
@@ -196,7 +209,9 @@
                 <div class="view-title-bar">
                     <div class="view-title-left">
                         <span class="view-title-name">Konsole</span>
-                        <span class="view-title-shortcut">⌘↑K</span>
+                        <span class="view-title-shortcut"><span
+                                class="material-symbols-outlined">keyboard_command_key</span><span
+                                class="material-symbols-outlined">arrow_upward</span>K</span>
                     </div>
                 </div>
                 <div id="console-container">
@@ -250,7 +265,9 @@
             <div class="diff-modal-footer">
                 <button class="diff-modal-button diff-cancel-btn" id="diff-cancel-btn">Cancel</button>
                 <button class="diff-modal-button diff-accept-btn" id="diff-accept-btn">Open in Script Editor <span
-                        class="ai-button-shortcut">⌘↩</span></button>
+                        class="ai-button-shortcut"><span
+                            class="material-symbols-outlined">keyboard_command_key</span><span
+                            class="material-symbols-outlined">keyboard_return</span></span></button>
             </div>
         </div>
     </div>

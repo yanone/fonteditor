@@ -190,12 +190,10 @@ class AIAssistant {
                 }
             }
 
-            // Check if Alt+R to toggle auto-run (no cmd key, and only when not in script context)
+            // Check if Alt+R to toggle auto-run (or show error notification in script context)
             if (!cmdKey && event.altKey && !event.shiftKey && code === 'KeyR' && this.isAssistantViewFocused) {
                 event.preventDefault();
-                if (this.context !== 'script') {
-                    this.toggleAutoRun();
-                }
+                this.toggleAutoRun();
             }
 
             // Check if Alt+F to switch to font context
@@ -265,6 +263,24 @@ class AIAssistant {
     }
 
     toggleAutoRun() {
+        // If in script context, show error notification instead
+        if (this.context === 'script') {
+            // Play error sound
+            if (window.playSound) {
+                window.playSound('error');
+            }
+
+            // Make Font context button blink
+            this.contextFontButton.classList.add('error-blink');
+
+            // Remove blink after animation completes (0.6s)
+            setTimeout(() => {
+                this.contextFontButton.classList.remove('error-blink');
+            }, 600);
+
+            return; // Don't toggle auto-run in script context
+        }
+
         this.autoRun = !this.autoRun;
         localStorage.setItem('ai_auto_run', this.autoRun);
         this.updateAutoRunButton();
@@ -272,10 +288,10 @@ class AIAssistant {
 
     updateAutoRunButton() {
         if (this.autoRunButton) {
-            // Disable when context is script
+            // Style differently when context is script (but keep enabled for click handler)
             if (this.context === 'script') {
-                this.autoRunButton.disabled = true;
-                this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut">⌥R</span>';
+                this.autoRunButton.disabled = false; // Keep enabled so click event fires
+                this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut"><span class="material-symbols-outlined">keyboard_option_key</span>R</span>';
                 this.autoRunButton.style.backgroundColor = 'transparent';
                 this.autoRunButton.style.color = 'rgba(255, 255, 255, 0.3)';
                 this.autoRunButton.style.borderColor = 'rgba(255, 255, 255, 0.2)';
@@ -287,12 +303,12 @@ class AIAssistant {
                     const bgColor = this.isAssistantViewFocused ? '#00ff00' : '#006600';
                     const borderColor = this.isAssistantViewFocused ? '#00ff00' : '#006600';
 
-                    this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut" style="color: rgba(0, 0, 0, 0.5);">⌥R</span>';
+                    this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut" style="color: rgba(0, 0, 0, 0.5);"><span class="material-symbols-outlined">keyboard_option_key</span>R</span>';
                     this.autoRunButton.style.backgroundColor = bgColor;
                     this.autoRunButton.style.color = '#1a1a1a';
                     this.autoRunButton.style.borderColor = borderColor;
                 } else {
-                    this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut">⌥R</span>';
+                    this.autoRunButton.innerHTML = 'Auto-Run <span class="ai-button-shortcut"><span class="material-symbols-outlined">keyboard_option_key</span>R</span>';
                     this.autoRunButton.style.backgroundColor = 'transparent';
                     this.autoRunButton.style.color = 'rgba(255, 255, 255, 0.8)';
                     this.autoRunButton.style.borderColor = 'rgba(255, 255, 255, 0.3)';
@@ -339,13 +355,13 @@ class AIAssistant {
         // Check for Run in Console button (font context)
         const runButton = lastMessage.querySelector('.ai-run-in-console-btn');
         if (runButton) {
-            runButton.innerHTML = 'Run in Console <span class="ai-button-shortcut">⌘⌥R</span>';
+            runButton.innerHTML = 'Run in Console <span class="ai-button-shortcut"><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>R</span>';
         }
 
         // Check for Review Changes button (script context)
         const reviewButton = lastMessage.querySelector('.ai-review-changes-btn');
         if (reviewButton) {
-            reviewButton.innerHTML = 'Review Changes <span class="ai-button-shortcut">⌘⌥R</span>';
+            reviewButton.innerHTML = 'Review Changes <span class="ai-button-shortcut"><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>R</span>';
         }
 
         // Check for Open in Script Editor button
@@ -353,9 +369,9 @@ class AIAssistant {
         if (openButton) {
             const text = openButton.textContent || openButton.innerText;
             if (text.includes('Open in Script Editor Without Review')) {
-                openButton.innerHTML = 'Open in Script Editor Without Review <span class="ai-button-shortcut">⌘⌥O</span>';
+                openButton.innerHTML = 'Open in Script Editor Without Review <span class="ai-button-shortcut"><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>O</span>';
             } else {
-                openButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut">⌘⌥O</span>';
+                openButton.innerHTML = 'Open in Script Editor <span class="ai-button-shortcut"><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>O</span>';
             }
         }
     } addMessage(role, content, isCode = false, isCollapsible = false) {
@@ -1490,7 +1506,7 @@ if '_original_stdout' in dir():
 
         // Update cursor position
         const updateCursor = () => {
-            if (!this.promptInput || this.promptInput.disabled) {
+            if (!this.promptInput || this.promptInput.disabled || document.activeElement !== this.promptInput) {
                 cursor.style.display = 'none';
                 return;
             }

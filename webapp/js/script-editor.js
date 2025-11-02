@@ -274,7 +274,7 @@
         } finally {
             // Re-enable the run button
             runButton.disabled = false;
-            runButton.innerHTML = 'Run <span style="opacity: 0.5;">⌘⌥R</span>';
+            runButton.innerHTML = 'Run <span style="opacity: 0.5;"><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>R</span>';
         }
     }
 
