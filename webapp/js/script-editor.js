@@ -244,27 +244,22 @@
             // Store the full traceback for the AI assistant
             const fullTraceback = error.message;
 
-            if (window.term) {
-                let errorMessage = error.message;
-
-                // Shorten the error message by removing internal Pyodide traceback
-                const tracebackStart = 'Traceback (most recent call last):';
-                const tracebackEnd = '    coroutine = eval(self.code, globals, locals)';
-
-                if (errorMessage.includes(tracebackStart) && errorMessage.includes(tracebackEnd)) {
-                    const startIndex = errorMessage.indexOf(tracebackStart) + tracebackStart.length;
-                    const endIndex = errorMessage.indexOf(tracebackEnd) + tracebackEnd.length;
-
-                    // Remove everything between these markers (but keep the "Traceback..." line)
-                    errorMessage = errorMessage.slice(0, startIndex) + errorMessage.slice(endIndex);
-
-                    // Clean up any extra newlines
-                    errorMessage = errorMessage.replace(/\n{3,}/g, '\n\n').trim();
+            // Display error in the terminal console
+            if (window.consoleError) {
+                // Use the global console error function
+                window.consoleError(error.message);
+            } else if (window.term) {
+                // Fallback to direct term.error
+                try {
+                    if (window.term.paused) {
+                        window.term.resume();
+                    }
+                    window.term.error(error.message);
+                } catch (e) {
+                    console.error('Failed to display error in terminal:', e);
                 }
-
-                window.term.error(errorMessage);
             } else {
-                alert('Script error: ' + error.message);
+                console.error('Script error (terminal not available):', error.message);
             }
 
             // Notify the AI assistant about the error
