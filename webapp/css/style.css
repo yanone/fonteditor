@@ -79,10 +79,9 @@ body {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 24px;
     font-weight: 400;
-    /* background: linear-gradient(45deg, #00ffff, #ff00ff);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text; */
+    position: relative;
+    left: 2px;
+    top: -1px;
     margin: 0;
     letter-spacing: 0.5px;
 }
