@@ -19,6 +19,48 @@ class SaveButton {
                 this.handleSave();
             }
         });
+
+        // Register UI callbacks with Python backend
+        this.registerCallbacks();
+    }
+
+    /**
+     * Register callback functions that Python can call via js module
+     */
+    registerCallbacks() {
+        // Create JavaScript functions that Python can call via js._fontSaveCallbacks
+        window._fontSaveCallbacks = {
+            beforeSave: (fontId, filename) => {
+                console.log(`Starting save: ${filename}`);
+            },
+
+            afterSave: (fontId, filename, duration) => {
+                const fname = filename.split('/').pop();
+                console.log(`✅ Font saved: ${fname} (${duration.toFixed(2)}s)`);
+
+                // Update dirty indicator
+                if (window.fontDropdown) {
+                    window.fontDropdown.updateDirtyIndicator();
+                }
+
+                // Play done sound
+                if (window.playSound) {
+                    window.playSound('done');
+                }
+
+                // Update save button state
+                this.isSaving = false;
+                this.showSuccess();
+            },
+
+            onError: (fontId, filename, error) => {
+                console.error(`❌ Save failed: ${error}`);
+                this.isSaving = false;
+                this.showError();
+            }
+        };
+
+        console.log('Save callbacks registered (Python will call via js module)');
     }
 
     /**
@@ -32,8 +74,6 @@ class SaveButton {
         this.isSaving = true;
         this.button.prop('disabled', true).text('Saving...');
 
-        const startTime = performance.now();
-
         try {
             // Check if tracking is ready, and wait if needed
             const trackingReady = await window.pyodide.runPythonAsync(`
@@ -44,90 +84,32 @@ IsTrackingReady()
                 console.log('Waiting for dirty tracking to initialize...');
                 this.button.text('Preparing...');
 
-                // If there's a tracking init promise, wait for it
+                // Wait for tracking init promise if available
                 if (window._trackingInitPromise) {
-                    try {
-                        await window._trackingInitPromise;
-                        console.log('Tracking ready, proceeding with save');
-                        this.button.text('Saving...');
-                    } catch (error) {
-                        throw new Error('Tracking initialization failed: ' + error.message);
-                    }
-                } else {
-                    // Fallback: poll for tracking readiness
-                    let attempts = 0;
-                    const maxAttempts = 300; // 30 seconds
-
-                    while (attempts < maxAttempts) {
-                        await new Promise(resolve => setTimeout(resolve, 100));
-
-                        const ready = await window.pyodide.runPythonAsync(`
-IsTrackingReady()
-                        `);
-
-                        if (ready) {
-                            console.log('Tracking ready, proceeding with save');
-                            this.button.text('Saving...');
-                            break;
-                        }
-
-                        attempts++;
-                    }
-
-                    if (attempts >= maxAttempts) {
-                        throw new Error('Timeout waiting for tracking initialization');
-                    }
+                    await window._trackingInitPromise;
+                    console.log('Tracking ready, proceeding with save');
+                    this.button.text('Saving...');
                 }
             }
 
-            // Call Python SaveFont() function
+            // Simply call font.save() - callbacks will handle everything else
             const result = await window.pyodide.runPythonAsync(`
-import json
-result = SaveFont()
-filename = CurrentFont().filename if CurrentFont() else "unknown"
-json.dumps({"success": result, "filename": filename})
-            `);
-
-            const data = JSON.parse(result);
-            const duration = ((performance.now() - startTime) / 1000).toFixed(2);
-
-            if (data.success) {
-                const filename = data.filename.split('/').pop();
-                console.log(`Font saved successfully: ${filename} (${duration}s)`);
-
-                // Print to Python console
-                await window.pyodide.runPythonAsync(`
-print(f"Saved font to ${data.filename} in ${duration}s")
-                `);
-
-                // Mark font as clean after successful save
-                await window.pyodide.runPythonAsync(`
-from context import DIRTY_FILE_SAVING
+# Get font and call save - this triggers all registered callbacks
 font = CurrentFont()
 if font:
-    font.mark_clean(DIRTY_FILE_SAVING, recursive=True)
-                `);
+    font.save()
+    True
+else:
+    False
+            `);
 
-                // Update dirty indicator
-                if (window.fontDropdown) {
-                    window.fontDropdown.updateDirtyIndicator();
-                }
-
-                // Play done sound
-                if (window.playSound) {
-                    window.playSound('done');
-                }
-
-                // Reset saving state first
-                this.isSaving = false;
-
-                // Show success feedback
-                this.showSuccess();
-            } else {
-                console.error('Font save failed');
-                this.isSaving = false;
-                this.showError();
+            if (!result) {
+                throw new Error('No font open');
             }
+
+            // Success - callbacks have already handled UI updates
+            // Note: isSaving is set to false by afterSave callback
+
         } catch (error) {
             console.error('Error saving font:', error);
             this.isSaving = false;

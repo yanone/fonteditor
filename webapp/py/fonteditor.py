@@ -49,10 +49,67 @@ def OpenFont(path):
     # Set as current font
     __current_font_id = font_id
 
+    # Register save callbacks for UI integration
+    _register_ui_callbacks(__font_to_load, font_id)
+
     # Note: Dirty tracking will be initialized asynchronously from JavaScript
     # to avoid blocking the UI. See InitializeTrackingNow()
 
     return __font_to_load
+
+
+def _register_ui_callbacks(font, font_id):
+    """
+    Register UI callbacks on a font object.
+    These callbacks will be called when font.save() is invoked.
+    """
+    from context.BaseObject import DIRTY_FILE_SAVING
+
+    def before_save_callback(font, filename):
+        """Called before saving begins."""
+        # Call JavaScript callback if available
+        try:
+            import js
+
+            if hasattr(js, "_fontSaveCallbacks"):
+                js._fontSaveCallbacks.beforeSave(font_id, filename)
+        except Exception as e:
+            print(f"Error in before_save callback: {e}")
+
+    def after_save_callback(font, filename, duration):
+        """Called after successful save."""
+        # Mark font as clean after save
+        if hasattr(font, "mark_clean"):
+            font.mark_clean(DIRTY_FILE_SAVING, recursive=True)
+
+        print(f"Saved font to {filename} in {duration:.2f}s")
+
+        # Call JavaScript callback if available
+        try:
+            import js
+
+            if hasattr(js, "_fontSaveCallbacks"):
+                js._fontSaveCallbacks.afterSave(font_id, filename, duration)
+        except Exception as e:
+            print(f"Error in after_save callback: {e}")
+
+    def on_error_callback(font, filename, error):
+        """Called if save fails."""
+        print(f"Error saving {filename}: {error}")
+
+        # Call JavaScript callback if available
+        try:
+            import js
+
+            if hasattr(js, "_fontSaveCallbacks"):
+                js._fontSaveCallbacks.onError(font_id, filename, str(error))
+        except Exception as e:
+            print(f"Error in on_error callback: {e}")
+
+    # Register the callbacks
+    font.register_callback("before_save", before_save_callback)
+    font.register_callback("after_save", after_save_callback)
+    font.register_callback("on_error", on_error_callback)
 
 
 def GetCurrentFontId():
@@ -188,8 +245,8 @@ def SaveFont(path=None):
     """
     Save the current font to disk.
 
-    Note: This will wait for dirty tracking to be initialized before saving
-    to ensure all changes are properly tracked.
+    This now simply calls font.save(), which triggers all registered callbacks.
+    The UI callbacks handle updating the interface, marking clean, etc.
 
     Args:
         path (str, optional): Path to save the font. If not provided,
@@ -210,10 +267,12 @@ def SaveFont(path=None):
     if not WaitForTracking():
         print("Warning: Saving before tracking fully initialized")
 
+    # Simply call font.save() - callbacks will handle the rest
     try:
         current_font.save(path)
         return True
     except Exception as e:
+        # Error callback will have been triggered by font.save()
         print(f"Error saving font: {e}")
         return False
 
