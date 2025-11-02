@@ -59,7 +59,7 @@ body {
 
 .loading-logo {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 72px;
+    font-size: 150px;
     font-weight: 400;
     color: #ffffff;
     animation: pulse 2s ease-in-out infinite;
@@ -144,7 +144,7 @@ body {
     height: 14px;
     background: #00ffff;
     border-radius: 50%;
-    cursor: pointer;
+    : pointer;
     transition: all 0.2s ease;
 }
 
@@ -1499,6 +1499,13 @@ body {
     font-style: italic;
 }
 
+#ai-context-label {
+    padding: 2px 5px 1px 5px;
+    border-radius: 1px;
+    font-style: normal;
+    font-weight: 500;
+}
+
 #ai-prompt-wrapper {
     position: relative;
     display: flex;
@@ -1508,12 +1515,16 @@ body {
 #ai-prompt-prefix {
     font-family: 'IBM Plex Mono', monospace;
     font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
-    color: rgba(255, 255, 255, 0.8);
     line-height: 1.6;
     pointer-events: none;
     user-select: none;
-    white-space: pre;
+    /* white-space: pre; */
     flex-shrink: 0;
+    padding: 2px 4px 2px 5px;
+    border-radius: 1px;
+    margin-right: 0px;
+    position: relative;
+    top: -2px;
 }
 
 #ai-prompt {
@@ -1531,6 +1542,7 @@ body {
     line-height: 1.6;
     flex: 1;
     overflow-y: auto;
+    padding-left: 2px;
 }
 
 #ai-prompt::placeholder {
@@ -1556,6 +1568,7 @@ body {
     cursor: pointer;
     text-align: left;
     margin-top: 0px;
+    margin-left: 2px;
 }
 
 #ai-send-btn:hover {

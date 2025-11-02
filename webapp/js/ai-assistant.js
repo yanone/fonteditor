@@ -71,6 +71,9 @@ class AIAssistant {
         // Update context buttons state
         this.updateContextButtons();
 
+        // Update context label
+        this.updateContextLabel();
+
         // Event listeners
         this.apiKeyInput.addEventListener('change', () => {
             this.apiKey = this.apiKeyInput.value;
@@ -133,6 +136,7 @@ class AIAssistant {
             this.isAssistantViewFocused = event.detail.viewId === 'view-assistant';
             this.updateAutoRunButton(); // Update button appearance based on focus
             this.updateContextButtons(); // Update context button appearance based on focus
+            this.updateContextLabel(); // Update context label appearance based on focus
         });
 
         // Add global keyboard shortcuts when assistant is focused
@@ -230,6 +234,32 @@ class AIAssistant {
 
         // Update Auto-Run button state
         this.updateAutoRunButton();
+
+        // Update context label and prefix colors
+        this.updateContextLabel();
+    }
+
+    updateContextLabel() {
+        const contextLabel = document.getElementById('ai-context-label');
+        const promptPrefix = document.getElementById('ai-prompt-prefix');
+
+        if (!contextLabel || !promptPrefix) return;
+
+        if (this.context === 'font') {
+            const fontColor = this.isAssistantViewFocused ? '#ff00ff' : '#660066';
+            contextLabel.textContent = 'Font Context';
+            contextLabel.style.backgroundColor = fontColor;
+            contextLabel.style.color = '#1a1a1a';
+            promptPrefix.style.backgroundColor = fontColor;
+            promptPrefix.style.color = '#1a1a1a';
+        } else {
+            const scriptColor = this.isAssistantViewFocused ? '#9900ff' : '#4d0080';
+            contextLabel.textContent = 'Script Context';
+            contextLabel.style.backgroundColor = scriptColor;
+            contextLabel.style.color = '#1a1a1a';
+            promptPrefix.style.backgroundColor = scriptColor;
+            promptPrefix.style.color = '#1a1a1a';
+        }
     }
 
     updateContextButtons() {
@@ -1530,8 +1560,12 @@ if '_original_stdout' in dir():
             const prefix = document.getElementById('ai-prompt-prefix');
             const prefixWidth = prefix ? prefix.offsetWidth : 0;
 
+            // Get textarea padding and margin
+            const paddingLeft = parseFloat(style.paddingLeft) || 0;
+            const marginLeft = parseFloat(style.marginLeft) || 0;
+
             // Calculate position
-            const left = prefixWidth + (currentLineText.length * charWidth);
+            const left = prefixWidth + paddingLeft + marginLeft + (currentLineText.length * charWidth);
             const top = currentLine * lineHeight;
 
             // Check if cursor position changed
