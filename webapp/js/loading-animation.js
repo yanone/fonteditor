@@ -20,7 +20,7 @@
 
     // Characters to use for the star field (letters, numbers, and symbols)
     const CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*()_+-=[]{}|;:,.<>?/~';
-    
+
     // Pre-calculate 12 fixed directional lanes
     const LANES = [];
     for (let i = 0; i < CONFIG.laneCount; i++) {
@@ -44,7 +44,7 @@
             // Assign a lane
             this.laneIndex = laneIndex;
             const lane = LANES[laneIndex];
-            
+
             // Position in 3D space - start at center
             this.x = 0;
             this.y = 0;
@@ -68,7 +68,7 @@
             // Track if this particle is active
             this.active = true;
         }
-        
+
         reset() {
             this.active = false;
             this.z = -1;
@@ -76,7 +76,7 @@
 
         update(speed) {
             if (!this.active) return;
-            
+
             // Move towards viewer
             this.z -= speed * CONFIG.speed;
 
@@ -101,7 +101,7 @@
 
         draw(ctx) {
             if (!this.active) return;
-            
+
             const width = this.canvas.width;
             const height = this.canvas.height;
 
@@ -193,40 +193,40 @@
             this.lastTime = this.startTime;
             // Set last spawn time in the past to continue regular spawning
             this.lastSpawnTime = this.startTime - CONFIG.spawnInterval;
-            
+
             // Fill the entire visible area with particles from center to edges (and some beyond)
             // We want particles at all stages of their journey
             const numToSpawn = Math.min(100, this.particles.length);
-            
+
             for (let i = 0; i < numToSpawn; i++) {
                 const particle = this.particles[i];
                 const randomLane = Math.floor(Math.random() * CONFIG.laneCount);
                 particle.spawn(randomLane);
-                
+
                 // Distribute particles evenly from center (z=canvas.width) to beyond screen (z<0)
                 // Earlier particles (lower i) should be further out, even off-screen
                 const progress = i / numToSpawn; // 0 to 1
-                
+
                 // Position from slightly off-screen (progress=0) to center (progress=1)
                 // z value: negative (off-screen) to canvas.width (far back)
                 particle.z = this.canvas.width * (1 - progress) - (progress * 200); // Some go off-screen
-                
+
                 // Calculate the x,y position based on how far the particle has traveled
                 const distanceTraveled = this.canvas.width - particle.z;
                 const normalizedDistance = distanceTraveled / this.canvas.width;
-                
+
                 // Move particle along its lane based on how far it has traveled
                 const proximityFactor = Math.max(0, normalizedDistance);
                 const travelFrames = distanceTraveled / CONFIG.speed;
                 particle.x += particle.velocityX * travelFrames * 0.01 * proximityFactor;
                 particle.y += particle.velocityY * travelFrames * 0.01 * proximityFactor;
-                
+
                 // Some particles may already be off-screen, mark them for respawn
                 if (particle.z < -500) {
                     particle.reset();
                 }
             }
-            
+
             this.animate(this.lastTime);
         }
 

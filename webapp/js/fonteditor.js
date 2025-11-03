@@ -63,22 +63,36 @@ async function initFontEditor() {
             window.focusView(lastActiveView);
         }
 
-        // Request animation to stop (it will drain particles first, then trigger fade)
-        if (window.WarpSpeedAnimation) {
-            window.WarpSpeedAnimation.requestStop(() => {
-                // This callback is called when all particles have cleared
-                // Now we can initiate the fade-out
-                const loadingOverlay = document.getElementById('loading-overlay');
-                if (loadingOverlay) {
-                    loadingOverlay.classList.add('hidden');
-                }
-            });
-        } else {
-            // Fallback if animation not available
+        // Hide loading overlay with animation
+        const hideLoadingOverlay = () => {
             const loadingOverlay = document.getElementById('loading-overlay');
             if (loadingOverlay) {
                 loadingOverlay.classList.add('hidden');
             }
+        };
+
+        // Request animation to stop (it will drain particles first, then trigger fade)
+        if (window.WarpSpeedAnimation) {
+            let callbackFired = false;
+
+            window.WarpSpeedAnimation.requestStop(() => {
+                if (!callbackFired) {
+                    callbackFired = true;
+                    hideLoadingOverlay();
+                }
+            });
+
+            // Fallback timeout in case animation callback doesn't fire (e.g., particles stuck)
+            setTimeout(() => {
+                if (!callbackFired) {
+                    console.warn("Animation drain timeout, forcing overlay hide");
+                    callbackFired = true;
+                    hideLoadingOverlay();
+                }
+            }, 5000); // 5 second timeout
+        } else {
+            // Fallback if animation not available
+            hideLoadingOverlay();
         }
 
         return true;
@@ -88,12 +102,28 @@ async function initFontEditor() {
         if (window.term) {
             window.term.error("Failed to initialize FontEditor: " + error.message);
         }
+
+        // Hide loading overlay even on error
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) {
+            loadingOverlay.classList.add('hidden');
+        }
+
         return false;
     }
 }
 
 // Initialize FontEditor when Pyodide is ready
 document.addEventListener('DOMContentLoaded', () => {
+    // Safety timeout - hide loading screen after 30 seconds no matter what
+    setTimeout(() => {
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay && !loadingOverlay.classList.contains('hidden')) {
+            console.error("Loading timeout - forcing overlay hide after 30 seconds");
+            loadingOverlay.classList.add('hidden');
+        }
+    }, 30000);
+
     // Wait for pyodide to be available
     const checkPyodide = () => {
         if (window.pyodide) {

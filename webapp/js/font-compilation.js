@@ -15,15 +15,35 @@ class FontCompilation {
 
         console.log('🔧 Initializing fontc WASM worker...');
 
+        // Wait for service worker to be active (needed for SharedArrayBuffer on GitHub Pages)
+        if ('serviceWorker' in navigator) {
+            const registration = await navigator.serviceWorker.ready;
+            if (registration.active && !navigator.serviceWorker.controller) {
+                console.log('⏳ Service worker registered but not controlling page yet. Waiting...');
+                // Wait a bit for controller to be set
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+
         // Check if SharedArrayBuffer is available
         if (typeof SharedArrayBuffer === 'undefined') {
-            throw new Error(
-                'SharedArrayBuffer is not available. This is required for fontc threading.\n' +
-                'Make sure you are serving the page with proper CORS headers:\n' +
-                '  Cross-Origin-Embedder-Policy: require-corp\n' +
-                '  Cross-Origin-Opener-Policy: same-origin\n\n' +
-                'Use: cd webapp && python3 serve-with-cors.py'
+            console.error(
+                '❌ SharedArrayBuffer is not available. fontc WASM requires it.\n' +
+                'This should be enabled by the coi-serviceworker.js.\n' +
+                'If you see this error:\n' +
+                '  1. Try a hard refresh (Ctrl+Shift+R or Cmd+Shift+R)\n' +
+                '  2. Check browser console for service worker errors\n' +
+                '  3. Make sure coi-serviceworker.js is loaded in the HTML\n\n' +
+                'For local development, use: cd webapp && python3 serve-with-cors.py'
             );
+            if (window.term) {
+                window.term.echo('');
+                window.term.error('❌ SharedArrayBuffer not available - fontc WASM cannot initialize');
+                window.term.echo('[[;orange;]Try a hard refresh (Ctrl+Shift+R / Cmd+Shift+R) to activate the service worker.]');
+                window.term.echo('');
+            }
+            this.isInitialized = false;
+            return false;
         }
 
         try {
@@ -37,10 +57,11 @@ class FontCompilation {
             // Wait for worker to be ready
             const ready = await new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {
-                    reject(new Error('Worker initialization timeout'));
+                    reject(new Error('Worker initialization timeout after 30 seconds. Check console for worker errors.'));
                 }, 30000); // 30 second timeout
 
                 const checkReady = (e) => {
+                    console.log('Worker message:', e.data);
                     if (e.data.ready) {
                         clearTimeout(timeout);
                         this.worker.removeEventListener('message', checkReady);
@@ -214,9 +235,17 @@ async function initFontCompilation() {
     await fontCompilation.initialize();
 }
 
-// Auto-initialize
+// Auto-initialize - wait longer to ensure service worker is active
 document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(initFontCompilation, 1000);
+    // Wait for service worker to be ready before initializing
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(() => {
+            // Give it a bit more time to ensure controller is set
+            setTimeout(initFontCompilation, 2000);
+        });
+    } else {
+        setTimeout(initFontCompilation, 2000);
+    }
 });
 
 // Export for global access
