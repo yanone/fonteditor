@@ -57,19 +57,28 @@ async function initFontEditor() {
 
         console.log("FontEditor initialized successfully");
 
-        // Hide loading overlay
-        const loadingOverlay = document.getElementById('loading-overlay');
-        if (loadingOverlay) {
-            loadingOverlay.classList.add('hidden');
+        // Restore the last active view right away, before animation ends
+        const lastActiveView = localStorage.getItem('last_active_view');
+        if (lastActiveView && window.focusView) {
+            window.focusView(lastActiveView);
+        }
 
-            // After overlay is hidden, restore the last active view
-            setTimeout(() => {
-                const lastActiveView = localStorage.getItem('last_active_view');
-                if (lastActiveView && window.focusView) {
-                    // Restore the last active view
-                    window.focusView(lastActiveView);
+        // Request animation to stop (it will drain particles first, then trigger fade)
+        if (window.WarpSpeedAnimation) {
+            window.WarpSpeedAnimation.requestStop(() => {
+                // This callback is called when all particles have cleared
+                // Now we can initiate the fade-out
+                const loadingOverlay = document.getElementById('loading-overlay');
+                if (loadingOverlay) {
+                    loadingOverlay.classList.add('hidden');
                 }
-            }, 600); // Wait for fade-out animation to complete (500ms) plus small buffer
+            });
+        } else {
+            // Fallback if animation not available
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                loadingOverlay.classList.add('hidden');
+            }
         }
 
         return true;
