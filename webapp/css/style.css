@@ -39,6 +39,7 @@ body {
     margin-left: -0.12em;
 }
 
+
 /* Loading overlay */
 .loading-overlay {
     position: fixed;
@@ -68,7 +69,6 @@ body {
     font-size: 150px;
     font-weight: 400;
     color: #ffffff;
-    animation: pulse 2s ease-in-out infinite;
 }
 
 @keyframes pulse {
