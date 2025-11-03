@@ -715,6 +715,116 @@ body {
     background-color: #2a2a2a;
 }
 
+/* Cyberpunk Syntax Highlighting */
+/* Keywords - Neon Magenta */
+#script-editor .ace_keyword {
+    color: #ff00ff !important;
+    font-weight: bold;
+}
+
+/* Storage types (def, class, etc.) - Neon Cyan */
+#script-editor .ace_storage {
+    color: #00ffff !important;
+    font-weight: bold;
+}
+
+/* Function names - Bright Yellow */
+#script-editor .ace_entity.ace_name.ace_function,
+#script-editor .ace_support.ace_function {
+    color: #ffff00 !important;
+}
+
+/* Class names - Neon Green */
+#script-editor .ace_entity.ace_name.ace_class,
+#script-editor .ace_support.ace_class {
+    color: #00ff00 !important;
+    font-weight: bold;
+}
+
+/* Strings - Soft Pink/Magenta */
+#script-editor .ace_string {
+    color: #ff66ff !important;
+}
+
+/* Numbers - Bright Orange */
+#script-editor .ace_constant.ace_numeric {
+    color: #ff9933 !important;
+}
+
+/* Comments - Dim Purple */
+#script-editor .ace_comment {
+    color: #9966cc !important;
+    font-style: italic;
+}
+
+/* Variables - Light Cyan */
+#script-editor .ace_variable {
+    color: #66ffff !important;
+}
+
+/* Built-in functions - Electric Blue */
+#script-editor .ace_support.ace_builtin {
+    color: #3399ff !important;
+}
+
+/* Operators - Bright White */
+#script-editor .ace_keyword.ace_operator {
+    color: #ffffff !important;
+    font-weight: normal;
+}
+
+/* Decorators - Neon Purple */
+#script-editor .ace_meta.ace_tag,
+#script-editor .ace_entity.ace_name.ace_tag {
+    color: #9900ff !important;
+}
+
+/* Constants (True, False, None) - Hot Pink */
+#script-editor .ace_constant.ace_language {
+    color: #ff0099 !important;
+    font-weight: bold;
+}
+
+/* Parameters - Light Yellow */
+#script-editor .ace_variable.ace_parameter {
+    color: #ffff99 !important;
+}
+
+/* Import statements - Cyan */
+#script-editor .ace_keyword.ace_control.ace_import {
+    color: #00ffff !important;
+}
+
+/* Self keyword - Magenta */
+#script-editor .ace_variable.ace_language {
+    color: #ff00ff !important;
+    font-style: italic;
+}
+
+/* Line highlight - subtle cyberpunk glow */
+#script-editor .ace_active-line {
+    background-color: rgba(255, 0, 255, 0.08) !important;
+}
+
+/* Selection - cyberpunk purple */
+#script-editor .ace_selection {
+    background-color: rgba(153, 0, 255, 0.3) !important;
+}
+
+/* Cursor - bright cyan with custom width */
+#script-editor .ace_cursor {
+    color: #00ffff !important;
+    background-color: #00ffff !important;
+    /* Width and positioning are controlled by script-editor.js */
+    /* Don't override width, top, or left to preserve JS customization */
+}
+
+/* Matching brackets - neon green */
+#script-editor .ace_bracket {
+    border: 1px solid #00ff00 !important;
+    background-color: rgba(0, 255, 0, 0.1) !important;
+}
+
 /* Official Pyodide Console Styles */
 
 @supports (--css:variables) {
