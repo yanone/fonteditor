@@ -1,0 +1,295 @@
+// Memory Monitor for Browser
+// Monitors memory usage and provides cleanup utilities
+
+(function () {
+    'use strict';
+
+    class MemoryMonitor {
+        constructor() {
+            this.monitorElement = null;
+            this.updateInterval = null;
+            this.warningThreshold = 0.80; // 80% of limit
+            this.criticalThreshold = 0.90; // 90% of limit
+            this.isVisible = false;
+        }
+
+        init() {
+            this.createMonitorElement();
+            this.startMonitoring();
+            this.setupCleanupHandlers();
+            console.log('✅ Memory monitor initialized');
+        }
+
+        createMonitorElement() {
+            // Create floating memory monitor
+            this.monitorElement = document.createElement('div');
+            this.monitorElement.id = 'memory-monitor';
+            this.monitorElement.style.cssText = `
+                position: fixed;
+                top: 50px;
+                right: 10px;
+                background: rgba(0, 0, 0, 0.9);
+                color: #0f0;
+                padding: 12px;
+                font-family: 'IBM Plex Mono', monospace;
+                font-size: 11px;
+                z-index: 9999;
+                border-radius: 6px;
+                border: 1px solid #0f0;
+                min-width: 200px;
+                display: none;
+                box-shadow: 0 4px 12px rgba(0, 255, 0, 0.3);
+            `;
+            
+            document.body.appendChild(this.monitorElement);
+
+            // Add toggle button to toolbar
+            const toolbar = document.querySelector('.toolbar-right');
+            if (toolbar) {
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'toolbar-button';
+                toggleBtn.textContent = '🧠 Memory';
+                toggleBtn.title = 'Toggle memory monitor (Cmd+M)';
+                toggleBtn.addEventListener('click', () => this.toggleVisibility());
+                
+                // Insert before save button
+                const saveBtn = document.getElementById('save-font-btn');
+                if (saveBtn) {
+                    toolbar.insertBefore(toggleBtn, saveBtn);
+                    console.log('✅ Memory button added to toolbar (before Save button)');
+                } else {
+                    toolbar.prepend(toggleBtn);
+                    console.log('✅ Memory button added to toolbar (at start)');
+                }
+            } else {
+                console.warn('⚠️ Could not find .toolbar-right element');
+            }
+
+            // Keyboard shortcut: Cmd+M
+            document.addEventListener('keydown', (e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'm') {
+                    e.preventDefault();
+                    this.toggleVisibility();
+                }
+            });
+        }
+
+        toggleVisibility() {
+            this.isVisible = !this.isVisible;
+            this.monitorElement.style.display = this.isVisible ? 'block' : 'none';
+            
+            if (this.isVisible) {
+                this.updateMemoryDisplay();
+            }
+        }
+
+        startMonitoring() {
+            // Update every second when visible
+            this.updateInterval = setInterval(() => {
+                if (this.isVisible) {
+                    this.updateMemoryDisplay();
+                }
+            }, 1000);
+        }
+
+        updateMemoryDisplay() {
+            if (!this.monitorElement) return;
+
+            const info = this.getMemoryInfo();
+            const html = this.formatMemoryInfo(info);
+            this.monitorElement.innerHTML = html;
+
+            // Update color based on usage
+            if (info.percentUsed >= this.criticalThreshold * 100) {
+                this.monitorElement.style.color = '#f00';
+                this.monitorElement.style.borderColor = '#f00';
+            } else if (info.percentUsed >= this.warningThreshold * 100) {
+                this.monitorElement.style.color = '#ff0';
+                this.monitorElement.style.borderColor = '#ff0';
+            } else {
+                this.monitorElement.style.color = '#0f0';
+                this.monitorElement.style.borderColor = '#0f0';
+            }
+        }
+
+        getMemoryInfo() {
+            const info = {
+                supported: false,
+                usedMB: 0,
+                totalMB: 0,
+                limitMB: 0,
+                percentUsed: 0,
+                pyodideObjects: 0,
+                openFonts: 0
+            };
+
+            // Chrome/Edge specific
+            if (performance.memory) {
+                info.supported = true;
+                info.usedMB = (performance.memory.usedJSHeapSize / 1048576).toFixed(2);
+                info.totalMB = (performance.memory.totalJSHeapSize / 1048576).toFixed(2);
+                info.limitMB = (performance.memory.jsHeapSizeLimit / 1048576).toFixed(2);
+                info.percentUsed = ((performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) * 100).toFixed(1);
+            }
+
+            // Get Python object count if Pyodide is loaded
+            if (window.pyodide) {
+                try {
+                    const result = window.pyodide.runPython(`
+import gc
+import json
+gc.collect()
+obj_count = len(gc.get_objects())
+
+# Get open fonts count
+open_fonts = 0
+try:
+    open_fonts = len(GetOpenFonts())
+except:
+    pass
+
+json.dumps({"objects": obj_count, "fonts": open_fonts})
+                    `);
+                    const data = JSON.parse(result);
+                    info.pyodideObjects = data.objects.toLocaleString();
+                    info.openFonts = data.fonts;
+                } catch (e) {
+                    // Ignore errors during memory check
+                }
+            }
+
+            return info;
+        }
+
+        formatMemoryInfo(info) {
+            if (!info.supported) {
+                return `
+                    <div style="font-weight: bold; margin-bottom: 8px;">Memory Monitor</div>
+                    <div style="opacity: 0.7;">⚠️ Not supported in this browser</div>
+                    <div style="margin-top: 8px; opacity: 0.7; font-size: 10px;">
+                        Available in Chrome/Edge only
+                    </div>
+                `;
+            }
+
+            const statusIcon = info.percentUsed >= 90 ? '🔴' : 
+                              info.percentUsed >= 80 ? '🟡' : '🟢';
+
+            return `
+                <div style="font-weight: bold; margin-bottom: 8px;">Memory Monitor ${statusIcon}</div>
+                <div style="display: grid; grid-template-columns: auto 1fr; gap: 4px 8px;">
+                    <div>Used:</div><div style="text-align: right;">${info.usedMB} MB</div>
+                    <div>Total:</div><div style="text-align: right;">${info.totalMB} MB</div>
+                    <div>Limit:</div><div style="text-align: right;">${info.limitMB} MB</div>
+                    <div>Usage:</div><div style="text-align: right; font-weight: bold;">${info.percentUsed}%</div>
+                    ${info.pyodideObjects ? `
+                    <div style="grid-column: 1/-1; margin-top: 8px; padding-top: 8px; border-top: 1px solid currentColor; opacity: 0.7;">
+                        Python Objects: ${info.pyodideObjects}
+                    </div>
+                    <div style="grid-column: 1/-1; opacity: 0.7;">
+                        Open Fonts: ${info.openFonts}
+                    </div>
+                    ` : ''}
+                </div>
+                <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid currentColor;">
+                    <button onclick="window.memoryMonitor.forceGarbageCollection()" 
+                            style="width: 100%; padding: 6px; background: #222; color: currentColor; 
+                                   border: 1px solid currentColor; border-radius: 3px; cursor: pointer;
+                                   font-family: inherit; font-size: 10px;">
+                        🗑️ Force GC
+                    </button>
+                </div>
+                <div style="margin-top: 8px; padding: 8px; background: rgba(255,255,0,0.1); border: 1px solid rgba(255,255,0,0.3); border-radius: 3px; font-size: 9px; line-height: 1.4;">
+                    💡 <strong>To free memory:</strong><br>
+                    Close ALL tabs with this app, then reopen in a new tab
+                </div>
+                <div style="margin-top: 4px; font-size: 9px; opacity: 0.5; text-align: center;">
+                    Cmd+M to toggle
+                </div>
+            `;
+        }
+
+        async forceGarbageCollection() {
+            console.log('🗑️ Forcing garbage collection...');
+            
+            // Python GC
+            if (window.pyodide) {
+                try {
+                    const result = window.pyodide.runPython(`
+import gc
+collected = gc.collect()
+print(f"Python GC collected {collected} objects")
+collected
+                    `);
+                    console.log(`Python GC: Collected ${result} objects`);
+                } catch (e) {
+                    console.error('Python GC failed:', e);
+                }
+            }
+
+            // JavaScript GC (can't force directly, but we can help)
+            if (window.gc) {
+                // Available in Chrome with --expose-gc flag
+                window.gc();
+                console.log('JavaScript GC triggered (--expose-gc)');
+            } else {
+                // Create memory pressure to encourage GC
+                console.log('JavaScript GC: Creating memory pressure...');
+                const temp = new Array(1000000).fill(0);
+                temp.length = 0;
+            }
+
+            // Update display after a moment
+            setTimeout(() => {
+                this.updateMemoryDisplay();
+                console.log('✅ Garbage collection completed');
+            }, 500);
+        }
+
+        setupCleanupHandlers() {
+            // Clean up interval on page unload
+            window.addEventListener('beforeunload', () => {
+                if (this.updateInterval) {
+                    clearInterval(this.updateInterval);
+                }
+            });
+            
+            // No automatic cleanup - user controls via Force GC button
+        }
+
+        stop() {
+            if (this.updateInterval) {
+                clearInterval(this.updateInterval);
+                this.updateInterval = null;
+            }
+            if (this.monitorElement) {
+                this.monitorElement.remove();
+                this.monitorElement = null;
+            }
+        }
+    }
+
+    // Initialize when DOM is ready
+    function initMemoryMonitor() {
+        if (document.querySelector('.toolbar-right')) {
+            console.log('🧠 Initializing memory monitor...');
+            window.memoryMonitor = new MemoryMonitor();
+            window.memoryMonitor.init();
+        } else {
+            console.warn('⚠️ Toolbar not ready, retrying in 500ms...');
+            setTimeout(initMemoryMonitor, 500);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(initMemoryMonitor, 100);
+        });
+    } else {
+        // Document already loaded
+        setTimeout(initMemoryMonitor, 100);
+    }
+
+    // Export for manual control
+    window.MemoryMonitor = MemoryMonitor;
+})();
