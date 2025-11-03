@@ -13,14 +13,14 @@
             if ('serviceWorker' in navigator) {
                 try {
                     const registrations = await navigator.serviceWorker.getRegistrations();
-                    
+
                     if (registrations.length === 0) {
                         console.log('No service workers to clear');
                         return { success: true, count: 0 };
                     }
 
                     console.log(`Found ${registrations.length} service worker(s)`);
-                    
+
                     for (const registration of registrations) {
                         await registration.unregister();
                         console.log('✅ Unregistered service worker:', registration.scope);
@@ -50,14 +50,14 @@
             if ('caches' in window) {
                 try {
                     const cacheNames = await caches.keys();
-                    
+
                     if (cacheNames.length === 0) {
                         console.log('No caches to clear');
                         return { success: true, count: 0 };
                     }
 
                     console.log(`Found ${cacheNames.length} cache(s):`, cacheNames);
-                    
+
                     for (const cacheName of cacheNames) {
                         await caches.delete(cacheName);
                         console.log('✅ Deleted cache:', cacheName);
@@ -92,7 +92,7 @@
 
                 databases.forEach((dbName) => {
                     const request = indexedDB.deleteDatabase(dbName);
-                    
+
                     request.onsuccess = () => {
                         console.log(`✅ Deleted IndexedDB: ${dbName}`);
                         cleared++;
@@ -134,7 +134,7 @@
 
         async clearAll() {
             console.log('🗑️ Clearing all caches...');
-            
+
             const results = {
                 serviceWorkers: await this.clearServiceWorkers(),
                 caches: await this.clearCaches(),
@@ -167,7 +167,7 @@
         async clearAndReload() {
             console.log('🔄 Clearing all caches and reloading...');
             await this.clearAll();
-            
+
             // Wait a moment for cleanup to complete
             setTimeout(() => {
                 console.log('🔄 Reloading page...');
@@ -191,7 +191,7 @@
 
     // Export to window (for manual use only)
     window.cacheManager = new CacheManager();
-    
+
     // Simple console helper
     window.cacheStats = () => window.cacheManager.getCacheStats();
 
@@ -211,7 +211,7 @@ Manual cache access:
     function trackMemoryAcrossReloads() {
         const reloadCount = parseInt(sessionStorage.getItem('reloadCount') || '0') + 1;
         sessionStorage.setItem('reloadCount', reloadCount.toString());
-        
+
         if (performance.memory) {
             const currentMemory = {
                 used: performance.memory.usedJSHeapSize,
@@ -220,26 +220,26 @@ Manual cache access:
                 reloadCount: reloadCount,
                 timestamp: Date.now()
             };
-            
+
             const lastMemory = JSON.parse(sessionStorage.getItem('lastMemory') || 'null');
             sessionStorage.setItem('lastMemory', JSON.stringify(currentMemory));
-            
+
             if (lastMemory) {
                 const usedMB = (currentMemory.used / 1048576).toFixed(2);
                 const lastUsedMB = (lastMemory.used / 1048576).toFixed(2);
                 const delta = ((currentMemory.used - lastMemory.used) / 1048576).toFixed(2);
                 const deltaPercent = (((currentMemory.used - lastMemory.used) / lastMemory.used) * 100).toFixed(1);
-                
+
                 console.log(`%c📊 Memory Tracking (Reload #${reloadCount})`, 'color: #ff0; font-weight: bold;');
                 console.log(`   Current: ${usedMB} MB`);
                 console.log(`   Previous: ${lastUsedMB} MB`);
-                
+
                 if (delta > 0) {
                     console.log(`   %cΔ +${delta} MB (+${deltaPercent}%) 📈 INCREASE`, 'color: #f00; font-weight: bold;');
                 } else {
                     console.log(`   %cΔ ${delta} MB (${deltaPercent}%) 📉 DECREASE`, 'color: #0f0; font-weight: bold;');
                 }
-                
+
                 // Warn if memory keeps growing
                 if (reloadCount > 2 && delta > 10) {
                     console.warn(`%c⚠️ MEMORY LEAK DETECTED: Memory grew by ${delta}MB after reload!`, 'color: #f00; font-size: 14px; font-weight: bold;');
@@ -264,7 +264,7 @@ Manual cache access:
             try {
                 // Get the COI service worker
                 const registrations = await navigator.serviceWorker.getRegistrations();
-                
+
                 for (const registration of registrations) {
                     // Send deregister message to the service worker
                     // This triggers the worker's built-in cleanup
@@ -272,15 +272,15 @@ Manual cache access:
                         registration.active.postMessage({ type: 'deregister' });
                         console.log('📨 Sent deregister message to service worker');
                     }
-                    
+
                     // Force unregister
                     await registration.unregister();
                     console.log('✅ Force unregistered service worker');
                 }
-                
+
                 // Wait a moment for cleanup
                 await new Promise(resolve => setTimeout(resolve, 100));
-                
+
                 return { success: true, reset: true };
             } catch (error) {
                 console.warn('⚠️ Failed to reset service worker:', error);
@@ -292,31 +292,31 @@ Manual cache access:
 
     async function autoClearOnLoad() {
         console.log('🧹 Auto-clearing service worker caches on page load...');
-        
+
         // Track memory first
         trackMemoryAcrossReloads();
-        
+
         // Check reload count
         const reloadCount = parseInt(sessionStorage.getItem('reloadCount') || '0');
-        
+
         try {
             // FORCE reset the service worker completely
             // This is the key to preventing memory accumulation
             await forceServiceWorkerReset();
-            
+
             // Clear remaining caches
             const cacheResult = await window.cacheManager.clearCaches();
-            
+
             if (cacheResult.count > 0) {
                 console.log(`✅ Cleared ${cacheResult.count} cache(s) on page load`);
             } else {
                 console.log('✅ Service worker reset, no additional caches to clear');
             }
-            
+
             // Important: The COI service worker will re-register itself
             // This is intentional - we want a FRESH instance each time
             console.log('🔄 Service worker will re-register with clean state');
-            
+
             // Show workaround if memory keeps growing
             if (reloadCount > 3) {
                 console.log('');
@@ -328,7 +328,7 @@ Manual cache access:
                 console.log('%c⚠️  Service worker memory persists across reloads in same tab', 'color: #f80; font-style: italic;');
                 console.log('%c   This is a browser limitation, not a bug in the app', 'color: #f80; font-style: italic;');
             }
-            
+
         } catch (error) {
             console.warn('⚠️ Failed to auto-clear caches:', error);
         }

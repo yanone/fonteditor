@@ -95,14 +95,13 @@ SetCurrentFont("${fontId}")
             return;
         }
 
-        // Set flag to prevent infinite loop
-        if (typeof isCheckingDirtyState !== 'undefined') {
-            isCheckingDirtyState = true;
-        }
-
         try {
             // Check if current font is dirty for file saving
-            const isDirtyJson = await window.pyodide.runPythonAsync(`
+            // Use _originalRunPythonAsync to bypass the execution wrapper
+            // and prevent infinite loop with afterPythonExecution()
+            const runPython = window.pyodide._originalRunPythonAsync || window.pyodide.runPythonAsync;
+
+            const isDirtyJson = await runPython.call(window.pyodide, `
 import json
 try:
     from context import DIRTY_FILE_SAVING
@@ -137,11 +136,6 @@ json.dumps(result)
             console.error('Error updating dirty indicator:', error);
             // Hide indicator on error to avoid confusion
             this.dirtyIndicator.classList.remove('visible');
-        } finally {
-            // Reset flag to allow future checks
-            if (typeof isCheckingDirtyState !== 'undefined') {
-                isCheckingDirtyState = false;
-            }
         }
     }
 

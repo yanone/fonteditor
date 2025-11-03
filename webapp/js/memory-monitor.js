@@ -40,7 +40,7 @@
                 display: none;
                 box-shadow: 0 4px 12px rgba(0, 255, 0, 0.3);
             `;
-            
+
             document.body.appendChild(this.monitorElement);
 
             // Add toggle button to toolbar
@@ -51,7 +51,7 @@
                 toggleBtn.textContent = '🧠 Memory';
                 toggleBtn.title = 'Toggle memory monitor (Cmd+M)';
                 toggleBtn.addEventListener('click', () => this.toggleVisibility());
-                
+
                 // Insert before save button
                 const saveBtn = document.getElementById('save-font-btn');
                 if (saveBtn) {
@@ -77,7 +77,7 @@
         toggleVisibility() {
             this.isVisible = !this.isVisible;
             this.monitorElement.style.display = this.isVisible ? 'block' : 'none';
-            
+
             if (this.isVisible) {
                 this.updateMemoryDisplay();
             }
@@ -135,10 +135,12 @@
             // Get Python object count if Pyodide is loaded
             if (window.pyodide) {
                 try {
-                    const result = window.pyodide.runPython(`
+                    // Use _originalRunPython to avoid triggering afterPythonExecution hooks
+                    const runPython = window.pyodide._originalRunPython || window.pyodide.runPython;
+                    const result = runPython.call(window.pyodide, `
 import gc
 import json
-gc.collect()
+# Don't collect here - only when Force GC button is pressed
 obj_count = len(gc.get_objects())
 
 # Get open fonts count
@@ -172,8 +174,8 @@ json.dumps({"objects": obj_count, "fonts": open_fonts})
                 `;
             }
 
-            const statusIcon = info.percentUsed >= 90 ? '🔴' : 
-                              info.percentUsed >= 80 ? '🟡' : '🟢';
+            const statusIcon = info.percentUsed >= 90 ? '🔴' :
+                info.percentUsed >= 80 ? '🟡' : '🟢';
 
             return `
                 <div style="font-weight: bold; margin-bottom: 8px;">Memory Monitor ${statusIcon}</div>
@@ -211,11 +213,13 @@ json.dumps({"objects": obj_count, "fonts": open_fonts})
 
         async forceGarbageCollection() {
             console.log('🗑️ Forcing garbage collection...');
-            
+
             // Python GC
             if (window.pyodide) {
                 try {
-                    const result = window.pyodide.runPython(`
+                    // Use _originalRunPython to avoid triggering afterPythonExecution hooks
+                    const runPython = window.pyodide._originalRunPython || window.pyodide.runPython;
+                    const result = runPython.call(window.pyodide, `
 import gc
 collected = gc.collect()
 print(f"Python GC collected {collected} objects")
@@ -253,7 +257,7 @@ collected
                     clearInterval(this.updateInterval);
                 }
             });
-            
+
             // No automatic cleanup - user controls via Force GC button
         }
 

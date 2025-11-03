@@ -1,9 +1,6 @@
 // Python-UI Synchronization Hooks
 // These functions control when UI updates are paused/resumed during Python execution
 
-// Flag to prevent infinite loops when checking dirty state
-let isCheckingDirtyState = false;
-
 // Flag to skip dirty checks during font loading operations
 let isLoadingFont = false;
 
@@ -31,8 +28,8 @@ function afterPythonExecution() {
     // TODO: Check for dirty glyphs and redraw if current glyph was modified
     // TODO: Call get_and_clear_dirty_glyphs() and update UI accordingly
 
-    // Skip dirty checks if we're loading a font or already checking
-    if (isLoadingFont || isCheckingDirtyState || !window.fontDropdownManager) {
+    // Skip dirty checks if we're loading a font or if dropdown manager not ready
+    if (isLoadingFont || !window.fontDropdownManager) {
         return;
     }
 

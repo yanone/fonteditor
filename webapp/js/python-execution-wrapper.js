@@ -18,6 +18,11 @@
         const _originalRunPythonAsync = window.pyodide.runPythonAsync.bind(window.pyodide);
         const _originalRunPython = window.pyodide.runPython.bind(window.pyodide);
 
+        // Expose original functions so they can be called directly when needed
+        // (e.g., for internal checks that shouldn't trigger UI updates)
+        window.pyodide._originalRunPythonAsync = _originalRunPythonAsync;
+        window.pyodide._originalRunPython = _originalRunPython;
+
         // Counter for execution tracking
         let executionCounter = 0;
 
