@@ -29,6 +29,12 @@ body {
     vertical-align: middle;
 }
 
+.view-title-shortcut .material-symbols-outlined {
+    top: -1px;
+    position: relative;
+}
+
+
 .material-symbols-outlined+.material-symbols-outlined {
     margin-left: -0.12em;
 }
@@ -260,10 +266,17 @@ body {
     width: 100vw;
 }
 
-.top-row,
+.top-row {
+    display: flex;
+    flex: 1.61;
+    /* 63% of total height */
+    min-height: 100px;
+}
+
 .bottom-row {
     display: flex;
     flex: 1;
+    /* 37% of total height */
     min-height: 100px;
 }
 
