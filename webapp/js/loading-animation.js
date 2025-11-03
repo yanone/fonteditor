@@ -13,6 +13,7 @@
         maxScale: 1.5,        // Maximum scale multiplier (increased from 0.6 for bigger end size)
         minDisplayTime: 0,    // Minimum display time in milliseconds (0 seconds - no minimum)
         fadeTransitionTime: 1000, // Fade-out transition time in milliseconds (1 second)
+        slowdownTime: 1000,   // Time to slow down to zero before fade starts (1 second)
         drainTime: 2000,      // Estimated time for particles to clear the screen (milliseconds) - reduced due to faster speed
         laneCount: 12,        // Number of fixed directional lanes
         spawnInterval: 13,    // Milliseconds between spawns (reduced to 1/3 of 40ms for 3x spawn rate)
@@ -74,19 +75,22 @@
             this.z = -1;
         }
 
-        update(speed) {
+        update(speed, speedMultiplier = 1.0) {
             if (!this.active) return;
 
+            // Apply speed multiplier for slowdown effect
+            const effectiveSpeed = speed * speedMultiplier;
+
             // Move towards viewer
-            this.z -= speed * CONFIG.speed;
+            this.z -= effectiveSpeed * CONFIG.speed;
 
             // Move in trajectory direction (accelerating as it gets closer)
             const proximityFactor = 1 - (this.z / this.canvas.width);
-            this.x += this.velocityX * speed * 0.01 * proximityFactor;
-            this.y += this.velocityY * speed * 0.01 * proximityFactor;
+            this.x += this.velocityX * effectiveSpeed * 0.01 * proximityFactor;
+            this.y += this.velocityY * effectiveSpeed * 0.01 * proximityFactor;
 
             // Rotate over time
-            this.rotation += this.rotationSpeed * speed;
+            this.rotation += this.rotationSpeed * effectiveSpeed;
 
             // Reset when particle passes the camera or goes off screen
             const scale = 1000 / Math.max(this.z, 1);
@@ -159,6 +163,7 @@
             this.lastTime = 0;
             this.startTime = 0;
             this.stopRequested = false;
+            this.stopRequestTime = 0;
             this.allowRespawn = true;
             this.fadeCallback = null;
             this.lastSpawnTime = 0;
@@ -253,6 +258,21 @@
                 this.allowRespawn = false;
             }
 
+            // Calculate speed multiplier for slowdown effect
+            let speedMultiplier = 1.0;
+            if (this.stopRequested && this.stopRequestTime > 0) {
+                const timeSinceStop = currentTime - this.stopRequestTime;
+                const halfFadeTime = CONFIG.fadeTransitionTime / 2;
+
+                if (timeSinceStop < CONFIG.slowdownTime) {
+                    // Phase 1: Slow down from 1.0 to 0 over slowdownTime (1 second)
+                    speedMultiplier = 1.0 - (timeSinceStop / CONFIG.slowdownTime);
+                } else {
+                    // Phase 2 & 3: Stay at 0 during first half of fade and frozen during second half
+                    speedMultiplier = 0;
+                }
+            }
+
             // Regular spawning at fixed intervals
             if (this.allowRespawn && currentTime - this.lastSpawnTime >= CONFIG.spawnInterval) {
                 this.spawnParticle();
@@ -266,23 +286,21 @@
             // Sort by z-depth (furthest first)
             this.particles.sort((a, b) => b.z - a.z);
 
-            // Count active particles
-            let activeCount = 0;
+            // Update and draw particles with slowdown
             this.particles.forEach(particle => {
                 if (particle.active) {
-                    particle.update(deltaTime);
+                    particle.update(deltaTime, speedMultiplier);
                     particle.draw(this.ctx);
-                    if (particle.active) activeCount++;
                 }
             });
 
-            // If all particles are gone and we're draining, trigger fade and stop
-            if (!this.allowRespawn && activeCount === 0) {
-                if (this.fadeCallback) {
-                    this.fadeCallback();
-                    this.fadeCallback = null; // Only call once
+            // Stop animation after slowdown + fade completes
+            if (this.stopRequested && this.stopRequestTime > 0) {
+                const timeSinceStop = currentTime - this.stopRequestTime;
+                const totalTime = CONFIG.slowdownTime + CONFIG.fadeTransitionTime;
+                if (timeSinceStop >= totalTime) {
+                    this.stop();
                 }
-                this.stop();
             }
         }
 
@@ -297,10 +315,16 @@
         }
 
         requestStop(onComplete) {
-            // Signal that we want to stop, but let the animation drain first
-            // onComplete callback will be called when all particles are gone
+            // Signal that we want to stop
             this.stopRequested = true;
-            this.fadeCallback = onComplete;
+            this.stopRequestTime = performance.now();
+
+            // Delay the fade callback until after slowdown completes
+            if (onComplete) {
+                setTimeout(() => {
+                    onComplete();
+                }, CONFIG.slowdownTime);
+            }
         }
 
         stop() {
