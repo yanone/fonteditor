@@ -22,6 +22,14 @@
     // Characters to use for the star field (letters, numbers, and symbols)
     const CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*()_+-=[]{}|;:,.<>?/~';
 
+    // Cubic bezier easing function for smooth slowdown
+    // Using ease-out cubic bezier (0.4, 0.0, 0.2, 1) - similar to CSS transition
+    function cubicBezierEase(t) {
+        // Simplified cubic bezier for ease-out effect
+        // This creates a smooth deceleration curve
+        return 1 - Math.pow(1 - t, 3);
+    }
+
     // Pre-calculate 12 fixed directional lanes
     const LANES = [];
     for (let i = 0; i < CONFIG.laneCount; i++) {
@@ -265,8 +273,10 @@
                 const halfFadeTime = CONFIG.fadeTransitionTime / 2;
 
                 if (timeSinceStop < CONFIG.slowdownTime) {
-                    // Phase 1: Slow down from 1.0 to 0 over slowdownTime (1 second)
-                    speedMultiplier = 1.0 - (timeSinceStop / CONFIG.slowdownTime);
+                    // Phase 1: Slow down from 1.0 to 0 over slowdownTime with smooth bezier curve
+                    const progress = timeSinceStop / CONFIG.slowdownTime; // 0 to 1
+                    const easedProgress = cubicBezierEase(progress); // Apply easing
+                    speedMultiplier = 1.0 - easedProgress; // Invert so we go from 1 to 0
                 } else {
                     // Phase 2 & 3: Stay at 0 during first half of fade and frozen during second half
                     speedMultiplier = 0;
