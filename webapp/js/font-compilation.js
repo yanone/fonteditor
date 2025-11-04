@@ -1,6 +1,6 @@
 // Font Compilation Integration
-// Uses fontc WASM with Web Workers (Simon Cozens' approach)
-// Based on: https://github.com/simoncozens/fontc-web
+// Direct .babelfont JSON → TTF compilation (zero file system)
+// Based on: DIRECT_PYTHON_RUST_INTEGRATION.md
 
 class FontCompilation {
     constructor() {
@@ -13,7 +13,8 @@ class FontCompilation {
     async initialize() {
         if (this.isInitialized) return true;
 
-        console.log('🔧 Initializing fontc WASM worker...');
+        console.log('🔧 Initializing babelfont-fontc WASM worker...');
+        console.log('🚀 Using direct .babelfont JSON → TTF pipeline (no file system)');
 
         // Wait for service worker to be active (needed for SharedArrayBuffer on GitHub Pages)
         if ('serviceWorker' in navigator) {
@@ -77,13 +78,14 @@ class FontCompilation {
             });
 
             this.isInitialized = ready;
-            console.log('✅ fontc WASM worker initialized');
+            console.log('✅ babelfont-fontc WASM worker initialized');
+            console.log('✅ Ready for direct Python → Rust compilation');
             return true;
 
         } catch (error) {
-            console.error('❌ Failed to initialize fontc WASM:', error.message);
+            console.error('❌ Failed to initialize babelfont-fontc WASM:', error.message);
             if (window.term) {
-                window.term.error(`Failed to load fontc: ${error.message}`);
+                window.term.error(`Failed to load babelfont-fontc: ${error.message}`);
                 window.term.error('');
                 window.term.error('Troubleshooting:');
                 window.term.error('1. Make sure you ran: ./build-fontc-wasm.sh');
@@ -121,53 +123,153 @@ class FontCompilation {
         }
     }
 
-    async compile(inputPath, outputPath = null) {
+    /**
+     * Compile font directly from .babelfont JSON string
+     * This is the NEW direct path: Python → JSON → JavaScript → WASM
+     * NO FILE SYSTEM OPERATIONS!
+     * 
+     * @param {string} babelfontJson - Complete .babelfont JSON string
+     * @param {string} filename - Optional filename for output (default: 'font.ttf')
+     * @returns {Promise<Object>} - { font: Uint8Array, filename: string, timeTaken: number }
+     */
+    async compileFromJson(babelfontJson, filename = 'font.babelfont') {
         if (!this.isInitialized) {
             const initialized = await this.initialize();
             if (!initialized) {
-                throw new Error('fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.');
+                throw new Error('babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.');
             }
         }
 
+        console.log(`🔨 Compiling ${filename} from .babelfont JSON...`);
+        console.log(`📊 JSON size: ${babelfontJson.length} bytes`);
+
+        const id = this.compilationId++;
+
+        return new Promise((resolve, reject) => {
+            this.pendingCompilations.set(id, { resolve, reject, filename });
+
+            // Send JSON string directly to worker
+            // No file system involved!
+            this.worker.postMessage({
+                id,
+                babelfontJson,  // Just a string - fast transfer!
+                filename
+            });
+        });
+    }
+
+    /**
+     * Compile font from Python Font object
+     * This calls Python's font.to_dict() and compiles the result
+     * 
+     * @param {string} fontVariableName - Name of the Python font variable
+     * @param {string} outputFilename - Optional output filename
+     * @returns {Promise<Object>} - Compilation result with download
+     */
+    async compileFromPythonFont(fontVariableName = 'font', outputFilename = null) {
+        if (!window.pyodide) {
+            throw new Error('Pyodide not available');
+        }
+
+        console.log(`🐍 Exporting ${fontVariableName} to .babelfont JSON...`);
+
         try {
-            // Read the input file from the virtual filesystem
-            if (!window.pyodide) {
-                throw new Error('Pyodide not available - cannot read file from virtual filesystem');
-            }
+            // Call Python to export JSON (in memory, no file writes!)
+            const babelfontJson = await window.pyodide.runPythonAsync(`
+import json
 
-            const glyphsContent = await window.pyodide.runPython(`
-import os
-input_path = '${inputPath}'
-if not os.path.exists(input_path):
-    raise FileNotFoundError(f"File not found: {input_path}")
+# Get the font object
+try:
+    font_obj = ${fontVariableName}
+except NameError:
+    raise ValueError("Font variable '${fontVariableName}' not found. Make sure it's defined.")
 
-with open(input_path, 'r') as f:
-    f.read()
+# Export to .babelfont JSON (in memory)
+font_dict = font_obj.to_dict()
+json.dumps(font_dict)
             `);
 
-            console.log(`🔨 Compiling ${inputPath} with fontc...`);
+            console.log(`✅ Exported to JSON (${babelfontJson.length} bytes)`);
+            console.log('🚀 Compiling with Rust/WASM...');
 
-            // Send to worker
-            const id = this.compilationId++;
+            // Compile from JSON
+            const result = await this.compileFromJson(
+                babelfontJson,
+                outputFilename || `${fontVariableName}.babelfont`
+            );
+
+            console.log(`✅ Compiled in ${result.time_taken}ms`);
+
+            // Trigger download
+            this.downloadFont(result.font, result.filename);
+
+            return {
+                success: true,
+                filename: result.filename,
+                bytes: result.font.length,
+                time_taken: result.time_taken
+            };
+
+        } catch (error) {
+            console.error('❌ Compilation failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Download compiled font
+     * 
+     * @param {Uint8Array} fontData - Compiled font bytes
+     * @param {string} filename - Output filename
+     */
+    downloadFont(fontData, filename) {
+        const blob = new Blob([fontData], { type: 'font/ttf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        console.log(`📥 Downloaded: ${filename} (${fontData.length} bytes)`);
+    }
+
+    // LEGACY METHOD - kept for backwards compatibility
+    // This now uses the new direct JSON path internally
+    async compile(inputPath, outputPath = null) {
+        if (!window.pyodide) {
+            throw new Error('Pyodide not available - cannot read file from virtual filesystem');
+        }
+
+        try {
+            // Read font from file and convert to JSON
+            console.log(`📖 Loading ${inputPath}...`);
+
+            const babelfontJson = await window.pyodide.runPythonAsync(`
+import json
+from contextfonteditor import Font
+
+# Load font from file
+font = Font('${inputPath}')
+
+# Export to .babelfont JSON
+font_dict = font.to_dict()
+json.dumps(font_dict)
+            `);
+
+            console.log(`✅ Loaded and exported to JSON`);
+
+            // Compile using new direct method
             const filename = inputPath.split('/').pop();
-
-            const result = await new Promise((resolve, reject) => {
-                this.pendingCompilations.set(id, { resolve, reject, filename });
-
-                this.worker.postMessage({
-                    id,
-                    glyphs: glyphsContent,
-                    filename
-                });
-            });
+            const result = await this.compileFromJson(babelfontJson, filename);
 
             // Save the compiled TTF to the virtual filesystem
-            const outputFilename = outputPath || filename.replace(/\.(glyphs|designspace|ufo)$/, '.ttf');
+            const outputFilename = outputPath || filename.replace(/\.(glyphs|designspace|ufo|babelfont)$/, '.ttf');
 
             await window.pyodide.runPython(`
 import os
 output_path = '${outputFilename}'
-output_data = bytes(${JSON.stringify(Array.from(result.result))})
+output_data = bytes(${JSON.stringify(Array.from(result.font))})
 
 with open(output_path, 'wb') as f:
     f.write(output_data)
@@ -251,3 +353,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Export for global access
 window.fontCompilation = fontCompilation;
 window.compileFontFromPython = (cmd) => fontCompilation.compileFromPython(cmd);
+
+// NEW: Direct compilation methods exposed globally
+window.compileFontDirect = (fontVarName, outputFile) => fontCompilation.compileFromPythonFont(fontVarName, outputFile);
+window.compileFontFromJson = (json, filename) => fontCompilation.compileFromJson(json, filename);

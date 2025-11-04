@@ -1,7 +1,7 @@
-// Web Worker for fontc WASM compilation
-// Based on Simon Cozens' fontc-web approach
+// Web Worker for fontc WASM compilation with babelfont-rs
+// Direct .babelfont JSON → TTF compilation (no file system)
 
-import * as fontc from '../wasm-dist/fontc_web.js';
+import * as babelfontFontc from '../wasm-dist/babelfont_fontc_web.js';
 
 async function init() {
     try {
@@ -12,34 +12,38 @@ async function init() {
                 'Cross-Origin-Opener-Policy: same-origin');
         }
 
-        console.log('Worker: Loading WASM...');
-        await fontc.default();
+        console.log('Worker: Loading babelfont-fontc WASM...');
+        await babelfontFontc.default();
 
         console.log('Worker: Skipping thread pool due to browser limitations...');
         // NOTE: initThreadPool causes Memory cloning errors in some browsers (Brave, etc.)
         // Skip it - fontc will run single-threaded but still works
-        // await fontc.initThreadPool(1);
+        // await babelfontFontc.initThreadPool(1);
 
         console.log('Worker: Ready (single-threaded mode)!');
+        console.log('Worker: Using direct .babelfont → TTF pipeline');
         self.postMessage({ ready: true });
 
         // Handle compilation requests
         self.onmessage = async (event) => {
             const start = Date.now();
-            const { id, glyphs, filename } = event.data;
+            const { id, babelfontJson, filename } = event.data;
 
             try {
-                console.log(`Worker: Compiling ${filename}...`);
-                const result = fontc.compile_glyphs(glyphs);
-                const time_taken = Date.now() - start;
+                console.log(`Worker: Compiling ${filename} from .babelfont JSON...`);
+                console.log(`Worker: JSON size: ${babelfontJson.length} bytes`);
 
+                // THE MAGIC: Direct JSON → compiled font (no file system!)
+                const result = babelfontFontc.compile_babelfont(babelfontJson);
+
+                const time_taken = Date.now() - start;
                 console.log(`Worker: Compiled ${filename} in ${time_taken}ms`);
 
                 self.postMessage({
                     id,
                     result: Array.from(result),
                     time_taken,
-                    filename: filename.replace(/\.(glyphs|designspace|ufo)$/, '.ttf')
+                    filename: filename.replace(/\.babelfont$/, '.ttf')
                 });
             } catch (e) {
                 console.error('Worker: Compilation error:', e);
@@ -53,7 +57,7 @@ async function init() {
     } catch (error) {
         console.error('Worker: Initialization error:', error);
         self.postMessage({
-            error: `Failed to initialize fontc WASM: ${error.message}`
+            error: `Failed to initialize babelfont-fontc WASM: ${error.message}`
         });
     }
 }
