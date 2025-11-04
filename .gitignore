@@ -31,3 +31,5 @@ yarn-error.log*
 # Temporary files
 *.tmp
 .cache/
+
+*build/
