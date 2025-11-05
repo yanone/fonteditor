@@ -104,21 +104,17 @@
             }
         });
 
-        editor.commands.addCommand({
-            name: 'clearConsole',
-            bindKey: { win: 'Ctrl-K', mac: 'Command-K' },
-            exec: function () {
-                if (window.term) {
-                    window.term.clear();
-                }
-            }
-        });
+        // Remove default Cmd+K binding to prevent conflicts with global shortcut
+        editor.commands.removeCommand('gotoline');
 
         // Run button click handler
         runButton.addEventListener('click', runScript);
 
         // Handle keyboard shortcuts when script view is focused
         document.addEventListener('keydown', (event) => {
+            // Skip if event already handled
+            if (event.defaultPrevented) return;
+
             const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
             const cmdKey = isMac ? event.metaKey : event.ctrlKey;
             const altKey = event.altKey;
@@ -127,15 +123,9 @@
             // Check if Cmd+Alt+R and script view is focused
             if (cmdKey && altKey && code === 'KeyR' && isScriptViewFocused) {
                 event.preventDefault();
+                event.stopPropagation();
                 runScript();
-            }
-
-            // Check if Cmd+K to clear console
-            if (cmdKey && !altKey && code === 'KeyK' && isScriptViewFocused) {
-                event.preventDefault();
-                if (window.term) {
-                    window.term.clear();
-                }
+                return;
             }
         });
 

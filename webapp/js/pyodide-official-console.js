@@ -385,6 +385,47 @@ async function initPyodideConsole() {
     }
 }
 
+// Global function to safely clear the console
+window.clearConsole = function () {
+    // Try window.term first
+    if (window.term && typeof window.term.clear === 'function') {
+        window.term.clear();
+        return true;
+    }
+
+    // Fallback: try to get terminal directly from jQuery
+    const terminalElement = $('#console-container');
+    if (terminalElement.length && terminalElement.terminal) {
+        const term = terminalElement.terminal();
+        if (term && typeof term.clear === 'function') {
+            term.clear();
+            return true;
+        }
+    }
+
+    console.warn('Console terminal not yet initialized');
+    return false;
+};
+
+// Global keyboard shortcut for Cmd+K to clear console
+document.addEventListener('keydown', (event) => {
+    // Skip if event already handled
+    if (event.defaultPrevented) return;
+
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const cmdKey = isMac ? event.metaKey : event.ctrlKey;
+    const shiftKey = event.shiftKey;
+    const code = event.code;
+
+    // Check if Cmd+K (without Shift or Alt) to clear console
+    if (cmdKey && !event.altKey && !shiftKey && code === 'KeyK') {
+        event.preventDefault();
+        event.stopPropagation();
+        window.clearConsole();
+        return;
+    }
+});
+
 // Initialize when DOM is ready and container exists
 document.addEventListener('DOMContentLoaded', () => {
     // Wait a bit for the view to be properly rendered
@@ -393,4 +434,13 @@ document.addEventListener('DOMContentLoaded', () => {
             initPyodideConsole();
         }
     }, 100);
+
+    // Add click handler for Clear button
+    const clearButton = document.getElementById('clear-console-btn');
+    if (clearButton) {
+        clearButton.addEventListener('click', (event) => {
+            event.stopPropagation(); // Prevent view focus
+            window.clearConsole();
+        });
+    }
 });

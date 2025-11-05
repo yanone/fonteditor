@@ -354,6 +354,11 @@ body {
     display: none;
 }
 
+/* Keep console clear shortcut always visible (global shortcut) */
+.console-clear-shortcut {
+    display: inline !important;
+}
+
 /* Content containers for views with text content */
 .view-content {
     margin: 20px;

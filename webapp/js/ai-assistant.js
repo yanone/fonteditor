@@ -180,17 +180,12 @@ class AIAssistant {
 
         // Add global keyboard shortcuts when assistant is focused
         document.addEventListener('keydown', (event) => {
+            // Skip if event already handled
+            if (event.defaultPrevented) return;
+
             const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
             const cmdKey = isMac ? event.metaKey : event.ctrlKey;
             const code = event.code;
-
-            // Check if Cmd+K to clear console when assistant is focused
-            if (cmdKey && !event.altKey && code === 'KeyK' && this.isAssistantViewFocused) {
-                event.preventDefault();
-                if (window.term) {
-                    window.term.clear();
-                }
-            }
 
             // Check if Cmd+Alt+R
             if (cmdKey && event.altKey && code === 'KeyR' && this.isAssistantViewFocused) {
