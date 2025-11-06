@@ -195,6 +195,44 @@ async function initPyodideConsole() {
 
         window.term = term;
 
+        // Add custom wheel event handler to reduce scrolling speed
+        // Wait a bit for terminal to fully initialize
+        setTimeout(() => {
+            const consoleContainer = document.getElementById('console-container');
+
+            console.log('Setting up wheel handler for console-container');
+
+            if (consoleContainer) {
+                consoleContainer.addEventListener('wheel', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    console.log('Wheel event captured, deltaY:', e.deltaY);
+
+                    // Find the actual scrollable element - could be terminal-scroller or terminal-output
+                    let scrollableElement = consoleContainer.querySelector('.terminal-scroller');
+                    if (!scrollableElement || scrollableElement.scrollHeight <= scrollableElement.clientHeight) {
+                        scrollableElement = consoleContainer.querySelector('.terminal-output');
+                    }
+                    if (!scrollableElement || scrollableElement.scrollHeight <= scrollableElement.clientHeight) {
+                        scrollableElement = consoleContainer.querySelector('.terminal');
+                    }
+
+                    if (!scrollableElement) {
+                        console.log('No scrollable element found');
+                        return;
+                    }
+
+                    console.log('Scrolling element:', scrollableElement.className, 'current scrollTop:', scrollableElement.scrollTop);
+
+                    // Reduce scroll speed by dividing deltaY by 20
+                    const scrollAmount = e.deltaY / 2;
+                    scrollableElement.scrollTop += scrollAmount;
+                    console.log('Scrolled to:', scrollableElement.scrollTop);
+                }, { passive: false, capture: true });
+            }
+        }, 500);
+
         // Helper function to play error sound
         const playErrorSound = () => {
             if (window.playSound) {
