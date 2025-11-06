@@ -99,21 +99,49 @@ class AIAssistant {
         this.sendButton.addEventListener('click', (event) => {
             event.stopPropagation(); // Prevent view focus
             this.sendPrompt();
+            // Restore cursor to input field
+            if (this.promptInput) {
+                this.promptInput.focus();
+                if (this._updateCursor) {
+                    setTimeout(() => this._updateCursor(), 0);
+                }
+            }
         });
 
         this.autoRunButton.addEventListener('click', (event) => {
             event.stopPropagation(); // Prevent view focus
             this.toggleAutoRun();
+            // Restore cursor to input field
+            if (this.promptInput) {
+                this.promptInput.focus();
+                if (this._updateCursor) {
+                    setTimeout(() => this._updateCursor(), 0);
+                }
+            }
         });
 
         this.contextFontButton.addEventListener('click', (event) => {
             event.stopPropagation(); // Prevent view focus
             this.setContext('font');
+            // Restore cursor to input field
+            if (this.promptInput) {
+                this.promptInput.focus();
+                if (this._updateCursor) {
+                    setTimeout(() => this._updateCursor(), 0);
+                }
+            }
         });
 
         this.contextScriptButton.addEventListener('click', (event) => {
             event.stopPropagation(); // Prevent view focus
             this.setContext('script');
+            // Restore cursor to input field
+            if (this.promptInput) {
+                this.promptInput.focus();
+                if (this._updateCursor) {
+                    setTimeout(() => this._updateCursor(), 0);
+                }
+            }
         });
 
         // Setup info modal
@@ -318,6 +346,13 @@ class AIAssistant {
         // Close modal
         const closeModal = () => {
             modal.classList.remove('active');
+            // Restore cursor to input field after closing modal
+            if (this.promptInput && this.isAssistantViewFocused) {
+                this.promptInput.focus();
+                if (this._updateCursor) {
+                    setTimeout(() => this._updateCursor(), 0);
+                }
+            }
         };
 
         closeBtn.addEventListener('click', closeModal);
