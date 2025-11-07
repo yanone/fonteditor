@@ -24,17 +24,18 @@ fi
 INPUT_FILE="$1"
 OUTPUT_TTF="${2:-${INPUT_FILE%.*}.ttf}"
 
-# Create temp file for intermediate JSON
-TEMP_JSON=$(mktemp "${INPUT_FILE%.*}.babelfont.XXXXXX")
-trap "rm -f $TEMP_JSON" EXIT
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Create temp file for intermediate JSON (placed inside test-compiler/)
+# Use a consistent filename so it gets overwritten on each run (not deleted)
+INPUT_BASENAME=$(basename "${INPUT_FILE%.*}")
+TEMP_JSON="${SCRIPT_DIR}/${INPUT_BASENAME}.babelfont.json"
 
 echo "🔧 Font Compilation Test"
 echo "📖 Input:  $INPUT_FILE"
 echo "📝 Output: $OUTPUT_TTF"
 echo ""
-
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Step 1: Export to .babelfont JSON
 echo "========================================="
