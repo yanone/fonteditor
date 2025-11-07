@@ -153,6 +153,11 @@ json.dumps(result)
             if (window.saveButton) {
                 window.saveButton.updateButtonState();
             }
+
+            // Update compile button state
+            if (window.compileFontButton) {
+                window.compileFontButton.updateState();
+            }
         } finally {
             // Re-enable dirty checks after font loading completes
             if (window.setFontLoadingState) {
@@ -168,6 +173,11 @@ json.dumps(result)
         // Update save button state
         if (window.saveButton) {
             window.saveButton.updateButtonState();
+        }
+
+        // Update compile button state
+        if (window.compileFontButton) {
+            window.compileFontButton.updateState();
         }
     }
 }

@@ -1,14 +1,14 @@
 {
-  "name": "fontc-web",
+  "name": "babelfont-fontc-web",
   "type": "module",
   "version": "0.1.0",
   "files": [
-    "fontc_web_bg.wasm",
-    "fontc_web.js",
-    "fontc_web.d.ts"
+    "babelfont_fontc_web_bg.wasm",
+    "babelfont_fontc_web.js",
+    "babelfont_fontc_web.d.ts"
   ],
-  "main": "fontc_web.js",
-  "types": "fontc_web.d.ts",
+  "main": "babelfont_fontc_web.js",
+  "types": "babelfont_fontc_web.d.ts",
   "sideEffects": [
     "./snippets/*"
   ]

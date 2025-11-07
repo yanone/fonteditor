@@ -112,6 +112,9 @@ json.dumps(result)
             if (window.saveButton) {
                 window.saveButton.updateButtonState();
             }
+            if (window.compileFontButton) {
+                window.compileFontButton.updateState();
+            }
             await window.fontDropdownManager.updateDirtyIndicator();
         }
 

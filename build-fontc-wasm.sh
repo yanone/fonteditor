@@ -50,7 +50,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 babelfont = { git = "https://github.com/simoncozens/babelfont-rs.git", features = ["fontir"] }
-# Must us the same versions as babelfont
+# Use the same versions that babelfont uses
 fontc = { git = "https://github.com/googlefonts/fontc.git", branch = "edit-edits" }
 fontir = { git = "https://github.com/googlefonts/fontc.git", branch = "edit-edits" }
 wasm-bindgen = "0.2"
@@ -114,24 +114,16 @@ pub fn compile_babelfont(babelfont_json: &str) -> Result<Vec<u8>, JsValue> {
     Ok(compiled_font)
 }
 
-/// Legacy function for compatibility with existing fontc-web code
-/// This now accepts .glyphs format JSON and compiles it
+/// Legacy function for compatibility
 #[wasm_bindgen]
-pub fn compile_glyphs(glyphs_json: &str) -> Result<Vec<u8>, JsValue> {
-    // For now, return an error asking to use babelfont format
-    Err(JsValue::from_str(
-        "Please use compile_babelfont() with .babelfont JSON format instead. \
-         The .glyphs format is no longer supported in this version."
-    ))
+pub fn compile_glyphs(_glyphs_json: &str) -> Result<Vec<u8>, JsValue> {
+    Err(JsValue::from_str("Please use compile_babelfont() instead."))
 }
 
 /// Get version information
 #[wasm_bindgen]
 pub fn version() -> String {
-    format!(
-        "babelfont-fontc-web v{} (fontc + babelfont-rs)",
-        env!("CARGO_PKG_VERSION")
-    )
+    format!("babelfont-fontc-web v{}", env!("CARGO_PKG_VERSION"))
 }
 EOF
 echo "✓ Created src/lib.rs"

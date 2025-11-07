@@ -1,0 +1,21 @@
+[package]
+name = "babelfont-fontc-web"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+babelfont = { git = "https://github.com/simoncozens/babelfont-rs.git", features = ["fontir"] }
+# Use the same versions that babelfont uses
+fontc = { git = "https://github.com/googlefonts/fontc.git", branch = "edit-edits" }
+fontir = { git = "https://github.com/googlefonts/fontc.git", branch = "edit-edits" }
+wasm-bindgen = "0.2"
+serde_json = "1.0"
+console_error_panic_hook = "0.1"
+tempfile = "3"
+
+[profile.release]
+opt-level = "z"
+lto = true
