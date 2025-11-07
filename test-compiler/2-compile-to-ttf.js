@@ -36,7 +36,13 @@ async function compileToTTF(inputFile, outputFile) {
     try {
         // Import the WASM module from parent directory
         const wasmPath = path.join(__dirname, '..', 'webapp', 'wasm-dist', 'babelfont_fontc_web.js');
+        const wasmBinaryPath = path.join(__dirname, '..', 'webapp', 'wasm-dist', 'babelfont_fontc_web_bg.wasm');
+        
         const wasmModule = await import(wasmPath);
+
+        // Read the WASM binary and initialize synchronously
+        const wasmBinary = fs.readFileSync(wasmBinaryPath);
+        wasmModule.initSync({ module: wasmBinary });
 
         console.log('✅ WASM module loaded');
         console.log(`📦 Version: ${wasmModule.version()}`);
@@ -45,7 +51,17 @@ async function compileToTTF(inputFile, outputFile) {
         console.log('🔨 Compiling font...');
         const startTime = Date.now();
 
-        const result = wasmModule.compile_babelfont(babelfontJson);
+        let result;
+        try {
+            result = wasmModule.compile_babelfont(babelfontJson);
+        } catch (compileError) {
+            console.error('Compilation threw error:', compileError);
+            throw compileError;
+        }
+
+        if (!result) {
+            throw new Error('Compilation returned no result');
+        }
 
         const duration = Date.now() - startTime;
         console.log(`✅ Compiled in ${duration}ms`);
@@ -58,6 +74,10 @@ async function compileToTTF(inputFile, outputFile) {
 
     } catch (error) {
         console.error('❌ Compilation failed:', error.message);
+        if (error.stack) {
+            console.error('\nStack trace:');
+            console.error(error.stack);
+        }
         console.error('');
         console.error('Make sure you have:');
         console.error('  1. Built the WASM module: ./build-fontc-wasm.sh');
