@@ -37,7 +37,7 @@ async function compileToTTF(inputFile, outputFile) {
         // Import the WASM module from parent directory
         const wasmPath = path.join(__dirname, '..', 'webapp', 'wasm-dist', 'babelfont_fontc_web.js');
         const wasmBinaryPath = path.join(__dirname, '..', 'webapp', 'wasm-dist', 'babelfont_fontc_web_bg.wasm');
-        
+
         const wasmModule = await import(wasmPath);
 
         // Read the WASM binary and initialize synchronously

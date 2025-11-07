@@ -5,7 +5,7 @@ This directory contains scripts for testing the font compilation pipeline offlin
 ## Quick Start
 
 ```bash
-./compile-font.sh ../path/to/font.glyphs output.ttf
+./compile-font.sh Fustat.babelfont Fustat.ttf
 ```
 
 ## Scripts
@@ -15,11 +15,11 @@ This directory contains scripts for testing the font compilation pipeline offlin
 Runs the complete Font → JSON → TTF pipeline:
 
 ```bash
-./compile-font.sh input.glyphs [output.ttf]
+./compile-font.sh input.babelfont [output.ttf]
 ```
 
 **Features:**
-- Accepts any font format (.glyphs, .ufo, .designspace, .babelfont, .context)
+- Accepts Babelfont font format (.babelfont)
 - Automatically generates temp .babelfont JSON
 - Compiles using WASM
 - Cleans up temp files
@@ -31,7 +31,7 @@ Runs the complete Font → JSON → TTF pipeline:
 Exports a font to .babelfont JSON:
 
 ```bash
-python 1-export-to-json.py input.glyphs output.babelfont
+python 1-export-to-json.py input.babelfont output.babelfont.json
 ```
 
 **What it does:**
