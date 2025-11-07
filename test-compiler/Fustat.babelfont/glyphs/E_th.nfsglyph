@@ -1,0 +1,110 @@
+[    {
+      "width": 691, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "D"}, 
+        {"ref": "strokeshortcomb.case", "transform": [1, 0, 0, 1, -15, 0]}
+      ]
+}
+,     {
+      "width": 682, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "D"}, 
+        {"ref": "strokeshortcomb.case", "transform": [1, 0, 0, 1, -30, 0]}
+      ]
+}
+,     {
+      "width": 698, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "D"}, 
+        {"ref": "strokeshortcomb.case", "transform": [1, 0, 0, 1, -18, 0]}
+      ]
+}
+,     {
+      "width": 682, 
+      "name": "29 Jan 24, 16:25", 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "3A1C0409-9BC3-48EE-B4B2-915F0BB751E4", 
+      "shapes": [
+        {"ref": "D", "transform": [1, 0, 0, 1, 25, 0]}, 
+                {
+          "nodes": [[322,316,"l"], [322,385,"l"], [10,385,"l"], [10,316,"l"]],
+          "_":
+{
+  "com.glyphsapp": {
+    "closed": 1,
+    "nodes": [
+      [
+        322,
+        385,
+        "l"
+      ],
+      [
+        10,
+        385,
+        "l"
+      ],
+      [
+        10,
+        316,
+        "l"
+      ],
+      [
+        322,
+        316,
+        "l"
+      ]
+    ]
+  }
+}
+}
+
+      ]
+}
+,     {
+      "width": 666, 
+      "name": "29 Jan 24, 16:30", 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "EE0159B8-E778-4635-AD91-CAEA74213C06", 
+      "shapes": [
+        {"ref": "D"}, 
+                {
+          "nodes": [[317,337,"l"], [317,365,"l"], [5,365,"l"], [5,337,"l"]],
+          "_":
+{
+  "com.glyphsapp": {
+    "closed": 1,
+    "nodes": [
+      [
+        317,
+        365,
+        "l"
+      ],
+      [
+        5,
+        365,
+        "l"
+      ],
+      [
+        5,
+        337,
+        "l"
+      ],
+      [
+        317,
+        337,
+        "l"
+      ]
+    ]
+  }
+}
+}
+
+      ]
+}
+]

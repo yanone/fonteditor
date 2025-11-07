@@ -1,0 +1,58 @@
+[    {
+      "width": 325, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "ringcomb", "transform": [1, 0, 0, 1, 0, 145],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 163, 
+          "y": 700
+}
+,         {
+          "name": "top", 
+          "x": 163, 
+          "y": 906
+}
+]
+}
+,     {
+      "width": 296, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "ringcomb", "transform": [1, 0, 0, 1, 0, 145],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 148, 
+          "y": 700
+}
+,         {
+          "name": "top", 
+          "x": 148, 
+          "y": 918
+}
+]
+}
+,     {
+      "width": 316, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "ringcomb", "transform": [1, 0, 0, 1, 0, 145],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 158, 
+          "y": 700
+}
+,         {
+          "name": "top", 
+          "x": 158, 
+          "y": 928
+}
+]
+}
+]

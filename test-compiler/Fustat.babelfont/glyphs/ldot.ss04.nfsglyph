@@ -1,0 +1,70 @@
+[    {
+      "width": 212, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "guides": [        {
+          "pos": [26, 350, 0],
+          "_":
+{
+  "com.glyphsapp": {
+    "pos": [
+      26,
+      350
+    ],
+    "showMeasurement": 1
+  }
+}
+}
+], 
+      "shapes": [
+        {"ref": "l.ss04","_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "periodcentered", "transform": [1, 0, 0, 1, 155, 0],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ]
+}
+,     {
+      "width": 275, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "guides": [        {
+          "pos": [26, 350, 0],
+          "_":
+{
+  "com.glyphsapp": {
+    "pos": [
+      26,
+      350
+    ],
+    "showMeasurement": 1
+  }
+}
+}
+], 
+      "shapes": [
+        {"ref": "l.ss04","_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "periodcentered", "transform": [1, 0, 0, 1, 165, 0],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ]
+}
+,     {
+      "width": 358, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "guides": [        {
+          "pos": [26, 350, 0],
+          "_":
+{
+  "com.glyphsapp": {
+    "pos": [
+      26,
+      350
+    ],
+    "showMeasurement": 1
+  }
+}
+}
+], 
+      "shapes": [
+        {"ref": "l.ss04","_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "periodcentered", "transform": [1, 0, 0, 1, 200, 0],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ]
+}
+]

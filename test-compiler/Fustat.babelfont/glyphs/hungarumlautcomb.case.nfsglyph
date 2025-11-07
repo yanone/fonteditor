@@ -1,0 +1,58 @@
+[    {
+      "width": 275, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "hungarumlautcomb", "transform": [1, 0, 0, 1, 0, 190]}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 137, 
+          "y": 700
+}
+,         {
+          "name": "top", 
+          "x": 137, 
+          "y": 882
+}
+]
+}
+,     {
+      "width": 356, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "hungarumlautcomb", "transform": [1, 0, 0, 1, 0, 190]}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 140, 
+          "y": 700
+}
+,         {
+          "name": "top", 
+          "x": 140, 
+          "y": 890
+}
+]
+}
+,     {
+      "width": 431, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "hungarumlautcomb", "transform": [1, 0, 0, 1, 0, 190]}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 170, 
+          "y": 700
+}
+,         {
+          "name": "top", 
+          "x": 170, 
+          "y": 890
+}
+]
+}
+]

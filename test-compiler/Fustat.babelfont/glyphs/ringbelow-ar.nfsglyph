@@ -1,0 +1,55 @@
+[    {
+      "width": 152, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "ring-ar"}
+      ], 
+      "anchors": [        {
+          "name": "_ring", 
+          "x": 76
+}
+,         {
+          "name": "bottom", 
+          "x": 76, 
+          "y": -207
+}
+]
+}
+,     {
+      "width": 184, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "ring-ar"}
+      ], 
+      "anchors": [        {
+          "name": "_ring", 
+          "x": 92
+}
+,         {
+          "name": "bottom", 
+          "x": 92, 
+          "y": -282
+}
+]
+}
+,     {
+      "width": 202, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "ring-ar"}
+      ], 
+      "anchors": [        {
+          "name": "_ring", 
+          "x": 101
+}
+,         {
+          "name": "bottom", 
+          "x": 101, 
+          "y": -318
+}
+]
+}
+]

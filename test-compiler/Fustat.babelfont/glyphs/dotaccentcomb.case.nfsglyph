@@ -1,0 +1,58 @@
+[    {
+      "width": 122, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "dotaccentcomb", "transform": [1, 0, 0, 1, 0, 191]}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 61, 
+          "y": 700
+}
+,         {
+          "name": "top", 
+          "x": 61, 
+          "y": 854
+}
+]
+}
+,     {
+      "width": 170, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "dotaccentcomb", "transform": [1, 0, 0, 1, 0, 191]}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 85, 
+          "y": 700
+}
+,         {
+          "name": "top", 
+          "x": 85, 
+          "y": 873
+}
+]
+}
+,     {
+      "width": 214, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "dotaccentcomb", "transform": [1, 0, 0, 1, 0, 191]}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 104, 
+          "y": 700
+}
+,         {
+          "name": "top", 
+          "x": 104, 
+          "y": 916
+}
+]
+}
+]

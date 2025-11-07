@@ -1,0 +1,28 @@
+[    {
+      "width": 611, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "d"}, 
+        {"ref": "caroncomb.alt", "transform": [1, 0, 0, 1, 549, 0]}
+      ]
+}
+,     {
+      "width": 601, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "d"}, 
+        {"ref": "caroncomb.alt", "transform": [1, 0, 0, 1, 535, 0]}
+      ]
+}
+,     {
+      "width": 636, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "d"}, 
+        {"ref": "caroncomb.alt", "transform": [1, 0, 0, 1, 569, 8]}
+      ]
+}
+]

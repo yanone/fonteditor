@@ -1,0 +1,3711 @@
+{
+  "version": [1, 10], 
+  "axes": [
+    {"name": "Weight", "tag": "wght", "id": "f15a860e-bbb7-11f0-b1c0-8a80370676eb", "min": -140.0, "max": -35.0, "default": -140.0, "map": [[30, 200.0], [55, 300.0], [75, 400.0], [85, 500.0], [100, 600.0], [115, 700.0], [135, 800.0]]}
+  ], 
+  "instances": [
+    {"name": "ExtraLight", "location": {"wght": 30}, "customNames":       {
+        "styleName": "ExtraLight"
+}
+,"_":{"com.glyphsapp":{"customParameters":[{"name":"Instance Preview","value":["yeh-farsi","dal-ar.fina","hah-ar.medi","behDotless-ar.init","alef-ar"]}],"instanceInterpolations":{"3114FB65-9464-41A5-B67E-A8F9F43C0EF1":1},"weightClass":200}}}, 
+    {"name": "Light", "location": {"wght": 55}, "customNames":       {
+        "styleName": "Light"
+}
+,"_":{"com.glyphsapp":{"customParameters":[{"name":"Instance Preview","value":["yeh-farsi","dal-ar.fina","hah-ar.medi","behDotless-ar.init","alef-ar"]}],"instanceInterpolations":{"14EEE41F-D714-4243-A717-73445EE7DABA":0.55556,"3114FB65-9464-41A5-B67E-A8F9F43C0EF1":0.44444},"weightClass":300}}}, 
+    {"name": "Regular", "location": {"wght": 75}, "customNames":       {
+        "styleName": "Regular"
+}
+,"_":{"com.glyphsapp":{"customParameters":[{"name":"Instance Preview","value":["yeh-farsi","dal-ar.fina","hah-ar.medi","behDotless-ar.init","alef-ar"]}],"instanceInterpolations":{"14EEE41F-D714-4243-A717-73445EE7DABA":1}}}}, 
+    {"name": "Medium", "location": {"wght": 85}, "customNames":       {
+        "styleName": "Medium"
+}
+,"_":{"com.glyphsapp":{"customParameters":[{"name":"Instance Preview","value":["yeh-farsi","dal-ar.fina","hah-ar.medi","behDotless-ar.init","alef-ar"]}],"instanceInterpolations":{"090CB6A0-BE7C-4D17-A551-206C7456A8A3":0.16667,"14EEE41F-D714-4243-A717-73445EE7DABA":0.83333},"weightClass":500}}}, 
+    {"name": "SemiBold", "location": {"wght": 100}, "customNames":       {
+        "styleName": "SemiBold"
+}
+,"_":{"com.glyphsapp":{"customParameters":[{"name":"Instance Preview","value":["yeh-farsi","dal-ar.fina","hah-ar.medi","behDotless-ar.init","alef-ar"]}],"instanceInterpolations":{"090CB6A0-BE7C-4D17-A551-206C7456A8A3":0.41667,"14EEE41F-D714-4243-A717-73445EE7DABA":0.58333},"weightClass":600}}}, 
+    {"name": "Bold", "location": {"wght": 115}, "customNames":       {
+        "styleName": "Bold"
+}
+,"_":{"com.glyphsapp":{"customParameters":[{"name":"Instance Preview","value":["yeh-farsi","dal-ar.fina","hah-ar.medi","behDotless-ar.init","alef-ar"]}],"instanceInterpolations":{"090CB6A0-BE7C-4D17-A551-206C7456A8A3":0.66667,"14EEE41F-D714-4243-A717-73445EE7DABA":0.33333},"isBold":1,"weightClass":700}}}, 
+    {"name": "ExtraBold", "location": {"wght": 135}, "customNames":       {
+        "styleName": "ExtraBold"
+}
+,"_":{"com.glyphsapp":{"customParameters":[{"name":"Instance Preview","value":["yeh-farsi","dal-ar.fina","hah-ar.medi","behDotless-ar.init","alef-ar"]}],"instanceInterpolations":{"090CB6A0-BE7C-4D17-A551-206C7456A8A3":1},"linkStyle":"Regular","weightClass":800}}}, 
+    {"name": "Regular", "variable": true, "customNames":       {
+        "styleName": "Regular"
+}
+,"_":{"com.glyphsapp":{"customParameters":[{"name":"Variable Font Origin","value":"14EEE41F-D714-4243-A717-73445EE7DABA"},{"name":"Filter","value":"decomposeComponents;include:zero.blackCircled, one.blackCircled, two.blackCircled, three.blackCircled, four.blackCircled, five.blackCircled, six.blackCircled, seven.blackCircled, eight.blackCircled, nine.blackCircled"},{"name":"Filter","value":"reverseContourDirection;include:zero.blackCircled, one.blackCircled, two.blackCircled, three.blackCircled, four.blackCircled, five.blackCircled, six.blackCircled, seven.blackCircled, eight.blackCircled, nine.blackCircled, mediumBlackCircle"}],"type":"variable"}}}
+  ], 
+  "masters": [
+        {
+      "name": "ExtraLight", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "location": {"wght": 30}, 
+      "guides": [
+                {
+          "pos": [0, 428, 0], 
+          "name": " [locked]",
+          "_":
+{
+  "com.glyphsapp": {
+    "locked": 1,
+    "pos": [
+      0,
+      428
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [0, 1000, 0], 
+          "name": " [locked]",
+          "_":
+{
+  "com.glyphsapp": {
+    "locked": 1,
+    "pos": [
+      0,
+      1000
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [0, -420, 0], 
+          "name": " [locked]",
+          "_":
+{
+  "com.glyphsapp": {
+    "locked": 1,
+    "pos": [
+      0,
+      -420
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-10, 350, 0], 
+          "name": "MID CAPHEIGH 350",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "MID CAPHEIGH 350",
+    "pos": [
+      -10,
+      350
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 722, 0], 
+          "name": "Diacritics top lc",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics top lc",
+    "pos": [
+      -25,
+      722
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 587, 0], 
+          "name": "Diacritics bott lc",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics bott lc",
+    "pos": [
+      -25,
+      587
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 882, 0], 
+          "name": "Diacritics top UC",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics top UC",
+    "pos": [
+      -25,
+      882
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 747, 0], 
+          "name": "Diacritics bott UC",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics bott UC",
+    "pos": [
+      -25,
+      747
+    ]
+  }
+}
+}
+
+      ], 
+      "metrics": {"underlinePosition": -100, "underlineThickness": 50, "italicAngle": 0, "ascender": 720, "capHeight": 700, "capHeight overshoot": 8, "xHeight": 492, "xHeight overshoot": 8, "baseline": 0, "baseline overshoot": -8, "descender": -200, "descender overshoot": -8}, 
+      "kerning": {
+        "@first_group_A//@second_group_J": -20, 
+        "@first_group_A//@second_group_O": -30, 
+        "@first_group_A//@second_group_T": -70, 
+        "@first_group_A//@second_group_U": -20, 
+        "@first_group_A//@second_group_V": -65, 
+        "@first_group_A//@second_group_W": -35, 
+        "@first_group_A//@second_group_Y": -60, 
+        "@first_group_A//@second_group_question": -40, 
+        "@first_group_A//@second_group_quote": -60, 
+        "@first_group_A//@second_group_v": -30, 
+        "@first_group_A//@second_group_zero.subs": 0, 
+        "@first_group_A//@second_group_zero.sups": -80, 
+        "@first_group_A//V": -70, 
+        "@first_group_B//@second_group_Y": -20, 
+        "@first_group_C//@second_group_O": -5, 
+        "@first_group_C//@second_group_comma": -20, 
+        "@first_group_C//@second_group_parenright": -30, 
+        "@first_group_C//@second_group_v": -10, 
+        "@first_group_F//@second_group_A": -60, 
+        "@first_group_F//@second_group_O": -10, 
+        "@first_group_F//@second_group_a": -20, 
+        "@first_group_F//@second_group_comma": -83, 
+        "@first_group_F//@second_group_g": -20, 
+        "@first_group_F//@second_group_o": -17, 
+        "@first_group_F//@second_group_s": -30, 
+        "@first_group_F//@second_group_space": -30, 
+        "@first_group_F//@second_group_t": -20, 
+        "@first_group_F//@second_group_u": -20, 
+        "@first_group_F//@second_group_v": -20, 
+        "@first_group_H//@second_group_A": 0, 
+        "@first_group_H//@second_group_Y": 0, 
+        "@first_group_H//@second_group_a": -10, 
+        "@first_group_H//@second_group_comma": 0, 
+        "@first_group_H//@second_group_g": 0, 
+        "@first_group_H//@second_group_o": 0, 
+        "@first_group_H//@second_group_u": -4, 
+        "@first_group_H//@second_group_v": -3, 
+        "@first_group_K//@second_group_O": -30, 
+        "@first_group_K//@second_group_S": -20, 
+        "@first_group_K//@second_group_a": -20, 
+        "@first_group_K//@second_group_dash": -40, 
+        "@first_group_K//@second_group_o": -22, 
+        "@first_group_K//@second_group_u": -30, 
+        "@first_group_K//@second_group_v": -40, 
+        "@first_group_L//@second_group_O": -31, 
+        "@first_group_L//@second_group_T": -73, 
+        "@first_group_L//@second_group_U": -20, 
+        "@first_group_L//@second_group_V": -76, 
+        "@first_group_L//@second_group_W": -50, 
+        "@first_group_L//@second_group_Y": -64, 
+        "@first_group_L//@second_group_dash": -50, 
+        "@first_group_L//@second_group_o": -20, 
+        "@first_group_L//@second_group_question": -50, 
+        "@first_group_L//@second_group_quote": -120, 
+        "@first_group_L//@second_group_seven": -30, 
+        "@first_group_L//@second_group_t": -40, 
+        "@first_group_L//@second_group_u": -20, 
+        "@first_group_L//@second_group_v": -44, 
+        "@first_group_L//@second_group_zero.sups": -130, 
+        "@first_group_O//@second_group_A": -30, 
+        "@first_group_O//@second_group_T": -34, 
+        "@first_group_O//@second_group_V": -15, 
+        "@first_group_O//@second_group_W": -10, 
+        "@first_group_O//@second_group_X": -13, 
+        "@first_group_O//@second_group_Y": -19, 
+        "@first_group_O//@second_group_Z": -21, 
+        "@first_group_O//@second_group_a": -4, 
+        "@first_group_O//@second_group_comma": -70, 
+        "@first_group_O//@second_group_parenright": -30, 
+        "@first_group_O//AE": -18, 
+        "@first_group_P//@second_group_A": -70, 
+        "@first_group_P//@second_group_J": -130, 
+        "@first_group_P//@second_group_a": -32, 
+        "@first_group_P//@second_group_comma": -97, 
+        "@first_group_P//@second_group_g": -60, 
+        "@first_group_P//@second_group_j": -20, 
+        "@first_group_P//@second_group_l": -20, 
+        "@first_group_P//@second_group_n": -21, 
+        "@first_group_P//@second_group_o": -36, 
+        "@first_group_P//@second_group_questioncase": -40, 
+        "@first_group_P//@second_group_questiondown": -70, 
+        "@first_group_P//@second_group_s": -20, 
+        "@first_group_P//@second_group_space": -30, 
+        "@first_group_P//@second_group_u": -20, 
+        "@first_group_P//@second_group_zero.subs": -100, 
+        "@first_group_R//@second_group_O": 0, 
+        "@first_group_R//@second_group_T": -20, 
+        "@first_group_R//@second_group_U": -7, 
+        "@first_group_R//@second_group_V": 0, 
+        "@first_group_R//@second_group_Y": 0, 
+        "@first_group_R//@second_group_a": -20, 
+        "@first_group_R//@second_group_o": -20, 
+        "@first_group_R//@second_group_v": 0, 
+        "@first_group_S//@second_group_T": -40, 
+        "@first_group_S//@second_group_V": -20, 
+        "@first_group_S//@second_group_W": -10, 
+        "@first_group_S//@second_group_Y": -20, 
+        "@first_group_S//@second_group_comma": -20, 
+        "@first_group_S//@second_group_parenright": -30, 
+        "@first_group_S//@second_group_t": -20, 
+        "@first_group_S//@second_group_v": -10, 
+        "@first_group_T//@second_group_A": -70, 
+        "@first_group_T//@second_group_J": -80, 
+        "@first_group_T//@second_group_O": -30, 
+        "@first_group_T//@second_group_a": -112, 
+        "@first_group_T//@second_group_comma": -80, 
+        "@first_group_T//@second_group_dash": -60, 
+        "@first_group_T//@second_group_four": -60, 
+        "@first_group_T//@second_group_g": -100, 
+        "@first_group_T//@second_group_n": -78, 
+        "@first_group_T//@second_group_o": -95, 
+        "@first_group_T//@second_group_questioncase": -60, 
+        "@first_group_T//@second_group_s": -80, 
+        "@first_group_T//@second_group_space": -30, 
+        "@first_group_T//@second_group_u": -98, 
+        "@first_group_T//@second_group_v": -40, 
+        "@first_group_T//@second_group_zero.subs": -60, 
+        "@first_group_U//@second_group_A": -20, 
+        "@first_group_U//@second_group_Germandbls": -5, 
+        "@first_group_U//@second_group_a": -10, 
+        "@first_group_U//@second_group_comma": -20, 
+        "@first_group_U//@second_group_g": -10, 
+        "@first_group_U//@second_group_n": -9, 
+        "@first_group_U//@second_group_o": 0, 
+        "@first_group_U//@second_group_u": -9, 
+        "@first_group_V//@second_group_A": 0, 
+        "@first_group_V//@second_group_J": -80, 
+        "@first_group_V//@second_group_O": -15, 
+        "@first_group_V//@second_group_S": -30, 
+        "@first_group_V//@second_group_V": 7, 
+        "@first_group_V//@second_group_a": -65, 
+        "@first_group_V//@second_group_comma": -80, 
+        "@first_group_V//@second_group_dash": -30, 
+        "@first_group_V//@second_group_four": -50, 
+        "@first_group_V//@second_group_g": -70, 
+        "@first_group_V//@second_group_n": -41, 
+        "@first_group_V//@second_group_o": -70, 
+        "@first_group_V//@second_group_questioncase": -30, 
+        "@first_group_V//@second_group_s": -30, 
+        "@first_group_V//@second_group_space": -30, 
+        "@first_group_V//@second_group_u": -40, 
+        "@first_group_V//@second_group_v": -45, 
+        "@first_group_V//@second_group_zero.subs": -80, 
+        "@first_group_V//A": -70, 
+        "@first_group_W//@second_group_A": -35, 
+        "@first_group_W//@second_group_J": -70, 
+        "@first_group_W//@second_group_O": -10, 
+        "@first_group_W//@second_group_S": -20, 
+        "@first_group_W//@second_group_a": -30, 
+        "@first_group_W//@second_group_comma": -60, 
+        "@first_group_W//@second_group_g": -60, 
+        "@first_group_W//@second_group_o": -20, 
+        "@first_group_W//@second_group_questiondown": -50, 
+        "@first_group_W//@second_group_zero.subs": -40, 
+        "@first_group_X//@second_group_O": -10, 
+        "@first_group_X//@second_group_dash": -30, 
+        "@first_group_X//@second_group_o": 0, 
+        "@first_group_X//@second_group_v": -20, 
+        "@first_group_Y//@second_group_A": -60, 
+        "@first_group_Y//@second_group_O": -20, 
+        "@first_group_Y//@second_group_S": -20, 
+        "@first_group_Y//@second_group_a": -80, 
+        "@first_group_Y//@second_group_comma": -100, 
+        "@first_group_Y//@second_group_dash": -50, 
+        "@first_group_Y//@second_group_four": -40, 
+        "@first_group_Y//@second_group_g": -70, 
+        "@first_group_Y//@second_group_n": -60, 
+        "@first_group_Y//@second_group_o": -90, 
+        "@first_group_Y//@second_group_questioncase": -30, 
+        "@first_group_Y//@second_group_questiondown": -70, 
+        "@first_group_Y//@second_group_s": -50, 
+        "@first_group_Y//@second_group_space": -30, 
+        "@first_group_Y//@second_group_u": -76, 
+        "@first_group_Y//@second_group_v": -30, 
+        "@first_group_Y//@second_group_zero.subs": -80, 
+        "@first_group_Z//@second_group_O": -20, 
+        "@first_group_Z//@second_group_dash": -40, 
+        "@first_group_Z//@second_group_o": -16, 
+        "@first_group_Z//@second_group_u": -20, 
+        "@first_group_Z//@second_group_v": -20, 
+        "@first_group_comma//@second_group_J": -20, 
+        "@first_group_comma//@second_group_O": -70, 
+        "@first_group_comma//@second_group_S": -20, 
+        "@first_group_comma//@second_group_T": -80, 
+        "@first_group_comma//@second_group_U": -20, 
+        "@first_group_comma//@second_group_V": -80, 
+        "@first_group_comma//@second_group_W": -60, 
+        "@first_group_comma//@second_group_Y": -100, 
+        "@first_group_comma//@second_group_four": -10, 
+        "@first_group_comma//@second_group_one": -60, 
+        "@first_group_comma//@second_group_quote": -75, 
+        "@first_group_comma//@second_group_seven": -40, 
+        "@first_group_comma//@second_group_v": -70, 
+        "@first_group_comma//@second_group_zero": -20, 
+        "@first_group_comma//six": -30, 
+        "@first_group_dash//@second_group_J": -34, 
+        "@first_group_dash//@second_group_T": -60, 
+        "@first_group_dash//@second_group_V": -30, 
+        "@first_group_dash//@second_group_X": -30, 
+        "@first_group_dash//@second_group_Y": -50, 
+        "@first_group_dash//@second_group_Z": -30, 
+        "@first_group_dash//@second_group_l": -4, 
+        "@first_group_dash//@second_group_n": 0, 
+        "@first_group_dash//@second_group_one": -30, 
+        "@first_group_dash//@second_group_seven": -50, 
+        "@first_group_dash//@second_group_x": 0, 
+        "@first_group_dash//@second_group_z": 0, 
+        "@first_group_f//@second_group_a": -26, 
+        "@first_group_f//@second_group_comma": -56, 
+        "@first_group_f//@second_group_f": 22, 
+        "@first_group_f//@second_group_g": -20, 
+        "@first_group_f//@second_group_o": -22, 
+        "@first_group_f//@second_group_question": 20, 
+        "@first_group_f//@second_group_v": 17, 
+        "@first_group_f//f": 15, 
+        "@first_group_four//@second_group_comma": -20, 
+        "@first_group_four//@second_group_ninegeom": -20, 
+        "@first_group_four//@second_group_seven": -20, 
+        "@first_group_fraction//@second_group_zero.dnom": -30, 
+        "@first_group_fraction//@second_group_zero.subs": -50, 
+        "@first_group_fraction//four.dnom": -90, 
+        "@first_group_fraction//one.dnom": -80, 
+        "@first_group_fraction//seven.dnom": -40, 
+        "@first_group_fraction//two.dnom": -40, 
+        "@first_group_g//@second_group_o": -10, 
+        "@first_group_g//@second_group_question": 20, 
+        "@first_group_k//@second_group_a": -10, 
+        "@first_group_k//@second_group_dash": 0, 
+        "@first_group_k//@second_group_o": -10, 
+        "@first_group_l//@second_group_g": -10, 
+        "@first_group_n//@second_group_T": -81, 
+        "@first_group_n//@second_group_V": -70, 
+        "@first_group_n//@second_group_Y": -50, 
+        "@first_group_n//@second_group_g": -10, 
+        "@first_group_n//@second_group_l": 10, 
+        "@first_group_n//@second_group_parenright": -20, 
+        "@first_group_n//@second_group_question": -20, 
+        "@first_group_n//@second_group_t": -35, 
+        "@first_group_n//@second_group_v": -20, 
+        "@first_group_n//@second_group_zero.sups": -40, 
+        "@first_group_ninegeom//@second_group_four": -30, 
+        "@first_group_ninegeom//@second_group_seven": -30, 
+        "@first_group_ninegeom//@second_group_sixgeom": -20, 
+        "@first_group_o//@second_group_T": -93, 
+        "@first_group_o//@second_group_V": -70, 
+        "@first_group_o//@second_group_W": -20, 
+        "@first_group_o//@second_group_Y": -90, 
+        "@first_group_o//@second_group_comma": -10, 
+        "@first_group_o//@second_group_g": -10, 
+        "@first_group_o//@second_group_n": 0, 
+        "@first_group_o//@second_group_parenright": -30, 
+        "@first_group_o//@second_group_question": -30, 
+        "@first_group_o//@second_group_quote": -20, 
+        "@first_group_o//@second_group_t": -20, 
+        "@first_group_o//@second_group_v": -20, 
+        "@first_group_o//@second_group_zero.sups": -50, 
+        "@first_group_parenleft//@second_group_O": -30, 
+        "@first_group_parenleft//@second_group_S": -30, 
+        "@first_group_parenleft//@second_group_a": -20, 
+        "@first_group_parenleft//@second_group_n": -20, 
+        "@first_group_parenleft//@second_group_o": -30, 
+        "@first_group_parenleft//@second_group_v": -30, 
+        "@first_group_question//@second_group_J": -60, 
+        "@first_group_questioncase//@second_group_T": -90, 
+        "@first_group_questioncase//@second_group_V": -80, 
+        "@first_group_questioncase//@second_group_W": -50, 
+        "@first_group_questioncase//@second_group_Y": -70, 
+        "@first_group_questiondown//@second_group_J": -50, 
+        "@first_group_questiondown//@second_group_O": -60, 
+        "@first_group_questiondown//@second_group_S": -60, 
+        "@first_group_questiondown//@second_group_U": -50, 
+        "@first_group_questiondown//@second_group_V": -90, 
+        "@first_group_questiondown//@second_group_W": -60, 
+        "@first_group_questiondown//@second_group_Y": -100, 
+        "@first_group_questiondown//@second_group_f": -50, 
+        "@first_group_questiondown//@second_group_o": -60, 
+        "@first_group_questiondown//@second_group_s": -30, 
+        "@first_group_questiondown//@second_group_t": -50, 
+        "@first_group_questiondown//@second_group_u": -30, 
+        "@first_group_questiondown//@second_group_v": -50, 
+        "@first_group_quote//@second_group_A": -63, 
+        "@first_group_quote//@second_group_J": -120, 
+        "@first_group_quote//@second_group_a": -40, 
+        "@first_group_quote//@second_group_comma": -74, 
+        "@first_group_quote//@second_group_o": -20, 
+        "@first_group_quote//@second_group_s": -30, 
+        "@first_group_r//@second_group_a": -20, 
+        "@first_group_r//@second_group_comma": -30, 
+        "@first_group_r//@second_group_dash": 0, 
+        "@first_group_r//@second_group_g": -30, 
+        "@first_group_r//@second_group_o": -20, 
+        "@first_group_r//@second_group_space": -30, 
+        "@first_group_s//@second_group_T": -80, 
+        "@first_group_s//@second_group_a": 0, 
+        "@first_group_s//@second_group_g": -10, 
+        "@first_group_s//@second_group_s": -20, 
+        "@first_group_s//@second_group_t": -20, 
+        "@first_group_seven//@second_group_A": -70, 
+        "@first_group_seven//@second_group_comma": -100, 
+        "@first_group_seven//@second_group_dash": -50, 
+        "@first_group_seven//@second_group_four": -80, 
+        "@first_group_seven//@second_group_sixgeom": -60, 
+        "@first_group_seven//@second_group_two": -30, 
+        "@first_group_seven//@second_group_zero": -30, 
+        "@first_group_seven//@second_group_zero.subs": -60, 
+        "@first_group_sixgeom//@second_group_ninegeom": -40, 
+        "@first_group_sixgeom//@second_group_one": -40, 
+        "@first_group_sixgeom//@second_group_seven": -70, 
+        "@first_group_sixgeom//@second_group_two": -40, 
+        "@first_group_space//@second_group_T": -20, 
+        "@first_group_space//@second_group_V": -30, 
+        "@first_group_space//@second_group_Y": -30, 
+        "@first_group_space//@second_group_v": -30, 
+        "@first_group_t//@second_group_a": -20, 
+        "@first_group_t//@second_group_o": -20, 
+        "@first_group_t//@second_group_u": -20, 
+        "@first_group_two//@second_group_four": -40, 
+        "@first_group_two//@second_group_seven": -40, 
+        "@first_group_two//@second_group_sixgeom": -30, 
+        "@first_group_two//@second_group_zero": -20, 
+        "@first_group_u//@second_group_T": -70, 
+        "@first_group_v//@second_group_T": -40, 
+        "@first_group_v//@second_group_a": -20, 
+        "@first_group_v//@second_group_comma": -70, 
+        "@first_group_v//@second_group_g": -40, 
+        "@first_group_v//@second_group_o": -20, 
+        "@first_group_v//@second_group_parenright": -30, 
+        "@first_group_v//@second_group_space": -30, 
+        "@first_group_v//@second_group_zero.subs": -50, 
+        "@first_group_x//@second_group_dash": 0, 
+        "@first_group_x//@second_group_o": -10, 
+        "@first_group_z//@second_group_dash": 0, 
+        "@first_group_zero//@second_group_A": 0, 
+        "@first_group_zero//@second_group_comma": -40, 
+        "@first_group_zero//@second_group_four": 0, 
+        "@first_group_zero//@second_group_ninegeom": -30, 
+        "@first_group_zero//@second_group_one": 0, 
+        "@first_group_zero//@second_group_seven": -30, 
+        "@first_group_zero//@second_group_two": -30, 
+        "@first_group_zero//@second_group_zero": -20, 
+        "@first_group_zero.numr//@second_group_fraction": -30, 
+        "@first_group_zero.subs//@second_group_A": 0, 
+        "@first_group_zero.subs//@second_group_T": -60, 
+        "@first_group_zero.subs//@second_group_V": -80, 
+        "@first_group_zero.subs//@second_group_W": -30, 
+        "@first_group_zero.subs//@second_group_Y": -90, 
+        "@first_group_zero.subs//@second_group_fraction": -50, 
+        "@first_group_zero.subs//@second_group_v": -50, 
+        "@first_group_zero.sups//@second_group_A": -80, 
+        "@first_group_zero.sups//@second_group_J": -130, 
+        "@first_group_zero.sups//@second_group_a": -40, 
+        "@first_group_zero.sups//@second_group_o": -50, 
+        "Germandbls//@second_group_T": -20, 
+        "eight-ar//four-ar": -20, 
+        "eight-ar//seven-ar": -110, 
+        "eight-ar//six-ar": -110, 
+        "five-ar//six-ar": -70, 
+        "four-ar//seven-ar": -30, 
+        "four-ar//six-ar": -50, 
+        "four-ar//three-ar": -30, 
+        "four-ar//two-ar": -40, 
+        "fourFarsi-ar.locl//sevenFarsi-ar.locl": -110, 
+        "fourFarsi-ar.locl//zeroFarsi-ar.locl": -80, 
+        "one.numr//@second_group_fraction": -50, 
+        "quoteright//@second_group_o": -60, 
+        "seven-ar//eight-ar": -110, 
+        "seven.numr//@second_group_fraction": -90, 
+        "sevenFarsi-ar//sevenFarsi-ar.locl": -40, 
+        "sevenFarsi-ar.locl//fourFarsi-ar.locl": -90, 
+        "sevenFarsi-ar.locl//zeroFarsi-ar.locl": -50, 
+        "twoFarsi-ar//zeroFarsi-ar.locl": -70},
+      "_":
+{
+  "com.glyphsapp": {
+    "customParameters": [
+      {
+        "name": "Master Icon Glyph Name",
+        "value": "seen-ar.init"
+      },
+      {
+        "name": "Filter",
+        "value": "decomposeComponents;include:zero.blackCircled, one.blackCircled, two.blackCircled, three.blackCircled, four.blackCircled, five.blackCircled, six.blackCircled, seven.blackCircled, eight.blackCircled, nine.blackCircled"
+      },
+      {
+        "name": "Filter",
+        "value": "reverseContourDirection;include:zero.blackCircled, one.blackCircled, two.blackCircled, three.blackCircled, four.blackCircled, five.blackCircled, six.blackCircled, seven.blackCircled, eight.blackCircled, nine.blackCircled, mediumBlackCircle"
+      }
+    ],
+    "iconName": "Light",
+    "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+    "name": "ExtraLight",
+    "numberValues": [
+      -87
+    ],
+    "userData": {
+      "GSCornerRadius": 70,
+      "GSOffsetHorizontal": 15,
+      "GSOffsetKeepCompatible": 1,
+      "GSOffsetMakeStroke": 1,
+      "GSOffsetPosition": 1,
+      "GSOffsetVertical": 15
+    }
+  }
+}
+}
+, 
+        {
+      "name": "Regular", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "location": {"wght": 75}, 
+      "guides": [
+                {
+          "pos": [0, 428, 0], 
+          "name": " [locked]",
+          "_":
+{
+  "com.glyphsapp": {
+    "locked": 1,
+    "pos": [
+      0,
+      428
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [0, 1000, 0], 
+          "name": " [locked]",
+          "_":
+{
+  "com.glyphsapp": {
+    "locked": 1,
+    "pos": [
+      0,
+      1000
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [0, -420, 0], 
+          "name": " [locked]",
+          "_":
+{
+  "com.glyphsapp": {
+    "locked": 1,
+    "pos": [
+      0,
+      -420
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-10, 350, 0], 
+          "name": "MID CAPHEIGH 350",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "MID CAPHEIGH 350",
+    "pos": [
+      -10,
+      350
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 726, 0], 
+          "name": "Diacritics top lc",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics top lc",
+    "pos": [
+      -25,
+      726
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 581, 0], 
+          "name": "Diacritics bott lc",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics bott lc",
+    "pos": [
+      -25,
+      581
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 890, 0], 
+          "name": "Diacritics top UC",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics top UC",
+    "pos": [
+      -25,
+      890
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 745, 0], 
+          "name": "Diacritics bott UC",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics bott UC",
+    "pos": [
+      -25,
+      745
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [131, -247, 0],
+          "_":
+{
+  "com.glyphsapp": {
+    "pos": [
+      131,
+      -247
+    ]
+  }
+}
+}
+
+      ], 
+      "metrics": {"underlinePosition": -100, "underlineThickness": 50, "italicAngle": 0, "ascender": 720, "capHeight": 700, "capHeight overshoot": 12, "xHeight": 500, "xHeight overshoot": 12, "baseline": 0, "baseline overshoot": -12, "descender": -200, "descender overshoot": -12}, 
+      "kerning": {
+        "@first_group_A//@second_group_J": -20, 
+        "@first_group_A//@second_group_O": -30, 
+        "@first_group_A//@second_group_T": -70, 
+        "@first_group_A//@second_group_U": -20, 
+        "@first_group_A//@second_group_V": -65, 
+        "@first_group_A//@second_group_W": -35, 
+        "@first_group_A//@second_group_Y": -60, 
+        "@first_group_A//@second_group_question": -40, 
+        "@first_group_A//@second_group_quote": -60, 
+        "@first_group_A//@second_group_v": -30, 
+        "@first_group_A//@second_group_zero.subs": 0, 
+        "@first_group_A//@second_group_zero.sups": -80, 
+        "@first_group_A//V": -70, 
+        "@first_group_B//@second_group_Y": -20, 
+        "@first_group_C//@second_group_O": -5, 
+        "@first_group_C//@second_group_comma": -20, 
+        "@first_group_C//@second_group_parenright": -30, 
+        "@first_group_C//@second_group_v": -10, 
+        "@first_group_F//@second_group_A": -60, 
+        "@first_group_F//@second_group_O": -10, 
+        "@first_group_F//@second_group_a": -20, 
+        "@first_group_F//@second_group_comma": -83, 
+        "@first_group_F//@second_group_g": -20, 
+        "@first_group_F//@second_group_o": -17, 
+        "@first_group_F//@second_group_s": -30, 
+        "@first_group_F//@second_group_space": -30, 
+        "@first_group_F//@second_group_t": -20, 
+        "@first_group_F//@second_group_u": -20, 
+        "@first_group_F//@second_group_v": -20, 
+        "@first_group_H//@second_group_A": 0, 
+        "@first_group_H//@second_group_Y": 0, 
+        "@first_group_H//@second_group_a": -10, 
+        "@first_group_H//@second_group_comma": 0, 
+        "@first_group_H//@second_group_g": 0, 
+        "@first_group_H//@second_group_o": 0, 
+        "@first_group_H//@second_group_u": -4, 
+        "@first_group_H//@second_group_v": -3, 
+        "@first_group_K//@second_group_O": -30, 
+        "@first_group_K//@second_group_S": -20, 
+        "@first_group_K//@second_group_a": -20, 
+        "@first_group_K//@second_group_dash": -40, 
+        "@first_group_K//@second_group_o": -22, 
+        "@first_group_K//@second_group_u": -30, 
+        "@first_group_K//@second_group_v": -40, 
+        "@first_group_L//@second_group_O": -31, 
+        "@first_group_L//@second_group_T": -73, 
+        "@first_group_L//@second_group_U": -20, 
+        "@first_group_L//@second_group_V": -76, 
+        "@first_group_L//@second_group_W": -50, 
+        "@first_group_L//@second_group_Y": -64, 
+        "@first_group_L//@second_group_dash": -50, 
+        "@first_group_L//@second_group_o": -20, 
+        "@first_group_L//@second_group_question": -50, 
+        "@first_group_L//@second_group_quote": -120, 
+        "@first_group_L//@second_group_seven": -30, 
+        "@first_group_L//@second_group_t": -40, 
+        "@first_group_L//@second_group_u": -20, 
+        "@first_group_L//@second_group_v": -44, 
+        "@first_group_L//@second_group_zero.sups": -130, 
+        "@first_group_O//@second_group_A": -30, 
+        "@first_group_O//@second_group_T": -34, 
+        "@first_group_O//@second_group_V": -15, 
+        "@first_group_O//@second_group_W": -10, 
+        "@first_group_O//@second_group_X": -13, 
+        "@first_group_O//@second_group_Y": -19, 
+        "@first_group_O//@second_group_Z": -21, 
+        "@first_group_O//@second_group_a": -4, 
+        "@first_group_O//@second_group_comma": -70, 
+        "@first_group_O//@second_group_parenright": -30, 
+        "@first_group_O//AE": -18, 
+        "@first_group_P//@second_group_A": -70, 
+        "@first_group_P//@second_group_J": -130, 
+        "@first_group_P//@second_group_a": -32, 
+        "@first_group_P//@second_group_comma": -97, 
+        "@first_group_P//@second_group_g": -60, 
+        "@first_group_P//@second_group_j": -20, 
+        "@first_group_P//@second_group_l": -20, 
+        "@first_group_P//@second_group_n": -21, 
+        "@first_group_P//@second_group_o": -36, 
+        "@first_group_P//@second_group_questioncase": -40, 
+        "@first_group_P//@second_group_questiondown": -70, 
+        "@first_group_P//@second_group_s": -20, 
+        "@first_group_P//@second_group_space": -30, 
+        "@first_group_P//@second_group_u": -20, 
+        "@first_group_P//@second_group_zero.subs": -100, 
+        "@first_group_R//@second_group_O": 0, 
+        "@first_group_R//@second_group_T": -20, 
+        "@first_group_R//@second_group_U": -7, 
+        "@first_group_R//@second_group_V": 0, 
+        "@first_group_R//@second_group_Y": 0, 
+        "@first_group_R//@second_group_a": -20, 
+        "@first_group_R//@second_group_o": -20, 
+        "@first_group_R//@second_group_v": 0, 
+        "@first_group_S//@second_group_T": -40, 
+        "@first_group_S//@second_group_V": -20, 
+        "@first_group_S//@second_group_W": -10, 
+        "@first_group_S//@second_group_Y": -20, 
+        "@first_group_S//@second_group_comma": -20, 
+        "@first_group_S//@second_group_parenright": -30, 
+        "@first_group_S//@second_group_t": -20, 
+        "@first_group_S//@second_group_v": -10, 
+        "@first_group_T//@second_group_A": -70, 
+        "@first_group_T//@second_group_J": -80, 
+        "@first_group_T//@second_group_O": -30, 
+        "@first_group_T//@second_group_a": -112, 
+        "@first_group_T//@second_group_comma": -80, 
+        "@first_group_T//@second_group_dash": -60, 
+        "@first_group_T//@second_group_four": -60, 
+        "@first_group_T//@second_group_g": -100, 
+        "@first_group_T//@second_group_n": -78, 
+        "@first_group_T//@second_group_o": -95, 
+        "@first_group_T//@second_group_questioncase": -60, 
+        "@first_group_T//@second_group_s": -80, 
+        "@first_group_T//@second_group_space": -30, 
+        "@first_group_T//@second_group_u": -98, 
+        "@first_group_T//@second_group_v": -40, 
+        "@first_group_T//@second_group_zero.subs": -60, 
+        "@first_group_U//@second_group_A": -20, 
+        "@first_group_U//@second_group_Germandbls": -5, 
+        "@first_group_U//@second_group_a": -10, 
+        "@first_group_U//@second_group_comma": -20, 
+        "@first_group_U//@second_group_g": -10, 
+        "@first_group_U//@second_group_n": -9, 
+        "@first_group_U//@second_group_o": 0, 
+        "@first_group_U//@second_group_u": -9, 
+        "@first_group_V//@second_group_A": 0, 
+        "@first_group_V//@second_group_J": -80, 
+        "@first_group_V//@second_group_O": -15, 
+        "@first_group_V//@second_group_S": -30, 
+        "@first_group_V//@second_group_V": 7, 
+        "@first_group_V//@second_group_a": -65, 
+        "@first_group_V//@second_group_comma": -80, 
+        "@first_group_V//@second_group_dash": -30, 
+        "@first_group_V//@second_group_four": -50, 
+        "@first_group_V//@second_group_g": -70, 
+        "@first_group_V//@second_group_n": -41, 
+        "@first_group_V//@second_group_o": -70, 
+        "@first_group_V//@second_group_questioncase": -30, 
+        "@first_group_V//@second_group_s": -30, 
+        "@first_group_V//@second_group_space": -30, 
+        "@first_group_V//@second_group_u": -40, 
+        "@first_group_V//@second_group_v": -45, 
+        "@first_group_V//@second_group_zero.subs": -80, 
+        "@first_group_V//A": -70, 
+        "@first_group_W//@second_group_A": -35, 
+        "@first_group_W//@second_group_J": -70, 
+        "@first_group_W//@second_group_O": -10, 
+        "@first_group_W//@second_group_S": -20, 
+        "@first_group_W//@second_group_a": -30, 
+        "@first_group_W//@second_group_comma": -60, 
+        "@first_group_W//@second_group_g": -60, 
+        "@first_group_W//@second_group_o": -20, 
+        "@first_group_W//@second_group_questiondown": -50, 
+        "@first_group_W//@second_group_zero.subs": -40, 
+        "@first_group_X//@second_group_O": -10, 
+        "@first_group_X//@second_group_dash": -30, 
+        "@first_group_X//@second_group_o": 0, 
+        "@first_group_X//@second_group_v": -20, 
+        "@first_group_Y//@second_group_A": -60, 
+        "@first_group_Y//@second_group_O": -20, 
+        "@first_group_Y//@second_group_S": -20, 
+        "@first_group_Y//@second_group_a": -80, 
+        "@first_group_Y//@second_group_comma": -100, 
+        "@first_group_Y//@second_group_dash": -50, 
+        "@first_group_Y//@second_group_four": -40, 
+        "@first_group_Y//@second_group_g": -70, 
+        "@first_group_Y//@second_group_n": -60, 
+        "@first_group_Y//@second_group_o": -90, 
+        "@first_group_Y//@second_group_questioncase": -30, 
+        "@first_group_Y//@second_group_questiondown": -70, 
+        "@first_group_Y//@second_group_s": -50, 
+        "@first_group_Y//@second_group_space": -30, 
+        "@first_group_Y//@second_group_u": -76, 
+        "@first_group_Y//@second_group_v": -30, 
+        "@first_group_Y//@second_group_zero.subs": -80, 
+        "@first_group_Z//@second_group_O": -20, 
+        "@first_group_Z//@second_group_dash": -40, 
+        "@first_group_Z//@second_group_o": -16, 
+        "@first_group_Z//@second_group_u": -20, 
+        "@first_group_Z//@second_group_v": -20, 
+        "@first_group_comma//@second_group_J": -20, 
+        "@first_group_comma//@second_group_O": -70, 
+        "@first_group_comma//@second_group_S": -20, 
+        "@first_group_comma//@second_group_T": -80, 
+        "@first_group_comma//@second_group_U": -20, 
+        "@first_group_comma//@second_group_V": -80, 
+        "@first_group_comma//@second_group_W": -60, 
+        "@first_group_comma//@second_group_Y": -100, 
+        "@first_group_comma//@second_group_four": -10, 
+        "@first_group_comma//@second_group_one": -60, 
+        "@first_group_comma//@second_group_quote": -75, 
+        "@first_group_comma//@second_group_seven": -40, 
+        "@first_group_comma//@second_group_v": -70, 
+        "@first_group_comma//@second_group_zero": -20, 
+        "@first_group_comma//six": -30, 
+        "@first_group_dash//@second_group_J": -34, 
+        "@first_group_dash//@second_group_T": -60, 
+        "@first_group_dash//@second_group_V": -30, 
+        "@first_group_dash//@second_group_X": -30, 
+        "@first_group_dash//@second_group_Y": -50, 
+        "@first_group_dash//@second_group_Z": -30, 
+        "@first_group_dash//@second_group_l": -4, 
+        "@first_group_dash//@second_group_n": 0, 
+        "@first_group_dash//@second_group_one": -30, 
+        "@first_group_dash//@second_group_seven": -50, 
+        "@first_group_dash//@second_group_x": 0, 
+        "@first_group_dash//@second_group_z": 0, 
+        "@first_group_f//@second_group_a": -26, 
+        "@first_group_f//@second_group_comma": -56, 
+        "@first_group_f//@second_group_f": 22, 
+        "@first_group_f//@second_group_g": -20, 
+        "@first_group_f//@second_group_o": -22, 
+        "@first_group_f//@second_group_question": 20, 
+        "@first_group_f//@second_group_v": 17, 
+        "@first_group_f//f": 15, 
+        "@first_group_four//@second_group_comma": -20, 
+        "@first_group_four//@second_group_ninegeom": -20, 
+        "@first_group_four//@second_group_seven": -20, 
+        "@first_group_fraction//@second_group_zero.dnom": -30, 
+        "@first_group_fraction//@second_group_zero.subs": -50, 
+        "@first_group_fraction//four.dnom": -90, 
+        "@first_group_fraction//one.dnom": -80, 
+        "@first_group_fraction//seven.dnom": -40, 
+        "@first_group_fraction//two.dnom": -40, 
+        "@first_group_g//@second_group_o": -10, 
+        "@first_group_g//@second_group_question": 20, 
+        "@first_group_k//@second_group_a": -10, 
+        "@first_group_k//@second_group_dash": 0, 
+        "@first_group_k//@second_group_o": -10, 
+        "@first_group_l//@second_group_g": -10, 
+        "@first_group_n//@second_group_T": -81, 
+        "@first_group_n//@second_group_V": -70, 
+        "@first_group_n//@second_group_Y": -50, 
+        "@first_group_n//@second_group_g": -10, 
+        "@first_group_n//@second_group_l": 10, 
+        "@first_group_n//@second_group_parenright": -20, 
+        "@first_group_n//@second_group_question": -20, 
+        "@first_group_n//@second_group_t": -35, 
+        "@first_group_n//@second_group_v": -20, 
+        "@first_group_n//@second_group_zero.sups": -40, 
+        "@first_group_ninegeom//@second_group_four": -30, 
+        "@first_group_ninegeom//@second_group_seven": -30, 
+        "@first_group_ninegeom//@second_group_sixgeom": -20, 
+        "@first_group_o//@second_group_T": -93, 
+        "@first_group_o//@second_group_V": -70, 
+        "@first_group_o//@second_group_W": -20, 
+        "@first_group_o//@second_group_Y": -90, 
+        "@first_group_o//@second_group_comma": -10, 
+        "@first_group_o//@second_group_g": -10, 
+        "@first_group_o//@second_group_n": 0, 
+        "@first_group_o//@second_group_parenright": -30, 
+        "@first_group_o//@second_group_question": -30, 
+        "@first_group_o//@second_group_quote": -20, 
+        "@first_group_o//@second_group_t": -20, 
+        "@first_group_o//@second_group_v": -20, 
+        "@first_group_o//@second_group_zero.sups": -50, 
+        "@first_group_parenleft//@second_group_O": -30, 
+        "@first_group_parenleft//@second_group_S": -30, 
+        "@first_group_parenleft//@second_group_a": -20, 
+        "@first_group_parenleft//@second_group_n": -20, 
+        "@first_group_parenleft//@second_group_o": -30, 
+        "@first_group_parenleft//@second_group_v": -30, 
+        "@first_group_question//@second_group_J": -60, 
+        "@first_group_questioncase//@second_group_T": -90, 
+        "@first_group_questioncase//@second_group_V": -80, 
+        "@first_group_questioncase//@second_group_W": -50, 
+        "@first_group_questioncase//@second_group_Y": -70, 
+        "@first_group_questiondown//@second_group_J": -50, 
+        "@first_group_questiondown//@second_group_O": -60, 
+        "@first_group_questiondown//@second_group_S": -60, 
+        "@first_group_questiondown//@second_group_U": -50, 
+        "@first_group_questiondown//@second_group_V": -90, 
+        "@first_group_questiondown//@second_group_W": -60, 
+        "@first_group_questiondown//@second_group_Y": -100, 
+        "@first_group_questiondown//@second_group_f": -50, 
+        "@first_group_questiondown//@second_group_o": -60, 
+        "@first_group_questiondown//@second_group_s": -30, 
+        "@first_group_questiondown//@second_group_t": -50, 
+        "@first_group_questiondown//@second_group_u": -30, 
+        "@first_group_questiondown//@second_group_v": -50, 
+        "@first_group_quote//@second_group_A": -63, 
+        "@first_group_quote//@second_group_J": -120, 
+        "@first_group_quote//@second_group_a": -40, 
+        "@first_group_quote//@second_group_comma": -74, 
+        "@first_group_quote//@second_group_o": -20, 
+        "@first_group_quote//@second_group_s": -30, 
+        "@first_group_r//@second_group_a": -20, 
+        "@first_group_r//@second_group_comma": -30, 
+        "@first_group_r//@second_group_dash": 0, 
+        "@first_group_r//@second_group_g": -30, 
+        "@first_group_r//@second_group_o": -20, 
+        "@first_group_r//@second_group_space": -30, 
+        "@first_group_s//@second_group_T": -80, 
+        "@first_group_s//@second_group_a": 0, 
+        "@first_group_s//@second_group_g": -10, 
+        "@first_group_s//@second_group_s": -20, 
+        "@first_group_s//@second_group_t": -20, 
+        "@first_group_seven//@second_group_A": -70, 
+        "@first_group_seven//@second_group_comma": -100, 
+        "@first_group_seven//@second_group_dash": -50, 
+        "@first_group_seven//@second_group_four": -80, 
+        "@first_group_seven//@second_group_sixgeom": -60, 
+        "@first_group_seven//@second_group_two": -30, 
+        "@first_group_seven//@second_group_zero": -30, 
+        "@first_group_seven//@second_group_zero.subs": -60, 
+        "@first_group_sixgeom//@second_group_ninegeom": -40, 
+        "@first_group_sixgeom//@second_group_one": -40, 
+        "@first_group_sixgeom//@second_group_seven": -70, 
+        "@first_group_sixgeom//@second_group_two": -40, 
+        "@first_group_space//@second_group_T": -20, 
+        "@first_group_space//@second_group_V": -30, 
+        "@first_group_space//@second_group_Y": -30, 
+        "@first_group_space//@second_group_v": -30, 
+        "@first_group_t//@second_group_a": -20, 
+        "@first_group_t//@second_group_o": -20, 
+        "@first_group_t//@second_group_u": -20, 
+        "@first_group_two//@second_group_four": -40, 
+        "@first_group_two//@second_group_seven": -40, 
+        "@first_group_two//@second_group_sixgeom": -30, 
+        "@first_group_two//@second_group_zero": -20, 
+        "@first_group_u//@second_group_T": -70, 
+        "@first_group_v//@second_group_T": -40, 
+        "@first_group_v//@second_group_a": -20, 
+        "@first_group_v//@second_group_comma": -70, 
+        "@first_group_v//@second_group_g": -40, 
+        "@first_group_v//@second_group_o": -20, 
+        "@first_group_v//@second_group_parenright": -30, 
+        "@first_group_v//@second_group_space": -30, 
+        "@first_group_v//@second_group_zero.subs": -50, 
+        "@first_group_x//@second_group_dash": 0, 
+        "@first_group_x//@second_group_o": -10, 
+        "@first_group_z//@second_group_dash": 0, 
+        "@first_group_zero//@second_group_A": 0, 
+        "@first_group_zero//@second_group_comma": -40, 
+        "@first_group_zero//@second_group_four": 0, 
+        "@first_group_zero//@second_group_ninegeom": -30, 
+        "@first_group_zero//@second_group_one": 0, 
+        "@first_group_zero//@second_group_seven": -30, 
+        "@first_group_zero//@second_group_two": -30, 
+        "@first_group_zero//@second_group_zero": -20, 
+        "@first_group_zero.numr//@second_group_fraction": -30, 
+        "@first_group_zero.subs//@second_group_A": 0, 
+        "@first_group_zero.subs//@second_group_T": -60, 
+        "@first_group_zero.subs//@second_group_V": -80, 
+        "@first_group_zero.subs//@second_group_W": -30, 
+        "@first_group_zero.subs//@second_group_Y": -90, 
+        "@first_group_zero.subs//@second_group_fraction": -50, 
+        "@first_group_zero.subs//@second_group_v": -50, 
+        "@first_group_zero.sups//@second_group_A": -80, 
+        "@first_group_zero.sups//@second_group_J": -130, 
+        "@first_group_zero.sups//@second_group_a": -40, 
+        "@first_group_zero.sups//@second_group_o": -50, 
+        "Germandbls//@second_group_T": -20, 
+        "eight-ar//four-ar": -20, 
+        "eight-ar//seven-ar": -100, 
+        "eight-ar//six-ar": -100, 
+        "five-ar//six-ar": -80, 
+        "four-ar//seven-ar": -30, 
+        "four-ar//six-ar": -30, 
+        "four-ar//three-ar": -30, 
+        "four-ar//two-ar": -40, 
+        "fourFarsi-ar.locl//sevenFarsi-ar.locl": -80, 
+        "fourFarsi-ar.locl//zeroFarsi-ar.locl": -70, 
+        "one.numr//@second_group_fraction": -50, 
+        "quoteright//@second_group_o": -60, 
+        "seven-ar//eight-ar": -100, 
+        "seven.numr//@second_group_fraction": -90, 
+        "sevenFarsi-ar//sevenFarsi-ar.locl": -40, 
+        "sevenFarsi-ar.locl//fourFarsi-ar.locl": -80, 
+        "sevenFarsi-ar.locl//zeroFarsi-ar.locl": -60, 
+        "twoFarsi-ar//zeroFarsi-ar.locl": -50},
+      "_":
+{
+  "com.glyphsapp": {
+    "customParameters": [
+      {
+        "name": "Master Icon Glyph Name",
+        "value": "seen-ar.init"
+      },
+      {
+        "name": "Filter",
+        "value": "decomposeComponents;include:zero.blackCircled, one.blackCircled, two.blackCircled, three.blackCircled, four.blackCircled, five.blackCircled, six.blackCircled, seven.blackCircled, eight.blackCircled, nine.blackCircled"
+      },
+      {
+        "name": "Filter",
+        "value": "reverseContourDirection;include:zero.blackCircled, one.blackCircled, two.blackCircled, three.blackCircled, four.blackCircled, five.blackCircled, six.blackCircled, seven.blackCircled, eight.blackCircled, nine.blackCircled, mediumBlackCircle"
+      }
+    ],
+    "id": "14EEE41F-D714-4243-A717-73445EE7DABA",
+    "name": "Regular",
+    "numberValues": [
+      -76
+    ],
+    "userData": {
+      "GSCornerRadius": 80,
+      "GSOffsetHorizontal": 37.5,
+      "GSOffsetKeepCompatible": 1,
+      "GSOffsetMakeStroke": 1,
+      "GSOffsetPosition": 0.7,
+      "GSOffsetVertical": 37.5
+    }
+  }
+}
+}
+, 
+        {
+      "name": "ExtraBold", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "location": {"wght": 135}, 
+      "guides": [
+                {
+          "pos": [0, 428, 0], 
+          "name": " [locked]",
+          "_":
+{
+  "com.glyphsapp": {
+    "locked": 1,
+    "pos": [
+      0,
+      428
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 717, 0], 
+          "name": "Diacritics top lc",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics top lc",
+    "pos": [
+      -25,
+      717
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 572, 0], 
+          "name": "Diacritics bott lc",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics bott lc",
+    "pos": [
+      -25,
+      572
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 898, 0], 
+          "name": "Diacritics top UC",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics top UC",
+    "pos": [
+      -25,
+      898
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-25, 753, 0], 
+          "name": "Diacritics bott UC",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "Diacritics bott UC",
+    "pos": [
+      -25,
+      753
+    ]
+  }
+}
+}
+, 
+                {
+          "pos": [-7, 350, 0], 
+          "name": "MID CAPHEIGH 350",
+          "_":
+{
+  "com.glyphsapp": {
+    "name": "MID CAPHEIGH 350",
+    "pos": [
+      -7,
+      350
+    ]
+  }
+}
+}
+
+      ], 
+      "metrics": {"underlinePosition": -100, "underlineThickness": 50, "italicAngle": 0, "ascender": 720, "capHeight": 700, "capHeight overshoot": 16, "xHeight": 508, "xHeight overshoot": 16, "baseline": 0, "baseline overshoot": -16, "descender": -200, "descender overshoot": -16}, 
+      "kerning": {
+        "@first_group_A//@second_group_J": -20, 
+        "@first_group_A//@second_group_O": -30, 
+        "@first_group_A//@second_group_T": -70, 
+        "@first_group_A//@second_group_U": -20, 
+        "@first_group_A//@second_group_V": -65, 
+        "@first_group_A//@second_group_W": -35, 
+        "@first_group_A//@second_group_Y": -60, 
+        "@first_group_A//@second_group_question": -40, 
+        "@first_group_A//@second_group_quote": -60, 
+        "@first_group_A//@second_group_v": -30, 
+        "@first_group_A//@second_group_zero.subs": 0, 
+        "@first_group_A//@second_group_zero.sups": -80, 
+        "@first_group_A//V": -70, 
+        "@first_group_B//@second_group_Y": -20, 
+        "@first_group_C//@second_group_O": -5, 
+        "@first_group_C//@second_group_comma": -20, 
+        "@first_group_C//@second_group_parenright": -30, 
+        "@first_group_C//@second_group_v": -10, 
+        "@first_group_F//@second_group_A": -60, 
+        "@first_group_F//@second_group_O": -10, 
+        "@first_group_F//@second_group_a": -20, 
+        "@first_group_F//@second_group_comma": -83, 
+        "@first_group_F//@second_group_g": -20, 
+        "@first_group_F//@second_group_o": -17, 
+        "@first_group_F//@second_group_s": -30, 
+        "@first_group_F//@second_group_space": -30, 
+        "@first_group_F//@second_group_t": -20, 
+        "@first_group_F//@second_group_u": -20, 
+        "@first_group_F//@second_group_v": -20, 
+        "@first_group_H//@second_group_A": 0, 
+        "@first_group_H//@second_group_Y": 0, 
+        "@first_group_H//@second_group_a": -10, 
+        "@first_group_H//@second_group_comma": 0, 
+        "@first_group_H//@second_group_g": 0, 
+        "@first_group_H//@second_group_o": 0, 
+        "@first_group_H//@second_group_u": -4, 
+        "@first_group_H//@second_group_v": -3, 
+        "@first_group_K//@second_group_O": -30, 
+        "@first_group_K//@second_group_S": -20, 
+        "@first_group_K//@second_group_a": -20, 
+        "@first_group_K//@second_group_dash": -40, 
+        "@first_group_K//@second_group_o": -22, 
+        "@first_group_K//@second_group_u": -30, 
+        "@first_group_K//@second_group_v": -40, 
+        "@first_group_L//@second_group_O": -31, 
+        "@first_group_L//@second_group_T": -73, 
+        "@first_group_L//@second_group_U": -20, 
+        "@first_group_L//@second_group_V": -76, 
+        "@first_group_L//@second_group_W": -50, 
+        "@first_group_L//@second_group_Y": -64, 
+        "@first_group_L//@second_group_dash": -50, 
+        "@first_group_L//@second_group_o": -20, 
+        "@first_group_L//@second_group_question": -50, 
+        "@first_group_L//@second_group_quote": -120, 
+        "@first_group_L//@second_group_seven": -30, 
+        "@first_group_L//@second_group_t": -40, 
+        "@first_group_L//@second_group_u": -20, 
+        "@first_group_L//@second_group_v": -44, 
+        "@first_group_L//@second_group_zero.sups": -130, 
+        "@first_group_O//@second_group_A": -30, 
+        "@first_group_O//@second_group_T": -34, 
+        "@first_group_O//@second_group_V": -15, 
+        "@first_group_O//@second_group_W": -10, 
+        "@first_group_O//@second_group_X": -13, 
+        "@first_group_O//@second_group_Y": -19, 
+        "@first_group_O//@second_group_Z": -21, 
+        "@first_group_O//@second_group_a": -4, 
+        "@first_group_O//@second_group_comma": -70, 
+        "@first_group_O//@second_group_parenright": -30, 
+        "@first_group_O//AE": -18, 
+        "@first_group_P//@second_group_A": -70, 
+        "@first_group_P//@second_group_J": -130, 
+        "@first_group_P//@second_group_a": -32, 
+        "@first_group_P//@second_group_comma": -97, 
+        "@first_group_P//@second_group_g": -60, 
+        "@first_group_P//@second_group_j": -20, 
+        "@first_group_P//@second_group_l": -20, 
+        "@first_group_P//@second_group_n": -21, 
+        "@first_group_P//@second_group_o": -36, 
+        "@first_group_P//@second_group_questioncase": -40, 
+        "@first_group_P//@second_group_questiondown": -70, 
+        "@first_group_P//@second_group_s": -20, 
+        "@first_group_P//@second_group_space": -30, 
+        "@first_group_P//@second_group_u": -20, 
+        "@first_group_P//@second_group_zero.subs": -100, 
+        "@first_group_R//@second_group_O": 0, 
+        "@first_group_R//@second_group_T": -20, 
+        "@first_group_R//@second_group_U": -7, 
+        "@first_group_R//@second_group_V": 0, 
+        "@first_group_R//@second_group_Y": 0, 
+        "@first_group_R//@second_group_a": -20, 
+        "@first_group_R//@second_group_o": -20, 
+        "@first_group_R//@second_group_v": 0, 
+        "@first_group_S//@second_group_T": -40, 
+        "@first_group_S//@second_group_V": -20, 
+        "@first_group_S//@second_group_W": -10, 
+        "@first_group_S//@second_group_Y": -20, 
+        "@first_group_S//@second_group_comma": -20, 
+        "@first_group_S//@second_group_parenright": -30, 
+        "@first_group_S//@second_group_t": -20, 
+        "@first_group_S//@second_group_v": -10, 
+        "@first_group_T//@second_group_A": -70, 
+        "@first_group_T//@second_group_J": -80, 
+        "@first_group_T//@second_group_O": -30, 
+        "@first_group_T//@second_group_a": -112, 
+        "@first_group_T//@second_group_comma": -80, 
+        "@first_group_T//@second_group_dash": -60, 
+        "@first_group_T//@second_group_four": -60, 
+        "@first_group_T//@second_group_g": -100, 
+        "@first_group_T//@second_group_n": -78, 
+        "@first_group_T//@second_group_o": -95, 
+        "@first_group_T//@second_group_questioncase": -60, 
+        "@first_group_T//@second_group_s": -80, 
+        "@first_group_T//@second_group_space": -30, 
+        "@first_group_T//@second_group_u": -98, 
+        "@first_group_T//@second_group_v": -40, 
+        "@first_group_T//@second_group_zero.subs": -60, 
+        "@first_group_U//@second_group_A": -20, 
+        "@first_group_U//@second_group_Germandbls": -5, 
+        "@first_group_U//@second_group_a": -10, 
+        "@first_group_U//@second_group_comma": -20, 
+        "@first_group_U//@second_group_g": -10, 
+        "@first_group_U//@second_group_n": -9, 
+        "@first_group_U//@second_group_o": 0, 
+        "@first_group_U//@second_group_u": -9, 
+        "@first_group_V//@second_group_A": 0, 
+        "@first_group_V//@second_group_J": -80, 
+        "@first_group_V//@second_group_O": -15, 
+        "@first_group_V//@second_group_S": -30, 
+        "@first_group_V//@second_group_V": 7, 
+        "@first_group_V//@second_group_a": -65, 
+        "@first_group_V//@second_group_comma": -80, 
+        "@first_group_V//@second_group_dash": -30, 
+        "@first_group_V//@second_group_four": -50, 
+        "@first_group_V//@second_group_g": -70, 
+        "@first_group_V//@second_group_n": -41, 
+        "@first_group_V//@second_group_o": -70, 
+        "@first_group_V//@second_group_questioncase": -30, 
+        "@first_group_V//@second_group_s": -30, 
+        "@first_group_V//@second_group_space": -30, 
+        "@first_group_V//@second_group_u": -40, 
+        "@first_group_V//@second_group_v": -45, 
+        "@first_group_V//@second_group_zero.subs": -80, 
+        "@first_group_V//A": -70, 
+        "@first_group_W//@second_group_A": -35, 
+        "@first_group_W//@second_group_J": -70, 
+        "@first_group_W//@second_group_O": -10, 
+        "@first_group_W//@second_group_S": -20, 
+        "@first_group_W//@second_group_a": -30, 
+        "@first_group_W//@second_group_comma": -60, 
+        "@first_group_W//@second_group_g": -60, 
+        "@first_group_W//@second_group_o": -20, 
+        "@first_group_W//@second_group_questiondown": -50, 
+        "@first_group_W//@second_group_zero.subs": -40, 
+        "@first_group_X//@second_group_O": -10, 
+        "@first_group_X//@second_group_dash": -30, 
+        "@first_group_X//@second_group_o": 0, 
+        "@first_group_X//@second_group_v": -20, 
+        "@first_group_Y//@second_group_A": -60, 
+        "@first_group_Y//@second_group_O": -20, 
+        "@first_group_Y//@second_group_S": -20, 
+        "@first_group_Y//@second_group_a": -80, 
+        "@first_group_Y//@second_group_comma": -100, 
+        "@first_group_Y//@second_group_dash": -50, 
+        "@first_group_Y//@second_group_four": -40, 
+        "@first_group_Y//@second_group_g": -70, 
+        "@first_group_Y//@second_group_n": -60, 
+        "@first_group_Y//@second_group_o": -90, 
+        "@first_group_Y//@second_group_questioncase": -30, 
+        "@first_group_Y//@second_group_questiondown": -70, 
+        "@first_group_Y//@second_group_s": -50, 
+        "@first_group_Y//@second_group_space": -30, 
+        "@first_group_Y//@second_group_u": -76, 
+        "@first_group_Y//@second_group_v": -30, 
+        "@first_group_Y//@second_group_zero.subs": -80, 
+        "@first_group_Z//@second_group_O": -20, 
+        "@first_group_Z//@second_group_dash": -40, 
+        "@first_group_Z//@second_group_o": -16, 
+        "@first_group_Z//@second_group_u": -20, 
+        "@first_group_Z//@second_group_v": -20, 
+        "@first_group_comma//@second_group_J": -20, 
+        "@first_group_comma//@second_group_O": -70, 
+        "@first_group_comma//@second_group_S": -20, 
+        "@first_group_comma//@second_group_T": -80, 
+        "@first_group_comma//@second_group_U": -20, 
+        "@first_group_comma//@second_group_V": -80, 
+        "@first_group_comma//@second_group_W": -60, 
+        "@first_group_comma//@second_group_Y": -100, 
+        "@first_group_comma//@second_group_four": -10, 
+        "@first_group_comma//@second_group_one": -60, 
+        "@first_group_comma//@second_group_quote": -75, 
+        "@first_group_comma//@second_group_seven": -40, 
+        "@first_group_comma//@second_group_v": -70, 
+        "@first_group_comma//@second_group_zero": -20, 
+        "@first_group_comma//six": -30, 
+        "@first_group_dash//@second_group_J": -34, 
+        "@first_group_dash//@second_group_T": -60, 
+        "@first_group_dash//@second_group_V": -30, 
+        "@first_group_dash//@second_group_X": -30, 
+        "@first_group_dash//@second_group_Y": -50, 
+        "@first_group_dash//@second_group_Z": -30, 
+        "@first_group_dash//@second_group_l": -4, 
+        "@first_group_dash//@second_group_n": 0, 
+        "@first_group_dash//@second_group_one": -30, 
+        "@first_group_dash//@second_group_seven": -50, 
+        "@first_group_dash//@second_group_x": 0, 
+        "@first_group_dash//@second_group_z": 0, 
+        "@first_group_f//@second_group_a": -26, 
+        "@first_group_f//@second_group_comma": -56, 
+        "@first_group_f//@second_group_f": 22, 
+        "@first_group_f//@second_group_g": -20, 
+        "@first_group_f//@second_group_o": -22, 
+        "@first_group_f//@second_group_question": 20, 
+        "@first_group_f//@second_group_v": 17, 
+        "@first_group_f//f": 15, 
+        "@first_group_four//@second_group_comma": -20, 
+        "@first_group_four//@second_group_ninegeom": -20, 
+        "@first_group_four//@second_group_seven": -20, 
+        "@first_group_fraction//@second_group_zero.dnom": -30, 
+        "@first_group_fraction//@second_group_zero.subs": -50, 
+        "@first_group_fraction//four.dnom": -90, 
+        "@first_group_fraction//one.dnom": -80, 
+        "@first_group_fraction//seven.dnom": -40, 
+        "@first_group_fraction//two.dnom": -40, 
+        "@first_group_g//@second_group_o": -10, 
+        "@first_group_g//@second_group_question": 20, 
+        "@first_group_k//@second_group_a": -10, 
+        "@first_group_k//@second_group_dash": 0, 
+        "@first_group_k//@second_group_o": -10, 
+        "@first_group_l//@second_group_g": -10, 
+        "@first_group_n//@second_group_T": -81, 
+        "@first_group_n//@second_group_V": -70, 
+        "@first_group_n//@second_group_Y": -50, 
+        "@first_group_n//@second_group_g": -10, 
+        "@first_group_n//@second_group_l": 10, 
+        "@first_group_n//@second_group_parenright": -20, 
+        "@first_group_n//@second_group_question": -20, 
+        "@first_group_n//@second_group_t": -35, 
+        "@first_group_n//@second_group_v": -20, 
+        "@first_group_n//@second_group_zero.sups": -40, 
+        "@first_group_ninegeom//@second_group_four": -30, 
+        "@first_group_ninegeom//@second_group_seven": -30, 
+        "@first_group_ninegeom//@second_group_sixgeom": -20, 
+        "@first_group_o//@second_group_T": -93, 
+        "@first_group_o//@second_group_V": -70, 
+        "@first_group_o//@second_group_W": -20, 
+        "@first_group_o//@second_group_Y": -90, 
+        "@first_group_o//@second_group_comma": -10, 
+        "@first_group_o//@second_group_g": -10, 
+        "@first_group_o//@second_group_n": 0, 
+        "@first_group_o//@second_group_parenright": -30, 
+        "@first_group_o//@second_group_question": -30, 
+        "@first_group_o//@second_group_quote": -20, 
+        "@first_group_o//@second_group_t": -20, 
+        "@first_group_o//@second_group_v": -20, 
+        "@first_group_o//@second_group_zero.sups": -50, 
+        "@first_group_parenleft//@second_group_O": -30, 
+        "@first_group_parenleft//@second_group_S": -30, 
+        "@first_group_parenleft//@second_group_a": -20, 
+        "@first_group_parenleft//@second_group_n": -20, 
+        "@first_group_parenleft//@second_group_o": -30, 
+        "@first_group_parenleft//@second_group_v": -30, 
+        "@first_group_question//@second_group_J": -60, 
+        "@first_group_questioncase//@second_group_T": -90, 
+        "@first_group_questioncase//@second_group_V": -80, 
+        "@first_group_questioncase//@second_group_W": -50, 
+        "@first_group_questioncase//@second_group_Y": -70, 
+        "@first_group_questiondown//@second_group_J": -50, 
+        "@first_group_questiondown//@second_group_O": -60, 
+        "@first_group_questiondown//@second_group_S": -60, 
+        "@first_group_questiondown//@second_group_U": -50, 
+        "@first_group_questiondown//@second_group_V": -90, 
+        "@first_group_questiondown//@second_group_W": -60, 
+        "@first_group_questiondown//@second_group_Y": -100, 
+        "@first_group_questiondown//@second_group_f": -50, 
+        "@first_group_questiondown//@second_group_o": -60, 
+        "@first_group_questiondown//@second_group_s": -30, 
+        "@first_group_questiondown//@second_group_t": -50, 
+        "@first_group_questiondown//@second_group_u": -30, 
+        "@first_group_questiondown//@second_group_v": -50, 
+        "@first_group_quote//@second_group_A": -63, 
+        "@first_group_quote//@second_group_J": -120, 
+        "@first_group_quote//@second_group_a": -40, 
+        "@first_group_quote//@second_group_comma": -74, 
+        "@first_group_quote//@second_group_o": -20, 
+        "@first_group_quote//@second_group_s": -30, 
+        "@first_group_r//@second_group_a": -20, 
+        "@first_group_r//@second_group_comma": -30, 
+        "@first_group_r//@second_group_dash": 0, 
+        "@first_group_r//@second_group_g": -30, 
+        "@first_group_r//@second_group_o": -20, 
+        "@first_group_r//@second_group_space": -30, 
+        "@first_group_s//@second_group_T": -80, 
+        "@first_group_s//@second_group_a": 0, 
+        "@first_group_s//@second_group_g": -10, 
+        "@first_group_s//@second_group_s": -20, 
+        "@first_group_s//@second_group_t": -20, 
+        "@first_group_seven//@second_group_A": -70, 
+        "@first_group_seven//@second_group_comma": -100, 
+        "@first_group_seven//@second_group_dash": -50, 
+        "@first_group_seven//@second_group_four": -80, 
+        "@first_group_seven//@second_group_sixgeom": -60, 
+        "@first_group_seven//@second_group_two": -30, 
+        "@first_group_seven//@second_group_zero": -30, 
+        "@first_group_seven//@second_group_zero.subs": -60, 
+        "@first_group_sixgeom//@second_group_ninegeom": -40, 
+        "@first_group_sixgeom//@second_group_one": -40, 
+        "@first_group_sixgeom//@second_group_seven": -70, 
+        "@first_group_sixgeom//@second_group_two": -40, 
+        "@first_group_space//@second_group_T": -20, 
+        "@first_group_space//@second_group_V": -30, 
+        "@first_group_space//@second_group_Y": -30, 
+        "@first_group_space//@second_group_v": -30, 
+        "@first_group_t//@second_group_a": -20, 
+        "@first_group_t//@second_group_o": -20, 
+        "@first_group_t//@second_group_u": -20, 
+        "@first_group_two//@second_group_four": -40, 
+        "@first_group_two//@second_group_seven": -40, 
+        "@first_group_two//@second_group_sixgeom": -30, 
+        "@first_group_two//@second_group_zero": -20, 
+        "@first_group_u//@second_group_T": -70, 
+        "@first_group_v//@second_group_T": -40, 
+        "@first_group_v//@second_group_a": -20, 
+        "@first_group_v//@second_group_comma": -70, 
+        "@first_group_v//@second_group_g": -40, 
+        "@first_group_v//@second_group_o": -20, 
+        "@first_group_v//@second_group_parenright": -30, 
+        "@first_group_v//@second_group_space": -30, 
+        "@first_group_v//@second_group_zero.subs": -50, 
+        "@first_group_x//@second_group_dash": 0, 
+        "@first_group_x//@second_group_o": -10, 
+        "@first_group_z//@second_group_dash": 0, 
+        "@first_group_zero//@second_group_A": 0, 
+        "@first_group_zero//@second_group_comma": -40, 
+        "@first_group_zero//@second_group_four": 0, 
+        "@first_group_zero//@second_group_ninegeom": -30, 
+        "@first_group_zero//@second_group_one": 0, 
+        "@first_group_zero//@second_group_seven": -30, 
+        "@first_group_zero//@second_group_two": -30, 
+        "@first_group_zero//@second_group_zero": -20, 
+        "@first_group_zero.numr//@second_group_fraction": -30, 
+        "@first_group_zero.subs//@second_group_A": 0, 
+        "@first_group_zero.subs//@second_group_T": -60, 
+        "@first_group_zero.subs//@second_group_V": -80, 
+        "@first_group_zero.subs//@second_group_W": -30, 
+        "@first_group_zero.subs//@second_group_Y": -90, 
+        "@first_group_zero.subs//@second_group_fraction": -50, 
+        "@first_group_zero.subs//@second_group_v": -50, 
+        "@first_group_zero.sups//@second_group_A": -80, 
+        "@first_group_zero.sups//@second_group_J": -130, 
+        "@first_group_zero.sups//@second_group_a": -40, 
+        "@first_group_zero.sups//@second_group_o": -50, 
+        "Germandbls//@second_group_T": -20, 
+        "eight-ar//four-ar": -20, 
+        "eight-ar//seven-ar": -90, 
+        "eight-ar//six-ar": -90, 
+        "four-ar//seven-ar": -30, 
+        "four-ar//six-ar": -30, 
+        "four-ar//three-ar": -10, 
+        "four-ar//two-ar": -40, 
+        "fourFarsi-ar.locl//sevenFarsi-ar.locl": -70, 
+        "fourFarsi-ar.locl//zeroFarsi-ar.locl": -70, 
+        "one.numr//@second_group_fraction": -50, 
+        "quoteright//@second_group_o": -60, 
+        "seven-ar//eight-ar": -90, 
+        "seven.numr//@second_group_fraction": -90, 
+        "sevenFarsi-ar//sevenFarsi-ar.locl": -40, 
+        "sevenFarsi-ar.locl//fourFarsi-ar.locl": -70, 
+        "sevenFarsi-ar.locl//zeroFarsi-ar.locl": -60, 
+        "twoFarsi-ar//zeroFarsi-ar.locl": -60},
+      "_":
+{
+  "com.glyphsapp": {
+    "customParameters": [
+      {
+        "name": "Master Icon Glyph Name",
+        "value": "seen-ar.init"
+      },
+      {
+        "name": "Filter",
+        "value": "decomposeComponents;include:zero.blackCircled, one.blackCircled, two.blackCircled, three.blackCircled, four.blackCircled, five.blackCircled, six.blackCircled, seven.blackCircled, eight.blackCircled, nine.blackCircled"
+      },
+      {
+        "name": "Filter",
+        "value": "reverseContourDirection;include:zero.blackCircled, one.blackCircled, two.blackCircled, three.blackCircled, four.blackCircled, five.blackCircled, six.blackCircled, seven.blackCircled, eight.blackCircled, nine.blackCircled, mediumBlackCircle"
+      }
+    ],
+    "iconName": "Bold",
+    "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3",
+    "name": "ExtraBold",
+    "numberValues": [
+      -62
+    ],
+    "userData": {
+      "GSCornerRadius": 120,
+      "GSExtrudeAngle": 30,
+      "GSExtrudeOffset": 15,
+      "GSOffsetHorizontal": 67.5,
+      "GSOffsetKeepCompatible": 1,
+      "GSOffsetMakeStroke": 1,
+      "GSOffsetPosition": 0.75,
+      "GSOffsetVertical": 59.5
+    }
+  }
+}
+}
+
+  ], 
+  "date": "2024-03-23 22:08:27", 
+  "custom_opentype_values": {"OS/2//achVendID": "1KTF"}, 
+  "features":   {
+    "classes": {
+      "dotcenter": [
+        "dotcenter-ar", 
+        "dotcenter_threedotsdownbelow-ar", 
+        "twodotshorizontalcenter-ar", 
+        "twodotshorizontalcenter_tahabove-ar", 
+        "twodotsverticalcenter-ar", 
+        "threedotsupcenter-ar", 
+        "threedotsdowncenter-ar", 
+        "fourdotscenter-ar", 
+        "#fourcenter-ar", 
+        "tahcenter-ar", 
+        "vinvertedcenter-ar"
+      ], 
+      "dotbelow": [
+        "dotbelow-ar", 
+        "dotbelow_threedotsdownbelow-ar", 
+        "twodotshorizontalbelow-ar", 
+        "twodotshorizontalbelow_tahabove-ar", 
+        "twodotsverticalbelow-ar", 
+        "threedotsupbelow-ar", 
+        "threedotsdownbelow-ar", 
+        "fourdotsbelow-ar", 
+        "#fourbelow-ar", 
+        "tahbelow-ar", 
+        "vinvertedbelow-ar"
+      ], 
+      "marktop": [
+        "hamzaabove-ar", 
+        "wasla-ar", 
+        "madda-ar", 
+        "shadda-ar", 
+        "fatha-ar", 
+        "damma-ar", 
+        "fathatan-ar", 
+        "dammatan-ar", 
+        "sukun-ar", 
+        "kasra-ar", 
+        "kasratan-ar"
+      ], 
+      "markbottom": [
+        "dotbelow-ar", 
+        "dotbelow_threedotsdownbelow-ar", 
+        "twodotshorizontalbelow-ar", 
+        "twodotshorizontalbelow_tahabove-ar", 
+        "twodotsverticalbelow-ar", 
+        "threedotsupbelow-ar", 
+        "threedotsdownbelow-ar", 
+        "fourdotsbelow-ar", 
+        "hamzabelow-ar", 
+        "vbelow-ar", 
+        "vinvertedbelow-ar", 
+        "ring-ar", 
+        "#doubleverticalbarbelow-ar", 
+        "tahbelow-ar", 
+        "ringbelow-ar", 
+        "kasra-ar", 
+        "kasratan-ar", 
+        "alefbelow-ar"
+      ], 
+      "behdotbelow": [
+        "dotbelow-ar", 
+        "twodotshorizontalbelow-ar", 
+        "twodotsverticalbelow-ar", 
+        "threedotsupbelow-ar", 
+        "threedotsdownbelow-ar", 
+        "fourdotsbelow-ar", 
+        "vbelow-ar", 
+        "vinvertedbelow-ar", 
+        "ring-ar", 
+        "ringbelow-ar"
+      ], 
+      "behdotbelow.alt": [
+        "dotbelow-ar.alt", 
+        "twodotshorizontalbelow-ar.alt", 
+        "twodotsverticalbelow-ar.alt", 
+        "threedotsupbelow-ar.alt", 
+        "threedotsdownbelow-ar.alt", 
+        "fourdotsbelow-ar.alt", 
+        "vbelow-ar.alt", 
+        "vinvertedbelow-ar.alt", 
+        "ring-ar.alt", 
+        "ringbelow-ar.alt"
+      ], 
+      "ArabicLetters": [
+        "hamza-ar", 
+        "alef-ar", 
+        "alef-ar.fina", 
+        "alef-ar.short", 
+        "alef-ar.short.fina", 
+        "behDotless-ar", 
+        "behDotless-ar.fina", 
+        "behDotless-ar.medi", 
+        "behDotless-ar.medi.high", 
+        "behDotless-ar.init", 
+        "behDotless-ar.init.high", 
+        "hah-ar", 
+        "hah-ar.fina", 
+        "hah-ar.medi", 
+        "hah-ar.init", 
+        "dal-ar", 
+        "dal-ar.fina", 
+        "reh-ar", 
+        "reh-ar.fina", 
+        "seen-ar", 
+        "seen-ar.fina", 
+        "seen-ar.medi", 
+        "seen-ar.init", 
+        "sad-ar", 
+        "sad-ar.fina", 
+        "sad-ar.medi", 
+        "sad-ar.init", 
+        "tah-ar", 
+        "tah-ar.fina", 
+        "tah-ar.medi", 
+        "tah-ar.init", 
+        "ain-ar", 
+        "ain-ar.fina", 
+        "ain-ar.medi", 
+        "ain-ar.init", 
+        "fehDotless-ar", 
+        "fehDotless-ar.fina", 
+        "fehDotless-ar.medi", 
+        "fehDotless-ar.init", 
+        "qafDotless-ar", 
+        "qafDotless-ar.fina", 
+        "kafDotless-ar", 
+        "kafDotless-ar.fina", 
+        "kaf-ar.medi", 
+        "kaf-ar.init", 
+        "keheh-ar", 
+        "keheh-ar.fina", 
+        "kafswash-ar", 
+        "kafswash-ar.fina", 
+        "kafswash-ar.medi", 
+        "kafswash-ar.init", 
+        "lam-ar", 
+        "lam-ar.fina", 
+        "lam-ar.medi", 
+        "lam-ar.init", 
+        "meem-ar", 
+        "meem-ar.ss01", 
+        "meem-ar.fina", 
+        "meem-ar.fina.ss01", 
+        "meem-ar.medi", 
+        "meem-ar.init", 
+        "noonghunna-ar", 
+        "noonghunna-ar.fina", 
+        "heh-ar", 
+        "heh-ar.fina", 
+        "heh-ar.medi", 
+        "heh-ar.init", 
+        "hehgoal-ar", 
+        "hehgoal-ar.fina", 
+        "hehgoal-ar.medi", 
+        "ae-ar", 
+        "hehDoachashmee-ar", 
+        "hehDoachashmee-ar.fina", 
+        "hehDoachashmee-ar.medi", 
+        "waw-ar", 
+        "waw-ar.fina", 
+        "alefMaksura-ar", 
+        "alefMaksura-ar.fina", 
+        "yehbarree-ar", 
+        "yehbarree-ar.fina", 
+        "yehbarree-ar.fina.narrow", 
+        "kashida-ar", 
+        "lam_alef-ar.fina.ss02", 
+        "behDotless_hah-ar", 
+        "behDotless_hah-ar.init", 
+        "lam_alef-ar.fina", 
+        "lam_alef-ar", 
+        "lam_hah-ar", 
+        "lam_hah-ar.init", 
+        "lam_lam_shadda_alefabove_heh-ar"
+      ], 
+      "Uppercase": [
+        "A", 
+        "Aacute", 
+        "Abreve", 
+        "Acircumflex", 
+        "Adieresis", 
+        "Agrave", 
+        "Amacron", 
+        "Aogonek", 
+        "Aring", 
+        "Atilde", 
+        "AE", 
+        "B", 
+        "C", 
+        "Cacute", 
+        "Ccaron", 
+        "Ccedilla", 
+        "Cdotaccent", 
+        "D", 
+        "Dcaron", 
+        "Dcroat", 
+        "Eth", 
+        "E", 
+        "Eacute", 
+        "Ecaron", 
+        "Ecircumflex", 
+        "Edieresis", 
+        "Edotaccent", 
+        "Egrave", 
+        "Emacron", 
+        "Eogonek", 
+        "F", 
+        "G", 
+        "Gbreve", 
+        "Gcommaaccent", 
+        "Gdotaccent", 
+        "H", 
+        "Hbar", 
+        "I", 
+        "Iacute", 
+        "Icircumflex", 
+        "Idieresis", 
+        "Idotaccent", 
+        "Igrave", 
+        "Imacron", 
+        "Iogonek", 
+        "J", 
+        "K", 
+        "Kcommaaccent", 
+        "L", 
+        "Lacute", 
+        "Lcaron", 
+        "Lcommaaccent", 
+        "Ldot", 
+        "Lslash", 
+        "M", 
+        "N", 
+        "Nacute", 
+        "Ncaron", 
+        "Ncommaaccent", 
+        "Ntilde", 
+        "Eng", 
+        "O", 
+        "Oacute", 
+        "Ocircumflex", 
+        "Odieresis", 
+        "Ograve", 
+        "Ohungarumlaut", 
+        "Omacron", 
+        "Oslash", 
+        "Otilde", 
+        "OE", 
+        "P", 
+        "Thorn", 
+        "Q", 
+        "R", 
+        "Racute", 
+        "Rcaron", 
+        "Rcommaaccent", 
+        "S", 
+        "Sacute", 
+        "Scaron", 
+        "Scedilla", 
+        "Scommaaccent", 
+        "Germandbls", 
+        "T", 
+        "Tcaron", 
+        "Tcommaaccent", 
+        "U", 
+        "Uacute", 
+        "Ubreve", 
+        "Ucircumflex", 
+        "Udieresis", 
+        "Ugrave", 
+        "Uhungarumlaut", 
+        "Umacron", 
+        "Uogonek", 
+        "Uring", 
+        "V", 
+        "W", 
+        "Wacute", 
+        "Wcircumflex", 
+        "Wdieresis", 
+        "Wgrave", 
+        "X", 
+        "Y", 
+        "Yacute", 
+        "Ycircumflex", 
+        "Ydieresis", 
+        "Ygrave", 
+        "Z", 
+        "Zacute", 
+        "Zcaron", 
+        "Zdotaccent"
+      ]}, 
+    "prefixes": {
+      "Languagesystems": "# Automatic\nlanguagesystem DFLT dflt;\n\nlanguagesystem arab dflt;\nlanguagesystem arab FAR;\nlanguagesystem arab URD;\nlanguagesystem arab KSH;\nlanguagesystem arab RHG;\nlanguagesystem arab SND;\n\nlanguagesystem latn dflt;\nlanguagesystem latn ROM;\nlanguagesystem latn MOL;\nlanguagesystem latn CAT;\n", 
+      "Lookups": "lookup center_marks {\n\tsub @dotcenter\t\t\t\tby @dotbelow;\n} center_marks;\n\nvalueRecordDef <$dotshift 0 0 0> DOTSHIFT;\n"}, 
+    "features": [
+      ["aalt", "# Automatic\nfeature locl;\nfeature locl;\nfeature isol;\nfeature init;\nfeature medi;\nfeature fina;\nfeature subs;\nfeature sinf;\nfeature sups;\nfeature numr;\nfeature dnom;\nfeature frac;\nfeature ordn;\nfeature pnum;\nfeature tnum;\nfeature case;\nfeature zero;\nfeature ss01;\nfeature ss02;\nfeature ss03;\nfeature ss04;\nfeature ss05;\n"], 
+      ["locl", "script arab;\n  language FAR;\n\tsub zeroFarsi-ar\tby zeroFarsi-ar.locl;\n\n  language URD;\n\tsub fourFarsi-ar\tby fourFarsi-ar.locl;\n\tsub sixFarsi-ar\t\tby six-ar;\n\tsub sevenFarsi-ar\tby sevenFarsi-ar.locl;\n#\tsub dammainverted-ar by dammainverted-ar.locl;\n\n  language KSH;\n\tsub fourFarsi-ar\tby fourFarsi-ar.locl;\n\tsub sixFarsi-ar\t\tby six-ar;\n\tsub sevenFarsi-ar\tby sevenFarsi-ar.locl;\n\n  language RHG;\n\tsub fourFarsi-ar\tby four-ar;\n\tsub sixFarsi-ar\t\tby six-ar;\n\tsub sevenFarsi-ar\tby sevenFarsi-ar.locl;\n\n  language SND;\n\tsub sixFarsi-ar\t\tby six-ar;\n\tsub sevenFarsi-ar\tby sevenFarsi-ar.locl;\n \tsub comma-ar\t\tby commareversed;\n \tsub semicolon-ar\tby semicolonreversed;\n\nscript latn;\n  language dflt;\n\tsub guillemetleft\tby guillemetleft.locl;\n\tsub guillemetright\tby guillemetright.locl;\n\tsub guilsinglleft\tby guilsinglleft.locl;\n\tsub guilsinglright\tby guilsinglright.locl;\n  language ROM include_dflt;\n  language MOL include_dflt;\n  language CAT include_dflt;\n"], 
+      ["ccmp", "# Automatic\nlookup ccmp_DFLT_1 {\n\t@CombiningTopAccents = [acutecomb brevecomb caroncomb circumflexcomb commaturnedabovecomb dieresiscomb dotaccentcomb gravecomb hungarumlautcomb macroncomb ringcomb tildecomb];\n\tlookupflag UseMarkFilteringSet @CombiningTopAccents;\n\tsub i' @CombiningTopAccents by idotless;\n\tsub iogonek' @CombiningTopAccents by iogonek.dotless;\n\tsub j' @CombiningTopAccents by jdotless;\n} ccmp_DFLT_1;\n\nlookup ccmp_Other_1 {\n\tlookupflag 0;\n\t@Markscomb = [dieresiscomb dotaccentcomb gravecomb acutecomb hungarumlautcomb caroncomb.alt circumflexcomb caroncomb brevecomb ringcomb tildecomb macroncomb cedillacomb];\n\t@MarkscombCase = [dieresiscomb.case dotaccentcomb.case gravecomb.case acutecomb.case hungarumlautcomb.case caroncomb.alt.case circumflexcomb.case caroncomb.case brevecomb.case ringcomb.case tildecomb.case macroncomb.case cedillacomb.case];\n\tsub @Markscomb @Markscomb' by @MarkscombCase;\n\tsub @Uppercase @Markscomb' by @MarkscombCase;\n} ccmp_Other_1;\n\nlookup ccmp_Other_2 {\n\tlookupflag 0;\n\tsub @Markscomb' @MarkscombCase by @MarkscombCase;\n\tsub @MarkscombCase @Markscomb' by @MarkscombCase;\n} ccmp_Other_2;\n"], 
+      ["locl", "# Automatic\nscript latn;\nlanguage ROM;\nlookup locl_latn_0 {\n\tsub Scedilla by Scommaaccent;\n\tsub scedilla by scommaaccent;\n} locl_latn_0;\nlanguage MOL;\nlookup locl_latn_0;\n\nscript latn;\nlanguage CAT;\nlookup locl_latn_1 {\n\tsub  l' periodcentered' l by ldot;\n\tsub  L' periodcentered' L by Ldot;\n} locl_latn_1;\n"], 
+      ["ccmp", "#lookup early {\n # Decompose early so that u-ar gets decomposed after that.\n # We do two step decomposition so that the comma above gets\n # attached to the waw not the high hamza.\n #sub uHamzaabove-ar\t\t\t\t\t\t\tby highhamza-ar u-ar;\n#} early;\n\n sub alefHamzaabove-ar\t\t\t\t\t\tby alef-ar hamzaabove-ar;\n sub alefHamzabelow-ar\t\t\t\t\t\tby alef-ar hamzabelow-ar;\n sub alefMadda-ar\t\t\t\t\t\t\tby alef-ar madda-ar;\n sub alefWasla-ar\t\t\t\t\t\t\tby alef-ar wasla-ar;\n#sub alefWavyhamzaabove-ar\t\t\t\t\tby alef-ar wavyhamzaabove-ar;\n#sub alefWavyhamzabelow-ar\t\t\t\t\tby alef-ar wavyhamzabelow-ar;\n#sub alefTwoabove-ar\t\t\t\t\t\tby alef-ar twoabove-ar;\n#sub alefThreeabove-ar\t\t\t\t\t\tby alef-ar threeabove-ar;\n#sub alefFatha-ar\t\t\t\t\t\t\tby alef-ar fathaattached-ar;\n#sub alefRightFatha-ar\t\t\t\t\t\tby alef-ar fathaattachedright-ar;\n#sub alefRightMiddleStroke-ar\t\t\t\tby alef-ar strokeright-ar;\n#sub alefLeftMiddleStroke-ar\t\t\t\tby alef-ar strokeleft-ar;\n#sub alefKasra-ar\t\t\t\t\t\t\tby alef-ar kasraattached-ar;\n#sub alefRightKasra-ar\t\t\t\t\t\tby alef-ar kasraattachedright-ar;\n#sub alefRoundDotAbove-ar\t\t\t\t\tby alef-ar rounddotattachedabove-ar;\n#sub alefRightRoundDot-ar\t\t\t\t\tby alef-ar rounddotattachedright-ar;\n#sub alefLeftRoundDot-ar\t\t\t\t\tby alef-ar rounddotattachedleft-ar;\n#sub alefRoundDotBelow-ar\t\t\t\t\tby alef-ar rounddotattachedbelow-ar;\n#sub alefDotAbove-ar\t\t\t\t\t\tby alef-ar dotabove-ar;\n#sub alefRightFathaDotAbove-ar\t\t\t\tby alef-ar fathaattachedright-ar dotabove-ar;\n#sub alefRightMiddleStrokeDotAbove-ar\t\tby alef-ar strokeright-ar dotabove-ar;\n#sub alefRightKasraDotAbove-ar\t\t\t\tby alef-ar kasraattachedright-ar dotabove-ar;\n#sub alefRightFathaLeftRing-ar\t\t\t\tby alef-ar fathaattachedright-ar ringattachedleft-ar;\n#sub alefRightMiddleStrokeLeftRing-ar\t\tby alef-ar strokeright-ar ringattachedleft-ar;\n#sub alefRightKasraLeftRing-ar\t\t\t\tby alef-ar kasraattachedright-ar ringattachedleft-ar;\n#sub alefRightHamza-ar\t\t\t\t\t\tby alef-ar hamzaattachedright-ar;\n#sub alefLeftHamza-ar\t\t\t\t\t\tby alef-ar hamzaattachedleft-ar;\n sub beh-ar\t\t\t\t\t\t\t\t\tby behDotless-ar dotbelow-ar;\n sub teh-ar\t\t\t\t\t\t\t\t\tby behDotless-ar twodotshorizontalabove-ar;\n sub tehVabove-ar\t\t\t\t\t\t\tby behDotless-ar twodotshorizontalabove_vabove-ar;\n sub theh-ar\t\t\t\t\t\t\t\tby behDotless-ar threedotsupabove-ar;\n sub peh-ar\t\t\t\t\t\t\t\t\tby behDotless-ar threedotsdownbelow-ar;\n sub pehVabove-ar\t\t\t\t\t\t\tby behDotless-ar vabove-ar threedotsdownbelow-ar;\n sub beeh-ar\t\t\t\t\t\t\t\tby behDotless-ar twodotsverticalbelow-ar;\n sub beheh-ar\t\t\t\t\t\t\t\tby behDotless-ar fourdotsbelow-ar;\n sub tehThreedotsdown-ar\t\t\t\t\tby behDotless-ar threedotsdownabove-ar;\n sub tteh-ar\t\t\t\t\t\t\t\tby behDotless-ar tahabove-ar;\n sub ttehVabove-ar\t\t\t\t\t\t\tby behDotless-ar tahabove_vabove-ar;\n sub tteheh-ar\t\t\t\t\t\t\t\tby behDotless-ar twodotsverticalabove-ar;\n sub teheh-ar\t\t\t\t\t\t\t\tby behDotless-ar fourdotsabove-ar;\n#sub behThreedotshorizontalbelow-ar\t\t\tby behDotless-ar threedotshorizontalbelow-ar;\n sub behThreedotsupabove-ar\t\t\t\t\tby behDotless-ar threedotsupabove-ar dotbelow-ar;\n sub behThreedotsupbelow-ar\t\t\t\t\tby behDotless-ar threedotsupbelow-ar;\n sub tehThreedotsupbelow-ar\t\t\t\t\tby behDotless-ar twodotshorizontalabove-ar threedotsupbelow-ar;\n sub behTwodotsbelowDotabove-ar\t\t\t\tby behDotless-ar dotabove-ar twodotshorizontalbelow-ar;\n sub behVinvertedbelow-ar\t\t\t\t\tby behDotless-ar vinvertedbelow-ar;\n sub behVabove-ar\t\t\t\t\t\t\tby behDotless-ar vabove-ar;\n sub behVbelow-ar\t\t\t\t\t\t\tby behDotless-ar vbelow-ar;\n sub behhamzaabove-ar\t\t\t\t\t\tby behDotless-ar hamzaabove-ar dotbelow-ar;\n#sub behMeemabove-ar\t\t\t\t\t\tby behDotless-ar dotbelow-ar meemabove-ar;\n#sub pehMeemabove-ar\t\t\t\t\t\tby behDotless-ar threedotsdownbelow-ar meemabove-ar;\n#sub tehTehabove-ar\t\t\t\t\t\t\tby behDotless-ar tehabove-ar;\n sub tehRing-ar\t\t\t\t\t\t\t\tby behDotless-ar twodotshorizontalabove-ar ringbelow-ar;\n sub jeem-ar\t\t\t\t\t\t\t\tby hah-ar dotcenter-ar;\n sub khah-ar\t\t\t\t\t\t\t\tby hah-ar dotabove-ar;\n sub tcheh-ar\t\t\t\t\t\t\t\tby hah-ar threedotsdowncenter-ar;\n sub hahThreedotsabove-ar\t\t\t\t\tby hah-ar threedotsupabove-ar;\n sub hahHamzaabove-ar\t\t\t\t\t\tby hah-ar hamzaabove-ar;\n sub hahTwodotsverticalabove-ar\t\t\t\tby hah-ar twodotsverticalabove-ar;\n sub hahTwodotshorizontalabove-ar\t\t\tby hah-ar twodotshorizontalabove-ar;\n sub hahTahabove-ar\t\t\t\t\t\t\tby hah-ar tahabove-ar;\n sub tcheheh-ar\t\t\t\t\t\t\t\tby hah-ar fourdotscenter-ar;\n sub nyeh-ar\t\t\t\t\t\t\t\tby hah-ar twodotshorizontalcenter-ar;\n sub dyeh-ar\t\t\t\t\t\t\t\tby hah-ar twodotsverticalcenter-ar;\n sub hahThreedotsupbelow-ar\t\t\t\t\tby hah-ar threedotsupcenter-ar;\n sub hahTahbelow-ar\t\t\t\t\t\t\tby hah-ar tahcenter-ar;\n sub hahTahTwodotshorizontalbelow-ar\t\tby hah-ar twodotshorizontalcenter_tahabove-ar;\n#sub hahFourbelow-ar\t\t\t\t\t\tby hah-ar fourcenter-ar;\n sub hahVinvertedbelow-ar\t\t\t\t\tby hah-ar vinvertedcenter-ar;\n sub jeemThreedotsbelow-ar\t\t\t\t\tby hah-ar dotcenter_threedotsdownbelow-ar;\n sub jeemTwodotsabove-ar\t\t\t\t\tby hah-ar dotcenter-ar twodotshorizontalabove-ar;\n sub jeemThreedotsabove-ar\t\t\t\t\tby hah-ar dotcenter-ar threedotsupabove-ar;\n sub tchehDotabove-ar\t\t\t\t\t\tby hah-ar threedotsdowncenter-ar dotabove-ar;\n sub tchehVabove-ar\t\t\t\t\t\t\tby hah-ar threedotsdowncenter-ar vabove-ar;\n sub thal-ar\t\t\t\t\t\t\t\tby dal-ar dotabove-ar;\n sub ddal-ar\t\t\t\t\t\t\t\tby dal-ar tahabove-ar;\n sub dahal-ar\t\t\t\t\t\t\t\tby dal-ar twodotshorizontalabove-ar;\n sub ddahal-ar\t\t\t\t\t\t\t\tby dal-ar twodotshorizontalbelow-ar;\n sub dul-ar\t\t\t\t\t\t\t\t\tby dal-ar threedotsupabove-ar;\n sub dalRing-ar\t\t\t\t\t\t\t\tby dal-ar ringbelow-ar;\n sub dalDotbelow-ar\t\t\t\t\t\t\tby dal-ar dotbelow-ar;\n sub dalDotbelowTah-ar\t\t\t\t\t\tby dal-ar tahabove-ar dotbelow-ar;\n sub dalThreedotsdown-ar\t\t\t\t\tby dal-ar threedotsdownabove-ar;\n sub dalFourdots-ar\t\t\t\t\t\t\tby dal-ar fourdotsabove-ar;\n sub dalVinvertedabove-ar\t\t\t\t\tby dal-ar vinvertedabove-ar;\n sub dalTwodotsverticalbelowTah-ar\t\t\tby dal-ar tahabove-ar twodotsverticalbelow-ar;\n sub dalVinvertedbelow-ar\t\t\t\t\tby dal-ar vinvertedbelow-ar;\n sub dalThreedotsbelow-ar\t\t\t\t\tby dal-ar threedotsdownbelow-ar;\n sub zain-ar\t\t\t\t\t\t\t\tby reh-ar dotabove-ar;\n sub jeh-ar\t\t\t\t\t\t\t\t\tby reh-ar threedotsupabove-ar;\n sub rreh-ar\t\t\t\t\t\t\t\tby reh-ar tahabove-ar;\n sub rehv-ar\t\t\t\t\t\t\t\tby reh-ar vabove-ar;\n sub rehRing-ar\t\t\t\t\t\t\t\tby reh-ar ringbelow-ar;\n sub rehDotbelow-ar\t\t\t\t\t\t\tby reh-ar dotbelow-ar;\n sub rehVbelow-ar\t\t\t\t\t\t\tby reh-ar vbelow-ar;\n sub rehDotbelowdotabove-ar\t\t\t\t\tby reh-ar dotcenter-ar dotbelow-ar;\n sub rehTwodots-ar\t\t\t\t\t\t\tby reh-ar twodotshorizontalabove-ar;\n sub rehFourdots-ar\t\t\t\t\t\t\tby reh-ar fourdotsabove-ar;\n sub rehVinvertedabove-ar\t\t\t\t\tby reh-ar vinvertedabove-ar;\n#sub rehStroke-ar\t\t\t\t\t\t\tby reh-ar stroke-ar;\n sub rehTwodotsverticalabove-ar\t\t\t\tby reh-ar twodotsverticalabove-ar;\n sub rehHamzaabove-ar\t\t\t\t\t\tby reh-ar hamzaabove-ar;\n sub rehTwodotshorizontalaboveTahabove-ar\tby reh-ar twodotshorizontalabove_tahabove-ar;\n sub zainVinvertedabove-ar\t\t\t\t\tby reh-ar dotabove_vinvertedabove-ar;\n#sub rehNoonabove-ar\t\t\t\t\t\tby reh-ar noonabove-ar;\n sub sheen-ar\t\t\t\t\t\t\t\tby seen-ar threedotsupabove-ar;\n sub seenDotbelowDotabove-ar\t\t\t\tby seen-ar dotabove-ar dotbelow-ar;\n sub sheenDotbelow-ar\t\t\t\t\t\tby seen-ar threedotsupabove-ar dotbelow-ar;\n sub sheenThreedotsbelow-ar\t\t\t\t\tby seen-ar threedotsupabove-ar threedotsdownbelow-ar;\n sub seenFourdotsabove-ar\t\t\t\t\tby seen-ar fourdotsabove-ar;\n sub seenTwodotsverticalabove-ar\t\t\tby seen-ar twodotsverticalabove-ar;\n sub seenTahTwodotshorizontalabove-ar\t\tby seen-ar twodotshorizontalabove_tahabove-ar;\n#sub seenFourabove-ar\t\t\t\t\t\tby seen-ar fourabove-ar;\n sub seenVinvertedabove-ar\t\t\t\t\tby seen-ar vinvertedabove-ar;\n sub seenThreedotsbelow-ar\t\t\t\t\tby seen-ar threedotsdownbelow-ar;\n sub dad-ar\t\t\t\t\t\t\t\t\tby sad-ar dotabove-ar;\n sub dadDotbelow-ar\t\t\t\t\t\t\tby sad-ar dotabove-ar dotbelow-ar;\n sub sadThreedots-ar\t\t\t\t\t\tby sad-ar threedotsupabove-ar;\n sub sadTwodotsbelow-ar\t\t\t\t\t\tby sad-ar twodotshorizontalbelow-ar;\n sub sadThreedotsbelow-ar\t\t\t\t\tby sad-ar threedotsdownbelow-ar;\n sub zah-ar\t\t\t\t\t\t\t\t\tby tah-ar dotabove-ar;\n sub tahThreedots-ar\t\t\t\t\t\tby tah-ar threedotsupabove-ar;\n sub tahTwodotsabove-ar\t\t\t\t\t\tby tah-ar twodotshorizontalabove-ar;\n sub tahDotbelow-ar\t\t\t\t\t\t\tby tah-ar dotbelow-ar;\n sub tahThreedotsbelow-ar\t\t\t\t\tby tah-ar threedotsdownbelow-ar;\n sub ghain-ar\t\t\t\t\t\t\t\tby ain-ar dotabove-ar;\n sub ghainDotbelow-ar\t\t\t\t\t\tby ain-ar dotabove-ar dotbelow-ar;\n sub ainThreedotsbelow-ar\t\t\t\t\tby ain-ar threedotsdownbelow-ar;\n sub ainThreedots-ar\t\t\t\t\t\tby ain-ar threedotsupabove-ar;\n sub ainTwodotshorizontalabove-ar\t\t\tby ain-ar twodotshorizontalabove-ar;\n sub ainThreedotsdownabove-ar\t\t\t\tby ain-ar threedotsdownabove-ar;\n sub ainTwodotsverticalabove-ar\t\t\t\tby ain-ar twodotsverticalabove-ar;\n sub ghainThreedotsabove-ar\t\t\t\t\tby ain-ar dotabove_threedotsupabove-ar;\n sub feh-ar\t\t\t\t\t\t\t\t\tby fehDotless-ar dotabove-ar;\n sub veh-ar\t\t\t\t\t\t\t\t\tby fehDotless-ar threedotsupabove-ar;\n sub fehDotmovedbelow-ar\t\t\t\t\tby fehDotless-ar dotbelow-ar;\n sub fehDotbelow-ar\t\t\t\t\t\t\tby fehDotless-ar dotabove-ar dotbelow-ar;\n sub fehThreedotsbelow-ar\t\t\t\t\tby fehDotless-ar threedotsdownbelow-ar;\n sub peheh-ar\t\t\t\t\t\t\t\tby fehDotless-ar fourdotsabove-ar;\n sub fehTwodotsbelow-ar\t\t\t\t\t\tby fehDotless-ar twodotshorizontalbelow-ar;\n sub fehThreedotsupbelow-ar\t\t\t\t\tby fehDotless-ar threedotsupbelow-ar;\n sub fehDotbelowThreedotsabove-ar\t\t\tby fehDotless-ar threedotsupabove-ar dotbelow-ar;\n sub qaf-ar\t\t\t\t\t\t\t\t\tby qafDotless-ar twodotshorizontalabove-ar;\n sub qafDotabove-ar\t\t\t\t\t\t\tby qafDotless-ar dotabove-ar;\n sub qafThreedotsabove-ar\t\t\t\t\tby qafDotless-ar threedotsupabove-ar;\n sub qafDotbelow-ar\t\t\t\t\t\t\tby qafDotless-ar twodotshorizontalabove-ar dotbelow-ar;\n sub qafDotbelowNoDotAbove-ar\t\t\t\tby qafDotless-ar dotbelow-ar;\n sub kafThreedotsbelow-ar\t\t\t\t\tby kaf-ar threedotsdownbelow-ar;\n sub ng-ar\t\t\t\t\t\t\t\t\tby kaf-ar threedotsupabove-ar;\n sub kafDotabove-ar\t\t\t\t\t\t\tby kaf-ar dotabove-ar;\n sub kafTwodotshorizontalabove-ar\t\t\tby kaf-ar twodotshorizontalabove-ar;\n sub kafDotbelow-ar\t\t\t\t\t\t\tby kaf-ar dotbelow-ar;\n sub gaf-ar\t\t\t\t\t\t\t\t\tby keheh-ar gafsarkashabove-ar;\n sub kafRing-ar\t\t\t\t\t\t\t\tby keheh-ar ringbelow-ar;\n sub kehehDotabove-ar\t\t\t\t\t\tby keheh-ar dotabove-ar;\n sub kehehTwodotshorizontalabove-ar\t\t\tby keheh-ar twodotshorizontalabove-ar;\n sub kehehThreedotsabove-ar\t\t\t\t\tby keheh-ar threedotsupabove-ar;\n sub kehehThreedotsupbelow-ar\t\t\t\tby keheh-ar threedotsupbelow-ar;\n sub kehehThreedotsbelow-ar\t\t\t\t\tby keheh-ar threedotsdownbelow-ar;\n sub kehehVabove-ar\t\t\t\t\t\t\tby keheh-ar vabove-ar;\n sub kehehTwodotsverticalbelow-ar\t\t\tby keheh-ar twodotsverticalbelow-ar;\n sub gafRing-ar\t\t\t\t\t\t\t\tby keheh-ar gafsarkashabove-ar ringbelow-ar;\n sub gafThreedots-ar\t\t\t\t\t\tby keheh-ar gafsarkashabove-ar threedotsupabove-ar;\n sub gafTwodotsbelow-ar\t\t\t\t\t\tby keheh-ar gafsarkashabove-ar twodotshorizontalbelow-ar;\n sub ngoeh-ar\t\t\t\t\t\t\t\tby keheh-ar gafsarkashabove-ar twodotshorizontalabove-ar;\n sub gueh-ar\t\t\t\t\t\t\t\tby keheh-ar gafsarkashabove-ar twodotsverticalbelow-ar;\n sub gafInvertedstroke-ar\t\t\t\t\tby keheh-ar gafsarkashcenter-ar;\n#sub graf-ar\t\t\t\t\t\t\t\tby keheh-ar grafsarkashabove-ar;\n sub lamVabove-ar\t\t\t\t\t\t\tby lam-ar vabove-ar;\n sub lamDotabove-ar\t\t\t\t\t\t\tby lam-ar dotabove-ar;\n sub lamThreedotsabove-ar\t\t\t\t\tby lam-ar threedotsupabove-ar;\n sub lamThreedotsbelow-ar\t\t\t\t\tby lam-ar threedotsdownbelow-ar;\n#sub lamBar-ar\t\t\t\t\t\t\t\tby lam-ar stroke-ar;\n#sub lamDoublebar-ar\t\t\t\t\t\tby lam-ar doublestroke-ar;\n sub lamTahabove-ar\t\t\t\t\t\t\tby lam-ar tahabove-ar;\n sub meemDotabove-ar\t\t\t\t\t\tby meem-ar dotabove-ar;\n sub meemDotbelow-ar\t\t\t\t\t\tby meem-ar dotbelow-ar;\n sub meemThreedotsabove-ar\t\t\t\t\tby meem-ar threedotsupabove-ar;\n sub noon-ar\t\t\t\t\t\t\t\tby noonghunna-ar dotabove-ar;\n sub noonDotbelow-ar\t\t\t\t\t\tby noonghunna-ar dotabove-ar dotbelow-ar;\n sub rnoon-ar\t\t\t\t\t\t\t\tby noonghunna-ar tahabove-ar;\n sub noonRing-ar\t\t\t\t\t\t\tby noonghunna-ar dotabove-ar ringbelow-ar;\n sub noonTwodotsbelow-ar\t\t\t\t\tby noonghunna-ar dotabove-ar twodotshorizontalbelow-ar;\n sub noonTahabove-ar\t\t\t\t\t\tby noonghunna-ar dotabove_tahabove-ar;\n sub noonVabove-ar\t\t\t\t\t\t\tby noonghunna-ar dotabove_vabove-ar;\n sub noonVinvertedabove-ar\t\t\t\t\tby noonghunna-ar vinvertedabove-ar;\n sub tehMarbuta-ar\t\t\t\t\t\t\tby ae-ar twodotshorizontalabove-ar;\n sub hehHamzaabove-ar\t\t\t\t\t\tby ae-ar hamzaabove-ar;\n sub hehgoalHamzaabove-ar\t\t\t\t\tby hehgoal-ar hamzaabove-ar;\n sub tehMarbutagoal-ar\t\t\t\t\t\tby hehgoal-ar twodotshorizontalabove-ar;\n sub hehVinvertedabove-ar\t\t\t\t\tby hehDoachashmee-ar vinvertedabove-ar;\n sub wawHamzaabove-ar\t\t\t\t\t\tby waw-ar hamzaabove-ar;\n sub wawring-ar\t\t\t\t\t\t\t\tby waw-ar ringbelow-ar;\n sub wawTwodots-ar\t\t\t\t\t\t\tby waw-ar twodotshorizontalabove-ar;\n sub wawDotabove-ar\t\t\t\t\t\t\tby waw-ar dotabove-ar;\n#sub kirghizoe-ar\t\t\t\t\t\t\tby waw-ar stroke-ar;\n sub oe-ar\t\t\t\t\t\t\t\t\tby waw-ar vabove-ar;\n sub u-ar\t\t\t\t\t\t\t\t\tby waw-ar commaabove-ar;\n sub yu-ar\t\t\t\t\t\t\t\t\tby waw-ar alefabove-ar;\n sub kirghizyu-ar\t\t\t\t\t\t\tby waw-ar vinvertedabove-ar;\n sub ve-ar\t\t\t\t\t\t\t\t\tby waw-ar threedotsupabove-ar;\n#sub wawTwoabove-ar\t\t\t\t\t\t\tby waw-ar twoabove-ar;\n#sub wawThreeAbove-ar\t\t\t\t\t\tby waw-ar threeabove-ar;\n sub wawDotcenter-ar\t\t\t\t\t\tby waw-ar dotcenter-ar;\n sub yeh-ar\t\t\t\t\t\t\t\t\tby alefMaksura-ar twodotshorizontalbelow-ar;\n sub yehHamzaabove-ar\t\t\t\t\t\tby alefMaksura-ar hamzaabove-ar;\n sub yehKashmiri-ar\t\t\t\t\t\t\tby alefMaksura-ar ring-ar;\n sub yehVabove-ar\t\t\t\t\t\t\tby yehFarsi-ar vabove-ar;\n sub yehVinvertedFarsi-ar\t\t\t\t\tby yehFarsi-ar vinvertedabove-ar;\n sub yehTwodotsaboveFarsi-ar\t\t\t\tby yehFarsi-ar twodotshorizontalabove-ar;\n sub yehThreedotsaboveFarsi-ar\t\t\t\tby yehFarsi-ar threedotsupabove-ar;\n#sub yehTwoaboveFarsi-ar\t\t\t\t\tby yehFarsi-ar twoabove-ar;\n#sub yehThreeaboveFarsi-ar\t\t\t\t\tby yehFarsi-ar threeabove-ar;\n#sub yehFourbelowFarsi-ar\t\t\t\t\tby alefMaksura-ar fourbelow-ar;\n#sub yehTwodotsbelowNoonabove-ar\t\t\tby alefMaksura-ar twodotshorizontalbelow-ar noonabove-ar;\n sub yehbarreeHamzaabove-ar\t\t\t\t\tby yehbarree-ar hamzaabove-ar;\n#sub yehbarreeTwoabove-ar\t\t\t\t\tby yehbarree-ar twoabove-ar;\n#sub yehbarreeThreeabove-ar\t\t\t\t\tby yehbarree-ar threeabove-ar;\n sub e-ar\t\t\t\t\t\t\t\t\tby alefMaksura-ar twodotsverticalbelow-ar;\n#sub yehThreedotsbelow-ar\t\t\t\t\tby alefMaksura-ar threedotsdownbelow-ar;\n sub yehTwodotsbelowHamzaabove-ar\t\t\tby alefMaksura-ar twodotshorizontalbelow-ar hamzaabove-ar;\n sub yehTwodotsbelowDotabove-ar\t\t\t\tby alefMaksura-ar twodotshorizontalbelow-ar dotabove-ar;\n#sub kashidaTwodotsbelow-ar\t\t\t\t\tby kashida-ar twodotshorizontalbelow-ar;\n"], 
+      ["isol", " sub kaf-ar\t\t\t\t\t\t\t\t\tby kafDotless-ar miniKeheh-ar;\n sub qafAfrican-ar\t\t\t\t\t\t\tby qafDotless-ar;\n sub qafThreedotsaboveAfrican-ar\t\t\tby qafAfrican-ar;\n sub noonThreedotsabove-ar\t\t\t\t\tby noonghunna-ar threedotsupabove-ar;\n sub noonAfrican-ar\t\t\t\t\t\t\tby noonghunna-ar;\n sub ae-ar\t\t\t\t\t\t\t\t\tby hehgoal-ar;\n sub yehFarsi-ar\t\t\t\t\t\t\tby alefMaksura-ar;\n sub yehTail-ar\t\t\t\t\t\t\t\tby alefMaksura-ar tail-ar;\n\n#sub highhamzaAlef-ar\t\t\t\t\t\tby highhamza-ar alef-ar;\n#sub highhamzaWaw-ar\t\t\t\t\t\tby highhamza-ar waw-ar;\n#sub highhamzaYeh-ar\t\t\t\t\t\tby highhamza-ar alefMaksura-ar;\n"], 
+      ["init", " lookup center_marks;\n\n sub [behDotless-ar\tnoonghunna-ar alefMaksura-ar]\n\t\t\t\t\t\t\t\t\t\t\tby behDotless-ar.init;\n sub hah-ar\t\t\t\t\t\t\t\t\tby hah-ar.init;\n sub seen-ar\t\t\t\t\t\t\t\tby seen-ar.init;\n sub sad-ar\t\t\t\t\t\t\t\t\tby sad-ar.init;\n sub tah-ar\t\t\t\t\t\t\t\t\tby tah-ar.init;\n sub ain-ar\t\t\t\t\t\t\t\t\tby ain-ar.init;\n sub [fehDotless-ar qafDotless-ar]\t\t\tby fehDotless-ar.init;\n sub fehAfrican-ar\t\t\t\t\t\t\tby fehDotless-ar.init dotbelow-ar;\n sub qafAfrican-ar\t\t\t\t\t\t\tby fehDotless-ar.init dotabove-ar;\n sub qafThreedotsaboveAfrican-ar\t\t\tby fehDotless-ar.init threedotsupabove-ar;\n sub [kaf-ar keheh-ar]\t\t\t\t\t\tby kaf-ar.init;\n sub kafswash-ar\t\t\t\t\t\t\tby kafswash-ar.init;\n sub lam-ar\t\t\t\t\t\t\t\t\tby lam-ar.init;\n sub meem-ar\t\t\t\t\t\t\t\tby meem-ar.init;\n sub noonThreedotsabove-ar\t\t\t\t\tby behDotless-ar.init threedotsdownbelow-ar;\n sub noonAfrican-ar\t\t\t\t\t\t\tby behDotless-ar.init dotabove-ar;\n sub [heh-ar hehDoachashmee-ar]\t\t\t\tby heh-ar.init;\n sub hehgoal-ar\t\t\t\t\t\t\t\tby behDotless-ar.init hehgoalMark-ar;\n sub yehFarsi-ar\t\t\t\t\t\t\tby behDotless-ar.init twodotshorizontalbelow-ar;\n sub yehbarree-ar\t\t\t\t\t\t\tby behDotless-ar.init twodotshorizontalbelow-ar;\n#sub kashida-ar\t\t\t\t\t\t\t\tby kashida-ar.init;\n\n#sub highhamzaYeh-ar\t\t\t\t\t\tby highhamza-ar behDotless-ar.init;\n"], 
+      ["medi", " lookup center_marks;\n\n sub [behDotless-ar\tnoonghunna-ar alefMaksura-ar]\n\t\t\t\t\t\t\t\t\t\t\tby behDotless-ar.medi;\n sub hah-ar\t\t\t\t\t\t\t\t\tby hah-ar.medi;\n sub seen-ar\t\t\t\t\t\t\t\tby seen-ar.medi;\n sub sad-ar\t\t\t\t\t\t\t\t\tby sad-ar.medi;\n sub tah-ar\t\t\t\t\t\t\t\t\tby tah-ar.medi;\n sub ain-ar\t\t\t\t\t\t\t\t\tby ain-ar.medi;\n sub [fehDotless-ar qafDotless-ar]\t\t\tby fehDotless-ar.medi;\n sub fehAfrican-ar\t\t\t\t\t\t\tby fehDotless-ar.medi dotbelow-ar;\n sub qafAfrican-ar\t\t\t\t\t\t\tby fehDotless-ar.medi dotabove-ar;\n sub qafThreedotsaboveAfrican-ar\t\t\tby fehDotless-ar.medi threedotsupabove-ar;\n sub [kaf-ar keheh-ar]\t\t\t\t\t\tby kaf-ar.medi;\n sub kafswash-ar\t\t\t\t\t\t\tby kafswash-ar.medi;\n sub lam-ar\t\t\t\t\t\t\t\t\tby lam-ar.medi;\n sub meem-ar\t\t\t\t\t\t\t\tby meem-ar.medi;\n sub noonThreedotsabove-ar\t\t\t\t\tby behDotless-ar.medi threedotsdownbelow-ar;\n sub noonAfrican-ar\t\t\t\t\t\t\tby behDotless-ar.medi dotabove-ar;\n sub heh-ar\t\t\t\t\t\t\t\t\tby heh-ar.medi;\n sub hehgoal-ar\t\t\t\t\t\t\t\tby hehgoal-ar.medi;\n sub hehDoachashmee-ar\t\t\t\t\t\tby hehDoachashmee-ar.medi;\n sub yehFarsi-ar\t\t\t\t\t\t\tby behDotless-ar.medi twodotshorizontalbelow-ar;\n sub yehbarree-ar\t\t\t\t\t\t\tby behDotless-ar.medi twodotshorizontalbelow-ar;\n#sub yehthin-ar.init\t\t\t\t\t\tby yehthin-ar.medi;\n \n#sub highhamzaYeh-ar\t\t\t\t\t\tby highhamza-ar alefMaksura-ar;\n"], 
+      ["fina", " sub alef-ar\t\t\t\t\t\t\t\tby alef-ar.fina;\n sub behDotless-ar\t\t\t\t\t\t\tby behDotless-ar.fina;\n sub hah-ar\t\t\t\t\t\t\t\t\tby hah-ar.fina;\n sub dal-ar\t\t\t\t\t\t\t\t\tby dal-ar.fina;\n sub reh-ar\t\t\t\t\t\t\t\t\tby reh-ar.fina;\n#sub rehLoop-ar\t\t\t\t\t\t\t\tby rehLoop-ar.fina;\n sub seen-ar\t\t\t\t\t\t\t\tby seen-ar.fina;\n sub sad-ar\t\t\t\t\t\t\t\t\tby sad-ar.fina;\n sub tah-ar\t\t\t\t\t\t\t\t\tby tah-ar.fina;\n sub ain-ar\t\t\t\t\t\t\t\t\tby ain-ar.fina;\n sub [fehDotless-ar fehAfrican-ar]\t\t\tby fehDotless-ar.fina;\n sub [qafDotless-ar qafAfrican-ar]\t\t\tby qafDotless-ar.fina;\n sub qafThreedotsaboveAfrican-ar\t\t\tby qafDotless-ar.fina;\n sub kafDotless-ar\t\t\t\t\t\t\tby kafDotless-ar.fina;\n sub kaf-ar\t\t\t\t\t\t\t\t\tby kafDotless-ar.fina miniKeheh-ar;\n sub keheh-ar\t\t\t\t\t\t\t\tby keheh-ar.fina;\n sub kafswash-ar\t\t\t\t\t\t\tby kafswash-ar.fina;\n sub lam-ar\t\t\t\t\t\t\t\t\tby lam-ar.fina;\n sub meem-ar\t\t\t\t\t\t\t\tby meem-ar.fina;\n sub [noonghunna-ar noonAfrican-ar]\t\t\tby noonghunna-ar.fina;\n sub noonThreedotsabove-ar\t\t\t\t\tby noonghunna-ar.fina threedotsupabove-ar;\n sub heh-ar\t\t\t\t\t\t\t\t\tby heh-ar.fina;\n sub hehgoal-ar\t\t\t\t\t\t\t\tby hehgoal-ar.fina;\n sub hehDoachashmee-ar\t\t\t\t\t\tby hehDoachashmee-ar.fina;\n sub ae-ar\t\t\t\t\t\t\t\t\tby heh-ar.fina;\n sub waw-ar\t\t\t\t\t\t\t\t\tby waw-ar.fina;\n#sub wawStraight-ar\t\t\t\t\t\t\tby wawStraight-ar.fina;\n sub [yehFarsi-ar alefMaksura-ar]\t\t\tby alefMaksura-ar.fina;\n sub yehTail-ar\t\t\t\t\t\t\t\tby alefMaksura-ar.fina tail-ar;\n sub yehbarreeHamzaabove-ar\t\t\t\t\tby yehbarree-ar.fina hamzaabove-ar;\n sub yehbarree-ar\t\t\t\t\t\t\tby yehbarree-ar.fina;\n#sub yehRohingya-ar\t\t\t\t\t\t\tby yehRohingya-ar.fina;\n\n#sub highhamzaAlef-ar\t\t\t\t\t\tby highhamza-ar alef-ar;\n#sub highhamzaWaw-ar\t\t\t\t\t\tby highhamza-ar waw-ar;\n#sub uHamzaabove-ar\t\t\t\t\t\t\tby highhamza-ar waw-ar commaabove-ar;\n#sub highhamzaYeh-ar\t\t\t\t\t\tby highhamza-ar alefMaksura-ar;\n"], 
+      ["rlig", "# Adobe’s pre-HarfBuzz composers don’t apply the center_marks lookup\n# in init and medi features, help it by applying it contextually here.\nlookup adobe_center_marks {\n    sub [hah-ar.init hah-ar.medi]\n\t\t @dotcenter' lookup center_marks\n\t;\n} adobe_center_marks;\n\nlookup isolated_heh {\n  lookupflag IgnoreMarks;\n    ignore\n    sub @ArabicLetters heh-ar';\n    sub heh-ar' by hehDoachashmee-ar;\n\n    ignore\n    sub heh-ar.init' kashida-ar' @ArabicLetters;\n    sub heh-ar.init' kashida-ar' by hehDoachashmee-ar;\n} isolated_heh;\n\nlookup high_tooth {\n lookupflag IgnoreMarks;\n rsub [behDotless-ar.init behDotless-ar.medi]'\n      [behDotless-ar.medi behDotless-ar.fina noonghunna-ar.fina\n       seen-ar.medi seen-ar.fina]\n   by [behDotless-ar.init.high behDotless-ar.medi.high];\n} high_tooth;\n\nlookup lam_alef {\n lookupflag IgnoreMarks;\n  sub lam-ar.init alef-ar.fina by lam_alef-ar;\n  sub lam-ar.medi alef-ar.fina by lam_alef-ar.fina;\n} lam_alef;\n\nlookup short_alef {\n lookupflag UseMarkFilteringSet @marktop;\n sub [alef-ar alef-ar.fina]' @marktop by [alef-ar.short alef-ar.short.fina];\n} short_alef;\n\nlookup narrow_yehbarree {\n lookupflag UseMarkFilteringSet @markbottom;\n  sub [seen-ar.init seen-ar.medi sad-ar.init sad-ar.medi tah-ar.init tah-ar.medi\n       ain-ar.init ain-ar.medi fehDotless-ar.init fehDotless-ar.medi\n       kaf-ar.init kaf-ar.medi kafswash-ar.init kafswash-ar.medi\n       hah-ar.init hah-ar.medi meem-ar.init meem-ar.medi]\n       yehbarree-ar.fina'\n   by  yehbarree-ar.fina.narrow;\n} narrow_yehbarree;\n\nlookup hah_dots {\n  lookupflag UseMarkFilteringSet @behdotbelow;\n    sub behDotless-ar.init @behdotbelow' [hah-ar.medi hah-ar.fina] by @behdotbelow.alt;;\n} hah_dots;\n"], 
+      ["liga", "lookup hah {\n  lookupflag IgnoreMarks;\n    sub lam-ar.init hah-ar.fina by lam_hah-ar;\n    sub lam-ar.init hah-ar.medi by lam_hah-ar.init;\n    sub behDotless-ar.init hah-ar.fina by behDotless_hah-ar;\n    sub behDotless-ar.init hah-ar.medi by behDotless_hah-ar.init;\n} hah;\n\nlookup allah {\n  lookupflag 0;\n    sub lam-ar.init lam-ar.medi shadda-ar alefabove-ar [heh-ar.fina hehgoal-ar.fina] by lam_lam_shadda_alefabove_heh-ar;\n} allah;\n"], 
+      ["subs", "# Automatic\nsub zero-ar by zero-ar.subs;\nsub zeroFarsi-ar by zeroFarsi-ar.subs;\nsub zeroFarsi-ar.locl by zeroFarsi-ar.locl.subs;\nsub one-ar by one-ar.subs;\nsub two-ar by two-ar.subs;\nsub twoFarsi-ar by twoFarsi-ar.subs;\nsub three-ar by three-ar.subs;\nsub four-ar by four-ar.subs;\nsub fourFarsi-ar by fourFarsi-ar.subs;\nsub fourFarsi-ar.locl by fourFarsi-ar.locl.subs;\nsub five-ar by five-ar.subs;\nsub fiveFarsi-ar by fiveFarsi-ar.subs;\nsub six-ar by six-ar.subs;\nsub sixFarsi-ar by sixFarsi-ar.subs;\nsub seven-ar by seven-ar.subs;\nsub sevenFarsi-ar by sevenFarsi-ar.subs;\nsub sevenFarsi-ar.locl by sevenFarsi-ar.locl.subs;\nsub eight-ar by eight-ar.subs;\nsub nine-ar by nine-ar.subs;\nsub zero by zero.subs;\nsub one by one.subs;\nsub two by two.subs;\nsub three by three.subs;\nsub four by four.subs;\nsub five by five.subs;\nsub six by six.subs;\nsub seven by seven.subs;\nsub eight by eight.subs;\nsub nine by nine.subs;\n"], 
+      ["sinf", "# Automatic\nsub zero-ar by zero-ar.subs;\nsub zeroFarsi-ar by zeroFarsi-ar.subs;\nsub zeroFarsi-ar.locl by zeroFarsi-ar.locl.subs;\nsub one-ar by one-ar.subs;\nsub two-ar by two-ar.subs;\nsub twoFarsi-ar by twoFarsi-ar.subs;\nsub three-ar by three-ar.subs;\nsub four-ar by four-ar.subs;\nsub fourFarsi-ar by fourFarsi-ar.subs;\nsub fourFarsi-ar.locl by fourFarsi-ar.locl.subs;\nsub five-ar by five-ar.subs;\nsub fiveFarsi-ar by fiveFarsi-ar.subs;\nsub six-ar by six-ar.subs;\nsub sixFarsi-ar by sixFarsi-ar.subs;\nsub seven-ar by seven-ar.subs;\nsub sevenFarsi-ar by sevenFarsi-ar.subs;\nsub sevenFarsi-ar.locl by sevenFarsi-ar.locl.subs;\nsub eight-ar by eight-ar.subs;\nsub nine-ar by nine-ar.subs;\nsub zero by zero.subs;\nsub one by one.subs;\nsub two by two.subs;\nsub three by three.subs;\nsub four by four.subs;\nsub five by five.subs;\nsub six by six.subs;\nsub seven by seven.subs;\nsub eight by eight.subs;\nsub nine by nine.subs;\n"], 
+      ["sups", "# Automatic\nsub zero-ar by zero-ar.sups;\nsub zeroFarsi-ar by zeroFarsi-ar.sups;\nsub zeroFarsi-ar.locl by zeroFarsi-ar.locl.sups;\nsub one-ar by one-ar.sups;\nsub two-ar by two-ar.sups;\nsub twoFarsi-ar by twoFarsi-ar.sups;\nsub three-ar by three-ar.sups;\nsub four-ar by four-ar.sups;\nsub fourFarsi-ar by fourFarsi-ar.sups;\nsub fourFarsi-ar.locl by fourFarsi-ar.locl.sups;\nsub five-ar by five-ar.sups;\nsub fiveFarsi-ar by fiveFarsi-ar.sups;\nsub six-ar by six-ar.sups;\nsub sixFarsi-ar by sixFarsi-ar.sups;\nsub seven-ar by seven-ar.sups;\nsub sevenFarsi-ar by sevenFarsi-ar.sups;\nsub sevenFarsi-ar.locl by sevenFarsi-ar.locl.sups;\nsub eight-ar by eight-ar.sups;\nsub nine-ar by nine-ar.sups;\nsub zero by zero.sups;\nsub one by one.sups;\nsub two by two.sups;\nsub three by three.sups;\nsub four by four.sups;\nsub five by five.sups;\nsub six by six.sups;\nsub seven by seven.sups;\nsub eight by eight.sups;\nsub nine by nine.sups;\n"], 
+      ["numr", "# Automatic\nsub zero-ar by zero-ar.numr;\nsub zeroFarsi-ar by zeroFarsi-ar.numr;\nsub zeroFarsi-ar.locl by zeroFarsi-ar.locl.numr;\nsub one-ar by one-ar.numr;\nsub two-ar by two-ar.numr;\nsub twoFarsi-ar by twoFarsi-ar.numr;\nsub three-ar by three-ar.numr;\nsub four-ar by four-ar.numr;\nsub fourFarsi-ar by fourFarsi-ar.numr;\nsub fourFarsi-ar.locl by fourFarsi-ar.locl.numr;\nsub five-ar by five-ar.numr;\nsub fiveFarsi-ar by fiveFarsi-ar.numr;\nsub six-ar by six-ar.numr;\nsub sixFarsi-ar by sixFarsi-ar.numr;\nsub seven-ar by seven-ar.numr;\nsub sevenFarsi-ar by sevenFarsi-ar.numr;\nsub sevenFarsi-ar.locl by sevenFarsi-ar.locl.numr;\nsub eight-ar by eight-ar.numr;\nsub nine-ar by nine-ar.numr;\nsub zero by zero.numr;\nsub one by one.numr;\nsub two by two.numr;\nsub three by three.numr;\nsub four by four.numr;\nsub five by five.numr;\nsub six by six.numr;\nsub seven by seven.numr;\nsub eight by eight.numr;\nsub nine by nine.numr;\n"], 
+      ["dnom", "# Automatic\nsub zero-ar by zero-ar.dnom;\nsub zeroFarsi-ar by zeroFarsi-ar.dnom;\nsub zeroFarsi-ar.locl by zeroFarsi-ar.locl.dnom;\nsub one-ar by one-ar.dnom;\nsub two-ar by two-ar.dnom;\nsub twoFarsi-ar by twoFarsi-ar.dnom;\nsub three-ar by three-ar.dnom;\nsub four-ar by four-ar.dnom;\nsub fourFarsi-ar by fourFarsi-ar.dnom;\nsub fourFarsi-ar.locl by fourFarsi-ar.locl.dnom;\nsub five-ar by five-ar.dnom;\nsub fiveFarsi-ar by fiveFarsi-ar.dnom;\nsub six-ar by six-ar.dnom;\nsub sixFarsi-ar by sixFarsi-ar.dnom;\nsub seven-ar by seven-ar.dnom;\nsub sevenFarsi-ar by sevenFarsi-ar.dnom;\nsub sevenFarsi-ar.locl by sevenFarsi-ar.locl.dnom;\nsub eight-ar by eight-ar.dnom;\nsub nine-ar by nine-ar.dnom;\nsub zero by zero.dnom;\nsub one by one.dnom;\nsub two by two.dnom;\nsub three by three.dnom;\nsub four by four.dnom;\nsub five by five.dnom;\nsub six by six.dnom;\nsub seven by seven.dnom;\nsub eight by eight.dnom;\nsub nine by nine.dnom;\n"], 
+      ["frac", "# Automatic\nlookup FRAC {\n\tsub slash by fraction;\n} FRAC;\nlookup UP {\n\tsub [zero-ar zeroFarsi-ar zeroFarsi-ar.locl one-ar two-ar twoFarsi-ar three-ar four-ar fourFarsi-ar fourFarsi-ar.locl five-ar fiveFarsi-ar six-ar sixFarsi-ar seven-ar sevenFarsi-ar sevenFarsi-ar.locl eight-ar nine-ar zero one two three four five six seven eight nine] by [zero-ar.numr zeroFarsi-ar.numr zeroFarsi-ar.locl.numr one-ar.numr two-ar.numr twoFarsi-ar.numr three-ar.numr four-ar.numr fourFarsi-ar.numr fourFarsi-ar.locl.numr five-ar.numr fiveFarsi-ar.numr six-ar.numr sixFarsi-ar.numr seven-ar.numr sevenFarsi-ar.numr sevenFarsi-ar.locl.numr eight-ar.numr nine-ar.numr zero.numr one.numr two.numr three.numr four.numr five.numr six.numr seven.numr eight.numr nine.numr];\n} UP;\nlookup DOWN {\n\tsub fraction [zero-ar.numr zeroFarsi-ar.numr zeroFarsi-ar.locl.numr one-ar.numr two-ar.numr twoFarsi-ar.numr three-ar.numr four-ar.numr fourFarsi-ar.numr fourFarsi-ar.locl.numr five-ar.numr fiveFarsi-ar.numr six-ar.numr sixFarsi-ar.numr seven-ar.numr sevenFarsi-ar.numr sevenFarsi-ar.locl.numr eight-ar.numr nine-ar.numr zero.numr one.numr two.numr three.numr four.numr five.numr six.numr seven.numr eight.numr nine.numr]' by [zero-ar.dnom zeroFarsi-ar.dnom zeroFarsi-ar.locl.dnom one-ar.dnom two-ar.dnom twoFarsi-ar.dnom three-ar.dnom four-ar.dnom fourFarsi-ar.dnom fourFarsi-ar.locl.dnom five-ar.dnom fiveFarsi-ar.dnom six-ar.dnom sixFarsi-ar.dnom seven-ar.dnom sevenFarsi-ar.dnom sevenFarsi-ar.locl.dnom eight-ar.dnom nine-ar.dnom zero.dnom one.dnom two.dnom three.dnom four.dnom five.dnom six.dnom seven.dnom eight.dnom nine.dnom];\n\tsub [zero-ar.dnom zeroFarsi-ar.dnom zeroFarsi-ar.locl.dnom one-ar.dnom two-ar.dnom twoFarsi-ar.dnom three-ar.dnom four-ar.dnom fourFarsi-ar.dnom fourFarsi-ar.locl.dnom five-ar.dnom fiveFarsi-ar.dnom six-ar.dnom sixFarsi-ar.dnom seven-ar.dnom sevenFarsi-ar.dnom sevenFarsi-ar.locl.dnom eight-ar.dnom nine-ar.dnom zero.dnom one.dnom two.dnom three.dnom four.dnom five.dnom six.dnom seven.dnom eight.dnom nine.dnom] [zero-ar.numr zeroFarsi-ar.numr zeroFarsi-ar.locl.numr one-ar.numr two-ar.numr twoFarsi-ar.numr three-ar.numr four-ar.numr fourFarsi-ar.numr fourFarsi-ar.locl.numr five-ar.numr fiveFarsi-ar.numr six-ar.numr sixFarsi-ar.numr seven-ar.numr sevenFarsi-ar.numr sevenFarsi-ar.locl.numr eight-ar.numr nine-ar.numr zero.numr one.numr two.numr three.numr four.numr five.numr six.numr seven.numr eight.numr nine.numr]' by [zero-ar.dnom zeroFarsi-ar.dnom zeroFarsi-ar.locl.dnom one-ar.dnom two-ar.dnom twoFarsi-ar.dnom three-ar.dnom four-ar.dnom fourFarsi-ar.dnom fourFarsi-ar.locl.dnom five-ar.dnom fiveFarsi-ar.dnom six-ar.dnom sixFarsi-ar.dnom seven-ar.dnom sevenFarsi-ar.dnom sevenFarsi-ar.locl.dnom eight-ar.dnom nine-ar.dnom zero.dnom one.dnom two.dnom three.dnom four.dnom five.dnom six.dnom seven.dnom eight.dnom nine.dnom];\n} DOWN;\n"], 
+      ["ordn", "# Automatic\nsub [zero one two three four five six seven eight nine] [A a]' by ordfeminine;\nsub [zero one two three four five six seven eight nine] [O o]' by ordmasculine;\nsub N o period by numero;\n"], 
+      ["pnum", "# Automatic\nsub decimalseparator-ar.tf by decimalseparator-ar;\nsub thousandseparator-ar.tf by thousandseparator-ar;\nsub zero-ar.tf by zero-ar;\nsub zeroFarsi-ar.tf by zeroFarsi-ar;\nsub zeroFarsi-ar.locl.tf by zeroFarsi-ar.locl;\nsub one-ar.tf by one-ar;\nsub two-ar.tf by two-ar;\nsub twoFarsi-ar.tf by twoFarsi-ar;\nsub three-ar.tf by three-ar;\nsub four-ar.tf by four-ar;\nsub fourFarsi-ar.tf by fourFarsi-ar;\nsub fourFarsi-ar.locl.tf by fourFarsi-ar.locl;\nsub five-ar.tf by five-ar;\nsub fiveFarsi-ar.tf by fiveFarsi-ar;\nsub six-ar.tf by six-ar;\nsub sixFarsi-ar.tf by sixFarsi-ar;\nsub seven-ar.tf by seven-ar;\nsub sevenFarsi-ar.tf by sevenFarsi-ar;\nsub sevenFarsi-ar.locl.tf by sevenFarsi-ar.locl;\nsub eight-ar.tf by eight-ar;\nsub nine-ar.tf by nine-ar;\nsub zero.tf by zero;\nsub one.tf by one;\nsub two.tf by two;\nsub three.tf by three;\nsub four.tf by four;\nsub five.tf by five;\nsub six.tf by six;\nsub seven.tf by seven;\nsub eight.tf by eight;\nsub nine.tf by nine;\nsub space.tf by space;\nsub period.tf by period;\nsub comma.tf by comma;\nsub colon.tf by colon;\nsub semicolon.tf by semicolon;\n"], 
+      ["tnum", "# Automatic\nsub decimalseparator-ar by decimalseparator-ar.tf;\nsub thousandseparator-ar by thousandseparator-ar.tf;\nsub zero-ar by zero-ar.tf;\nsub zeroFarsi-ar by zeroFarsi-ar.tf;\nsub zeroFarsi-ar.locl by zeroFarsi-ar.locl.tf;\nsub one-ar by one-ar.tf;\nsub two-ar by two-ar.tf;\nsub twoFarsi-ar by twoFarsi-ar.tf;\nsub three-ar by three-ar.tf;\nsub four-ar by four-ar.tf;\nsub fourFarsi-ar by fourFarsi-ar.tf;\nsub fourFarsi-ar.locl by fourFarsi-ar.locl.tf;\nsub five-ar by five-ar.tf;\nsub fiveFarsi-ar by fiveFarsi-ar.tf;\nsub six-ar by six-ar.tf;\nsub sixFarsi-ar by sixFarsi-ar.tf;\nsub seven-ar by seven-ar.tf;\nsub sevenFarsi-ar by sevenFarsi-ar.tf;\nsub sevenFarsi-ar.locl by sevenFarsi-ar.locl.tf;\nsub eight-ar by eight-ar.tf;\nsub nine-ar by nine-ar.tf;\nsub zero by zero.tf;\nsub one by one.tf;\nsub two by two.tf;\nsub three by three.tf;\nsub four by four.tf;\nsub five by five.tf;\nsub six by six.tf;\nsub seven by seven.tf;\nsub eight by eight.tf;\nsub nine by nine.tf;\nsub space by space.tf;\nsub period by period.tf;\nsub comma by comma.tf;\nsub colon by colon.tf;\nsub semicolon by semicolon.tf;\n"], 
+      ["case", "# Automatic\nsub exclamdown by exclamdown.case;\nsub questiondown by questiondown.case;\nsub slash by slash.case;\nsub backslash by backslash.case;\nsub hyphen by hyphen.case;\nsub endash by endash.case;\nsub emdash by emdash.case;\nsub parenleft by parenleft.case;\nsub parenright by parenright.case;\nsub braceleft by braceleft.case;\nsub braceright by braceright.case;\nsub bracketleft by bracketleft.case;\nsub bracketright by bracketright.case;\nsub guillemetleft.locl by guillemetleft.locl.case;\nsub guillemetright.locl by guillemetright.locl.case;\nsub guilsinglleft.locl by guilsinglleft.locl.case;\nsub guilsinglright.locl by guilsinglright.locl.case;\nsub at by at.case;\nsub bar by bar.case;\nsub dieresiscomb by dieresiscomb.case;\nsub dotaccentcomb by dotaccentcomb.case;\nsub gravecomb by gravecomb.case;\nsub acutecomb by acutecomb.case;\nsub hungarumlautcomb by hungarumlautcomb.case;\nsub caroncomb.alt by caroncomb.alt.case;\nsub circumflexcomb by circumflexcomb.case;\nsub caroncomb by caroncomb.case;\nsub brevecomb by brevecomb.case;\nsub ringcomb by ringcomb.case;\nsub tildecomb by tildecomb.case;\nsub macroncomb by macroncomb.case;\nsub cedillacomb by cedillacomb.case;\n"], 
+      ["dlig", "# Automatic\nlookup dlig_RTL {\nlookupflag IgnoreMarks;\n\tsub behDotless-ar.init hah-ar.fina by behDotless_hah-ar;\n\tsub behDotless-ar.init hah-ar.medi by behDotless_hah-ar.init;\n\tsub lam-ar.init hah-ar.fina by lam_hah-ar;\n\tsub lam-ar.init hah-ar.medi by lam_hah-ar.init;\n} dlig_RTL;\n"], 
+      ["zero", "# Automatic\nsub zero by zero.zero;\nsub zero.tf by zero.tf.zero;\n"], 
+      ["ss01", "# Automatic\nsub meem-ar by meem-ar.ss01;\nsub meem-ar.fina by meem-ar.fina.ss01;\nfeatureNames {\n  name 3 1 0x409 \"Alternate meem\";\n};"], 
+      ["ss02", "# Automatic\nsub lam_alef-ar.fina by lam_alef-ar.fina.ss02;\nfeatureNames {\n  name 3 1 0x409 \"Alternate lam-alef\";\n};"], 
+      ["ss03", "# Automatic\nsub a by a.ss03;\nsub aacute by aacute.ss03;\nsub abreve by abreve.ss03;\nsub acircumflex by acircumflex.ss03;\nsub adieresis by adieresis.ss03;\nsub agrave by agrave.ss03;\nsub amacron by amacron.ss03;\nsub aogonek by aogonek.ss03;\nsub aring by aring.ss03;\nsub atilde by atilde.ss03;\nsub g by g.ss03;\nsub gbreve by gbreve.ss03;\nsub gcommaaccent by gcommaaccent.ss03;\nsub gdotaccent by gdotaccent.ss03;\nfeatureNames {\n  name 3 1 0x409 \"Geometric a g\";\n};"], 
+      ["ss04", "# Automatic\nsub a by a.ss04;\nsub aacute by aacute.ss04;\nsub abreve by abreve.ss04;\nsub acircumflex by acircumflex.ss04;\nsub adieresis by adieresis.ss04;\nsub agrave by agrave.ss04;\nsub amacron by amacron.ss04;\nsub aogonek by aogonek.ss04;\nsub aring by aring.ss04;\nsub atilde by atilde.ss04;\nsub g by g.ss04;\nsub gbreve by gbreve.ss04;\nsub gcommaaccent by gcommaaccent.ss04;\nsub gdotaccent by gdotaccent.ss04;\nsub l by l.ss04;\nsub lacute by lacute.ss04;\nsub lcaron by lcaron.ss04;\nsub lcommaaccent by lcommaaccent.ss04;\nsub ldot by ldot.ss04;\nsub lslash by lslash.ss04;\nsub y by y.ss04;\nsub yacute by yacute.ss04;\nsub ycircumflex by ycircumflex.ss04;\nsub ydieresis by ydieresis.ss04;\nsub ygrave by ygrave.ss04;\nfeatureNames {\n  name 3 1 0x409 \"Tailed a g l y\";\n};"], 
+      ["ss05", "# Automatic\nsub six by six.ss05;\nsub nine by nine.ss05;\nsub six.tf by six.tf.ss05;\nsub nine.tf by nine.tf.ss05;\nfeatureNames {\n  name 3 1 0x409 \"Alt numbers\";\n};"], 
+      ["mark", "# Automatic Code\n\nlookup beh_dots_1 {\n  lookupflag UseMarkFilteringSet [@behdotbelow @markbottom];\n    ignore\n    pos behDotless-ar.init @behdotbelow' [alef-ar.fina lam-ar.medi] @markbottom;\n    pos behDotless-ar.init @behdotbelow' <DOTSHIFT> [alef-ar.fina lam-ar.medi];\n\n    ignore\n    pos behDotless-ar.init @behdotbelow' @markbottom [alef-ar.fina lam-ar.medi] @markbottom;\n    pos behDotless-ar.init @behdotbelow' <DOTSHIFT> @markbottom [alef-ar.fina lam-ar.medi];\n} beh_dots_1;\n\nlookup beh_dots_2 {\n  lookupflag UseMarkFilteringSet @behdotbelow;\n    pos  behDotless-ar.init\n         @behdotbelow' <DOTSHIFT>\n        [kafDotless-ar.fina lam_alef-ar.fina lam_alef-ar.fina.ss02\n         dal-ar.fina kaf-ar.medi keheh-ar.fina kafswash-ar.medi kafswash-ar.fina\n         sad-ar.medi sad-ar.fina tah-ar.medi tah-ar.fina ain-ar.medi\n         fehDotless-ar.medi fehDotless-ar.fina heh-ar.fina\n         meem-ar.medi meem-ar.medi meem-ar.fina meem-ar.fina.ss01\n        ];\n} beh_dots_2;\n"]
+    ]
+}
+, 
+  "first_kern_groups": {"C": ["Cacute", "Ccedilla", "C", "Ccaron", "euro", "Cdotaccent"], "n": ["agrave", "ncaron", "iogonek", "i", "iogonek.dotless", "ntilde", "igrave", "abreve", "m", "imacron", "atilde", "hbar", "h", "idotless", "ncommaaccent", "adieresis", "aring", "n", "nacute", "amacron", "eng", "aogonek", "icircumflex", "idieresis", "a", "aacute", "acircumflex", "iacute"], "zero.sups": ["one.sups", "four.sups", "zero.sups", "eight.sups", "five.sups", "three.sups", "six.sups", "nine.sups", "seven.sups", "two.sups"], "space": ["space"], "o": ["ohungarumlaut", "oe", "p", "ccaron", "emacron", "odieresis", "o", "oacute", "eogonek", "ae", "eacute", "cent", "edieresis", "omacron", "ecircumflex", "b", "egrave", "edotaccent", "ocircumflex", "cacute", "cdotaccent", "otilde", "ecaron", "thorn", "oslash", "c", "ccedilla", "e", "ograve"], "v": ["yacute", "wgrave", "ycircumflex", "v", "ydieresis", "wdieresis", "wcircumflex", "w", "y", "ygrave", "wacute"], "zero.subs": ["four.subs", "eight.subs", "zero.subs", "one.subs", "nine.subs", "six.subs", "seven.subs", "two.subs", "five.subs", "three.subs"], "u": ["aring.ss04", "agrave.ss04", "atilde.ss03", "a.ss03", "adieresis.ss04", "aogonek.ss04", "uhungarumlaut", "uring", "umacron", "ubreve", "adieresis.ss03", "aogonek.ss03", "atilde.ss04", "ugrave", "a.ss04", "aring.ss03", "agrave.ss03", "u", "uogonek", "ucircumflex", "amacron.ss03", "udieresis", "abreve.ss04", "uacute", "acircumflex.ss04", "aacute.ss04", "acircumflex.ss03", "aacute.ss03", "abreve.ss03", "amacron.ss04"], "t": ["tcommaaccent", "t", "tcaron"], "r": ["r", "rcaron", "rcommaaccent", "racute"], "O": ["zero.circled", "six.circled", "Q", "Ohungarumlaut", "seven.circled", "three.blackCircled", "Oacute", "Eth", "parenright.case", "mediumWhiteCircle", "nine.circled", "O", "two.blackCircled", "eight.circled", "zero.blackCircled", "copyright", "estimated", "five.circled", "Odieresis", "four.blackCircled", "mediumBlackCircle", "nine.blackCircled", "Dcroat", "parenright", "Dcaron", "two.circled", "seven.blackCircled", "D", "four.circled", "at.case", "six.blackCircled", "one.blackCircled", "eight.blackCircled", "Otilde", "Omacron", "Oslash", "at", "five.blackCircled", "Ocircumflex", "one.circled", "Ograve", "three.circled"], "U": ["Uogonek", "Uacute", "Uhungarumlaut", "Umacron", "U", "Ucircumflex", "Udieresis", "Uring", "J", "Ugrave", "Ubreve"], "V": ["Wgrave", "Wcircumflex", "slash.case", "slash", "V", "Wacute", "Wdieresis"], "zero": ["six", "nine", "eight", "zero", "zero.zero", "five", "three"], "H": ["Ntilde", "paragraph", "Ncaron", "I", "G", "Idotaccent", "Gdotaccent", "daggerdbl", "Gcommaaccent", "Icircumflex", "bar.case", "bracketright.case", "braceright.case", "Iacute", "bar", "Idieresis", "M", "Gbreve", "H", "whiteLargeSquare", "Nacute", "braceright", "bracketright", "Ncommaaccent", "Igrave", "blackLargeSquare", "Eng", "Hbar", "Iogonek", "N", ".notdef", "Imacron"], "comma": ["comma.tf", "comma", "period", "quotedblbase", "period.tf", "ellipsis", "quotesinglbase", "underscore"], "percent": ["perthousand", "percent"], "plus": ["less", "notequal", "lessequal", "divide", "equal", "multiply", "greaterequal", "approxequal", "plus", "greater", "plusminus"], "A": ["Agrave", "Abreve", "Aogonek", "Atilde", "backslash.case", "backslash", "A", "Amacron", "Adieresis", "Acircumflex", "Aacute", "Aring"], "s": ["germandbls", "s", "sacute", "scedilla", "scaron", "scommaaccent"], "zero.dnom": ["three.dnom", "onethird", "five.dnom", "fiveeighths", "seven.dnom", "two.dnom", "oneeighth", "twothirds", "nine.dnom", "six.dnom", "threeeighths", "one.dnom", "seveneighths", "eight.dnom", "zero.dnom", "onequarter", "four.dnom", "onehalf", "threequarters"], "dash": ["guillemetright.locl.case", "guilsinglright", "hyphen.case", "emdash", "guilsinglright.locl.case", "arrowright", "guilsinglright.locl", "guilsinglleft.locl.case", "hyphen", "periodcentered", "bullet", "emdash.case", "guilsinglleft", "guillemetleft.locl", "guillemetleft", "guilsinglleft.locl", "asciitilde", "guillemetleft.locl.case", "endash.case", "guillemetright", "endash", "guillemetright.locl"], "ordmasculine": ["asciicircum", "ordmasculine", "numero", "ordfeminine", "trademark", "registered"], "k": ["kcommaaccent", "k"], "g": ["gdotaccent.ss03", "gdotaccent.ss04", "gbreve.ss03", "gcommaaccent.ss04", "gcommaaccent.ss03", "gdotaccent", "gcommaaccent", "g", "gbreve", "gbreve.ss04"], "quote": ["quotedblleft", "asterisk", "quotesingle", "quoteright", "quoteleft", "quotedblright", "quotedbl", "degree"], "l": ["lcommaaccent.ss04", "lslash", "j", "lcaron", "dcroat", "l", "dcaron", "lacute.ss04", "l.ss04", "lslash.ss04", "lcaron.ss04", "d", "jdotless", "lacute", "lcommaaccent"], "E": ["E", "Edieresis", "OE", "Eacute", "Eogonek", "Edotaccent", "Egrave", "Emacron", "Ecircumflex", "Ecaron", "AE"], "sad-medi": ["tah-ar.medi", "tah-ar.fina", "sad-ar.medi", "dal-ar.fina", "kaf-ar.medi", "keheh-ar.fina", "kafswash-ar.fina", "kafswash-ar.medi", "sad-ar.fina"], "z": ["zdotaccent", "zcaron", "z", "zacute"], "S": ["sterling", "S", "Sacute", "dollar", "ampersand", "Germandbls", "section", "Scedilla", "Scaron", "Scommaaccent"], "parenleft": ["braceleft", "parenleft.case", "bracketleft.case", "braceleft.case", "bracketleft", "parenleft"], "zero.numr": ["one.numr", "zero.numr", "eight.numr", "four.numr", "three.numr", "five.numr", "seven.numr", "two.numr", "six.numr", "nine.numr"], "T": ["Tcaron", "Tcommaaccent", "dagger", "T"], "eth": ["eth"], "K": ["K", "Kcommaaccent"], "ninegeom": ["nine.ss05"], "hah-medi": ["hah-ar.fina", "hah-ar.medi"], "ldot": ["ldot", "ldot.ss04"], "sixgeom": ["six.ss05"], "Y": ["Yacute", "Ycircumflex", "Y", "Ydieresis", "Ygrave"], "two": ["two"], "questioncase": ["questiondown.case"], "Z": ["Zacute", "Zdotaccent", "Zcaron", "Z"], "q": ["q", "yacute.ss04", "ycircumflex.ss04", "g.ss04", "y.ss04", "g.ss03", "ygrave.ss04", "ydieresis.ss04"], "minus": ["minus"], "four": ["four"], "W": ["W"], "exclamdown": ["exclamdown"], "L": ["Lacute", "Lslash", "Lcaron", "Ldot", "L", "Lcommaaccent"], "R": ["Rcaron", "R", "Racute", "Rcommaaccent"], "question": ["question"], "fraction": ["fraction"], "colon": ["semicolon.tf", "colon", "semicolon", "colon.tf"], "P": ["Thorn", "P"], "seven": ["seven"], "exclam": ["exclam"], "numbersign": ["numbersign"], "F": ["F"], "questiondown": ["questiondown"], "f": ["f"], "exclamcase": ["exclamdown.case"], "x": ["x"], "B": ["B"], "X": ["X"], "yen": ["yen"], "one": ["one"]}, 
+  "second_kern_groups": {"O": ["Cacute", "zero.circled", "six.circled", "Q", "Ohungarumlaut", "seven.circled", "three.blackCircled", "Oacute", "G", "Ccedilla", "OE", "parenleft.case", "mediumWhiteCircle", "nine.circled", "Gdotaccent", "O", "C", "Gcommaaccent", "two.blackCircled", "eight.circled", "zero.blackCircled", "copyright", "estimated", "five.circled", "Odieresis", "four.blackCircled", "mediumBlackCircle", "nine.blackCircled", "Gbreve", "two.circled", "seven.blackCircled", "Ccaron", "parenleft", "four.circled", "at.case", "euro", "six.blackCircled", "one.blackCircled", "eight.blackCircled", "Otilde", "Omacron", "Cdotaccent", "Oslash", "at", "five.blackCircled", "Ocircumflex", "one.circled", "Ograve", "three.circled"], "a": ["agrave", "abreve", "ae", "atilde", "adieresis", "aring", "amacron", "aogonek", "a", "aacute", "acircumflex"], "zero.sups": ["one.sups", "four.sups", "zero.sups", "eight.sups", "five.sups", "three.sups", "six.sups", "nine.sups", "seven.sups", "two.sups"], "n": ["ncaron", "r", "iogonek", "i", "iogonek.dotless", "p", "ntilde", "igrave", "m", "imacron", "rcaron", "idotless", "ncommaaccent", "n", "nacute", "eng", "rcommaaccent", "icircumflex", "idieresis", "racute", "iacute"], "space": ["space"], "o": ["ohungarumlaut", "aring.ss04", "agrave.ss04", "oe", "atilde.ss03", "ccaron", "emacron", "a.ss03", "odieresis", "adieresis.ss04", "aogonek.ss04", "o", "oacute", "eogonek", "q", "eacute", "adieresis.ss03", "aogonek.ss03", "cent", "atilde.ss04", "dcroat", "edieresis", "a.ss04", "dcaron", "aring.ss03", "agrave.ss03", "omacron", "ecircumflex", "egrave", "edotaccent", "ocircumflex", "amacron.ss03", "cacute", "d", "abreve.ss04", "g.ss04", "cdotaccent", "acircumflex.ss04", "aacute.ss04", "otilde", "g.ss03", "acircumflex.ss03", "aacute.ss03", "ecaron", "oslash", "c", "abreve.ss03", "amacron.ss04", "ccedilla", "e", "ograve"], "v": ["yacute", "wgrave", "ycircumflex", "v", "ydieresis", "wdieresis", "wcircumflex", "w", "y", "ygrave", "wacute"], "zero.subs": ["four.subs", "eight.subs", "zero.subs", "one.subs", "nine.subs", "six.subs", "seven.subs", "two.subs", "five.subs", "three.subs"], "t": ["tcommaaccent", "t", "tcaron"], "U": ["Uogonek", "Uacute", "Uhungarumlaut", "Umacron", "U", "Ucircumflex", "Udieresis", "Uring", "Ugrave", "Ubreve"], "V": ["Wgrave", "Wcircumflex", "backslash.case", "backslash", "V", "Wacute", "Wdieresis"], "zero": ["six", "nine", "eight", "zero", "zero.zero", "five", "three"], "H": ["Ntilde", "Ncaron", "I", "E", "braceleft", "Edieresis", "K", "Eth", "Idotaccent", "daggerdbl", "Eacute", "Icircumflex", "bracketleft.case", "braceleft.case", "Lacute", "Rcaron", "bar.case", "Iacute", "Dcroat", "bar", "Idieresis", "M", "Dcaron", "Thorn", "bracketleft", "Eogonek", "H", "D", "Edotaccent", "P", "Egrave", "whiteLargeSquare", "Nacute", "Kcommaaccent", "Lslash", "Ncommaaccent", "F", "Emacron", "Ecircumflex", "Igrave", "R", "blackLargeSquare", "Eng", "Ecaron", "Hbar", "Iogonek", "Lcaron", "N", "Ldot", "B", ".notdef", "Imacron", "Racute", "L", "Lcommaaccent", "Rcommaaccent"], "comma": ["comma.tf", "comma", "period", "quotedblbase", "period.tf", "ellipsis", "quotesinglbase", "underscore"], "percent": ["perthousand", "percent"], "plus": ["less", "notequal", "lessequal", "divide", "equal", "multiply", "greaterequal", "approxequal", "plus", "greater", "plusminus"], "A": ["Agrave", "Abreve", "slash.case", "slash", "Aogonek", "Atilde", "A", "Amacron", "Adieresis", "Acircumflex", "Aacute", "Aring", "AE"], "l": ["germandbls", "kcommaaccent", "k", "lcommaaccent.ss04", "ldot", "ldot.ss04", "lslash", "lcaron", "hbar", "h", "l", "lacute.ss04", "l.ss04", "b", "lslash.ss04", "lcaron.ss04", "lacute", "thorn", "lcommaaccent"], "zero.dnom": ["three.dnom", "five.dnom", "seven.dnom", "two.dnom", "nine.dnom", "six.dnom", "one.dnom", "eight.dnom", "zero.dnom", "four.dnom"], "dash": ["guillemetright.locl.case", "guilsinglright", "hyphen.case", "emdash", "guilsinglright.locl.case", "arrowright", "guilsinglright.locl", "guilsinglleft.locl.case", "hyphen", "periodcentered", "bullet", "emdash.case", "guilsinglleft", "guillemetleft.locl", "guillemetleft", "guilsinglleft.locl", "asciitilde", "guillemetleft.locl.case", "endash.case", "guillemetright", "endash", "guillemetright.locl"], "ordmasculine": ["asciicircum", "ordmasculine", "ordfeminine", "trademark", "registered"], "g": ["gdotaccent.ss03", "gdotaccent.ss04", "gbreve.ss03", "gcommaaccent.ss04", "gcommaaccent.ss03", "gdotaccent", "gcommaaccent", "g", "gbreve", "gbreve.ss04"], "paragraph": ["paragraph"], "zero.numr": ["onethird", "one.numr", "fiveeighths", "zero.numr", "oneeighth", "eight.numr", "twothirds", "four.numr", "three.numr", "threeeighths", "five.numr", "seveneighths", "seven.numr", "two.numr", "onequarter", "six.numr", "onehalf", "threequarters", "nine.numr"], "quote": ["quotedblleft", "asterisk", "quotesingle", "quoteright", "quoteleft", "quotedblright", "quotedbl", "degree"], "z": ["zdotaccent", "zcaron", "z", "zacute"], "S": ["sterling", "S", "Sacute", "dollar", "ampersand", "section", "Scedilla", "Scaron", "Scommaaccent"], "T": ["Tcaron", "Tcommaaccent", "dagger", "T"], "eth": ["eth"], "ninegeom": ["nine.ss05"], "sixgeom": ["six.ss05"], "parenright": ["parenright.case", "bracketright.case", "braceright.case", "parenright", "braceright", "bracketright"], "u": ["uhungarumlaut", "uring", "umacron", "ubreve", "yacute.ss04", "ugrave", "ycircumflex.ss04", "u", "uogonek", "ucircumflex", "udieresis", "uacute", "y.ss04", "ygrave.ss04", "ydieresis.ss04"], "Y": ["Yacute", "Ycircumflex", "Y", "Ydieresis", "Ygrave"], "two": ["two"], "j": ["j", "jdotless"], "questioncase": ["questiondown.case"], "Z": ["Zacute", "Zdotaccent", "Zcaron", "Z"], "minus": ["minus"], "four": ["four"], "hah-medi": ["hah-ar.init", "hah-ar.medi", "lam_hah-ar.init", "behDotless_hah-ar.init"], "W": ["W"], "exclamdown": ["exclamdown"], "s": ["s", "sacute", "scedilla", "scaron", "scommaaccent"], "question": ["question"], "fraction": ["fraction"], "N": ["numero"], "colon": ["semicolon.tf", "colon", "semicolon", "colon.tf"], "seven": ["seven"], "exclam": ["exclam"], "numbersign": ["numbersign"], "Germandbls": ["Germandbls"], "J": ["J"], "questiondown": ["questiondown"], "f": ["f"], "exclamcase": ["exclamdown.case"], "x": ["x"], "X": ["X"], "yen": ["yen"], "one": ["one"]},
+  "_":
+{
+  "com.glyphsapp": {
+    ".appVersion": "3414",
+    ".formatVersion": 3,
+    "customParameters": [
+      {
+        "name": "Write lastChange",
+        "value": 0
+      },
+      {
+        "name": "Write DisplayStrings",
+        "value": 0
+      },
+      {
+        "name": "Use Line Breaks",
+        "value": 1
+      },
+      {
+        "name": "fsType",
+        "value": []
+      },
+      {
+        "name": "Use Typo Metrics",
+        "value": 1
+      },
+      {
+        "name": "Don't use Production Names",
+        "value": 0
+      },
+      {
+        "name": "Axis Mappings",
+        "value": {
+          "wght": {
+            "200": 30,
+            "300": 55,
+            "400": 75,
+            "500": 85,
+            "600": 100,
+            "700": 115,
+            "800": 135
+          }
+        }
+      },
+      {
+        "name": "typoAscender",
+        "value": 1000
+      },
+      {
+        "name": "typoDescender",
+        "value": -420
+      },
+      {
+        "name": "typoLineGap",
+        "value": 0
+      },
+      {
+        "name": "hheaAscender",
+        "value": 1000
+      },
+      {
+        "name": "hheaDescender",
+        "value": -420
+      },
+      {
+        "name": "hheaLineGap",
+        "value": 0
+      },
+      {
+        "name": "winAscent",
+        "value": 1100
+      },
+      {
+        "name": "winDescent",
+        "value": 520
+      },
+      {
+        "name": "meta Table",
+        "value": [
+          {
+            "data": "Arab,Latn",
+            "tag": "dlng"
+          },
+          {
+            "data": "Arab,Latn",
+            "tag": "slng"
+          }
+        ]
+      },
+      {
+        "name": "subscriptYOffset",
+        "value": 124
+      },
+      {
+        "name": "subscriptXSize",
+        "value": 530
+      },
+      {
+        "name": "subscriptYSize",
+        "value": 530
+      },
+      {
+        "name": "superscriptYOffset",
+        "value": 439
+      },
+      {
+        "name": "superscriptXSize",
+        "value": 530
+      },
+      {
+        "name": "superscriptYSize",
+        "value": 530
+      },
+      {
+        "name": "underlinePosition",
+        "value": -250
+      }
+    ],
+    "kerningLTR": {
+      "3114FB65-9464-41A5-B67E-A8F9F43C0EF1": {
+        "@MMK_L_A": {
+          "@MMK_R_J": -20,
+          "@MMK_R_O": -30,
+          "@MMK_R_T": -70,
+          "@MMK_R_U": -20,
+          "@MMK_R_V": -65,
+          "@MMK_R_W": -35,
+          "@MMK_R_Y": -60,
+          "@MMK_R_question": -40,
+          "@MMK_R_quote": -60,
+          "@MMK_R_v": -30,
+          "@MMK_R_zero.subs": 0,
+          "@MMK_R_zero.sups": -80,
+          "V": -70
+        },
+        "@MMK_L_B": {
+          "@MMK_R_Y": -20
+        },
+        "@MMK_L_C": {
+          "@MMK_R_O": -5,
+          "@MMK_R_comma": -20,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_v": -10
+        },
+        "@MMK_L_F": {
+          "@MMK_R_A": -60,
+          "@MMK_R_O": -10,
+          "@MMK_R_a": -20,
+          "@MMK_R_comma": -83,
+          "@MMK_R_g": -20,
+          "@MMK_R_o": -17,
+          "@MMK_R_s": -30,
+          "@MMK_R_space": -30,
+          "@MMK_R_t": -20,
+          "@MMK_R_u": -20,
+          "@MMK_R_v": -20
+        },
+        "@MMK_L_H": {
+          "@MMK_R_A": 0,
+          "@MMK_R_Y": 0,
+          "@MMK_R_a": -10,
+          "@MMK_R_comma": 0,
+          "@MMK_R_g": 0,
+          "@MMK_R_o": 0,
+          "@MMK_R_u": -4,
+          "@MMK_R_v": -3
+        },
+        "@MMK_L_K": {
+          "@MMK_R_O": -30,
+          "@MMK_R_S": -20,
+          "@MMK_R_a": -20,
+          "@MMK_R_dash": -40,
+          "@MMK_R_o": -22,
+          "@MMK_R_u": -30,
+          "@MMK_R_v": -40
+        },
+        "@MMK_L_L": {
+          "@MMK_R_O": -31,
+          "@MMK_R_T": -73,
+          "@MMK_R_U": -20,
+          "@MMK_R_V": -76,
+          "@MMK_R_W": -50,
+          "@MMK_R_Y": -64,
+          "@MMK_R_dash": -50,
+          "@MMK_R_o": -20,
+          "@MMK_R_question": -50,
+          "@MMK_R_quote": -120,
+          "@MMK_R_seven": -30,
+          "@MMK_R_t": -40,
+          "@MMK_R_u": -20,
+          "@MMK_R_v": -44,
+          "@MMK_R_zero.sups": -130
+        },
+        "@MMK_L_O": {
+          "@MMK_R_A": -30,
+          "@MMK_R_T": -34,
+          "@MMK_R_V": -15,
+          "@MMK_R_W": -10,
+          "@MMK_R_X": -13,
+          "@MMK_R_Y": -19,
+          "@MMK_R_Z": -21,
+          "@MMK_R_a": -4,
+          "@MMK_R_comma": -70,
+          "@MMK_R_parenright": -30,
+          "AE": -18
+        },
+        "@MMK_L_P": {
+          "@MMK_R_A": -70,
+          "@MMK_R_J": -130,
+          "@MMK_R_a": -32,
+          "@MMK_R_comma": -97,
+          "@MMK_R_g": -60,
+          "@MMK_R_j": -20,
+          "@MMK_R_l": -20,
+          "@MMK_R_n": -21,
+          "@MMK_R_o": -36,
+          "@MMK_R_questioncase": -40,
+          "@MMK_R_questiondown": -70,
+          "@MMK_R_s": -20,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -20,
+          "@MMK_R_zero.subs": -100
+        },
+        "@MMK_L_R": {
+          "@MMK_R_O": 0,
+          "@MMK_R_T": -20,
+          "@MMK_R_U": -7,
+          "@MMK_R_V": 0,
+          "@MMK_R_Y": 0,
+          "@MMK_R_a": -20,
+          "@MMK_R_o": -20,
+          "@MMK_R_v": 0
+        },
+        "@MMK_L_S": {
+          "@MMK_R_T": -40,
+          "@MMK_R_V": -20,
+          "@MMK_R_W": -10,
+          "@MMK_R_Y": -20,
+          "@MMK_R_comma": -20,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_t": -20,
+          "@MMK_R_v": -10
+        },
+        "@MMK_L_T": {
+          "@MMK_R_A": -70,
+          "@MMK_R_J": -80,
+          "@MMK_R_O": -30,
+          "@MMK_R_a": -112,
+          "@MMK_R_comma": -80,
+          "@MMK_R_dash": -60,
+          "@MMK_R_four": -60,
+          "@MMK_R_g": -100,
+          "@MMK_R_n": -78,
+          "@MMK_R_o": -95,
+          "@MMK_R_questioncase": -60,
+          "@MMK_R_s": -80,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -98,
+          "@MMK_R_v": -40,
+          "@MMK_R_zero.subs": -60
+        },
+        "@MMK_L_U": {
+          "@MMK_R_A": -20,
+          "@MMK_R_Germandbls": -5,
+          "@MMK_R_a": -10,
+          "@MMK_R_comma": -20,
+          "@MMK_R_g": -10,
+          "@MMK_R_n": -9,
+          "@MMK_R_o": 0,
+          "@MMK_R_u": -9
+        },
+        "@MMK_L_V": {
+          "@MMK_R_A": 0,
+          "@MMK_R_J": -80,
+          "@MMK_R_O": -15,
+          "@MMK_R_S": -30,
+          "@MMK_R_V": 7,
+          "@MMK_R_a": -65,
+          "@MMK_R_comma": -80,
+          "@MMK_R_dash": -30,
+          "@MMK_R_four": -50,
+          "@MMK_R_g": -70,
+          "@MMK_R_n": -41,
+          "@MMK_R_o": -70,
+          "@MMK_R_questioncase": -30,
+          "@MMK_R_s": -30,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -40,
+          "@MMK_R_v": -45,
+          "@MMK_R_zero.subs": -80,
+          "A": -70
+        },
+        "@MMK_L_W": {
+          "@MMK_R_A": -35,
+          "@MMK_R_J": -70,
+          "@MMK_R_O": -10,
+          "@MMK_R_S": -20,
+          "@MMK_R_a": -30,
+          "@MMK_R_comma": -60,
+          "@MMK_R_g": -60,
+          "@MMK_R_o": -20,
+          "@MMK_R_questiondown": -50,
+          "@MMK_R_zero.subs": -40
+        },
+        "@MMK_L_X": {
+          "@MMK_R_O": -10,
+          "@MMK_R_dash": -30,
+          "@MMK_R_o": 0,
+          "@MMK_R_v": -20
+        },
+        "@MMK_L_Y": {
+          "@MMK_R_A": -60,
+          "@MMK_R_O": -20,
+          "@MMK_R_S": -20,
+          "@MMK_R_a": -80,
+          "@MMK_R_comma": -100,
+          "@MMK_R_dash": -50,
+          "@MMK_R_four": -40,
+          "@MMK_R_g": -70,
+          "@MMK_R_n": -60,
+          "@MMK_R_o": -90,
+          "@MMK_R_questioncase": -30,
+          "@MMK_R_questiondown": -70,
+          "@MMK_R_s": -50,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -76,
+          "@MMK_R_v": -30,
+          "@MMK_R_zero.subs": -80
+        },
+        "@MMK_L_Z": {
+          "@MMK_R_O": -20,
+          "@MMK_R_dash": -40,
+          "@MMK_R_o": -16,
+          "@MMK_R_u": -20,
+          "@MMK_R_v": -20
+        },
+        "@MMK_L_comma": {
+          "@MMK_R_J": -20,
+          "@MMK_R_O": -70,
+          "@MMK_R_S": -20,
+          "@MMK_R_T": -80,
+          "@MMK_R_U": -20,
+          "@MMK_R_V": -80,
+          "@MMK_R_W": -60,
+          "@MMK_R_Y": -100,
+          "@MMK_R_four": -10,
+          "@MMK_R_one": -60,
+          "@MMK_R_quote": -75,
+          "@MMK_R_seven": -40,
+          "@MMK_R_v": -70,
+          "@MMK_R_zero": -20,
+          "six": -30
+        },
+        "@MMK_L_dash": {
+          "@MMK_R_J": -34,
+          "@MMK_R_T": -60,
+          "@MMK_R_V": -30,
+          "@MMK_R_X": -30,
+          "@MMK_R_Y": -50,
+          "@MMK_R_Z": -30,
+          "@MMK_R_l": -4,
+          "@MMK_R_n": 0,
+          "@MMK_R_one": -30,
+          "@MMK_R_seven": -50,
+          "@MMK_R_x": 0,
+          "@MMK_R_z": 0
+        },
+        "@MMK_L_f": {
+          "@MMK_R_a": -26,
+          "@MMK_R_comma": -56,
+          "@MMK_R_f": 22,
+          "@MMK_R_g": -20,
+          "@MMK_R_o": -22,
+          "@MMK_R_question": 20,
+          "@MMK_R_v": 17,
+          "f": 15
+        },
+        "@MMK_L_four": {
+          "@MMK_R_comma": -20,
+          "@MMK_R_ninegeom": -20,
+          "@MMK_R_seven": -20
+        },
+        "@MMK_L_fraction": {
+          "@MMK_R_zero.dnom": -30,
+          "@MMK_R_zero.subs": -50,
+          "four.dnom": -90,
+          "one.dnom": -80,
+          "seven.dnom": -40,
+          "two.dnom": -40
+        },
+        "@MMK_L_g": {
+          "@MMK_R_o": -10,
+          "@MMK_R_question": 20
+        },
+        "@MMK_L_k": {
+          "@MMK_R_a": -10,
+          "@MMK_R_dash": 0,
+          "@MMK_R_o": -10
+        },
+        "@MMK_L_l": {
+          "@MMK_R_g": -10
+        },
+        "@MMK_L_n": {
+          "@MMK_R_T": -81,
+          "@MMK_R_V": -70,
+          "@MMK_R_Y": -50,
+          "@MMK_R_g": -10,
+          "@MMK_R_l": 10,
+          "@MMK_R_parenright": -20,
+          "@MMK_R_question": -20,
+          "@MMK_R_t": -35,
+          "@MMK_R_v": -20,
+          "@MMK_R_zero.sups": -40
+        },
+        "@MMK_L_ninegeom": {
+          "@MMK_R_four": -30,
+          "@MMK_R_seven": -30,
+          "@MMK_R_sixgeom": -20
+        },
+        "@MMK_L_o": {
+          "@MMK_R_T": -93,
+          "@MMK_R_V": -70,
+          "@MMK_R_W": -20,
+          "@MMK_R_Y": -90,
+          "@MMK_R_comma": -10,
+          "@MMK_R_g": -10,
+          "@MMK_R_n": 0,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_question": -30,
+          "@MMK_R_quote": -20,
+          "@MMK_R_t": -20,
+          "@MMK_R_v": -20,
+          "@MMK_R_zero.sups": -50
+        },
+        "@MMK_L_parenleft": {
+          "@MMK_R_O": -30,
+          "@MMK_R_S": -30,
+          "@MMK_R_a": -20,
+          "@MMK_R_n": -20,
+          "@MMK_R_o": -30,
+          "@MMK_R_v": -30
+        },
+        "@MMK_L_question": {
+          "@MMK_R_J": -60
+        },
+        "@MMK_L_questioncase": {
+          "@MMK_R_T": -90,
+          "@MMK_R_V": -80,
+          "@MMK_R_W": -50,
+          "@MMK_R_Y": -70
+        },
+        "@MMK_L_questiondown": {
+          "@MMK_R_J": -50,
+          "@MMK_R_O": -60,
+          "@MMK_R_S": -60,
+          "@MMK_R_U": -50,
+          "@MMK_R_V": -90,
+          "@MMK_R_W": -60,
+          "@MMK_R_Y": -100,
+          "@MMK_R_f": -50,
+          "@MMK_R_o": -60,
+          "@MMK_R_s": -30,
+          "@MMK_R_t": -50,
+          "@MMK_R_u": -30,
+          "@MMK_R_v": -50
+        },
+        "@MMK_L_quote": {
+          "@MMK_R_A": -63,
+          "@MMK_R_J": -120,
+          "@MMK_R_a": -40,
+          "@MMK_R_comma": -74,
+          "@MMK_R_o": -20,
+          "@MMK_R_s": -30
+        },
+        "@MMK_L_r": {
+          "@MMK_R_a": -20,
+          "@MMK_R_comma": -30,
+          "@MMK_R_dash": 0,
+          "@MMK_R_g": -30,
+          "@MMK_R_o": -20,
+          "@MMK_R_space": -30
+        },
+        "@MMK_L_s": {
+          "@MMK_R_T": -80,
+          "@MMK_R_a": 0,
+          "@MMK_R_g": -10,
+          "@MMK_R_s": -20,
+          "@MMK_R_t": -20
+        },
+        "@MMK_L_seven": {
+          "@MMK_R_A": -70,
+          "@MMK_R_comma": -100,
+          "@MMK_R_dash": -50,
+          "@MMK_R_four": -80,
+          "@MMK_R_sixgeom": -60,
+          "@MMK_R_two": -30,
+          "@MMK_R_zero": -30,
+          "@MMK_R_zero.subs": -60
+        },
+        "@MMK_L_sixgeom": {
+          "@MMK_R_ninegeom": -40,
+          "@MMK_R_one": -40,
+          "@MMK_R_seven": -70,
+          "@MMK_R_two": -40
+        },
+        "@MMK_L_space": {
+          "@MMK_R_T": -20,
+          "@MMK_R_V": -30,
+          "@MMK_R_Y": -30,
+          "@MMK_R_v": -30
+        },
+        "@MMK_L_t": {
+          "@MMK_R_a": -20,
+          "@MMK_R_o": -20,
+          "@MMK_R_u": -20
+        },
+        "@MMK_L_two": {
+          "@MMK_R_four": -40,
+          "@MMK_R_seven": -40,
+          "@MMK_R_sixgeom": -30,
+          "@MMK_R_zero": -20
+        },
+        "@MMK_L_u": {
+          "@MMK_R_T": -70
+        },
+        "@MMK_L_v": {
+          "@MMK_R_T": -40,
+          "@MMK_R_a": -20,
+          "@MMK_R_comma": -70,
+          "@MMK_R_g": -40,
+          "@MMK_R_o": -20,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_space": -30,
+          "@MMK_R_zero.subs": -50
+        },
+        "@MMK_L_x": {
+          "@MMK_R_dash": 0,
+          "@MMK_R_o": -10
+        },
+        "@MMK_L_z": {
+          "@MMK_R_dash": 0
+        },
+        "@MMK_L_zero": {
+          "@MMK_R_A": 0,
+          "@MMK_R_comma": -40,
+          "@MMK_R_four": 0,
+          "@MMK_R_ninegeom": -30,
+          "@MMK_R_one": 0,
+          "@MMK_R_seven": -30,
+          "@MMK_R_two": -30,
+          "@MMK_R_zero": -20
+        },
+        "@MMK_L_zero.numr": {
+          "@MMK_R_fraction": -30
+        },
+        "@MMK_L_zero.subs": {
+          "@MMK_R_A": 0,
+          "@MMK_R_T": -60,
+          "@MMK_R_V": -80,
+          "@MMK_R_W": -30,
+          "@MMK_R_Y": -90,
+          "@MMK_R_fraction": -50,
+          "@MMK_R_v": -50
+        },
+        "@MMK_L_zero.sups": {
+          "@MMK_R_A": -80,
+          "@MMK_R_J": -130,
+          "@MMK_R_a": -40,
+          "@MMK_R_o": -50
+        },
+        "Germandbls": {
+          "@MMK_R_T": -20
+        },
+        "eight-ar": {
+          "four-ar": -20,
+          "seven-ar": -110,
+          "six-ar": -110
+        },
+        "five-ar": {
+          "six-ar": -70
+        },
+        "four-ar": {
+          "seven-ar": -30,
+          "six-ar": -50,
+          "three-ar": -30,
+          "two-ar": -40
+        },
+        "fourFarsi-ar.locl": {
+          "sevenFarsi-ar.locl": -110,
+          "zeroFarsi-ar.locl": -80
+        },
+        "one.numr": {
+          "@MMK_R_fraction": -50
+        },
+        "quoteright": {
+          "@MMK_R_o": -60
+        },
+        "seven-ar": {
+          "eight-ar": -110
+        },
+        "seven.numr": {
+          "@MMK_R_fraction": -90
+        },
+        "sevenFarsi-ar": {
+          "sevenFarsi-ar.locl": -40
+        },
+        "sevenFarsi-ar.locl": {
+          "fourFarsi-ar.locl": -90,
+          "zeroFarsi-ar.locl": -50
+        },
+        "twoFarsi-ar": {
+          "zeroFarsi-ar.locl": -70
+        }
+      },
+      "14EEE41F-D714-4243-A717-73445EE7DABA": {
+        "@MMK_L_A": {
+          "@MMK_R_J": -20,
+          "@MMK_R_O": -30,
+          "@MMK_R_T": -70,
+          "@MMK_R_U": -20,
+          "@MMK_R_V": -65,
+          "@MMK_R_W": -35,
+          "@MMK_R_Y": -60,
+          "@MMK_R_question": -40,
+          "@MMK_R_quote": -60,
+          "@MMK_R_v": -30,
+          "@MMK_R_zero.subs": 0,
+          "@MMK_R_zero.sups": -80,
+          "V": -70
+        },
+        "@MMK_L_B": {
+          "@MMK_R_Y": -20
+        },
+        "@MMK_L_C": {
+          "@MMK_R_O": -5,
+          "@MMK_R_comma": -20,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_v": -10
+        },
+        "@MMK_L_F": {
+          "@MMK_R_A": -60,
+          "@MMK_R_O": -10,
+          "@MMK_R_a": -20,
+          "@MMK_R_comma": -83,
+          "@MMK_R_g": -20,
+          "@MMK_R_o": -17,
+          "@MMK_R_s": -30,
+          "@MMK_R_space": -30,
+          "@MMK_R_t": -20,
+          "@MMK_R_u": -20,
+          "@MMK_R_v": -20
+        },
+        "@MMK_L_H": {
+          "@MMK_R_A": 0,
+          "@MMK_R_Y": 0,
+          "@MMK_R_a": -10,
+          "@MMK_R_comma": 0,
+          "@MMK_R_g": 0,
+          "@MMK_R_o": 0,
+          "@MMK_R_u": -4,
+          "@MMK_R_v": -3
+        },
+        "@MMK_L_K": {
+          "@MMK_R_O": -30,
+          "@MMK_R_S": -20,
+          "@MMK_R_a": -20,
+          "@MMK_R_dash": -40,
+          "@MMK_R_o": -22,
+          "@MMK_R_u": -30,
+          "@MMK_R_v": -40
+        },
+        "@MMK_L_L": {
+          "@MMK_R_O": -31,
+          "@MMK_R_T": -73,
+          "@MMK_R_U": -20,
+          "@MMK_R_V": -76,
+          "@MMK_R_W": -50,
+          "@MMK_R_Y": -64,
+          "@MMK_R_dash": -50,
+          "@MMK_R_o": -20,
+          "@MMK_R_question": -50,
+          "@MMK_R_quote": -120,
+          "@MMK_R_seven": -30,
+          "@MMK_R_t": -40,
+          "@MMK_R_u": -20,
+          "@MMK_R_v": -44,
+          "@MMK_R_zero.sups": -130
+        },
+        "@MMK_L_O": {
+          "@MMK_R_A": -30,
+          "@MMK_R_T": -34,
+          "@MMK_R_V": -15,
+          "@MMK_R_W": -10,
+          "@MMK_R_X": -13,
+          "@MMK_R_Y": -19,
+          "@MMK_R_Z": -21,
+          "@MMK_R_a": -4,
+          "@MMK_R_comma": -70,
+          "@MMK_R_parenright": -30,
+          "AE": -18
+        },
+        "@MMK_L_P": {
+          "@MMK_R_A": -70,
+          "@MMK_R_J": -130,
+          "@MMK_R_a": -32,
+          "@MMK_R_comma": -97,
+          "@MMK_R_g": -60,
+          "@MMK_R_j": -20,
+          "@MMK_R_l": -20,
+          "@MMK_R_n": -21,
+          "@MMK_R_o": -36,
+          "@MMK_R_questioncase": -40,
+          "@MMK_R_questiondown": -70,
+          "@MMK_R_s": -20,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -20,
+          "@MMK_R_zero.subs": -100
+        },
+        "@MMK_L_R": {
+          "@MMK_R_O": 0,
+          "@MMK_R_T": -20,
+          "@MMK_R_U": -7,
+          "@MMK_R_V": 0,
+          "@MMK_R_Y": 0,
+          "@MMK_R_a": -20,
+          "@MMK_R_o": -20,
+          "@MMK_R_v": 0
+        },
+        "@MMK_L_S": {
+          "@MMK_R_T": -40,
+          "@MMK_R_V": -20,
+          "@MMK_R_W": -10,
+          "@MMK_R_Y": -20,
+          "@MMK_R_comma": -20,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_t": -20,
+          "@MMK_R_v": -10
+        },
+        "@MMK_L_T": {
+          "@MMK_R_A": -70,
+          "@MMK_R_J": -80,
+          "@MMK_R_O": -30,
+          "@MMK_R_a": -112,
+          "@MMK_R_comma": -80,
+          "@MMK_R_dash": -60,
+          "@MMK_R_four": -60,
+          "@MMK_R_g": -100,
+          "@MMK_R_n": -78,
+          "@MMK_R_o": -95,
+          "@MMK_R_questioncase": -60,
+          "@MMK_R_s": -80,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -98,
+          "@MMK_R_v": -40,
+          "@MMK_R_zero.subs": -60
+        },
+        "@MMK_L_U": {
+          "@MMK_R_A": -20,
+          "@MMK_R_Germandbls": -5,
+          "@MMK_R_a": -10,
+          "@MMK_R_comma": -20,
+          "@MMK_R_g": -10,
+          "@MMK_R_n": -9,
+          "@MMK_R_o": 0,
+          "@MMK_R_u": -9
+        },
+        "@MMK_L_V": {
+          "@MMK_R_A": 0,
+          "@MMK_R_J": -80,
+          "@MMK_R_O": -15,
+          "@MMK_R_S": -30,
+          "@MMK_R_V": 7,
+          "@MMK_R_a": -65,
+          "@MMK_R_comma": -80,
+          "@MMK_R_dash": -30,
+          "@MMK_R_four": -50,
+          "@MMK_R_g": -70,
+          "@MMK_R_n": -41,
+          "@MMK_R_o": -70,
+          "@MMK_R_questioncase": -30,
+          "@MMK_R_s": -30,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -40,
+          "@MMK_R_v": -45,
+          "@MMK_R_zero.subs": -80,
+          "A": -70
+        },
+        "@MMK_L_W": {
+          "@MMK_R_A": -35,
+          "@MMK_R_J": -70,
+          "@MMK_R_O": -10,
+          "@MMK_R_S": -20,
+          "@MMK_R_a": -30,
+          "@MMK_R_comma": -60,
+          "@MMK_R_g": -60,
+          "@MMK_R_o": -20,
+          "@MMK_R_questiondown": -50,
+          "@MMK_R_zero.subs": -40
+        },
+        "@MMK_L_X": {
+          "@MMK_R_O": -10,
+          "@MMK_R_dash": -30,
+          "@MMK_R_o": 0,
+          "@MMK_R_v": -20
+        },
+        "@MMK_L_Y": {
+          "@MMK_R_A": -60,
+          "@MMK_R_O": -20,
+          "@MMK_R_S": -20,
+          "@MMK_R_a": -80,
+          "@MMK_R_comma": -100,
+          "@MMK_R_dash": -50,
+          "@MMK_R_four": -40,
+          "@MMK_R_g": -70,
+          "@MMK_R_n": -60,
+          "@MMK_R_o": -90,
+          "@MMK_R_questioncase": -30,
+          "@MMK_R_questiondown": -70,
+          "@MMK_R_s": -50,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -76,
+          "@MMK_R_v": -30,
+          "@MMK_R_zero.subs": -80
+        },
+        "@MMK_L_Z": {
+          "@MMK_R_O": -20,
+          "@MMK_R_dash": -40,
+          "@MMK_R_o": -16,
+          "@MMK_R_u": -20,
+          "@MMK_R_v": -20
+        },
+        "@MMK_L_comma": {
+          "@MMK_R_J": -20,
+          "@MMK_R_O": -70,
+          "@MMK_R_S": -20,
+          "@MMK_R_T": -80,
+          "@MMK_R_U": -20,
+          "@MMK_R_V": -80,
+          "@MMK_R_W": -60,
+          "@MMK_R_Y": -100,
+          "@MMK_R_four": -10,
+          "@MMK_R_one": -60,
+          "@MMK_R_quote": -75,
+          "@MMK_R_seven": -40,
+          "@MMK_R_v": -70,
+          "@MMK_R_zero": -20,
+          "six": -30
+        },
+        "@MMK_L_dash": {
+          "@MMK_R_J": -34,
+          "@MMK_R_T": -60,
+          "@MMK_R_V": -30,
+          "@MMK_R_X": -30,
+          "@MMK_R_Y": -50,
+          "@MMK_R_Z": -30,
+          "@MMK_R_l": -4,
+          "@MMK_R_n": 0,
+          "@MMK_R_one": -30,
+          "@MMK_R_seven": -50,
+          "@MMK_R_x": 0,
+          "@MMK_R_z": 0
+        },
+        "@MMK_L_f": {
+          "@MMK_R_a": -26,
+          "@MMK_R_comma": -56,
+          "@MMK_R_f": 22,
+          "@MMK_R_g": -20,
+          "@MMK_R_o": -22,
+          "@MMK_R_question": 20,
+          "@MMK_R_v": 17,
+          "f": 15
+        },
+        "@MMK_L_four": {
+          "@MMK_R_comma": -20,
+          "@MMK_R_ninegeom": -20,
+          "@MMK_R_seven": -20
+        },
+        "@MMK_L_fraction": {
+          "@MMK_R_zero.dnom": -30,
+          "@MMK_R_zero.subs": -50,
+          "four.dnom": -90,
+          "one.dnom": -80,
+          "seven.dnom": -40,
+          "two.dnom": -40
+        },
+        "@MMK_L_g": {
+          "@MMK_R_o": -10,
+          "@MMK_R_question": 20
+        },
+        "@MMK_L_k": {
+          "@MMK_R_a": -10,
+          "@MMK_R_dash": 0,
+          "@MMK_R_o": -10
+        },
+        "@MMK_L_l": {
+          "@MMK_R_g": -10
+        },
+        "@MMK_L_n": {
+          "@MMK_R_T": -81,
+          "@MMK_R_V": -70,
+          "@MMK_R_Y": -50,
+          "@MMK_R_g": -10,
+          "@MMK_R_l": 10,
+          "@MMK_R_parenright": -20,
+          "@MMK_R_question": -20,
+          "@MMK_R_t": -35,
+          "@MMK_R_v": -20,
+          "@MMK_R_zero.sups": -40
+        },
+        "@MMK_L_ninegeom": {
+          "@MMK_R_four": -30,
+          "@MMK_R_seven": -30,
+          "@MMK_R_sixgeom": -20
+        },
+        "@MMK_L_o": {
+          "@MMK_R_T": -93,
+          "@MMK_R_V": -70,
+          "@MMK_R_W": -20,
+          "@MMK_R_Y": -90,
+          "@MMK_R_comma": -10,
+          "@MMK_R_g": -10,
+          "@MMK_R_n": 0,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_question": -30,
+          "@MMK_R_quote": -20,
+          "@MMK_R_t": -20,
+          "@MMK_R_v": -20,
+          "@MMK_R_zero.sups": -50
+        },
+        "@MMK_L_parenleft": {
+          "@MMK_R_O": -30,
+          "@MMK_R_S": -30,
+          "@MMK_R_a": -20,
+          "@MMK_R_n": -20,
+          "@MMK_R_o": -30,
+          "@MMK_R_v": -30
+        },
+        "@MMK_L_question": {
+          "@MMK_R_J": -60
+        },
+        "@MMK_L_questioncase": {
+          "@MMK_R_T": -90,
+          "@MMK_R_V": -80,
+          "@MMK_R_W": -50,
+          "@MMK_R_Y": -70
+        },
+        "@MMK_L_questiondown": {
+          "@MMK_R_J": -50,
+          "@MMK_R_O": -60,
+          "@MMK_R_S": -60,
+          "@MMK_R_U": -50,
+          "@MMK_R_V": -90,
+          "@MMK_R_W": -60,
+          "@MMK_R_Y": -100,
+          "@MMK_R_f": -50,
+          "@MMK_R_o": -60,
+          "@MMK_R_s": -30,
+          "@MMK_R_t": -50,
+          "@MMK_R_u": -30,
+          "@MMK_R_v": -50
+        },
+        "@MMK_L_quote": {
+          "@MMK_R_A": -63,
+          "@MMK_R_J": -120,
+          "@MMK_R_a": -40,
+          "@MMK_R_comma": -74,
+          "@MMK_R_o": -20,
+          "@MMK_R_s": -30
+        },
+        "@MMK_L_r": {
+          "@MMK_R_a": -20,
+          "@MMK_R_comma": -30,
+          "@MMK_R_dash": 0,
+          "@MMK_R_g": -30,
+          "@MMK_R_o": -20,
+          "@MMK_R_space": -30
+        },
+        "@MMK_L_s": {
+          "@MMK_R_T": -80,
+          "@MMK_R_a": 0,
+          "@MMK_R_g": -10,
+          "@MMK_R_s": -20,
+          "@MMK_R_t": -20
+        },
+        "@MMK_L_seven": {
+          "@MMK_R_A": -70,
+          "@MMK_R_comma": -100,
+          "@MMK_R_dash": -50,
+          "@MMK_R_four": -80,
+          "@MMK_R_sixgeom": -60,
+          "@MMK_R_two": -30,
+          "@MMK_R_zero": -30,
+          "@MMK_R_zero.subs": -60
+        },
+        "@MMK_L_sixgeom": {
+          "@MMK_R_ninegeom": -40,
+          "@MMK_R_one": -40,
+          "@MMK_R_seven": -70,
+          "@MMK_R_two": -40
+        },
+        "@MMK_L_space": {
+          "@MMK_R_T": -20,
+          "@MMK_R_V": -30,
+          "@MMK_R_Y": -30,
+          "@MMK_R_v": -30
+        },
+        "@MMK_L_t": {
+          "@MMK_R_a": -20,
+          "@MMK_R_o": -20,
+          "@MMK_R_u": -20
+        },
+        "@MMK_L_two": {
+          "@MMK_R_four": -40,
+          "@MMK_R_seven": -40,
+          "@MMK_R_sixgeom": -30,
+          "@MMK_R_zero": -20
+        },
+        "@MMK_L_u": {
+          "@MMK_R_T": -70
+        },
+        "@MMK_L_v": {
+          "@MMK_R_T": -40,
+          "@MMK_R_a": -20,
+          "@MMK_R_comma": -70,
+          "@MMK_R_g": -40,
+          "@MMK_R_o": -20,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_space": -30,
+          "@MMK_R_zero.subs": -50
+        },
+        "@MMK_L_x": {
+          "@MMK_R_dash": 0,
+          "@MMK_R_o": -10
+        },
+        "@MMK_L_z": {
+          "@MMK_R_dash": 0
+        },
+        "@MMK_L_zero": {
+          "@MMK_R_A": 0,
+          "@MMK_R_comma": -40,
+          "@MMK_R_four": 0,
+          "@MMK_R_ninegeom": -30,
+          "@MMK_R_one": 0,
+          "@MMK_R_seven": -30,
+          "@MMK_R_two": -30,
+          "@MMK_R_zero": -20
+        },
+        "@MMK_L_zero.numr": {
+          "@MMK_R_fraction": -30
+        },
+        "@MMK_L_zero.subs": {
+          "@MMK_R_A": 0,
+          "@MMK_R_T": -60,
+          "@MMK_R_V": -80,
+          "@MMK_R_W": -30,
+          "@MMK_R_Y": -90,
+          "@MMK_R_fraction": -50,
+          "@MMK_R_v": -50
+        },
+        "@MMK_L_zero.sups": {
+          "@MMK_R_A": -80,
+          "@MMK_R_J": -130,
+          "@MMK_R_a": -40,
+          "@MMK_R_o": -50
+        },
+        "Germandbls": {
+          "@MMK_R_T": -20
+        },
+        "eight-ar": {
+          "four-ar": -20,
+          "seven-ar": -100,
+          "six-ar": -100
+        },
+        "five-ar": {
+          "six-ar": -80
+        },
+        "four-ar": {
+          "seven-ar": -30,
+          "six-ar": -30,
+          "three-ar": -30,
+          "two-ar": -40
+        },
+        "fourFarsi-ar.locl": {
+          "sevenFarsi-ar.locl": -80,
+          "zeroFarsi-ar.locl": -70
+        },
+        "one.numr": {
+          "@MMK_R_fraction": -50
+        },
+        "quoteright": {
+          "@MMK_R_o": -60
+        },
+        "seven-ar": {
+          "eight-ar": -100
+        },
+        "seven.numr": {
+          "@MMK_R_fraction": -90
+        },
+        "sevenFarsi-ar": {
+          "sevenFarsi-ar.locl": -40
+        },
+        "sevenFarsi-ar.locl": {
+          "fourFarsi-ar.locl": -80,
+          "zeroFarsi-ar.locl": -60
+        },
+        "twoFarsi-ar": {
+          "zeroFarsi-ar.locl": -50
+        }
+      },
+      "090CB6A0-BE7C-4D17-A551-206C7456A8A3": {
+        "@MMK_L_A": {
+          "@MMK_R_J": -20,
+          "@MMK_R_O": -30,
+          "@MMK_R_T": -70,
+          "@MMK_R_U": -20,
+          "@MMK_R_V": -65,
+          "@MMK_R_W": -35,
+          "@MMK_R_Y": -60,
+          "@MMK_R_question": -40,
+          "@MMK_R_quote": -60,
+          "@MMK_R_v": -30,
+          "@MMK_R_zero.subs": 0,
+          "@MMK_R_zero.sups": -80,
+          "V": -70
+        },
+        "@MMK_L_B": {
+          "@MMK_R_Y": -20
+        },
+        "@MMK_L_C": {
+          "@MMK_R_O": -5,
+          "@MMK_R_comma": -20,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_v": -10
+        },
+        "@MMK_L_F": {
+          "@MMK_R_A": -60,
+          "@MMK_R_O": -10,
+          "@MMK_R_a": -20,
+          "@MMK_R_comma": -83,
+          "@MMK_R_g": -20,
+          "@MMK_R_o": -17,
+          "@MMK_R_s": -30,
+          "@MMK_R_space": -30,
+          "@MMK_R_t": -20,
+          "@MMK_R_u": -20,
+          "@MMK_R_v": -20
+        },
+        "@MMK_L_H": {
+          "@MMK_R_A": 0,
+          "@MMK_R_Y": 0,
+          "@MMK_R_a": -10,
+          "@MMK_R_comma": 0,
+          "@MMK_R_g": 0,
+          "@MMK_R_o": 0,
+          "@MMK_R_u": -4,
+          "@MMK_R_v": -3
+        },
+        "@MMK_L_K": {
+          "@MMK_R_O": -30,
+          "@MMK_R_S": -20,
+          "@MMK_R_a": -20,
+          "@MMK_R_dash": -40,
+          "@MMK_R_o": -22,
+          "@MMK_R_u": -30,
+          "@MMK_R_v": -40
+        },
+        "@MMK_L_L": {
+          "@MMK_R_O": -31,
+          "@MMK_R_T": -73,
+          "@MMK_R_U": -20,
+          "@MMK_R_V": -76,
+          "@MMK_R_W": -50,
+          "@MMK_R_Y": -64,
+          "@MMK_R_dash": -50,
+          "@MMK_R_o": -20,
+          "@MMK_R_question": -50,
+          "@MMK_R_quote": -120,
+          "@MMK_R_seven": -30,
+          "@MMK_R_t": -40,
+          "@MMK_R_u": -20,
+          "@MMK_R_v": -44,
+          "@MMK_R_zero.sups": -130
+        },
+        "@MMK_L_O": {
+          "@MMK_R_A": -30,
+          "@MMK_R_T": -34,
+          "@MMK_R_V": -15,
+          "@MMK_R_W": -10,
+          "@MMK_R_X": -13,
+          "@MMK_R_Y": -19,
+          "@MMK_R_Z": -21,
+          "@MMK_R_a": -4,
+          "@MMK_R_comma": -70,
+          "@MMK_R_parenright": -30,
+          "AE": -18
+        },
+        "@MMK_L_P": {
+          "@MMK_R_A": -70,
+          "@MMK_R_J": -130,
+          "@MMK_R_a": -32,
+          "@MMK_R_comma": -97,
+          "@MMK_R_g": -60,
+          "@MMK_R_j": -20,
+          "@MMK_R_l": -20,
+          "@MMK_R_n": -21,
+          "@MMK_R_o": -36,
+          "@MMK_R_questioncase": -40,
+          "@MMK_R_questiondown": -70,
+          "@MMK_R_s": -20,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -20,
+          "@MMK_R_zero.subs": -100
+        },
+        "@MMK_L_R": {
+          "@MMK_R_O": 0,
+          "@MMK_R_T": -20,
+          "@MMK_R_U": -7,
+          "@MMK_R_V": 0,
+          "@MMK_R_Y": 0,
+          "@MMK_R_a": -20,
+          "@MMK_R_o": -20,
+          "@MMK_R_v": 0
+        },
+        "@MMK_L_S": {
+          "@MMK_R_T": -40,
+          "@MMK_R_V": -20,
+          "@MMK_R_W": -10,
+          "@MMK_R_Y": -20,
+          "@MMK_R_comma": -20,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_t": -20,
+          "@MMK_R_v": -10
+        },
+        "@MMK_L_T": {
+          "@MMK_R_A": -70,
+          "@MMK_R_J": -80,
+          "@MMK_R_O": -30,
+          "@MMK_R_a": -112,
+          "@MMK_R_comma": -80,
+          "@MMK_R_dash": -60,
+          "@MMK_R_four": -60,
+          "@MMK_R_g": -100,
+          "@MMK_R_n": -78,
+          "@MMK_R_o": -95,
+          "@MMK_R_questioncase": -60,
+          "@MMK_R_s": -80,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -98,
+          "@MMK_R_v": -40,
+          "@MMK_R_zero.subs": -60
+        },
+        "@MMK_L_U": {
+          "@MMK_R_A": -20,
+          "@MMK_R_Germandbls": -5,
+          "@MMK_R_a": -10,
+          "@MMK_R_comma": -20,
+          "@MMK_R_g": -10,
+          "@MMK_R_n": -9,
+          "@MMK_R_o": 0,
+          "@MMK_R_u": -9
+        },
+        "@MMK_L_V": {
+          "@MMK_R_A": 0,
+          "@MMK_R_J": -80,
+          "@MMK_R_O": -15,
+          "@MMK_R_S": -30,
+          "@MMK_R_V": 7,
+          "@MMK_R_a": -65,
+          "@MMK_R_comma": -80,
+          "@MMK_R_dash": -30,
+          "@MMK_R_four": -50,
+          "@MMK_R_g": -70,
+          "@MMK_R_n": -41,
+          "@MMK_R_o": -70,
+          "@MMK_R_questioncase": -30,
+          "@MMK_R_s": -30,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -40,
+          "@MMK_R_v": -45,
+          "@MMK_R_zero.subs": -80,
+          "A": -70
+        },
+        "@MMK_L_W": {
+          "@MMK_R_A": -35,
+          "@MMK_R_J": -70,
+          "@MMK_R_O": -10,
+          "@MMK_R_S": -20,
+          "@MMK_R_a": -30,
+          "@MMK_R_comma": -60,
+          "@MMK_R_g": -60,
+          "@MMK_R_o": -20,
+          "@MMK_R_questiondown": -50,
+          "@MMK_R_zero.subs": -40
+        },
+        "@MMK_L_X": {
+          "@MMK_R_O": -10,
+          "@MMK_R_dash": -30,
+          "@MMK_R_o": 0,
+          "@MMK_R_v": -20
+        },
+        "@MMK_L_Y": {
+          "@MMK_R_A": -60,
+          "@MMK_R_O": -20,
+          "@MMK_R_S": -20,
+          "@MMK_R_a": -80,
+          "@MMK_R_comma": -100,
+          "@MMK_R_dash": -50,
+          "@MMK_R_four": -40,
+          "@MMK_R_g": -70,
+          "@MMK_R_n": -60,
+          "@MMK_R_o": -90,
+          "@MMK_R_questioncase": -30,
+          "@MMK_R_questiondown": -70,
+          "@MMK_R_s": -50,
+          "@MMK_R_space": -30,
+          "@MMK_R_u": -76,
+          "@MMK_R_v": -30,
+          "@MMK_R_zero.subs": -80
+        },
+        "@MMK_L_Z": {
+          "@MMK_R_O": -20,
+          "@MMK_R_dash": -40,
+          "@MMK_R_o": -16,
+          "@MMK_R_u": -20,
+          "@MMK_R_v": -20
+        },
+        "@MMK_L_comma": {
+          "@MMK_R_J": -20,
+          "@MMK_R_O": -70,
+          "@MMK_R_S": -20,
+          "@MMK_R_T": -80,
+          "@MMK_R_U": -20,
+          "@MMK_R_V": -80,
+          "@MMK_R_W": -60,
+          "@MMK_R_Y": -100,
+          "@MMK_R_four": -10,
+          "@MMK_R_one": -60,
+          "@MMK_R_quote": -75,
+          "@MMK_R_seven": -40,
+          "@MMK_R_v": -70,
+          "@MMK_R_zero": -20,
+          "six": -30
+        },
+        "@MMK_L_dash": {
+          "@MMK_R_J": -34,
+          "@MMK_R_T": -60,
+          "@MMK_R_V": -30,
+          "@MMK_R_X": -30,
+          "@MMK_R_Y": -50,
+          "@MMK_R_Z": -30,
+          "@MMK_R_l": -4,
+          "@MMK_R_n": 0,
+          "@MMK_R_one": -30,
+          "@MMK_R_seven": -50,
+          "@MMK_R_x": 0,
+          "@MMK_R_z": 0
+        },
+        "@MMK_L_f": {
+          "@MMK_R_a": -26,
+          "@MMK_R_comma": -56,
+          "@MMK_R_f": 22,
+          "@MMK_R_g": -20,
+          "@MMK_R_o": -22,
+          "@MMK_R_question": 20,
+          "@MMK_R_v": 17,
+          "f": 15
+        },
+        "@MMK_L_four": {
+          "@MMK_R_comma": -20,
+          "@MMK_R_ninegeom": -20,
+          "@MMK_R_seven": -20
+        },
+        "@MMK_L_fraction": {
+          "@MMK_R_zero.dnom": -30,
+          "@MMK_R_zero.subs": -50,
+          "four.dnom": -90,
+          "one.dnom": -80,
+          "seven.dnom": -40,
+          "two.dnom": -40
+        },
+        "@MMK_L_g": {
+          "@MMK_R_o": -10,
+          "@MMK_R_question": 20
+        },
+        "@MMK_L_k": {
+          "@MMK_R_a": -10,
+          "@MMK_R_dash": 0,
+          "@MMK_R_o": -10
+        },
+        "@MMK_L_l": {
+          "@MMK_R_g": -10
+        },
+        "@MMK_L_n": {
+          "@MMK_R_T": -81,
+          "@MMK_R_V": -70,
+          "@MMK_R_Y": -50,
+          "@MMK_R_g": -10,
+          "@MMK_R_l": 10,
+          "@MMK_R_parenright": -20,
+          "@MMK_R_question": -20,
+          "@MMK_R_t": -35,
+          "@MMK_R_v": -20,
+          "@MMK_R_zero.sups": -40
+        },
+        "@MMK_L_ninegeom": {
+          "@MMK_R_four": -30,
+          "@MMK_R_seven": -30,
+          "@MMK_R_sixgeom": -20
+        },
+        "@MMK_L_o": {
+          "@MMK_R_T": -93,
+          "@MMK_R_V": -70,
+          "@MMK_R_W": -20,
+          "@MMK_R_Y": -90,
+          "@MMK_R_comma": -10,
+          "@MMK_R_g": -10,
+          "@MMK_R_n": 0,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_question": -30,
+          "@MMK_R_quote": -20,
+          "@MMK_R_t": -20,
+          "@MMK_R_v": -20,
+          "@MMK_R_zero.sups": -50
+        },
+        "@MMK_L_parenleft": {
+          "@MMK_R_O": -30,
+          "@MMK_R_S": -30,
+          "@MMK_R_a": -20,
+          "@MMK_R_n": -20,
+          "@MMK_R_o": -30,
+          "@MMK_R_v": -30
+        },
+        "@MMK_L_question": {
+          "@MMK_R_J": -60
+        },
+        "@MMK_L_questioncase": {
+          "@MMK_R_T": -90,
+          "@MMK_R_V": -80,
+          "@MMK_R_W": -50,
+          "@MMK_R_Y": -70
+        },
+        "@MMK_L_questiondown": {
+          "@MMK_R_J": -50,
+          "@MMK_R_O": -60,
+          "@MMK_R_S": -60,
+          "@MMK_R_U": -50,
+          "@MMK_R_V": -90,
+          "@MMK_R_W": -60,
+          "@MMK_R_Y": -100,
+          "@MMK_R_f": -50,
+          "@MMK_R_o": -60,
+          "@MMK_R_s": -30,
+          "@MMK_R_t": -50,
+          "@MMK_R_u": -30,
+          "@MMK_R_v": -50
+        },
+        "@MMK_L_quote": {
+          "@MMK_R_A": -63,
+          "@MMK_R_J": -120,
+          "@MMK_R_a": -40,
+          "@MMK_R_comma": -74,
+          "@MMK_R_o": -20,
+          "@MMK_R_s": -30
+        },
+        "@MMK_L_r": {
+          "@MMK_R_a": -20,
+          "@MMK_R_comma": -30,
+          "@MMK_R_dash": 0,
+          "@MMK_R_g": -30,
+          "@MMK_R_o": -20,
+          "@MMK_R_space": -30
+        },
+        "@MMK_L_s": {
+          "@MMK_R_T": -80,
+          "@MMK_R_a": 0,
+          "@MMK_R_g": -10,
+          "@MMK_R_s": -20,
+          "@MMK_R_t": -20
+        },
+        "@MMK_L_seven": {
+          "@MMK_R_A": -70,
+          "@MMK_R_comma": -100,
+          "@MMK_R_dash": -50,
+          "@MMK_R_four": -80,
+          "@MMK_R_sixgeom": -60,
+          "@MMK_R_two": -30,
+          "@MMK_R_zero": -30,
+          "@MMK_R_zero.subs": -60
+        },
+        "@MMK_L_sixgeom": {
+          "@MMK_R_ninegeom": -40,
+          "@MMK_R_one": -40,
+          "@MMK_R_seven": -70,
+          "@MMK_R_two": -40
+        },
+        "@MMK_L_space": {
+          "@MMK_R_T": -20,
+          "@MMK_R_V": -30,
+          "@MMK_R_Y": -30,
+          "@MMK_R_v": -30
+        },
+        "@MMK_L_t": {
+          "@MMK_R_a": -20,
+          "@MMK_R_o": -20,
+          "@MMK_R_u": -20
+        },
+        "@MMK_L_two": {
+          "@MMK_R_four": -40,
+          "@MMK_R_seven": -40,
+          "@MMK_R_sixgeom": -30,
+          "@MMK_R_zero": -20
+        },
+        "@MMK_L_u": {
+          "@MMK_R_T": -70
+        },
+        "@MMK_L_v": {
+          "@MMK_R_T": -40,
+          "@MMK_R_a": -20,
+          "@MMK_R_comma": -70,
+          "@MMK_R_g": -40,
+          "@MMK_R_o": -20,
+          "@MMK_R_parenright": -30,
+          "@MMK_R_space": -30,
+          "@MMK_R_zero.subs": -50
+        },
+        "@MMK_L_x": {
+          "@MMK_R_dash": 0,
+          "@MMK_R_o": -10
+        },
+        "@MMK_L_z": {
+          "@MMK_R_dash": 0
+        },
+        "@MMK_L_zero": {
+          "@MMK_R_A": 0,
+          "@MMK_R_comma": -40,
+          "@MMK_R_four": 0,
+          "@MMK_R_ninegeom": -30,
+          "@MMK_R_one": 0,
+          "@MMK_R_seven": -30,
+          "@MMK_R_two": -30,
+          "@MMK_R_zero": -20
+        },
+        "@MMK_L_zero.numr": {
+          "@MMK_R_fraction": -30
+        },
+        "@MMK_L_zero.subs": {
+          "@MMK_R_A": 0,
+          "@MMK_R_T": -60,
+          "@MMK_R_V": -80,
+          "@MMK_R_W": -30,
+          "@MMK_R_Y": -90,
+          "@MMK_R_fraction": -50,
+          "@MMK_R_v": -50
+        },
+        "@MMK_L_zero.sups": {
+          "@MMK_R_A": -80,
+          "@MMK_R_J": -130,
+          "@MMK_R_a": -40,
+          "@MMK_R_o": -50
+        },
+        "Germandbls": {
+          "@MMK_R_T": -20
+        },
+        "eight-ar": {
+          "four-ar": -20,
+          "seven-ar": -90,
+          "six-ar": -90
+        },
+        "four-ar": {
+          "seven-ar": -30,
+          "six-ar": -30,
+          "three-ar": -10,
+          "two-ar": -40
+        },
+        "fourFarsi-ar.locl": {
+          "sevenFarsi-ar.locl": -70,
+          "zeroFarsi-ar.locl": -70
+        },
+        "one.numr": {
+          "@MMK_R_fraction": -50
+        },
+        "quoteright": {
+          "@MMK_R_o": -60
+        },
+        "seven-ar": {
+          "eight-ar": -90
+        },
+        "seven.numr": {
+          "@MMK_R_fraction": -90
+        },
+        "sevenFarsi-ar": {
+          "sevenFarsi-ar.locl": -40
+        },
+        "sevenFarsi-ar.locl": {
+          "fourFarsi-ar.locl": -70,
+          "zeroFarsi-ar.locl": -60
+        },
+        "twoFarsi-ar": {
+          "zeroFarsi-ar.locl": -60
+        }
+      }
+    },
+    "kerningRTL": {
+      "3114FB65-9464-41A5-B67E-A8F9F43C0EF1": {
+        "@MMK_R_hah-medi": {
+          "@MMK_L_hah-medi": -130,
+          "@MMK_L_sad-medi": -110
+        }
+      },
+      "14EEE41F-D714-4243-A717-73445EE7DABA": {
+        "@MMK_R_hah-medi": {
+          "@MMK_L_hah-medi": -130,
+          "@MMK_L_sad-medi": -100
+        }
+      },
+      "090CB6A0-BE7C-4D17-A551-206C7456A8A3": {
+        "@MMK_R_hah-medi": {
+          "@MMK_L_hah-medi": -130,
+          "@MMK_L_sad-medi": -60
+        }
+      }
+    },
+    "metrics": [
+      {
+        "type": "ascender"
+      },
+      {
+        "type": "cap height"
+      },
+      {
+        "type": "x-height"
+      },
+      {
+        "type": "baseline"
+      },
+      {
+        "type": "descender"
+      },
+      {
+        "type": "italic angle"
+      }
+    ],
+    "numbers": [
+      {
+        "name": "dotshift"
+      }
+    ],
+    "properties": [
+      {
+        "key": "copyrights",
+        "values": [
+          {
+            "language": "ENG",
+            "value": "Copyright 2022 The Fustat Project Authors (https://github.com/Kief-Type-Foundry/Fustat)"
+          }
+        ]
+      },
+      {
+        "key": "designers",
+        "values": [
+          {
+            "language": "ENG",
+            "value": "Mohamed Gaber, Khaled Hosny, Laura Garcia Mut"
+          }
+        ]
+      },
+      {
+        "key": "designerURL",
+        "value": "https://gaber.design/"
+      },
+      {
+        "key": "licenses",
+        "values": [
+          {
+            "language": "ENG",
+            "value": "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL"
+          }
+        ]
+      },
+      {
+        "key": "licenseURL",
+        "value": "https://scripts.sil.org/OFL"
+      },
+      {
+        "key": "manufacturers",
+        "values": [
+          {
+            "language": "ENG",
+            "value": "Kief Type Foundry, Alif Type Foundry, Hard Type Foundry"
+          }
+        ]
+      },
+      {
+        "key": "manufacturerURL",
+        "value": "https://kieftype.com/"
+      },
+      {
+        "key": "vendorID",
+        "value": "1KTF"
+      }
+    ],
+    "userData": {
+      "GSDimensionPlugin.Dimensions": {
+        "090CB6A0-BE7C-4D17-A551-206C7456A8A3": {
+          "HH": "128",
+          "HV": "135",
+          "OH": "128",
+          "OV": "135",
+          "arAlef": "135",
+          "arBar": "119",
+          "nV": "135",
+          "nd": "100",
+          "oH": "119",
+          "oV": "135",
+          "tH": "119"
+        },
+        "14EEE41F-D714-4243-A717-73445EE7DABA": {
+          "HH": "73",
+          "HV": "75",
+          "OH": "73",
+          "OV": "77",
+          "arAlef": "85",
+          "arBar": "75",
+          "nV": "75",
+          "nd": "73",
+          "oH": "73",
+          "oV": "75",
+          "tH": "73"
+        },
+        "3114FB65-9464-41A5-B67E-A8F9F43C0EF1": {
+          "HH": "28",
+          "HV": "30",
+          "OH": "28",
+          "OV": "30",
+          "nV": "30",
+          "nd": "28",
+          "oH": "28",
+          "oV": "30",
+          "tH": "28"
+        },
+        "71F4E291-54FE-4A7B-B455-BB7A4957EE6A": {
+          "arAlef": "85",
+          "arBar": "75"
+        },
+        "EE16FD54-D6E3-4223-A7AD-576F8EEE874B": {
+          "arAlef": "85",
+          "arBar": "80"
+        }
+      }
+    }
+  }
+}
+}

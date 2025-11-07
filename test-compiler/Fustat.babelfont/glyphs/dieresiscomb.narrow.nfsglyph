@@ -1,0 +1,61 @@
+[    {
+      "width": 240, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "dotaccentcomb", "transform": [1, 0, 0, 1, 118, 0]}, 
+        {"ref": "dotaccentcomb","_":{"com.glyphsapp":{"alignment":-1}}}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 120, 
+          "y": 492
+}
+,         {
+          "name": "top", 
+          "x": 120, 
+          "y": 693
+}
+]
+}
+,     {
+      "width": 316, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "dotaccentcomb", "transform": [1, 0, 0, 1, 146, 0]}, 
+        {"ref": "dotaccentcomb","_":{"com.glyphsapp":{"alignment":-1}}}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 158, 
+          "y": 500
+}
+,         {
+          "name": "top", 
+          "x": 158, 
+          "y": 708
+}
+]
+}
+,     {
+      "width": 407, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "dotaccentcomb", "transform": [1, 0, 0, 1, 192, 0]}, 
+        {"ref": "dotaccentcomb", "transform": [1, 0, 0, 1, 8, 0],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ], 
+      "anchors": [        {
+          "name": "_top", 
+          "x": 204, 
+          "y": 508
+}
+,         {
+          "name": "top", 
+          "x": 204, 
+          "y": 735
+}
+]
+}
+]

@@ -1,0 +1,31 @@
+[    {
+      "width": 548, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "minus"}, 
+        {"ref": "period", "transform": [1, 0, 0, 1, 162, 164]}, 
+        {"ref": "period", "transform": [1, 0, 0, 1, 162, 472]}
+      ]
+}
+,     {
+      "width": 548, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "minus"}, 
+        {"ref": "period", "transform": [1, 0, 0, 1, 156, 145]}, 
+        {"ref": "period", "transform": [1, 0, 0, 1, 156, 454]}
+      ]
+}
+,     {
+      "width": 568, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "minus"}, 
+        {"ref": "period", "transform": [1, 0, 0, 1, 149, 96]}, 
+        {"ref": "period", "transform": [1, 0, 0, 1, 149, 455]}
+      ]
+}
+]

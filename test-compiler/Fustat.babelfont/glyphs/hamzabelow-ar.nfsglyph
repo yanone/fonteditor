@@ -1,0 +1,55 @@
+[    {
+      "width": 167, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "hamzaabove-ar", "transform": [1, 0, 0, 1, 0, -601]}
+      ], 
+      "anchors": [        {
+          "name": "_bottom", 
+          "x": 84
+}
+,         {
+          "name": "bottom", 
+          "x": 84, 
+          "y": -217
+}
+]
+}
+,     {
+      "width": 217, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "hamzaabove-ar", "transform": [1, 0, 0, 1, 0, -674]}
+      ], 
+      "anchors": [        {
+          "name": "_bottom", 
+          "x": 109
+}
+,         {
+          "name": "bottom", 
+          "x": 109, 
+          "y": -290
+}
+]
+}
+,     {
+      "width": 152, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "hamzaabove-ar", "transform": [1, 0, 0, 1, 0, -579]}
+      ], 
+      "anchors": [        {
+          "name": "_bottom", 
+          "x": 76
+}
+,         {
+          "name": "bottom", 
+          "x": 76, 
+          "y": -195
+}
+]
+}
+]

@@ -1,0 +1,121 @@
+[    {
+      "width": 742, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 50, -104],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 346, 192],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 198, -360],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 89, -252],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 346, -400],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 89, 44],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 198, 153],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 494, -360],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 603, -252],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 642, -104],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 603, 44],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 494, 153],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ], 
+      "anchors": [        {
+          "name": "bottom", 
+          "x": 371, 
+          "y": -50
+}
+,         {
+          "name": "center", 
+          "x": 371, 
+          "y": 349
+}
+,         {
+          "name": "ogonek", 
+          "x": 371, 
+          "y": -50
+}
+,         {
+          "name": "top", 
+          "x": 371, 
+          "y": 750
+}
+]
+}
+,     {
+      "width": 788, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 50, -126],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 346, 170],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 198, -382],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 89, -274],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 346, -422],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 89, 22],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 198, 131],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 494, -382],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 603, -274],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 642, -126],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 603, 22],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 494, 131],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ], 
+      "anchors": [        {
+          "name": "bottom", 
+          "x": 394, 
+          "y": -50
+}
+,         {
+          "name": "center", 
+          "x": 394, 
+          "y": 350
+}
+,         {
+          "name": "ogonek", 
+          "x": 394, 
+          "y": -50
+}
+,         {
+          "name": "top", 
+          "x": 394, 
+          "y": 750
+}
+]
+}
+,     {
+      "width": 806, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 50, -134],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 346, 162],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 198, -390],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 89, -282],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 346, -430],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 89, 14],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 198, 123],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 494, -390],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 603, -282],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 642, -134],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 603, 14],"_":{"com.glyphsapp":{"alignment":-1}}}, 
+        {"ref": "dotabove-ar", "transform": [1, 0, 0, 1, 494, 123],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ], 
+      "anchors": [        {
+          "name": "bottom", 
+          "x": 403, 
+          "y": -50
+}
+,         {
+          "name": "center", 
+          "x": 403, 
+          "y": 350
+}
+,         {
+          "name": "ogonek", 
+          "x": 403, 
+          "y": -50
+}
+,         {
+          "name": "top", 
+          "x": 403, 
+          "y": 750
+}
+]
+}
+]

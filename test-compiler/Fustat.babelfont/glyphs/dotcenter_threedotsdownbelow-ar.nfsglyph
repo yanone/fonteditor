@@ -1,0 +1,28 @@
+[    {
+      "width": 68, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "dotcenter-ar", "transform": [1, 0, 0, 1, 9, 0]}, 
+        {"ref": "threedotsdownbelow-ar", "transform": [0.6, 0.0, 0.0, 0.6, 0.0, -35.0],"_":{"com.glyphsapp":{"alignment":-1}}}
+      ]
+}
+,     {
+      "width": 124, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "dotcenter-ar", "transform": [1, 0, 0, 1, 14, 0]}, 
+        {"ref": "threedotsdownbelow-ar", "transform": [0.6, 0.0, 0.0, 0.6, 0.0, -68.0]}
+      ]
+}
+,     {
+      "width": 145, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "dotcenter-ar", "transform": [1, 0, 0, 1, 16, 0]}, 
+        {"ref": "threedotsdownbelow-ar", "transform": [0.6, 0.0, 0.0, 0.6, 0.0, -78.0]}
+      ]
+}
+]

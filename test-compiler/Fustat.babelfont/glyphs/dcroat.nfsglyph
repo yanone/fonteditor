@@ -1,0 +1,69 @@
+[    {
+      "width": 611, 
+      "_master": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1", 
+      "shapes": [
+        {"ref": "d"}, 
+        {"ref": "stroke.shortcomb", "transform": [1, 0, 0, 1, 284, 236]}
+      ]
+}
+,     {
+      "width": 601, 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "shapes": [
+        {"ref": "d"}, 
+        {"ref": "stroke.shortcomb", "transform": [1, 0, 0, 1, 275, 254]}
+      ]
+}
+,     {
+      "width": 636, 
+      "_master": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3", 
+      "shapes": [
+        {"ref": "d"}, 
+        {"ref": "stroke.shortcomb", "transform": [1, 0, 0, 1, 271, 255]}
+      ]
+}
+,     {
+      "width": 586, 
+      "name": "29 Jan 24, 16:43", 
+      "_master": "14EEE41F-D714-4243-A717-73445EE7DABA", 
+      "id": "233BE8E5-26E5-471F-B0F8-3F91AEAD6B28", 
+      "shapes": [
+        {"ref": "d"}, 
+                {
+          "nodes": [[301,642,"l"], [301,569,"l"], [597,569,"l"], [597,642,"l"]],
+          "_":
+{
+  "com.glyphsapp": {
+    "closed": 1,
+    "nodes": [
+      [
+        301,
+        569,
+        "l"
+      ],
+      [
+        597,
+        569,
+        "l"
+      ],
+      [
+        597,
+        642,
+        "l"
+      ],
+      [
+        301,
+        642,
+        "l"
+      ]
+    ]
+  }
+}
+}
+
+      ]
+}
+]
