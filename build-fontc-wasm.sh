@@ -50,8 +50,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 babelfont = { git = "https://github.com/simoncozens/babelfont-rs.git", features = ["fontir"] }
-fontc = { git = "https://github.com/googlefonts/fontc.git" }
-fontir = { git = "https://github.com/googlefonts/fontc.git" }
+# Must us the same versions as babelfont
+fontc = { git = "https://github.com/googlefonts/fontc.git", branch = "edit-edits" }
+fontir = { git = "https://github.com/googlefonts/fontc.git", branch = "edit-edits" }
 wasm-bindgen = "0.2"
 serde_json = "1.0"
 console_error_panic_hook = "0.1"
@@ -69,7 +70,6 @@ mkdir -p src
 echo "📝 Creating lib.rs with babelfont → fontc pipeline..."
 cat > src/lib.rs << 'EOF'
 use wasm_bindgen::prelude::*;
-use std::sync::Arc;
 
 // Set up panic hook for better error messages
 #[wasm_bindgen(start)]
@@ -103,10 +103,12 @@ pub fn compile_babelfont(babelfont_json: &str) -> Result<Vec<u8>, JsValue> {
     let build_dir = std::path::Path::new("/tmp/fontc_build");
     let flags = fontir::orchestration::Flags::default();
     
-    let compiled_font = fontc::compile(
-        Arc::new(source),
+    let compiled_font = fontc::generate_font(
+        Box::new(source),
         build_dir,
+        None,
         flags,
+        false,
     ).map_err(|e| JsValue::from_str(&format!("Compilation failed: {:?}", e)))?;
     
     Ok(compiled_font)
