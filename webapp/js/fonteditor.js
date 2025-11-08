@@ -55,6 +55,14 @@ async function initFontEditor() {
         await window.pyodide.runPython(fonteditorCode);
         console.log("fonteditor.py module loaded");
 
+        // Install context package from local wheels
+        await window.pyodide.runPythonAsync(`
+            await micropip.install('matplotlib')
+            await micropip.install('numpy')
+            await micropip.install('pandas')
+        `);
+
+
         console.log("FontEditor initialized successfully");
 
         // Restore the last active view right away, before animation ends

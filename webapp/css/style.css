@@ -552,8 +552,8 @@ body {
     top: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(4px);
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(10px);
 }
 
 .modal.active {
@@ -624,6 +624,91 @@ body {
 
 .ai-info-section:last-child {
     margin-bottom: 0;
+}
+
+/* Matplotlib plot modal */
+.matplotlib-modal {
+    display: none;
+    position: fixed;
+    z-index: 10001;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(4px);
+}
+
+.matplotlib-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.matplotlib-modal-content {
+    background-color: #2a2a2a;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    padding: 0;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    max-width: 95vw;
+    max-height: 95vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.matplotlib-modal-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.matplotlib-modal-header h3 {
+    margin: 0;
+    font-size: 16px;
+    color: #00ff00;
+}
+
+.matplotlib-modal-close {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.matplotlib-modal-close:hover {
+    color: rgba(255, 255, 255, 1);
+}
+
+.matplotlib-modal-body {
+    padding: 16px;
+    overflow: auto;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.matplotlib-modal-body canvas,
+.matplotlib-modal-body matplotlib-figure {
+    max-width: 100%;
+    max-height: calc(95vh - 80px);
+    object-fit: contain;
+}
+
+.matplotlib-modal-body matplotlib-figure {
+    display: block;
 }
 
 .ai-info-section h3 {

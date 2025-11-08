@@ -1422,6 +1422,7 @@ GENERAL RULES (APPLY TO BOTH CONTEXTS):
 9. Always include an explanation of the code in markdown format outside the code block
 10. Answer in the language used in the user prompt in the Python code and the markdown explanation
 11. About the keywords line: Only use keywords that are actually relevant to the user prompt, not keywords of concepts that were used in the code as a means to get there or for filtering. Example: When a user wants to change anchors, only list "anchors" as a keyword while ignoring the keywords "glyphs" and "layers".
+12. matplotlib, numpy, pandas may be imported and used if needed for data analysis or visualization
 
 Example for file header:
 

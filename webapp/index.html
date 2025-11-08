@@ -232,6 +232,7 @@
                 'js/python-execution-wrapper.js',
                 'js/resizer.js',
                 'js/keyboard-navigation.js',
+                'js/matplotlib-handler.js',
                 'js/pyodide-official-console.js',
                 'js/fonteditor.js',
                 'js/font-dropdown.js',
@@ -335,6 +336,19 @@
                     <p class="ai-examples"><em>Examples: </em><span class="ai-example-text">"List all glyph names",
                             "Make glyphs 10% wider", "Add 50 units to left sidebearings"</span></p>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Matplotlib Plot Modal -->
+    <div id="matplotlib-modal" class="matplotlib-modal">
+        <div class="matplotlib-modal-content">
+            <div class="matplotlib-modal-header">
+                <h3>Plot</h3>
+                <button class="matplotlib-modal-close" id="matplotlib-modal-close-btn">&times;</button>
+            </div>
+            <div class="matplotlib-modal-body" id="matplotlib-modal-body">
+                <!-- Plot canvas will be inserted here -->
             </div>
         </div>
     </div>
