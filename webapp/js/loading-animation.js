@@ -1,6 +1,8 @@
 /**
  * Warp Speed Loading Animation
- * Creates a tunnel effect with letters/symbols from IBM Plex Mono Regular flying towards the viewer
+ * Creates a tunnel effect with letters/symbols from multiple IBM Plex Sans font families
+ * Includes characters from Latin, Arabic, Devanagari, Hebrew, Thai, Korean, and Japanese scripts
+ * Each character is rendered in its appropriate font family (Regular weight only)
  */
 
 (function () {
@@ -8,7 +10,6 @@
     const CONFIG = {
         speed: 1.5,           // Speed multiplier (higher = faster) - increased for faster clearing
         particleCount: 5000,   // Number of particles/letters (increased for more spawning)
-        fontFamily: 'IBM Plex Mono',
         fontSize: 3,          // Starting font size (smaller) - reduced for smaller end size
         maxScale: .7,        // Maximum scale multiplier (increased from 0.6 for bigger end size)
         minDisplayTime: 0,    // Minimum display time in milliseconds (0 seconds - no minimum)
@@ -16,11 +17,52 @@
         slowdownTime: 1000,   // Time to slow down to zero before fade starts (1 second)
         drainTime: 2000,      // Estimated time for particles to clear the screen (milliseconds) - reduced due to faster speed
         laneCount: 12,        // Number of fixed directional lanes
-        spawnInterval: 1 / 3,    // Milliseconds between spawns (reduced to 1/3 of 40ms for 3x spawn rate)
+        spawnInterval: 100,    // Milliseconds between spawns (reduced to 1/3 of 40ms for 3x spawn rate)
     };
 
-    // Characters to use for the star field (letters, numbers, and symbols)
-    const CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*()_+-=[]{}|;:,.<>?/~';
+    // Script-specific character sets for different writing systems
+    // Each script uses representative characters from its Unicode range
+    const SCRIPTS = {
+        latin: {
+            fontFamily: 'IBM Plex Sans',
+            chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ'
+        },
+        arabic: {
+            fontFamily: 'IBM Plex Sans Arabic',
+            chars: 'ابتثجحخدذرزسشصضطظعغفقكلمنهويءآأؤإئةى٠١٢٣٤٥٦٧٨٩'
+        },
+        devanagari: {
+            fontFamily: 'IBM Plex Sans Devanagari',
+            chars: 'अआइईउऊएऐओऔकखगघङचछजझञटठडढणतथदधनपफबभमयरलवशषसह०१२३४५६७८९'
+        },
+        hebrew: {
+            fontFamily: 'IBM Plex Sans Hebrew',
+            chars: 'אבגדהוזחטיכלמנסעפצקרשתךםןףץ'
+        },
+        thai: {
+            fontFamily: 'IBM Plex Sans Thai',
+            chars: 'กขคงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮะาิีึืุู๐๑๒๓๔๕๖๗๘๙'
+        },
+        korean: {
+            fontFamily: 'IBM Plex Sans KR',
+            chars: 'ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎㅏㅐㅑㅒㅓㅔㅕㅖㅗㅛㅜㅠㅡㅣ가나다라마바사아자차카타파하각난달람밤박삭악작착칵탁팍학'
+        },
+        japanese: {
+            fontFamily: 'IBM Plex Sans JP',
+            chars: 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン一二三四五六七八九十'
+        }
+    };
+
+    // Combine all characters from all scripts
+    const ALL_CHARACTERS = Object.values(SCRIPTS).map(s => s.chars).join('');
+
+    // Create a lookup table for quick font family retrieval by character
+    const CHAR_TO_FONT = {};
+    Object.entries(SCRIPTS).forEach(([scriptName, script]) => {
+        for (const char of script.chars) {
+            CHAR_TO_FONT[char] = script.fontFamily;
+        }
+    });
 
     // Cubic bezier easing function for smooth slowdown
     // Using ease-out cubic bezier (0.4, 0.0, 0.2, 1) - similar to CSS transition
@@ -64,8 +106,11 @@
             this.velocityX = lane.velocityX * velocitySpread;
             this.velocityY = lane.velocityY * velocitySpread;
 
-            // Random character
-            this.char = CHARACTERS.charAt(Math.floor(Math.random() * CHARACTERS.length));
+            // Random character from all scripts
+            this.char = ALL_CHARACTERS.charAt(Math.floor(Math.random() * ALL_CHARACTERS.length));
+
+            // Get the appropriate font family for this character
+            this.fontFamily = CHAR_TO_FONT[this.char] || 'IBM Plex Sans';
 
             // More random size variation (50% to 150% of base size)
             this.sizeVariation = 0.5 + Math.random() * 1.0;
@@ -153,7 +198,7 @@
             ctx.save();
             ctx.translate(x2d, y2d);
             ctx.rotate(this.rotation);
-            ctx.font = `${size}px '${CONFIG.fontFamily}'`;
+            ctx.font = `${size}px '${this.fontFamily}'`;
             ctx.fillStyle = `rgba(${finalBrightness}, ${finalBrightness}, ${finalBrightness}, ${opacity})`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';

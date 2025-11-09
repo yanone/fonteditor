@@ -77,12 +77,13 @@ body {
 
 .loading-status {
     position: fixed;
-    bottom: 50px;
+    top: 50%;
     left: 0;
     right: 0;
+    margin-top: 125px;
     text-align: center;
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 14px;
+    font-size: 18px;
     color: rgba(255, 255, 255, 0.7);
     z-index: 2;
 }
