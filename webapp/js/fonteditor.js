@@ -87,7 +87,7 @@ async function initFontEditor() {
 
         console.log("FontEditor initialized successfully");
         if (window.updateLoadingStatus) {
-            window.updateLoadingStatus("Ready", true);
+            window.updateLoadingStatus("READY", true);
         }
 
         // Restore the last active view right away, before animation ends
@@ -104,29 +104,32 @@ async function initFontEditor() {
             }
         };
 
-        // Request animation to stop (it will drain particles first, then trigger fade)
-        if (window.WarpSpeedAnimation) {
-            let callbackFired = false;
+        // Wait at least 1 second after "Ready" appears before starting fadeout
+        setTimeout(() => {
+            // Request animation to stop (it will drain particles first, then trigger fade)
+            if (window.WarpSpeedAnimation) {
+                let callbackFired = false;
 
-            window.WarpSpeedAnimation.requestStop(() => {
-                if (!callbackFired) {
-                    callbackFired = true;
-                    hideLoadingOverlay();
-                }
-            });
+                window.WarpSpeedAnimation.requestStop(() => {
+                    if (!callbackFired) {
+                        callbackFired = true;
+                        hideLoadingOverlay();
+                    }
+                });
 
-            // Fallback timeout in case animation callback doesn't fire (e.g., particles stuck)
-            setTimeout(() => {
-                if (!callbackFired) {
-                    console.warn("Animation drain timeout, forcing overlay hide");
-                    callbackFired = true;
-                    hideLoadingOverlay();
-                }
-            }, 5000); // 5 second timeout
-        } else {
-            // Fallback if animation not available
-            hideLoadingOverlay();
-        }
+                // Fallback timeout in case animation callback doesn't fire (e.g., particles stuck)
+                setTimeout(() => {
+                    if (!callbackFired) {
+                        console.warn("Animation drain timeout, forcing overlay hide");
+                        callbackFired = true;
+                        hideLoadingOverlay();
+                    }
+                }, 5000); // 5 second timeout
+            } else {
+                // Fallback if animation not available
+                hideLoadingOverlay();
+            }
+        }, 1000); // Wait 1 second after "Ready" appears
 
         return true;
 

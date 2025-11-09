@@ -251,6 +251,34 @@
                 const timeSinceStarsFade = currentTime - this.starsFadeStartTime;
                 fadeProgress = Math.min(1, timeSinceStarsFade / CONFIG.starsFadeTime);
 
+                // Disintegrate the loading status label
+                const statusElement = document.getElementById('loading-status');
+                if (statusElement && statusElement.dataset.originalText) {
+                    const originalText = statusElement.dataset.originalText;
+                    const numCharsToRemove = Math.floor(fadeProgress * originalText.length);
+
+                    // Create array of indices to remove
+                    if (!statusElement.dataset.removeIndices) {
+                        // Create shuffled array of all character indices
+                        const indices = Array.from({ length: originalText.length }, (_, i) => i);
+                        for (let i = indices.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [indices[i], indices[j]] = [indices[j], indices[i]];
+                        }
+                        statusElement.dataset.removeIndices = JSON.stringify(indices);
+                    }
+
+                    const removeIndices = JSON.parse(statusElement.dataset.removeIndices);
+                    const indicesToRemove = new Set(removeIndices.slice(0, numCharsToRemove));
+
+                    // Build disintegrated text
+                    let disintegratedText = '';
+                    for (let i = 0; i < originalText.length; i++) {
+                        disintegratedText += indicesToRemove.has(i) ? '\u00A0' : originalText[i];
+                    }
+                    statusElement.textContent = disintegratedText;
+                }
+
                 if (fadeProgress >= 1) {
                     // Stars fully faded, start final fade
                     this.isFadingStars = false;
@@ -261,17 +289,23 @@
                 // Stop requested, begin fading stars
                 this.isFadingStars = true;
                 this.starsFadeStartTime = currentTime;
-                
+
+                // Store original text of status element
+                const statusElement = document.getElementById('loading-status');
+                if (statusElement && !statusElement.dataset.originalText) {
+                    statusElement.dataset.originalText = statusElement.textContent;
+                }
+
                 // Assign random disappear times to all appeared stars
                 const appearedStars = this.stars.filter(star => star.hasAppeared);
-                
+
                 // Shuffle appeared stars for random disappearance order
                 const shuffled = [...appearedStars];
                 for (let i = shuffled.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
                     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
                 }
-                
+
                 // Assign disappear times spread across the fade duration
                 const disappearInterval = CONFIG.starsFadeTime / shuffled.length;
                 shuffled.forEach((star, index) => {
