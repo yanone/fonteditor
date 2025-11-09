@@ -13,7 +13,10 @@
         sizeVariation: 0.5,     // Size variation (30%)
         initialFlickerDelay: 50, // Delay between initial flickers (ms)
         flickerChance: 0.002,   // Chance per frame for a star to flicker again
+        readyNormalTime: 0000,  // Time READY label stays normal before blinking (ms)
+        readyBlinkTime: 1000,   // Time for READY label to blink (ms)
         starsFadeTime: 1000,    // Time for stars to fade out (ms)
+        pauseBeforeFinalFade: 300, // Pause after stars disappear before final fade (ms)
         finalFadeTime: 1500,    // Time for final fade out (ms)
         minDistanceFromCenter: 300, // Minimum distance from center for stars
     };
@@ -103,8 +106,8 @@
             this.targetOpacity = this.targetOpacity > 0 ? 0 : 0.7;
         }
 
-        update(currentTime, isFadingOut, fadeProgress, isFadingFinal) {
-            if (isFadingOut || isFadingFinal) {
+        update(currentTime, isFadingOut, fadeProgress, isFadingFinal, isPausing) {
+            if (isFadingOut || isFadingFinal || isPausing) {
                 // Individual disappearance - only for stars that have appeared and haven't disappeared yet
                 if (this.hasAppeared && !this.hasDisappeared && this.disappearTime !== null && currentTime >= this.disappearTime) {
                     this.opacity = 0;
@@ -145,8 +148,14 @@
             this.startTime = 0;
             this.stopRequested = false;
             this.stopRequestTime = 0;
+            this.isReadyNormal = false;
+            this.readyNormalStartTime = 0;
+            this.isBlinkingReady = false;
+            this.blinkStartTime = 0;
             this.isFadingStars = false;
             this.starsFadeStartTime = 0;
+            this.isPausingBeforeFinalFade = false;
+            this.pauseStartTime = 0;
             this.isFadingFinal = false;
             this.finalFadeStartTime = 0;
         }
@@ -246,75 +255,83 @@
                 }
                 // Keep stars fully faded during final fade
                 fadeProgress = 1;
-            } else if (this.isFadingStars) {
-                // Fading out stars
-                const timeSinceStarsFade = currentTime - this.starsFadeStartTime;
-                fadeProgress = Math.min(1, timeSinceStarsFade / CONFIG.starsFadeTime);
+            } else if (this.isPausingBeforeFinalFade) {
+                // Pause after stars disappeared, before final fade
+                const timeSincePause = currentTime - this.pauseStartTime;
 
-                // Disintegrate the loading status label
-                const statusElement = document.getElementById('loading-status');
-                if (statusElement && statusElement.dataset.originalText) {
-                    const originalText = statusElement.dataset.originalText;
-                    const numCharsToRemove = Math.floor(fadeProgress * originalText.length);
-
-                    // Create array of indices to remove
-                    if (!statusElement.dataset.removeIndices) {
-                        // Create shuffled array of all character indices
-                        const indices = Array.from({ length: originalText.length }, (_, i) => i);
-                        for (let i = indices.length - 1; i > 0; i--) {
-                            const j = Math.floor(Math.random() * (i + 1));
-                            [indices[i], indices[j]] = [indices[j], indices[i]];
-                        }
-                        statusElement.dataset.removeIndices = JSON.stringify(indices);
-                    }
-
-                    const removeIndices = JSON.parse(statusElement.dataset.removeIndices);
-                    const indicesToRemove = new Set(removeIndices.slice(0, numCharsToRemove));
-
-                    // Build disintegrated text
-                    let disintegratedText = '';
-                    for (let i = 0; i < originalText.length; i++) {
-                        disintegratedText += indicesToRemove.has(i) ? '\u00A0' : originalText[i];
-                    }
-                    statusElement.textContent = disintegratedText;
-                }
-
-                if (fadeProgress >= 1) {
-                    // Stars fully faded, start final fade
-                    this.isFadingStars = false;
+                if (timeSincePause >= CONFIG.pauseBeforeFinalFade) {
+                    // Pause complete, start final fade
+                    this.isPausingBeforeFinalFade = false;
                     this.isFadingFinal = true;
                     this.finalFadeStartTime = currentTime;
                 }
-            } else if (this.stopRequested && !this.isFadingStars) {
-                // Stop requested, begin fading stars
-                this.isFadingStars = true;
-                this.starsFadeStartTime = currentTime;
+                // Keep stars fully disappeared
+                fadeProgress = 1;
+            } else if (this.isFadingStars) {
+                // Stars disappearing
+                const timeSinceStarsFade = currentTime - this.starsFadeStartTime;
+                fadeProgress = Math.min(1, timeSinceStarsFade / CONFIG.starsFadeTime);
 
-                // Store original text of status element
+                if (fadeProgress >= 1) {
+                    // Stars fully disappeared, start pause
+                    this.isFadingStars = false;
+                    this.isPausingBeforeFinalFade = true;
+                    this.pauseStartTime = currentTime;
+                }
+            } else if (this.isBlinkingReady) {
+                // READY label blinking phase
+                const timeSinceBlink = currentTime - this.blinkStartTime;
+
+                // Fast blink effect (toggle every 100ms)
                 const statusElement = document.getElementById('loading-status');
-                if (statusElement && !statusElement.dataset.originalText) {
-                    statusElement.dataset.originalText = statusElement.textContent;
+                if (statusElement) {
+                    const blinkCycle = Math.floor((timeSinceBlink / 100) % 2);
+                    statusElement.style.opacity = blinkCycle === 0 ? '1' : '0';
                 }
 
-                // Assign random disappear times to all appeared stars
-                const appearedStars = this.stars.filter(star => star.hasAppeared);
+                if (timeSinceBlink >= CONFIG.readyBlinkTime) {
+                    // Blinking done, hide READY label and start star disappearance
+                    if (statusElement) {
+                        statusElement.style.opacity = '0';
+                    }
+                    this.isBlinkingReady = false;
+                    this.isFadingStars = true;
+                    this.starsFadeStartTime = currentTime;
 
-                // Shuffle appeared stars for random disappearance order
-                const shuffled = [...appearedStars];
-                for (let i = shuffled.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                    // Assign random disappear times to all appeared stars
+                    const appearedStars = this.stars.filter(star => star.hasAppeared);
+
+                    // Shuffle appeared stars for random disappearance order
+                    const shuffled = [...appearedStars];
+                    for (let i = shuffled.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                    }
+
+                    // Assign disappear times spread across the fade duration
+                    const disappearInterval = CONFIG.starsFadeTime / shuffled.length;
+                    shuffled.forEach((star, index) => {
+                        star.disappear(currentTime + index * disappearInterval);
+                    });
                 }
+            } else if (this.isReadyNormal) {
+                // READY label normal display phase (before blinking)
+                const timeSinceNormal = currentTime - this.readyNormalStartTime;
 
-                // Assign disappear times spread across the fade duration
-                const disappearInterval = CONFIG.starsFadeTime / shuffled.length;
-                shuffled.forEach((star, index) => {
-                    star.disappear(currentTime + index * disappearInterval);
-                });
+                if (timeSinceNormal >= CONFIG.readyNormalTime) {
+                    // Normal time done, start blinking
+                    this.isReadyNormal = false;
+                    this.isBlinkingReady = true;
+                    this.blinkStartTime = currentTime;
+                }
+            } else if (this.stopRequested && !this.isReadyNormal) {
+                // Stop requested, begin READY normal display
+                this.isReadyNormal = true;
+                this.readyNormalStartTime = currentTime;
             }
 
             // Random flickering for stars that have already appeared
-            if (!this.isFadingStars && !this.isFadingFinal) {
+            if (!this.isReadyNormal && !this.isBlinkingReady && !this.isFadingStars && !this.isPausingBeforeFinalFade && !this.isFadingFinal) {
                 this.stars.forEach(star => {
                     if (star.hasAppeared && Math.random() < CONFIG.flickerChance) {
                         star.flicker();
@@ -327,7 +344,7 @@
 
             // Update and draw stars
             this.stars.forEach(star => {
-                star.update(elapsedTime, this.isFadingStars, fadeProgress, this.isFadingFinal);
+                star.update(currentTime, this.isFadingStars, fadeProgress, this.isFadingFinal, this.isPausingBeforeFinalFade);
                 star.draw(this.ctx);
             });
         }
@@ -336,11 +353,12 @@
             this.stopRequested = true;
             this.stopRequestTime = performance.now();
 
-            // Call callback after stars fade out
+            // Call callback after normal + blink + star fade + pause complete, before final fade
             if (onComplete) {
+                const totalTimeBeforeFinalFade = CONFIG.readyNormalTime + CONFIG.readyBlinkTime + CONFIG.starsFadeTime + CONFIG.pauseBeforeFinalFade;
                 setTimeout(() => {
                     onComplete();
-                }, CONFIG.starsFadeTime);
+                }, totalTimeBeforeFinalFade);
             }
         }
 
