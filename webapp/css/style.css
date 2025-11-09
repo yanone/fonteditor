@@ -997,7 +997,7 @@ body {
     border: 3px solid rgba(255, 51, 0, 0.3);
     border-radius: 50%;
     border-top-color: #ff3300;
-    animation: spin 1s ease-in-out infinite;
+    /* animation: spin 1s ease-in-out infinite; */
 }
 
 @keyframes spin {
