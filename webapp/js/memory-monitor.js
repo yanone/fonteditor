@@ -7,6 +7,7 @@
     class MemoryMonitor {
         constructor() {
             this.monitorElement = null;
+            this.buttonElement = null;
             this.updateInterval = null;
             this.warningThreshold = 0.80; // 80% of limit
             this.criticalThreshold = 0.90; // 90% of limit
@@ -47,20 +48,15 @@
             const toolbar = document.querySelector('.toolbar-right');
             if (toolbar) {
                 const toggleBtn = document.createElement('button');
-                toggleBtn.className = 'toolbar-button';
-                toggleBtn.textContent = '🧠 Memory';
+                toggleBtn.className = 'toolbar-button memory-button';
+                toggleBtn.textContent = '...';
                 toggleBtn.title = 'Toggle memory monitor (Cmd+M)';
                 toggleBtn.addEventListener('click', () => this.toggleVisibility());
+                this.buttonElement = toggleBtn;
 
-                // Insert before save button
-                const saveBtn = document.getElementById('save-font-btn');
-                if (saveBtn) {
-                    toolbar.insertBefore(toggleBtn, saveBtn);
-                    console.log('✅ Memory button added to toolbar (before Save button)');
-                } else {
-                    toolbar.prepend(toggleBtn);
-                    console.log('✅ Memory button added to toolbar (at start)');
-                }
+                // Append to the end (all the way to the right)
+                toolbar.appendChild(toggleBtn);
+                console.log('✅ Memory button added to toolbar (at the end)');
             } else {
                 console.warn('⚠️ Could not find .toolbar-right element');
             }
@@ -83,13 +79,63 @@
             }
         }
 
+        updateButtonDisplay() {
+            if (!this.buttonElement) return;
+
+            const info = this.getMemoryInfo();
+            
+            if (!info.supported) {
+                this.buttonElement.textContent = 'N/A';
+                this.buttonElement.style.color = '#888';
+                return;
+            }
+
+            // Display percentage
+            this.buttonElement.textContent = `${info.percentUsed}%`;
+
+            // Interpolate color from green (0%) -> yellow (50%) -> red (100%)
+            const percent = parseFloat(info.percentUsed);
+            const color = this.interpolateColor(percent);
+            this.buttonElement.style.color = color;
+        }
+
+        interpolateColor(percent) {
+            // Clamp between 0 and 100
+            percent = Math.max(0, Math.min(100, percent));
+
+            let r, g, b;
+
+            if (percent < 50) {
+                // Green to Yellow (0% to 50%)
+                // Green: rgb(0, 255, 0)
+                // Yellow: rgb(255, 255, 0)
+                const t = percent / 50; // 0 to 1
+                r = Math.round(255 * t);
+                g = 255;
+                b = 0;
+            } else {
+                // Yellow to Red (50% to 100%)
+                // Yellow: rgb(255, 255, 0)
+                // Red: rgb(255, 0, 0)
+                const t = (percent - 50) / 50; // 0 to 1
+                r = 255;
+                g = Math.round(255 * (1 - t));
+                b = 0;
+            }
+
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
         startMonitoring() {
-            // Update every second when visible
+            // Update continuously (both button and popup)
             this.updateInterval = setInterval(() => {
-                if (this.isVisible) {
-                    this.updateMemoryDisplay();
-                }
+                this.updateMemoryDisplay();
+                this.updateButtonDisplay();
             }, 1000);
+            
+            // Initial update
+            this.updateMemoryDisplay();
+            this.updateButtonDisplay();
         }
 
         updateMemoryDisplay() {
