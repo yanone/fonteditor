@@ -83,7 +83,7 @@
             if (!this.buttonElement) return;
 
             const info = this.getMemoryInfo();
-            
+
             if (!info.supported) {
                 this.buttonElement.textContent = 'N/A';
                 this.buttonElement.style.color = '#888';
@@ -132,7 +132,7 @@
                 this.updateMemoryDisplay();
                 this.updateButtonDisplay();
             }, 1000);
-            
+
             // Initial update
             this.updateMemoryDisplay();
             this.updateButtonDisplay();
