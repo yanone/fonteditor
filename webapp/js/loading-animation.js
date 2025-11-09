@@ -14,7 +14,7 @@
         maxScale: .7,        // Maximum scale multiplier (increased from 0.6 for bigger end size)
         minDisplayTime: 0,    // Minimum display time in milliseconds (0 seconds - no minimum)
         fadeTransitionTime: 1500, // Fade-out transition time in milliseconds (1 second)
-        slowdownTime: 1000,   // Time to slow down to zero before fade starts (1 second)
+        slowdownTime: 1500,   // Time to slow down to zero before fade starts (1 second)
         drainTime: 2000,      // Estimated time for particles to clear the screen (milliseconds) - reduced due to faster speed
         laneCount: 12,        // Number of fixed directional lanes
         spawnInterval: 100,    // Milliseconds between spawns (reduced to 1/3 of 40ms for 3x spawn rate)
@@ -430,4 +430,27 @@
             }
         }
     };
+
+    // Clear initial message and show "Bootstrapping..." after 2 seconds
+    const initBootstrappingMessage = () => {
+        const statusElement = document.getElementById('loading-status');
+        if (statusElement) {
+            // Clear the initial message immediately
+            statusElement.textContent = '';
+
+            // Show "Bootstrapping..." after 2 seconds if no other message has been set
+            setTimeout(() => {
+                if (statusElement.textContent === '') {
+                    statusElement.textContent = 'Bootstrapping...';
+                }
+            }, 1000);
+        }
+    };
+
+    // Initialize bootstrapping message when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initBootstrappingMessage);
+    } else {
+        initBootstrappingMessage();
+    }
 })();
