@@ -7,16 +7,16 @@
     // Animation configuration
     const CONFIG = {
         speed: 1.5,           // Speed multiplier (higher = faster) - increased for faster clearing
-        particleCount: 200,   // Number of particles/letters (increased for more spawning)
+        particleCount: 5000,   // Number of particles/letters (increased for more spawning)
         fontFamily: 'IBM Plex Mono',
         fontSize: 3,          // Starting font size (smaller) - reduced for smaller end size
-        maxScale: 1.5,        // Maximum scale multiplier (increased from 0.6 for bigger end size)
+        maxScale: .7,        // Maximum scale multiplier (increased from 0.6 for bigger end size)
         minDisplayTime: 0,    // Minimum display time in milliseconds (0 seconds - no minimum)
         fadeTransitionTime: 1500, // Fade-out transition time in milliseconds (1 second)
         slowdownTime: 1000,   // Time to slow down to zero before fade starts (1 second)
         drainTime: 2000,      // Estimated time for particles to clear the screen (milliseconds) - reduced due to faster speed
         laneCount: 12,        // Number of fixed directional lanes
-        spawnInterval: 50,    // Milliseconds between spawns (reduced to 1/3 of 40ms for 3x spawn rate)
+        spawnInterval: 1 / 3,    // Milliseconds between spawns (reduced to 1/3 of 40ms for 3x spawn rate)
     };
 
     // Characters to use for the star field (letters, numbers, and symbols)
