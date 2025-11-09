@@ -372,4 +372,17 @@
         requestStop: (onComplete) => { if (animation) animation.requestStop(onComplete); },
         instance: () => animation,
     };
+
+    // Utility function to update loading status
+    window.updateLoadingStatus = (message, isReady = false) => {
+        const statusElement = document.getElementById('loading-status');
+        if (statusElement) {
+            statusElement.textContent = message;
+            if (isReady) {
+                statusElement.classList.add('ready');
+            } else {
+                statusElement.classList.remove('ready');
+            }
+        }
+    };
 })();

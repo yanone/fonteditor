@@ -12,16 +12,26 @@ async function initFontEditor() {
         }
 
         console.log("Initializing FontEditor...");
+        if (window.updateLoadingStatus) {
+            window.updateLoadingStatus("Initializing Python environment...");
+        }
 
         // First load micropip package
         await window.pyodide.loadPackage("micropip");
         console.log("micropip loaded successfully");
+        if (window.updateLoadingStatus) {
+            window.updateLoadingStatus("Loading package manager...");
+        }
 
         // Fetch the list of wheel files from the manifest
         const manifestResponse = await fetch('./wheels/wheels.json');
         const manifest = await manifestResponse.json();
         const wheelFiles = manifest.wheels;
         console.log('Found wheel files:', wheelFiles);
+
+        if (window.updateLoadingStatus) {
+            window.updateLoadingStatus("Installing fonttools...");
+        }
 
         // Install context package from local wheels
         await window.pyodide.runPythonAsync(`
@@ -33,6 +43,9 @@ async function initFontEditor() {
         // Install each wheel file
         for (const wheelFile of wheelFiles) {
             console.log(`Installing wheel: ${wheelFile}`);
+            if (window.updateLoadingStatus) {
+                window.updateLoadingStatus(`Installing ${wheelFile.split('-')[0]}...`);
+            }
             const wheelUrl = `./wheels/${wheelFile}`;
             await window.pyodide.runPythonAsync(`
                 import micropip
@@ -42,6 +55,9 @@ async function initFontEditor() {
         }
 
         // Import context and make it available
+        if (window.updateLoadingStatus) {
+            window.updateLoadingStatus("Importing context module...");
+        }
         await window.pyodide.runPython(`
             import context
             
@@ -50,12 +66,18 @@ async function initFontEditor() {
         `);
 
         // Load the fonteditor Python module
+        if (window.updateLoadingStatus) {
+            window.updateLoadingStatus("Loading font editor...");
+        }
         const fonteditorModule = await fetch('./py/fonteditor.py');
         const fonteditorCode = await fonteditorModule.text();
         await window.pyodide.runPython(fonteditorCode);
         console.log("fonteditor.py module loaded");
 
         // Install context package from local wheels
+        if (window.updateLoadingStatus) {
+            window.updateLoadingStatus("Installing visualization libraries...");
+        }
         await window.pyodide.runPythonAsync(`
             await micropip.install('matplotlib')
             await micropip.install('numpy')
@@ -64,6 +86,9 @@ async function initFontEditor() {
 
 
         console.log("FontEditor initialized successfully");
+        if (window.updateLoadingStatus) {
+            window.updateLoadingStatus("Ready", true);
+        }
 
         // Restore the last active view right away, before animation ends
         const lastActiveView = localStorage.getItem('last_active_view');
