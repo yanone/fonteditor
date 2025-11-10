@@ -187,12 +187,15 @@
         }
 
         createStarGrid() {
-            const centerX = this.canvas.width / 2;
-            const centerY = this.canvas.height / 2;
+            // Use CSS pixel dimensions (not canvas pixel dimensions)
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const centerX = width / 2;
+            const centerY = height / 2;
 
             // Calculate grid bounds
-            const cols = Math.ceil(this.canvas.width / CONFIG.gridSpacing);
-            const rows = Math.ceil(this.canvas.height / CONFIG.gridSpacing);
+            const cols = Math.ceil(width / CONFIG.gridSpacing);
+            const rows = Math.ceil(height / CONFIG.gridSpacing);
 
             // Create stars on grid, excluding center area
             const gridStars = [];
@@ -228,8 +231,20 @@
         }
 
         resize() {
-            this.canvas.width = window.innerWidth;
-            this.canvas.height = window.innerHeight;
+            const dpr = window.devicePixelRatio || 1;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            
+            // Set canvas size in CSS pixels
+            this.canvas.style.width = width + 'px';
+            this.canvas.style.height = height + 'px';
+            
+            // Set canvas size in actual pixels (accounting for DPR)
+            this.canvas.width = width * dpr;
+            this.canvas.height = height * dpr;
+            
+            // Scale the context to account for DPR
+            this.ctx.scale(dpr, dpr);
         }
 
         animate(currentTime) {
