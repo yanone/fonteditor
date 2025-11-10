@@ -234,15 +234,15 @@
             const dpr = window.devicePixelRatio || 1;
             const width = window.innerWidth;
             const height = window.innerHeight;
-            
+
             // Set canvas size in CSS pixels
             this.canvas.style.width = width + 'px';
             this.canvas.style.height = height + 'px';
-            
+
             // Set canvas size in actual pixels (accounting for DPR)
             this.canvas.width = width * dpr;
             this.canvas.height = height * dpr;
-            
+
             // Scale the context to account for DPR
             this.ctx.scale(dpr, dpr);
         }
