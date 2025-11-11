@@ -11,7 +11,7 @@
         gridSpacing: 40,        // Space between grid points
         fontSize: 24,           // Base font size
         sizeVariation: 0.5,     // Size variation (30%)
-        initialFlickerDelay: 50, // Delay between initial flickers (ms)
+        initialFlickerDelay: 20, // Delay between initial flickers (ms)
         flickerChance: 0.002,   // Chance per frame for a star to flicker again
         readyNormalTime: 0000,  // Time READY label stays normal before blinking (ms)
         readyBlinkTime: 1000,   // Time for READY label to blink (ms)
@@ -102,8 +102,8 @@
         }
 
         flicker() {
-            // Random flicker: toggle between visible and invisible
-            this.targetOpacity = this.targetOpacity > 0 ? 0 : 0.7;
+            // Flicker to bright white, then fade back to darker gray
+            this.targetOpacity = 1.0;  // Bright white
         }
 
         update(currentTime, isFadingOut, fadeProgress, isFadingFinal, isPausing) {
@@ -117,12 +117,17 @@
             } else if (currentTime >= this.appearTime && !this.hasAppeared) {
                 // Initial appearance
                 this.hasAppeared = true;
-                this.targetOpacity = 0.7;
-                this.opacity = 0.7;
+                this.targetOpacity = 0.4;  // Darker gray
+                this.opacity = 0.4;
             } else if (this.hasAppeared && !this.hasDisappeared) {
                 // Smooth transition to target opacity
                 const diff = this.targetOpacity - this.opacity;
                 this.opacity += diff * 0.1;
+
+                // If we're close to full brightness after a flicker, start fading back to darker gray
+                if (this.opacity > 0.9 && this.targetOpacity > 0.9) {
+                    this.targetOpacity = 0.4;  // Fade back to darker gray
+                }
             }
         }
 
