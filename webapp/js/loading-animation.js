@@ -9,11 +9,13 @@
     // Animation configuration
     const CONFIG = {
         gridSpacing: 40,        // Space between grid points
-        fontSize: 24,           // Base font size
+        fontSize: 18,           // Base font size
         sizeVariation: 0.5,     // Size variation (30%)
         initialFlickerDelay: 20, // Delay between initial flickers (ms)
         flickerChance: 0.002,   // Chance per frame for a star to flicker again
-        readyNormalTime: 0000,  // Time READY label stays normal before blinking (ms)
+        disappearChance: 0.0015, // Chance per frame for a star to disappear
+        reappearChance: 0.003,  // Chance per frame for a disappeared star to reappear
+        readyNormalTime: 0,     // Time READY label stays normal before blinking (ms)
         readyBlinkTime: 1000,   // Time for READY label to blink (ms)
         starsFadeTime: 1000,    // Time for stars to fade out (ms)
         pauseBeforeFinalFade: 300, // Pause after stars disappear before final fade (ms)
@@ -26,7 +28,9 @@
     const SCRIPTS = {
         latin: {
             fontFamily: 'IBM Plex Sans',
-            chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ'
+            chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ' +
+                'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψω' + // Greek
+                'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюя' // Cyrillic
         },
         arabic: {
             fontFamily: 'IBM Plex Sans Arabic',
@@ -91,6 +95,7 @@
             this.appearTime = 0;
             this.disappearTime = null;
             this.hasDisappeared = false;
+            this.isCyclicallyDisappeared = false; // For ongoing disappear/reappear cycles
         }
 
         appear(delay) {
@@ -101,7 +106,17 @@
             this.disappearTime = delay;
         }
 
-        flicker() {
+        // Cyclic disappearance during normal flickering
+        cyclicDisappear() {
+            this.isCyclicallyDisappeared = true;
+            this.targetOpacity = 0;
+        }
+
+        // Cyclic reappearance during normal flickering
+        cyclicReappear() {
+            this.isCyclicallyDisappeared = false;
+            this.targetOpacity = 0.4; // Darker gray
+        } flicker() {
             // Flicker to bright white, then fade back to darker gray
             this.targetOpacity = 1.0;  // Bright white
         }
@@ -120,13 +135,25 @@
                 this.targetOpacity = 0.4;  // Darker gray
                 this.opacity = 0.4;
             } else if (this.hasAppeared && !this.hasDisappeared) {
-                // Smooth transition to target opacity
-                const diff = this.targetOpacity - this.opacity;
-                this.opacity += diff * 0.1;
+                // Handle cyclic disappearance
+                if (this.isCyclicallyDisappeared) {
+                    // Fade out to invisible
+                    const diff = this.targetOpacity - this.opacity;
+                    this.opacity += diff * 0.1;
 
-                // If we're close to full brightness after a flicker, start fading back to darker gray
-                if (this.opacity > 0.9 && this.targetOpacity > 0.9) {
-                    this.targetOpacity = 0.4;  // Fade back to darker gray
+                    // Once fully faded, set opacity to 0
+                    if (this.opacity < 0.01) {
+                        this.opacity = 0;
+                    }
+                } else {
+                    // Smooth transition to target opacity
+                    const diff = this.targetOpacity - this.opacity;
+                    this.opacity += diff * 0.1;
+
+                    // If we're close to full brightness after a flicker, start fading back to darker gray
+                    if (this.opacity > 0.9 && this.targetOpacity > 0.9) {
+                        this.targetOpacity = 0.4;  // Fade back to darker gray
+                    }
                 }
             }
         }
@@ -134,7 +161,9 @@
         draw(ctx) {
             if (this.opacity > 0.01) {
                 ctx.save();
-                ctx.font = `${this.size}px '${this.fontFamily}'`;
+                // Use bold font when star is bright (twinkling)
+                const fontWeight = this.opacity > 0.7 ? '700' : '400';
+                ctx.font = `${fontWeight} ${this.size}px '${this.fontFamily}'`;
                 ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
@@ -353,8 +382,20 @@
             // Random flickering for stars that have already appeared
             if (!this.isReadyNormal && !this.isBlinkingReady && !this.isFadingStars && !this.isPausingBeforeFinalFade && !this.isFadingFinal) {
                 this.stars.forEach(star => {
-                    if (star.hasAppeared && Math.random() < CONFIG.flickerChance) {
-                        star.flicker();
+                    if (star.hasAppeared && !star.isCyclicallyDisappeared) {
+                        // Random flicker
+                        if (Math.random() < CONFIG.flickerChance) {
+                            star.flicker();
+                        }
+                        // Random cyclic disappearance
+                        if (Math.random() < CONFIG.disappearChance) {
+                            star.cyclicDisappear();
+                        }
+                    } else if (star.hasAppeared && star.isCyclicallyDisappeared) {
+                        // Random cyclic reappearance
+                        if (Math.random() < CONFIG.reappearChance) {
+                            star.cyclicReappear();
+                        }
                     }
                 });
             }
