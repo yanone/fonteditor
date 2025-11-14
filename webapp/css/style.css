@@ -448,12 +448,12 @@ body {
 }
 
 /* View specific colors for better distinction - Cyberpunk style */
-.view-editor {
+.view-fontinfo {
     border-left: 4px solid #00ffff;
     flex: 1;
 }
 
-.view-preview {
+.view-editor {
     border-left: 4px solid #ff00ff;
     flex: 2;
 }

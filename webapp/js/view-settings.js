@@ -4,12 +4,12 @@
 const VIEW_SETTINGS = {
     // Keyboard shortcuts for each view
     shortcuts: {
-        'view-preview': { // Editor view
+        'view-editor': { // Editor view
             key: 'e',
             modifiers: { cmd: true, shift: true },
             displayModifiers: ['⌘', '⇧'] // Mac symbols for display
         },
-        'view-editor': { // Font Info view
+        'view-fontinfo': { // Font Info view
             key: 'i',
             modifiers: { cmd: true, shift: true },
             displayModifiers: ['⌘', '⇧']
@@ -34,11 +34,11 @@ const VIEW_SETTINGS = {
     // Resize behavior when shortcut is pressed again while view is focused
     // All values are MINIMUM values - views only grow, never shrink
     resize: {
-        'view-preview': { // Editor view (top-right)
+        'view-editor': { // Editor view (top-right)
             width: 0.90,  // 80% of container width
             height: 0.80  // 80% of container height
         },
-        'view-editor': { // Font Info view (top-left)
+        'view-fontinfo': { // Font Info view (top-left)
             width: 0.33,  // 33% of container width
             height: 0.70  // 70% of container height
         },
