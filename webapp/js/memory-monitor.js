@@ -90,13 +90,33 @@
                 return;
             }
 
-            // Display percentage
-            this.buttonElement.textContent = `${info.percentUsed}%`;
+            // Display percentage (use raw percentage even if over 100%)
+            const displayPercent = info.percentUsedRaw.toFixed(0);
+            this.buttonElement.textContent = `${displayPercent}%`;
 
-            // Interpolate color from green (0%) -> yellow (50%) -> red (100%)
-            const percent = parseFloat(info.percentUsed);
+            // Interpolate color, but cap at 100% for color calculation
+            const percent = Math.min(100, parseFloat(info.percentUsedRaw));
             const color = this.interpolateColor(percent);
             this.buttonElement.style.color = color;
+
+            // Add pulsing animation if over limit
+            if (info.overLimit) {
+                this.buttonElement.style.animation = 'pulse 1s ease-in-out infinite';
+                // Add keyframes if not already added
+                if (!document.getElementById('memory-pulse-animation')) {
+                    const style = document.createElement('style');
+                    style.id = 'memory-pulse-animation';
+                    style.textContent = `
+                        @keyframes pulse {
+                            0%, 100% { opacity: 1; }
+                            50% { opacity: 0.5; }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+            } else {
+                this.buttonElement.style.animation = '';
+            }
         }
 
         interpolateColor(percent) {
@@ -165,6 +185,8 @@
                 totalMB: 0,
                 limitMB: 0,
                 percentUsed: 0,
+                percentUsedRaw: 0, // Uncapped percentage for calculations
+                overLimit: false,
                 pyodideObjects: 0,
                 openFonts: 0
             };
@@ -175,7 +197,16 @@
                 info.usedMB = (performance.memory.usedJSHeapSize / 1048576).toFixed(2);
                 info.totalMB = (performance.memory.totalJSHeapSize / 1048576).toFixed(2);
                 info.limitMB = (performance.memory.jsHeapSizeLimit / 1048576).toFixed(2);
-                info.percentUsed = ((performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) * 100).toFixed(1);
+
+                // Calculate raw percentage
+                const rawPercent = (performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) * 100;
+                info.percentUsedRaw = rawPercent;
+
+                // Check if over limit
+                info.overLimit = rawPercent > 100;
+
+                // Cap display percentage at 100% for UI purposes
+                info.percentUsed = Math.min(100, rawPercent).toFixed(1);
             }
 
             // Get Python object count if Pyodide is loaded
@@ -220,16 +251,29 @@ json.dumps({"objects": obj_count, "fonts": open_fonts})
                 `;
             }
 
-            const statusIcon = info.percentUsed >= 90 ? '🔴' :
-                info.percentUsed >= 80 ? '🟡' : '🟢';
+            // Determine status based on raw percentage (uncapped)
+            const statusIcon = info.overLimit ? '💀' :
+                info.percentUsedRaw >= 90 ? '🔴' :
+                    info.percentUsedRaw >= 80 ? '🟡' : '🟢';
+
+            // Format usage display
+            const usageDisplay = info.overLimit
+                ? `<span style="color: #f00; font-weight: bold;">${info.percentUsedRaw.toFixed(1)}% ⚠️ OVER LIMIT</span>`
+                : `${info.percentUsed}%`;
 
             return `
                 <div style="font-weight: bold; margin-bottom: 8px;">Memory Monitor ${statusIcon}</div>
+                ${info.overLimit ? `
+                <div style="margin-bottom: 8px; padding: 6px; background: rgba(255,0,0,0.2); border: 1px solid #f00; border-radius: 3px; font-size: 9px; line-height: 1.4;">
+                    ⚠️ <strong>CRITICAL:</strong> Memory usage exceeds browser limit!<br>
+                    Restart recommended.
+                </div>
+                ` : ''}
                 <div style="display: grid; grid-template-columns: auto 1fr; gap: 4px 8px;">
                     <div>Used:</div><div style="text-align: right;">${info.usedMB} MB</div>
                     <div>Total:</div><div style="text-align: right;">${info.totalMB} MB</div>
                     <div>Limit:</div><div style="text-align: right;">${info.limitMB} MB</div>
-                    <div>Usage:</div><div style="text-align: right; font-weight: bold;">${info.percentUsed}%</div>
+                    <div>Usage:</div><div style="text-align: right; font-weight: bold;">${usageDisplay}</div>
                     ${info.pyodideObjects ? `
                     <div style="grid-column: 1/-1; margin-top: 8px; padding-top: 8px; border-top: 1px solid currentColor; opacity: 0.7;">
                         Python Objects: ${info.pyodideObjects}
