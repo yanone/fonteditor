@@ -3,21 +3,204 @@
     let currentFocusedView = null;
     let isFocusing = false; // Prevent recursive focus calls
 
-    // Map of views with their keyboard shortcuts
-    const viewMap = {
-        'view-scripts': { // Scripts
-            shortcut: 's',
-            modifiers: { cmd: true, shift: true }
-        },
-        'view-console': { // Console
-            shortcut: 'k',
-            modifiers: { cmd: true, shift: true }
-        },
-        'view-assistant': { // Assistant
-            shortcut: 'a',
-            modifiers: { cmd: true, shift: true }
+    // Get view settings from the global VIEW_SETTINGS object
+    function getViewSettings() {
+        if (!window.VIEW_SETTINGS) {
+            console.error('VIEW_SETTINGS not loaded! Make sure view-settings.js is loaded before keyboard-navigation.js');
+            return null;
         }
-    };
+        return window.VIEW_SETTINGS;
+    }
+
+    /**
+     * Resize a view to its configured minimum size
+     */
+    function resizeView(viewId) {
+        const settings = getViewSettings();
+        if (!settings) return;
+
+        const resizeConfig = settings.resize[viewId];
+
+        if (!resizeConfig) {
+            console.warn('No resize configuration for view:', viewId);
+            return;
+        }
+
+        const view = document.getElementById(viewId);
+        if (!view) return;
+
+        const container = document.querySelector('.container');
+        const containerWidth = container.offsetWidth;
+        const containerHeight = container.offsetHeight;
+
+        // Enable transitions if configured
+        if (settings.animation && settings.animation.enabled) {
+            enableTransitions(settings.animation.duration, settings.animation.easing);
+        }
+
+        // Determine if view is in top or bottom row
+        const isTopRow = view.closest('.top-row') !== null;
+        const isBottomRow = view.closest('.bottom-row') !== null;
+
+        if (isTopRow) {
+            resizeTopRowView(viewId, view, resizeConfig, containerWidth, containerHeight);
+        } else if (isBottomRow) {
+            resizeBottomRowView(viewId, view, resizeConfig, containerWidth, containerHeight);
+        }
+
+        // Disable transitions after animation completes
+        if (settings.animation && settings.animation.enabled) {
+            setTimeout(() => {
+                disableTransitions();
+            }, settings.animation.duration);
+        }
+    }
+
+    /**
+     * Enable CSS transitions for smooth resizing
+     */
+    function enableTransitions(duration, easing) {
+        const transition = `flex ${duration}ms ${easing}`;
+
+        // Apply to all views and rows
+        document.querySelectorAll('.view, .top-row, .bottom-row').forEach(element => {
+            element.style.transition = transition;
+        });
+    }
+
+    /**
+     * Disable CSS transitions
+     */
+    function disableTransitions() {
+        document.querySelectorAll('.view, .top-row, .bottom-row').forEach(element => {
+            element.style.transition = '';
+        });
+    }
+
+    /**
+     * Resize a view in the top row
+     */
+    function resizeTopRowView(viewId, view, resizeConfig, containerWidth, containerHeight) {
+        const topRow = view.closest('.top-row');
+        const views = Array.from(topRow.querySelectorAll('.view'));
+        const viewIndex = views.indexOf(view);
+
+        if (viewIndex === -1) return;
+
+        // Calculate target dimensions
+        const horizontalDividerHeight = 4;
+        const availableHeight = containerHeight - horizontalDividerHeight;
+        const targetViewWidth = containerWidth * resizeConfig.width;
+        const targetViewHeight = availableHeight * resizeConfig.height;
+
+        // Get current dimensions
+        const currentWidth = view.offsetWidth;
+        const currentHeight = topRow.offsetHeight;
+
+        // Only resize if target is larger than current (minimum values)
+        const shouldResizeWidth = targetViewWidth > currentWidth;
+        const shouldResizeHeight = targetViewHeight > currentHeight;
+
+        // Handle width resizing
+        if (shouldResizeWidth && views.length > 1) {
+            const otherView = views[1 - viewIndex]; // Get the other view in top row
+            const otherTargetWidth = containerWidth - targetViewWidth;
+
+            if (otherTargetWidth >= 100) { // Ensure minimum width for other view
+                const totalWidth = targetViewWidth + otherTargetWidth;
+                const viewFlex = targetViewWidth / totalWidth;
+                const otherFlex = otherTargetWidth / totalWidth;
+
+                view.style.flex = `${viewFlex}`;
+                otherView.style.flex = `${otherFlex}`;
+            }
+        }
+
+        // Handle height resizing
+        if (shouldResizeHeight) {
+            const bottomRow = document.querySelector('.bottom-row');
+            const bottomTargetHeight = availableHeight - targetViewHeight;
+
+            if (bottomTargetHeight >= 100) { // Ensure minimum height for bottom row
+                const topFlex = targetViewHeight / availableHeight;
+                const bottomFlex = bottomTargetHeight / availableHeight;
+
+                topRow.style.flex = `${topFlex}`;
+                bottomRow.style.flex = `${bottomFlex}`;
+            }
+        }
+    }
+
+    /**
+     * Resize a view in the bottom row
+     */
+    function resizeBottomRowView(viewId, view, resizeConfig, containerWidth, containerHeight) {
+        const bottomRow = view.closest('.bottom-row');
+        const topRow = document.querySelector('.top-row');
+        const views = Array.from(bottomRow.querySelectorAll('.view'));
+        const viewIndex = views.indexOf(view);
+
+        if (viewIndex === -1) return;
+
+        // Calculate target dimensions
+        const horizontalDividerHeight = 4;
+        const availableHeight = containerHeight - horizontalDividerHeight;
+        const targetBottomHeight = availableHeight * resizeConfig.height;
+        const targetViewWidth = containerWidth * resizeConfig.width;
+
+        // Get current dimensions
+        const currentBottomHeight = bottomRow.offsetHeight;
+        const currentWidth = view.offsetWidth;
+
+        // Only resize if target is larger than current (minimum values)
+        const shouldResizeHeight = targetBottomHeight > currentBottomHeight;
+        const shouldResizeWidth = targetViewWidth > currentWidth;
+
+        // Handle height resizing (affects top/bottom split)
+        if (shouldResizeHeight) {
+            const topTargetHeight = availableHeight - targetBottomHeight;
+
+            if (topTargetHeight >= 100) { // Ensure minimum height for top row
+                const topFlex = topTargetHeight / availableHeight;
+                const bottomFlex = targetBottomHeight / availableHeight;
+
+                topRow.style.flex = `${topFlex}`;
+                bottomRow.style.flex = `${bottomFlex}`;
+            }
+        }
+
+        // Handle width resizing (affects bottom row column distribution)
+        if (shouldResizeWidth && views.length > 1) {
+            const remainingWidth = containerWidth - targetViewWidth;
+            const otherViewsCount = views.length - 1;
+            const remainingWidthPerView = remainingWidth / otherViewsCount;
+
+            if (remainingWidthPerView >= 100) { // Ensure minimum width for other views
+                const widths = {};
+
+                // Distribute width to all views
+                views.forEach((v, i) => {
+                    if (i === viewIndex) {
+                        // Set target width for the selected view
+                        widths[i] = targetViewWidth;
+                    } else {
+                        // Distribute remaining width equally among ALL other views (left and right)
+                        widths[i] = remainingWidthPerView;
+                    }
+                });
+
+                // Calculate total width for flex calculation
+                const totalWidth = Object.values(widths).reduce((sum, w) => sum + w, 0);
+
+                // Apply flex values to ALL views in the bottom row
+                views.forEach((v, i) => {
+                    const flexValue = widths[i] / totalWidth;
+                    v.style.flex = `${flexValue} 1 0%`;
+                    console.log(`View ${i} (${v.id}): flex = ${flexValue.toFixed(3)}, width = ${widths[i].toFixed(0)}px`);
+                });
+            }
+        }
+    }
 
     /**
      * Blur the console terminal cursor
@@ -147,13 +330,26 @@
         const shiftKey = event.shiftKey;
         const key = event.key.toLowerCase();
 
+        const settings = getViewSettings();
+        if (!settings) return;
+
+        const shortcuts = settings.shortcuts;
+
         // Check each view's shortcut
-        for (const [viewId, config] of Object.entries(viewMap)) {
+        for (const [viewId, config] of Object.entries(shortcuts)) {
             if (config.modifiers.cmd && !cmdKey) continue;
             if (config.modifiers.shift && !shiftKey) continue;
-            if (key === config.shortcut) {
+            if (key === config.key) {
                 event.preventDefault();
-                focusView(viewId);
+
+                // Check if this view is already focused
+                if (currentFocusedView === viewId) {
+                    // View is already focused, trigger resize
+                    resizeView(viewId);
+                } else {
+                    // View is not focused, just focus it
+                    focusView(viewId);
+                }
                 return;
             }
         }
