@@ -206,13 +206,84 @@
      * Blur the console terminal cursor
      */
     function blurConsole() {
-        if (!window.term) return;
-
         // Find and blur the actual hidden input element that jQuery Terminal uses
         const terminalInput = document.querySelector('.cmd textarea, .cmd input, #console-container .terminal');
         if (terminalInput) {
             // Use blur on the actual input element
             terminalInput.blur();
+        }
+
+        // Also try to blur any focused element within the console container
+        const consoleContainer = document.getElementById('console-container');
+        if (consoleContainer && consoleContainer.contains(document.activeElement)) {
+            document.activeElement.blur();
+        }
+    }
+
+    /**
+     * Blur all bottom view editors (console, scripts, assistant)
+     */
+    function blurBottomViewEditors() {
+        // Blur console terminal
+        blurConsole();
+
+        // Blur script editor (Ace Editor)
+        // Try to get the Ace editor instance
+        const scriptEditorElement = document.getElementById('script-editor');
+        if (scriptEditorElement && window.ace) {
+            try {
+                const aceEditor = window.ace.edit('script-editor');
+                if (aceEditor && aceEditor.blur) {
+                    aceEditor.blur();
+                }
+                // Also blur the textarea used by Ace
+                const aceTextarea = scriptEditorElement.querySelector('textarea');
+                if (aceTextarea) {
+                    aceTextarea.blur();
+                }
+            } catch (e) {
+                console.warn('Could not blur Ace editor:', e);
+            }
+        }
+
+        // Blur AI assistant textarea
+        const assistantPrompt = document.getElementById('ai-prompt');
+        if (assistantPrompt) {
+            assistantPrompt.blur();
+        }
+    }
+
+    /**
+     * Add CSS to hide cursors in unfocused bottom views
+     */
+    function addCursorHidingStyles() {
+        const styleId = 'cursor-hiding-styles';
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+                /* Make Ace editor cursor visible but non-blinking when view is not focused */
+                #view-scripts:not(.focused) .ace_cursor {
+                    opacity: 0.3 !important;
+                    animation: none !important;
+                }
+                
+                /* Hide terminal cursor when view is not focused */
+                #view-console:not(.focused) .cmd .cursor,
+                #view-console:not(.focused) .cmd-cursor,
+                #view-console:not(.focused) .terminal-output .cursor {
+                    display: none !important;
+                    opacity: 0 !important;
+                }
+                
+                /* Hide blinking animation on terminal cursor */
+                #view-console:not(.focused) .cmd span[data-text],
+                #view-console:not(.focused) span.terminal-inverted {
+                    animation: none !important;
+                    background: transparent !important;
+                }
+            `;
+            document.head.appendChild(style);
         }
     }
 
@@ -242,6 +313,14 @@
 
             // Save the last active view to localStorage
             localStorage.setItem('last_active_view', viewId);
+
+            // Determine if we're focusing a top view (editor or fontinfo)
+            const isTopView = viewId === 'view-editor' || viewId === 'view-fontinfo';
+
+            // If focusing a top view, blur all bottom view editors
+            if (isTopView) {
+                blurBottomViewEditors();
+            }
 
             // Blur console for all non-console views first
             if (viewId !== 'view-console') {
@@ -375,6 +454,9 @@
      * Initialize keyboard navigation
      */
     function init() {
+        // Add cursor hiding styles
+        addCursorHidingStyles();
+
         // Add keyboard event listener in CAPTURE phase to intercept before Ace Editor
         document.addEventListener('keydown', handleKeyDown, true);
 
