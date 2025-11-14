@@ -107,6 +107,32 @@
         // Remove default Cmd+K binding to prevent conflicts with global shortcut
         editor.commands.removeCommand('gotoline');
 
+        // Add passthrough commands for global view shortcuts
+        // Read shortcuts from VIEW_SETTINGS to avoid redundancy
+        if (window.VIEW_SETTINGS && window.VIEW_SETTINGS.shortcuts) {
+            Object.entries(window.VIEW_SETTINGS.shortcuts).forEach(([viewId, config]) => {
+                const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                const modifierKey = isMac ? 'Command' : 'Ctrl';
+                const shiftKey = config.modifiers.shift ? 'Shift-' : '';
+                const key = config.key.toUpperCase();
+
+                editor.commands.addCommand({
+                    name: `global_${viewId}`,
+                    bindKey: {
+                        win: `Ctrl-${shiftKey}${key}`,
+                        mac: `${modifierKey}-${shiftKey}${key}`
+                    },
+                    exec: function () {
+                        // Do nothing - let the global handler deal with it
+                        // The global handler will intercept this in capture phase
+                        return false;
+                    },
+                    readOnly: true,
+                    passEvent: true // This tells Ace to pass the event through
+                });
+            });
+        }
+
         // Run button click handler
         runButton.addEventListener('click', runScript);
 

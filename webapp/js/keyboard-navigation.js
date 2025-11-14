@@ -341,6 +341,8 @@
             if (config.modifiers.shift && !shiftKey) continue;
             if (key === config.key) {
                 event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
 
                 // Check if this view is already focused
                 if (currentFocusedView === viewId) {
@@ -373,8 +375,8 @@
      * Initialize keyboard navigation
      */
     function init() {
-        // Add keyboard event listener
-        document.addEventListener('keydown', handleKeyDown);
+        // Add keyboard event listener in CAPTURE phase to intercept before Ace Editor
+        document.addEventListener('keydown', handleKeyDown, true);
 
         // Add click listeners to all views
         document.querySelectorAll('.view').forEach(view => {
