@@ -1533,20 +1533,21 @@ class GlyphCanvas {
                     if (correspondingLayer) {
                         // Extract master ID from layer
                         const layerMaster = correspondingLayer.master;
-                        let masterId = correspondingLayer.id;
+                        let masterId: string =
+                            (correspondingLayer.id as string) || '';
                         if (
                             layerMaster &&
                             typeof layerMaster === 'object' &&
                             'DefaultForMaster' in layerMaster
                         ) {
-                            masterId = layerMaster.DefaultForMaster;
+                            masterId = layerMaster.DefaultForMaster as string;
                         }
 
                         // Create minimal layer object for selectLayer
                         this.outlineEditor.selectLayer({
                             id: correspondingLayer.id,
                             name: correspondingLayer.name,
-                            _master: masterId,
+                            master: masterId,
                             shapes: [],
                             isInterpolated: false
                         } as any);

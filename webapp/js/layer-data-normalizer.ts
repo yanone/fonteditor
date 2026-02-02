@@ -69,41 +69,35 @@ export class LayerDataNormalizer {
      */
     static normalizeShapes(shapes: any[], isInterpolated: boolean): any[] {
         return shapes.map((shape, shapeIndex) => {
-            if (shape.Path) {
+            if ('nodes' in shape) {
                 // Parse nodes if they're a string (from babelfont-rs)
-                let parsedNodes = this.parseNodes(shape.Path.nodes);
+                let parsedNodes = this.parseNodes(shape.nodes);
 
                 // IMPORTANT: For non-interpolated data, replace string with array in place
                 // so object model and renderer share the same array reference.
                 // This ensures modifications through window.currentFontModel are immediately visible.
                 // For interpolated data, always use the freshly parsed nodes.
-                if (typeof shape.Path.nodes === 'string') {
-                    shape.Path.nodes = parsedNodes;
+                if (typeof shape.nodes === 'string') {
+                    shape.nodes = parsedNodes;
                 }
 
                 return {
-                    Path: shape.Path, // Reference the same Path object
+                    // Keep original shape properties
+                    ...shape,
                     // For rendering: use the parsed nodes (ensures interpolated data uses new array)
                     nodes: parsedNodes,
                     isInterpolated: isInterpolated
                 };
-            } else if (shape.Component) {
+            } else if ('reference' in shape) {
                 return {
-                    Component: {
-                        reference: shape.Component.reference,
-                        transform: shape.Component.transform || [
-                            1, 0, 0, 1, 0, 0
-                        ],
-                        format_specific: shape.Component.format_specific || {},
-                        // Recursively normalize nested component layer data
-                        // Component layerData comes with the same isInterpolated flag as parent
-                        layerData: shape.Component.layerData
-                            ? this.normalize(
-                                  shape.Component.layerData,
-                                  isInterpolated
-                              )
-                            : null
-                    },
+                    reference: shape.reference,
+                    transform: shape.transform || [1, 0, 0, 1, 0, 0],
+                    format_specific: shape.format_specific || {},
+                    // Recursively normalize nested component layer data
+                    // Component layerData comes with the same isInterpolated flag as parent
+                    layerData: shape.layerData
+                        ? this.normalize(shape.layerData, isInterpolated)
+                        : null,
                     isInterpolated: isInterpolated
                 };
             }
@@ -214,17 +208,17 @@ export class LayerDataNormalizer {
 
             shapes.forEach((shape) => {
                 // Already parsed in normalize(), but ensure consistency
-                if (shape.Path && !shape.nodes) {
-                    shape.nodes = this.parseNodes(shape.Path.nodes);
+                if ('nodes' in shape && !shape.nodes) {
+                    shape.nodes = this.parseNodes(shape.nodes);
                 }
 
                 // Recursively parse nested component data
                 if (
-                    shape.Component &&
-                    shape.Component.layerData &&
-                    shape.Component.layerData.shapes
+                    'reference' in shape &&
+                    shape.layerData &&
+                    shape.layerData.shapes
                 ) {
-                    parseComponentNodes(shape.Component.layerData.shapes);
+                    parseComponentNodes(shape.layerData.shapes);
                 }
             });
         };
@@ -291,12 +285,7 @@ export class LayerDataNormalizer {
         let startIdx = 0;
         for (let i = 0; i < nodes.length; i++) {
             const { nodetype: type } = nodes[i];
-            if (
-                type === 'c' ||
-                type === 'cs' ||
-                type === 'l' ||
-                type === 'ls'
-            ) {
+            if (type === 'Curve' || type === 'QCurve' || type === 'Line') {
                 startIdx = i;
                 break;
             }
@@ -320,14 +309,9 @@ export class LayerDataNormalizer {
                 nodetype: next1Type
             } = nodes[nextIdx];
 
-            if (
-                type === 'l' ||
-                type === 'c' ||
-                type === 'cs' ||
-                type === 'ls'
-            ) {
+            if (type === 'Line' || type === 'Curve' || type === 'QCurve') {
                 // We're at an on-curve point, look ahead for next segment
-                if (next1Type === 'o') {
+                if (next1Type === 'OffCurve') {
                     // Next is off-curve - check if cubic (two consecutive off-curve)
                     const {
                         x: next2X,
@@ -336,7 +320,7 @@ export class LayerDataNormalizer {
                     } = nodes[next2Idx];
                     const { x: next3X, y: next3Y } = nodes[next3Idx];
 
-                    if (next2Type === 'o') {
+                    if (next2Type === 'OffCurve') {
                         // Cubic bezier: two off-curve control points + on-curve endpoint
                         target.bezierCurveTo(
                             next1X,
@@ -353,10 +337,9 @@ export class LayerDataNormalizer {
                         i += 2;
                     }
                 } else if (
-                    next1Type === 'l' ||
-                    next1Type === 'ls' ||
-                    next1Type === 'c' ||
-                    next1Type === 'cs'
+                    next1Type === 'Line' ||
+                    next1Type === 'Curve' ||
+                    next1Type === 'QCurve'
                 ) {
                     // Next is on-curve - draw line
                     target.lineTo(next1X, next1Y);

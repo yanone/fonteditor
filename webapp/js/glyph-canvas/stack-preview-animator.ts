@@ -8,6 +8,21 @@ const console: Logger = new Logger('StackPreviewAnimator', true);
 const IDENTITY_TRANSFORM = [1, 0, 0, 1, 0, 0];
 
 /**
+ * Convert DecomposedAffine to affine matrix [a, b, c, d, e, f]
+ */
+function decomposedToAffine(decomposed: Babelfont.DecomposedAffine): number[] {
+    const { translation, scale, skew } = decomposed;
+    return [
+        scale[0],
+        skew[0],
+        skew[1],
+        scale[1],
+        translation[0],
+        translation[1]
+    ];
+}
+
+/**
  * Layer tree node representing a single component instance at a nesting level
  */
 export interface LayerTreeNode {
@@ -184,15 +199,20 @@ export class StackPreviewAnimator {
         depth: number
     ): void {
         for (const shape of shapes) {
-            if (!('Component' in shape) || !shape.Component) continue;
+            // Unwrapped format: Component has 'reference' field
+            if (!('reference' in shape)) continue;
 
-            const componentTransform =
-                shape.Component.transform || IDENTITY_TRANSFORM;
+            const compTransform =
+                (shape as any).transform || IDENTITY_TRANSFORM;
+            // Convert to array format if needed
+            const transformArray = Array.isArray(compTransform)
+                ? compTransform
+                : decomposedToAffine(compTransform);
             const newTransform = this.multiplyMatrices(
                 accumulatedTransform,
-                componentTransform
+                transformArray
             );
-            const componentLayerData = shape.Component.layerData;
+            const componentLayerData = (shape as any).layerData;
 
             if (componentLayerData?.shapes) {
                 this.layerTree.push({
@@ -388,14 +408,19 @@ export class StackPreviewAnimator {
         bounds: { minX: number; minY: number; maxX: number; maxY: number }
     ): void {
         for (const shape of shapes) {
-            if ('Component' in shape && shape.Component) {
+            // Unwrapped format: Component has 'reference' field
+            if ('reference' in shape) {
                 const compTransform =
-                    shape.Component.transform || IDENTITY_TRANSFORM;
+                    (shape as any).transform || IDENTITY_TRANSFORM;
+                // Convert to array format if needed
+                const transformArray = Array.isArray(compTransform)
+                    ? compTransform
+                    : decomposedToAffine(compTransform);
                 const combinedTransform = this.multiplyMatrices(
                     transform,
-                    compTransform
+                    transformArray
                 );
-                const compLayerData = shape.Component.layerData;
+                const compLayerData = (shape as any).layerData;
                 if (compLayerData?.shapes) {
                     this.addShapeBounds(
                         compLayerData.shapes,
@@ -410,9 +435,11 @@ export class StackPreviewAnimator {
                 continue;
             }
 
+            // Unwrapped format: Path has 'nodes' field directly
             let nodes = 'nodes' in shape ? (shape as any).nodes : undefined;
-            if (!nodes && 'Path' in shape && shape.Path.nodes) {
-                nodes = LayerDataNormalizer.parseNodes(shape.Path.nodes);
+            if (!nodes) {
+                console.warn('Shape has no nodes:', shape);
+                continue;
             }
 
             if (nodes?.length) {

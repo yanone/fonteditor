@@ -8,7 +8,6 @@ use std::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use fontdrasil::coords::{DesignCoord, DesignLocation};
 use write_fonts::types::Tag;
-use std::str::FromStr;
 use serde_json::Value as JsonValue;
 
 // Font reading module (using read-fonts/skrifa)
@@ -90,6 +89,8 @@ pub fn compile_babelfont(babelfont_json: &str, options: &JsValue) -> Result<Vec<
         skip_metrics: get_option(options, "skip_metrics", false),
         skip_outlines: get_option(options, "skip_outlines", false),
         dont_use_production_names: get_option(options, "dont_use_production_names", false),
+        drop_incompatible_paths: get_option(options, "drop_incompatible_paths", false),
+        produce_varc_table: get_option(options, "produce_varc_table", false),
     };
 
     let compiled_font = BabelfontIrSource::compile(font, options)
@@ -180,7 +181,7 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
         
         "vfj" => {
             // Load FontLab VFJ format
-            let font_json: serde_json::Value = serde_json::from_str(contents)
+            let _font_json: serde_json::Value = serde_json::from_str(contents)
                 .map_err(|e| JsValue::from_str(&format!("Failed to parse VFJ JSON: {}", e)))?;
             babelfont::convertors::fontlab::load(path.clone())
                 .map_err(|e| JsValue::from_str(&format!("Failed to load .vfj file: {:?}", e)))?
@@ -321,6 +322,8 @@ pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
         skip_metrics: get_option(options, "skip_metrics", false),
         skip_outlines: get_option(options, "skip_outlines", false),
         dont_use_production_names: get_option(options, "dont_use_production_names", false),
+        drop_incompatible_paths: get_option(options, "drop_incompatible_paths", false),
+        produce_varc_table: get_option(options, "produce_varc_table", false),
     };
     
     let compiled_font = BabelfontIrSource::compile(font_clone, compilation_options)

@@ -65,9 +65,9 @@ class OpenedFont {
                     // Extract master ID from dict format
                     const masterDict = layer.master;
                     if ('DefaultForMaster' in masterDict) {
-                        layer._master = masterDict.DefaultForMaster;
+                        layer.master = masterDict.DefaultForMaster;
                     } else if ('AssociatedWithMaster' in masterDict) {
-                        layer._master = masterDict.AssociatedWithMaster;
+                        layer.master = masterDict.AssociatedWithMaster;
                     }
                 }
             }
@@ -102,17 +102,16 @@ class OpenedFont {
                     let shape = layer.shapes[i];
 
                     // Handle Path shapes - convert array nodes to strings
-                    if (shape.Path?.nodes) {
+                    if ('nodes' in shape && shape.nodes) {
                         pathsFound++;
-                        const pathObj = shape.Path;
 
-                        if (Array.isArray(pathObj.nodes)) {
+                        if (Array.isArray(shape.nodes)) {
                             // Log first few nodes before conversion to debug
                             if (glyph.name === 'o') {
                                 console.log(
                                     '[FontManager]',
                                     `  Before conversion, first 3 nodes:`,
-                                    pathObj.nodes
+                                    shape.nodes
                                         .slice(0, 3)
                                         .map(
                                             (n: any) =>
@@ -123,71 +122,31 @@ class OpenedFont {
                             }
 
                             // Convert nodes array back to compact string format
-                            const nodesString = Path.nodesToString(
-                                pathObj.nodes
-                            );
+                            const nodesString = Path.nodesToString(shape.nodes);
                             console.log(
                                 '[FontManager]',
                                 `Converting nodes for ${glyph.name}:`,
-                                pathObj.nodes.length,
+                                shape.nodes.length,
                                 'nodes →',
                                 nodesString.substring(0, 50) + '...'
                             );
-                            pathObj.nodes = nodesString;
+                            shape.nodes = nodesString;
                             pathsConverted++;
-
-                            // If this is a normalizer wrapper, also update the duplicate nodes property
-                            // so they stay in sync (both should be strings now)
-                            if ('nodes' in shape && 'isInterpolated' in shape) {
-                                console.log(
-                                    '[FontManager]',
-                                    `  Wrapper detected, updating shape.nodes too`
-                                );
-                                console.log(
-                                    '[FontManager]',
-                                    `  Before: shape.nodes type =`,
-                                    typeof shape.nodes,
-                                    Array.isArray(shape.nodes)
-                                        ? `array[${shape.nodes.length}]`
-                                        : ''
-                                );
-                                shape.nodes = nodesString;
-                                console.log(
-                                    '[FontManager]',
-                                    `  After: shape.nodes type =`,
-                                    typeof shape.nodes
-                                );
-                                wrappersFixed++;
-                            }
 
                             // Verify conversion worked
                             console.log(
                                 '[FontManager]',
-                                `  After conversion: pathObj.nodes type =`,
-                                typeof pathObj.nodes
+                                `  After conversion: shape.nodes type =`,
+                                typeof shape.nodes
                             );
-                            console.log(
-                                '[FontManager]',
-                                `  Shape object keys:`,
-                                Object.keys(shape)
-                            );
-                            if ('nodes' in shape) {
-                                console.log(
-                                    '[FontManager]',
-                                    `  shape.nodes type =`,
-                                    typeof shape.nodes,
-                                    'same as pathObj.nodes?',
-                                    shape.nodes === pathObj.nodes
-                                );
-                            }
-                        } else if (typeof pathObj.nodes === 'string') {
+                        } else if (typeof shape.nodes === 'string') {
                             pathsAlreadyString++;
                         } else {
                             console.error(
                                 '[FontManager]',
                                 `Unexpected nodes type for ${glyph.name}:`,
-                                typeof pathObj.nodes,
-                                pathObj.nodes
+                                typeof shape.nodes,
+                                shape.nodes
                             );
                         }
                     }
@@ -214,12 +173,12 @@ class OpenedFont {
             const parsed = JSON.parse(this.babelfontJson);
             const sampleGlyph = parsed.glyphs[0];
             const sampleShape = sampleGlyph?.layers?.[0]?.shapes?.[0];
-            if (sampleShape?.Path?.nodes) {
+            if (sampleShape?.nodes) {
                 console.log(
                     '[FontManager]',
                     'Sample nodes type after serialization:',
-                    typeof sampleShape.Path.nodes,
-                    Array.isArray(sampleShape.Path.nodes)
+                    typeof sampleShape.nodes,
+                    Array.isArray(sampleShape.nodes)
                         ? '(ARRAY - BUG!)'
                         : '(string - OK)'
                 );
@@ -798,13 +757,13 @@ class FontManager {
         }
         // Recursively fetch component layer data for nested components
         for (const shape of layer.shapes || []) {
-            if ('Component' in shape && shape.Component.reference) {
+            if ('reference' in shape && shape.reference) {
                 let nestedData = this.fetchLayerData(
-                    shape.Component.reference,
+                    shape.reference,
                     selectedLayerId
                 );
                 if (nestedData) {
-                    shape.Component.layerData = nestedData;
+                    shape.layerData = nestedData;
                 }
             }
         }
@@ -858,12 +817,36 @@ class FontManager {
                     'DefaultForMaster' in layerAny.master;
 
                 if (isDefaultLayer) {
-                    let master_id = layer._master || layer.id;
-                    if (master_id && master_ids.has(master_id)) {
+                    let master_id = layer.master || layer.id;
+                    // Extract string from LayerType union if needed
+                    let masterIdStr: string;
+                    if (typeof master_id === 'string') {
+                        masterIdStr = master_id;
+                    } else if (master_id && typeof master_id === 'object') {
+                        // Internally tagged format: {type: "DefaultForMaster", master: "id"}
+                        if (
+                            'type' in master_id &&
+                            master_id.type === 'DefaultForMaster' &&
+                            'master' in master_id
+                        ) {
+                            masterIdStr = master_id.master;
+                        } else if (
+                            'type' in master_id &&
+                            master_id.type === 'AssociatedWithMaster' &&
+                            'master' in master_id
+                        ) {
+                            masterIdStr = master_id.master;
+                        } else {
+                            masterIdStr = layer.id as string;
+                        }
+                    } else {
+                        masterIdStr = layer.id as string;
+                    }
+                    if (master_ids.has(masterIdStr)) {
                         layersData.push({
                             id: layer.id as string,
                             name: layer.name || 'Default',
-                            _master: master_id,
+                            _master: masterIdStr,
                             location: layer.location
                         });
                     }
@@ -909,30 +892,27 @@ class FontManager {
     ) {
         // Helper function to recursively clean shapes for saving
         const cleanShapeForSaving = (shape: Babelfont.Shape): any => {
-            if ('Path' in shape) {
-                // For Path shapes, ensure we only save the string representation
-                // Remove any parsed 'nodes' array that was added during rendering
-                if ('nodes' in shape && Array.isArray(shape.nodes)) {
-                    // Convert array back to string: [{x, y, nodetype}, ...] -> "x y nodetype x y nodetype ..."
-                    const nodesString = shape.nodes
-                        .map((node) => `${node.x} ${node.y} ${node.nodetype}`)
-                        .join(' ');
-                    return {
-                        Path: { nodes: nodesString, closed: shape.Path.closed }
-                    };
-                } else {
-                    // Already in string format, just copy the Path data
-                    return {
-                        Path: { ...shape.Path }
-                    };
-                }
-            } else if ('Component' in shape) {
+            if ('nodes' in shape) {
+                // For Path shapes, ensure we only save the required fields
+                // The shape is already unwrapped, so just return it as-is
+                return {
+                    nodes: shape.nodes,
+                    closed: shape.closed,
+                    ...(shape.format_specific && {
+                        format_specific: shape.format_specific
+                    })
+                };
+            } else if ('reference' in shape) {
                 // Strip the layerData property from components before saving
                 // layerData is only for internal rendering, not part of the font format
-                const componentData = { ...shape.Component };
-                delete componentData.layerData; // Remove the populated layerData
                 return {
-                    Component: componentData
+                    reference: shape.reference,
+                    transform: shape.transform,
+                    ...(shape.location && { location: shape.location }),
+                    ...(shape.format_specific && {
+                        format_specific: shape.format_specific
+                    })
+                    // Note: layerData is intentionally omitted
                 };
             } else {
                 // For other shape types (Anchor, etc.), create a clean copy
@@ -974,7 +954,7 @@ class FontManager {
             vertWidth: layerData.vertWidth,
             name: layerData.name,
             id: layerData.id,
-            _master: layerData._master,
+            _master: layerData.master,
             shapes: newShapes || [],
             isInterpolated: false, // Always false for saved data
             // Copy other optional properties if they exist

@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Type Drift Detection**: TypeScript type definitions for babelfont-rs are now auto-generated from the upstream babelfont-ts package and verified for sync with `check-type-drift.sh`. Version coherence enforced via Cargo.lock - WASM build, type generation, and drift checks all lock to the same babelfont-rs commit. Integrated into `npm test` for local development and CI. Prevents type drift between TypeScript definitions and Rust source.
 - **Script Editor File I/O**: The script editor allows opening/saving files.
 - **Component Coloring in Overview**: Components in glyph overview now render in theme-specific blue (dark: cyan, light: blue) with proper counter cutting via nonzero winding. Paths render in white (dark mode) or black (light mode). Rust preserves component structure with nested layerData for accurate recursive rendering.
 - **Glyph Overview Search**: Added search field with loupe icon in overview title bar. Filters glyphs by name as you type, supporting space-separated AND search terms. Activated via Cmd+F keyboard shortcut when overview view is focused. Search persists across font reloads.
