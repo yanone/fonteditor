@@ -2196,6 +2196,11 @@ export class OutlineEditor {
             console.log(
                 'Interpolating at current position after entering edit mode'
             );
+
+            // Build glyph stack even at interpolated positions (without a layer ID)
+            // This ensures the glyph gets marked in the overview
+            this.buildGlyphStack(this.currentGlyphName, '', []);
+
             await this.interpolateCurrentGlyph(true); // force=true to bypass guard
 
             // Pan to glyph after interpolation completes (when switching glyphs via keyboard)
