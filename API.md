@@ -81,12 +81,12 @@ font = CurrentFont()
 - **`note`** (str | None)
 - **`date`** (str)
 - **`names`** (Babelfont.Names)
-- **`custom_ot_values`** (list[Babelfont.OTValue] | None)
+- **`custom_ot_values`** (list[Any] | None)
 - **`variation_sequences`** ( | dict | None)
 - **`features`** (Babelfont.Features)
 - **`first_kern_groups`** (dict | None)
 - **`second_kern_groups`** (dict | None)
-- **`format_specific`** (Babelfont.FormatSpecific | None)
+- **`format_specific`** (dict | None)
 - **`source`** (str | None)
 
 #### Read-Only Properties
@@ -188,7 +188,7 @@ glyph = font.findGlyph("A")
 - **`codepoints`** (list[float | int] | None)
 - **`exported`** (bool | None)
 - **`direction`** (Babelfont.Direction | None)
-- **`formatspecific`** (Babelfont.FormatSpecific | None)
+- **`formatspecific`** (dict | None)
 
 #### Read-Only Properties
 
@@ -236,12 +236,13 @@ layer = glyph.layers[0]
 - **`name`** (str | None)
 - **`id`** (str | None)
 - **`master`** (Babelfont.LayerType | None)
+- **`smart_component_location`** (dict | None)
 - **`color`** (Babelfont.Color | None)
 - **`layer_index`** (float | int | None)
 - **`is_background`** (bool | None)
 - **`background_layer_id`** (str | None)
 - **`location`** (dict | None)
-- **`format_specific`** (Babelfont.FormatSpecific | None)
+- **`format_specific`** (dict | None)
 
 #### Read-Only Properties
 
@@ -262,15 +263,19 @@ Add a new path to the layer
 path = layer.addPath(closed=True)
 ```
 
-#### `addComponent(reference: str, transform: list[float | int] | None = None) -> [Component](#component)`
+#### `addComponent(reference: str, transform: list[float | int] | Babelfont.DecomposedAffine | None = None) -> [Component](#component)`
 Add a new component to the layer
 
 **Example:**
 ```python
 component = layer.addComponent("A")
-# With transformation
+# With transformation matrix (legacy 6-element format converted to DecomposedAffine)
 component = layer.addComponent("acutecomb", [1, 0, 0, 1, 250, 500])
 ```
+
+#### `normalizeTransform(transform: list[float | int] | Babelfont.DecomposedAffine | None = None) -> Babelfont.DecomposedAffine`
+Normalize transform to DecomposedAffine format
+Converts legacy 6-element affine matrix to DecomposedAffine
 
 #### `removeShape(index: float | int) -> None`
 Remove a shape at the specified index
@@ -366,7 +371,7 @@ All properties are read/write:
 
 - **`nodes`** (list[[Node](#node)])
 - **`closed`** (bool)
-- **`format_specific`** (Babelfont.FormatSpecific | None)
+- **`format_specific`** (dict | None)
 
 ### Methods
 
@@ -450,10 +455,15 @@ if shape.isComponent():
 All properties are read/write:
 
 - **`reference`** (str)
-- **`transform`** (list[float | int] | None)
-- **`format_specific`** (Babelfont.FormatSpecific | None)
+- **`transform`** (Babelfont.DecomposedAffine)
+- **`location`** (dict | None)
+- **`format_specific`** (dict | None)
 
 ### Methods
+
+#### `toAffineArray() -> list[float | int]`
+Convert transform to affine matrix array [a, b, c, d, e, f]
+Uses the proper DecomposedAffineTransform utility
 
 #### `toString() -> str`
 #### `getTransformedPaths() -> list[Babelfont.Path]`
@@ -479,7 +489,7 @@ All properties are read/write:
 - **`x`** (float | int)
 - **`y`** (float | int)
 - **`name`** (str | None)
-- **`format_specific`** (Babelfont.FormatSpecific | None)
+- **`format_specific`** (dict | None)
 
 ### Methods
 
@@ -505,7 +515,7 @@ All properties are read/write:
 - **`pos`** (Babelfont.Position)
 - **`name`** (str | None)
 - **`color`** (Babelfont.Color | None)
-- **`format_specific`** (Babelfont.FormatSpecific | None)
+- **`format_specific`** (dict | None)
 
 ### Methods
 
@@ -537,7 +547,7 @@ All properties are read/write:
 - **`map`** (list[[number, number]] | None)
 - **`hidden`** (bool | None)
 - **`values`** (list[float | int] | None)
-- **`formatspecific`** (Babelfont.FormatSpecific | None)
+- **`formatspecific`** (dict | None)
 
 ### Methods
 
@@ -565,8 +575,8 @@ master = font.findMaster("master-id")
 - **`location`** (dict | None)
 - **`metrics`** (dict)
 - **`kerning`** (dict)
-- **`custom_ot_values`** (list[Babelfont.OTValue] | None)
-- **`format_specific`** (Babelfont.FormatSpecific | None)
+- **`custom_ot_values`** (list[Any] | None)
+- **`format_specific`** (dict | None)
 
 #### Read-Only Properties
 
@@ -597,7 +607,7 @@ All properties are read/write:
 - **`custom_names`** (Babelfont.Names)
 - **`variable`** (bool | None)
 - **`linked_style`** (str | None)
-- **`format_specific`** (Babelfont.FormatSpecific | None)
+- **`format_specific`** (dict | None)
 
 ### Methods
 
