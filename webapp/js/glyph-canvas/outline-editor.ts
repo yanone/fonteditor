@@ -1159,10 +1159,15 @@ export class OutlineEditor {
             return false;
         }
 
-        const transform =
+        const transformRaw =
             'reference' in shape && shape.transform
                 ? shape.transform
-                : [1, 0, 0, 1, 0, 0];
+                : undefined;
+        const transform = !transformRaw
+            ? [1, 0, 0, 1, 0, 0]
+            : Array.isArray(transformRaw)
+              ? transformRaw
+              : DecomposedAffineTransform.toAffine(transformRaw);
 
         // Ensure transform is always an array with 6 elements
         const transformArray: Transform = (
@@ -1184,9 +1189,14 @@ export class OutlineEditor {
 
             for (const componentShape of shapes) {
                 if ('reference' in componentShape) {
-                    const nestedTransform = componentShape.transform || [
+                    const nestedTransformRaw = componentShape.transform || [
                         1, 0, 0, 1, 0, 0
                     ];
+                    const nestedTransform = Array.isArray(nestedTransformRaw)
+                        ? nestedTransformRaw
+                        : DecomposedAffineTransform.toAffine(
+                              nestedTransformRaw
+                          );
                     const nestedTransformArray: Transform = (
                         Array.isArray(nestedTransform) &&
                         nestedTransform.length >= 6

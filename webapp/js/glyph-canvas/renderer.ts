@@ -642,7 +642,10 @@ export class GlyphCanvasRenderer {
                 );
                 if (nestedBounds.hasPoints) {
                     // Apply the nested component's transform to its bounds
-                    const transform = shape.transform || [1, 0, 0, 1, 0, 0];
+                    const transformRaw = shape.transform || [1, 0, 0, 1, 0, 0];
+                    const transform = Array.isArray(transformRaw)
+                        ? transformRaw
+                        : DecomposedAffineTransform.toAffine(transformRaw);
                     const [a, b, c, d, tx, ty] = transform;
 
                     // Transform all four corners of the bounding box
@@ -3632,13 +3635,13 @@ export class GlyphCanvasRenderer {
             }> = [];
 
             shapes.forEach((componentShape) => {
-                if ('Component' in componentShape) {
+                if ('reference' in componentShape) {
                     let nestedTransform = transform;
-                    if (
-                        componentShape.Component.transform &&
-                        Array.isArray(componentShape.Component.transform)
-                    ) {
-                        const t = componentShape.Component.transform;
+                    if (componentShape.transform) {
+                        const transformRaw = componentShape.transform;
+                        const t = Array.isArray(transformRaw)
+                            ? transformRaw
+                            : DecomposedAffineTransform.toAffine(transformRaw);
                         if (transform) {
                             const [a1, b1, c1, d1, tx1, ty1] = transform;
                             const [a2, b2, c2, d2, tx2, ty2] = [
@@ -3670,12 +3673,12 @@ export class GlyphCanvasRenderer {
                     }
 
                     if (
-                        componentShape.Component.layerData &&
-                        componentShape.Component.layerData.shapes
+                        componentShape.layerData &&
+                        componentShape.layerData.shapes
                     ) {
                         outlineShapes.push(
                             ...collectOutlineShapes(
-                                componentShape.Component.layerData.shapes,
+                                componentShape.layerData.shapes,
                                 nestedTransform
                             )
                         );

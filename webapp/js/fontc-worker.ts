@@ -171,20 +171,16 @@ function stripLayerData(fontData: any): any {
                                 delete shape.layerData;
                             }
 
-                            // Ensure transform has all required fields
-                            if (!shape.transform) {
-                                shape.transform = {
-                                    translation: [0, 0],
-                                    scale: [1, 1],
-                                    rotation: 0,
-                                    skew: [0, 0]
-                                };
-                            } else {
+                            // Don't add transform if it doesn't exist
+                            // The Rust compiler will handle missing transforms as identity
+                            if (shape.transform) {
                                 const t = shape.transform;
+                                // Only add missing fields if transform exists, preserve order field
                                 if (!t.scale) t.scale = [1, 1];
                                 if (t.rotation === undefined) t.rotation = 0;
                                 if (!t.skew) t.skew = [0, 0];
                                 if (!t.translation) t.translation = [0, 0];
+                                if (!t.order) t.order = 'RestOfTheWorld';
                             }
                         }
                     }
@@ -344,6 +340,11 @@ self.onmessage = async (event) => {
     }
 
     if (data.type === 'compile') {
+        self.postMessage({
+            type: 'debug',
+            message: `[Worker] Entered type=compile handler, initialized=${initialized}`
+        });
+
         if (!initialized) {
             self.postMessage({
                 type: 'error',
@@ -357,16 +358,29 @@ self.onmessage = async (event) => {
             const startTime = performance.now();
 
             // Clean font data before compilation
-            const fontData = JSON.parse(data.data.babelfontJson);
-            const cleanedFontData = stripLayerData(fontData);
+            const fontData = JSON.parse(data.babelfontJson);
+            // TEMPORARY: Bypass stripLayerData to isolate issue
+            const cleanedFontData = fontData;
+            // const cleanedFontData = stripLayerData(fontData);
 
             // Validate font data
             validateFontData(cleanedFontData);
 
             const cleanedJson = JSON.stringify(cleanedFontData);
 
-            const ttfBytes = compile_babelfont(cleanedJson, {});
+            // Send debug info to main thread
+            self.postMessage({
+                type: 'debug',
+                message: `Before compile: ${cleanedFontData.glyphs.length} glyphs, JSON ${cleanedJson.length} bytes, options: ${JSON.stringify(data.options)}`
+            });
+
+            const ttfBytes = compile_babelfont(cleanedJson, data.options || {});
             const endTime = performance.now();
+
+            self.postMessage({
+                type: 'debug',
+                message: `After compile: ttfBytes type=${typeof ttfBytes}, length=${ttfBytes?.length || 0}, constructor=${ttfBytes?.constructor?.name || 'unknown'}`
+            });
 
             console.log(
                 `[Fontc Worker] Compiled in ${(endTime - startTime).toFixed(0)}ms`
@@ -375,8 +389,8 @@ self.onmessage = async (event) => {
             self.postMessage({
                 type: 'compiled',
                 id: data.id,
-                ttfBytes: ttfBytes,
-                duration: endTime - startTime
+                result: ttfBytes,
+                time_taken: endTime - startTime
             });
         } catch (error: any) {
             console.error('[Fontc Worker] Error:', error);
@@ -656,13 +670,13 @@ self.onmessage = async (event) => {
         return;
     }
 
-    // Handle compilation request
+    // Handle compilation request (LEGACY PATH - fallback for messages without explicit type)
     if (
-        data.type === 'compile' ||
-        (data.type !== 'interpolate' &&
-            data.type !== 'clearCache' &&
-            !data.type &&
-            data.babelfontJson)
+        data.type !== 'compile' &&
+        data.type !== 'interpolate' &&
+        data.type !== 'clearCache' &&
+        !data.type &&
+        data.babelfontJson
     ) {
         const start = Date.now();
         const { id, babelfontJson, filename, options } = data;
