@@ -572,7 +572,11 @@ class FontManager {
      */
     async recompileEditingFont() {
         await this.compileEditingFont(this.currentText, this.selectedFeatures);
-        // Don't clear dirty flag - that should only happen on save
+        // Clear dirty flag after successful compilation
+        // The font is now up-to-date in the editor (not saved to disk, but compiled)
+        if (this.currentFont) {
+            this.currentFont.dirty = false;
+        }
         return;
     }
 

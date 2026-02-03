@@ -29,10 +29,17 @@ import fontManager from './font-manager';
                 console.error('[AutoCompile]', 'Compilation error:', err);
                 isCompiling = false; // Reset flag on error
             });
+            // Continue loop to check again after compilation
+            animationFrameId = requestAnimationFrame(checkLoop);
+        } else if (isCompiling) {
+            // Still compiling, keep checking
+            animationFrameId = requestAnimationFrame(checkLoop);
+        } else {
+            // Nothing to do - stop the loop to save CPU
+            loopRunning = false;
+            animationFrameId = null;
+            console.log('[AutoCompile]', '⏸️ No pending changes, pausing loop');
         }
-
-        // Continue loop
-        animationFrameId = requestAnimationFrame(checkLoop);
     }
 
     /**

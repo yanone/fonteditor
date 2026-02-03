@@ -1386,6 +1386,9 @@ export class TextRunEditor {
             isInitialLoad
         );
 
+        // Clean up old HarfBuzz objects before creating new ones to prevent memory leak
+        this.destroyHarfbuzz();
+
         // Store font blob
         this.fontBlob = fontData;
 

@@ -2723,50 +2723,68 @@ if (typeof document !== 'undefined' && document.addEventListener) {
     });
 }
 
+// Event handlers stored to prevent duplicate listeners
+let editingFontCompiledHandler: ((e: Event) => void) | null = null;
+let fontCompiledHandler: ((e: Event) => void) | null = null;
+
 // Set up listener for compiled fonts
 function setupFontLoadingListener() {
     console.log('🔧 Setting up font loading listeners...');
 
+    // Remove any existing listeners to prevent duplicates
+    if (editingFontCompiledHandler) {
+        window.removeEventListener(
+            'editingFontCompiled',
+            editingFontCompiledHandler
+        );
+    }
+    if (fontCompiledHandler) {
+        window.removeEventListener('fontCompiled', fontCompiledHandler);
+    }
+
     // Listen for editing font compiled by font manager (primary)
-    window.addEventListener('editingFontCompiled', async (e: any) => {
-        console.log('✅ Editing font compiled event received');
-        console.log('   Event detail:', e.detail);
-        console.log('   Canvas exists:', !!window.glyphCanvas);
-        if (window.glyphCanvas && e.detail && e.detail.fontBytes) {
-            console.log('   Loading editing font into canvas...');
-            const arrayBuffer = e.detail.fontBytes.buffer.slice(
-                e.detail.fontBytes.byteOffset,
-                e.detail.fontBytes.byteOffset + e.detail.fontBytes.byteLength
+    editingFontCompiledHandler = async (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        console.log('[GlyphCanvas]', 'Editing font compiled event received');
+        console.log('[GlyphCanvas]', '   Event detail:', detail);
+        console.log('[GlyphCanvas]', '   Canvas exists:', !!window.glyphCanvas);
+        if (window.glyphCanvas && detail && detail.fontBytes) {
+            console.log(
+                '[GlyphCanvas]',
+                '   Loading editing font into canvas...'
+            );
+            const arrayBuffer = detail.fontBytes.buffer.slice(
+                detail.fontBytes.byteOffset,
+                detail.fontBytes.byteOffset + detail.fontBytes.byteLength
             );
             window.glyphCanvas.setFont(arrayBuffer);
-            console.log('   ✅ Editing font loaded into canvas');
+            console.log(
+                '[GlyphCanvas]',
+                '   ✅ Editing font loaded into canvas'
+            );
         } else {
             console.warn(
+                '[GlyphCanvas]',
                 '   ⚠️ Cannot load font - missing canvas or fontBytes'
             );
         }
-    });
+    };
 
     // Legacy: Custom event when font is compiled via compile button
-    window.addEventListener('fontCompiled', async (e: any) => {
-        console.log('Font compiled event received (legacy)');
-        if (window.glyphCanvas && e.detail && e.detail.ttfBytes) {
-            const arrayBuffer = e.detail.ttfBytes.buffer.slice(
-                e.detail.ttfBytes.byteOffset,
-                e.detail.ttfBytes.byteOffset + e.detail.ttfBytes.byteLength
+    fontCompiledHandler = async (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        console.log('[GlyphCanvas]', 'Font compiled event received (legacy)');
+        if (window.glyphCanvas && detail && detail.ttfBytes) {
+            const arrayBuffer = detail.ttfBytes.buffer.slice(
+                detail.ttfBytes.byteOffset,
+                detail.ttfBytes.byteOffset + detail.ttfBytes.byteLength
             );
             window.glyphCanvas.setFont(arrayBuffer);
         }
-    });
+    };
 
-    // Also check for fonts loaded from file system
-    window.addEventListener('editingFontCompiled', async (e: Event) => {
-        let array: Uint8Array<ArrayBuffer> = (e as CustomEvent).detail
-            ?.fontBytes;
-        if (array) {
-            window.glyphCanvas.setFont(array.buffer);
-        }
-    });
+    window.addEventListener('editingFontCompiled', editingFontCompiledHandler);
+    window.addEventListener('fontCompiled', fontCompiledHandler);
 }
 
 // Set up editor keyboard shortcuts info modal
