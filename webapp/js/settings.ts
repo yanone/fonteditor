@@ -46,7 +46,7 @@ const APP_SETTINGS = {
 
         // Component marker size
         COMPONENT_MARKER_SIZE: 10, // px - size of component origin marker
-        SHOW_COMPONENT_ORIGIN_MARKERS: true, // whether to draw component origin markers
+        SHOW_COMPONENT_ORIGIN_MARKERS: false, // whether to draw component origin markers
 
         // Component glow effect
         COMPONENT_GLOW_BLUR: 60, // font units - blur radius for component glow (stays constant in font space)
@@ -80,7 +80,7 @@ const APP_SETTINGS = {
         PAN_SPEED_MOUSE_HORIZONTAL: 1.5, // mouse wheel horizontal pan speed (Shift+scroll)
 
         // Debug/development
-        SHOW_BOUNDING_BOX: true, // Show calculated bounding box in editing mode
+        SHOW_BOUNDING_BOX: false, // Show calculated bounding box in editing mode
         INTERPOLATION_ANIMATION_DELAY: 0, // ms - delay between animation frames for debugging (0 = no delay)
 
         // Measurement tool
