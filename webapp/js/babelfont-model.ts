@@ -525,7 +525,7 @@ export class Component extends ArrayElementBase {
         if (!font) return paths;
 
         // Get the master ID from the layer
-        const masterId = (layer.master as any)?.DefaultForMaster;
+        const masterId = (layer.master as any)?.master;
 
         // Helper to transform a node
         const transformNode = (node: any, transform: number[]): any => {
@@ -561,8 +561,7 @@ export class Component extends ArrayElementBase {
         let componentLayer;
         if (masterId) {
             componentLayer = componentGlyph.layers.find(
-                (l) =>
-                    l.master && (l.master as any).DefaultForMaster === masterId
+                (l) => l.master && (l.master as any).master === masterId
             );
         }
         if (!componentLayer) {
@@ -716,14 +715,16 @@ export class Shape extends ArrayElementBase {
      * Check if this shape is a component
      */
     isComponent(): boolean {
-        return 'Component' in this.data;
+        // Handle both nested {Component: {...}} and flat {reference: ...} formats
+        return 'Component' in this.data || 'reference' in this.data;
     }
 
     /**
      * Check if this shape is a path
      */
     isPath(): boolean {
-        return 'Path' in this.data;
+        // Handle both nested {Path: {...}} and flat {nodes: ...} formats
+        return 'Path' in this.data || 'nodes' in this.data;
     }
 
     /**
@@ -733,12 +734,21 @@ export class Shape extends ArrayElementBase {
         if (!this.isComponent()) {
             throw new Error('Shape is not a Component');
         }
+        // Handle both nested {Component: {...}} and flat {reference: ...} formats
+        const componentData =
+            'Component' in this.data ? this.data.Component : this.data;
         // Create a fake array with single element to satisfy Component's constructor
-        const fakeArray = [this.data.Component];
+        const fakeArray = [componentData];
         Object.defineProperty(fakeArray, '0', {
-            get: () => this.data.Component,
+            get: () =>
+                'Component' in this.data ? this.data.Component : this.data,
             set: (value) => {
-                this.data.Component = value;
+                if ('Component' in this.data) {
+                    this.data.Component = value;
+                } else {
+                    // Update the entire shape data for flat format
+                    Object.assign(this.data, value);
+                }
             }
         });
         return new Component(fakeArray as any, 0, this);
@@ -751,12 +761,19 @@ export class Shape extends ArrayElementBase {
         if (!this.isPath()) {
             throw new Error('Shape is not a Path');
         }
+        // Handle both nested {Path: {...}} and flat {nodes: ...} formats
+        const pathData = 'Path' in this.data ? this.data.Path : this.data;
         // Create a fake array with single element to satisfy Path's constructor
-        const fakeArray = [this.data.Path];
+        const fakeArray = [pathData];
         Object.defineProperty(fakeArray, '0', {
-            get: () => this.data.Path,
+            get: () => ('Path' in this.data ? this.data.Path : this.data),
             set: (value) => {
-                this.data.Path = value;
+                if ('Path' in this.data) {
+                    this.data.Path = value;
+                } else {
+                    // Update the entire shape data for flat format
+                    Object.assign(this.data, value);
+                }
             }
         });
         return new Path(fakeArray as any, 0, this);
@@ -816,9 +833,9 @@ export class Layer extends ArrayElementBase {
         // Translate all shapes (paths and components)
         if (this.data.shapes) {
             for (const shape of this.data.shapes) {
-                if ('nodes' in shape && shape.nodes) {
+                if ('Path' in shape && shape.Path?.nodes) {
                     // Parse nodes from string format
-                    let nodes = shape.nodes;
+                    let nodes = shape.Path.nodes;
                     if (typeof nodes === 'string') {
                         nodes = LayerDataNormalizer.parseNodes(nodes);
                     }
@@ -829,15 +846,24 @@ export class Layer extends ArrayElementBase {
                             node.x += offset;
                         }
                         // Serialize back to string format
-                        shape.nodes = LayerDataNormalizer.serializeNodes(nodes);
+                        shape.Path.nodes =
+                            LayerDataNormalizer.serializeNodes(nodes);
                     }
-                } else if ('reference' in shape) {
+                } else if ('Component' in shape && shape.Component) {
                     // Update component transform translation
-                    if (!shape.transform) {
+                    if (!shape.Component.transform) {
                         // Create identity transform if none exists
-                        shape.transform = [1, 0, 0, 1, 0, 0];
+                        shape.Component.transform = [1, 0, 0, 1, 0, 0];
                     }
-                    shape.transform[4] += offset; // Update x translation
+                    const transform = shape.Component.transform;
+                    if (Array.isArray(transform)) {
+                        transform[4] += offset; // Update x translation
+                    } else {
+                        // DecomposedAffine format
+                        if (!transform.translation)
+                            transform.translation = [0, 0];
+                        transform.translation[0] += offset;
+                    }
                 }
             }
         }
@@ -1311,9 +1337,17 @@ export class Layer extends ArrayElementBase {
             if (!shapes || !Array.isArray(shapes)) return;
 
             for (const shape of shapes) {
-                if ('reference' in shape) {
+                // Handle both nested { Component: { reference, transform } } and flat { reference, transform }
+                const isNestedComponent = 'Component' in shape;
+                const componentData = isNestedComponent
+                    ? (shape as any).Component
+                    : shape;
+
+                if ('reference' in componentData) {
                     // Component - recursively process its outline shapes with accumulated transform
-                    const compTransform = toAffineArray(shape.transform);
+                    const compTransform = toAffineArray(
+                        componentData.transform
+                    );
                     const combinedTransform = combineTransforms(
                         transform,
                         compTransform
@@ -1321,11 +1355,13 @@ export class Layer extends ArrayElementBase {
 
                     // Get component's layer data - either from pre-populated layerData
                     // or by looking up the component glyph in the font
-                    let componentLayerData = shape.layerData;
+                    let componentLayerData = componentData.layerData;
 
                     if (!componentLayerData && font) {
                         // Look up the component glyph and get the matching layer for the current master
-                        const componentGlyph = font.findGlyph(shape.reference);
+                        const componentGlyph = font.findGlyph(
+                            componentData.reference
+                        );
                         if (componentGlyph && componentGlyph.layers) {
                             let layer;
                             if (masterId) {
@@ -1333,8 +1369,8 @@ export class Layer extends ArrayElementBase {
                                 layer = componentGlyph.layers.find(
                                     (l) =>
                                         l.data.master &&
-                                        (l.data.master as any)
-                                            .DefaultForMaster === masterId
+                                        (l.data.master as any).master ===
+                                            masterId
                                 );
                             }
                             // Fallback to first layer if no matching master found
@@ -1354,8 +1390,28 @@ export class Layer extends ArrayElementBase {
                             combinedTransform
                         );
                     }
+                } else if ('Path' in shape && shape.Path?.nodes) {
+                    // Path with Babelfont v3.0+ nested structure: { Path: { nodes: "...", closed: bool } }
+                    let nodes = shape.Path.nodes;
+
+                    // Parse nodes if they're a string
+                    if (typeof nodes === 'string') {
+                        nodes = LayerDataNormalizer.parseNodes(nodes);
+                    }
+
+                    if (Array.isArray(nodes) && nodes.length > 0) {
+                        // Transform all nodes and create a new path
+                        const transformedNodes = nodes.map((node: any) =>
+                            transformNode(node, transform)
+                        );
+
+                        flattenedPaths.push({
+                            nodes: transformedNodes,
+                            closed: shape.Path.closed
+                        });
+                    }
                 } else if ('nodes' in shape && shape.nodes) {
-                    // Path with nested structure
+                    // Path with legacy flat structure
                     let nodes = shape.nodes;
 
                     // Parse nodes if they're a string
@@ -1413,6 +1469,12 @@ export class Layer extends ArrayElementBase {
             if (shape.isPath()) {
                 const pathData = shape.asPath().toJSON();
                 if (pathData.nodes) {
+                    // Parse nodes if they're stored as a string
+                    if (typeof pathData.nodes === 'string') {
+                        pathData.nodes = LayerDataNormalizer.parseNodes(
+                            pathData.nodes
+                        );
+                    }
                     paths.push(pathData);
                 }
             }
@@ -1428,7 +1490,9 @@ export class Layer extends ArrayElementBase {
     getAllPaths(): Babelfont.Path[] {
         const paths: Babelfont.Path[] = [];
 
-        if (!this.shapes) return paths;
+        if (!this.shapes) {
+            return paths;
+        }
 
         for (const shape of this.shapes) {
             if (shape.isPath()) {
@@ -1745,10 +1809,25 @@ export class Layer extends ArrayElementBase {
             }
         }
 
-        // Sort intersections by t parameter (distance along line from p1)
-        intersections.sort((a, b) => a.t - b.t);
+        // Remove duplicate intersections (can occur when paths share exact endpoints)
+        const uniqueIntersections: Array<{ x: number; y: number; t: number }> =
+            [];
+        for (const intersection of intersections) {
+            const isDuplicate = uniqueIntersections.some(
+                (existing) =>
+                    Math.abs(existing.x - intersection.x) < 0.001 &&
+                    Math.abs(existing.y - intersection.y) < 0.001 &&
+                    Math.abs(existing.t - intersection.t) < 0.001
+            );
+            if (!isDuplicate) {
+                uniqueIntersections.push(intersection);
+            }
+        }
 
-        return intersections;
+        // Sort intersections by t parameter (distance along line from p1)
+        uniqueIntersections.sort((a, b) => a.t - b.t);
+
+        return uniqueIntersections;
     }
 
     /**

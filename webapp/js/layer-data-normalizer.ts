@@ -139,9 +139,9 @@ export class LayerDataNormalizer {
             return '';
         }
 
-        return nodes
-            .map((node) => `${node.x} ${node.y} ${node.nodetype}`)
-            .join(' ');
+        // Use Path.nodesToString for proper serialization with type mapping
+        const { Path } = require('./babelfont-model');
+        return Path.nodesToString(nodes);
     }
 
     /**

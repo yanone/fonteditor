@@ -1,0 +1,2668 @@
+{
+  "upm": 1000,
+  "version": [
+    1,
+    10
+  ],
+  "axes": [
+    {
+      "name": {
+        "dflt": "Weight"
+      },
+      "tag": "wght",
+      "id": "00000000-0000-0000-0000-000000000000",
+      "min": 30.0,
+      "max": 135.0,
+      "default": 30.0
+    }
+  ],
+  "masters": [
+    {
+      "name": {
+        "dflt": "ExtraLight"
+      },
+      "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+      "location": {
+        "wght": 30.0
+      },
+      "guides": [
+        {
+          "pos": {
+            "x": 0.0,
+            "y": 428.0
+          },
+          "format_specific": {
+            "locked": true
+          }
+        },
+        {
+          "pos": {
+            "x": 0.0,
+            "y": 1000.0
+          },
+          "format_specific": {
+            "locked": true
+          }
+        },
+        {
+          "pos": {
+            "x": 0.0,
+            "y": -420.0
+          },
+          "format_specific": {
+            "locked": true
+          }
+        },
+        {
+          "pos": {
+            "x": -10.0,
+            "y": 350.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 722.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 587.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 882.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 747.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        }
+      ],
+      "metrics": {
+        "Ascender": 720,
+        "ascender overshoot": 0,
+        "CapHeight": 700,
+        "capHeight overshoot": 8,
+        "XHeight": 492,
+        "xHeight overshoot": 8,
+        "baseline": 0,
+        "baseline overshoot": -8,
+        "Descender": -200,
+        "descender overshoot": -8,
+        "ItalicAngle": 0,
+        "italicAngle overshoot": 0
+      },
+      "kerning": {
+        "@o:@g": -10,
+        "@S:@parenright": -30,
+        "@dash:@T": -60,
+        "@r:@space": -30,
+        "@V:@S": -30,
+        "@questiondown:@f": -50,
+        "@dash:@seven": -50,
+        "@P:@g": -60,
+        "@R:@a": -20,
+        "@o:@n": 0,
+        "@seven:@zero.subs": -60,
+        "@zero.subs:@T": -60,
+        "@zero.sups:@A": -80,
+        "@dash:@J": -34,
+        "@fraction:@zero.dnom": -30,
+        "@o:@parenright": -30,
+        "@questiondown:@t": -50,
+        "@A:@zero.sups": -80,
+        "@A:@T": -70,
+        "@L:@W": -50,
+        "@P:@questiondown": -70,
+        "@A:@Y": -60,
+        "@quote:@a": -40,
+        "@W:@comma": -60,
+        "@T:@u": -98,
+        "@space:@T": -20,
+        "@k:@a": -10,
+        "@o:@zero.sups": -50,
+        "@A:@W": -35,
+        "@S:@t": -20,
+        "@v:@a": -20,
+        "@parenleft:@a": -20,
+        "@H:@o": 0,
+        "@V:@A": 0,
+        "@L:@O": -31,
+        "@Z:@O": -20,
+        "@four:@comma": -20,
+        "@O:@V": -15,
+        "@L:@u": -20,
+        "@A:@quote": -60,
+        "@T:@comma": -80,
+        "@T:@dash": -60,
+        "@Z:@u": -20,
+        "@s:@T": -80,
+        "@z:@dash": 0,
+        "@n:@v": -20,
+        "@P:@a": -32,
+        "@S:@v": -10,
+        "@o:@comma": -10,
+        "@Y:@zero.subs": -80,
+        "@S:@comma": -20,
+        "@dash:@n": 0,
+        "@parenleft:@n": -20,
+        "@zero:@zero": -20,
+        "@seven:@comma": -100,
+        "@L:@v": -44,
+        "@u:@T": -70,
+        "@R:@Y": 0,
+        "@comma:@v": -70,
+        "@zero.sups:@o": -50,
+        "@n:@T": -81,
+        "@P:@J": -130,
+        "@n:@zero.sups": -40,
+        "@V:@four": -50,
+        "@U:@n": -9,
+        "@comma:@zero": -20,
+        "@X:@O": -10,
+        "@comma:@one": -60,
+        "@Y:@u": -76,
+        "@questiondown:@v": -50,
+        "@O:@comma": -70,
+        "@zero.numr:@fraction": -30,
+        "@A:@v": -30,
+        "@ninegeom:@seven": -30,
+        "@H:@comma": 0,
+        "@Y:@space": -30,
+        "@questioncase:@W": -50,
+        "@U:@a": -10,
+        "@W:@g": -60,
+        "@F:@a": -20,
+        "@X:@v": -20,
+        "@ninegeom:@four": -30,
+        "@questiondown:@S": -60,
+        "@parenleft:@S": -30,
+        "@O:@Z": -21,
+        "@S:@V": -20,
+        "@dash:@one": -30,
+        "@o:@quote": -20,
+        "@r:@comma": -30,
+        "@O:@a": -4,
+        "@comma:@seven": -40,
+        "@K:@O": -30,
+        "@f:@g": -20,
+        "@r:@g": -30,
+        "@O:@T": -34,
+        "@zero.subs:@W": -30,
+        "@questiondown:@u": -30,
+        "@R:@V": 0,
+        "@n:@question": -20,
+        "@seven:@A": -70,
+        "@C:@comma": -20,
+        "@zero.subs:@A": 0,
+        "@H:@Y": 0,
+        "@comma:@O": -70,
+        "@sixgeom:@seven": -70,
+        "@questiondown:@O": -60,
+        "@r:@a": -20,
+        "@V:@s": -30,
+        "@F:@O": -10,
+        "@comma:@U": -20,
+        "@o:@v": -20,
+        "@Y:@A": -60,
+        "@dash:@Y": -50,
+        "@seven:@zero": -30,
+        "@two:@sixgeom": -30,
+        "@v:@parenright": -30,
+        "@A:@zero.subs": 0,
+        "@k:@dash": 0,
+        "@R:@U": -7,
+        "@comma:@T": -80,
+        "@sixgeom:@two": -40,
+        "@n:@parenright": -20,
+        "@S:@W": -10,
+        "@C:@parenright": -30,
+        "@x:@o": -10,
+        "@P:@A": -70,
+        "@P:@s": -20,
+        "@questioncase:@V": -80,
+        "@two:@seven": -40,
+        "@zero:@two": -30,
+        "@zero:@four": 0,
+        "@Y:@s": -50,
+        "@F:@o": -17,
+        "@T:@a": -112,
+        "@o:@question": -30,
+        "@sixgeom:@ninegeom": -40,
+        "@questiondown:@Y": -100,
+        "@V:@o": -70,
+        "@L:@seven": -30,
+        "@space:@V": -30,
+        "@P:@questioncase": -40,
+        "@K:@o": -22,
+        "@zero:@A": 0,
+        "@F:@A": -60,
+        "@r:@dash": 0,
+        "@L:@U": -20,
+        "@parenleft:@o": -30,
+        "@T:@o": -95,
+        "@questiondown:@J": -50,
+        "@f:@f": 22,
+        "@A:@O": -30,
+        "@L:@o": -20,
+        "@O:@parenright": -30,
+        "@H:@a": -10,
+        "@W:@zero.subs": -40,
+        "@W:@a": -30,
+        "@K:@a": -20,
+        "@P:@l": -20,
+        "@Y:@S": -20,
+        "@comma:@quote": -75,
+        "@f:@comma": -56,
+        "@quote:@s": -30,
+        "@g:@o": -10,
+        "@Y:@O": -20,
+        "@T:@v": -40,
+        "@U:@o": 0,
+        "@T:@O": -30,
+        "@zero:@comma": -40,
+        "@F:@s": -30,
+        "@R:@v": 0,
+        "@questiondown:@o": -60,
+        "@zero:@ninegeom": -30,
+        "@quote:@comma": -74,
+        "@L:@question": -50,
+        "@seven:@dash": -50,
+        "@v:@T": -40,
+        "@dash:@z": 0,
+        "@K:@S": -20,
+        "@space:@v": -30,
+        "@Y:@o": -90,
+        "@R:@T": -20,
+        "@R:@o": -20,
+        "@T:@s": -80,
+        "@R:@O": 0,
+        "@V:@V": 7,
+        "@Y:@questiondown": -70,
+        "@H:@u": -4,
+        "@question:@J": -60,
+        "@X:@o": 0,
+        "@V:@zero.subs": -80,
+        "@V:@dash": -30,
+        "@t:@o": -20,
+        "@two:@zero": -20,
+        "@T:@space": -30,
+        "@U:@comma": -20,
+        "@two:@four": -40,
+        "@P:@n": -21,
+        "@seven:@sixgeom": -60,
+        "@t:@a": -20,
+        "@k:@o": -10,
+        "@T:@four": -60,
+        "@L:@T": -73,
+        "@Z:@v": -20,
+        "@n:@l": 10,
+        "@comma:@V": -80,
+        "@v:@o": -20,
+        "@T:@g": -100,
+        "@Y:@a": -80,
+        "@K:@u": -30,
+        "@W:@questiondown": -50,
+        "@W:@O": -10,
+        "@U:@g": -10,
+        "@H:@A": 0,
+        "@v:@comma": -70,
+        "@V:@g": -70,
+        "@comma:@W": -60,
+        "@T:@A": -70,
+        "@V:@questioncase": -30,
+        "@o:@T": -93,
+        "@quote:@A": -63,
+        "@Y:@comma": -100,
+        "@f:@o": -22,
+        "@A:@J": -20,
+        "@ninegeom:@sixgeom": -20,
+        "@V:@a": -65,
+        "@U:@u": -9,
+        "@A:@U": -20,
+        "@four:@ninegeom": -20,
+        "@F:@comma": -83,
+        "@P:@u": -20,
+        "@fraction:@zero.subs": -50,
+        "@o:@Y": -90,
+        "@zero:@seven": -30,
+        "@V:@v": -45,
+        "@F:@t": -20,
+        "@seven:@four": -80,
+        "@dash:@V": -30,
+        "@S:@Y": -20,
+        "@questioncase:@Y": -70,
+        "@zero.subs:@Y": -90,
+        "@F:@v": -20,
+        "@V:@J": -80,
+        "@V:@u": -40,
+        "@O:@A": -30,
+        "@Y:@g": -70,
+        "@v:@zero.subs": -50,
+        "@T:@questioncase": -60,
+        "@zero.sups:@J": -130,
+        "@s:@s": -20,
+        "@A:@question": -40,
+        "@K:@dash": -40,
+        "@g:@question": 20,
+        "@questiondown:@s": -30,
+        "@zero.subs:@fraction": -50,
+        "@F:@space": -30,
+        "@L:@V": -76,
+        "@dash:@l": -4,
+        "@n:@Y": -50,
+        "@dash:@X": -30,
+        "@dash:@Z": -30,
+        "@seven:@two": -30,
+        "@v:@space": -30,
+        "@H:@v": -3,
+        "@o:@W": -20,
+        "@four:@seven": -20,
+        "@questioncase:@T": -90,
+        "@s:@t": -20,
+        "@B:@Y": -20,
+        "@zero.sups:@a": -40,
+        "@P:@j": -20,
+        "@U:@Germandbls": -5,
+        "@n:@g": -10,
+        "@sixgeom:@one": -40,
+        "@O:@Y": -19,
+        "@V:@comma": -80,
+        "@L:@quote": -120,
+        "@o:@t": -20,
+        "@W:@o": -20,
+        "@comma:@J": -20,
+        "@comma:@Y": -100,
+        "@parenleft:@O": -30,
+        "@quote:@J": -120,
+        "@f:@v": 17,
+        "@V:@space": -30,
+        "@n:@V": -70,
+        "@questiondown:@V": -90,
+        "@L:@t": -40,
+        "@V:@O": -15,
+        "@Y:@four": -40,
+        "@questiondown:@U": -50,
+        "@P:@o": -36,
+        "@Y:@questioncase": -30,
+        "@W:@A": -35,
+        "@s:@a": 0,
+        "@s:@g": -10,
+        "@v:@g": -40,
+        "@U:@A": -20,
+        "@x:@dash": 0,
+        "@t:@u": -20,
+        "@F:@u": -20,
+        "@P:@comma": -97,
+        "@Z:@o": -16,
+        "@Y:@v": -30,
+        "@o:@V": -70,
+        "@parenleft:@v": -30,
+        "@T:@zero.subs": -60,
+        "@Y:@n": -60,
+        "@S:@T": -40,
+        "@W:@J": -70,
+        "@questiondown:@W": -60,
+        "@F:@g": -20,
+        "@O:@W": -10,
+        "@T:@J": -80,
+        "@P:@zero.subs": -100,
+        "@A:@V": -65,
+        "@L:@dash": -50,
+        "@O:@X": -13,
+        "@C:@v": -10,
+        "@K:@v": -40,
+        "@P:@space": -30,
+        "@V:@n": -41,
+        "@C:@O": -5,
+        "@f:@a": -26,
+        "@Z:@dash": -40,
+        "@X:@dash": -30,
+        "@L:@zero.sups": -130,
+        "@Y:@dash": -50,
+        "@T:@n": -78,
+        "@zero:@one": 0,
+        "@quote:@o": -20,
+        "@space:@Y": -30,
+        "@zero.subs:@V": -80,
+        "@r:@o": -20,
+        "@H:@g": 0,
+        "@W:@S": -20,
+        "@zero.subs:@v": -50,
+        "@comma:@S": -20,
+        "@f:@question": 20,
+        "@l:@g": -10,
+        "@dash:@x": 0,
+        "@comma:@four": -10,
+        "@L:@Y": -64,
+        "@n:@t": -35
+      },
+      "format_specific": {
+        "com.schriftgestalt.Glyphs.stemValues": [],
+        "com.schriftgestalt.Glyphs.numberValues": [
+          {
+            "pos": 720.0
+          },
+          {
+            "over": 8.0,
+            "pos": 700.0
+          },
+          {
+            "over": 8.0,
+            "pos": 492.0
+          },
+          {
+            "over": -8.0
+          },
+          {
+            "over": -8.0,
+            "pos": -200.0
+          },
+          {}
+        ],
+        "com.schriftgestalt.Glyphs.iconName": "Light",
+        "com.schriftgestalt.Glyphs.userData": {
+          "GSCornerRadius": 70,
+          "GSOffsetHorizontal": 15,
+          "GSOffsetKeepCompatible": 1,
+          "GSOffsetMakeStroke": 1,
+          "GSOffsetPosition": 1,
+          "GSOffsetVertical": 15
+        },
+        "com.schriftgestalt.Glyphs.visible": false
+      }
+    },
+    {
+      "name": {
+        "dflt": "Regular"
+      },
+      "id": "14EEE41F-D714-4243-A717-73445EE7DABA",
+      "location": {
+        "wght": 75.0
+      },
+      "guides": [
+        {
+          "pos": {
+            "x": 0.0,
+            "y": 428.0
+          },
+          "format_specific": {
+            "locked": true
+          }
+        },
+        {
+          "pos": {
+            "x": 0.0,
+            "y": 1000.0
+          },
+          "format_specific": {
+            "locked": true
+          }
+        },
+        {
+          "pos": {
+            "x": 0.0,
+            "y": -420.0
+          },
+          "format_specific": {
+            "locked": true
+          }
+        },
+        {
+          "pos": {
+            "x": -10.0,
+            "y": 350.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 726.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 581.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 890.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 745.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": 131.0,
+            "y": -247.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        }
+      ],
+      "metrics": {
+        "Ascender": 720,
+        "ascender overshoot": 0,
+        "CapHeight": 700,
+        "capHeight overshoot": 12,
+        "XHeight": 500,
+        "xHeight overshoot": 12,
+        "baseline": 0,
+        "baseline overshoot": -12,
+        "Descender": -200,
+        "descender overshoot": -12,
+        "ItalicAngle": 0,
+        "italicAngle overshoot": 0
+      },
+      "kerning": {
+        "@quote:@o": -20,
+        "@parenleft:@o": -30,
+        "@U:@comma": -20,
+        "@l:@g": -10,
+        "@Y:@n": -60,
+        "@questiondown:@v": -50,
+        "@S:@V": -20,
+        "@A:@zero.sups": -80,
+        "@comma:@O": -70,
+        "@V:@O": -15,
+        "@Z:@o": -16,
+        "@zero:@seven": -30,
+        "@W:@zero.subs": -40,
+        "@parenleft:@a": -20,
+        "@R:@U": -7,
+        "@B:@Y": -20,
+        "@dash:@l": -4,
+        "@C:@O": -5,
+        "@zero.subs:@v": -50,
+        "@L:@v": -44,
+        "@v:@comma": -70,
+        "@Y:@s": -50,
+        "@T:@A": -70,
+        "@F:@o": -17,
+        "@n:@V": -70,
+        "@ninegeom:@seven": -30,
+        "@o:@V": -70,
+        "@A:@T": -70,
+        "@questiondown:@Y": -100,
+        "@K:@O": -30,
+        "@Y:@four": -40,
+        "@quote:@a": -40,
+        "@sixgeom:@ninegeom": -40,
+        "@L:@U": -20,
+        "@W:@a": -30,
+        "@W:@questiondown": -50,
+        "@V:@S": -30,
+        "@U:@u": -9,
+        "@P:@space": -30,
+        "@V:@J": -80,
+        "@W:@g": -60,
+        "@comma:@one": -60,
+        "@Y:@dash": -50,
+        "@o:@n": 0,
+        "@o:@quote": -20,
+        "@o:@comma": -10,
+        "@quote:@comma": -74,
+        "@r:@comma": -30,
+        "@P:@j": -20,
+        "@two:@seven": -40,
+        "@L:@zero.sups": -130,
+        "@dash:@J": -34,
+        "@zero:@zero": -20,
+        "@F:@t": -20,
+        "@Y:@questioncase": -30,
+        "@X:@o": 0,
+        "@comma:@S": -20,
+        "@f:@comma": -56,
+        "@questioncase:@V": -80,
+        "@H:@comma": 0,
+        "@T:@dash": -60,
+        "@L:@O": -31,
+        "@o:@zero.sups": -50,
+        "@questiondown:@s": -30,
+        "@questiondown:@J": -50,
+        "@P:@u": -20,
+        "@H:@Y": 0,
+        "@L:@W": -50,
+        "@A:@O": -30,
+        "@x:@dash": 0,
+        "@F:@g": -20,
+        "@L:@u": -20,
+        "@Y:@A": -60,
+        "@r:@g": -30,
+        "@F:@comma": -83,
+        "@P:@questiondown": -70,
+        "@zero.subs:@T": -60,
+        "@L:@o": -20,
+        "@quote:@J": -120,
+        "@space:@V": -30,
+        "@Y:@zero.subs": -80,
+        "@F:@a": -20,
+        "@O:@V": -15,
+        "@comma:@U": -20,
+        "@H:@g": 0,
+        "@O:@a": -4,
+        "@V:@A": 0,
+        "@dash:@x": 0,
+        "@parenleft:@O": -30,
+        "@z:@dash": 0,
+        "@W:@O": -10,
+        "@zero.subs:@Y": -90,
+        "@T:@space": -30,
+        "@comma:@four": -10,
+        "@f:@o": -22,
+        "@parenleft:@S": -30,
+        "@T:@a": -112,
+        "@K:@S": -20,
+        "@S:@comma": -20,
+        "@n:@question": -20,
+        "@H:@o": 0,
+        "@dash:@z": 0,
+        "@n:@zero.sups": -40,
+        "@zero:@comma": -40,
+        "@U:@a": -10,
+        "@V:@s": -30,
+        "@V:@space": -30,
+        "@F:@v": -20,
+        "@zero.subs:@V": -80,
+        "@v:@T": -40,
+        "@A:@Y": -60,
+        "@o:@v": -20,
+        "@V:@V": 7,
+        "@O:@W": -10,
+        "@L:@Y": -64,
+        "@P:@questioncase": -40,
+        "@Y:@o": -90,
+        "@L:@question": -50,
+        "@X:@v": -20,
+        "@parenleft:@n": -20,
+        "@quote:@s": -30,
+        "@n:@Y": -50,
+        "@questiondown:@V": -90,
+        "@seven:@zero.subs": -60,
+        "@two:@four": -40,
+        "@Y:@O": -20,
+        "@parenleft:@v": -30,
+        "@P:@a": -32,
+        "@s:@a": 0,
+        "@zero:@two": -30,
+        "@U:@A": -20,
+        "@seven:@sixgeom": -60,
+        "@k:@dash": 0,
+        "@A:@J": -20,
+        "@C:@v": -10,
+        "@v:@o": -20,
+        "@questiondown:@f": -50,
+        "@P:@l": -20,
+        "@comma:@J": -20,
+        "@n:@v": -20,
+        "@Y:@comma": -100,
+        "@F:@O": -10,
+        "@four:@seven": -20,
+        "@r:@a": -20,
+        "@R:@O": 0,
+        "@s:@T": -80,
+        "@L:@T": -73,
+        "@two:@zero": -20,
+        "@dash:@seven": -50,
+        "@F:@u": -20,
+        "@Y:@g": -70,
+        "@f:@question": 20,
+        "@T:@s": -80,
+        "@P:@g": -60,
+        "@F:@A": -60,
+        "@u:@T": -70,
+        "@x:@o": -10,
+        "@V:@dash": -30,
+        "@A:@U": -20,
+        "@questiondown:@t": -50,
+        "@T:@four": -60,
+        "@C:@comma": -20,
+        "@questiondown:@U": -50,
+        "@r:@dash": 0,
+        "@seven:@dash": -50,
+        "@n:@g": -10,
+        "@question:@J": -60,
+        "@T:@questioncase": -60,
+        "@space:@Y": -30,
+        "@f:@v": 17,
+        "@v:@parenright": -30,
+        "@A:@zero.subs": 0,
+        "@dash:@T": -60,
+        "@H:@a": -10,
+        "@P:@A": -70,
+        "@zero.sups:@A": -80,
+        "@comma:@V": -80,
+        "@X:@dash": -30,
+        "@T:@o": -95,
+        "@f:@f": 22,
+        "@T:@u": -98,
+        "@V:@zero.subs": -80,
+        "@questiondown:@o": -60,
+        "@v:@g": -40,
+        "@V:@comma": -80,
+        "@f:@a": -26,
+        "@t:@a": -20,
+        "@O:@Z": -21,
+        "@dash:@V": -30,
+        "@dash:@n": 0,
+        "@W:@o": -20,
+        "@n:@T": -81,
+        "@v:@a": -20,
+        "@questioncase:@Y": -70,
+        "@Y:@u": -76,
+        "@questiondown:@O": -60,
+        "@seven:@comma": -100,
+        "@S:@W": -10,
+        "@sixgeom:@one": -40,
+        "@P:@s": -20,
+        "@S:@parenright": -30,
+        "@sixgeom:@two": -40,
+        "@L:@quote": -120,
+        "@T:@g": -100,
+        "@K:@dash": -40,
+        "@t:@o": -20,
+        "@T:@O": -30,
+        "@dash:@one": -30,
+        "@r:@space": -30,
+        "@comma:@T": -80,
+        "@two:@sixgeom": -30,
+        "@Z:@v": -20,
+        "@seven:@four": -80,
+        "@K:@u": -30,
+        "@comma:@seven": -40,
+        "@space:@T": -20,
+        "@R:@T": -20,
+        "@P:@comma": -97,
+        "@o:@g": -10,
+        "@questioncase:@W": -50,
+        "@Y:@a": -80,
+        "@Y:@v": -30,
+        "@Z:@u": -20,
+        "@sixgeom:@seven": -70,
+        "@C:@parenright": -30,
+        "@S:@v": -10,
+        "@k:@o": -10,
+        "@zero.numr:@fraction": -30,
+        "@zero.sups:@o": -50,
+        "@o:@parenright": -30,
+        "@seven:@two": -30,
+        "@V:@n": -41,
+        "@Y:@questiondown": -70,
+        "@comma:@Y": -100,
+        "@zero.sups:@a": -40,
+        "@zero:@one": 0,
+        "@R:@a": -20,
+        "@zero:@ninegeom": -30,
+        "@U:@Germandbls": -5,
+        "@V:@v": -45,
+        "@S:@Y": -20,
+        "@s:@t": -20,
+        "@o:@question": -30,
+        "@T:@zero.subs": -60,
+        "@P:@o": -36,
+        "@P:@J": -130,
+        "@W:@comma": -60,
+        "@T:@v": -40,
+        "@L:@t": -40,
+        "@V:@u": -40,
+        "@V:@a": -65,
+        "@zero.subs:@W": -30,
+        "@A:@v": -30,
+        "@dash:@Z": -30,
+        "@ninegeom:@four": -30,
+        "@R:@v": 0,
+        "@K:@v": -40,
+        "@F:@s": -30,
+        "@T:@comma": -80,
+        "@o:@W": -20,
+        "@Y:@S": -20,
+        "@questiondown:@S": -60,
+        "@seven:@zero": -30,
+        "@n:@parenright": -20,
+        "@zero.sups:@J": -130,
+        "@U:@n": -9,
+        "@f:@g": -20,
+        "@n:@l": 10,
+        "@questiondown:@u": -30,
+        "@v:@space": -30,
+        "@K:@a": -20,
+        "@F:@space": -30,
+        "@L:@V": -76,
+        "@U:@g": -10,
+        "@R:@Y": 0,
+        "@dash:@X": -30,
+        "@O:@A": -30,
+        "@seven:@A": -70,
+        "@v:@zero.subs": -50,
+        "@X:@O": -10,
+        "@k:@a": -10,
+        "@P:@n": -21,
+        "@Y:@space": -30,
+        "@quote:@A": -63,
+        "@zero.subs:@A": 0,
+        "@A:@question": -40,
+        "@H:@u": -4,
+        "@questioncase:@T": -90,
+        "@P:@zero.subs": -100,
+        "@A:@W": -35,
+        "@o:@t": -20,
+        "@T:@n": -78,
+        "@fraction:@zero.dnom": -30,
+        "@V:@o": -70,
+        "@H:@A": 0,
+        "@s:@g": -10,
+        "@W:@J": -70,
+        "@zero:@four": 0,
+        "@four:@ninegeom": -20,
+        "@o:@Y": -90,
+        "@W:@A": -35,
+        "@R:@o": -20,
+        "@ninegeom:@sixgeom": -20,
+        "@O:@Y": -19,
+        "@questiondown:@W": -60,
+        "@V:@g": -70,
+        "@t:@u": -20,
+        "@U:@o": 0,
+        "@o:@T": -93,
+        "@O:@parenright": -30,
+        "@R:@V": 0,
+        "@s:@s": -20,
+        "@g:@question": 20,
+        "@V:@four": -50,
+        "@g:@o": -10,
+        "@r:@o": -20,
+        "@comma:@W": -60,
+        "@O:@X": -13,
+        "@O:@T": -34,
+        "@fraction:@zero.subs": -50,
+        "@comma:@quote": -75,
+        "@H:@v": -3,
+        "@O:@comma": -70,
+        "@V:@questioncase": -30,
+        "@zero.subs:@fraction": -50,
+        "@zero:@A": 0,
+        "@L:@dash": -50,
+        "@L:@seven": -30,
+        "@S:@t": -20,
+        "@comma:@v": -70,
+        "@four:@comma": -20,
+        "@W:@S": -20,
+        "@n:@t": -35,
+        "@S:@T": -40,
+        "@K:@o": -22,
+        "@Z:@dash": -40,
+        "@space:@v": -30,
+        "@T:@J": -80,
+        "@comma:@zero": -20,
+        "@A:@quote": -60,
+        "@dash:@Y": -50,
+        "@A:@V": -65,
+        "@Z:@O": -20
+      },
+      "format_specific": {
+        "com.schriftgestalt.Glyphs.customParameters.Master Icon Glyph Name": "seen-ar.init",
+        "com.schriftgestalt.Glyphs.customParameters.Filter": "reverseContourDirection;include:zero.blackCircled, one.blackCircled, two.blackCircled, three.blackCircled, four.blackCircled, five.blackCircled, six.blackCircled, seven.blackCircled, eight.blackCircled, nine.blackCircled, mediumBlackCircle",
+        "com.schriftgestalt.Glyphs.stemValues": [],
+        "com.schriftgestalt.Glyphs.numberValues": [
+          {
+            "pos": 720.0
+          },
+          {
+            "over": 12.0,
+            "pos": 700.0
+          },
+          {
+            "over": 12.0,
+            "pos": 500.0
+          },
+          {
+            "over": -12.0
+          },
+          {
+            "over": -12.0,
+            "pos": -200.0
+          },
+          {}
+        ],
+        "com.schriftgestalt.Glyphs.iconName": "",
+        "com.schriftgestalt.Glyphs.userData": {
+          "GSCornerRadius": 80,
+          "GSOffsetHorizontal": 37.5,
+          "GSOffsetKeepCompatible": 1,
+          "GSOffsetMakeStroke": 1,
+          "GSOffsetPosition": 0.7,
+          "GSOffsetVertical": 37.5
+        },
+        "com.schriftgestalt.Glyphs.visible": false
+      }
+    },
+    {
+      "name": {
+        "dflt": "ExtraBold"
+      },
+      "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3",
+      "location": {
+        "wght": 135.0
+      },
+      "guides": [
+        {
+          "pos": {
+            "x": 0.0,
+            "y": 428.0
+          },
+          "format_specific": {
+            "locked": true
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 717.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 572.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 898.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -25.0,
+            "y": 753.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        },
+        {
+          "pos": {
+            "x": -7.0,
+            "y": 350.0
+          },
+          "format_specific": {
+            "locked": false
+          }
+        }
+      ],
+      "metrics": {
+        "Ascender": 720,
+        "ascender overshoot": 0,
+        "CapHeight": 700,
+        "capHeight overshoot": 16,
+        "XHeight": 508,
+        "xHeight overshoot": 16,
+        "baseline": 0,
+        "baseline overshoot": -16,
+        "Descender": -200,
+        "descender overshoot": -16,
+        "ItalicAngle": 0,
+        "italicAngle overshoot": 0
+      },
+      "kerning": {
+        "@quote:@o": -20,
+        "@R:@a": -20,
+        "@r:@dash": 0,
+        "@v:@T": -40,
+        "@zero:@ninegeom": -30,
+        "@T:@zero.subs": -60,
+        "@Y:@space": -30,
+        "@four:@comma": -20,
+        "@questiondown:@f": -50,
+        "@Y:@O": -20,
+        "@o:@V": -70,
+        "@sixgeom:@one": -40,
+        "@T:@o": -95,
+        "@questiondown:@J": -50,
+        "@questiondown:@O": -60,
+        "@k:@o": -10,
+        "@F:@space": -30,
+        "@o:@n": 0,
+        "@K:@a": -20,
+        "@W:@a": -30,
+        "@f:@v": 17,
+        "@n:@zero.sups": -40,
+        "@g:@question": 20,
+        "@parenleft:@O": -30,
+        "@T:@v": -40,
+        "@parenleft:@S": -30,
+        "@questioncase:@W": -50,
+        "@questiondown:@W": -60,
+        "@K:@O": -30,
+        "@V:@n": -41,
+        "@v:@a": -20,
+        "@zero:@seven": -30,
+        "@questioncase:@T": -90,
+        "@f:@g": -20,
+        "@V:@dash": -30,
+        "@U:@u": -9,
+        "@Y:@a": -80,
+        "@C:@v": -10,
+        "@F:@t": -20,
+        "@A:@zero.subs": 0,
+        "@L:@W": -50,
+        "@comma:@zero": -20,
+        "@seven:@four": -80,
+        "@questiondown:@U": -50,
+        "@dash:@one": -30,
+        "@P:@g": -60,
+        "@V:@v": -45,
+        "@T:@four": -60,
+        "@L:@v": -44,
+        "@x:@o": -10,
+        "@R:@v": 0,
+        "@Y:@s": -50,
+        "@n:@l": 10,
+        "@questiondown:@o": -60,
+        "@Z:@u": -20,
+        "@O:@parenright": -30,
+        "@n:@V": -70,
+        "@A:@T": -70,
+        "@A:@V": -65,
+        "@o:@parenright": -30,
+        "@F:@comma": -83,
+        "@T:@n": -78,
+        "@comma:@J": -20,
+        "@r:@g": -30,
+        "@F:@o": -17,
+        "@Y:@o": -90,
+        "@R:@V": 0,
+        "@u:@T": -70,
+        "@P:@a": -32,
+        "@dash:@X": -30,
+        "@parenleft:@a": -20,
+        "@T:@A": -70,
+        "@r:@o": -20,
+        "@s:@T": -80,
+        "@W:@g": -60,
+        "@P:@questioncase": -40,
+        "@zero:@four": 0,
+        "@n:@parenright": -20,
+        "@R:@o": -20,
+        "@P:@s": -20,
+        "@K:@dash": -40,
+        "@ninegeom:@sixgeom": -20,
+        "@quote:@comma": -74,
+        "@S:@parenright": -30,
+        "@T:@g": -100,
+        "@space:@T": -20,
+        "@P:@zero.subs": -100,
+        "@comma:@Y": -100,
+        "@dash:@V": -30,
+        "@H:@u": -4,
+        "@L:@question": -50,
+        "@o:@t": -20,
+        "@zero:@comma": -40,
+        "@T:@a": -112,
+        "@P:@space": -30,
+        "@L:@zero.sups": -130,
+        "@o:@g": -10,
+        "@r:@a": -20,
+        "@zero.numr:@fraction": -30,
+        "@fraction:@zero.subs": -50,
+        "@two:@sixgeom": -30,
+        "@seven:@sixgeom": -60,
+        "@S:@Y": -20,
+        "@V:@o": -70,
+        "@Y:@n": -60,
+        "@comma:@seven": -40,
+        "@X:@dash": -30,
+        "@O:@Z": -21,
+        "@Y:@comma": -100,
+        "@r:@comma": -30,
+        "@P:@o": -36,
+        "@V:@A": 0,
+        "@A:@quote": -60,
+        "@A:@v": -30,
+        "@O:@X": -13,
+        "@X:@o": 0,
+        "@O:@comma": -70,
+        "@R:@T": -20,
+        "@U:@Germandbls": -5,
+        "@n:@v": -20,
+        "@s:@a": 0,
+        "@O:@T": -34,
+        "@v:@space": -30,
+        "@space:@v": -30,
+        "@V:@J": -80,
+        "@quote:@A": -63,
+        "@Y:@S": -20,
+        "@L:@U": -20,
+        "@W:@o": -20,
+        "@o:@comma": -10,
+        "@two:@four": -40,
+        "@ninegeom:@seven": -30,
+        "@z:@dash": 0,
+        "@v:@comma": -70,
+        "@n:@question": -20,
+        "@f:@a": -26,
+        "@o:@question": -30,
+        "@v:@o": -20,
+        "@seven:@comma": -100,
+        "@dash:@Y": -50,
+        "@T:@space": -30,
+        "@S:@comma": -20,
+        "@T:@u": -98,
+        "@V:@zero.subs": -80,
+        "@L:@u": -20,
+        "@R:@U": -7,
+        "@V:@g": -70,
+        "@o:@Y": -90,
+        "@W:@comma": -60,
+        "@Z:@o": -16,
+        "@zero:@A": 0,
+        "@Y:@zero.subs": -80,
+        "@comma:@four": -10,
+        "@s:@t": -20,
+        "@V:@S": -30,
+        "@T:@J": -80,
+        "@U:@g": -10,
+        "@k:@dash": 0,
+        "@H:@a": -10,
+        "@P:@n": -21,
+        "@Z:@dash": -40,
+        "@comma:@T": -80,
+        "@seven:@zero": -30,
+        "@v:@g": -40,
+        "@o:@zero.sups": -50,
+        "@x:@dash": 0,
+        "@V:@u": -40,
+        "@Z:@O": -20,
+        "@C:@parenright": -30,
+        "@dash:@x": 0,
+        "@zero.sups:@J": -130,
+        "@dash:@n": 0,
+        "@space:@V": -30,
+        "@t:@a": -20,
+        "@o:@v": -20,
+        "@seven:@A": -70,
+        "@F:@A": -60,
+        "@g:@o": -10,
+        "@o:@quote": -20,
+        "@Y:@g": -70,
+        "@seven:@two": -30,
+        "@S:@T": -40,
+        "@T:@O": -30,
+        "@Y:@u": -76,
+        "@v:@parenright": -30,
+        "@questiondown:@v": -50,
+        "@s:@g": -10,
+        "@zero.subs:@v": -50,
+        "@two:@seven": -40,
+        "@comma:@V": -80,
+        "@sixgeom:@seven": -70,
+        "@U:@n": -9,
+        "@L:@quote": -120,
+        "@T:@comma": -80,
+        "@zero:@two": -30,
+        "@Y:@A": -60,
+        "@zero.subs:@Y": -90,
+        "@V:@four": -50,
+        "@f:@question": 20,
+        "@comma:@U": -20,
+        "@F:@v": -20,
+        "@V:@V": 7,
+        "@O:@V": -15,
+        "@P:@j": -20,
+        "@F:@s": -30,
+        "@U:@o": 0,
+        "@V:@O": -15,
+        "@H:@g": 0,
+        "@B:@Y": -20,
+        "@L:@seven": -30,
+        "@X:@v": -20,
+        "@Z:@v": -20,
+        "@P:@questiondown": -70,
+        "@L:@dash": -50,
+        "@four:@ninegeom": -20,
+        "@fraction:@zero.dnom": -30,
+        "@comma:@W": -60,
+        "@n:@g": -10,
+        "@questiondown:@s": -30,
+        "@L:@Y": -64,
+        "@P:@u": -20,
+        "@sixgeom:@two": -40,
+        "@zero.subs:@T": -60,
+        "@H:@A": 0,
+        "@k:@a": -10,
+        "@V:@s": -30,
+        "@U:@comma": -20,
+        "@V:@questioncase": -30,
+        "@ninegeom:@four": -30,
+        "@o:@W": -20,
+        "@A:@W": -35,
+        "@W:@J": -70,
+        "@f:@o": -22,
+        "@A:@O": -30,
+        "@zero:@one": 0,
+        "@C:@comma": -20,
+        "@comma:@quote": -75,
+        "@L:@t": -40,
+        "@seven:@dash": -50,
+        "@dash:@l": -4,
+        "@F:@u": -20,
+        "@C:@O": -5,
+        "@H:@Y": 0,
+        "@L:@T": -73,
+        "@K:@v": -40,
+        "@O:@W": -10,
+        "@S:@W": -10,
+        "@Y:@questioncase": -30,
+        "@K:@S": -20,
+        "@questioncase:@Y": -70,
+        "@S:@t": -20,
+        "@dash:@Z": -30,
+        "@dash:@T": -60,
+        "@questiondown:@t": -50,
+        "@H:@v": -3,
+        "@r:@space": -30,
+        "@space:@Y": -30,
+        "@comma:@one": -60,
+        "@L:@V": -76,
+        "@P:@A": -70,
+        "@V:@space": -30,
+        "@W:@O": -10,
+        "@X:@O": -10,
+        "@Y:@v": -30,
+        "@n:@t": -35,
+        "@t:@u": -20,
+        "@question:@J": -60,
+        "@zero.sups:@A": -80,
+        "@n:@T": -81,
+        "@A:@U": -20,
+        "@o:@T": -93,
+        "@A:@zero.sups": -80,
+        "@S:@V": -20,
+        "@W:@questiondown": -50,
+        "@questiondown:@V": -90,
+        "@Y:@questiondown": -70,
+        "@U:@A": -20,
+        "@V:@comma": -80,
+        "@n:@Y": -50,
+        "@T:@dash": -60,
+        "@L:@o": -20,
+        "@P:@comma": -97,
+        "@O:@Y": -19,
+        "@L:@O": -31,
+        "@dash:@J": -34,
+        "@questiondown:@Y": -100,
+        "@l:@g": -10,
+        "@zero:@zero": -20,
+        "@K:@o": -22,
+        "@K:@u": -30,
+        "@S:@v": -10,
+        "@H:@comma": 0,
+        "@R:@O": 0,
+        "@Y:@dash": -50,
+        "@V:@a": -65,
+        "@A:@question": -40,
+        "@A:@Y": -60,
+        "@comma:@S": -20,
+        "@parenleft:@o": -30,
+        "@quote:@a": -40,
+        "@F:@a": -20,
+        "@dash:@z": 0,
+        "@t:@o": -20,
+        "@v:@zero.subs": -50,
+        "@zero.subs:@V": -80,
+        "@zero.subs:@W": -30,
+        "@zero.sups:@a": -40,
+        "@W:@A": -35,
+        "@W:@S": -20,
+        "@parenleft:@n": -20,
+        "@comma:@O": -70,
+        "@H:@o": 0,
+        "@A:@J": -20,
+        "@R:@Y": 0,
+        "@zero.subs:@A": 0,
+        "@zero.subs:@fraction": -50,
+        "@Y:@four": -40,
+        "@O:@A": -30,
+        "@T:@s": -80,
+        "@four:@seven": -20,
+        "@questiondown:@S": -60,
+        "@dash:@seven": -50,
+        "@f:@f": 22,
+        "@sixgeom:@ninegeom": -40,
+        "@questioncase:@V": -80,
+        "@U:@a": -10,
+        "@T:@questioncase": -60,
+        "@P:@l": -20,
+        "@f:@comma": -56,
+        "@W:@zero.subs": -40,
+        "@s:@s": -20,
+        "@O:@a": -4,
+        "@two:@zero": -20,
+        "@questiondown:@u": -30,
+        "@F:@O": -10,
+        "@zero.sups:@o": -50,
+        "@comma:@v": -70,
+        "@quote:@s": -30,
+        "@seven:@zero.subs": -60,
+        "@P:@J": -130,
+        "@F:@g": -20,
+        "@quote:@J": -120,
+        "@parenleft:@v": -30
+      },
+      "format_specific": {
+        "com.schriftgestalt.Glyphs.customParameters.Master Icon Glyph Name": "seen-ar.init",
+        "com.schriftgestalt.Glyphs.customParameters.Filter": "reverseContourDirection;include:zero.blackCircled, one.blackCircled, two.blackCircled, three.blackCircled, four.blackCircled, five.blackCircled, six.blackCircled, seven.blackCircled, eight.blackCircled, nine.blackCircled, mediumBlackCircle",
+        "com.schriftgestalt.Glyphs.stemValues": [],
+        "com.schriftgestalt.Glyphs.numberValues": [
+          {
+            "pos": 720.0
+          },
+          {
+            "over": 16.0,
+            "pos": 700.0
+          },
+          {
+            "over": 16.0,
+            "pos": 508.0
+          },
+          {
+            "over": -16.0
+          },
+          {
+            "over": -16.0,
+            "pos": -200.0
+          },
+          {}
+        ],
+        "com.schriftgestalt.Glyphs.iconName": "Bold",
+        "com.schriftgestalt.Glyphs.userData": {
+          "GSCornerRadius": 120,
+          "GSExtrudeAngle": 30,
+          "GSExtrudeOffset": 15,
+          "GSOffsetHorizontal": 67.5,
+          "GSOffsetKeepCompatible": 1,
+          "GSOffsetMakeStroke": 1,
+          "GSOffsetPosition": 0.75,
+          "GSOffsetVertical": 59.5
+        },
+        "com.schriftgestalt.Glyphs.visible": false
+      }
+    }
+  ],
+  "glyphs": [
+    {
+      "name": "a",
+      "category": "Unknown",
+      "codepoints": [
+        97
+      ],
+      "layers": [
+        {
+          "width": 533.0,
+          "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+          "master": {
+            "DefaultForMaster": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "322 -8 o 403 56 o 427 134 c 418 144 l 418 0 l 448 0 l 448 283 ls 448 422 o 378 500 o 259 500 cs 169 500 o 101 453 o 70 371 c 89 364 l 100 364 l 128 432 o 182 472 o 258 472 cs 362 472 o 418 402 o 418 288 cs 418 209 ls 418 106 o 327 20 o 228 20 cs 152 20 o 90 66 o 90 138 cs 90 193 o 129 240 o 224 247 cs 429 262 l 429 291 l 214 275 ls 108 267 o 60 206 o 60 136 cs 60 56 o 129 -8 o 227 -8 cs",
+                "closed": true
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 259.0,
+              "y": 0.0,
+              "name": "bottom",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 448.0,
+              "y": 0.0,
+              "name": "ogonek",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 265.0,
+              "y": 492.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        },
+        {
+          "width": 558.0,
+          "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3",
+          "master": {
+            "DefaultForMaster": "090CB6A0-BE7C-4D17-A551-206C7456A8A3"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "325 -16 o 410 60 o 435 148 c 386 148 l 386 0 l 503 0 l 503 287 ls 503 437 o 412 524 o 266 524 cs 144 524 o 61 455 o 41 364 c 155 340 l 166 340 l 173 375 o 208 409 o 266 409 cs 327 409 o 372 367 o 372 310 cs 372 227 ls 372 163 o 315 102 o 246 102 cs 203 102 o 172 121 o 172 151 cs 172 180 o 192 200 o 250 205 cs 430 220 l 430 328 l 233 311 ls 103 300 o 35 240 o 35 142 cs 35 49 o 110 -16 o 214 -16 cs",
+                "closed": true
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 274.0,
+              "y": 0.0,
+              "name": "bottom",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 503.0,
+              "y": 0.0,
+              "name": "ogonek",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 274.0,
+              "y": 508.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        },
+        {
+          "width": 541.0,
+          "name": "1 Aug 23, 16:04",
+          "id": "D42253C8-C2D4-4376-9630-735954ED741C",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "481 428 o 394 513 o 263 513 cs 151 513 o 66 441 o 60 341 c 141 341 l 148 397 o 198 438 o 262 438 cs 342 438 o 392 394 o 400 315 cs 401 311 o 401 305 o 401 281 cs 401 216 ls 401 137 o 325 63 o 242 63 cs 177 63 o 130 97 o 130 145 cs 130 193 o 166 219 o 234 219 cs 419 219 l 419 289 l 219 289 ls 118 289 o 50 238 o 50 145 cs 50 50 o 119 -12 o 224 -12 cs 319 -12 o 397 41 o 424 125 c 401 145 l 401 0 l 481 0 l 481 281 ls",
+                "closed": true
+              }
+            }
+          ]
+        },
+        {
+          "width": 519.0,
+          "name": "2 Aug 23, 18:26",
+          "id": "E49259B7-98F6-4CEE-81A8-62722EA588E8",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "310 -12 o 392 42 o 418 126 c 394 145 l 394 0 l 469 0 l 469 281 ls 469 433 o 388 513 o 260 513 cs 155 513 o 77 459 o 56 365 c 138 349 l 150 408 o 195 443 o 259 443 cs 326 443 o 391 396 o 391 309 cs 391 230 ls 391 134 o 310 58 o 226 58 cs 167 58 o 120 94 o 120 145 cs 120 196 o 155 228 o 232 228 cs 409 228 l 409 294 l 217 294 ls 107 294 o 40 235 o 40 145 cs 40 50 o 113 -12 o 218 -12 cs",
+                "closed": true
+              }
+            }
+          ]
+        },
+        {
+          "width": 519.0,
+          "name": "2 Aug 23, 18:29",
+          "id": "B7FED326-67A2-48F0-A1E5-A04E3C460255",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "310 -12 o 392 42 o 418 126 c 394 145 l 394 0 l 469 0 l 469 281 ls 469 433 o 388 513 o 260 513 cs 155 513 o 77 459 o 56 365 c 138 349 l 150 408 o 195 443 o 259 443 cs 326 443 o 391 396 o 391 309 cs 391 230 ls 391 134 o 310 58 o 226 58 cs 167 58 o 120 94 o 120 145 cs 120 196 o 155 222 o 232 228 cs 409 242 l 409 308 l 217 294 ls 107 286 o 40 235 o 40 145 cs 40 50 o 113 -12 o 218 -12 cs",
+                "closed": true
+              }
+            }
+          ]
+        },
+        {
+          "width": 519.0,
+          "name": "3 Aug 23, 13:44",
+          "id": "3F6C0B1F-ECCB-4A39-A78C-DCED287BC76D",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "135 352 l 153 412 o 195 443 o 259 443 cs 335 443 o 391 387 o 391 309 cs 391 230 ls 391 138 o 314 58 o 226 58 cs 165 58 o 120 95 o 120 145 cs 120 194 o 155 222 o 234 229 cs 409 244 l 409 310 l 217 294 ls 103 285 o 40 229 o 40 145 cs 40 51 o 112 -12 o 218 -12 cs 312 -12 o 393 44 o 418 126 c 394 145 l 394 97 o 394 39 o 402 0 c 469 0 l 469 281 ls 469 428 o 392 513 o 260 513 cs 159 513 o 89 465 o 58 376 c 124 352 l",
+                "closed": true
+              }
+            },
+            {
+              "Path": {
+                "nodes": "469 0 l 484 14 l 484 14 o 469 138 o 469 247 cs 469 268 l 466 276 l 394 267 l 394 101 l",
+                "closed": true
+              }
+            }
+          ]
+        },
+        {
+          "width": 519.0,
+          "name": "3 Aug 23, 15:36",
+          "id": "D12F0501-09D4-47B1-9251-83F36F70B1FF",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "135 352 l 153 412 o 195 443 o 259 443 cs 337 443 o 394 387 o 394 309 cs 394 225 ls 394 131 o 321 58 o 226 58 cs 165 58 o 120 95 o 120 145 cs 120 194 o 155 223 o 234 229 cs 345 238 ls 366 240 o 388 242 o 409 252 c 409 310 l 217 294 ls 103 285 o 40 229 o 40 145 cs 40 51 o 112 -12 o 218 -12 cs 312 -12 o 393 44 o 418 126 c 396 145 l 396 0 l 469 0 l 469 281 ls 469 428 o 392 513 o 260 513 cs 159 513 o 89 465 o 58 376 c 124 352 l",
+                "closed": true
+              }
+            },
+            {
+              "Path": {
+                "nodes": "467 611 l 474 621 l 473 641 o 471 670 o 471 695 cs 471 864 o 406 992 o 282 992 cs 185 992 o 103 913 o 103 804 cs 103 715 o 157 630 o 308 630 c 308 686 l 221 686 o 178 727 o 178 797 cs 178 871 o 225 917 o 280 917 cs 352 917 o 395 836 o 396 695 cs 396 690 o 396 684 o 396 679 c 416 679 l 416 679 o 360 686 o 310 686 cs 48 686 l 48 611 l",
+                "closed": true
+              }
+            }
+          ]
+        },
+        {
+          "width": 542.0,
+          "name": "Regular",
+          "id": "14EEE41F-D714-4243-A717-73445EE7DABA",
+          "master": {
+            "DefaultForMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "323 -12 o 405 45 o 430 126 c 404 145 l 404 0 l 477 0 l 477 281 ls 477 429 o 403 513 o 268 513 cs 168 513 o 93 465 o 61 376 c 127 352 l 138 352 l 157 409 o 204 440 o 267 440 cs 349 440 o 402 383 o 402 303 cs 402 222 ls 402 131 o 327 61 o 233 61 cs 170 61 o 127 96 o 127 144 cs 127 193 o 164 221 o 242 227 cs 417 240 l 417 310 l 225 296 ls 115 288 o 50 231 o 50 144 cs 50 52 o 125 -12 o 228 -12 cs",
+                "closed": true
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 269.0,
+              "y": 0.0,
+              "name": "bottom",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 477.0,
+              "y": 0.0,
+              "name": "ogonek",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 278.0,
+              "y": 500.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        },
+        {
+          "width": 519.0,
+          "name": "9 Aug 23, 02:44",
+          "id": "9C9219BD-64B0-4E55-BF13-06BB6CF41F60",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "124 352 l 141 409 o 185 443 o 257 443 cs 338 443 o 394 384 o 394 303 cs 394 222 ls 394 130 o 321 58 o 226 58 cs 165 58 o 120 94 o 120 143 cs 120 192 o 155 220 o 234 227 cs 409 242 l 409 310 l 217 294 ls 103 285 o 40 228 o 40 143 cs 40 50 o 112 -12 o 218 -12 cs 312 -12 o 393 44 o 418 126 c 396 145 l 396 0 l 469 0 l 469 281 ls 469 428 o 393 513 o 258 513 cs 149 513 o 77 462 o 47 376 c 113 352 l",
+                "closed": true
+              }
+            }
+          ]
+        },
+        {
+          "width": 538.0,
+          "name": "9 Aug 23, 03:15",
+          "id": "F0AB1B6D-2BDA-4020-B1FD-2C29C1276677",
+          "master": {
+            "AssociatedWithMaster": "090CB6A0-BE7C-4D17-A551-206C7456A8A3"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "158 340 l 165 377 o 200 414 o 261 414 cs 323 414 o 369 370 o 369 310 cs 369 227 ls 369 159 o 311 94 o 241 94 cs 198 94 o 167 116 o 167 151 cs 167 182 o 192 204 o 251 209 cs 425 224 l 425 325 l 234 308 ls 103 296 o 30 238 o 30 142 cs 30 49 o 105 -16 o 209 -16 cs 320 -16 o 405 60 o 430 148 c 381 148 l 381 0 l 498 0 l 498 287 ls 498 437 o 407 524 o 261 524 cs 138 524 o 56 455 o 36 364 c 147 340 l",
+                "closed": true
+              }
+            }
+          ]
+        },
+        {
+          "width": 498.0,
+          "name": "9 Aug 23, 04:35",
+          "id": "EAAEC28E-714C-4657-90B6-3434B531468C",
+          "master": {
+            "AssociatedWithMaster": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "90 364 l 118 432 o 172 472 o 248 472 cs 352 472 o 408 402 o 408 288 cs 408 209 ls 408 104 o 317 16 o 218 16 cs 142 16 o 80 63 o 80 137 cs 80 193 o 118 240 o 202 246 cs 419 262 l 419 291 l 192 274 ls 99 267 o 50 204 o 50 135 cs 50 53 o 119 -12 o 217 -12 cs 312 -12 o 393 54 o 417 134 c 408 144 l 408 0 l 438 0 l 438 283 ls 438 422 o 368 500 o 249 500 cs 159 500 o 91 453 o 60 371 c 79 364 l",
+                "closed": true
+              }
+            }
+          ],
+          "background_layer_id": ""
+        },
+        {
+          "width": 0.0,
+          "id": "",
+          "master": {
+            "DefaultForMaster": ""
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "128 343 l 145 402 o 186 432 o 249 432 cs 325 432 o 380 374 o 380 295 cs 380 216 ls 380 127 o 309 56 o 216 56 cs 157 56 o 113 91 o 113 139 cs 113 188 o 147 216 o 224 223 cs 395 238 l 395 302 l 208 287 ls 96 278 o 35 222 o 35 139 cs 35 49 o 105 -12 o 209 -12 cs 300 -12 o 379 43 o 404 123 c 382 141 l 382 0 l 454 0 l 454 274 ls 454 417 o 378 500 o 250 500 cs 151 500 o 83 453 o 53 367 c 117 343 l",
+                "closed": true
+              }
+            }
+          ],
+          "is_background": true
+        },
+        {
+          "width": 517.0,
+          "name": "20 Oct 23, 13:42",
+          "id": "70CC5D1E-7454-492D-ADA1-0A5695644E1D",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "124 352 l 143 409 o 189 440 o 255 440 cs 335 440 o 392 383 o 392 303 cs 392 222 ls 392 131 o 317 61 o 223 61 cs 160 61 o 117 96 o 117 144 cs 117 193 o 154 220 o 232 227 cs 407 242 l 407 312 l 215 296 ls 105 287 o 40 231 o 40 144 cs 40 52 o 115 -12 o 218 -12 cs 313 -12 o 395 45 o 420 126 c 394 145 l 394 0 l 467 0 l 467 281 ls 467 429 o 390 513 o 256 513 cs 153 513 o 79 465 o 47 376 c 113 352 l",
+                "closed": true
+              }
+            }
+          ],
+          "background_layer_id": ""
+        },
+        {
+          "width": 0.0,
+          "id": "",
+          "master": {
+            "DefaultForMaster": ""
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "128 343 l 145 402 o 186 432 o 249 432 cs 325 432 o 380 374 o 380 295 cs 380 216 ls 380 127 o 309 56 o 216 56 cs 157 56 o 113 91 o 113 139 cs 113 188 o 147 216 o 224 223 cs 395 238 l 395 302 l 208 287 ls 96 278 o 35 222 o 35 139 cs 35 49 o 105 -12 o 209 -12 cs 300 -12 o 379 43 o 404 123 c 382 141 l 382 0 l 454 0 l 454 274 ls 454 417 o 378 500 o 250 500 cs 151 500 o 83 453 o 53 367 c 117 343 l",
+                "closed": true
+              }
+            }
+          ],
+          "is_background": true
+        },
+        {
+          "width": 517.0,
+          "name": "15 Dec 23, 12:37",
+          "id": "5DF2880C-C719-4328-B7BB-0938FB077C49",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "128 352 l 147 409 o 193 440 o 255 440 cs 336 440 o 392 383 o 392 303 cs 392 222 ls 392 131 o 317 61 o 223 61 cs 160 61 o 117 96 o 117 144 cs 117 193 o 154 221 o 232 227 cs 407 240 l 407 310 l 215 296 ls 105 288 o 40 231 o 40 144 cs 40 52 o 115 -12 o 218 -12 cs 313 -12 o 395 45 o 420 126 c 394 145 l 394 0 l 467 0 l 467 281 ls 467 429 o 389 513 o 256 513 cs 157 513 o 83 465 o 51 376 c 117 352 l",
+                "closed": true
+              }
+            }
+          ],
+          "background_layer_id": ""
+        },
+        {
+          "width": 0.0,
+          "id": "",
+          "master": {
+            "DefaultForMaster": ""
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "128 343 l 145 402 o 186 432 o 249 432 cs 325 432 o 380 374 o 380 295 cs 380 216 ls 380 127 o 309 56 o 216 56 cs 157 56 o 113 91 o 113 139 cs 113 188 o 147 216 o 224 223 cs 395 238 l 395 302 l 208 287 ls 96 278 o 35 222 o 35 139 cs 35 49 o 105 -12 o 209 -12 cs 300 -12 o 379 43 o 404 123 c 382 141 l 382 0 l 454 0 l 454 274 ls 454 417 o 378 500 o 250 500 cs 151 500 o 83 453 o 53 367 c 117 343 l",
+                "closed": true
+              }
+            }
+          ],
+          "is_background": true
+        }
+      ],
+      "formatspecific": {
+        "case": "",
+        "color": null,
+        "kern_direction": null,
+        "kern_bottom": null,
+        "kern_left": "a",
+        "kern_right": "n",
+        "kern_top": null,
+        "last_change": "2025-11-29 11:32:25 +0000",
+        "locked": false,
+        "metric_bottom": null,
+        "metric_left": null,
+        "metric_right": null,
+        "metric_top": null,
+        "metric_vert_width": null,
+        "metric_width": null,
+        "note": "",
+        "script": null,
+        "subcategory": null,
+        "tags": []
+      }
+    },
+    {
+      "name": "adieresis",
+      "category": "Unknown",
+      "codepoints": [
+        228
+      ],
+      "layers": [
+        {
+          "width": 533.0,
+          "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+          "master": {
+            "DefaultForMaster": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1"
+          },
+          "shapes": [
+            {
+              "Component": {
+                "reference": "a"
+              }
+            },
+            {
+              "Component": {
+                "reference": "dieresiscomb",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  118.0,
+                  0.0
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "width": 542.0,
+          "id": "14EEE41F-D714-4243-A717-73445EE7DABA",
+          "master": {
+            "DefaultForMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Component": {
+                "reference": "a"
+              }
+            },
+            {
+              "Component": {
+                "reference": "dieresiscomb",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  102.0,
+                  0.0
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "width": 558.0,
+          "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3",
+          "master": {
+            "DefaultForMaster": "090CB6A0-BE7C-4D17-A551-206C7456A8A3"
+          },
+          "shapes": [
+            {
+              "Component": {
+                "reference": "a"
+              }
+            },
+            {
+              "Component": {
+                "reference": "dieresiscomb",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.6872000098228455,
+                  56.0,
+                  159.0
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "formatspecific": {
+        "case": "",
+        "color": null,
+        "kern_direction": null,
+        "kern_bottom": null,
+        "kern_left": "a",
+        "kern_right": "n",
+        "kern_top": null,
+        "last_change": "2025-11-29 11:37:32 +0000",
+        "locked": false,
+        "metric_bottom": null,
+        "metric_left": null,
+        "metric_right": null,
+        "metric_top": null,
+        "metric_vert_width": null,
+        "metric_width": null,
+        "note": "",
+        "script": null,
+        "subcategory": null,
+        "tags": []
+      }
+    },
+    {
+      "name": "dieresiscomb",
+      "production_name": "uni0308",
+      "category": "Mark",
+      "codepoints": [
+        776
+      ],
+      "layers": [
+        {
+          "width": 294.0,
+          "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+          "master": {
+            "DefaultForMaster": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1"
+          },
+          "shapes": [
+            {
+              "Component": {
+                "reference": "dotaccentcomb",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  172.0,
+                  0.0
+                ]
+              }
+            },
+            {
+              "Component": {
+                "reference": "dotaccentcomb"
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 147.0,
+              "y": 492.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 147.0,
+              "y": 663.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        },
+        {
+          "width": 352.0,
+          "id": "14EEE41F-D714-4243-A717-73445EE7DABA",
+          "master": {
+            "DefaultForMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Component": {
+                "reference": "dotaccentcomb",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  182.0,
+                  0.0
+                ]
+              }
+            },
+            {
+              "Component": {
+                "reference": "dotaccentcomb"
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 176.0,
+              "y": 500.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 176.0,
+              "y": 682.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        },
+        {
+          "width": 436.0,
+          "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3",
+          "master": {
+            "DefaultForMaster": "090CB6A0-BE7C-4D17-A551-206C7456A8A3"
+          },
+          "shapes": [
+            {
+              "Component": {
+                "reference": "dotaccentcomb",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  221.0,
+                  0.0
+                ]
+              }
+            },
+            {
+              "Component": {
+                "reference": "dotaccentcomb",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  8.0,
+                  0.0
+                ]
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 218.0,
+              "y": 508.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 218.0,
+              "y": 725.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        }
+      ],
+      "formatspecific": {
+        "case": "",
+        "color": null,
+        "kern_direction": "LTR",
+        "kern_bottom": null,
+        "kern_left": null,
+        "kern_right": null,
+        "kern_top": null,
+        "last_change": "2025-11-29 11:36:28 +0000",
+        "locked": false,
+        "metric_bottom": null,
+        "metric_left": null,
+        "metric_right": null,
+        "metric_top": null,
+        "metric_vert_width": null,
+        "metric_width": null,
+        "note": "",
+        "script": "",
+        "subcategory": "Nonspacing",
+        "tags": []
+      }
+    },
+    {
+      "name": "dotaccentcomb",
+      "production_name": "uni0307",
+      "category": "Mark",
+      "codepoints": [
+        775
+      ],
+      "layers": [
+        {
+          "width": 122.0,
+          "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+          "master": {
+            "DefaultForMaster": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1"
+          },
+          "shapes": [
+            {
+              "Component": {
+                "reference": "dot.component",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  631.0
+                ]
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 61.0,
+              "y": 492.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 61.0,
+              "y": 693.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ],
+          "background_layer_id": ""
+        },
+        {
+          "width": 0.0,
+          "id": "",
+          "master": {
+            "DefaultForMaster": ""
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "78 631 o 92 645 o 92 662 cs 92 679 o 78 693 o 61 693 cs 44 693 o 30 679 o 30 662 cs 30 645 o 44 631 o 61 631 cs",
+                "closed": true
+              }
+            }
+          ],
+          "is_background": true
+        },
+        {
+          "width": 214.0,
+          "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3",
+          "master": {
+            "DefaultForMaster": "090CB6A0-BE7C-4D17-A551-206C7456A8A3"
+          },
+          "shapes": [
+            {
+              "Component": {
+                "reference": "dot.component",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  572.0
+                ]
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 104.0,
+              "y": 508.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 104.0,
+              "y": 735.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ],
+          "background_layer_id": ""
+        },
+        {
+          "width": 0.0,
+          "id": "",
+          "master": {
+            "DefaultForMaster": ""
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "148 572 o 185 609 o 185 654 cs 185 698 o 148 735 o 104 735 cs 59 735 o 22 698 o 22 654 cs 22 609 o 59 572 o 104 572 cs",
+                "closed": true
+              }
+            }
+          ],
+          "is_background": true
+        },
+        {
+          "width": 146.0,
+          "name": "15 Dec 23, 13:23",
+          "id": "F35A3DCA-A9E5-4DE8-AE00-ED068CA1388D",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "anchors": [
+            {
+              "x": 73.0,
+              "y": 500.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 73.0,
+              "y": 719.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        },
+        {
+          "width": 170.0,
+          "name": "Regular",
+          "id": "14EEE41F-D714-4243-A717-73445EE7DABA",
+          "master": {
+            "DefaultForMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Component": {
+                "reference": "dot.component",
+                "transform": [
+                  1.0,
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0,
+                  598.0
+                ]
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 85.0,
+              "y": 500.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 85.0,
+              "y": 708.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ],
+          "background_layer_id": ""
+        },
+        {
+          "width": 0.0,
+          "id": "",
+          "master": {
+            "DefaultForMaster": ""
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "116 598 o 140 622 o 140 653 cs 140 684 o 116 708 o 85 708 cs 54 708 o 30 684 o 30 653 cs 30 622 o 54 598 o 85 598 cs",
+                "closed": true
+              }
+            }
+          ],
+          "is_background": true
+        },
+        {
+          "width": 170.0,
+          "name": "25 Jan 24, 14:08",
+          "id": "37830574-7627-4002-AB8B-430C3CBAD975",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "54 683 o 30 659 o 30 628 cs 30 597 o 54 572 o 85 572 cs 116 572 o 140 597 o 140 628 cs 140 659 o 116 683 o 85 683 cs",
+                "closed": true
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 85.0,
+              "y": 500.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 85.0,
+              "y": 683.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        },
+        {
+          "width": 170.0,
+          "name": "25 Jan 24, 14:13",
+          "id": "15F32977-CB87-4EA4-84B8-279B3AACC285",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "116 609 o 140 633 o 140 664 cs 140 695 o 116 719 o 85 719 cs 54 719 o 30 695 o 30 664 cs 30 633 o 54 609 o 85 609 cs",
+                "closed": true
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 85.0,
+              "y": 500.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 85.0,
+              "y": 719.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        }
+      ],
+      "formatspecific": {
+        "case": "",
+        "color": null,
+        "kern_direction": "LTR",
+        "kern_bottom": null,
+        "kern_left": null,
+        "kern_right": null,
+        "kern_top": null,
+        "last_change": "2025-11-29 11:37:08 +0000",
+        "locked": false,
+        "metric_bottom": null,
+        "metric_left": null,
+        "metric_right": null,
+        "metric_top": null,
+        "metric_vert_width": null,
+        "metric_width": null,
+        "note": "",
+        "script": "",
+        "subcategory": "Nonspacing",
+        "tags": []
+      }
+    },
+    {
+      "name": "dot.component",
+      "category": "Unknown",
+      "layers": [
+        {
+          "width": 122.0,
+          "id": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+          "master": {
+            "DefaultForMaster": "3114FB65-9464-41A5-B67E-A8F9F43C0EF1"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "78 0 o 92 14 o 92 31 cs 92 48 o 78 62 o 61 62 cs 44 62 o 30 48 o 30 31 cs 30 14 o 44 0 o 61 0 cs",
+                "closed": true
+              }
+            }
+          ]
+        },
+        {
+          "width": 214.0,
+          "id": "090CB6A0-BE7C-4D17-A551-206C7456A8A3",
+          "master": {
+            "DefaultForMaster": "090CB6A0-BE7C-4D17-A551-206C7456A8A3"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "148 0 o 185 37 o 185 82 cs 185 126 o 148 163 o 104 163 cs 59 163 o 22 126 o 22 82 cs 22 37 o 59 0 o 104 0 cs",
+                "closed": true
+              }
+            }
+          ]
+        },
+        {
+          "width": 146.0,
+          "name": "15 Dec 23, 13:23",
+          "id": "F35A3DCA-A9E5-4DE8-AE00-ED068CA1388D",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "anchors": [
+            {
+              "x": 73.0,
+              "y": 500.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 73.0,
+              "y": 719.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        },
+        {
+          "width": 170.0,
+          "name": "Regular",
+          "id": "14EEE41F-D714-4243-A717-73445EE7DABA",
+          "master": {
+            "DefaultForMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "116 0 o 140 24 o 140 55 cs 140 86 o 116 110 o 85 110 cs 54 110 o 30 86 o 30 55 cs 30 24 o 54 0 o 85 0 cs",
+                "closed": true
+              }
+            }
+          ]
+        },
+        {
+          "width": 170.0,
+          "name": "25 Jan 24, 14:08",
+          "id": "37830574-7627-4002-AB8B-430C3CBAD975",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "54 683 o 30 659 o 30 628 cs 30 597 o 54 572 o 85 572 cs 116 572 o 140 597 o 140 628 cs 140 659 o 116 683 o 85 683 cs",
+                "closed": true
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 85.0,
+              "y": 500.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 85.0,
+              "y": 683.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        },
+        {
+          "width": 170.0,
+          "name": "25 Jan 24, 14:13",
+          "id": "15F32977-CB87-4EA4-84B8-279B3AACC285",
+          "master": {
+            "AssociatedWithMaster": "14EEE41F-D714-4243-A717-73445EE7DABA"
+          },
+          "shapes": [
+            {
+              "Path": {
+                "nodes": "116 609 o 140 633 o 140 664 cs 140 695 o 116 719 o 85 719 cs 54 719 o 30 695 o 30 664 cs 30 633 o 54 609 o 85 609 cs",
+                "closed": true
+              }
+            }
+          ],
+          "anchors": [
+            {
+              "x": 85.0,
+              "y": 500.0,
+              "name": "_top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            },
+            {
+              "x": 85.0,
+              "y": 719.0,
+              "name": "top",
+              "format_specific": {
+                "com.schriftgestalt.Glyphs.anchorOrientation": "left"
+              }
+            }
+          ]
+        }
+      ],
+      "formatspecific": {
+        "case": "",
+        "color": null,
+        "kern_direction": "LTR",
+        "kern_bottom": null,
+        "kern_left": null,
+        "kern_right": null,
+        "kern_top": null,
+        "last_change": "2025-11-29 11:33:53 +0000",
+        "locked": false,
+        "metric_bottom": null,
+        "metric_left": null,
+        "metric_right": null,
+        "metric_top": null,
+        "metric_vert_width": null,
+        "metric_width": null,
+        "note": "",
+        "script": "",
+        "subcategory": "Nonspacing",
+        "tags": []
+      }
+    }
+  ],
+  "note": "",
+  "date": "2024-03-24T00:08:27+01:00",
+  "names": {
+    "family_name": {
+      "dflt": "Nested Components"
+    }
+  },
+  "features": {
+    "classes": {},
+    "prefixes": {
+      "Languagesystems": "languagesystem DFLT dflt;\n"
+    },
+    "features": []
+  },
+  "first_kern_groups": {
+    "n": [
+      "a",
+      "adieresis"
+    ],
+    "": [
+      "dieresiscomb",
+      "dotaccentcomb",
+      "dot.component"
+    ]
+  },
+  "second_kern_groups": {
+    "a": [
+      "a",
+      "adieresis"
+    ],
+    "": [
+      "dieresiscomb",
+      "dotaccentcomb",
+      "dot.component"
+    ]
+  },
+  "format_specific": {
+    "com.schriftgestalt.Glyphs.appVersion": "3343",
+    "com.schriftgestalt.Glyphs.displayStrings": [
+      "aä̈̇/dot.component"
+    ],
+    "com.schriftgestalt.Glyphs.numberNames": [],
+    "com.schriftgestalt.Glyphs.settings": {},
+    "com.schriftgestalt.Glyphs.userData": {
+      "GSDimensionPlugin.Dimensions": {
+        "090CB6A0-BE7C-4D17-A551-206C7456A8A3": {
+          "HH": "128",
+          "HV": "135",
+          "OH": "128",
+          "OV": "135",
+          "arAlef": "135",
+          "arBar": "119",
+          "nV": "135",
+          "nd": "100",
+          "oH": "119",
+          "oV": "135",
+          "tH": "119"
+        },
+        "14EEE41F-D714-4243-A717-73445EE7DABA": {
+          "HH": "73",
+          "HV": "75",
+          "OH": "73",
+          "OV": "77",
+          "arAlef": "85",
+          "arBar": "75",
+          "nV": "75",
+          "nd": "73",
+          "oH": "73",
+          "oV": "75",
+          "tH": "73"
+        },
+        "3114FB65-9464-41A5-B67E-A8F9F43C0EF1": {
+          "HH": "28",
+          "HV": "30",
+          "OH": "28",
+          "OV": "30",
+          "nV": "30",
+          "nd": "28",
+          "oH": "28",
+          "oV": "30",
+          "tH": "28"
+        },
+        "71F4E291-54FE-4A7B-B455-BB7A4957EE6A": {
+          "arAlef": "85",
+          "arBar": "75"
+        },
+        "EE16FD54-D6E3-4223-A7AD-576F8EEE874B": {
+          "arAlef": "85",
+          "arBar": "80"
+        }
+      }
+    }
+  },
+  "source": "/Users/yanone/Code/Counterpunch/editor/webapp/examples/NestedComponents.glyphs"
+}

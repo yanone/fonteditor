@@ -1096,16 +1096,25 @@ export class OutlineEditor {
             }))
             .filter(
                 (item: { shape: Babelfont.Shape; index: number }) =>
-                    'Component' in item.shape
+                    'Component' in item.shape || 'reference' in item.shape
             );
 
         const getComponentOrigin = (item: {
             shape: Babelfont.Shape;
             index: number;
         }) => {
-            const transform =
-                ('reference' in item.shape && item.shape.transform) ||
-                identityDecomposed();
+            // Handle both nested { Component: { reference, transform } } and flat { reference, transform }
+            let transform;
+            if ('Component' in item.shape) {
+                transform =
+                    (item.shape as any).Component.transform ||
+                    identityDecomposed();
+            } else if ('reference' in item.shape) {
+                transform =
+                    (item.shape as any).transform || identityDecomposed();
+            } else {
+                transform = identityDecomposed();
+            }
             const transformArray = Array.isArray(transform)
                 ? transform
                 : DecomposedAffineTransform.toAffine(transform);
@@ -1129,11 +1138,20 @@ export class OutlineEditor {
                 index++
             ) {
                 const shape = currentLayerData.shapes[index];
-                if (
-                    'reference' in shape &&
-                    shape.layerData &&
-                    shape.layerData.shapes
-                ) {
+                // Check for both nested { Component: { reference, ... } } and flat { reference, ... }
+                const isComponent =
+                    'Component' in shape || 'reference' in shape;
+                const hasLayerData =
+                    ('Component' in shape &&
+                        (shape as any).Component.layerData) ||
+                    ('reference' in shape && (shape as any).layerData);
+                const layerData =
+                    ('Component' in shape &&
+                        (shape as any).Component.layerData) ||
+                    ('reference' in shape && (shape as any).layerData);
+                const shapesData = layerData && layerData.shapes;
+
+                if (isComponent && shapesData) {
                     if (this._isPointInComponent(shape, glyphX, glyphY)) {
                         foundComponentIndex = index;
                     }
@@ -1152,14 +1170,15 @@ export class OutlineEditor {
         glyphX: number,
         glyphY: number
     ): boolean {
-        if (!('reference' in shape)) {
+        // Handle both nested { Component: { ... } } and flat { reference, ... } structures
+        const isNested = 'Component' in shape;
+        const componentData = isNested ? (shape as any).Component : shape;
+
+        if (!('reference' in componentData)) {
             return false;
         }
 
-        const transformRaw =
-            'reference' in shape && shape.transform
-                ? shape.transform
-                : undefined;
+        const transformRaw = componentData.transform;
         const transform = !transformRaw
             ? [1, 0, 0, 1, 0, 0]
             : Array.isArray(transformRaw)
@@ -1185,8 +1204,14 @@ export class OutlineEditor {
             }> = [];
 
             for (const componentShape of shapes) {
-                if ('reference' in componentShape) {
-                    const nestedTransformRaw = componentShape.transform || [
+                // Handle both nested { Component: { reference, transform, layerData } } and flat { reference, transform, layerData }
+                const isNestedComp = 'Component' in componentShape;
+                const compData = isNestedComp
+                    ? (componentShape as any).Component
+                    : componentShape;
+
+                if ('reference' in compData) {
+                    const nestedTransformRaw = compData.transform || [
                         1, 0, 0, 1, 0, 0
                     ];
                     const nestedTransform = Array.isArray(nestedTransformRaw)
@@ -1210,7 +1235,7 @@ export class OutlineEditor {
                         parentTransform[0] * nestedTransformArray[2] +
                             parentTransform[2] * nestedTransformArray[3],
                         parentTransform[1] * nestedTransformArray[2] +
-                            parentTransform[3] * nestedTransformArray[3],
+                            parentTransform[3] * nestedTransformArray[1],
                         parentTransform[0] * nestedTransformArray[4] +
                             parentTransform[2] * nestedTransformArray[5] +
                             parentTransform[4],
@@ -1219,26 +1244,35 @@ export class OutlineEditor {
                             parentTransform[5]
                     ];
 
-                    if (
-                        componentShape.layerData &&
-                        componentShape.layerData.shapes
-                    ) {
+                    if (compData.layerData && compData.layerData.shapes) {
                         outlineShapes.push(
                             ...collectOutlineShapes(
-                                componentShape.layerData.shapes,
+                                compData.layerData.shapes,
                                 combinedTransform
                             )
                         );
                     }
-                } else if (
-                    'nodes' in componentShape &&
-                    componentShape.nodes &&
-                    (componentShape.nodes as Babelfont.Node[]).length > 0
-                ) {
-                    outlineShapes.push({
-                        nodes: componentShape.nodes as Babelfont.Node[],
-                        transform: parentTransform
-                    });
+                } else {
+                    // Handle both nested { Path: { nodes } } and flat { nodes }
+                    let nodes: Babelfont.Node[] | null = null;
+                    if (
+                        'Path' in componentShape &&
+                        (componentShape as any).Path?.nodes
+                    ) {
+                        nodes = (componentShape as any).Path.nodes;
+                    } else if (
+                        'nodes' in componentShape &&
+                        (componentShape as any).nodes
+                    ) {
+                        nodes = (componentShape as any).nodes;
+                    }
+
+                    if (nodes && Array.isArray(nodes) && nodes.length > 0) {
+                        outlineShapes.push({
+                            nodes: nodes,
+                            transform: parentTransform
+                        });
+                    }
                 }
             }
 
@@ -1246,9 +1280,13 @@ export class OutlineEditor {
         };
 
         // Collect all shapes from the component hierarchy
-        const outlineShapes = collectOutlineShapes(
-            shape.layerData!.shapes || []
-        );
+        const shapeIsNested = 'Component' in shape;
+        const shapeComponentData = shapeIsNested
+            ? (shape as any).Component
+            : shape;
+        const layerData = shapeComponentData.layerData;
+
+        const outlineShapes = collectOutlineShapes(layerData?.shapes || []);
 
         if (outlineShapes.length === 0) {
             return false;
@@ -1344,8 +1382,15 @@ export class OutlineEditor {
 
         const points = currentLayerData.shapes.flatMap(
             (shape: Babelfont.Shape, contourIndex: number) => {
-                if (!('nodes' in shape) || !shape.nodes) return [];
-                const nodes = shape.nodes as Babelfont.Node[];
+                // Handle both nested { Path: { nodes: [...] } } and flat { nodes: [...] }
+                let nodes: Babelfont.Node[] | null = null;
+                if ('Path' in shape && (shape as any).Path?.nodes) {
+                    nodes = (shape as any).Path.nodes;
+                } else if ('nodes' in shape && (shape as any).nodes) {
+                    nodes = (shape as any).nodes;
+                }
+
+                if (!nodes || !Array.isArray(nodes)) return [];
                 return nodes.map((node: Babelfont.Node, nodeIndex: number) => ({
                     node,
                     contourIndex,

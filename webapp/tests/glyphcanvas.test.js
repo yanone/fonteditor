@@ -85,7 +85,7 @@ describe('GlyphCanvas onMouseMove', () => {
         canvas.textRunEditor.shapedGlyphs = [{ ax: 1000, dx: 0, dy: 0, g: 0 }];
         canvas.outlineEditor.layerData = {
             shapes: [
-                { Component: { transform: [1, 0, 0, 1, 0, 0] } },
+                { reference: 'A', transform: [1, 0, 0, 1, 0, 0] },
                 { nodes: [{ x: 0, y: 0, type: 'l' }] }
             ],
             anchors: [{ x: 0, y: 0 }]
@@ -108,23 +108,15 @@ describe('GlyphCanvas onMouseMove', () => {
         canvas.outlineEditor.isDraggingComponent = true;
         // First move sets the initial position, delta is 0
         canvas.onMouseMove({ clientX: 10, clientY: 20 });
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform[4]
-        ).toBe(0);
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform[5]
-        ).toBe(0);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(0);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[5]).toBe(0);
 
         // Second move performs the drag
         canvas.onMouseMove({ clientX: 25, clientY: 15 });
         // deltaX = 25 - 10 = 15
         // deltaY = -15 - (-20) = 5
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform[4]
-        ).toBe(15);
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform[5]
-        ).toBe(5);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(15);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[5]).toBe(5);
     });
 
     test('handles anchor dragging correctly', () => {
@@ -163,13 +155,13 @@ describe('GlyphCanvas onMouseMove', () => {
         canvas.isDraggingCanvas = false;
 
         const initialTransform = [
-            ...canvas.outlineEditor.layerData.shapes[0].Component.transform
+            ...canvas.outlineEditor.layerData.shapes[0].transform
         ];
         canvas.onMouseMove({ clientX: 10, clientY: 20 });
 
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform
-        ).toEqual(initialTransform);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform).toEqual(
+            initialTransform
+        );
     });
 });
 
@@ -239,8 +231,18 @@ describe('GlyphCanvas hit testing', () => {
         canvas.textRunEditor.shapedGlyphs = [{ ax: 1000, dx: 0, dy: 0, g: 0 }];
         canvas.outlineEditor.layerData = {
             shapes: [
-                { Component: { transform: [1, 0, 0, 1, 100, 100] } },
-                { nodes: [{ x: 200, y: 200, type: 'l' }] }
+                {
+                    Component: {
+                        reference: 'A',
+                        transform: [1, 0, 0, 1, 100, 100]
+                    }
+                },
+                {
+                    Path: {
+                        nodes: [{ x: 200, y: 200, type: 'l' }],
+                        closed: true
+                    }
+                }
             ],
             anchors: [{ x: 300, y: 300 }]
         };
@@ -493,8 +495,8 @@ describe('GlyphCanvas component movement', () => {
         canvas.outlineEditor.active = true;
         canvas.outlineEditor.layerData = {
             shapes: [
-                { Component: { transform: [1, 0, 0, 1, 100, 100] } },
-                { Component: { transform: [1, 0, 0, 1, 200, 200] } }
+                { reference: 'A', transform: [1, 0, 0, 1, 100, 100] },
+                { reference: 'A', transform: [1, 0, 0, 1, 200, 200] }
             ],
             anchors: []
         };
@@ -508,40 +510,24 @@ describe('GlyphCanvas component movement', () => {
 
     test('should move selected components by delta', () => {
         canvas.outlineEditor.moveSelectedComponents(10, 20);
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform[4]
-        ).toBe(110);
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform[5]
-        ).toBe(120);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(110);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[5]).toBe(120);
     });
 
     test('should move multiple selected components', () => {
         canvas.outlineEditor.selectedComponents = [0, 1];
         canvas.outlineEditor.moveSelectedComponents(10, 20);
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform[4]
-        ).toBe(110);
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform[5]
-        ).toBe(120);
-        expect(
-            canvas.outlineEditor.layerData.shapes[1].Component.transform[4]
-        ).toBe(210);
-        expect(
-            canvas.outlineEditor.layerData.shapes[1].Component.transform[5]
-        ).toBe(220);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(110);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[5]).toBe(120);
+        expect(canvas.outlineEditor.layerData.shapes[1].transform[4]).toBe(210);
+        expect(canvas.outlineEditor.layerData.shapes[1].transform[5]).toBe(220);
     });
 
     test('should not move components when none are selected', () => {
         canvas.outlineEditor.selectedComponents = [];
         canvas.outlineEditor.moveSelectedComponents(10, 20);
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform[4]
-        ).toBe(100);
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].Component.transform[5]
-        ).toBe(100);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(100);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[5]).toBe(100);
     });
 });
 
@@ -558,9 +544,9 @@ describe('GlyphCanvas point type toggling', () => {
             shapes: [
                 {
                     nodes: [
-                        { x: 100, y: 100, nodetype: 'c' },
-                        { x: 200, y: 200, nodetype: 'c' },
-                        { x: 300, y: 300, nodetype: 'c' }
+                        { x: 100, y: 100, nodetype: 'Curve' },
+                        { x: 200, y: 200, nodetype: 'Curve' },
+                        { x: 300, y: 300, nodetype: 'Curve' }
                     ]
                 }
             ],
@@ -578,19 +564,19 @@ describe('GlyphCanvas point type toggling', () => {
             contourIndex: 0,
             nodeIndex: 0
         });
-        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].nodetype).toBe(
-            'cs'
+        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].smooth).toBe(
+            true
         );
     });
 
     test('should toggle smooth curve point back to curve', () => {
-        canvas.outlineEditor.layerData.shapes[0].nodes[0].nodetype = 'cs';
+        canvas.outlineEditor.layerData.shapes[0].nodes[0].smooth = true;
         canvas.outlineEditor.togglePointSmooth({
             contourIndex: 0,
             nodeIndex: 0
         });
-        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].nodetype).toBe(
-            'c'
+        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].smooth).toBe(
+            false
         );
     });
 });

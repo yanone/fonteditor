@@ -2940,15 +2940,19 @@ export class GlyphCanvasRenderer {
         this.ctx.restore();
 
         // Get current master ID for layer lookup
-        // Use the first master if available, or get it from the selected layer
         const fontModel = window.currentFontModel;
         if (!fontModel || !fontModel.masters || fontModel.masters.length === 0)
             return;
 
-        // Try to get master from selectedLayerId, otherwise use first master
+        // In text mode, use selectedMasterId from textRunEditor
+        // In edit mode, get master from selected layer
         let masterId = fontModel.masters[0].id;
-        if (this.glyphCanvas.outlineEditor.selectedLayerId) {
-            // Find the master from the selected layer
+
+        if (this.textRunEditor.selectedMasterId) {
+            // Text mode: use the master ID set by autoSelectMatchingMaster
+            masterId = this.textRunEditor.selectedMasterId;
+        } else if (this.glyphCanvas.outlineEditor.selectedLayerId) {
+            // Edit mode: find the master from the selected layer
             const selectedLayer = fontModel.glyphs
                 .flatMap((g: any) => g.layers || [])
                 .find(
@@ -3030,38 +3034,47 @@ export class GlyphCanvasRenderer {
                 }
 
                 // Find the layer for the selected master
-                // Only proceed if a master is selected in text mode
-                const selectedMasterId = this.textRunEditor.selectedMasterId;
-                if (!selectedMasterId) {
+                // Use the masterId determined at the start of this function
+                if (!masterId) {
                     xPosition += xAdvance;
                     return;
                 }
 
                 console.log(
-                    `[TextMeasure] ${glyphName}: Looking for master ${selectedMasterId}, available masters:`,
+                    `[TextMeasure] ${glyphName}: Looking for master ${masterId}, available layers:`,
                     glyphWrapper.layers.map((l: any) => ({
-                        master: (l.master as any)?.DefaultForMaster || 'none',
+                        id: l.id,
+                        masterType: l.master?.type,
+                        masterId: l.master?.master,
                         hasShapes: !!l.shapes,
                         shapeCount: l.shapes?.length || 0
                     }))
                 );
 
                 const layer = glyphWrapper.layers.find(
-                    (l: any) =>
-                        l.master &&
-                        (l.master as any).DefaultForMaster === selectedMasterId
+                    (l: any) => l.master && l.master.master === masterId
                 );
 
-                if (!layer) {
+                // Fallback: if no matching layer found, use the first layer
+                const actualLayer = layer || glyphWrapper.layers[0];
+
+                if (!actualLayer) {
                     console.log(
-                        `[TextMeasure] ${glyphName}: No matching layer found!`
+                        `[TextMeasure] ${glyphName}: No layer available!`
                     );
                     xPosition += xAdvance;
                     return;
                 }
 
                 console.log(
-                    `[TextMeasure] ${glyphName}: Found layer with ${(layer as any).shapes?.length || 0} shapes`
+                    `[TextMeasure] ${glyphName}: Found layer with ${(actualLayer as any).shapes?.length || 0} shapes`
+                );
+
+                // Get the actual width from this layer (not from shaped glyph which may be from different master)
+                const actualWidth = (actualLayer as any).width || xAdvance;
+
+                console.log(
+                    `[TextMeasure] ${glyphName}: shaped xAdvance=${xAdvance}, actual layer width=${actualWidth}`
                 );
 
                 // Calculate measurement Y in glyph-local space
@@ -3071,13 +3084,13 @@ export class GlyphCanvasRenderer {
 
                 console.log(
                     `[TextMeasure] ${glyphName}: yOffset=${yOffset}, mouseGlyphY=${mouseGlyphY.toFixed(1)}, lineY=${lineY.toFixed(1)}, bbox=`,
-                    (layer as any).getBoundingBox(false)
+                    (actualLayer as any).getBoundingBox(false)
                 );
 
                 // Use the Layer's sidebearing method to get measurements
-                const sidebearings = (layer as any).getSidebearingsAtHeight(
-                    lineY
-                );
+                const sidebearings = (
+                    actualLayer as any
+                ).getSidebearingsAtHeight(lineY);
 
                 console.log(
                     `[TextMeasure] ${glyphName}: sidebearings=`,
@@ -3091,7 +3104,7 @@ export class GlyphCanvasRenderer {
 
                     // Calculate intersection points in glyph-local space
                     const firstIntersectionX = leftDistance;
-                    const lastIntersectionX = xAdvance - rightDistance;
+                    const lastIntersectionX = actualWidth - rightDistance;
 
                     // Transform to world space for drawing
                     const firstWorldX = firstIntersectionX + glyphX;
@@ -3099,7 +3112,7 @@ export class GlyphCanvasRenderer {
                     const lastWorldX = lastIntersectionX + glyphX;
                     const lastWorldY = mouseGlyphY;
                     const glyphLeftX = glyphX;
-                    const glyphRightX = glyphX + xAdvance;
+                    const glyphRightX = glyphX + actualWidth;
 
                     this.ctx.save();
 
