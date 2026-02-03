@@ -110,7 +110,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "babelfont"
 version = "0.2.0-pre"
-source = "git+https://github.com/simoncozens/babelfont-rs.git#9ea85a2bf54ed9b0a1f9c0e32ca9f01a7c5a555f"
+source = "git+https://github.com/simoncozens/babelfont-rs.git?rev=06c53ececc200e865d87ba0b27496d07efc50322#06c53ececc200e865d87ba0b27496d07efc50322"
 dependencies = [
  "chrono",
  "fea-rs-ast",
@@ -570,9 +570,9 @@ dependencies = [
 
 [[package]]
 name = "fea-rs-ast"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7676d50f93f126329b9b337b17484210edec9c1d2097bb25f22ca82c2c58ce90"
+checksum = "54baddd591af4d3c122a6a64674dbf0b7370f540f4e2f4796cd9835d121344ac"
 dependencies = [
  "fea-rs 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "indexmap 2.13.0",
@@ -805,9 +805,9 @@ dependencies = [
 
 [[package]]
 name = "glyphslib"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99c0d378277e07d579868cc498b4c76ea6abfe24053a4a45c336f503ff429c60"
+checksum = "b215dc09eb559f83bc5822b6a7ffed4da793e25b0c9ed241b6cabedcd794005d"
 dependencies = [
  "itertools",
  "openstep-plist",

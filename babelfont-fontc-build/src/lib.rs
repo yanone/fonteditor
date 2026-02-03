@@ -1,14 +1,9 @@
 use babelfont::{
     convertors::fontir::{BabelfontIrSource, CompilationOptions},
     filters::FontFilter as _,
-    Layer, Shape,
 };
 use wasm_bindgen::prelude::*;
 use std::sync::Mutex;
-use std::collections::{HashMap, HashSet};
-use fontdrasil::coords::{DesignCoord, DesignLocation};
-use write_fonts::types::Tag;
-use serde_json::Value as JsonValue;
 
 // Font reading module (using read-fonts/skrifa)
 mod font_reader;
@@ -91,6 +86,7 @@ pub fn compile_babelfont(babelfont_json: &str, options: &JsValue) -> Result<Vec<
         dont_use_production_names: get_option(options, "dont_use_production_names", false),
         drop_incompatible_paths: get_option(options, "drop_incompatible_paths", false),
         produce_varc_table: get_option(options, "produce_varc_table", false),
+        debug_feature_file: None,
     };
 
     let compiled_font = BabelfontIrSource::compile(font, options)
@@ -324,6 +320,7 @@ pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
         dont_use_production_names: get_option(options, "dont_use_production_names", false),
         drop_incompatible_paths: get_option(options, "drop_incompatible_paths", false),
         produce_varc_table: get_option(options, "produce_varc_table", false),
+        debug_feature_file: None,
     };
     
     let compiled_font = BabelfontIrSource::compile(font_clone, compilation_options)

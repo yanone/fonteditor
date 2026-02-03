@@ -7,7 +7,7 @@
 use babelfont::{Layer, Shape, Node, Tag};
 use fontdrasil::coords::{DesignCoord, DesignLocation, UserCoord};
 use serde_json::Value as JsonValue;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::cell::RefCell;
 use std::str::FromStr;
 use std::sync::Mutex;

@@ -200,9 +200,6 @@ fn manually_interpolate_layer(
                     interpolated_shapes.push(reference_shape.clone());
                 }
             }
-            _ => {
-                interpolated_shapes.push(reference_shape.clone());
-            }
         }
     }
 

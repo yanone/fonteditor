@@ -59,62 +59,6 @@ async function testCompilation(fontPath) {
     );
     const fontData = JSON.parse(babelfontJson);
 
-    // Normalize externally tagged LayerType to internally tagged format
-    // CLI outputs: {"DefaultForMaster": "id"}
-    // WASM expects: {"type": "DefaultForMaster", "master": "id"}
-    if (fontData.glyphs && Array.isArray(fontData.glyphs)) {
-        fontData.glyphs.forEach((glyph) => {
-            if (!glyph || !glyph.layers) return;
-
-            // First, filter out AssociatedWithMaster layers without location data
-            glyph.layers = glyph.layers.filter((layer) => {
-                if (!layer || !layer.master) return true;
-                const master = layer.master;
-
-                // Check externally tagged format
-                if ('AssociatedWithMaster' in master) {
-                    return (
-                        layer.location && Object.keys(layer.location).length > 0
-                    );
-                }
-                // Check internally tagged format
-                if (
-                    'type' in master &&
-                    master.type === 'AssociatedWithMaster'
-                ) {
-                    return (
-                        layer.location && Object.keys(layer.location).length > 0
-                    );
-                }
-                return true;
-            });
-
-            // Then normalize format
-            glyph.layers.forEach((layer) => {
-                if (!layer || !layer.master) return;
-                const master = layer.master;
-
-                // Convert externally tagged to internally tagged
-                if ('DefaultForMaster' in master) {
-                    layer.master = {
-                        type: 'DefaultForMaster',
-                        master: master.DefaultForMaster
-                    };
-                } else if ('AssociatedWithMaster' in master) {
-                    layer.master = {
-                        type: 'AssociatedWithMaster',
-                        master: master.AssociatedWithMaster
-                    };
-                } else if (
-                    'FreeFloating' in master ||
-                    Object.keys(master).length === 0
-                ) {
-                    layer.master = { type: 'FreeFloating' };
-                }
-            });
-        });
-    }
-
     const cleanedBabelfontJson = JSON.stringify(fontData);
 
     // Dump font data structure for debugging
