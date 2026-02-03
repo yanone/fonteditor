@@ -329,28 +329,25 @@ export class OutlineEditor {
             } else {
                 console.log('Restoring previous layer by selecting it');
 
-                // Find the previous layer object
-                const layers = this.glyphCanvas.fontData?.layers;
-                if (layers) {
-                    const previousLayer = layers.find(
-                        (l: Babelfont.Layer) =>
-                            l.id === this.previousSelectedLayerId
-                    );
+                // Get full layer data from font model
+                const layerToSelect = this.getFullLayerData(
+                    this.previousSelectedLayerId
+                );
 
-                    if (previousLayer) {
-                        // Clear interpolating flag since we're transitioning to a real layer
-                        this.isInterpolating = false;
+                if (layerToSelect) {
+                    console.log('Found previous layer:', layerToSelect.id);
+                    // Clear interpolating flag since we're transitioning to a real layer
+                    this.isInterpolating = false;
 
-                        // Clear previous state before calling selectLayer
-                        // (selectLayer will also clear these, but we do it here to be explicit)
-                        this.previousSelectedLayerId = null;
-                        this.previousVariationSettings = null;
+                    // Clear previous state before calling selectLayer
+                    // (selectLayer will also clear these, but we do it here to be explicit)
+                    this.previousSelectedLayerId = null;
+                    this.previousVariationSettings = null;
 
-                        // Imitate clicking on the layer in the list by calling selectLayer
-                        // This will handle everything: fetch data, animate sliders, update UI
-                        this.selectLayer(previousLayer);
-                        return;
-                    }
+                    // Imitate clicking on the layer in the list by calling selectLayer
+                    // This will handle everything: fetch data, animate sliders, update UI
+                    this.selectLayer(layerToSelect);
+                    return;
                 }
 
                 // Fallback if layer not found - just clear state
@@ -1818,7 +1815,10 @@ export class OutlineEditor {
         );
         if (currentIndex === -1) {
             // No layer selected, select first layer
-            await this.selectLayer(sortedLayers[0]);
+            const layerToSelect = this.getFullLayerData(sortedLayers[0].id);
+            if (layerToSelect) {
+                await this.selectLayer(layerToSelect);
+            }
             return;
         }
 
@@ -1836,8 +1836,37 @@ export class OutlineEditor {
             }
         }
 
-        // Select the next layer
-        await this.selectLayer(sortedLayers[nextIndex]);
+        // Get full layer data from font model before selecting
+        const layerToSelect = this.getFullLayerData(sortedLayers[nextIndex].id);
+        if (layerToSelect) {
+            await this.selectLayer(layerToSelect);
+        }
+    }
+
+    /**
+     * Get full layer data from font model by layer ID
+     * Converts Layer wrapper to plain Babelfont.Layer object
+     */
+    private getFullLayerData(layerId: string): Babelfont.Layer | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel) return null;
+
+        const glyphName = this.glyphCanvas.getCurrentGlyphName();
+        const glyph = fontModel.glyphs.find((g: any) => g.name === glyphName);
+        if (!glyph || !glyph.layers) return null;
+
+        const layer = glyph.layers.find((l: any) => l.id === layerId);
+        if (!layer) return null;
+
+        // Convert Layer wrapper to plain Babelfont.Layer object
+        return {
+            id: layer.id,
+            name: layer.name,
+            master: layer.master,
+            width: layer.width,
+            shapes: layer.shapes?.map((s: any) => ({ ...s })),
+            isInterpolated: false
+        };
     }
 
     async selectLayer(layer: Babelfont.Layer): Promise<void> {
@@ -2116,19 +2145,9 @@ export class OutlineEditor {
                     this.buildGlyphStack(this.currentGlyphName!, layer.id!, []);
                 }
 
-                // Don't clear previous state during slider use - allow Escape to restore
-                // Only clear when explicitly selecting a layer or on initial load
-                // We can detect slider use by checking if previousSelectedLayerId is set
-                if (this.previousSelectedLayerId === null) {
-                    // Not during slider use - this is a direct layer selection or initial load
-                    // Clear previous state to allow Escape to exit components instead
-                    this.previousVariationSettings = null;
-                    console.log(
-                        'Cleared previous state (not during slider use)'
-                    );
-                } else {
-                    console.log('Keeping previous state (during slider use)');
-                }
+                // Don't clear previous state - keep it to allow Escape to restore
+                // The previous state is only cleared in selectLayer() when explicitly clicking a layer
+                console.log('Keeping previous state for Escape functionality');
 
                 // Fetch layer data EXCEPT during slider interpolation or layer switch animation
                 // During these states, we use interpolated data instead
