@@ -1,21 +1,37 @@
 const fs = require('fs');
 const path = require('path');
 const { Font } = require('../js/babelfont-model');
+const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
+
+// Helper function to load and convert .glyphs files using WASM
+function loadFontFile(filePath) {
+    const fileName = path.basename(filePath);
+    const fileContents = fs.readFileSync(filePath, 'utf-8');
+
+    // If already .babelfont, just parse and return
+    if (fileName.endsWith('.babelfont')) {
+        return JSON.parse(fileContents);
+    }
+
+    // Otherwise, convert using WASM (mocked to use CLI)
+    console.log(`[Test] Converting ${fileName} using WASM...`);
+    const babelfontJson = open_font_file(fileName, fileContents);
+    return JSON.parse(babelfontJson);
+}
 
 describe('Babelfont Object Model', () => {
     let fontData;
     let font;
 
     beforeAll(() => {
-        // Load Fustat.babelfont as test fixture
+        // Load Fustat.glyphs as test fixture (converted on-the-fly)
         const fixturePath = path.join(
             __dirname,
             '..',
             'examples',
-            'Fustat.babelfont'
+            'Fustat.glyphs'
         );
-        const jsonString = fs.readFileSync(fixturePath, 'utf-8');
-        fontData = JSON.parse(jsonString);
+        fontData = loadFontFile(fixturePath);
     });
 
     beforeEach(() => {
@@ -569,18 +585,14 @@ describe('Babelfont Object Model', () => {
 
     describe('Layer.flattenComponents()', () => {
         test('should flatten adieresis components across all layers with transforms', () => {
-            // Load NestedComponents.babelfont for this test
+            // Load NestedComponents.glyphs and convert via WASM
             const nestedFixturePath = path.join(
                 __dirname,
                 '..',
                 'examples',
-                'NestedComponents.babelfont'
+                'NestedComponents.glyphs'
             );
-            const nestedJsonString = fs.readFileSync(
-                nestedFixturePath,
-                'utf-8'
-            );
-            const nestedFontData = JSON.parse(nestedJsonString);
+            const nestedFontData = loadFontFile(nestedFixturePath);
             const nestedFont = Font.fromData(nestedFontData);
 
             const adieresis = nestedFont.findGlyph('adieresis');
@@ -705,18 +717,14 @@ describe('Babelfont Object Model', () => {
 
     describe('Layer.getIntersectionsOnLine()', () => {
         test('should calculate intersections on adieresis layer 2 with components', () => {
-            // Load NestedComponents.babelfont for this test
+            // Load NestedComponents.glyphs and convert via WASM
             const nestedFixturePath = path.join(
                 __dirname,
                 '..',
                 'examples',
-                'NestedComponents.babelfont'
+                'NestedComponents.glyphs'
             );
-            const nestedJsonString = fs.readFileSync(
-                nestedFixturePath,
-                'utf-8'
-            );
-            const nestedFontData = JSON.parse(nestedJsonString);
+            const nestedFontData = loadFontFile(nestedFixturePath);
             const nestedFont = Font.fromData(nestedFontData);
 
             const adieresis = nestedFont.findGlyph('adieresis');
