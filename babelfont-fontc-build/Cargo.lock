@@ -94,7 +94,7 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 [[package]]
 name = "ascii_plist_derive"
 version = "0.2.0"
-source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#dd31a757cd9ad045844584efe5d6810f000b01fb"
+source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#032545c23a0ed7c8c328471926f38d1889a3f20c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -110,10 +110,11 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "babelfont"
 version = "0.2.0-pre"
-source = "git+https://github.com/simoncozens/babelfont-rs.git?rev=06c53ececc200e865d87ba0b27496d07efc50322#06c53ececc200e865d87ba0b27496d07efc50322"
+source = "git+https://github.com/simoncozens/babelfont-rs.git?rev=5684c38aefa25f4b9b25be8e58aa1cfee19cec38#5684c38aefa25f4b9b25be8e58aa1cfee19cec38"
 dependencies = [
  "chrono",
  "fea-rs-ast",
+ "fontbe",
  "fontc",
  "fontdrasil 0.4.0 (git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts)",
  "fontir",
@@ -554,7 +555,7 @@ dependencies = [
 [[package]]
 name = "fea-rs"
 version = "0.22.0"
-source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#dd31a757cd9ad045844584efe5d6810f000b01fb"
+source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#032545c23a0ed7c8c328471926f38d1889a3f20c"
 dependencies = [
  "ansi_term",
  "env_logger",
@@ -570,9 +571,9 @@ dependencies = [
 
 [[package]]
 name = "fea-rs-ast"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54baddd591af4d3c122a6a64674dbf0b7370f540f4e2f4796cd9835d121344ac"
+checksum = "fa22f3a477582cdd56c1fc62982810032b80519a7130008a59c4b4a4c787d779"
 dependencies = [
  "fea-rs 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "indexmap 2.13.0",
@@ -635,7 +636,7 @@ dependencies = [
 [[package]]
 name = "fontbe"
 version = "0.5.0"
-source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#dd31a757cd9ad045844584efe5d6810f000b01fb"
+source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#032545c23a0ed7c8c328471926f38d1889a3f20c"
 dependencies = [
  "bincode",
  "chrono",
@@ -658,7 +659,7 @@ dependencies = [
 [[package]]
 name = "fontc"
 version = "0.6.0"
-source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#dd31a757cd9ad045844584efe5d6810f000b01fb"
+source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#032545c23a0ed7c8c328471926f38d1889a3f20c"
 dependencies = [
  "bitflags",
  "crossbeam-channel",
@@ -698,7 +699,7 @@ dependencies = [
 [[package]]
 name = "fontdrasil"
 version = "0.4.0"
-source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#dd31a757cd9ad045844584efe5d6810f000b01fb"
+source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#032545c23a0ed7c8c328471926f38d1889a3f20c"
 dependencies = [
  "env_logger",
  "kurbo 0.13.0",
@@ -713,7 +714,7 @@ dependencies = [
 [[package]]
 name = "fontir"
 version = "0.5.0"
-source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#dd31a757cd9ad045844584efe5d6810f000b01fb"
+source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#032545c23a0ed7c8c328471926f38d1889a3f20c"
 dependencies = [
  "bitflags",
  "chrono",
@@ -735,7 +736,7 @@ dependencies = [
 [[package]]
 name = "fontra2fontir"
 version = "0.4.0"
-source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#dd31a757cd9ad045844584efe5d6810f000b01fb"
+source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#032545c23a0ed7c8c328471926f38d1889a3f20c"
 dependencies = [
  "env_logger",
  "fontdrasil 0.4.0 (git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts)",
@@ -765,7 +766,7 @@ dependencies = [
 [[package]]
 name = "glyphs-reader"
 version = "0.5.0"
-source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#dd31a757cd9ad045844584efe5d6810f000b01fb"
+source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#032545c23a0ed7c8c328471926f38d1889a3f20c"
 dependencies = [
  "ascii_plist_derive",
  "chrono",
@@ -787,7 +788,7 @@ dependencies = [
 [[package]]
 name = "glyphs2fontir"
 version = "0.6.0"
-source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#dd31a757cd9ad045844584efe5d6810f000b01fb"
+source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#032545c23a0ed7c8c328471926f38d1889a3f20c"
 dependencies = [
  "chrono",
  "env_logger",
@@ -1797,7 +1798,7 @@ dependencies = [
 [[package]]
 name = "ufo2fontir"
 version = "0.4.0"
-source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#dd31a757cd9ad045844584efe5d6810f000b01fb"
+source = "git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts#032545c23a0ed7c8c328471926f38d1889a3f20c"
 dependencies = [
  "chrono",
  "env_logger",
