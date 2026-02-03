@@ -163,12 +163,12 @@ class FastGlyphTileRenderer {
         ctx.fill();
 
         // Second pass: combine ALL component paths, then fill once
-        const hasComponents = shapes.some((s) => s.Component);
+        const hasComponents = shapes.some((s) => 'reference' in s);
         if (hasComponents) {
             ctx.beginPath();
             for (const shape of shapes) {
-                if (shape.Component) {
-                    const component = shape.Component;
+                if ('reference' in shape) {
+                    const component = shape;
                     const transform = component.transform || [1, 0, 0, 1, 0, 0];
 
                     const finalTransform = parentTransform
@@ -206,8 +206,8 @@ class FastGlyphTileRenderer {
         shapes: any[]
     ): void {
         for (const shape of shapes) {
-            if (shape.Path) {
-                let nodes = shape.Path.nodes;
+            if ('nodes' in shape) {
+                let nodes = shape.nodes;
                 if (typeof nodes === 'string') {
                     nodes = LayerDataNormalizer.parseNodes(nodes);
                 }
@@ -215,8 +215,8 @@ class FastGlyphTileRenderer {
                     LayerDataNormalizer.buildPathFromNodes(nodes, ctx);
                     ctx.closePath();
                 }
-            } else if (shape.Component) {
-                const component = shape.Component;
+            } else if ('reference' in shape) {
+                const component = shape;
                 const transform = component.transform || [1, 0, 0, 1, 0, 0];
                 if (component.layerData && component.layerData.shapes) {
                     ctx.save();
@@ -240,8 +240,8 @@ class FastGlyphTileRenderer {
      */
     private buildPathsOnly(ctx: CanvasRenderingContext2D, shapes: any[]): void {
         for (const shape of shapes) {
-            if (shape.Path) {
-                let nodes = shape.Path.nodes;
+            if ('nodes' in shape) {
+                let nodes = shape.nodes;
                 if (typeof nodes === 'string') {
                     nodes = LayerDataNormalizer.parseNodes(nodes);
                 }

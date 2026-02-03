@@ -7,6 +7,7 @@ import { Transform } from '../basictypes';
 import { Logger } from '../logger';
 import { Layer } from '../babelfont-model';
 import APP_SETTINGS from '../settings';
+import { userspaceToDesignspace } from '../locations';
 
 let console: Logger = new Logger('OutlineEditor', true);
 
@@ -227,10 +228,13 @@ export class OutlineEditor {
             }
 
             const componentGlyphName = shape.reference;
-            stack += `>${compIndex}:${componentGlyphName}@${layerId}`;
 
             // Move to the nested component's layer data for the next iteration
             currentLayerData = shape.layerData || null;
+
+            // Use the component's layer ID from its layerData
+            const componentLayerId = currentLayerData?.id || layerId;
+            stack += `>${compIndex}:${componentGlyphName}@${componentLayerId}`;
         }
 
         this.glyphStack = stack;
@@ -250,34 +254,27 @@ export class OutlineEditor {
     rebuildGlyphStackWithNewLayer(newLayerId: string): void {
         if (!this.glyphStack) return;
 
-        // Simply replace all layer IDs in the stack with the new one
-        // Stack format: "glyphA@layerID1>0:glyphB@layerID1>1:glyphC@layerID1"
-        // We want: "glyphA@newLayerID>0:glyphB@newLayerID>1:glyphC@newLayerID"
+        // Only update the ROOT layer ID, preserve component layer IDs
+        // Stack format: "glyphA@rootLayerID>0:glyphB@compLayerID>1:glyphC@compLayerID"
+        // We want: "glyphA@newLayerID>0:glyphB@compLayerID>1:glyphC@compLayerID"
 
         // Split by '>' to get segments
         const segments = this.glyphStack.split('>');
-        const newSegments = segments.map((segment) => {
-            // Each segment is either "glyphName@layerID" or "compIndex:glyphName@layerID"
-            if (segment.includes(':')) {
-                // Format: "compIndex:glyphName@layerID"
-                const colonIndex = segment.indexOf(':');
-                const beforeColon = segment.substring(0, colonIndex);
-                const afterColon = segment.substring(colonIndex + 1);
-                // afterColon is "glyphName@layerID", replace layer ID
-                const atIndex = afterColon.lastIndexOf('@');
-                const glyphName = afterColon.substring(0, atIndex);
-                return `${beforeColon}:${glyphName}@${newLayerId}`;
-            } else {
-                // Format: "glyphName@layerID"
+        const newSegments = segments.map((segment, index) => {
+            if (index === 0) {
+                // Root segment - update its layer ID
                 const atIndex = segment.lastIndexOf('@');
                 const glyphName = segment.substring(0, atIndex);
                 return `${glyphName}@${newLayerId}`;
+            } else {
+                // Component segments - preserve their layer IDs
+                return segment;
             }
         });
 
         this.glyphStack = newSegments.join('>');
         console.log(
-            '[GlyphStack] Rebuilt stack with new layer ID:',
+            '[GlyphStack] Rebuilt stack with new root layer ID:',
             this.glyphStack
         );
         window.dispatchEvent(
@@ -1864,6 +1861,10 @@ export class OutlineEditor {
             `id: ${layer.id}, _master: ${layer.master}`
         );
         this.selectedLayerId = layer.id!;
+        console.log(
+            `[OutlineEditor] Set selectedLayerId to:`,
+            this.selectedLayerId
+        );
 
         // Rebuild glyph_stack with new layer ID (preserves component path)
         if (this.glyphStack && this.glyphStack !== '') {
@@ -2003,45 +2004,104 @@ export class OutlineEditor {
         console.log('[OutlineEditor] autoSelectMatchingLayer called', {
             active: this.active,
             isInterpolating: this.isInterpolating,
-            selectedLayerId: this.selectedLayerId
+            selectedLayerId: this.selectedLayerId,
+            currentGlyphName: this.currentGlyphName
         });
 
-        // Check if current variation settings match any layer's master location
-        let layers = this.glyphCanvas.fontData?.layers;
-        let masters: Babelfont.Master[] = this.glyphCanvas.fontData?.masters;
-        if (!layers || !masters) {
+        // Get current glyph from font model
+        const fontModel = fontManager.currentFont?.fontModel;
+        console.log('[OutlineEditor] fontModel check:', {
+            hasFontModel: !!fontModel,
+            hasGlyphs: !!fontModel?.glyphs,
+            glyphCount: fontModel?.glyphs?.length
+        });
+
+        if (!fontModel || !fontModel.glyphs) {
+            console.log('[OutlineEditor] No font model or glyphs, returning');
+            return;
+        }
+
+        const currentGlyph = fontModel.glyphs.find(
+            (g: any) => g.name === this.currentGlyphName
+        );
+        console.log('[OutlineEditor] currentGlyph lookup:', {
+            found: !!currentGlyph,
+            searchingFor: this.currentGlyphName,
+            layerCount: currentGlyph?.layers?.length
+        });
+
+        if (!currentGlyph) {
             console.log(
-                '[OutlineEditor] No layers or masters found, returning'
+                '[OutlineEditor] No current glyph found:',
+                this.currentGlyphName
             );
             return;
         }
 
-        // Get current axis tags and values
-        const currentLocation = {
+        let layers = currentGlyph.layers;
+        let masters: Babelfont.Master[] = (fontModel.masters || []) as any;
+        if (
+            !layers ||
+            layers.length === 0 ||
+            !masters ||
+            masters.length === 0
+        ) {
+            console.log(
+                '[OutlineEditor] No layers or masters found, returning',
+                { layerCount: layers?.length, masterCount: masters.length }
+            );
+            return;
+        }
+
+        // Get current axis tags and values (in USERSPACE)
+        const currentUserspaceLocation = {
             ...this.glyphCanvas.axesManager!.variationSettings
         };
 
-        console.log(
-            '[OutlineEditor]',
-            'autoSelectMatchingLayer - current axis values:',
-            currentLocation
+        // Convert to designspace for comparison with master locations
+        const currentDesignspaceLocation = userspaceToDesignspace(
+            currentUserspaceLocation,
+            fontModel.axes || []
         );
+
+        console.log('[OutlineEditor]', 'autoSelectMatchingLayer - locations:', {
+            userspace: currentUserspaceLocation,
+            designspace: currentDesignspaceLocation
+        });
 
         // Check each layer to find a match
         for (const layer of layers) {
-            const master = masters.find((m) => m.id === layer.master);
+            // Extract master ID from LayerType
+            let masterId: string | undefined;
+            const layerMaster = layer.master;
+
+            if (layerMaster && typeof layerMaster === 'object') {
+                // New format: {type: "DefaultForMaster", master: "id"}
+                if (
+                    'type' in layerMaster &&
+                    layerMaster.type === 'DefaultForMaster'
+                ) {
+                    masterId = (layerMaster as any).master;
+                }
+                // Old format: {DefaultForMaster: "id"}
+                else if ('DefaultForMaster' in layerMaster) {
+                    masterId = (layerMaster as any).DefaultForMaster;
+                }
+            }
+
+            const master = masters.find((m) => m.id === masterId);
             if (!master || !master.location) {
                 console.log(
                     '[OutlineEditor]',
-                    `  Skipping layer ${layer.id}: no master found for _master=${layer.master}`
+                    `  Skipping layer ${layer.id}: no master found for masterId=${masterId}`
                 );
                 continue;
             }
 
-            // Check if all axis values match exactly
+            // Check if all axis values match exactly (comparing in designspace)
             let allMatch = true;
             for (const [tag, value] of Object.entries(master.location)) {
-                if ((currentLocation[tag] || 0) !== value) {
+                if ((currentDesignspaceLocation[tag] || 0) !== value) {
                     allMatch = false;
                     break;
                 }
@@ -2054,7 +2114,7 @@ export class OutlineEditor {
                     master.location
                 );
                 // Found a matching layer - select it
-                this.selectedLayerId = layer.id;
+                this.selectedLayerId = layer.id || null;
 
                 // Build or rebuild glyph_stack with new layer ID
                 if (this.glyphStack && this.glyphStack !== '') {

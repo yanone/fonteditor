@@ -73,11 +73,81 @@ class OpenedFont {
             }
         }
 
+        // Convert old Glyphs string format nodes to array format
+        // Old format: "359 -12 o 408 65 o 413 65 c ..."
+        // New format: [{x: 359, y: -12, type: "o"}, {x: 408, y: 65, type: "o"}, ...]
+        this.normalizeNodesFormat();
+
         this.fontModel = Font.fromData(this.babelfontData); // Create object model
         this.path = path;
         this.name =
             this.babelfontData?.names.family_name.dflt || 'Untitled Font';
         this.dirty = false;
+    }
+
+    /**
+     * Convert old Glyphs string format nodes to proper babelfont array format
+     * Handles nodes stored as strings like "359 -12 o 408 65 o 413 65 c"
+     */
+    private normalizeNodesFormat(): void {
+        for (const glyph of this.babelfontData.glyphs || []) {
+            for (const layer of glyph.layers || []) {
+                if (!layer?.shapes) continue;
+
+                for (const shape of layer.shapes) {
+                    // Check if this is a path with string nodes
+                    if (shape.nodes && typeof shape.nodes === 'string') {
+                        shape.nodes = this.parseNodesString(shape.nodes);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Parse Glyphs compact node string format to array of Node objects
+     * Format: "x y type x y type ..." where type is one of: o (offcurve), c (curve), l (line), q (qcurve)
+     * @param nodesString - String like "359 -12 o 408 65 o 413 65 c"
+     * @returns Array of Node objects like [{x: 359, y: -12, nodetype: "OffCurve"}, ...]
+     */
+    private parseNodesString(nodesString: string): any[] {
+        const parts = nodesString.trim().split(/\s+/);
+        const nodes: any[] = [];
+
+        for (let i = 0; i < parts.length; i += 3) {
+            if (i + 2 >= parts.length) break;
+
+            const x = parseFloat(parts[i]);
+            const y = parseFloat(parts[i + 1]);
+            const typeChar = parts[i + 2];
+
+            // Map Glyphs compact format to babelfont NodeType enum
+            // Field name is "nodetype" (not "type")
+            let nodetype: string;
+            switch (typeChar) {
+                case 'o':
+                    nodetype = 'OffCurve';
+                    break;
+                case 'c':
+                    nodetype = 'Curve';
+                    break;
+                case 'l':
+                    nodetype = 'Line';
+                    break;
+                case 'q':
+                    nodetype = 'QCurve';
+                    break;
+                default:
+                    console.warn(
+                        `[FontManager] Unknown node type: ${typeChar}`
+                    );
+                    nodetype = typeChar; // Keep as-is if unknown
+            }
+
+            nodes.push({ x, y, nodetype });
+        }
+
+        return nodes;
     }
 
     /**
@@ -740,6 +810,12 @@ class FontManager {
         console.log(
             `[FontManager] getLayer: Found layer "${layerId}" for glyph "${glyphName}"`
         );
+        console.log(
+            `[FontManager] getLayer: Layer has ${layer.shapes?.length || 0} shapes`,
+            layer.shapes
+                ? JSON.stringify(layer.shapes[0], null, 2)
+                : 'NO SHAPES'
+        );
         return layer;
     }
 
@@ -809,12 +885,16 @@ class FontManager {
             // Only include non-background layers that are DEFAULT layers for their master
             // (not AssociatedWithMaster layers, which are intermediate/alternate designs)
             if (!layer.is_background) {
-                // Check if this is a default layer (has DefaultForMaster in master dict)
+                // Check if this is a default layer
+                // New format: {type: "DefaultForMaster", master: "id"}
+                // Old format: {DefaultForMaster: "id"}
                 const layerAny = layer as any;
                 const isDefaultLayer =
                     layerAny.master &&
                     typeof layerAny.master === 'object' &&
-                    'DefaultForMaster' in layerAny.master;
+                    (('type' in layerAny.master &&
+                        layerAny.master.type === 'DefaultForMaster') ||
+                        'DefaultForMaster' in layerAny.master);
 
                 if (isDefaultLayer) {
                     let master_id = layer.master || layer.id;

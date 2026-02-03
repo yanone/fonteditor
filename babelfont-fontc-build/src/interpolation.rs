@@ -477,8 +477,9 @@ fn serialize_layer_recursive_cached(
         if let Some(shapes_array) = shapes.as_array_mut() {
             // Process each shape
             for shape_json in shapes_array.iter_mut() {
-                // Check if this is a component
-                if let Some(component) = shape_json.get_mut("Component") {
+                // Check if this is a component (serde(untagged) so no wrapper)
+                // Components have "reference" field, paths have "nodes" field
+                if let Some(component) = shape_json.as_object_mut() {
                     let reference_opt = component
                         .get("reference")
                         .and_then(|r| r.as_str())
@@ -495,8 +496,6 @@ fn serialize_layer_recursive_cached(
                             let cache = json_cache.borrow();
                             if let Some(cached_json) = cache.get(&reference) {
                                 component
-                                    .as_object_mut()
-                                    .unwrap()
                                     .insert("layerData".to_string(), cached_json.clone());
                                 continue;
                             }
@@ -537,8 +536,6 @@ fn serialize_layer_recursive_cached(
                                 // Cache and insert the full layer JSON as layerData
                                 json_cache.borrow_mut().insert(reference.clone(), component_layer_json.clone());
                                 component
-                                    .as_object_mut()
-                                    .unwrap()
                                     .insert("layerData".to_string(), component_layer_json);
                             }
                             Err(_) => {}
@@ -573,8 +570,9 @@ fn serialize_layer_recursive(
         if let Some(shapes_array) = shapes.as_array_mut() {
             // Process each shape
             for shape_json in shapes_array.iter_mut() {
-                // Check if this is a component
-                if let Some(component) = shape_json.get_mut("Component") {
+                // Check if this is a component (serde(untagged) so no wrapper)
+                // Components have "reference" field, paths have "nodes" field
+                if let Some(component) = shape_json.as_object_mut() {
                     // Extract reference as a String to avoid borrow conflicts
                     let reference_opt = component
                         .get("reference")
@@ -616,8 +614,6 @@ fn serialize_layer_recursive(
                                                 // Add layerData field to the component
                                                 // The transform stays in the component unchanged for JavaScript to apply
                                                 component
-                                                    .as_object_mut()
-                                                    .unwrap()
                                                     .insert("layerData".to_string(), component_json);
                                             }
                                             Err(e) => {

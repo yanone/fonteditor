@@ -204,9 +204,14 @@ pub fn get_glyphs_outlines(
             (flattened, json)
         } else {
             // For non-flattened mode, use cached serialization
-            let shapes_json = serialize_layer_with_components_cached(
+            let layer_json = serialize_layer_with_components_cached(
                 &layer, font, &design_location, &layer_cache, &json_cache
             ).map_err(|e| JsValue::from_str(&e))?;
+            
+            // Extract shapes array from layer JSON, or use empty array if missing
+            let shapes_json = layer_json.get("shapes")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([]));
             
             // For bounds calculation, we need flattened shapes
             let (flattened_for_bounds, _, _) = flatten_layer_components_cached(font, &layer, &design_location, &layer_cache)?;

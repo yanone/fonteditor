@@ -433,7 +433,14 @@ export class Component extends ArrayElementBase {
      */
     getTransformedPaths(): Babelfont.Path[] {
         const paths: Babelfont.Path[] = [];
-        const componentTransform = this.transform || [1, 0, 0, 1, 0, 0];
+        const componentTransform =
+            this.transform ||
+            ({
+                translation: [0, 0],
+                scale: [1, 1],
+                rotation: 0,
+                skew: [0, 0]
+            } as Babelfont.DecomposedAffine);
 
         // Get the Font object to look up component glyphs
         // Component -> Shape -> Layer -> Glyph -> Font
@@ -1202,6 +1209,28 @@ export class Layer extends ArrayElementBase {
             return result;
         };
 
+        // Helper to convert DecomposedAffine to affine matrix array
+        const toAffineArray = (
+            transform: Babelfont.DecomposedAffine | number[] | undefined
+        ): number[] => {
+            if (!transform) return [1, 0, 0, 1, 0, 0];
+            if (Array.isArray(transform)) return transform;
+            // DecomposedAffine format - provide defaults for missing properties
+            const {
+                translation = [0, 0],
+                scale = [1, 1],
+                skew = [0, 0]
+            } = transform;
+            return [
+                scale[0],
+                skew[0],
+                skew[1],
+                scale[1],
+                translation[0],
+                translation[1]
+            ];
+        };
+
         // Helper function to combine two transform matrices
         const combineTransforms = (t1: number[], t2: number[]): number[] => {
             const [a1, b1, c1, d1, tx1, ty1] = t1;
@@ -1226,7 +1255,7 @@ export class Layer extends ArrayElementBase {
             for (const shape of shapes) {
                 if ('reference' in shape) {
                     // Component - recursively process its outline shapes with accumulated transform
-                    const compTransform = shape.transform || [1, 0, 0, 1, 0, 0];
+                    const compTransform = toAffineArray(shape.transform);
                     const combinedTransform = combineTransforms(
                         transform,
                         compTransform
@@ -1840,21 +1869,35 @@ export class Glyph extends ArrayElementBase {
             // Skip background layers
             if (layer.is_background) continue;
 
-            // Check if this is a default layer (has DefaultForMaster in master dict)
+            // Check if this is a default layer
+            // New format: {type: "DefaultForMaster", master: "id"}
+            // Old format: {DefaultForMaster: "id"}
             const isDefaultLayer =
                 layer.master &&
                 typeof layer.master === 'object' &&
-                'DefaultForMaster' in layer.master;
+                (('type' in layer.master &&
+                    layer.master.type === 'DefaultForMaster') ||
+                    'DefaultForMaster' in layer.master);
 
             if (!isDefaultLayer) continue;
 
-            // Extract master ID from layer.master.DefaultForMaster or use layer._master
-            const masterId =
-                layer.master &&
-                typeof layer.master === 'object' &&
-                'DefaultForMaster' in layer.master
-                    ? layer.master.DefaultForMaster
-                    : layer._master || layer.id;
+            // Extract master ID from layer.master
+            // New format: layer.master.master
+            // Old format: layer.master.DefaultForMaster
+            let masterId: string | undefined;
+            if (layer.master && typeof layer.master === 'object') {
+                if (
+                    'type' in layer.master &&
+                    layer.master.type === 'DefaultForMaster'
+                ) {
+                    masterId = (layer.master as any).master;
+                } else if ('DefaultForMaster' in layer.master) {
+                    masterId = (layer.master as any).DefaultForMaster;
+                }
+            }
+            if (!masterId) {
+                masterId = layer._master || layer.id;
+            }
 
             if (!masterId || !masterIds.has(masterId)) continue;
 
@@ -1871,12 +1914,18 @@ export class Glyph extends ArrayElementBase {
             // Extract master IDs from the wrappers
             const getMasterId = (layer: Layer): string => {
                 const masterData = layer.master;
-                if (
-                    masterData &&
-                    typeof masterData === 'object' &&
-                    'DefaultForMaster' in masterData
-                ) {
-                    return masterData.DefaultForMaster as string;
+                if (masterData && typeof masterData === 'object') {
+                    // New format: {type: "DefaultForMaster", master: "id"}
+                    if (
+                        'type' in masterData &&
+                        masterData.type === 'DefaultForMaster'
+                    ) {
+                        return (masterData as any).master || '';
+                    }
+                    // Old format: {DefaultForMaster: "id"}
+                    if ('DefaultForMaster' in masterData) {
+                        return (masterData as any).DefaultForMaster || '';
+                    }
                 }
                 // Fallback to layer id
                 return layer.id || '';
@@ -1985,6 +2034,20 @@ export class Glyph extends ArrayElementBase {
             const master = l.master;
             if (!master) return false;
             if (typeof master === 'object') {
+                // New format: {type: "DefaultForMaster", master: "id"}
+                if (
+                    master.type === 'DefaultForMaster' &&
+                    master.master === masterId
+                ) {
+                    return true;
+                }
+                if (
+                    master.type === 'AssociatedWithMaster' &&
+                    master.master === masterId
+                ) {
+                    return true;
+                }
+                // Old format: {DefaultForMaster: "id"}
                 return (
                     master.DefaultForMaster === masterId ||
                     master.AssociatedWithMaster === masterId
