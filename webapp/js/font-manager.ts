@@ -903,14 +903,21 @@ class FontManager {
         // Helper function to recursively clean shapes for saving
         const cleanShapeForSaving = (shape: Babelfont.Shape): any => {
             if ('nodes' in shape) {
-                // For Path shapes, ensure we only save the required fields
-                // The shape is already unwrapped, so just return it as-is
+                // For Path shapes, convert nodes to string format and strip runtime properties
+                let nodesValue: string | Babelfont.Node[] = shape.nodes;
+
+                // Convert array to string if needed
+                if (Array.isArray(nodesValue)) {
+                    nodesValue = Path.nodesToString(nodesValue);
+                }
+
                 return {
-                    nodes: shape.nodes,
+                    nodes: nodesValue as string,
                     closed: shape.closed,
                     ...(shape.format_specific && {
                         format_specific: shape.format_specific
                     })
+                    // Omit isInterpolated and other runtime properties
                 };
             } else if ('reference' in shape) {
                 // Strip the layerData property from components before saving
@@ -922,7 +929,7 @@ class FontManager {
                     ...(shape.format_specific && {
                         format_specific: shape.format_specific
                     })
-                    // Note: layerData is intentionally omitted
+                    // Note: layerData and isInterpolated are intentionally omitted
                 };
             } else {
                 // For other shape types (Anchor, etc.), create a clean copy

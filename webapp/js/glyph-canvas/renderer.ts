@@ -1535,8 +1535,8 @@ export class GlyphCanvasRenderer {
                             p.nodeIndex === nodeIndex
                     );
 
-                // Skip quadratic bezier points for now
-                if (type === 'Curve' || type === 'QCurve') {
+                // Skip Move nodes - they don't get rendered
+                if (type === 'Move') {
                     return;
                 }
 
