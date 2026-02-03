@@ -13,6 +13,22 @@ Run the app locally with `cd webapp && npm run dev`
 
 - Load assistant test conversation with `?assistant_style_test`
 
+### Type Drift Detection
+
+TypeScript types are auto-generated from `babelfont-rs` and must stay in sync. The type drift check runs automatically in `npm test`:
+
+```bash
+# Update WASM and types from latest babelfont-rs
+./update-rust-deps.sh
+./build-fontc-wasm.sh
+./regenerate-types.sh
+
+# Verify sync (runs in CI)
+./check-type-drift.sh
+```
+
+All three components (WASM, types, drift check) lock to the same `babelfont-rs` commit via `Cargo.lock` for version coherence.
+
 ## Releasing a New Version
 
 To create and deploy a new release, run the release script from the repository root:

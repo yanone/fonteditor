@@ -368,6 +368,11 @@ class GlyphOverview {
                 '[GlyphOverview]',
                 `Parsed ${outlines.length} glyph outlines`
             );
+            console.log(
+                '[GlyphOverview]',
+                'First glyph data sample:',
+                JSON.stringify(outlines[0], null, 2)
+            );
 
             // Batch all renders in a single animation frame for smooth painting
             const dims = this.getTileDimensions();

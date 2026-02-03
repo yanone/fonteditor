@@ -4,15 +4,14 @@
 // for efficient batch rendering in the overview.
 // Optimized with persistent caching across requests for the same location.
 
-use babelfont::{Layer, Shape, Node};
+use babelfont::{Layer, Shape, Node, Tag};
 use fontdrasil::coords::{DesignCoord, DesignLocation, UserCoord};
 use serde_json::Value as JsonValue;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::cell::RefCell;
 use std::str::FromStr;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
-use write_fonts::types::Tag;
 use kurbo::{Affine, Point};
 
 use crate::interpolation::serialize_layer_with_components_cached;
@@ -205,9 +204,14 @@ pub fn get_glyphs_outlines(
             (flattened, json)
         } else {
             // For non-flattened mode, use cached serialization
-            let shapes_json = serialize_layer_with_components_cached(
+            let layer_json = serialize_layer_with_components_cached(
                 &layer, font, &design_location, &layer_cache, &json_cache
             ).map_err(|e| JsValue::from_str(&e))?;
+            
+            // Extract shapes array from layer JSON, or use empty array if missing
+            let shapes_json = layer_json.get("shapes")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([]));
             
             // For bounds calculation, we need flattened shapes
             let (flattened_for_bounds, _, _) = flatten_layer_components_cached(font, &layer, &design_location, &layer_cache)?;
@@ -328,7 +332,7 @@ fn flatten_layer_components_cached(
                 for ref_shape in ref_shapes {
                     if let Shape::Path(mut path) = ref_shape {
                         // Apply transformation to path nodes
-                        path.nodes = transform_nodes(&path.nodes, &component.transform);
+                        path.nodes = transform_nodes(&path.nodes, &component.transform.as_affine());
                         flattened_shapes.push(Shape::Path(path));
                     }
                 }
@@ -349,6 +353,7 @@ fn transform_nodes(nodes: &[Node], transform: &Affine) -> Vec<Node> {
             y: transformed.y,
             nodetype: node.nodetype,
             smooth: node.smooth,
+            format_specific: node.format_specific.clone(),
         }
     }).collect()
 }

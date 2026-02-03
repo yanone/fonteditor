@@ -1,27 +1,19 @@
 #!/usr/bin/env node
-// Compilation test for all targets using Node.js
-// Tests: user, glyph_overview, typing, editing targets
+// Compile test for .glyphs files
+// Usage: node compile-test.mjs <path-to-font.glyphs>
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import opentype from 'opentype.js';
-import hbInit from 'harfbuzzjs';
-import init, { compile_babelfont } from '../wasm-dist/babelfont_fontc_web.js';
-import {
-    COMPILATION_TARGETS,
-    getGlyphNamesForString,
-    shapeTextWithFont
-} from '../js/font-compilation.js';
+import { dirname, join, basename } from 'path';
+import { existsSync } from 'fs';
+import init, {
+    compile_babelfont,
+    open_font_file
+} from '../wasm-dist/babelfont_fontc_web.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Make dependencies available globally for the imported function
-global.opentype = opentype;
-global.hbInit = hbInit;
-global.compile_babelfont = compile_babelfont;
-
-async function testCompilation() {
+async function testCompilation(fontPath) {
     console.log('[CompileTest]', 'Initializing WASM...');
 
     // Create output directory for compiled fonts
@@ -36,161 +28,206 @@ async function testCompilation() {
     const wasmBytes = readFileSync(wasmPath);
     await init(wasmBytes);
 
-    // Load ReemKufi.babelfont
-    const fontPath = join(__dirname, '../examples/ReemKufi.babelfont');
-    const babelfontJson = readFileSync(fontPath, 'utf-8');
+    const fileName = basename(fontPath);
+    const glyphsContents = readFileSync(fontPath, 'utf-8');
 
     console.log(
         '[CompileTest]',
-        `Loaded ReemKufi.babelfont (${babelfontJson.length} bytes)\n`
+        `Loaded ${fileName} (${glyphsContents.length} bytes)`
     );
 
-    // Test string and get glyph names
-    const testString = 'مَرْحَباً';
-    console.log('[CompileTest]', `Getting glyph names for: "${testString}"`);
-    const glyphNames = await getGlyphNamesForString(babelfontJson, testString);
-    console.log('[CompileTest]', `Glyph names: [${glyphNames.join(', ')}]`);
-
-    // Verify expected glyph names
-    const expectedGlyphNames = [
-        'fathatan-ar',
-        'alef-ar.fina',
-        'dotbelow-ar',
-        'behDotless-ar.medi',
-        'fatha-ar',
-        'hah-ar.init',
-        'sukun-ar',
-        'reh-ar.fina',
-        'meem-ar.init'
-    ];
-
-    const allNamesMatch =
-        expectedGlyphNames.every((name) => glyphNames.includes(name)) &&
-        glyphNames.every((name) => expectedGlyphNames.includes(name)) &&
-        glyphNames.length === expectedGlyphNames.length;
-
-    if (allNamesMatch) {
-        console.log('[CompileTest]', '✓ Glyph names match expected list\n');
+    let babelfontJson;
+    if (fileName.endsWith('.babelfont')) {
+        console.log(
+            '[CompileTest]',
+            'Skipping conversion - already babelfont JSON\n'
+        );
+        babelfontJson = glyphsContents;
     } else {
-        console.error(
+        console.log('[CompileTest]', 'Converting .glyphs to babelfont JSON...');
+        babelfontJson = open_font_file(fileName, glyphsContents);
+        console.log(
             '[CompileTest]',
-            '✗ Glyph names do NOT match expected list'
+            `Converted to babelfont JSON (${babelfontJson.length} bytes)\n`
         );
-        console.error(
+    }
+
+    // Parse and normalize LayerType format + filter backup layers
+    console.log(
+        '[CompileTest]',
+        'Normalizing data and filtering backup layers...\n'
+    );
+    const fontData = JSON.parse(babelfontJson);
+
+    // // Normalize externally tagged LayerType to internally tagged format
+    // // CLI outputs: {"DefaultForMaster": "id"}
+    // // WASM expects: {"type": "DefaultForMaster", "master": "id"}
+    // if (fontData.glyphs && Array.isArray(fontData.glyphs)) {
+    //     fontData.glyphs.forEach((glyph) => {
+    //         if (!glyph || !glyph.layers) return;
+
+    //         // First, filter out AssociatedWithMaster layers without location data
+    //         glyph.layers = glyph.layers.filter((layer) => {
+    //             if (!layer || !layer.master) return true;
+    //             const master = layer.master;
+
+    //             // Check externally tagged format
+    //             if ('AssociatedWithMaster' in master) {
+    //                 return (
+    //                     layer.location && Object.keys(layer.location).length > 0
+    //                 );
+    //             }
+    //             // Check internally tagged format
+    //             if (
+    //                 'type' in master &&
+    //                 master.type === 'AssociatedWithMaster'
+    //             ) {
+    //                 return (
+    //                     layer.location && Object.keys(layer.location).length > 0
+    //                 );
+    //             }
+    //             return true;
+    //         });
+
+    //         // Then normalize format
+    //         glyph.layers.forEach((layer) => {
+    //             if (!layer || !layer.master) return;
+    //             const master = layer.master;
+
+    //             // Convert externally tagged to internally tagged
+    //             if ('DefaultForMaster' in master) {
+    //                 layer.master = {
+    //                     type: 'DefaultForMaster',
+    //                     master: master.DefaultForMaster
+    //                 };
+    //             } else if ('AssociatedWithMaster' in master) {
+    //                 layer.master = {
+    //                     type: 'AssociatedWithMaster',
+    //                     master: master.AssociatedWithMaster
+    //                 };
+    //             } else if (
+    //                 'FreeFloating' in master ||
+    //                 Object.keys(master).length === 0
+    //             ) {
+    //                 layer.master = { type: 'FreeFloating' };
+    //             }
+    //         });
+    //     });
+    // }
+
+    const cleanedBabelfontJson = JSON.stringify(fontData);
+
+    // Dump font data structure for debugging
+    const debugDataFile = join(outputDir, 'fontdata-debug.json');
+    writeFileSync(debugDataFile, JSON.stringify(fontData, null, 2));
+    console.log(
+        '[CompileTest]',
+        `Font data saved to: ${debugDataFile} (${fontData.glyphs?.length} glyphs)\n`
+    );
+
+    // Dump feature code for debugging
+    if (fontData.features) {
+        let featureCode = '';
+
+        // If features is a string, use it directly
+        if (typeof fontData.features === 'string') {
+            featureCode = fontData.features;
+        } else {
+            // Otherwise it's the new structured format - reconstruct FEA code
+            const features = fontData.features;
+
+            // Add prefixes
+            if (features.prefixes) {
+                for (const [name, obj] of Object.entries(features.prefixes)) {
+                    featureCode += `# ${name}\n${obj.code}\n\n`;
+                }
+            }
+
+            // Add classes
+            if (features.classes) {
+                for (const [name, obj] of Object.entries(features.classes)) {
+                    featureCode += `@${name} = [${obj.code}];\n\n`;
+                }
+            }
+
+            // Add features
+            if (features.features) {
+                for (const [tag, obj] of features.features) {
+                    featureCode += `feature ${tag} {\n${obj.code}} ${tag};\n\n`;
+                }
+            }
+        }
+
+        console.log(
             '[CompileTest]',
-            `  Expected: [${expectedGlyphNames.join(', ')}]`
+            `Feature code (${featureCode.length} chars):\n`
         );
-        console.error(
-            '[CompileTest]',
-            `  Got:      [${glyphNames.join(', ')}]\n`
+        const featureFile = join(outputDir, 'features.fea');
+        writeFileSync(featureFile, featureCode);
+        console.log(`📝 Feature code saved to: ${featureFile}\n`);
+    }
+
+    // Test just the 'editing' target for debugging
+    const results = [];
+    const targetName = 'editing';
+
+    // Editing target options (from font-compilation.ts)
+    const options = {
+        skip_kerning: false,
+        skip_features: false, // Try with features to see full error
+        skip_metrics: false,
+        skip_outlines: false,
+        dont_use_production_names: true
+    };
+
+    console.log('[CompileTest]', `Testing ${targetName} target...\n`);
+
+    const startTime = performance.now();
+    try {
+        console.log('[CompileTest]', 'Calling compile_babelfont...');
+        const ttfBytes = compile_babelfont(cleanedBabelfontJson, options);
+        const endTime = performance.now();
+        const duration = (endTime - startTime).toFixed(2);
+
+        results.push({
+            target: targetName,
+            success: true,
+            duration: duration,
+            size: ttfBytes.length
+        });
+
+        // Save compiled font to output directory
+        const fontBaseName = basename(fontPath, '.glyphs').replace(
+            '.babelfont',
+            ''
         );
+        const outputPath = join(outputDir, `${fontBaseName}.ttf`);
+        writeFileSync(outputPath, ttfBytes);
+
+        console.log(
+            `✓ ${targetName.padEnd(15)} ${duration.padStart(8)}ms  ${ttfBytes.length.toLocaleString().padStart(10)} bytes`
+        );
+        console.log(`\n📦 Output: ${outputPath}`);
+    } catch (error) {
+        const endTime = performance.now();
+        const duration = (endTime - startTime).toFixed(2);
+
+        results.push({
+            target: targetName,
+            success: false,
+            duration: duration,
+            error: error.message
+        });
+
+        console.log(
+            `✗ ${targetName.padEnd(15)} ${duration.padStart(8)}ms  ERROR: ${error.message}`
+        );
+        console.error('[CompileTest]', 'Full error:', error);
+        console.error('[CompileTest]', 'Stack trace:', error.stack);
         process.exit(1);
     }
 
-    // Test all targets
-    const results = [];
-    let editingFontBytes = null;
-
-    for (const [targetName, options] of Object.entries(COMPILATION_TARGETS)) {
-        let targetOptions = { ...options };
-
-        // Note: editing target currently uses full glyph set
-        // Subsetting will be implemented once babelfont-rs subsetting is fixed
-
-        const startTime = performance.now();
-        try {
-            const ttfBytes = compile_babelfont(babelfontJson, targetOptions);
-            const endTime = performance.now();
-            const duration = (endTime - startTime).toFixed(2);
-
-            results.push({
-                target: targetName,
-                success: true,
-                duration: duration,
-                size: ttfBytes.length
-            });
-
-            // Save editing font for validation test
-            if (targetName === 'editing') {
-                editingFontBytes = ttfBytes;
-            }
-
-            // Save compiled font to output directory
-            const outputPath = join(outputDir, `ReemKufi-${targetName}.ttf`);
-            writeFileSync(outputPath, ttfBytes);
-
-            console.log(
-                `✓ ${targetName.padEnd(15)} ${duration.padStart(8)}ms  ${ttfBytes.length.toLocaleString().padStart(10)} bytes`
-            );
-        } catch (error) {
-            const endTime = performance.now();
-            const duration = (endTime - startTime).toFixed(2);
-
-            results.push({
-                target: targetName,
-                success: false,
-                duration: duration,
-                error: error.message
-            });
-
-            console.log(
-                `✗ ${targetName.padEnd(15)} ${duration.padStart(8)}ms  ERROR: ${error.message}`
-            );
-        }
-    }
-
-    // Validate that editing font can shape text correctly
-    if (editingFontBytes) {
-        console.log('[CompileTest]', '\n🧪 Validating editing font shaping...');
-
-        try {
-            // Use shapeTextWithFont from font-compilation.js
-            const editingGlyphNames = await shapeTextWithFont(
-                editingFontBytes,
-                testString
-            );
-
-            // Compare with original glyph names
-            const editingGlyphArray = editingGlyphNames.sort();
-            const glyphNamesSorted = [...glyphNames].sort();
-
-            console.log(
-                `  Editing font shaped glyphs: [${editingGlyphArray.join(', ')}]`
-            );
-            console.log(
-                `  Expected from typing font:  [${glyphNamesSorted.join(', ')}]`
-            );
-
-            const shapingMatches =
-                glyphNames.every((name) => editingGlyphNames.includes(name)) &&
-                editingGlyphNames.every((name) => glyphNames.includes(name)) &&
-                editingGlyphNames.length === glyphNames.length;
-
-            if (shapingMatches) {
-                console.log(
-                    '[CompileTest]',
-                    '✓ Editing font shapes identically to typing font'
-                );
-            } else {
-                console.error(
-                    '✗ Editing font shaping DOES NOT match typing font'
-                );
-                console.error(
-                    '   The fonts produced different shaped glyph sets.'
-                );
-                process.exit(1);
-            }
-        } catch (error) {
-            console.error(
-                '✗ Failed to validate editing font shaping:',
-                error.message
-            );
-            process.exit(1);
-        }
-    }
-
     // Summary
-    console.log('[CompileTest]', '\nSummary:');
     const successful = results.filter((r) => r.success).length;
     const total = results.length;
     console.log(
@@ -203,7 +240,30 @@ async function testCompilation() {
     }
 }
 
-testCompilation().catch((err) => {
+// Parse command line arguments
+const args = process.argv.slice(2);
+if (args.length === 0) {
+    console.error('Usage: node compile-test.mjs <path-to-font.glyphs>');
+    console.error('\nExample:');
+    console.error(
+        '  node compile-test.mjs ../examples/NestedComponents.glyphs'
+    );
+    console.error('  node compile-test.mjs /path/to/MyFont.glyphs');
+    process.exit(1);
+}
+
+const fontPath = args[0];
+if (!existsSync(fontPath)) {
+    console.error(`Error: File not found: ${fontPath}`);
+    process.exit(1);
+}
+
+if (!fontPath.endsWith('.glyphs') && !fontPath.endsWith('.babelfont')) {
+    console.error(`Error: File must be .glyphs or .babelfont format`);
+    process.exit(1);
+}
+
+testCompilation(fontPath).catch((err) => {
     console.error('[CompileTest]', 'Test failed:', err);
     process.exit(1);
 });

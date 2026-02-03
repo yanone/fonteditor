@@ -16,6 +16,91 @@ import { LayerDataNormalizer } from './layer-data-normalizer';
 import { Bezier } from 'bezier-js';
 
 /**
+ * DecomposedAffine transformation utilities
+ * Based on babelfont-ts implementation
+ */
+export class DecomposedAffineTransform {
+    /**
+     * Convert DecomposedAffine to affine matrix [a, b, c, d, e, f]
+     * Handles the transform order (Glyphs vs RestOfTheWorld)
+     */
+    static toAffine(
+        decomposed: Babelfont.DecomposedAffine
+    ): [number, number, number, number, number, number] {
+        const translation = decomposed.translation || [0, 0];
+        const scale = decomposed.scale || [1, 1];
+        const rotation = decomposed.rotation || 0;
+        const skew = decomposed.skew || [0, 0];
+        const order = decomposed.order || 'RestOfTheWorld';
+
+        // Helper to compose transformations
+        const composeTransforms = (...transforms: number[][]): number[] => {
+            return transforms.reduce(
+                (acc, t) => {
+                    const [a1, b1, c1, d1, e1, f1] = acc;
+                    const [a2, b2, c2, d2, e2, f2] = t;
+                    return [
+                        a1 * a2 + c1 * b2,
+                        b1 * a2 + d1 * b2,
+                        a1 * c2 + c1 * d2,
+                        b1 * c2 + d1 * d2,
+                        a1 * e2 + c1 * f2 + e1,
+                        b1 * e2 + d1 * f2 + f1
+                    ];
+                },
+                [1, 0, 0, 1, 0, 0]
+            );
+        };
+
+        // Individual transform matrices
+        const translateMatrix = [1, 0, 0, 1, translation[0], translation[1]];
+        const rotateMatrix = [
+            Math.cos(rotation),
+            Math.sin(rotation),
+            -Math.sin(rotation),
+            Math.cos(rotation),
+            0,
+            0
+        ];
+        const scaleMatrix = [scale[0], 0, 0, scale[1], 0, 0];
+        const skewMatrix = [1, Math.tan(skew[1]), Math.tan(skew[0]), 1, 0, 0];
+
+        if (order === 'Glyphs') {
+            // Glyphs order: translate → skew → rotate → scale
+            return composeTransforms(
+                translateMatrix,
+                skewMatrix,
+                rotateMatrix,
+                scaleMatrix
+            ) as [number, number, number, number, number, number];
+        } else {
+            // RestOfTheWorld order: translate → rotate → scale → skew
+            return composeTransforms(
+                translateMatrix,
+                rotateMatrix,
+                scaleMatrix,
+                skewMatrix
+            ) as [number, number, number, number, number, number];
+        }
+    }
+
+    /**
+     * Create identity transform
+     */
+    static identity(
+        order?: Babelfont.TransformOrder
+    ): Babelfont.DecomposedAffine {
+        return {
+            translation: [0, 0],
+            scale: [1, 1],
+            rotation: 0,
+            skew: [0, 0],
+            order: order || ('RestOfTheWorld' as Babelfont.TransformOrder)
+        };
+    }
+}
+
+/**
  * Mark the current font as dirty when data is modified
  */
 function markFontDirty(): void {
@@ -145,7 +230,7 @@ export class Path extends ArrayElementBase {
         // This ensures all future accesses see the array, and modifications
         // are properly persisted to the JSON structure.
         if (typeof this.data.nodes === 'string') {
-            this.data.nodes = this.parseNodesString(this.data.nodes);
+            this.data.nodes = Path.parseNodesString(this.data.nodes);
         }
 
         // Ensure nodes is an array (defensive)
@@ -175,7 +260,7 @@ export class Path extends ArrayElementBase {
      * Format: "x1 y1 type x2 y2 type ..."
      * Types: m, l, o, c, q (with optional 's' suffix for smooth)
      */
-    private parseNodesString(nodesStr: string): Babelfont.Node[] {
+    static parseNodesString(nodesStr: string): Babelfont.Node[] {
         const trimmed = nodesStr.trim();
         if (!trimmed) return [];
 
@@ -185,7 +270,7 @@ export class Path extends ArrayElementBase {
         for (let i = 0; i + 2 < tokens.length; i += 3) {
             const typeStr = tokens[i + 2];
             const smooth = typeStr.endsWith('s');
-            const nodetype = this.mapNodeType(
+            const nodetype = Path.mapNodeType(
                 smooth ? typeStr.slice(0, -1) : typeStr
             );
 
@@ -208,15 +293,16 @@ export class Path extends ArrayElementBase {
     /**
      * Map short node type to Babelfont.NodeType
      */
-    private mapNodeType(shortType: string): Babelfont.NodeType {
-        const map: Record<string, Babelfont.NodeType> = {
-            m: 'Move',
-            l: 'Line',
-            o: 'OffCurve',
-            c: 'Curve',
-            q: 'QCurve'
+    static mapNodeType(shortType: string): Babelfont.NodeType {
+        const map = {
+            m: 'Move' as const,
+            l: 'Line' as const,
+            o: 'OffCurve' as const,
+            c: 'Curve' as const,
+            q: 'QCurve' as const
         };
-        return map[shortType] || 'Line';
+        return (map[shortType as keyof typeof map] ||
+            'Line') as Babelfont.NodeType;
     }
 
     /**
@@ -291,11 +377,11 @@ export class Path extends ArrayElementBase {
         this.data.closed = value;
     }
 
-    get format_specific(): Babelfont.FormatSpecific | undefined {
+    get format_specific(): Record<string, any> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Babelfont.FormatSpecific | undefined) {
+    set format_specific(value: Record<string, any> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -308,7 +394,7 @@ export class Path extends ArrayElementBase {
         index: number,
         x: number,
         y: number,
-        nodetype: Babelfont.NodeType = 'Line',
+        nodetype: Babelfont.NodeType = 'Line' as Babelfont.NodeType,
         smooth?: boolean
     ): Node {
         const nodeData: Babelfont.Node = { x, y, nodetype };
@@ -340,7 +426,7 @@ export class Path extends ArrayElementBase {
     appendNode(
         x: number,
         y: number,
-        nodetype: Babelfont.NodeType = 'Line',
+        nodetype: Babelfont.NodeType = 'Line' as Babelfont.NodeType,
         smooth?: boolean
     ): Node {
         return this.insertNode(this.data.nodes.length, x, y, nodetype, smooth);
@@ -367,20 +453,38 @@ export class Component extends ArrayElementBase {
         this.data.reference = value;
     }
 
-    get transform(): number[] | undefined {
+    get transform(): Babelfont.DecomposedAffine {
         return this.data.transform;
     }
 
-    set transform(value: number[] | undefined) {
+    set transform(value: Babelfont.DecomposedAffine) {
         this.data.transform = value;
     }
 
-    get format_specific(): Babelfont.FormatSpecific | undefined {
+    get location(): Record<string, number> | undefined {
+        return this.data.location;
+    }
+
+    set location(value: Record<string, number> | undefined) {
+        this.data.location = value;
+    }
+
+    get format_specific(): Record<string, any> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Babelfont.FormatSpecific | undefined) {
+    set format_specific(value: Record<string, any> | undefined) {
         this.data.format_specific = value;
+    }
+
+    /**
+     * Convert transform to affine matrix array [a, b, c, d, e, f]
+     * Uses the proper DecomposedAffineTransform utility
+     */
+    toAffineArray(): number[] {
+        return DecomposedAffineTransform.toAffine(
+            this.transform || DecomposedAffineTransform.identity()
+        );
     }
 
     toString(): string {
@@ -397,7 +501,14 @@ export class Component extends ArrayElementBase {
      */
     getTransformedPaths(): Babelfont.Path[] {
         const paths: Babelfont.Path[] = [];
-        const componentTransform = this.transform || [1, 0, 0, 1, 0, 0];
+        const componentTransform =
+            this.transform ||
+            ({
+                translation: [0, 0],
+                scale: [1, 1],
+                rotation: 0,
+                skew: [0, 0]
+            } as Babelfont.DecomposedAffine);
 
         // Get the Font object to look up component glyphs
         // Component -> Shape -> Layer -> Glyph -> Font
@@ -468,10 +579,11 @@ export class Component extends ArrayElementBase {
                     const nestedPaths = nestedComponent.getTransformedPaths();
 
                     // Apply this component's transform to all nested paths
+                    const transformArray =
+                        DecomposedAffineTransform.toAffine(componentTransform);
                     for (const nestedPath of nestedPaths) {
                         const transformedNodes = nestedPath.nodes.map(
-                            (node: any) =>
-                                transformNode(node, componentTransform)
+                            (node: any) => transformNode(node, transformArray)
                         );
                         paths.push({
                             nodes: transformedNodes,
@@ -489,8 +601,12 @@ export class Component extends ArrayElementBase {
                     }
 
                     if (nodes && Array.isArray(nodes) && nodes.length > 0) {
+                        const transformArray =
+                            DecomposedAffineTransform.toAffine(
+                                componentTransform
+                            );
                         const transformedNodes = nodes.map((node: any) =>
-                            transformNode(node, componentTransform)
+                            transformNode(node, transformArray)
                         );
                         paths.push({
                             nodes: transformedNodes,
@@ -536,11 +652,11 @@ export class Anchor extends ArrayElementBase {
         this.data.name = value;
     }
 
-    get format_specific(): Babelfont.FormatSpecific | undefined {
+    get format_specific(): Record<string, any> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Babelfont.FormatSpecific | undefined) {
+    set format_specific(value: Record<string, any> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -578,11 +694,11 @@ export class Guide extends ArrayElementBase {
         this.data.color = value;
     }
 
-    get format_specific(): Babelfont.FormatSpecific | undefined {
+    get format_specific(): Record<string, any> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Babelfont.FormatSpecific | undefined) {
+    set format_specific(value: Record<string, any> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -700,9 +816,9 @@ export class Layer extends ArrayElementBase {
         // Translate all shapes (paths and components)
         if (this.data.shapes) {
             for (const shape of this.data.shapes) {
-                if ('Path' in shape && shape.Path.nodes) {
+                if ('nodes' in shape && shape.nodes) {
                     // Parse nodes from string format
-                    let nodes = shape.Path.nodes;
+                    let nodes = shape.nodes;
                     if (typeof nodes === 'string') {
                         nodes = LayerDataNormalizer.parseNodes(nodes);
                     }
@@ -713,16 +829,15 @@ export class Layer extends ArrayElementBase {
                             node.x += offset;
                         }
                         // Serialize back to string format
-                        shape.Path.nodes =
-                            LayerDataNormalizer.serializeNodes(nodes);
+                        shape.nodes = LayerDataNormalizer.serializeNodes(nodes);
                     }
-                } else if ('Component' in shape) {
+                } else if ('reference' in shape) {
                     // Update component transform translation
-                    if (!shape.Component.transform) {
+                    if (!shape.transform) {
                         // Create identity transform if none exists
-                        shape.Component.transform = [1, 0, 0, 1, 0, 0];
+                        shape.transform = [1, 0, 0, 1, 0, 0];
                     }
-                    shape.Component.transform[4] += offset; // Update x translation
+                    shape.transform[4] += offset; // Update x translation
                 }
             }
         }
@@ -789,6 +904,14 @@ export class Layer extends ArrayElementBase {
 
     set master(value: Babelfont.LayerType | undefined) {
         this.data.master = value;
+    }
+
+    get smart_component_location(): Record<string, number> | undefined {
+        return this.data.smart_component_location;
+    }
+
+    set smart_component_location(value: Record<string, number> | undefined) {
+        this.data.smart_component_location = value;
     }
 
     get guides(): Guide[] | undefined {
@@ -870,11 +993,11 @@ export class Layer extends ArrayElementBase {
         this.data.location = value;
     }
 
-    get format_specific(): Babelfont.FormatSpecific | undefined {
+    get format_specific(): Record<string, any> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Babelfont.FormatSpecific | undefined) {
+    set format_specific(value: Record<string, any> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -900,7 +1023,7 @@ export class Layer extends ArrayElementBase {
             nodes: [],
             closed
         };
-        const shapeData: Babelfont.Shape = { Path: pathData };
+        const shapeData: Babelfont.Shape = pathData;
         const shape = this.addShape(shapeData);
         return shape.asPath();
     }
@@ -909,17 +1032,53 @@ export class Layer extends ArrayElementBase {
      * Add a new component to the layer
      * @example
      * component = layer.addComponent("A")
-     * # With transformation
+     * # With transformation matrix (legacy 6-element format converted to DecomposedAffine)
      * component = layer.addComponent("acutecomb", [1, 0, 0, 1, 250, 500])
      */
-    addComponent(reference: string, transform?: number[]): Component {
-        const componentData: Babelfont.Component = { reference };
-        if (transform) {
-            componentData.transform = transform;
-        }
-        const shapeData: Babelfont.Shape = { Component: componentData };
+    addComponent(
+        reference: string,
+        transform?: number[] | Babelfont.DecomposedAffine
+    ): Component {
+        const componentData: Babelfont.Component = {
+            reference,
+            transform: this.normalizeTransform(transform)
+        };
+        const shapeData: Babelfont.Shape = componentData;
         const shape = this.addShape(shapeData);
         return shape.asComponent();
+    }
+
+    /**
+     * Normalize transform to DecomposedAffine format
+     * Converts legacy 6-element affine matrix to DecomposedAffine
+     */
+    private normalizeTransform(
+        transform?: number[] | Babelfont.DecomposedAffine
+    ): Babelfont.DecomposedAffine {
+        if (!transform) {
+            // Identity transform
+            return {
+                translation: [0, 0],
+                scale: [1, 1],
+                rotation: 0,
+                skew: [0, 0]
+            };
+        }
+
+        if (Array.isArray(transform)) {
+            // Legacy 6-element affine matrix [a, b, c, d, tx, ty]
+            // For now, just extract translation and scale
+            // TODO: proper decomposition from affine matrix
+            const [a, b, c, d, tx, ty] = transform;
+            return {
+                translation: [tx, ty],
+                scale: [a, d],
+                rotation: 0,
+                skew: [0, 0]
+            };
+        }
+
+        return transform;
     }
 
     /**
@@ -1120,6 +1279,16 @@ export class Layer extends ArrayElementBase {
             return result;
         };
 
+        // Helper to convert DecomposedAffine to affine matrix array
+        const toAffineArray = (
+            transform: Babelfont.DecomposedAffine | number[] | undefined
+        ): number[] => {
+            if (!transform) return [1, 0, 0, 1, 0, 0];
+            if (Array.isArray(transform)) return transform;
+            // Use the proper transform composition from DecomposedAffineTransform
+            return Array.from(DecomposedAffineTransform.toAffine(transform));
+        };
+
         // Helper function to combine two transform matrices
         const combineTransforms = (t1: number[], t2: number[]): number[] => {
             const [a1, b1, c1, d1, tx1, ty1] = t1;
@@ -1142,11 +1311,9 @@ export class Layer extends ArrayElementBase {
             if (!shapes || !Array.isArray(shapes)) return;
 
             for (const shape of shapes) {
-                if ('Component' in shape) {
+                if ('reference' in shape) {
                     // Component - recursively process its outline shapes with accumulated transform
-                    const compTransform = shape.Component.transform || [
-                        1, 0, 0, 1, 0, 0
-                    ];
+                    const compTransform = toAffineArray(shape.transform);
                     const combinedTransform = combineTransforms(
                         transform,
                         compTransform
@@ -1154,13 +1321,11 @@ export class Layer extends ArrayElementBase {
 
                     // Get component's layer data - either from pre-populated layerData
                     // or by looking up the component glyph in the font
-                    let componentLayerData = shape.Component.layerData;
+                    let componentLayerData = shape.layerData;
 
                     if (!componentLayerData && font) {
                         // Look up the component glyph and get the matching layer for the current master
-                        const componentGlyph = font.findGlyph(
-                            shape.Component.reference
-                        );
+                        const componentGlyph = font.findGlyph(shape.reference);
                         if (componentGlyph && componentGlyph.layers) {
                             let layer;
                             if (masterId) {
@@ -1189,9 +1354,9 @@ export class Layer extends ArrayElementBase {
                             combinedTransform
                         );
                     }
-                } else if ('Path' in shape && shape.Path.nodes) {
+                } else if ('nodes' in shape && shape.nodes) {
                     // Path with nested structure
-                    let nodes = shape.Path.nodes;
+                    let nodes = shape.nodes;
 
                     // Parse nodes if they're a string
                     if (typeof nodes === 'string') {
@@ -1206,7 +1371,7 @@ export class Layer extends ArrayElementBase {
 
                         flattenedPaths.push({
                             nodes: transformedNodes,
-                            closed: shape.Path.closed
+                            closed: shape.closed
                         });
                     }
                 } else if (
@@ -1631,15 +1796,15 @@ export class Layer extends ArrayElementBase {
      */
     getMatchingLayerOnGlyph(glyphName: string): Layer | undefined {
         // Get the master ID of this layer
-        let thisMasterId: string | undefined;
+        let thisMasterId: string | undefined = undefined;
         if (typeof this.master === 'object') {
             if ('DefaultForMaster' in this.master) {
-                thisMasterId = this.master.DefaultForMaster;
+                thisMasterId = this.master.DefaultForMaster as string;
             } else if ('AssociatedWithMaster' in this.master) {
-                thisMasterId = this.master.AssociatedWithMaster;
+                thisMasterId = this.master.AssociatedWithMaster as string;
             }
         } else {
-            thisMasterId = this.master;
+            thisMasterId = this.master as string | undefined;
         }
 
         if (!thisMasterId) {
@@ -1659,15 +1824,15 @@ export class Layer extends ArrayElementBase {
 
         // Find the layer on the target glyph with the same master ID
         for (const layer of targetGlyph.layers) {
-            let layerMasterId: string | undefined;
+            let layerMasterId: string | undefined = undefined;
             if (typeof layer.master === 'object') {
                 if ('DefaultForMaster' in layer.master) {
-                    layerMasterId = layer.master.DefaultForMaster;
+                    layerMasterId = layer.master.DefaultForMaster as string;
                 } else if ('AssociatedWithMaster' in layer.master) {
-                    layerMasterId = layer.master.AssociatedWithMaster;
+                    layerMasterId = layer.master.AssociatedWithMaster as string;
                 }
             } else {
-                layerMasterId = layer.master;
+                layerMasterId = layer.master as string | undefined;
             }
 
             if (layerMasterId === thisMasterId) {
@@ -1679,17 +1844,15 @@ export class Layer extends ArrayElementBase {
     }
 
     toString(): string {
-        let masterId: string;
+        let masterId: string = 'unknown';
         if (typeof this.master === 'object') {
             if ('DefaultForMaster' in this.master) {
-                masterId = this.master.DefaultForMaster;
+                masterId = this.master.DefaultForMaster as string;
             } else if ('AssociatedWithMaster' in this.master) {
-                masterId = this.master.AssociatedWithMaster;
-            } else {
-                masterId = 'unknown';
+                masterId = this.master.AssociatedWithMaster as string;
             }
-        } else {
-            masterId = this.master || 'none';
+        } else if (this.master) {
+            masterId = this.master as string;
         }
         const shapesCount = this.shapes?.length || 0;
         return `<Layer width=${this.width} master="${masterId}" shapes=${shapesCount}>`;
@@ -1764,21 +1927,35 @@ export class Glyph extends ArrayElementBase {
             // Skip background layers
             if (layer.is_background) continue;
 
-            // Check if this is a default layer (has DefaultForMaster in master dict)
+            // Check if this is a default layer
+            // New format: {type: "DefaultForMaster", master: "id"}
+            // Old format: {DefaultForMaster: "id"}
             const isDefaultLayer =
                 layer.master &&
                 typeof layer.master === 'object' &&
-                'DefaultForMaster' in layer.master;
+                (('type' in layer.master &&
+                    layer.master.type === 'DefaultForMaster') ||
+                    'DefaultForMaster' in layer.master);
 
             if (!isDefaultLayer) continue;
 
-            // Extract master ID from layer.master.DefaultForMaster or use layer._master
-            const masterId =
-                layer.master &&
-                typeof layer.master === 'object' &&
-                'DefaultForMaster' in layer.master
-                    ? layer.master.DefaultForMaster
-                    : layer._master || layer.id;
+            // Extract master ID from layer.master
+            // New format: layer.master.master
+            // Old format: layer.master.DefaultForMaster
+            let masterId: string | undefined;
+            if (layer.master && typeof layer.master === 'object') {
+                if (
+                    'type' in layer.master &&
+                    layer.master.type === 'DefaultForMaster'
+                ) {
+                    masterId = (layer.master as any).master;
+                } else if ('DefaultForMaster' in layer.master) {
+                    masterId = (layer.master as any).DefaultForMaster;
+                }
+            }
+            if (!masterId) {
+                masterId = layer._master || layer.id;
+            }
 
             if (!masterId || !masterIds.has(masterId)) continue;
 
@@ -1795,15 +1972,21 @@ export class Glyph extends ArrayElementBase {
             // Extract master IDs from the wrappers
             const getMasterId = (layer: Layer): string => {
                 const masterData = layer.master;
-                if (
-                    masterData &&
-                    typeof masterData === 'object' &&
-                    'DefaultForMaster' in masterData
-                ) {
-                    return masterData.DefaultForMaster;
+                if (masterData && typeof masterData === 'object') {
+                    // New format: {type: "DefaultForMaster", master: "id"}
+                    if (
+                        'type' in masterData &&
+                        masterData.type === 'DefaultForMaster'
+                    ) {
+                        return (masterData as any).master || '';
+                    }
+                    // Old format: {DefaultForMaster: "id"}
+                    if ('DefaultForMaster' in masterData) {
+                        return (masterData as any).DefaultForMaster || '';
+                    }
                 }
-                // Fallback to raw data access
-                return (layer as any).data._master || layer.id || '';
+                // Fallback to layer id
+                return layer.id || '';
             };
 
             const masterIdA = getMasterId(a);
@@ -1843,11 +2026,11 @@ export class Glyph extends ArrayElementBase {
         this.data.direction = value;
     }
 
-    get formatspecific(): Babelfont.FormatSpecific | undefined {
+    get formatspecific(): Record<string, any> | undefined {
         return this.data.formatspecific;
     }
 
-    set formatspecific(value: Babelfont.FormatSpecific | undefined) {
+    set formatspecific(value: Record<string, any> | undefined) {
         this.data.formatspecific = value;
     }
 
@@ -1909,6 +2092,20 @@ export class Glyph extends ArrayElementBase {
             const master = l.master;
             if (!master) return false;
             if (typeof master === 'object') {
+                // New format: {type: "DefaultForMaster", master: "id"}
+                if (
+                    master.type === 'DefaultForMaster' &&
+                    master.master === masterId
+                ) {
+                    return true;
+                }
+                if (
+                    master.type === 'AssociatedWithMaster' &&
+                    master.master === masterId
+                ) {
+                    return true;
+                }
+                // Old format: {DefaultForMaster: "id"}
                 return (
                     master.DefaultForMaster === masterId ||
                     master.AssociatedWithMaster === masterId
@@ -2008,11 +2205,11 @@ export class Axis extends ArrayElementBase {
         this.data.values = value;
     }
 
-    get formatspecific(): Babelfont.FormatSpecific | undefined {
+    get formatspecific(): Record<string, any> | undefined {
         return this.data.formatspecific;
     }
 
-    set formatspecific(value: Babelfont.FormatSpecific | undefined) {
+    set formatspecific(value: Record<string, any> | undefined) {
         this.data.formatspecific = value;
     }
 
@@ -2087,19 +2284,19 @@ export class Master extends ArrayElementBase {
         this.data.kerning = value;
     }
 
-    get custom_ot_values(): Babelfont.OTValue[] | undefined {
+    get custom_ot_values(): any[] | undefined {
         return this.data.custom_ot_values;
     }
 
-    set custom_ot_values(value: Babelfont.OTValue[] | undefined) {
+    set custom_ot_values(value: any[] | undefined) {
         this.data.custom_ot_values = value;
     }
 
-    get format_specific(): Babelfont.FormatSpecific | undefined {
+    get format_specific(): Record<string, any> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Babelfont.FormatSpecific | undefined) {
+    set format_specific(value: Record<string, any> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -2167,11 +2364,11 @@ export class Instance extends ArrayElementBase {
         this.data.linked_style = value;
     }
 
-    get format_specific(): Babelfont.FormatSpecific | undefined {
+    get format_specific(): Record<string, any> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Babelfont.FormatSpecific | undefined) {
+    set format_specific(value: Record<string, any> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -2292,11 +2489,11 @@ export class Font extends ModelBase {
         this._data.names = value;
     }
 
-    get custom_ot_values(): Babelfont.OTValue[] | undefined {
+    get custom_ot_values(): any[] | undefined {
         return this._data.custom_ot_values;
     }
 
-    set custom_ot_values(value: Babelfont.OTValue[] | undefined) {
+    set custom_ot_values(value: any[] | undefined) {
         this._data.custom_ot_values = value;
     }
 
@@ -2336,11 +2533,11 @@ export class Font extends ModelBase {
         this._data.second_kern_groups = value;
     }
 
-    get format_specific(): Babelfont.FormatSpecific | undefined {
+    get format_specific(): Record<string, any> | undefined {
         return this._data.format_specific;
     }
 
-    set format_specific(value: Babelfont.FormatSpecific | undefined) {
+    set format_specific(value: Record<string, any> | undefined) {
         this._data.format_specific = value;
     }
 
@@ -2479,7 +2676,8 @@ export class Font extends ModelBase {
         const glyphData: Babelfont.Glyph = {
             name,
             category,
-            layers: []
+            layers: [],
+            exported: true
         };
         this._data.glyphs.push(glyphData);
         this._glyphWrappers = null; // Invalidate cache

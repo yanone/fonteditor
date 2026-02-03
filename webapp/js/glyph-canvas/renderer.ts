@@ -1,12 +1,28 @@
 import { adjustColorHueAndLightness, desaturateColor } from '../design';
 import APP_SETTINGS from '../settings';
-import { Layer } from '../babelfont-model';
+import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 
 import type { ViewportManager } from './viewport';
 import type { TextRunEditor } from './textrun';
 import { GlyphCanvas } from '../glyph-canvas';
 import { LayerDataNormalizer } from '../layer-data-normalizer';
 import type { Babelfont } from '../babelfont';
+
+/**
+ * Extract nodes array from a Shape union type with proper type checking
+ */
+function getNodesFromShape(
+    shape: Babelfont.Shape
+): Babelfont.Node[] | undefined {
+    // Handle unwrapped Path type
+    if ('nodes' in shape && shape.nodes) {
+        const nodes = shape.nodes;
+        return typeof nodes === 'string'
+            ? LayerDataNormalizer.parseNodes(nodes)
+            : nodes;
+    }
+    return undefined;
+}
 
 /**
  * Calculate bounding box from SVG path data
@@ -620,18 +636,16 @@ export class GlyphCanvasRenderer {
                 });
             }
             // Handle nested components recursively
-            else if (
-                'Component' in shape &&
-                shape.Component.layerData?.shapes
-            ) {
+            else if ('reference' in shape && shape.layerData?.shapes) {
                 const nestedBounds = this.getComponentBounds(
-                    shape.Component.layerData.shapes
+                    shape.layerData.shapes
                 );
                 if (nestedBounds.hasPoints) {
                     // Apply the nested component's transform to its bounds
-                    const transform = shape.Component.transform || [
-                        1, 0, 0, 1, 0, 0
-                    ];
+                    const transformRaw = shape.transform || [1, 0, 0, 1, 0, 0];
+                    const transform = Array.isArray(transformRaw)
+                        ? transformRaw
+                        : DecomposedAffineTransform.toAffine(transformRaw);
                     const [a, b, c, d, tx, ty] = transform;
 
                     // Transform all four corners of the bounding box
@@ -764,10 +778,7 @@ export class GlyphCanvasRenderer {
                 }
 
                 // Get nodes from shape
-                let nodes = 'nodes' in shape ? shape.nodes : undefined;
-                if (!nodes && 'Path' in shape && shape.Path.nodes) {
-                    nodes = LayerDataNormalizer.parseNodes(shape.Path.nodes);
-                }
+                const nodes = getNodesFromShape(shape);
 
                 if (nodes && nodes.length > 0) {
                     this.buildPathFromNodes(nodes);
@@ -866,19 +877,18 @@ export class GlyphCanvasRenderer {
             if (currentLayerData && currentLayerData.shapes) {
                 // Calculate bounds from all contours
                 currentLayerData.shapes.forEach((shape) => {
-                    if (
-                        'nodes' in shape &&
-                        shape.nodes &&
-                        shape.nodes.length > 0
-                    ) {
-                        shape.nodes.forEach(
-                            ({ x, y }: { x: number; y: number }) => {
-                                minX = Math.min(minX, x);
-                                maxX = Math.max(maxX, x);
-                                minY = Math.min(minY, y);
-                                maxY = Math.max(maxY, y);
-                            }
-                        );
+                    if ('nodes' in shape && shape.nodes) {
+                        const nodes = shape.nodes as Babelfont.Node[];
+                        if (nodes.length > 0) {
+                            nodes.forEach(
+                                ({ x, y }: { x: number; y: number }) => {
+                                    minX = Math.min(minX, x);
+                                    maxX = Math.max(maxX, x);
+                                    minY = Math.min(minY, y);
+                                    maxY = Math.max(maxY, y);
+                                }
+                            );
+                        }
                     }
                 });
                 // Add padding
@@ -975,14 +985,9 @@ export class GlyphCanvasRenderer {
 
             // Draw components
             currentLayerData.shapes.forEach((shape, index: number) => {
-                if (!('Component' in shape)) {
+                if (!('reference' in shape)) {
                     return; // Not a component
                 }
-
-                console.log(
-                    '[Renderer]',
-                    `Component ${index}: reference="${shape.Component.reference}"`
-                );
 
                 // Disable selection/hover highlighting for interpolated data
                 const isInterpolated =
@@ -1001,45 +1006,30 @@ export class GlyphCanvasRenderer {
                     );
 
                 // Get full transform matrix [a, b, c, d, tx, ty]
-                let a = 1,
-                    b = 0,
-                    c = 0,
-                    d = 1,
-                    tx = 0,
-                    ty = 0;
-                if (
-                    'Component' in shape &&
-                    Array.isArray(shape.Component.transform)
-                ) {
-                    a = shape.Component.transform[0] || 1;
-                    b = shape.Component.transform[1] || 0;
-                    c = shape.Component.transform[2] || 0;
-                    d = shape.Component.transform[3] || 1;
-                    tx = shape.Component.transform[4] || 0;
-                    ty = shape.Component.transform[5] || 0;
-                }
+                const transformRaw =
+                    'reference' in shape && shape.transform
+                        ? shape.transform
+                        : undefined;
+                const transform = !transformRaw
+                    ? [1, 0, 0, 1, 0, 0]
+                    : Array.isArray(transformRaw)
+                      ? transformRaw
+                      : DecomposedAffineTransform.toAffine(transformRaw);
+                const [a, b, c, d, tx, ty] = transform;
 
                 this.ctx.save();
 
                 // Apply component transform
-                console.log('[Renderer] Applying component shape transform:', [
-                    a,
-                    b,
-                    c,
-                    d,
-                    tx,
-                    ty
-                ]);
                 this.ctx.transform(a, b, c, d, tx, ty);
 
                 // Draw the component's outline shapes if they were fetched
                 if (
-                    'Component' in shape &&
-                    shape.Component.layerData &&
-                    shape.Component.layerData.shapes
+                    'reference' in shape &&
+                    shape.layerData &&
+                    shape.layerData.shapes
                 ) {
                     this.drawComponentWithOutlines(
-                        shape.Component.layerData.shapes,
+                        shape.layerData.shapes,
                         isSelected,
                         isHovered,
                         !!isInterpolated,
@@ -1050,10 +1040,9 @@ export class GlyphCanvasRenderer {
                     // Collect component label data for later drawing (on top of everything)
                     // Only show on hover
                     if (isHovered) {
-                        const componentName =
-                            shape.Component.reference || 'component';
+                        const componentName = shape.reference || 'component';
                         const bounds = this.getComponentBounds(
-                            shape.Component.layerData.shapes
+                            shape.layerData.shapes
                         );
                         if (bounds.hasPoints) {
                             componentLabels.push({
@@ -1126,8 +1115,7 @@ export class GlyphCanvasRenderer {
                     ? 'rgba(255, 255, 255, 0.8)'
                     : 'rgba(0, 0, 0, 0.8)';
                 this.ctx.fillText(
-                    ('Component' in shape && shape.Component.reference) ||
-                        'component',
+                    ('reference' in shape && shape.reference) || 'component',
                     markerSize * 1.5,
                     markerSize
                 );
@@ -1326,28 +1314,18 @@ export class GlyphCanvasRenderer {
             'Drawing shape',
             contourIndex,
             ':',
-            'Component' in shape ? 'Component' : 'Path',
-            'Component' in shape
-                ? `ref=${shape.Component.reference}`
-                : `nodes=${'nodes' in shape ? shape.nodes?.length : 0}`
+            'reference' in shape ? 'Component' : 'Path',
+            'reference' in shape
+                ? `ref=${shape.reference}`
+                : `nodes=${'nodes' in shape ? (shape.nodes as Babelfont.Node[] | undefined)?.length || 0 : 0}`
         );
-        if ('Component' in shape) {
+        if ('reference' in shape) {
             // Component - will be drawn separately as markers
             return;
         }
 
         // Handle Path object from to_dict() - nodes might be in shape.Path.nodes
-        let nodes = 'nodes' in shape ? shape.nodes : undefined;
-        if (!nodes && 'Path' in shape && shape.Path.nodes) {
-            // Nodes are in a string format from to_dict() - parse them
-            // Don't mutate the original shape - just use the parsed nodes for rendering
-            nodes = LayerDataNormalizer.parseNodes(shape.Path.nodes);
-            console.log(
-                '[Renderer] Parsed from shape.Path.nodes, first coords:',
-                nodes?.[0]?.x,
-                nodes?.[0]?.y
-            );
-        }
+        const nodes = getNodesFromShape(shape);
 
         if (!nodes || nodes.length === 0) {
             return;
@@ -1468,7 +1446,7 @@ export class GlyphCanvasRenderer {
                 const { x, y, nodetype: type } = node;
 
                 // Only draw lines from off-curve points
-                if (type === 'o') {
+                if (type === 'OffCurve') {
                     // Check if this is the first or second control point in a cubic bezier pair
                     let prevIdx = nodeIndex - 1;
                     if (prevIdx < 0) prevIdx = nodes.length - 1;
@@ -1477,8 +1455,8 @@ export class GlyphCanvasRenderer {
                     let nextIdx = nodeIndex + 1;
                     if (nextIdx >= nodes.length) nextIdx = 0;
                     const nextType = nodes[nextIdx].nodetype;
-                    const isPrevOffCurve = prevType === 'o';
-                    const isNextOffCurve = nextType === 'o';
+                    const isPrevOffCurve = prevType === 'OffCurve';
+                    const isNextOffCurve = nextType === 'OffCurve';
 
                     if (isPrevOffCurve) {
                         // This is the second control point - connect to NEXT on-curve point
@@ -1494,11 +1472,10 @@ export class GlyphCanvasRenderer {
                             y: targetY,
                             nodetype: targetType
                         } = nodes[targetIdx];
+                        // Connect to on-curve points (Line, Curve, or QCurve)
                         if (
-                            targetType === 'c' ||
-                            targetType === 'cs' ||
-                            targetType === 'l' ||
-                            targetType === 'ls'
+                            targetType !== 'OffCurve' &&
+                            targetType !== 'Move'
                         ) {
                             this.ctx.beginPath();
                             this.ctx.moveTo(x, y);
@@ -1515,9 +1492,9 @@ export class GlyphCanvasRenderer {
                             nodetype: targetType
                         } = nodes[targetIdx];
                         if (
-                            targetType === 'c' ||
-                            targetType === 'cs' ||
-                            targetType === 'l'
+                            targetType === 'Curve' ||
+                            targetType === 'QCurve' ||
+                            targetType === 'Line'
                         ) {
                             this.ctx.beginPath();
                             this.ctx.moveTo(x, y);
@@ -1558,8 +1535,8 @@ export class GlyphCanvasRenderer {
                             p.nodeIndex === nodeIndex
                     );
 
-                // Skip quadratic bezier points for now
-                if (type === 'q' || type === 'qs') {
+                // Skip Move nodes - they don't get rendered
+                if (type === 'Move') {
                     return;
                 }
 
@@ -1591,7 +1568,7 @@ export class GlyphCanvasRenderer {
                 this.ctx.translate(x, y);
                 this.applyInverseComponentTransform(); // Cancel out component transform
 
-                if (type === 'o') {
+                if (type === 'OffCurve') {
                     // Off-curve point (cubic bezier control point) - draw as circle
                     const colors = isDarkTheme
                         ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
@@ -1638,8 +1615,8 @@ export class GlyphCanvasRenderer {
                     // Stroke permanently removed
                 }
 
-                // Draw smooth indicator for smooth nodes
-                if (type === 'cs') {
+                // Draw smooth indicator for smooth nodes (using smooth property)
+                if (node.smooth) {
                     let smoothColor = isDarkTheme ? '#ffffff' : '#000000';
 
                     // Apply monochrome for interpolated data
@@ -2559,7 +2536,7 @@ export class GlyphCanvasRenderer {
         let startIdx = 0;
         for (let i = 0; i < nodes.length; i++) {
             const { x, y, nodetype: type } = nodes[i];
-            if (type === 'c' || type === 'cs' || type === 'l') {
+            if (type === 'Curve' || type === 'QCurve' || type === 'Line') {
                 startIdx = i;
                 break;
             }
@@ -2583,14 +2560,10 @@ export class GlyphCanvasRenderer {
                 nodetype: next1Type
             } = nodes[nextIdx];
 
-            if (
-                type === 'l' ||
-                type === 'c' ||
-                type === 'cs' ||
-                type === 'ls'
-            ) {
+            // Check if we're at an on-curve point
+            if (type !== 'OffCurve' && type !== 'Move') {
                 // We're at an on-curve point, look ahead for next segment
-                if (next1Type === 'o') {
+                if (next1Type === 'OffCurve') {
                     // Next is off-curve - check if cubic (two consecutive off-curve)
                     const {
                         x: next2X,
@@ -2599,7 +2572,7 @@ export class GlyphCanvasRenderer {
                     } = nodes[next2Idx];
                     const { x: next3X, y: next3Y } = nodes[next3Idx];
 
-                    if (next2Type === 'o') {
+                    if (next2Type === 'OffCurve') {
                         // Cubic bezier: two off-curve control points + on-curve endpoint
                         target.bezierCurveTo(
                             next1X,
@@ -2615,12 +2588,7 @@ export class GlyphCanvasRenderer {
                         target.lineTo(next2X, next2Y);
                         i += 2;
                     }
-                } else if (
-                    next1Type === 'l' ||
-                    next1Type === 'ls' ||
-                    next1Type === 'c' ||
-                    next1Type === 'cs'
-                ) {
+                } else if (next1Type !== 'Move') {
                     // Next is on-curve - draw line
                     target.lineTo(next1X, next1Y);
                     i++;
@@ -3341,16 +3309,17 @@ export class GlyphCanvasRenderer {
             layerData.shapes.forEach((shape: any) => {
                 if ('Component' in shape) return; // Only process paths, not components
 
-                let nodes = 'nodes' in shape ? shape.nodes : undefined;
-                if (!nodes && 'Path' in shape && shape.Path.nodes) {
-                    nodes = LayerDataNormalizer.parseNodes(shape.Path.nodes);
-                }
+                const nodes = getNodesFromShape(shape);
 
                 if (nodes && nodes.length > 0) {
                     // Find first on-curve point (origin)
                     for (let i = 0; i < nodes.length; i++) {
                         const { x, y, nodetype: type } = nodes[i];
-                        if (type === 'c' || type === 'cs' || type === 'l') {
+                        if (
+                            type === 'Curve' ||
+                            type === 'QCurve' ||
+                            type === 'Line'
+                        ) {
                             // Calculate diagonal offset for this depth using config angle
                             const offsetDistance =
                                 node.depth *
@@ -3476,18 +3445,17 @@ export class GlyphCanvasRenderer {
 
         // Draw paths (not components)
         layerData.shapes.forEach((shape: any, index: number) => {
-            if ('Component' in shape) return;
+            if ('reference' in shape) return;
             this.drawShape(shape, index, false);
         });
 
         // Draw blue boxes for components (same as normal editing mode)
         layerData.shapes.forEach((shape: any, index: number) => {
-            if (!('Component' in shape)) return;
+            if (!('reference' in shape)) return;
 
-            const component = shape.Component;
-            if (!component.layerData || !component.layerData.shapes) return;
+            if (!shape.layerData || !shape.layerData.shapes) return;
 
-            const transform = component.transform || [1, 0, 0, 1, 0, 0];
+            const transform = shape.transform || [1, 0, 0, 1, 0, 0];
             const [a, b, c, d, tx, ty] = transform;
 
             this.ctx.save();
@@ -3495,7 +3463,7 @@ export class GlyphCanvasRenderer {
 
             // Draw the component's flattened outline (blue box) using existing function
             this.drawComponentWithOutlines(
-                component.layerData.shapes,
+                shape.layerData.shapes,
                 false,
                 false,
                 false,
@@ -3546,12 +3514,9 @@ export class GlyphCanvasRenderer {
         this.ctx.beginPath();
 
         layerData.shapes.forEach((shape: any) => {
-            if ('Component' in shape) return;
+            if ('reference' in shape) return;
 
-            let nodes = 'nodes' in shape ? shape.nodes : undefined;
-            if (!nodes && 'Path' in shape && shape.Path.nodes) {
-                nodes = LayerDataNormalizer.parseNodes(shape.Path.nodes);
-            }
+            const nodes = getNodesFromShape(shape);
 
             if (nodes && nodes.length > 0) {
                 this.buildPathFromNodes(nodes);
@@ -3572,10 +3537,9 @@ export class GlyphCanvasRenderer {
 
         // Draw components
         layerData.shapes.forEach((shape: any, index: number) => {
-            if (!('Component' in shape)) return;
+            if (!('reference' in shape)) return;
 
-            const component = shape.Component;
-            if (!component.layerData || !component.layerData.shapes) return;
+            if (!shape.layerData || !shape.layerData.shapes) return;
 
             // Get selection/hover state (only if interaction is enabled)
             const isHovered =
@@ -3588,7 +3552,11 @@ export class GlyphCanvasRenderer {
                 );
 
             // Get component transform
-            const transform = component.transform || [1, 0, 0, 1, 0, 0];
+            const transformRaw =
+                shape.transform || DecomposedAffineTransform.identity();
+            const transform = Array.isArray(transformRaw)
+                ? transformRaw
+                : DecomposedAffineTransform.toAffine(transformRaw);
             const [a, b, c, d, tx, ty] = transform;
 
             this.ctx.save();
@@ -3596,7 +3564,7 @@ export class GlyphCanvasRenderer {
 
             // Draw component outlines
             this.drawComponentWithOutlines(
-                component.layerData.shapes,
+                shape.layerData.shapes,
                 isSelected,
                 isHovered,
                 false,
@@ -3667,13 +3635,13 @@ export class GlyphCanvasRenderer {
             }> = [];
 
             shapes.forEach((componentShape) => {
-                if ('Component' in componentShape) {
+                if ('reference' in componentShape) {
                     let nestedTransform = transform;
-                    if (
-                        componentShape.Component.transform &&
-                        Array.isArray(componentShape.Component.transform)
-                    ) {
-                        const t = componentShape.Component.transform;
+                    if (componentShape.transform) {
+                        const transformRaw = componentShape.transform;
+                        const t = Array.isArray(transformRaw)
+                            ? transformRaw
+                            : DecomposedAffineTransform.toAffine(transformRaw);
                         if (transform) {
                             const [a1, b1, c1, d1, tx1, ty1] = transform;
                             const [a2, b2, c2, d2, tx2, ty2] = [
@@ -3705,12 +3673,12 @@ export class GlyphCanvasRenderer {
                     }
 
                     if (
-                        componentShape.Component.layerData &&
-                        componentShape.Component.layerData.shapes
+                        componentShape.layerData &&
+                        componentShape.layerData.shapes
                     ) {
                         outlineShapes.push(
                             ...collectOutlineShapes(
-                                componentShape.Component.layerData.shapes,
+                                componentShape.layerData.shapes,
                                 nestedTransform
                             )
                         );

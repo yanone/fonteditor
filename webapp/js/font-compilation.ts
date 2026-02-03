@@ -326,6 +326,12 @@ class FontCompilation {
             return;
         }
 
+        // Handle debug messages
+        if (e.data.type === 'debug') {
+            console.log('[FontCompilation Worker Debug]', e.data.message);
+            return;
+        }
+
         // Handle compilation messages
         const { id, result, error, time_taken } = e.data;
 
@@ -458,6 +464,7 @@ class FontCompilation {
 
             // Send JSON string directly to worker
             this.worker!.postMessage({
+                type: 'compile',
                 id,
                 babelfontJson,
                 filename,

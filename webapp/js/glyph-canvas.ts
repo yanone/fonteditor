@@ -1360,7 +1360,10 @@ class GlyphCanvas {
         // In edit mode: show all masters, check if glyph has corresponding layers
         //   - if layer exists: show active, click loads layer
         //   - if layer missing: show inactive/disabled
-        console.log('[GlyphCanvas] displayMastersList called');
+        console.log(
+            '[GlyphCanvas] displayMastersList called, selectedLayerId:',
+            this.outlineEditor?.selectedLayerId
+        );
 
         if (!fontManager.currentFont?.fontModel) {
             console.log('[GlyphCanvas] No font model available');
@@ -1445,12 +1448,21 @@ class GlyphCanvas {
             if (isEditMode) {
                 correspondingLayer = glyphLayers.find((layer) => {
                     const layerMaster = layer.master;
-                    if (
-                        layerMaster &&
-                        typeof layerMaster === 'object' &&
-                        'DefaultForMaster' in layerMaster
-                    ) {
-                        return layerMaster.DefaultForMaster === master.id;
+                    if (layerMaster && typeof layerMaster === 'object') {
+                        // New format: {type: "DefaultForMaster", master: "id"}
+                        if (
+                            'type' in layerMaster &&
+                            layerMaster.type === 'DefaultForMaster'
+                        ) {
+                            return (layerMaster as any).master === master.id;
+                        }
+                        // Old format: {DefaultForMaster: "id"}
+                        if ('DefaultForMaster' in layerMaster) {
+                            return (
+                                (layerMaster as any).DefaultForMaster ===
+                                master.id
+                            );
+                        }
                     }
                     return false;
                 });
@@ -1469,11 +1481,22 @@ class GlyphCanvas {
 
             // Check if this master/layer is selected
             if (isEditMode) {
-                if (
-                    correspondingLayer &&
-                    this.outlineEditor.selectedLayerId === correspondingLayer.id
-                ) {
-                    masterItem.classList.add('selected');
+                if (correspondingLayer) {
+                    const isSelected =
+                        this.outlineEditor.selectedLayerId ===
+                        correspondingLayer.id;
+                    console.log(
+                        `[LayerSelection] Layer ${correspondingLayer.id}:`,
+                        `selectedLayerId='${this.outlineEditor.selectedLayerId}'`,
+                        `layerId='${correspondingLayer.id}'`,
+                        `match=${isSelected}`
+                    );
+                    if (isSelected) {
+                        masterItem.classList.add('selected');
+                        console.log(
+                            `[LayerSelection] ✓ Marked layer ${correspondingLayer.id} as selected`
+                        );
+                    }
                 }
             } else {
                 if (this.textRunEditor!.selectedMasterId === master.id) {
@@ -1531,23 +1554,18 @@ class GlyphCanvas {
                 if (isEditMode) {
                     // Edit mode: load layer if it exists
                     if (correspondingLayer) {
-                        // Extract master ID from layer
-                        const layerMaster = correspondingLayer.master;
-                        let masterId = correspondingLayer.id;
-                        if (
-                            layerMaster &&
-                            typeof layerMaster === 'object' &&
-                            'DefaultForMaster' in layerMaster
-                        ) {
-                            masterId = layerMaster.DefaultForMaster;
-                        }
-
-                        // Create minimal layer object for selectLayer
+                        console.log(`[LayerClick] Clicked layer:`, {
+                            id: correspondingLayer.id,
+                            name: correspondingLayer.name,
+                            master: correspondingLayer.master
+                        });
+                        // Pass the layer's raw data object
                         this.outlineEditor.selectLayer({
                             id: correspondingLayer.id,
                             name: correspondingLayer.name,
-                            _master: masterId,
-                            shapes: [],
+                            master: correspondingLayer.master,
+                            shapes: correspondingLayer.shapes || [],
+                            width: correspondingLayer.width,
                             isInterpolated: false
                         } as any);
                     }

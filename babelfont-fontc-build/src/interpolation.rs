@@ -4,14 +4,13 @@
 // in the design space, with special handling for glyphs containing components.
 // Optimized with per-request caching for batch operations.
 
-use babelfont::{Layer, Shape};
-use fontdrasil::coords::{DesignCoord, DesignLocation, UserCoord};
+use babelfont::{Layer, Shape, Tag};
+use fontdrasil::coords::{DesignCoord, DesignLocation, DesignSpace, UserCoord};
 use serde_json::Value as JsonValue;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
-use write_fonts::types::Tag;
 
 /// Interpolate a glyph at a specific location in design space
 ///
@@ -141,7 +140,7 @@ fn manually_interpolate_layer(
     let target_value = target_location
         .iter()
         .next()
-        .map(|(_, coord)| coord.to_f64())
+        .map(|(_, coord): (&babelfont::Tag, &fontdrasil::coords::Coord<DesignSpace>)| coord.to_f64())
         .ok_or("No axis in target location")?;
 
     // Use the first master as template for structure
@@ -158,7 +157,7 @@ fn manually_interpolate_layer(
                     .filter_map(|(layer, loc_value)| {
                         layer.shapes.get(shape_idx).and_then(|s| {
                             if let Shape::Component(comp) = s {
-                                Some((comp.transform, *loc_value))
+                                Some((comp.transform.as_affine(), *loc_value))
                             } else {
                                 None
                             }
@@ -172,13 +171,14 @@ fn manually_interpolate_layer(
                 } else if !master_transforms.is_empty() {
                     master_transforms[0].0
                 } else {
-                    ref_comp.transform
+                    ref_comp.transform.as_affine()
                 };
 
                 // Create component with interpolated transform (reference stays the same)
                 interpolated_shapes.push(Shape::Component(babelfont::Component {
                     reference: ref_comp.reference.clone(),
-                    transform: interpolated_transform,
+                    transform: interpolated_transform.into(),
+                    location: ref_comp.location.clone(),
                     format_specific: ref_comp.format_specific.clone(),
                 }));
             }
@@ -199,9 +199,6 @@ fn manually_interpolate_layer(
                     // If only one master or error, use reference
                     interpolated_shapes.push(reference_shape.clone());
                 }
-            }
-            _ => {
-                interpolated_shapes.push(reference_shape.clone());
             }
         }
     }
@@ -260,6 +257,7 @@ fn manually_interpolate_layer(
         guides: Vec::new(),
         color: None,
         location: Some(target_location.clone()),
+        smart_component_location: Default::default(),
         is_background: false,
         background_layer_id: None,
         layer_index: None,
@@ -318,6 +316,7 @@ fn interpolate_path_shape(master_paths: &[(&Shape, f64)], target_value: f64) -> 
             y: interp_y,
             nodetype: reference_node.nodetype.clone(),
             smooth: reference_node.smooth,
+            format_specific: reference_node.format_specific.clone(),
         });
     }
 
@@ -478,8 +477,9 @@ fn serialize_layer_recursive_cached(
         if let Some(shapes_array) = shapes.as_array_mut() {
             // Process each shape
             for shape_json in shapes_array.iter_mut() {
-                // Check if this is a component
-                if let Some(component) = shape_json.get_mut("Component") {
+                // Check if this is a component (serde(untagged) so no wrapper)
+                // Components have "reference" field, paths have "nodes" field
+                if let Some(component) = shape_json.as_object_mut() {
                     let reference_opt = component
                         .get("reference")
                         .and_then(|r| r.as_str())
@@ -496,8 +496,6 @@ fn serialize_layer_recursive_cached(
                             let cache = json_cache.borrow();
                             if let Some(cached_json) = cache.get(&reference) {
                                 component
-                                    .as_object_mut()
-                                    .unwrap()
                                     .insert("layerData".to_string(), cached_json.clone());
                                 continue;
                             }
@@ -525,7 +523,7 @@ fn serialize_layer_recursive_cached(
                             }
                         };
 
-                        // Recursively serialize - this returns the shapes array
+                        // Recursively serialize - returns full layer JSON
                         match serialize_layer_recursive_cached(
                             &component_layer,
                             font,
@@ -534,17 +532,11 @@ fn serialize_layer_recursive_cached(
                             layer_cache,
                             json_cache,
                         ) {
-                            Ok(component_shapes_json) => {
-                                // Build layerData object with shapes field
-                                let layer_data = serde_json::json!({
-                                    "shapes": component_shapes_json
-                                });
-                                // Cache the layerData (not just shapes)
-                                json_cache.borrow_mut().insert(reference.clone(), layer_data.clone());
+                            Ok(component_layer_json) => {
+                                // Cache and insert the full layer JSON as layerData
+                                json_cache.borrow_mut().insert(reference.clone(), component_layer_json.clone());
                                 component
-                                    .as_object_mut()
-                                    .unwrap()
-                                    .insert("layerData".to_string(), layer_data);
+                                    .insert("layerData".to_string(), component_layer_json);
                             }
                             Err(_) => {}
                         }
@@ -556,8 +548,10 @@ fn serialize_layer_recursive_cached(
         }
     }
 
-    // Return shapes array directly
-    Ok(layer_json.get("shapes").cloned().unwrap_or(serde_json::json!([])))
+    // Return the full layer JSON object (not just shapes)
+    // Note: layerData fields added to components are for runtime rendering only
+    // and must be stripped before passing font data to compile_babelfont()
+    Ok(layer_json)
 }
 
 /// Recursive helper that serializes a layer and adds layerData to components
@@ -576,8 +570,9 @@ fn serialize_layer_recursive(
         if let Some(shapes_array) = shapes.as_array_mut() {
             // Process each shape
             for shape_json in shapes_array.iter_mut() {
-                // Check if this is a component
-                if let Some(component) = shape_json.get_mut("Component") {
+                // Check if this is a component (serde(untagged) so no wrapper)
+                // Components have "reference" field, paths have "nodes" field
+                if let Some(component) = shape_json.as_object_mut() {
                     // Extract reference as a String to avoid borrow conflicts
                     let reference_opt = component
                         .get("reference")
@@ -619,8 +614,6 @@ fn serialize_layer_recursive(
                                                 // Add layerData field to the component
                                                 // The transform stays in the component unchanged for JavaScript to apply
                                                 component
-                                                    .as_object_mut()
-                                                    .unwrap()
                                                     .insert("layerData".to_string(), component_json);
                                             }
                                             Err(e) => {
