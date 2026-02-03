@@ -89,6 +89,15 @@ module.exports = {
                 publicPath: '/'
             }
         ],
+        watchFiles: [
+            'js/**/*.ts',
+            'js/**/*.js',
+            'css/**/*.css',
+            'css/**/*.json',
+            'index.html',
+            'manifest.json',
+            'assets/**/*'
+        ],
         port: 8000,
         server: 'https',
         hot: process.env.PLAYWRIGHT_TEST !== 'true',
