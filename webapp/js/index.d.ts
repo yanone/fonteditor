@@ -42,7 +42,8 @@ declare global {
             forceTrigger: () => void;
             getStatus: () => {
                 isEnabled: boolean;
-                hasPendingCompile: boolean;
+                isCompiling: boolean;
+                loopRunning: boolean;
             };
         };
 
