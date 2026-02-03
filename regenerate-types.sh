@@ -10,12 +10,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WEBAPP_DIR="$SCRIPT_DIR/webapp"
 OUTPUT_FILE="$WEBAPP_DIR/js/babelfont.d.ts"
 
-echo >echo 2 "🔄 Regenerating TypeScript definitions from babelfont-ts"
-echo >echo 2 "========================================================="
-echo >echo 2 ""
+echo "🔄 Regenerating TypeScript definitions from babelfont-ts"
+echo "========================================================="
+echo ""
 
 # Get current babelfont-rs commit from Cargo.lock
-echo >echo 2 "📋 Step 1/4: Detecting babelfont-rs version from Cargo.lock..."
+echo "📋 Step 1/4: Detecting babelfont-rs version from Cargo.lock..."
 CARGO_LOCK="$SCRIPT_DIR/babelfont-fontc-build/Cargo.lock"
 
 if [ ! -f "$CARGO_LOCK" ]; then
@@ -38,11 +38,11 @@ if [ -z "$COMMIT" ]; then
     exit 1
 fi
 
-echo >echo 2 "✅ Found babelfont-rs commit: $COMMIT"
-echo >echo 2 ""
+echo "✅ Found babelfont-rs commit: $COMMIT"
+echo ""
 
 # Clone babelfont-rs at specific commit
-echo >echo 2 "📦 Step 2/4: Cloning babelfont-rs at commit $COMMIT..."
+echo "📦 Step 2/4: Cloning babelfont-rs at commit $COMMIT..."
 TEMP_DIR=$(mktemp -d)
 cd "$TEMP_DIR"
 
@@ -50,11 +50,11 @@ git clone --quiet https://github.com/simoncozens/babelfont-rs.git babelfont-rs
 cd babelfont-rs
 git checkout --quiet "$COMMIT"
 
-echo >echo 2 "✅ Cloned babelfont-rs to $TEMP_DIR/babelfont-rs"
-echo >echo 2 ""
+echo "✅ Cloned babelfont-rs to $TEMP_DIR/babelfont-rs"
+echo ""
 
 # Extract types from babelfont-ts/src/underlying.ts
-echo >echo 2 "⚙️  Step 3/4: Extracting TypeScript definitions from babelfont-ts..."
+echo "⚙️  Step 3/4: Extracting TypeScript definitions from babelfont-ts..."
 UNDERLYING_FILE="$TEMP_DIR/babelfont-rs/babelfont-ts/src/underlying.ts"
 
 if [ ! -f "$UNDERLYING_FILE" ]; then
@@ -98,15 +98,15 @@ fi
     echo "}"
 } > "$TEMP_DIR/babelfont.d.ts"
 
-echo >echo 2 "✅ Generated TypeScript definitions"
-echo >echo 2 ""
+echo "✅ Generated TypeScript definitions"
+echo ""
 
 # Copy to webapp directory
-echo >echo 2 "📝 Step 4/4: Installing new type definitions..."
+echo "📝 Step 4/4: Installing new type definitions..."
 cp "$TEMP_DIR/babelfont.d.ts" "$OUTPUT_FILE"
 
 # Add custom properties used in this codebase
-echo >echo 2 "🔧 Adding custom properties..."
+echo "🔧 Adding custom properties..."
 # Make DecomposedAffine fields optional (babelfont-rs outputs them with defaults)
 perl -i -pe '
     $in_decomposed = 1 if /^    export type DecomposedAffine = \{/;
@@ -136,17 +136,22 @@ perl -i -pe '
     }
 ' "$OUTPUT_FILE"
 
+# Format with prettier
+echo "🎨 Formatting with prettier..."
+cd "$WEBAPP_DIR"
+npx prettier --write "js/babelfont.d.ts"
+
 # Clean up
 cd "$SCRIPT_DIR"
 rm -rf "$TEMP_DIR"
 
-echo >echo 2 "✅ Type definitions regenerated successfully!"
-echo >echo 2 ""
-echo >echo 2 "File: $OUTPUT_FILE"
-echo >echo 2 "From: babelfont-rs@$COMMIT (babelfont-ts/src/underlying.ts)"
-echo >echo 2 ""
-echo >echo 2 "Next steps:"
-echo >echo 2 "  1. Review changes: git diff webapp/js/babelfont.d.ts"
-echo >echo 2 "  2. Update babelfont-model.ts to match new types if needed"
-echo >echo 2 "  3. Run TypeScript check: cd webapp && npx tsc --noEmit"
-echo >echo 2 ""
+echo "✅ Type definitions regenerated successfully!"
+echo ""
+echo "File: $OUTPUT_FILE"
+echo "From: babelfont-rs@$COMMIT (babelfont-ts/src/underlying.ts)"
+echo ""
+echo "Next steps:"
+echo "  1. Review changes: git diff webapp/js/babelfont.d.ts"
+echo "  2. Update babelfont-model.ts to match new types if needed"
+echo "  3. Run TypeScript check: cd webapp && npx tsc --noEmit"
+echo ""
