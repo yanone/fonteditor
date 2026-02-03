@@ -83,21 +83,34 @@ module.exports = {
         static: [
             {
                 directory: path.join(__dirname, 'build')
-            },
-            {
-                directory: __dirname,
-                publicPath: '/'
             }
         ],
-        watchFiles: [
-            'js/**/*.ts',
-            'js/**/*.js',
-            'css/**/*.css',
-            'css/**/*.json',
-            'index.html',
-            'manifest.json',
-            'assets/**/*'
-        ],
+        watchFiles: {
+            paths: [
+                'js/**/*.ts',
+                'js/**/*.js',
+                'css/style.css',
+                'css/glyph-overview.css',
+                'css/tokens.json',
+                'index.html',
+                'manifest.json',
+                'assets/**/*'
+            ],
+            // Ignore generated files and test artifacts to prevent reload loops
+            options: {
+                ignored: [
+                    '**/tokens.css',
+                    '**/node_modules/**',
+                    '**/build/**',
+                    '**/test-results/**',
+                    '**/playwright-report/**',
+                    '**/*.png',  // Screenshot files
+                    '**/*.webm', // Video files
+                    '**/.git/**',
+                    '**/js/babelfont.d.ts'  // Type drift test touches this file
+                ]
+            }
+        },
         port: 8000,
         server: 'https',
         hot: process.env.PLAYWRIGHT_TEST !== 'true',
