@@ -79,10 +79,11 @@ export function readUrlState(): AppState {
 /**
  * Encode designspace location as URL parameter
  * Converts {wght: 400, wdth: 100} to "wght:400,wdth:100"
+ * Values are rounded to integers
  */
 export function encodeLocation(location: Record<string, number>): string {
     return Object.entries(location)
-        .map(([tag, value]) => `${tag}:${value}`)
+        .map(([tag, value]) => `${tag}:${Math.round(value)}`)
         .join(',');
 }
 
