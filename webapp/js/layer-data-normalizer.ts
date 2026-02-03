@@ -106,13 +106,10 @@ export class LayerDataNormalizer {
     }
 
     /**
-     * Parse nodes from string or array format
-     *
-     * babelfont format: "x1 y1 type [x2 y2 type ...]"
-     * where type is: m, l, o, c, q (with optional 's' suffix for smooth)
+     * Parse nodes from string or array format using Path class normalization
      *
      * @param {string|Array} nodes - Nodes as string or already-parsed array
-     * @returns {Array} Array of [x, y, type] triplets
+     * @returns {Array} Array of normalized node objects
      */
     static parseNodes(nodes: string | any[]): Babelfont.Node[] {
         // If already an array, return as-is
@@ -120,23 +117,12 @@ export class LayerDataNormalizer {
             return nodes;
         }
 
-        // Parse string format
+        // For string format, use Path class parseNodesString which handles
+        // short codes (c, cs, l, ls, etc.) and normalizes to proper enums
         if (typeof nodes === 'string') {
-            const nodesStr = nodes.trim();
-            if (!nodesStr) return [];
-
-            const tokens = nodesStr.split(/\s+/);
-            const nodesArray: Babelfont.Node[] = [];
-
-            for (let i = 0; i + 2 < tokens.length; i += 3) {
-                nodesArray.push({
-                    x: parseFloat(tokens[i]), // x
-                    y: parseFloat(tokens[i + 1]), // y
-                    nodetype: tokens[i + 2] as Babelfont.NodeType // type (m, l, o, c, q, ms, ls, etc.)
-                });
-            }
-
-            return nodesArray;
+            // Dynamic require to avoid circular dependency
+            const { Path } = require('./babelfont-model');
+            return Path.parseNodesString(nodes);
         }
 
         return [];

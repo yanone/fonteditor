@@ -145,7 +145,7 @@ export class Path extends ArrayElementBase {
         // This ensures all future accesses see the array, and modifications
         // are properly persisted to the JSON structure.
         if (typeof this.data.nodes === 'string') {
-            this.data.nodes = this.parseNodesString(this.data.nodes);
+            this.data.nodes = Path.parseNodesString(this.data.nodes);
         }
 
         // Ensure nodes is an array (defensive)
@@ -175,7 +175,7 @@ export class Path extends ArrayElementBase {
      * Format: "x1 y1 type x2 y2 type ..."
      * Types: m, l, o, c, q (with optional 's' suffix for smooth)
      */
-    private parseNodesString(nodesStr: string): Babelfont.Node[] {
+    static parseNodesString(nodesStr: string): Babelfont.Node[] {
         const trimmed = nodesStr.trim();
         if (!trimmed) return [];
 
@@ -185,7 +185,7 @@ export class Path extends ArrayElementBase {
         for (let i = 0; i + 2 < tokens.length; i += 3) {
             const typeStr = tokens[i + 2];
             const smooth = typeStr.endsWith('s');
-            const nodetype = this.mapNodeType(
+            const nodetype = Path.mapNodeType(
                 smooth ? typeStr.slice(0, -1) : typeStr
             );
 
@@ -208,7 +208,7 @@ export class Path extends ArrayElementBase {
     /**
      * Map short node type to Babelfont.NodeType
      */
-    private mapNodeType(shortType: string): Babelfont.NodeType {
+    static mapNodeType(shortType: string): Babelfont.NodeType {
         const map = {
             m: 'Move' as const,
             l: 'Line' as const,
