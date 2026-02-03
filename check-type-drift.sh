@@ -43,6 +43,22 @@ if [ ! -f "$COMMITTED_TYPES" ]; then
     exit 1
 fi
 
+# Format both files with prettier for consistent comparison
+echo "🎨 Formatting files with prettier..."
+TEMP_FORMATTED=$(mktemp)
+TEMP_COMMITTED_FORMATTED=$(mktemp)
+if command -v npx &> /dev/null && [ -f "webapp/node_modules/.bin/prettier" ]; then
+    # Run prettier from webapp directory to pick up .prettierrc
+    (cd webapp && npx prettier --stdin-filepath js/babelfont.d.ts) < "$TEMP_TYPES" > "$TEMP_FORMATTED"
+    (cd webapp && npx prettier --stdin-filepath js/babelfont.d.ts) < "$COMMITTED_TYPES" > "$TEMP_COMMITTED_FORMATTED"
+    mv "$TEMP_FORMATTED" "$TEMP_TYPES"
+    mv "$TEMP_COMMITTED_FORMATTED" "$COMMITTED_TYPES"
+else
+    echo "⚠️  Prettier not found, comparing raw files"
+    rm -f "$TEMP_FORMATTED"
+    rm -f "$TEMP_COMMITTED_FORMATTED"
+fi
+
 # Check if there are differences
 if diff -q "$TEMP_TYPES" "$COMMITTED_TYPES" > /dev/null 2>&1; then
     echo -e "${GREEN}✅ Type definitions are in sync with babelfont-rs@$WASM_COMMIT${NC}"
