@@ -1,6 +1,6 @@
 import { adjustColorHueAndLightness, desaturateColor } from '../design';
 import APP_SETTINGS from '../settings';
-import { Layer } from '../babelfont-model';
+import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 
 import type { ViewportManager } from './viewport';
 import type { TextRunEditor } from './textrun';
@@ -986,11 +986,6 @@ export class GlyphCanvasRenderer {
                     return; // Not a component
                 }
 
-                console.log(
-                    '[Renderer]',
-                    `Component ${index}: reference="${shape.reference}"`
-                );
-
                 // Disable selection/hover highlighting for interpolated data
                 const isInterpolated =
                     this.glyphCanvas.outlineEditor.isInterpolating ||
@@ -1008,32 +1003,20 @@ export class GlyphCanvasRenderer {
                     );
 
                 // Get full transform matrix [a, b, c, d, tx, ty]
-                let a = 1,
-                    b = 0,
-                    c = 0,
-                    d = 1,
-                    tx = 0,
-                    ty = 0;
-                if ('reference' in shape && Array.isArray(shape.transform)) {
-                    a = shape.transform[0] || 1;
-                    b = shape.transform[1] || 0;
-                    c = shape.transform[2] || 0;
-                    d = shape.transform[3] || 1;
-                    tx = shape.transform[4] || 0;
-                    ty = shape.transform[5] || 0;
-                }
+                const transformRaw =
+                    'reference' in shape && shape.transform
+                        ? shape.transform
+                        : undefined;
+                const transform = !transformRaw
+                    ? [1, 0, 0, 1, 0, 0]
+                    : Array.isArray(transformRaw)
+                      ? transformRaw
+                      : DecomposedAffineTransform.toAffine(transformRaw);
+                const [a, b, c, d, tx, ty] = transform;
 
                 this.ctx.save();
 
                 // Apply component transform
-                console.log('[Renderer] Applying component shape transform:', [
-                    a,
-                    b,
-                    c,
-                    d,
-                    tx,
-                    ty
-                ]);
                 this.ctx.transform(a, b, c, d, tx, ty);
 
                 // Draw the component's outline shapes if they were fetched
@@ -3566,7 +3549,11 @@ export class GlyphCanvasRenderer {
                 );
 
             // Get component transform
-            const transform = shape.transform || [1, 0, 0, 1, 0, 0];
+            const transformRaw =
+                shape.transform || DecomposedAffineTransform.identity();
+            const transform = Array.isArray(transformRaw)
+                ? transformRaw
+                : DecomposedAffineTransform.toAffine(transformRaw);
             const [a, b, c, d, tx, ty] = transform;
 
             this.ctx.save();

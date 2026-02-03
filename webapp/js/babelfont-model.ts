@@ -16,6 +16,91 @@ import { LayerDataNormalizer } from './layer-data-normalizer';
 import { Bezier } from 'bezier-js';
 
 /**
+ * DecomposedAffine transformation utilities
+ * Based on babelfont-ts implementation
+ */
+export class DecomposedAffineTransform {
+    /**
+     * Convert DecomposedAffine to affine matrix [a, b, c, d, e, f]
+     * Handles the transform order (Glyphs vs RestOfTheWorld)
+     */
+    static toAffine(
+        decomposed: Babelfont.DecomposedAffine
+    ): [number, number, number, number, number, number] {
+        const translation = decomposed.translation || [0, 0];
+        const scale = decomposed.scale || [1, 1];
+        const rotation = decomposed.rotation || 0;
+        const skew = decomposed.skew || [0, 0];
+        const order = decomposed.order || 'RestOfTheWorld';
+
+        // Helper to compose transformations
+        const composeTransforms = (...transforms: number[][]): number[] => {
+            return transforms.reduce(
+                (acc, t) => {
+                    const [a1, b1, c1, d1, e1, f1] = acc;
+                    const [a2, b2, c2, d2, e2, f2] = t;
+                    return [
+                        a1 * a2 + c1 * b2,
+                        b1 * a2 + d1 * b2,
+                        a1 * c2 + c1 * d2,
+                        b1 * c2 + d1 * d2,
+                        a1 * e2 + c1 * f2 + e1,
+                        b1 * e2 + d1 * f2 + f1
+                    ];
+                },
+                [1, 0, 0, 1, 0, 0]
+            );
+        };
+
+        // Individual transform matrices
+        const translateMatrix = [1, 0, 0, 1, translation[0], translation[1]];
+        const rotateMatrix = [
+            Math.cos(rotation),
+            Math.sin(rotation),
+            -Math.sin(rotation),
+            Math.cos(rotation),
+            0,
+            0
+        ];
+        const scaleMatrix = [scale[0], 0, 0, scale[1], 0, 0];
+        const skewMatrix = [1, Math.tan(skew[1]), Math.tan(skew[0]), 1, 0, 0];
+
+        if (order === 'Glyphs') {
+            // Glyphs order: translate → skew → rotate → scale
+            return composeTransforms(
+                translateMatrix,
+                skewMatrix,
+                rotateMatrix,
+                scaleMatrix
+            ) as [number, number, number, number, number, number];
+        } else {
+            // RestOfTheWorld order: translate → rotate → scale → skew
+            return composeTransforms(
+                translateMatrix,
+                rotateMatrix,
+                scaleMatrix,
+                skewMatrix
+            ) as [number, number, number, number, number, number];
+        }
+    }
+
+    /**
+     * Create identity transform
+     */
+    static identity(
+        order?: Babelfont.TransformOrder
+    ): Babelfont.DecomposedAffine {
+        return {
+            translation: [0, 0],
+            scale: [1, 1],
+            rotation: 0,
+            skew: [0, 0],
+            order: order || ('RestOfTheWorld' as Babelfont.TransformOrder)
+        };
+    }
+}
+
+/**
  * Mark the current font as dirty when data is modified
  */
 function markFontDirty(): void {
@@ -393,30 +478,13 @@ export class Component extends ArrayElementBase {
     }
 
     /**
-     * Convert DecomposedAffine to number array for transformation functions
+     * Convert transform to affine matrix array [a, b, c, d, e, f]
+     * Uses the proper DecomposedAffineTransform utility
      */
-    private decomposeToArray(
-        transform: Babelfont.DecomposedAffine | number[] | undefined
-    ): number[] {
-        if (!transform) return [1, 0, 0, 1, 0, 0];
-        if (Array.isArray(transform)) return transform;
-
-        // Convert DecomposedAffine to affine matrix [a, b, c, d, e, f]
-        // This is a simplified conversion - for complex transforms, proper matrix math is needed
-        const { translation, scale, rotation, skew } = transform;
-        const [tx, ty] = translation;
-        const [sx, sy] = scale;
-
-        // Simple case: no rotation or skew
-        if (rotation === 0 && skew[0] === 0 && skew[1] === 0) {
-            return [sx, 0, 0, sy, tx, ty];
-        }
-
-        // For now, use scale and translation only (rotation/skew require matrix operations)
-        console.warn(
-            '[Component] Complex transforms (rotation/skew) not fully supported in decomposeToArray'
+    toAffineArray(): number[] {
+        return DecomposedAffineTransform.toAffine(
+            this.transform || DecomposedAffineTransform.identity()
         );
-        return [sx, 0, 0, sy, tx, ty];
     }
 
     toString(): string {
@@ -512,7 +580,7 @@ export class Component extends ArrayElementBase {
 
                     // Apply this component's transform to all nested paths
                     const transformArray =
-                        this.decomposeToArray(componentTransform);
+                        DecomposedAffineTransform.toAffine(componentTransform);
                     for (const nestedPath of nestedPaths) {
                         const transformedNodes = nestedPath.nodes.map(
                             (node: any) => transformNode(node, transformArray)
@@ -534,7 +602,9 @@ export class Component extends ArrayElementBase {
 
                     if (nodes && Array.isArray(nodes) && nodes.length > 0) {
                         const transformArray =
-                            this.decomposeToArray(componentTransform);
+                            DecomposedAffineTransform.toAffine(
+                                componentTransform
+                            );
                         const transformedNodes = nodes.map((node: any) =>
                             transformNode(node, transformArray)
                         );
@@ -1215,20 +1285,8 @@ export class Layer extends ArrayElementBase {
         ): number[] => {
             if (!transform) return [1, 0, 0, 1, 0, 0];
             if (Array.isArray(transform)) return transform;
-            // DecomposedAffine format - provide defaults for missing properties
-            const {
-                translation = [0, 0],
-                scale = [1, 1],
-                skew = [0, 0]
-            } = transform;
-            return [
-                scale[0],
-                skew[0],
-                skew[1],
-                scale[1],
-                translation[0],
-                translation[1]
-            ];
+            // Use the proper transform composition from DecomposedAffineTransform
+            return Array.from(DecomposedAffineTransform.toAffine(transform));
         };
 
         // Helper function to combine two transform matrices

@@ -107,7 +107,17 @@ cp "$TEMP_DIR/babelfont.d.ts" "$OUTPUT_FILE"
 
 # Add custom properties used in this codebase
 echo >echo 2 "🔧 Adding custom properties..."
-
+# Make DecomposedAffine fields optional (babelfont-rs outputs them with defaults)
+perl -i -pe '
+    $in_decomposed = 1 if /^    export type DecomposedAffine = \{/;
+    if ($in_decomposed) {
+        s/translation: \[number, number\];/translation?: [number, number];/;
+        s/scale: \[number, number\];/scale?: [number, number];/;
+        s/rotation: number;/rotation?: number;/;
+        s/skew: \[number, number\];/skew?: [number, number];/;
+    }
+    $in_decomposed = 0 if $in_decomposed && /^    \}/;
+' "$OUTPUT_FILE"
 # Add layerData to Component (before closing brace)
 perl -i -pe '
     $in_component = 1 if /^    export type Component = \{/;

@@ -3,6 +3,7 @@
 // Uses a shared offscreen canvas for path building, then draws to target canvases
 
 import { LayerDataNormalizer } from './layer-data-normalizer';
+import { DecomposedAffineTransform } from './babelfont-model';
 
 interface RenderMetrics {
     ascender: number;
@@ -169,7 +170,12 @@ class FastGlyphTileRenderer {
             for (const shape of shapes) {
                 if ('reference' in shape) {
                     const component = shape;
-                    const transform = component.transform || [1, 0, 0, 1, 0, 0];
+                    const transformRaw = component.transform;
+                    const transform = !transformRaw
+                        ? [1, 0, 0, 1, 0, 0]
+                        : Array.isArray(transformRaw)
+                          ? transformRaw
+                          : DecomposedAffineTransform.toAffine(transformRaw);
 
                     const finalTransform = parentTransform
                         ? this.multiplyTransforms(parentTransform, transform)
@@ -217,7 +223,12 @@ class FastGlyphTileRenderer {
                 }
             } else if ('reference' in shape) {
                 const component = shape;
-                const transform = component.transform || [1, 0, 0, 1, 0, 0];
+                const transformRaw = component.transform;
+                const transform = !transformRaw
+                    ? [1, 0, 0, 1, 0, 0]
+                    : Array.isArray(transformRaw)
+                      ? transformRaw
+                      : DecomposedAffineTransform.toAffine(transformRaw);
                 if (component.layerData && component.layerData.shapes) {
                     ctx.save();
                     ctx.transform(

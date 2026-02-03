@@ -2,25 +2,11 @@ import { Logger } from '../logger';
 import type { Babelfont } from '../babelfont';
 import type { GlyphCanvas } from '../glyph-canvas';
 import { LayerDataNormalizer } from '../layer-data-normalizer';
+import { DecomposedAffineTransform } from '../babelfont-model';
 
 const console: Logger = new Logger('StackPreviewAnimator', true);
 
 const IDENTITY_TRANSFORM = [1, 0, 0, 1, 0, 0];
-
-/**
- * Convert DecomposedAffine to affine matrix [a, b, c, d, e, f]
- */
-function decomposedToAffine(decomposed: Babelfont.DecomposedAffine): number[] {
-    const { translation, scale, skew } = decomposed;
-    return [
-        scale[0],
-        skew[0],
-        skew[1],
-        scale[1],
-        translation[0],
-        translation[1]
-    ];
-}
 
 /**
  * Layer tree node representing a single component instance at a nesting level
@@ -207,7 +193,7 @@ export class StackPreviewAnimator {
             // Convert to array format if needed
             const transformArray = Array.isArray(compTransform)
                 ? compTransform
-                : decomposedToAffine(compTransform);
+                : DecomposedAffineTransform.toAffine(compTransform);
             const newTransform = this.multiplyMatrices(
                 accumulatedTransform,
                 transformArray
@@ -415,7 +401,7 @@ export class StackPreviewAnimator {
                 // Convert to array format if needed
                 const transformArray = Array.isArray(compTransform)
                     ? compTransform
-                    : decomposedToAffine(compTransform);
+                    : DecomposedAffineTransform.toAffine(compTransform);
                 const combinedTransform = this.multiplyMatrices(
                     transform,
                     transformArray

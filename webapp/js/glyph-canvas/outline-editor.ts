@@ -5,7 +5,7 @@ import fontManager from '../font-manager';
 import type { Babelfont } from '../babelfont';
 import { Transform } from '../basictypes';
 import { Logger } from '../logger';
-import { Layer } from '../babelfont-model';
+import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 import APP_SETTINGS from '../settings';
 import { userspaceToDesignspace } from '../locations';
 
@@ -28,31 +28,10 @@ function affineToDecomposed(affine: number[]): Babelfont.DecomposedAffine {
 }
 
 /**
- * Convert DecomposedAffine to affine matrix [a, b, c, d, e, f]
- */
-function decomposedToAffine(decomposed: Babelfont.DecomposedAffine): number[] {
-    const { translation, scale, skew } = decomposed;
-    return [
-        scale[0],
-        skew[0],
-        skew[1],
-        scale[1],
-        translation[0],
-        translation[1]
-    ];
-}
-
-/**
  * Identity transform in DecomposedAffine format
  */
 function identityDecomposed(): Babelfont.DecomposedAffine {
-    return {
-        translation: [0, 0],
-        scale: [1, 1],
-        rotation: 0,
-        skew: [0, 0],
-        order: undefined
-    };
+    return DecomposedAffineTransform.identity();
 }
 
 // Recursively parse nodes in component layer data (including nested components)
@@ -1017,6 +996,7 @@ export class OutlineEditor {
                     transform[5] += deltaY;
                 } else {
                     // DecomposedAffine format
+                    if (!transform.translation) transform.translation = [0, 0];
                     transform.translation[0] += deltaX;
                     transform.translation[1] += deltaY;
                 }
@@ -1131,7 +1111,7 @@ export class OutlineEditor {
                 identityDecomposed();
             const transformArray = Array.isArray(transform)
                 ? transform
-                : decomposedToAffine(transform);
+                : DecomposedAffineTransform.toAffine(transform);
             return { x: transformArray[4] || 0, y: transformArray[5] || 0 };
         };
 
@@ -1468,6 +1448,7 @@ export class OutlineEditor {
                     transform[4] += deltaX;
                     transform[5] += deltaY;
                 } else {
+                    if (!transform.translation) transform.translation = [0, 0];
                     transform.translation[0] += deltaX;
                     transform.translation[1] += deltaY;
                 }
@@ -2892,7 +2873,7 @@ export class OutlineEditor {
                 // Convert to array format if needed
                 const t = Array.isArray(shape.transform)
                     ? shape.transform
-                    : decomposedToAffine(shape.transform);
+                    : DecomposedAffineTransform.toAffine(shape.transform);
                 const newA = a * t[0] + c * t[1];
                 const newB = b * t[0] + d * t[1];
                 const newC = a * t[2] + c * t[3];
