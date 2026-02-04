@@ -154,12 +154,57 @@ This script:
 
 **Console Logging Convention:**
 
-All `console.log` statements MUST be prefixed with a [Descriptor] tag:
+All TypeScript files MUST use the Logger class from `js/logger.ts`:
+
+```typescript
+import { Logger } from './logger';
+const console = new Logger('FacilityName');
+
+console.log("Compiling font...");        // Conditional on registry
+console.warn("Script execution failed"); // Always printed
+console.error("Critical error");         // Always printed
+```
+
+**Facility Registry Control:**
+
+The `FACILITY_REGISTRY` in `js/logger.ts` controls which facilities print normal logs:
+
+```typescript
+// Edit the registry directly in logger.ts:
+export const FACILITY_REGISTRY: Record<string, boolean> = {
+    FontCompilation: false,  // Disabled - only errors/warnings print
+    GlyphCanvas: true,       // Enabled - all logs print
+    // ...
+};
+```
+
+**Runtime Control (Browser Console):**
 
 ```javascript
-console.log("[FontCompilation]", "Compiling font...");
-console.log("[GlyphCanvas]", "Rendering glyph:", glyphName);
-console.warn("[PythonExec]", "Script execution failed", error);
+// Toggle facilities at runtime
+Logger.disable('GlyphCanvas');           // Mute normal logs
+Logger.enable('GlyphCanvas');            // Unmute normal logs
+Logger.isEnabled('GlyphCanvas');         // Check status
+Logger.getRegistry();                    // See all facilities
+Logger.enableOnly(['FontManager']);      // Enable only specific facilities
+Logger.reset();                          // Enable all facilities
+
+// Or access the registry directly
+window.FACILITY_REGISTRY.GlyphCanvas = false;
+```
+
+**Adding New Facilities:**
+
+When creating a new TypeScript file that needs logging:
+
+1. Import and use Logger as shown above
+2. Add the facility name to `FACILITY_REGISTRY` in `js/logger.ts`
+3. Choose a descriptive facility name (usually the file/class name in PascalCase)
+
+**Note:** JavaScript files (`.js`) should continue using manual prefixes with the native console:
+
+```javascript
+console.log("[FacilityName]", "message");
 ```
 
 **DOM Update Pattern (prevent flickering):**

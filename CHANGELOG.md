@@ -1,5 +1,6 @@
 # Unreleased
 
+- **Consolidated Logger System**: All TypeScript files now use a centralized Logger class (`js/logger.ts`) that provides facility-based logging with runtime toggle control. Errors and warnings always print, while normal logs can be muted per facility via the `FACILITY_REGISTRY` dictionary. Runtime control available via `Logger.enable('Facility')`, `Logger.disable('Facility')`, and `window.FACILITY_REGISTRY` in browser console. JavaScript files continue using manual prefixes. Added instructions to AGENTS.md.
 - **Type Drift Detection**: TypeScript type definitions for babelfont-rs are now auto-generated from the upstream babelfont-ts package and verified for sync with `check-type-drift.sh`. Version coherence enforced via Cargo.lock - WASM build, type generation, and drift checks all lock to the same babelfont-rs commit. Integrated into `npm test` for local development and CI. Prevents type drift between TypeScript definitions and Rust source.
 - **Script Editor File I/O**: The script editor allows opening/saving files.
 - **Component Coloring in Overview**: Components in glyph overview now render in theme-specific blue (dark: cyan, light: blue) with proper counter cutting via nonzero winding. Paths render in white (dark mode) or black (light mode). Rust preserves component structure with nested layerData for accurate recursive rendering.
