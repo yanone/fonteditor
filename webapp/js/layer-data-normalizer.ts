@@ -17,6 +17,9 @@ import { GlyphCanvas } from './glyph-canvas';
 import { OutlineEditor } from './glyph-canvas/outline-editor';
 import { DesignspaceLocation } from './locations';
 import type { Babelfont } from './babelfont';
+import { Logger } from './logger';
+
+const console = new Logger('LayerDataNormalizer');
 
 /**
  * Layer Data Normalizer

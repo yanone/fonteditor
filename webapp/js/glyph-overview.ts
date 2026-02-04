@@ -6,6 +6,9 @@ import { fastGlyphTileRenderer } from './glyph-tile-renderer-fast';
 // Import filter manager to bundle it with glyph-overview entry point
 // It self-registers on window.glyphOverviewFilterManager
 import './glyph-overview-filters';
+import { Logger } from './logger';
+
+const console = new Logger('GlyphOverview');
 
 // Use the shared fontCompilation instance from window (set by bootstrap)
 // Do NOT import from './font-compilation' as this is a separate webpack entry point

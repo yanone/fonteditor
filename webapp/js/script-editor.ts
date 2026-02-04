@@ -8,6 +8,9 @@ import {
     getTheme,
     setupMenuKeyboardNav
 } from './tippy-utils';
+import { Logger } from './logger';
+
+const console = new Logger('ScriptEditor');
 
 (function () {
     let editor: any = null;

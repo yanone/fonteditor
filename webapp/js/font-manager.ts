@@ -15,6 +15,9 @@ import { Font, Path } from './babelfont-model';
 import { ensureWasmInitialized } from './wasm-init';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
+import { Logger } from './logger';
+
+const console = new Logger('FontManager');
 
 export type GlyphData = {
     glyphName: string;

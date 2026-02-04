@@ -4,6 +4,9 @@
 
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import { DecomposedAffineTransform } from './babelfont-model';
+import { Logger } from './logger';
+
+const console = new Logger('GlyphTileRendererFast');
 
 interface RenderMetrics {
     ascender: number;

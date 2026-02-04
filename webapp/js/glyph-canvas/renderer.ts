@@ -1,6 +1,9 @@
 import { adjustColorHueAndLightness, desaturateColor } from '../design';
 import APP_SETTINGS from '../settings';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
+import { Logger } from '../logger';
+
+const console = new Logger('Renderer');
 
 import type { ViewportManager } from './viewport';
 import type { TextRunEditor } from './textrun';

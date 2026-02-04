@@ -3,6 +3,9 @@
  * This module intercepts console methods and sends them to the MCP server for monitoring
  */
 
+// Note: This module intentionally uses native console (not Logger) because it
+// intercepts and forwards console methods to the MCP server
+
 interface LogMessage {
     type: 'log';
     data: {

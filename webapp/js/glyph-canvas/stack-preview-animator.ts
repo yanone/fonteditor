@@ -4,7 +4,7 @@ import type { GlyphCanvas } from '../glyph-canvas';
 import { LayerDataNormalizer } from '../layer-data-normalizer';
 import { DecomposedAffineTransform } from '../babelfont-model';
 
-const console: Logger = new Logger('StackPreviewAnimator', true);
+const console: Logger = new Logger('StackPreviewAnimator');
 
 const IDENTITY_TRANSFORM = [1, 0, 0, 1, 0, 0];
 

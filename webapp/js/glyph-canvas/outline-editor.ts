@@ -9,7 +9,7 @@ import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 import APP_SETTINGS from '../settings';
 import { userspaceToDesignspace } from '../locations';
 
-let console: Logger = new Logger('OutlineEditor', true);
+let console: Logger = new Logger('OutlineEditor');
 
 type Point = { contourIndex: number; nodeIndex: number };
 

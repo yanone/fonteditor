@@ -3,6 +3,9 @@
 // Uses continuous loop for instant compilation during editing
 import APP_SETTINGS from './settings';
 import fontManager from './font-manager';
+import { Logger } from './logger';
+
+const console = new Logger('AutoCompileManager');
 
 (function () {
     'use strict';

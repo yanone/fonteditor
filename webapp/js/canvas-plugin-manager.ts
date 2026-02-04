@@ -22,7 +22,7 @@
 
 import { Logger } from './logger';
 
-const console = new Logger('CanvasPluginManager', true);
+const console = new Logger('CanvasPluginManager');
 
 export class CanvasPluginManager {
     private plugins: any[] = [];

@@ -1,5 +1,9 @@
 // Design utilities for color manipulation and visual styling
 
+import { Logger } from './logger';
+
+const console = new Logger('Design');
+
 /**
  * Adjusts a color's hue and lightness
  * @param {string} colorString - Color in rgba(), rgb(), or hex format

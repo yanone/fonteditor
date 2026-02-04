@@ -1,6 +1,10 @@
 // Sidebar Error Display
 // Shows/hides error messages in the right sidebar when font compilation fails
 
+import { Logger } from './logger';
+
+const console = new Logger('SidebarErrorDisplay');
+
 export class SidebarErrorDisplay {
     private rightSidebar: HTMLElement | null = null;
     private errorContainer: HTMLElement | null = null;
@@ -19,7 +23,7 @@ export class SidebarErrorDisplay {
         // Get reference to right sidebar
         this.rightSidebar = document.getElementById('glyph-editor-sidebar');
         if (!this.rightSidebar) {
-            console.warn('[SidebarError] Right sidebar not found yet');
+            console.warn('Right sidebar not found yet');
             return;
         }
 

@@ -5,8 +5,11 @@
  * The dirty flag is set automatically by the object model setters when data is modified.
  */
 
+import { Logger } from './logger';
+
+const console = new Logger('PythonPostExecution');
+
 console.log(
-    '[PythonPostExec]',
     '🔧 Module loaded, setting up post-execution hooks...'
 );
 

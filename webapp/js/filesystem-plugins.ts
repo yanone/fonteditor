@@ -3,6 +3,9 @@
 
 import type { FileSystemAdapter } from './file-system-adapter';
 import { OPFSAdapter, NativeAdapter } from './file-system-adapter';
+import { Logger } from './logger';
+
+const console = new Logger('FilesystemPlugins');
 
 /**
  * Title bar menu item for plugin-specific actions

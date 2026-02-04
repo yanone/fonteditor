@@ -5,7 +5,7 @@ import { readUrlState, decodeLocation, decodeFeatures } from './url-state';
 import { Logger } from './logger';
 import type { GlyphCanvas } from './glyph-canvas';
 
-const console = new Logger('StateRestore', true);
+const console = new Logger('StateRestore');
 
 /**
  * Restore application state from URL parameters

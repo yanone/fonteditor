@@ -2,6 +2,9 @@ import './wasm-init'; // Initialize WASM module
 import './tab-lifecycle.js';
 import './mcp-transport';
 import './critical-error-handler';
+import { Logger } from './logger';
+
+const console = new Logger('Bootstrap');
 
 // Utility function to update loading status (extracted from loading-animation.js)
 window.updateLoadingStatus = function (

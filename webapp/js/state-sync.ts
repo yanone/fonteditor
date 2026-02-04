@@ -6,7 +6,7 @@ import { Logger } from './logger';
 import type { GlyphCanvas } from './glyph-canvas';
 import type fontManager from './font-manager';
 
-const console = new Logger('StateSync', true);
+const console = new Logger('StateSync');
 
 let isInitialized = false;
 let syncEnabled = false; // Start disabled - will be enabled after state restoration

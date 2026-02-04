@@ -10,6 +10,10 @@
  * Last updated: December 2024 (based on spec last updated 05/31/2024 and 07/06/2024)
  */
 
+import { Logger } from './logger';
+
+const console = new Logger('OpentypeFeatures');
+
 // Features that are discretionary (subject to user control) and recommended to be ON by default
 export const DEFAULT_ON_FEATURES = new Set([
     'calt', // Contextual Alternates - "This feature should be active by default"

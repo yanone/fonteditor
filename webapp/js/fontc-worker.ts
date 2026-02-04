@@ -12,6 +12,9 @@ import init, {
     version
 } from '../wasm-dist/babelfont_fontc_web.js';
 
+// Note: This is a Web Worker, cannot import Logger from main thread
+// Using standard console.log with facility prefix
+
 let initialized = false;
 let cachedBabelfontJson: string | null = null; // Cache babelfont JSON for re-use
 

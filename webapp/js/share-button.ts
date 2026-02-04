@@ -9,6 +9,9 @@ import {
     getTheme,
     setupMenuKeyboardNav
 } from './tippy-utils';
+import { Logger } from './logger';
+
+const console = new Logger('ShareButton');
 
 let shareMenuInstance: TippyInstance | null = null;
 

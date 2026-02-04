@@ -1,25 +1,31 @@
 export class Logger {
     facility: string;
-    enabled: boolean = true;
 
-    constructor(facility: string, enabled: boolean = true) {
+    constructor(facility: string) {
         this.facility = facility;
-        this.enabled = enabled;
     }
 
     log(...args: any[]) {
-        if (this.enabled) {
-            console.log(`[${this.facility}]`, ...args);
-        }
+        console.log(`[${this.facility}]`, ...args);
+    }
+    info(...args: any[]) {
+        console.info(`[${this.facility}]`, ...args);
+    }
+    debug(...args: any[]) {
+        console.debug(`[${this.facility}]`, ...args);
     }
     warn(...args: any[]) {
-        if (this.enabled) {
-            console.warn(`[${this.facility}]`, ...args);
-        }
+        console.warn(`[${this.facility}]`, ...args);
     }
     error(...args: any[]) {
-        if (this.enabled) {
-            console.error(`[${this.facility}]`, ...args);
-        }
+        console.error(`[${this.facility}]`, ...args);
     }
 }
+
+// Expose Logger on window for JavaScript files
+declare global {
+    interface Window {
+        Logger: typeof Logger;
+    }
+}
+window.Logger = Logger;

@@ -3,6 +3,9 @@
 
 import { createWorker, OPFSFileSystem } from 'opfs-worker';
 import { get, set, del } from 'idb-keyval';
+import { Logger } from './logger';
+
+const console = new Logger('FileSystemAdapter');
 
 export interface FileInfo {
     path: string;

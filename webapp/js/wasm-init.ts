@@ -1,6 +1,8 @@
 import initBabelfontWasm from '../wasm-dist/babelfont_fontc_web';
+import { Logger } from './logger';
 
-console.log('[WasmInit]', 'wasm-init.ts module loaded');
+const console = new Logger('WasmInit');
+console.log('wasm-init.ts module loaded');
 
 // Global promise that resolves when WASM is initialized
 let wasmInitPromise: Promise<void> | null = null;

@@ -3,6 +3,9 @@
 
 import APP_SETTINGS from '../settings';
 import type { GlyphCanvas } from '../glyph-canvas';
+import { Logger } from '../logger';
+
+const console = new Logger('MeasurementTool');
 
 export class MeasurementTool {
     private glyphCanvas: GlyphCanvas;

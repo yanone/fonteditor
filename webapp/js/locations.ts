@@ -1,4 +1,7 @@
 import type { Babelfont } from './babelfont';
+import { Logger } from './logger';
+
+const console = new Logger('Locations');
 
 type Tag = string;
 type DesignspaceCoordinate = number;

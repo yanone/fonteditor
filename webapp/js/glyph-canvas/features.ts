@@ -4,6 +4,9 @@ import {
 } from '../../wasm-dist/babelfont_fontc_web';
 import { getOpentypeFeatureInfo } from '../opentype-features';
 import { ensureWasmInitialized } from '../wasm-init';
+import { Logger } from '../logger';
+
+const console = new Logger('Features');
 
 export class FeaturesManager {
     featureSettings: Record<string, boolean>;

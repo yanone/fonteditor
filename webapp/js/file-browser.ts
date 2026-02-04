@@ -22,6 +22,9 @@ import {
     getTheme,
     setupMenuKeyboardNav
 } from './tippy-utils';
+import { Logger } from './logger';
+
+const console = new Logger('FileBrowser');
 
 const LAST_CONTEXT_KEY = 'last-filesystem-context';
 

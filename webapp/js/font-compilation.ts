@@ -19,6 +19,9 @@
 
 import { get_glyph_name } from '../wasm-dist/babelfont_fontc_web';
 import { fontInterpolation } from './font-interpolation';
+import { Logger } from './logger';
+
+const console = new Logger('FontCompilation');
 
 interface CompilationOptions {
     skip_kerning: boolean;

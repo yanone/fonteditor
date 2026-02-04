@@ -12,7 +12,7 @@ import APP_SETTINGS from '../settings';
 
 import bidiFactory from 'bidi-js';
 
-let console: Logger = new Logger('TextRun', false);
+let console: Logger = new Logger('TextRun');
 
 export interface ShapedGlyph {
     dx: number;

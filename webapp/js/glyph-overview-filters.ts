@@ -13,7 +13,7 @@ import {
     setupMenuKeyboardNav
 } from './tippy-utils';
 
-const console = new Logger('GlyphOverviewFilters', true);
+const console = new Logger('GlyphOverviewFilters');
 
 /**
  * Path registry for filter categories.

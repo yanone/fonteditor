@@ -14,6 +14,9 @@
 import type { Babelfont } from './babelfont';
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import { Bezier } from 'bezier-js';
+import { Logger } from './logger';
+
+const console = new Logger('BabelfontModel');
 
 /**
  * DecomposedAffine transformation utilities

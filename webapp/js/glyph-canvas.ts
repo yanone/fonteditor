@@ -18,7 +18,7 @@ import { Glyph, Layer } from './babelfont-model';
 import { updateUrlState, encodeLocation } from './url-state';
 import { isSyncEnabled } from './state-sync';
 
-let console: Logger = new Logger('GlyphCanvas', true);
+let console: Logger = new Logger('GlyphCanvas');
 
 class GlyphCanvas {
     container: HTMLElement;

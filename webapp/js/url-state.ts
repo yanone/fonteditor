@@ -3,7 +3,7 @@
 
 import { Logger } from './logger';
 
-const console = new Logger('URLState', true);
+const console = new Logger('URLState');
 
 export interface AppState {
     file?: string | null;

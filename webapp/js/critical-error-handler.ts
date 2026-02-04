@@ -11,6 +11,10 @@
  *   if (window.isWebAssemblyMemoryError(err)) { window.showCriticalError(...) }
  */
 
+import { Logger } from './logger';
+
+const console = new Logger('CriticalErrorHandler');
+
 /**
  * Show a critical error overlay that blocks all interaction
  * @param title - Error title

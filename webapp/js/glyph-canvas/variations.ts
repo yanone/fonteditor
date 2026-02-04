@@ -1,6 +1,9 @@
 import { get_font_axes } from '../../wasm-dist/babelfont_fontc_web';
 import Babelfont from '../babelfont';
 import { ensureWasmInitialized } from '../wasm-init';
+import { Logger } from '../logger';
+
+const console = new Logger('Variations');
 
 interface VariationAxis {
     tag: string;

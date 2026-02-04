@@ -3,6 +3,10 @@
  * Shared utilities for tippy menus across the application
  */
 
+import { Logger } from './logger';
+
+const console = new Logger('TippyUtils');
+
 /**
  * Create or get a backdrop element for modal-like menu behavior
  */
