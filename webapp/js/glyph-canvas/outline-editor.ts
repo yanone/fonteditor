@@ -1002,9 +1002,16 @@ export class OutlineEditor {
     }
 
     onMouseUp(e: MouseEvent): void {
+        const wasDragging = this.isDraggingPoint || this.isDraggingAnchor || this.isDraggingComponent;
+        
         this.isDraggingPoint = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
+        
+        // Update worker font cache after dragging ends
+        if (wasDragging) {
+            fontManager.updateWorkerFontCache();
+        }
     }
 
     get draggingSomething() {

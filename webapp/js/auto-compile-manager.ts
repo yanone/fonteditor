@@ -64,6 +64,8 @@ import fontManager from './font-manager';
 
     /**
      * Check if font needs compilation and trigger it.
+     * Keeps compiling in a loop while data changes during compilation,
+     * ensuring only one compilation is in flight at a time.
      */
     async function triggerCompilation() {
         if (isCompiling) {
@@ -73,20 +75,39 @@ import fontManager from './font-manager';
         if (fontManager.currentFont?.dirty) {
             isCompiling = true;
 
-            // Get the change source for logging
-            const changeSource = fontManager.lastChangeSource || 'unknown';
-
-            // Show message in terminal if available
-            if (window.term) {
-                window.term.echo(
-                    `[[;cyan;]🔄 Auto-recompiling editing font after data change (source: ${changeSource})...]`
-                );
-            }
-
             try {
-                // Trigger recompilation of editing font via font manager
-                if (fontManager && fontManager.isReady()) {
-                    await fontManager.recompileEditingFont();
+                // Keep compiling in a loop while data changes during compilation
+                let compileCount = 0;
+                let needsRecompile = true;
+
+                while (needsRecompile && fontManager.currentFont?.dirty) {
+                    compileCount++;
+                    const changeSource = fontManager.lastChangeSource || 'unknown';
+
+                    // Show message in terminal if available (only for first compile or every 5th)
+                    if (window.term && (compileCount === 1 || compileCount % 5 === 0)) {
+                        window.term.echo(
+                            `[[;cyan;]🔄 Auto-recompiling editing font (compile #${compileCount}, source: ${changeSource})...]`
+                        );
+                    }
+
+                    // Trigger recompilation - returns true if data changed and needs another compile
+                    if (fontManager && fontManager.isReady()) {
+                        needsRecompile = await fontManager.recompileEditingFont();
+                    } else {
+                        needsRecompile = false;
+                    }
+
+                    // Log if we're doing another compile
+                    if (needsRecompile && compileCount < 10) {
+                        console.log(`[AutoCompile] Compile #${compileCount} finished, data changed, continuing...`);
+                    } else if (needsRecompile && compileCount === 10) {
+                        console.log('[AutoCompile] Many compilations in progress, suppressing further logs...');
+                    }
+                }
+
+                if (compileCount > 1) {
+                    console.log(`[AutoCompile] Compilation chain completed after ${compileCount} compiles`);
                 }
             } finally {
                 isCompiling = false;

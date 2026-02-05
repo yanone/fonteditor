@@ -108,7 +108,7 @@ export class DecomposedAffineTransform {
  */
 function markFontDirty(): void {
     if (window.fontManager?.currentFont) {
-        window.fontManager.currentFont.dirty = true;
+        window.fontManager.currentFont.markDirty();
         console.log('[BabelfontModel]', '✏️ Font marked as dirty');
     } else {
         console.warn(

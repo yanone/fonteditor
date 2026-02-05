@@ -45,6 +45,7 @@ class OpenedFont {
     sourcePlugin: FilesystemPlugin;
     fileHandle?: FileSystemFileHandle;
     directoryHandle?: FileSystemDirectoryHandle;
+    changeVersion: number; // Counter incremented on every change to track data freshness
 
     constructor(
         babelfontJson: string,
@@ -81,6 +82,16 @@ class OpenedFont {
         this.name =
             this.babelfontData?.names.family_name.dflt || 'Untitled Font';
         this.dirty = false;
+        this.changeVersion = 0;
+    }
+
+    /**
+     * Mark the font as dirty and increment change version
+     * This allows tracking whether data changed during compilation
+     */
+    markDirty(changeSource?: string): void {
+        this.dirty = true;
+        this.changeVersion++;
     }
 
     /**
@@ -471,15 +482,34 @@ class FontManager {
 
     /**
      * Recompile editing font after font data changes
+     * Implements continuous fresh-start compilation: if data changes during
+     * compilation, marks dirty again so the auto-compile loop will trigger
+     * a fresh compilation with the latest data.
+     * Returns true if data changed during compilation and needs another compile.
      */
-    async recompileEditingFont() {
+    async recompileEditingFont(): Promise<boolean> {
+        if (!this.currentFont) return false;
+
+        // Capture change version at start of compilation
+        const startVersion = this.currentFont.changeVersion;
+
+        // Compile with current data
         await this.compileEditingFont(this.currentText, this.selectedFeatures);
-        // Clear dirty flag after successful compilation
-        // The font is now up-to-date in the editor (not saved to disk, but compiled)
-        if (this.currentFont) {
+
+        // After compilation, check if data changed during the compilation
+        if (this.currentFont.changeVersion !== startVersion) {
+            // Data changed during compilation! Mark dirty again so auto-compile
+            // loop will trigger a fresh compilation with latest data.
+            // Don't clear dirty flag - keep it true to trigger another compile.
+            console.log(
+                `[FontManager] Data changed during compilation (v${startVersion} → v${this.currentFont.changeVersion}), marking for recompile...`
+            );
+            return true; // Indicates recompilation needed
+        } else {
+            // No changes occurred during compilation, safe to clear dirty flag
             this.currentFont.dirty = false;
+            return false; // No recompilation needed
         }
-        return;
     }
 
     /**
@@ -949,21 +979,24 @@ class FontManager {
 
         // Mark font as dirty and track the change source
         this.lastChangeSource = changeSource;
-        this.currentFont!.dirty = true;
+        this.currentFont!.markDirty(changeSource);
         window.autoCompileManager.checkAndSchedule();
         await this.updateDirtyIndicator();
 
         // Update worker's font cache so glyph overview renders correctly
-        try {
-            await fontCompilation.sendMessage({
-                type: 'storeFontJson',
-                babelfontJson: this.currentFont!.babelfontJson
-            });
-        } catch (error) {
-            console.error(
-                '[FontManager] Error updating worker font cache:',
-                error
-            );
+        // Skip during dragging to prevent clearing caches repeatedly - will update on drag end
+        if (changeSource !== 'mouse-drag') {
+            try {
+                await fontCompilation.sendMessage({
+                    type: 'storeFontJson',
+                    babelfontJson: this.currentFont!.babelfontJson
+                });
+            } catch (error) {
+                console.error(
+                    '[FontManager] Error updating worker font cache:',
+                    error
+                );
+            }
         }
 
         // Dispatch event for glyph overview to update tile
@@ -972,6 +1005,30 @@ class FontManager {
                 detail: { glyphName, layerId }
             })
         );
+    }
+
+    /**
+     * Update the worker's font cache with current font data.
+     * Call this after dragging ends to ensure caches are updated.
+     */
+    async updateWorkerFontCache(): Promise<void> {
+        if (!this.currentFont) {
+            console.warn('[FontManager] No current font to update cache');
+            return;
+        }
+
+        try {
+            await fontCompilation.sendMessage({
+                type: 'storeFontJson',
+                babelfontJson: this.currentFont.babelfontJson
+            });
+            console.log('[FontManager] Worker font cache updated after drag');
+        } catch (error) {
+            console.error(
+                '[FontManager] Error updating worker font cache:',
+                error
+            );
+        }
     }
 }
 
