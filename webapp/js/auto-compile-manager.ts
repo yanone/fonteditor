@@ -73,10 +73,13 @@ import fontManager from './font-manager';
         if (fontManager.currentFont?.dirty) {
             isCompiling = true;
 
+            // Get the change source for logging
+            const changeSource = fontManager.lastChangeSource || 'unknown';
+
             // Show message in terminal if available
             if (window.term) {
                 window.term.echo(
-                    '[[;cyan;]🔄 Auto-recompiling editing font after data change...]'
+                    `[[;cyan;]🔄 Auto-recompiling editing font after data change (source: ${changeSource})...]`
                 );
             }
 

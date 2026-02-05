@@ -194,6 +194,7 @@ class FontManager {
     selectedFeatures: string[];
     isCompiling: boolean;
     glyphOrderCache: string[] | null;
+    lastChangeSource: string | null = null; // Track what triggered the last change (keyboard, mouse-drag, etc.)
 
     constructor() {
         this.fontDisplay = null;
@@ -207,6 +208,7 @@ class FontManager {
         this.selectedFeatures = [];
         this.isCompiling = false;
         this.glyphOrderCache = null; // Cache for glyph order to avoid re-parsing
+        this.lastChangeSource = null;
     }
     init() {
         this.fontDisplay = document.getElementById('current-font-display');
@@ -433,7 +435,8 @@ class FontManager {
             this.editingFont = new Uint8Array(result.result);
             const duration = (performance.now() - startTime).toFixed(2);
 
-            console.log(`✅ Editing font compiled in ${duration}ms (${this.editingFont.length} bytes)`);
+            const sourceInfo = this.lastChangeSource ? ` [triggered by: ${this.lastChangeSource}]` : '';
+            console.log(`✅ Editing font compiled in ${duration}ms (${this.editingFont.length} bytes)${sourceInfo}`);
 
             // Hide any error messages in sidebar
             sidebarErrorDisplay.hideError();
@@ -780,7 +783,8 @@ class FontManager {
     async saveLayerData(
         glyphName: string,
         layerId: string,
-        layerData: Babelfont.Layer
+        layerData: Babelfont.Layer,
+        changeSource: string = 'unknown'
     ) {
         // Helper function to recursively clean shapes for saving
         const cleanShapeForSaving = (shape: Babelfont.Shape): any => {
@@ -943,7 +947,8 @@ class FontManager {
             return;
         }
 
-        // Mark font as dirty
+        // Mark font as dirty and track the change source
+        this.lastChangeSource = changeSource;
         this.currentFont!.dirty = true;
         window.autoCompileManager.checkAndSchedule();
         await this.updateDirtyIndicator();

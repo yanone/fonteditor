@@ -812,7 +812,7 @@ export class OutlineEditor {
         this._updateDraggedAnchors(deltaX, deltaY);
 
         // Save to Python immediately (non-blocking)
-        this.saveLayerData();
+        this.saveLayerData('mouse-drag');
 
         this.glyphCanvas.render();
     }
@@ -1449,8 +1449,8 @@ export class OutlineEditor {
             }
         }
 
-        // Save to Python (non-blocking)
-        this.saveLayerData();
+        // Save to obect model (non-blocking)
+        this.saveLayerData('keyboard');
         this.glyphCanvas.render();
     }
 
@@ -1473,8 +1473,8 @@ export class OutlineEditor {
             }
         }
 
-        // Save to Python (non-blocking)
-        this.saveLayerData();
+        // Save to obect model (non-blocking)
+        this.saveLayerData('keyboard');
         this.glyphCanvas.render();
     }
 
@@ -1507,8 +1507,8 @@ export class OutlineEditor {
             }
         }
 
-        // Save to Python (non-blocking)
-        this.saveLayerData();
+        // Save to obect model (non-blocking)
+        this.saveLayerData('keyboard');
         this.glyphCanvas.render();
     }
 
@@ -1536,7 +1536,7 @@ export class OutlineEditor {
         node.smooth = !node.smooth;
 
         // Save (non-blocking)
-        this.saveLayerData();
+        this.saveLayerData('keyboard');
         this.glyphCanvas.render();
 
         console.log(
@@ -2387,7 +2387,7 @@ export class OutlineEditor {
         }
     }
 
-    async saveLayerData(): Promise<void> {
+    async saveLayerData(changeSource: string = 'unknown'): Promise<void> {
         // Save layer data back to Python using from_dict()
         if (!window.pyodide || !this.layerData) {
             return;
@@ -2421,7 +2421,8 @@ export class OutlineEditor {
             await fontManager!.saveLayerData(
                 rootGlyphName,
                 this.selectedLayerId,
-                this.layerData
+                this.layerData,
+                changeSource
             );
 
             // If editing a nested component, also save changes to the component glyph definition
@@ -2440,7 +2441,8 @@ export class OutlineEditor {
                     await fontManager!.saveLayerData(
                         componentGlyphName,
                         this.selectedLayerId,
-                        currentLayerData
+                        currentLayerData,
+                        changeSource
                     );
                 }
             }
