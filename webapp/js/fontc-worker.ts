@@ -67,9 +67,6 @@ function stripLayerData(fontData: any): any {
 
             // Validate dotaccentcomb before filtering
             if (glyph.name === 'dotaccentcomb') {
-                console.log(
-                    `[Fontc Worker] dotaccentcomb BEFORE filtering: ${glyph.layers.length} layers`
-                );
                 glyph.layers.forEach((layer: any, i: number) => {
                     const masterType =
                         layer.master && typeof layer.master === 'object'
@@ -77,14 +74,6 @@ function stripLayerData(fontData: any): any {
                                 ? layer.master.type
                                 : Object.keys(layer.master)[0]
                             : 'none';
-                    console.log(
-                        `  Layer ${i}: master=${masterType}, shapes=${layer.shapes?.length || 0}, location=${JSON.stringify(layer.location || {})}`
-                    );
-                    if (layer.shapes && layer.shapes.length > 0) {
-                        console.log(
-                            `    First shape keys: ${Object.keys(layer.shapes[0]).join(',')}`
-                        );
-                    }
                 });
             }
 
@@ -140,9 +129,6 @@ function stripLayerData(fontData: any): any {
 
             // Validate dotaccentcomb AFTER filtering
             if (glyph.name === 'dotaccentcomb') {
-                console.log(
-                    `[Fontc Worker] dotaccentcomb AFTER filtering: ${glyph.layers.length} layers`
-                );
                 glyph.layers.forEach((layer: any, i: number) => {
                     const masterType =
                         layer.master && typeof layer.master === 'object'
@@ -150,9 +136,6 @@ function stripLayerData(fontData: any): any {
                                 ? `{type: ${layer.master.type}}`
                                 : Object.keys(layer.master)[0]
                             : 'none';
-                    console.log(
-                        `  Layer ${i}: master=${masterType}, shapes=${layer.shapes?.length || 0}, has location: ${!!(layer.location && Object.keys(layer.location).length > 0)}`
-                    );
                 });
             }
 
@@ -207,7 +190,6 @@ function stripLayerData(fontData: any): any {
  */
 function validateFontData(fontData: any): void {
     if (!fontData.glyphs) {
-        console.warn('[Fontc Worker] ⚠️ No glyphs in font data');
         return;
     }
 
@@ -255,7 +237,6 @@ function validateFontData(fontData: any): void {
     });
 
     if (issues.length > 0) {
-        console.warn('[Fontc Worker] ⚠️ Font data validation issues:');
         issues.slice(0, 5).forEach((issue) => console.warn(`  - ${issue}`));
         if (issues.length > 5) {
             console.warn(`  ... and ${issues.length - 5} more issues`);
@@ -264,17 +245,12 @@ function validateFontData(fontData: any): void {
 
     // Remove glyphs with all empty layers to prevent compilation errors
     if (isArray && glyphIndicesToRemove.length > 0) {
-        console.warn(
-            `[Fontc Worker] 🗑️ Removing ${glyphIndicesToRemove.length} glyphs with all empty layers from compilation`
-        );
         // Filter out the glyphs by creating a new array without them
         fontData.glyphs = fontData.glyphs.filter(
             (_: any, idx: number) => !glyphIndicesToRemove.includes(idx)
         );
     }
 }
-
-console.log('[Fontc Worker] Starting...');
 
 async function initializeWasm() {
     try {
@@ -287,21 +263,14 @@ async function initializeWasm() {
             );
         }
 
-        console.log('[Fontc Worker] Loading babelfont-fontc WASM...');
         await init();
 
-        console.log(
-            '[Fontc Worker] Skipping thread pool due to browser limitations...'
-        );
         // NOTE: initThreadPool causes Memory cloning errors in some browsers (Brave, etc.)
         // Skip it - fontc will run single-threaded but still works
         // await initThreadPool(1);
 
         initialized = true;
         const ver = version();
-        console.log('[Fontc Worker] Ready (single-threaded mode)!');
-        console.log('[Fontc Worker] Using direct .babelfont → TTF pipeline');
-        console.log('[Fontc Worker] Version:', ver);
 
         return ver;
     } catch (error: any) {
@@ -314,18 +283,7 @@ async function initializeWasm() {
 self.onmessage = async (event) => {
     const data = event.data;
 
-    // Debug: log all incoming messages with full details
-    console.log(
-        '[Fontc Worker] Received message:',
-        JSON.stringify({
-            type: data.type,
-            hasJson: !!data.babelfontJson,
-            hasGlyphName: !!data.glyphName,
-            hasLocation: !!data.location,
-            id: data.id,
-            filename: data.filename
-        })
-    );
+
 
     // Protocol 1: Type-based messages
     if (data.type === 'init') {
@@ -411,10 +369,6 @@ self.onmessage = async (event) => {
     if (data.type === 'storeFontJson') {
         const { id, babelfontJson } = data;
 
-        console.log(
-            `[Fontc Worker] ⭐ storeFontJson handler called, id: ${id}, hasJson: ${!!babelfontJson}`
-        );
-
         if (!babelfontJson) {
             self.postMessage({
                 id,
@@ -427,25 +381,12 @@ self.onmessage = async (event) => {
         try {
             // Ensure WASM is initialized before calling store_font
             if (!initialized) {
-                console.log(
-                    '[Fontc Worker] Initializing WASM before storing font...'
-                );
                 await initializeWasm();
             }
-
-            console.log(
-                `[Fontc Worker] Storing font JSON (${babelfontJson.length} bytes)`
-            );
 
             // Store in cache (both in WASM and in worker)
             store_font(babelfontJson);
             cachedBabelfontJson = babelfontJson;
-            console.log(
-                '[Fontc Worker] ✅ Font JSON cached in worker memory, cachedBabelfontJson is now:',
-                cachedBabelfontJson
-                    ? `${cachedBabelfontJson.length} bytes`
-                    : 'NULL'
-            );
 
             self.postMessage({
                 id,
@@ -484,18 +425,8 @@ self.onmessage = async (event) => {
         const { id, glyphName, location } = data;
 
         try {
-            console.log(
-                `[Fontc Worker] Interpolating glyph '${glyphName}' at location:`,
-                location
-            );
-
             const locationJson = JSON.stringify(location);
             const layerJson = interpolate_glyph(glyphName, locationJson);
-
-            console.log(
-                `[Fontc Worker] ✅ Interpolation successful for '${glyphName}', layer JSON length:`,
-                layerJson.length
-            );
 
             self.postMessage({
                 id,
@@ -519,7 +450,6 @@ self.onmessage = async (event) => {
     if (data.type === 'clearCache') {
         try {
             clear_font_cache();
-            console.log('[Fontc Worker] 🗑️ Font cache cleared');
             self.postMessage({
                 type: 'clearCache',
                 success: true
@@ -548,11 +478,6 @@ self.onmessage = async (event) => {
         }
 
         try {
-            console.log(`[Fontc Worker] Opening font file: ${filename}`);
-            console.log(
-                `[Fontc Worker] Contents type: ${typeof contents}, isUint8Array: ${contents instanceof Uint8Array}, length: ${contents.length || contents.byteLength || 'unknown'}`
-            );
-
             // Convert Uint8Array to string for WASM
             // Both OPFS and disk now return Uint8Array consistently
             // Use Latin-1 encoding (1:1 byte mapping) to preserve exact bytes
@@ -568,29 +493,12 @@ self.onmessage = async (event) => {
             const contentsStr = Array.from(contents, (byte) =>
                 String.fromCharCode(byte)
             ).join('');
-            console.log(
-                `[Fontc Worker] Converted ${contents.length} bytes to Latin-1 string`
-            );
-            console.log(
-                `[Fontc Worker] First 100 bytes:`,
-                Array.from(contents.slice(0, 100))
-                    .map((b) => b.toString(16).padStart(2, '0'))
-                    .join(' ')
-            );
-            console.log(
-                `[Fontc Worker] First 100 chars of string:`,
-                contentsStr.substring(0, 100)
-            );
 
             const babelfontJson = open_font_file(filename, contentsStr);
-            console.log(
-                `[Fontc Worker] Successfully converted to babelfont JSON (${babelfontJson.length} bytes)`
-            );
 
             // Store in cache (both in WASM and in worker)
             store_font(babelfontJson);
             cachedBabelfontJson = babelfontJson;
-            console.log('[Fontc Worker] Font cached in worker memory');
 
             self.postMessage({
                 id,
@@ -614,14 +522,6 @@ self.onmessage = async (event) => {
         const { id, glyphNames, location, flattenComponents } = data;
 
         try {
-            console.log(
-                `[Fontc Worker] Getting outlines for ${glyphNames.length} glyphs`
-            );
-            console.log(
-                `[Fontc Worker] cachedBabelfontJson state: ${cachedBabelfontJson ? `${cachedBabelfontJson.length} bytes` : 'NULL'}`
-            );
-            console.log(`[Fontc Worker] initialized: ${initialized}`);
-
             // Ensure font is cached before getting outlines
             if (!cachedBabelfontJson) {
                 const errorMsg = 'No font loaded in worker. Open a font first.';
@@ -651,10 +551,6 @@ self.onmessage = async (event) => {
                 glyphNamesJson,
                 locationJson,
                 flattenComponents
-            );
-
-            console.log(
-                `[Fontc Worker] Successfully got outlines, JSON length: ${outlinesJson.length}`
             );
 
             self.postMessage({
@@ -698,21 +594,10 @@ self.onmessage = async (event) => {
         }
 
         try {
-            console.log(
-                `[Fontc Worker] Compiling ${filename} from .babelfont JSON...`
-            );
-            console.log(
-                `[Fontc Worker] JSON size: ${babelfontJson.length} bytes`
-            );
-            if (options) {
-                console.log(`[Fontc Worker] Options:`, options);
-            }
-
             // STEP 1: Store font in WASM cache for interpolation
             try {
                 store_font(babelfontJson);
                 cachedBabelfontJson = babelfontJson; // Also cache in worker memory
-                console.log('[Fontc Worker] ✅ Font cached in WASM memory');
             } catch (cacheError) {
                 console.warn(
                     '[Fontc Worker] ⚠️ Failed to cache font:',
@@ -725,75 +610,12 @@ self.onmessage = async (event) => {
             const fontData = JSON.parse(babelfontJson);
             const cleanedFontData = stripLayerData(fontData);
 
-            // Debug: Check dotaccentcomb layers after filtering
-            const isArray = Array.isArray(cleanedFontData.glyphs);
-            const glyphs = isArray
-                ? cleanedFontData.glyphs
-                : Object.values(cleanedFontData.glyphs);
-            const dotaccentcomb = glyphs.find(
-                (g: any) => g && g.name === 'dotaccentcomb'
-            );
-            if (dotaccentcomb) {
-                console.log(
-                    `[Fontc Worker] 🔍 dotaccentcomb has ${dotaccentcomb.layers?.length || 0} layers after filtering:`
-                );
-                dotaccentcomb.layers?.forEach((layer: any, i: number) => {
-                    const masterType = layer.master
-                        ? Object.keys(layer.master)[0]
-                        : 'none';
-                    const shapeCount = layer.shapes?.length || 0;
-                    console.log(
-                        `  Layer ${i}: master=${masterType}, shapes=${shapeCount}, location=${JSON.stringify(layer.location || {})}`
-                    );
 
-                    // Debug: Show first shape structure AFTER wrapping
-                    if (layer.shapes && layer.shapes.length > 0) {
-                        const firstShape = layer.shapes[0];
-                        console.log(
-                            `    First shape AFTER wrapping - keys: ${Object.keys(firstShape).join(', ')}`
-                        );
-                        console.log(
-                            `    First shape AFTER wrapping: ${JSON.stringify(firstShape).substring(0, 300)}`
-                        );
-                    }
-                });
-            }
-
-            // Also check a component-based glyph
-            const abreve = glyphs.find((g: any) => g && g.name === 'Abreve');
-            if (
-                abreve &&
-                abreve.layers &&
-                abreve.layers[0] &&
-                abreve.layers[0].shapes
-            ) {
-                console.log(
-                    `[Fontc Worker] 🔍 Abreve first layer shapes AFTER wrapping:`
-                );
-                abreve.layers[0].shapes.forEach((shape: any, i: number) => {
-                    console.log(
-                        `  Shape ${i}: ${JSON.stringify(shape).substring(0, 200)}`
-                    );
-                });
-            }
 
             // Validate font data before compilation
             validateFontData(cleanedFontData);
 
             const cleanedJson = JSON.stringify(cleanedFontData);
-
-            // Debug: Show dotaccentcomb JSON structure
-            const dotaccentcombMatch = cleanedJson.match(
-                /"name":"dotaccentcomb"[^}]*"layers":\[([^\]]+\][^\]]*\][^\]]*\])/
-            );
-            if (dotaccentcombMatch) {
-                console.log(
-                    '[Fontc Worker] dotaccentcomb JSON layers:',
-                    dotaccentcombMatch[1].slice(0, 500)
-                );
-            }
-
-            console.log('[Fontc Worker] ✅ Stripped layerData from components');
 
             // STEP 3: Compile to TTF
             const result = compile_babelfont(cleanedJson, {

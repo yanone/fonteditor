@@ -1,11 +1,7 @@
 // Auto-Compile Manager
 // Automatically recompiles the font when data changes (using DIRTY_COMPILE flag)
 // Uses continuous loop for instant compilation during editing
-import APP_SETTINGS from './settings';
 import fontManager from './font-manager';
-import { Logger } from './logger';
-
-const console = new Logger('AutoCompileManager');
 
 (function () {
     'use strict';
@@ -29,7 +25,7 @@ const console = new Logger('AutoCompileManager');
         if (fontManager.currentFont?.dirty && !isCompiling) {
             // Trigger compilation immediately (non-blocking)
             triggerCompilation().catch((err) => {
-                console.error('[AutoCompile]', 'Compilation error:', err);
+                console.error('Compilation error:', err);
                 isCompiling = false; // Reset flag on error
             });
             // Continue loop to check again after compilation
@@ -41,7 +37,6 @@ const console = new Logger('AutoCompileManager');
             // Nothing to do - stop the loop to save CPU
             loopRunning = false;
             animationFrameId = null;
-            console.log('[AutoCompile]', '⏸️ No pending changes, pausing loop');
         }
     }
 
@@ -53,7 +48,6 @@ const console = new Logger('AutoCompileManager');
             return; // Already running
         }
         loopRunning = true;
-        console.log('[AutoCompile]', '▶️ Starting continuous check loop');
         checkLoop();
     }
 
@@ -66,7 +60,6 @@ const console = new Logger('AutoCompileManager');
             animationFrameId = null;
         }
         loopRunning = false;
-        console.log('[AutoCompile]', '⏸️ Stopped continuous check loop');
     }
 
     /**
@@ -74,18 +67,8 @@ const console = new Logger('AutoCompileManager');
      */
     async function triggerCompilation() {
         if (isCompiling) {
-            console.log(
-                '[AutoCompile]',
-                '⏭️ Skipping - compilation in progress'
-            );
             return;
         }
-
-        console.log(
-            '[AutoCompile]',
-            'Checking dirty flag:',
-            fontManager.currentFont?.dirty
-        );
 
         if (fontManager.currentFont?.dirty) {
             isCompiling = true;
@@ -105,11 +88,6 @@ const console = new Logger('AutoCompileManager');
             } finally {
                 isCompiling = false;
             }
-        } else {
-            console.log(
-                '[AutoCompile]',
-                'Font not dirty, skipping compilation'
-            );
         }
     }
 
@@ -133,10 +111,6 @@ const console = new Logger('AutoCompileManager');
         } else if (enabled && !loopRunning) {
             startLoop();
         }
-        console.log(
-            '[AutoCompile]',
-            `Auto-compilation ${enabled ? 'enabled' : 'disabled'}`
-        );
     }
 
     /**
@@ -150,10 +124,6 @@ const console = new Logger('AutoCompileManager');
      * Force trigger a compilation check immediately (for testing).
      */
     async function forceTrigger() {
-        console.log(
-            '[AutoCompile]',
-            '🧪 Force triggering auto-compile check...'
-        );
         await triggerCompilation();
     }
 
@@ -173,9 +143,4 @@ const console = new Logger('AutoCompileManager');
 
     // Start the loop immediately
     startLoop();
-
-    console.log(
-        '[AutoCompile]',
-        '✅ Auto-compile manager initialized with continuous loop'
-    );
 })();

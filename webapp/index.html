@@ -28,15 +28,9 @@
                 // URL parameter override for testing production mode locally
                 const urlParams = new URLSearchParams(window.location.search);
                 if (urlParams.has('production')) {
-                    console.log(
-                        '[isDevelopment] URL param ?production detected - forcing production mode'
-                    );
                     return false; // Force production mode
                 }
                 if (urlParams.has('development')) {
-                    console.log(
-                        '[isDevelopment] URL param ?development detected - forcing development mode'
-                    );
                     return true; // Force development mode
                 }
 
@@ -47,9 +41,6 @@
                     hostname === '127.0.0.1' ||
                     port === '8000' || // webpack dev server
                     port === '5500'; // live server
-                console.log(
-                    `[isDevelopment] Auto-detected: ${isDev ? 'development' : 'production'} (hostname: ${hostname}, port: ${port})`
-                );
                 return isDev;
             };
             window.isProduction = function () {

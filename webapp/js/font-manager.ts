@@ -89,8 +89,6 @@ class OpenedFont {
      * Converts nodes arrays back to string format for Rust compiler
      */
     syncJsonFromModel(): void {
-        console.log('[FontManager]', 'Starting syncJsonFromModel...');
-
         let pathsFound = 0;
         let pathsConverted = 0;
         let pathsAlreadyString = 0;
@@ -109,44 +107,14 @@ class OpenedFont {
                         pathsFound++;
 
                         if (Array.isArray(shape.nodes)) {
-                            // Log first few nodes before conversion to debug
-                            if (glyph.name === 'o') {
-                                console.log(
-                                    '[FontManager]',
-                                    `  Before conversion, first 3 nodes:`,
-                                    shape.nodes
-                                        .slice(0, 3)
-                                        .map(
-                                            (n: any) =>
-                                                `(${n.x},${n.y},${n.nodetype}${n.smooth ? 's' : ''})`
-                                        )
-                                        .join(' ')
-                                );
-                            }
-
                             // Convert nodes array back to compact string format
                             const nodesString = Path.nodesToString(shape.nodes);
-                            console.log(
-                                '[FontManager]',
-                                `Converting nodes for ${glyph.name}:`,
-                                shape.nodes.length,
-                                'nodes →',
-                                nodesString.substring(0, 50) + '...'
-                            );
                             shape.nodes = nodesString;
                             pathsConverted++;
-
-                            // Verify conversion worked
-                            console.log(
-                                '[FontManager]',
-                                `  After conversion: shape.nodes type =`,
-                                typeof shape.nodes
-                            );
                         } else if (typeof shape.nodes === 'string') {
                             pathsAlreadyString++;
                         } else {
                             console.error(
-                                '[FontManager]',
                                 `Unexpected nodes type for ${glyph.name}:`,
                                 typeof shape.nodes,
                                 shape.nodes
@@ -160,42 +128,7 @@ class OpenedFont {
             }
         }
 
-        console.log(
-            '[FontManager]',
-            `Paths: ${pathsFound} total, ${pathsConverted} converted, ${pathsAlreadyString} already strings, ${wrappersFixed} wrappers fixed`
-        );
-
         this.babelfontJson = this.fontModel.toJSONString();
-        console.log(
-            '[FontManager]',
-            `✅ JSON generated (${this.babelfontJson.length} chars)`
-        );
-
-        // Verify conversion worked by checking a sample
-        if (pathsConverted > 0) {
-            const parsed = JSON.parse(this.babelfontJson);
-            const sampleGlyph = parsed.glyphs[0];
-            const sampleShape = sampleGlyph?.layers?.[0]?.shapes?.[0];
-            if (sampleShape?.nodes) {
-                console.log(
-                    '[FontManager]',
-                    'Sample nodes type after serialization:',
-                    typeof sampleShape.nodes,
-                    Array.isArray(sampleShape.nodes)
-                        ? '(ARRAY - BUG!)'
-                        : '(string - OK)'
-                );
-            }
-
-            // Check the specific area where Rust parser fails
-            const errorCol = 389511;
-            if (this.babelfontJson.length > errorCol) {
-                console.log('[FontManager]', 'Context around column 389511:');
-                console.log(
-                    this.babelfontJson.substring(errorCol - 100, errorCol + 100)
-                );
-            }
-        }
     }
 
     /**
@@ -203,10 +136,6 @@ class OpenedFont {
      */
     async save(): Promise<void> {
         const pluginId = this.sourcePlugin.getId();
-        console.log(
-            `[FontManager]`,
-            `${this.sourcePlugin.getIcon()} Saving font to ${pluginId}: ${this.path}`
-        );
 
         // For disk plugin, need file handle and permission check
         if (pluginId === 'disk') {
@@ -232,10 +161,6 @@ class OpenedFont {
                 const writable = await this.fileHandle.createWritable();
                 await writable.write(this.babelfontJson);
                 await writable.close();
-                console.log(
-                    '[FontManager]',
-                    `✅ Saved font to disk: ${this.path}`
-                );
             } catch (error) {
                 if (error instanceof Error && error.name === 'SecurityError') {
                     throw new Error(
@@ -248,10 +173,6 @@ class OpenedFont {
             // For other plugins, use adapter's writeFile method
             const adapter = this.sourcePlugin.getAdapter();
             await adapter.writeFile(this.path, this.babelfontJson);
-            console.log(
-                '[FontManager]',
-                `✅ Saved font to ${pluginId}: ${this.path}`
-            );
         }
 
         // Clear dirty flag after successful save
@@ -391,10 +312,6 @@ class FontManager {
         fileHandle?: FileSystemFileHandle,
         directoryHandle?: FileSystemDirectoryHandle
     ) {
-        console.log(
-            '[FontManager]',
-            `🔧 Loading font from ${sourcePlugin.getName()}...`
-        );
         let newFont = new OpenedFont(
             babelfontJson,
             path,
@@ -421,11 +338,6 @@ class FontManager {
 
         // Compile typing font immediately
         await this.compileTypingFont();
-
-        console.log(
-            '[FontManager]',
-            '✅ FontManager: Font loaded and typing font compiled'
-        );
     }
 
     /**
@@ -444,7 +356,6 @@ class FontManager {
             throw new Error('Font compilation system not initialized');
         }
 
-        console.log('[FontManager]', '🔨 Compiling typing font...');
         const startTime = performance.now();
 
         try {
@@ -457,10 +368,7 @@ class FontManager {
             this.typingFont = new Uint8Array(result.result);
             const duration = (performance.now() - startTime).toFixed(2);
 
-            console.log(
-                '[FontManager]',
-                `✅ Typing font compiled in ${duration}ms (${this.typingFont.length} bytes)`
-            );
+            console.log(`✅ Typing font compiled in ${duration}ms (${this.typingFont.length} bytes)`);
 
             // Hide any error messages in sidebar
             sidebarErrorDisplay.hideError();
@@ -468,11 +376,7 @@ class FontManager {
             // Save to file system for review
             this.saveTypingFontToFileSystem();
         } catch (error) {
-            console.error(
-                '[FontManager]',
-                '❌ Failed to compile typing font:',
-                error
-            );
+            console.error('❌ Failed to compile typing font:', error);
             const errorMessage =
                 error instanceof Error ? error.message : String(error);
             sidebarErrorDisplay.showError(errorMessage);
@@ -515,7 +419,6 @@ class FontManager {
         this.currentText = text;
         this.selectedFeatures = features;
 
-        console.log('[FontManager]', '🔨 Compiling editing font...');
         const startTime = performance.now();
 
         try {
@@ -530,10 +433,7 @@ class FontManager {
             this.editingFont = new Uint8Array(result.result);
             const duration = (performance.now() - startTime).toFixed(2);
 
-            console.log(
-                '[FontManager]',
-                `✅ Editing font compiled in ${duration}ms (${this.editingFont.length} bytes)`
-            );
+            console.log(`✅ Editing font compiled in ${duration}ms (${this.editingFont.length} bytes)`);
 
             // Hide any error messages in sidebar
             sidebarErrorDisplay.hideError();
@@ -556,11 +456,7 @@ class FontManager {
 
             return this.editingFont;
         } catch (error) {
-            console.error(
-                '[FontManager]',
-                '❌ Failed to compile editing font:',
-                error
-            );
+            console.error('❌ Failed to compile editing font:', error);
             const errorMessage =
                 error instanceof Error ? error.message : String(error);
             sidebarErrorDisplay.showError(errorMessage);
@@ -610,10 +506,6 @@ class FontManager {
                 { type: 'font/ttf' }
             )
         ]);
-        console.log(
-            '[FontManager]',
-            `💾 Saved typing font to /_debug_typing_font.ttf (${this.typingFont.length} bytes)`
-        );
     }
 
     /**
@@ -635,10 +527,6 @@ class FontManager {
                 { type: 'font/ttf' }
             )
         ]);
-        console.log(
-            '[FontManager]',
-            `💾 Saved editing font to /_debug_editing_font.ttf (${this.editingFont.length} bytes)`
-        );
     }
 
     /**
@@ -680,10 +568,6 @@ class FontManager {
             }
         }
 
-        console.warn(
-            '[FontManager]',
-            'No glyph order available - font not loaded'
-        );
         return [];
     }
 
@@ -744,15 +628,6 @@ class FontManager {
             );
             return null;
         }
-        console.log(
-            `[FontManager] getLayer: Found layer "${layerId}" for glyph "${glyphName}"`
-        );
-        console.log(
-            `[FontManager] getLayer: Layer has ${layer.shapes?.length || 0} shapes`,
-            layer.shapes
-                ? JSON.stringify(layer.shapes[0], null, 2)
-                : 'NO SHAPES'
-        );
         return layer;
     }
 
@@ -1033,7 +908,6 @@ class FontManager {
         }
         // Directly assign the cleaned layer data (no need for JSON.parse/stringify)
         glyph.layers[layerIndex] = layerDataCopy;
-        console.log(glyph.layers[layerIndex]);
 
         // Update the babelfontJson string
         // We need to parse the JSON, update the specific layer, and stringify again
@@ -1113,10 +987,6 @@ export default fontManager;
 // Wait for font compilation system to be ready
 async function fontCompilationReady() {
     if (!fontCompilation || !fontCompilation.isInitialized) {
-        console.log(
-            '[FontManager]',
-            '⏳ Waiting for font compilation system...'
-        );
         // Wait up to 30 seconds for initialization
         let attempts = 0;
         while (
@@ -1133,46 +1003,26 @@ async function fontCompilationReady() {
             );
             return;
         }
-        console.log('[FontManager]', '✅ Font compilation system ready');
     }
 }
 
 // Listen for font loaded events from file browser
 window.addEventListener('fontLoaded', async (event: Event) => {
-    console.log('[FontManager]', '🎯 FontManager: Received fontLoaded event');
     await fontCompilationReady();
     try {
         // Get the babelfont JSON from the event
         const detail = (event as CustomEvent).detail;
 
-        const pluginName = detail.sourcePlugin?.getName() || 'unknown';
-        console.log(
-            '[FontManager]',
-            `📦 Received font JSON (${detail.babelfontJson.length} bytes from ${pluginName})`
-        );
-
         // Store font in worker's Rust instance for glyph operations
         // This ensures the font is cached BEFORE fontReady fires
-        console.log('[FontManager]', '🔧 Caching font in worker...');
         try {
             const storeResult = await fontCompilation.sendMessage({
                 type: 'storeFontJson',
                 babelfontJson: detail.babelfontJson
             });
-            console.log(
-                '[FontManager]',
-                '✅ Font cached in worker:',
-                storeResult
-            );
             if (storeResult.error) {
                 throw new Error(
                     `Failed to cache font in worker: ${storeResult.error}`
-                );
-            }
-            if (storeResult.cachedSize) {
-                console.log(
-                    '[FontManager]',
-                    `📦 Worker cache size: ${storeResult.cachedSize} bytes, message: ${storeResult.message}`
                 );
             }
         } catch (error) {
@@ -1220,5 +1070,3 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         // Error will be shown in sidebar by the error handlers above
     }
 });
-
-console.log('[FontManager]', '✅ Font Manager module loaded');
