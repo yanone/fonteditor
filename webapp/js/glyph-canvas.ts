@@ -1254,19 +1254,20 @@ class GlyphCanvas {
                 // Restore previous variation settings before updating UI
                 this.axesManager!.variationSettings = previousVariationSettings;
 
-                // Only update axes/features UI on initial load (before typing font is available)
-                // After that, the typing font compiled event handles UI updates
+                // Only update axes UI on initial load (before typing font is available)
+                // Features/axes fontBytes and UI are set by typingFontCompiledHandler,
+                // which always has the correct data (full font with GSUB features)
                 if (!this.initialFontLoaded) {
-                    // On first load, use editing font for features/axes as a fallback
-                    // until the typing font arrives
+                    // On first load, use editing font for axes as a fallback
+                    // until the typing font arrives. Features UI is NOT updated here
+                    // because the editing font lacks GSUB features (only has GPOS/kern).
                     this.axesManager!.fontBytes = fontBytesArray;
-                    this.featuresManager!.fontBytes = fontBytesArray;
                     await this.axesManager!.updateAxesUI();
                     console.log(
                         'Updated axes UI after initial font load (editing font fallback)'
                     );
-
-                    await this.featuresManager!.updateFeaturesUI();
+                    // Note: featuresManager.fontBytes and features UI are set by
+                    // typingFontCompiledHandler to ensure GSUB features are available
                 } else {
                     // On subsequent editing font reloads, restore axes UI
                     // (features/axes fontBytes stay pointing to typing font)
