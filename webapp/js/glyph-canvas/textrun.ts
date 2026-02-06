@@ -9,6 +9,10 @@ import { Logger } from '../logger';
 import type { FeaturesManager } from './features';
 import type { AxesManager } from './variations';
 import APP_SETTINGS from '../settings';
+import {
+    get_glyph_name,
+    get_glyph_order
+} from '../../wasm-dist/babelfont_fontc_web';
 
 import bidiFactory from 'bidi-js';
 
@@ -32,6 +36,17 @@ export class TextRunEditor {
     hbFont: any;
     hbFace: any;
     hbBlob: any;
+    // Typing font HarfBuzz objects (persistent, for Stage 1 shaping)
+    hbTypingFont: any;
+    hbTypingFace: any;
+    hbTypingBlob: any;
+    typingFontBytes: Uint8Array | null;
+    // Stage 1 output: LTR-ordered glyph name buffer
+    glyphNameBuffer: string[];
+    // Stage 1 cluster values preserved for cursor/selection
+    glyphNameBufferClusters: number[];
+    // GID→name map for the editing font (rebuilt when editing font changes)
+    editingFontNameToGid: Map<string, number>;
     bidi: any;
     bidiRuns: any[];
     selectedGlyphIndex: number;
@@ -64,6 +79,17 @@ export class TextRunEditor {
         this.hbFace = null;
         this.hbBlob = null;
         this.fontBlob = null;
+
+        // Typing font HarfBuzz objects
+        this.hbTypingFont = null;
+        this.hbTypingFace = null;
+        this.hbTypingBlob = null;
+        this.typingFontBytes = null;
+
+        // Stage 1 output
+        this.glyphNameBuffer = [];
+        this.glyphNameBufferClusters = [];
+        this.editingFontNameToGid = new Map();
 
         // Bidirectional text support
         this.bidi = bidiFactory();
@@ -1377,6 +1403,38 @@ export class TextRunEditor {
         }
     }
 
+    destroyTypingHarfbuzz() {
+        if (this.hbTypingFont) {
+            this.hbTypingFont.destroy();
+            this.hbTypingFont = null;
+        }
+        if (this.hbTypingFace) {
+            this.hbTypingFace.destroy();
+            this.hbTypingFace = null;
+        }
+        if (this.hbTypingBlob) {
+            this.hbTypingBlob.destroy();
+            this.hbTypingBlob = null;
+        }
+    }
+
+    /**
+     * Set the typing font for Stage 1 shaping (GSUB + bidi → glyph name list).
+     * Called once when the typing font is compiled.
+     */
+    setTypingFont(fontData: Uint8Array) {
+        if (!this.hb) {
+            console.warn('HarfBuzz not loaded yet, cannot set typing font');
+            return;
+        }
+        this.destroyTypingHarfbuzz();
+        this.typingFontBytes = fontData;
+        this.hbTypingBlob = this.hb.createBlob(fontData);
+        this.hbTypingFace = this.hb.createFace(this.hbTypingBlob, 0);
+        this.hbTypingFont = this.hb.createFont(this.hbTypingFace);
+        console.log('Typing font loaded into HarfBuzz for Stage 1 shaping');
+    }
+
     async setFont(fontData: Uint8Array, isInitialLoad: boolean = false) {
         console.log(
             '[TextRun]',
@@ -1522,7 +1580,7 @@ export class TextRunEditor {
     }
 
     shapeText(skipRender: boolean = false) {
-        if (!this.hb || !this.hbFont || !this.textBuffer) {
+        if (!this.hb || !this.textBuffer) {
             this.shapedGlyphs = [];
             this.bidiRuns = [];
             this.call('render');
@@ -1530,16 +1588,32 @@ export class TextRunEditor {
         }
 
         try {
-            // Apply variation settings if any
-            if (Object.keys(this.axesManager.variationSettings).length > 0) {
-                this.hbFont.setVariations(this.axesManager.variationSettings);
-            }
+            // Two-stage shaping: use typing font for GSUB (Stage 1),
+            // then editing font for GPOS (Stage 2)
+            if (this.hbTypingFont && this.hbFont) {
+                // Stage 1: Shape with typing font (full GSUB + bidi) → glyph name list
+                this.shapeStage1ForGlyphNames();
 
-            // Use BiDi algorithm if available, otherwise fallback to simple shaping
-            if (this.bidi) {
-                this.shapeTextWithBidi();
+                // Stage 2: Shape glyph names with editing font (GPOS only)
+                // via fake codepoints + setNominalGlyphFunc
+                this.shapeStage2WithFakeCodepoints();
+            } else if (this.hbFont) {
+                // Fallback: single-font shaping (no typing font yet)
+                if (
+                    Object.keys(this.axesManager.variationSettings).length > 0
+                ) {
+                    this.hbFont.setVariations(
+                        this.axesManager.variationSettings
+                    );
+                }
+                if (this.bidi) {
+                    this.shapeTextWithBidi(this.hbFont);
+                } else {
+                    this.shapeTextSimple();
+                }
             } else {
-                this.shapeTextSimple();
+                this.shapedGlyphs = [];
+                this.bidiRuns = [];
             }
 
             console.log('Shaped glyphs:', this.shapedGlyphs);
@@ -1548,7 +1622,6 @@ export class TextRunEditor {
             }
 
             // Render the result (unless explicitly skipped)
-            // Only skip render during interpolation callback when auto-pan will be applied
             if (!skipRender) {
                 this.call('render');
             }
@@ -1560,8 +1633,204 @@ export class TextRunEditor {
         }
     }
 
+    /**
+     * Stage 1: Shape text with typing font (has GSUB features) using bidi,
+     * producing an LTR visual-order glyph name buffer.
+     * Stores result in this.glyphNameBuffer and this.glyphNameBufferClusters.
+     */
+    shapeStage1ForGlyphNames() {
+        if (!this.hbTypingFont || !this.typingFontBytes) return;
+
+        // Apply variation settings to typing font too
+        if (Object.keys(this.axesManager.variationSettings).length > 0) {
+            this.hbTypingFont.setVariations(this.axesManager.variationSettings);
+        }
+
+        // Shape with bidi using the typing font
+        if (this.bidi) {
+            this.shapeTextWithBidi(this.hbTypingFont);
+        } else {
+            this.shapeTextSimpleWithFont(this.hbTypingFont);
+        }
+
+        // Now this.shapedGlyphs has the visual-order glyphs from Stage 1.
+        // Map GIDs to glyph names using the typing font.
+        const glyphNames: string[] = [];
+        const clusterValues: number[] = [];
+
+        for (const glyph of this.shapedGlyphs) {
+            try {
+                const name = get_glyph_name(this.typingFontBytes, glyph.g);
+                glyphNames.push(name || '.notdef');
+            } catch (e) {
+                glyphNames.push('.notdef');
+            }
+            clusterValues.push(glyph.cl || 0);
+        }
+
+        this.glyphNameBuffer = glyphNames;
+        this.glyphNameBufferClusters = clusterValues;
+
+        console.log('Stage 1 glyph name buffer:', this.glyphNameBuffer);
+    }
+
+    /**
+     * Simple shaping with a specified HarfBuzz font (no bidi).
+     * Used as fallback in Stage 1 when bidi is not available.
+     */
+    shapeTextSimpleWithFont(hbFont: any) {
+        const buffer = this.hb.createBuffer();
+        buffer.addText(this.textBuffer);
+        buffer.guessSegmentProperties();
+
+        const features = this.featuresManager.getHarfBuzzFeatures();
+        if (features) {
+            this.hb.shape(hbFont, buffer, features);
+        } else {
+            this.hb.shape(hbFont, buffer);
+        }
+
+        this.shapedGlyphs = buffer.json();
+        this.bidiRuns = [];
+        buffer.destroy();
+
+        this.buildClusterMap();
+        this.updateCursorVisualPosition();
+    }
+
+    /**
+     * Rebuild the name→GID map from the current editing font bytes.
+     * Called when the editing font is reloaded.
+     */
+    rebuildEditingFontNameToGid() {
+        this.editingFontNameToGid.clear();
+        if (!this.fontBlob) {
+            console.log('rebuildEditingFontNameToGid: no fontBlob, skipping');
+            return;
+        }
+        try {
+            const glyphOrder = get_glyph_order(this.fontBlob);
+            for (let gid = 0; gid < glyphOrder.length; gid++) {
+                this.editingFontNameToGid.set(glyphOrder[gid], gid);
+            }
+            console.log(
+                `Built editing font name→GID map: ${glyphOrder.length} glyphs, sample:`,
+                Array.from(this.editingFontNameToGid.entries()).slice(0, 10)
+            );
+        } catch (e) {
+            console.error('Failed to build editing font name→GID map:', e);
+        }
+    }
+
+    /**
+     * Stage 2: Shape the glyph name buffer using fake codepoints and
+     * setNominalGlyphFunc, so HarfBuzz applies GPOS (mark positioning, kerning)
+     * without running GSUB again.
+     */
+    shapeStage2WithFakeCodepoints() {
+        if (!this.hbFont || !this.hb || this.glyphNameBuffer.length === 0) {
+            console.log(
+                'Stage 2: skipped (no hbFont, hb, or empty glyphNameBuffer)'
+            );
+            this.shapedGlyphs = [];
+            this.buildClusterMap();
+            this.updateCursorVisualPosition();
+            return;
+        }
+
+        // Apply variation settings to editing font
+        if (Object.keys(this.axesManager.variationSettings).length > 0) {
+            this.hbFont.setVariations(this.axesManager.variationSettings);
+        }
+
+        const glyphNames = this.glyphNameBuffer;
+        const nameToGid = this.editingFontNameToGid;
+
+        console.log('Stage 2: glyphNames =', glyphNames);
+        console.log('Stage 2: editingFontNameToGid size =', nameToGid.size);
+        if (nameToGid.size > 0) {
+            const sample = Array.from(nameToGid.entries()).slice(0, 10);
+            console.log('Stage 2: sample name→GID entries:', sample);
+        }
+
+        // Check resolution of each glyph name
+        for (const name of glyphNames) {
+            const gid = nameToGid.get(name);
+            console.log(
+                `Stage 2: glyph "${name}" → GID ${gid !== undefined ? gid : 'NOT FOUND (.notdef)'}`
+            );
+        }
+
+        // Create a sub-font with custom fontFuncs to intercept codepoint→GID mapping
+        const subFont = this.hbFont.subFont();
+        const fontFuncs = this.hb.createFontFuncs();
+
+        // Map fake codepoints (PUA starting at 0x10FFFF + index) → GIDs in editing font
+        const BASE_CODEPOINT = 0x10ffff;
+        fontFuncs.setNominalGlyphFunc((font: any, unicode: number) => {
+            const index = unicode - BASE_CODEPOINT;
+            if (index >= 0 && index < glyphNames.length) {
+                const glyphName = glyphNames[index];
+                const gid = nameToGid.get(glyphName);
+                if (gid !== undefined) {
+                    return gid;
+                }
+            }
+            // Return 0 (.notdef) for unknown glyphs
+            return 0;
+        });
+
+        subFont.setFuncs(fontFuncs);
+
+        // Build buffer with fake codepoints — one per glyph name, LTR order
+        const buffer = this.hb.createBuffer();
+        const codepoints = glyphNames.map(
+            (_: string, i: number) => BASE_CODEPOINT + i
+        );
+        buffer.addCodePoints(codepoints);
+        buffer.setDirection('ltr');
+        buffer.setScript('latn');
+
+        // Shape — GSUB is skipped in the editing font, so only GPOS runs
+        this.hb.shape(subFont, buffer);
+
+        // Get shaped results (GPOS positions: dx, dy, ax, ay per glyph)
+        const stage2Glyphs: ShapedGlyph[] = buffer.json();
+
+        // Merge Stage 1 cluster values with Stage 2 positions
+        const mergedGlyphs: ShapedGlyph[] = [];
+        for (let i = 0; i < stage2Glyphs.length; i++) {
+            const s2 = stage2Glyphs[i];
+            mergedGlyphs.push({
+                g: s2.g,
+                dx: s2.dx || 0,
+                dy: s2.dy || 0,
+                ax: s2.ax || 0,
+                ay: s2.ay || 0,
+                // Preserve cluster values from Stage 1 for cursor/selection
+                cl:
+                    i < this.glyphNameBufferClusters.length
+                        ? this.glyphNameBufferClusters[i]
+                        : s2.cl || 0
+            });
+        }
+
+        this.shapedGlyphs = mergedGlyphs;
+
+        // Clean up
+        buffer.destroy();
+        fontFuncs.destroy();
+        subFont.destroy();
+
+        // Build cluster map for cursor positioning
+        this.buildClusterMap();
+        this.updateCursorVisualPosition();
+
+        console.log('Stage 2 shaped glyphs:', this.shapedGlyphs.length);
+    }
+
     shapeTextSimple() {
-        // Simple shaping without BiDi support (old behavior)
+        // Simple shaping without BiDi support (old behavior, uses editing font)
         const buffer = this.hb.createBuffer();
         buffer.addText(this.textBuffer);
         buffer.guessSegmentProperties();
@@ -1589,7 +1858,7 @@ export class TextRunEditor {
         this.updateCursorVisualPosition();
     }
 
-    shapeTextWithBidi() {
+    shapeTextWithBidi(hbFont: any) {
         // Get embedding levels from bidi-js
         const embedLevels = this.bidi.getEmbeddingLevels(this.textBuffer);
         this.embeddingLevels = embedLevels; // Store for cursor logic
@@ -1638,9 +1907,9 @@ export class TextRunEditor {
             buffer.guessSegmentProperties();
 
             if (features) {
-                this.hb.shape(this.hbFont, buffer, features);
+                this.hb.shape(hbFont, buffer, features);
             } else {
-                this.hb.shape(this.hbFont, buffer);
+                this.hb.shape(hbFont, buffer);
             }
             const glyphs = buffer.json();
             console.log(

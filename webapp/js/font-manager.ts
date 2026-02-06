@@ -381,10 +381,19 @@ class FontManager {
             this.typingFont = new Uint8Array(result.result);
             const duration = (performance.now() - startTime).toFixed(2);
 
-            console.log(`✅ Typing font compiled in ${duration}ms (${this.typingFont.length} bytes)`);
+            console.log(
+                `✅ Typing font compiled in ${duration}ms (${this.typingFont.length} bytes)`
+            );
 
             // Hide any error messages in sidebar
             sidebarErrorDisplay.hideError();
+
+            // Dispatch event so canvas can set up the typing font for Stage 1 shaping
+            window.dispatchEvent(
+                new CustomEvent('typingFontCompiled', {
+                    detail: { fontBytes: this.typingFont }
+                })
+            );
 
             // Save to file system for review
             this.saveTypingFontToFileSystem();
@@ -413,13 +422,18 @@ class FontManager {
     }
 
     /**
-     * Compile the editing font for display in canvas
-     * For now, compiles the full font (subsetting will be added later)
+     * Compile the editing font for display in canvas.
+     * Subset to the provided glyph names for faster compilation.
      *
-     * @param {string} text - Text being edited (for future subsetting)
-     * @param {Array<string>} features - Selected OpenType features (for future subsetting)
+     * @param {string} text - Text being edited (stored for recompilation)
+     * @param {Array<string>} features - Selected OpenType features (stored for recompilation)
+     * @param {Array<string>} subsetGlyphs - Glyph names to include in the subset
      */
-    async compileEditingFont(text: string = '', features: string[] = []) {
+    async compileEditingFont(
+        text: string = '',
+        features: string[] = [],
+        subsetGlyphs?: string[]
+    ) {
         if (!this.currentFont) {
             throw new Error('No font loaded');
         }
@@ -435,19 +449,26 @@ class FontManager {
         const startTime = performance.now();
 
         try {
-            // TODO: In the future, extract glyph names from text and compile subset
-            // For now, compile full font with editing target
+            // Compile editing font with subset if glyph names provided
+            console.log(
+                `🔨 Compiling editing font, subset_glyphs: ${subsetGlyphs ? subsetGlyphs.length + ' glyphs: [' + subsetGlyphs.join(', ') + ']' : 'none (full font)'}`
+            );
             const result = await fontCompilation.compileFromJson(
                 this.currentFont.babelfontJson,
                 'editing-font.ttf',
-                'editing'
+                'editing',
+                subsetGlyphs
             );
 
             this.editingFont = new Uint8Array(result.result);
             const duration = (performance.now() - startTime).toFixed(2);
 
-            const sourceInfo = this.lastChangeSource ? ` [triggered by: ${this.lastChangeSource}]` : '';
-            console.log(`✅ Editing font compiled in ${duration}ms (${this.editingFont.length} bytes)${sourceInfo}`);
+            const sourceInfo = this.lastChangeSource
+                ? ` [triggered by: ${this.lastChangeSource}]`
+                : '';
+            console.log(
+                `✅ Editing font compiled in ${duration}ms (${this.editingFont.length} bytes)${sourceInfo}`
+            );
 
             // Hide any error messages in sidebar
             sidebarErrorDisplay.hideError();
@@ -493,8 +514,15 @@ class FontManager {
         // Capture change version at start of compilation
         const startVersion = this.currentFont.changeVersion;
 
+        // Get subset glyph names from the glyph canvas text run editor (Stage 1 output)
+        const subsetGlyphs = window.glyphCanvas?.textRunEditor?.glyphNameBuffer;
+
         // Compile with current data
-        await this.compileEditingFont(this.currentText, this.selectedFeatures);
+        await this.compileEditingFont(
+            this.currentText,
+            this.selectedFeatures,
+            subsetGlyphs
+        );
 
         // After compilation, check if data changed during the compilation
         if (this.currentFont.changeVersion !== startVersion) {

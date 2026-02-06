@@ -62,14 +62,15 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
         dont_use_production_names: true
     },
 
-    // Complete font compiled with a subset of glyph names
+    // Subset font for canvas display - GSUB skipped (handled by typing font),
+    // GPOS retained for mark positioning etc.
     editing: {
         skip_kerning: false,
         skip_features: true,
         skip_metrics: false,
         skip_outlines: false,
         dont_use_production_names: true
-        // Note: subset_glyphs array should be added when calling compilation
+        // Note: subset_glyphs array is added when calling compilation
     }
 };
 
@@ -427,6 +428,16 @@ class FontCompilation {
         // Add subset glyphs if provided
         if (subsetGlyphs && subsetGlyphs.length > 0) {
             options.subset_glyphs = subsetGlyphs;
+            console.log(
+                '[FontCompilation]',
+                `Subsetting to ${subsetGlyphs.length} glyphs:`,
+                subsetGlyphs
+            );
+        } else {
+            console.log(
+                '[FontCompilation]',
+                'No subset_glyphs specified, compiling full font'
+            );
         }
 
         console.log(

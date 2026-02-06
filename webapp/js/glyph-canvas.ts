@@ -401,13 +401,46 @@ class GlyphCanvas {
                 this.captureTextModeAutoPanAnchor();
             }
 
-            // Reshape text with new features (skip render in text mode)
+            // Save previous glyph name buffer to detect changes
+            const previousGlyphNames = [
+                ...(this.textRunEditor!.glyphNameBuffer || [])
+            ];
+
+            // Reshape text with new features — this re-runs Stage 1 + Stage 2
             console.log(
                 '[GlyphCanvas]',
                 'Calling shapeText with skipRender:',
                 !this.outlineEditor.active
             );
             this.textRunEditor!.shapeText(!this.outlineEditor.active);
+
+            // Check if Stage 1 produced different glyph names (features affect GSUB substitutions)
+            const currentGlyphNames = this.textRunEditor!.glyphNameBuffer || [];
+            const glyphNamesChanged =
+                previousGlyphNames.length !== currentGlyphNames.length ||
+                previousGlyphNames.some(
+                    (name, i) => name !== currentGlyphNames[i]
+                );
+
+            if (glyphNamesChanged && fontManager && fontManager.isReady()) {
+                console.log(
+                    '[GlyphCanvas]',
+                    'Feature change altered glyph names, recompiling editing font with new subset'
+                );
+                // Recompile editing font with new glyph name subset
+                fontManager
+                    .compileEditingFont(
+                        this.textRunEditor!.textBuffer,
+                        [],
+                        this.textRunEditor!.glyphNameBuffer
+                    )
+                    .catch((error: any) => {
+                        console.error(
+                            'Failed to recompile editing font after feature change:',
+                            error
+                        );
+                    });
+            }
 
             if (
                 this.outlineEditor.active &&
@@ -1196,65 +1229,86 @@ class GlyphCanvas {
                 ...this.axesManager!.variationSettings
             };
 
-            // Store font bytes for feature/axis managers
+            // Store editing font bytes on GlyphCanvas (for outline editor etc.)
             const fontBytesArray = new Uint8Array(fontArrayBuffer);
             this.fontBytes = fontBytesArray;
-            this.axesManager!.fontBytes = fontBytesArray;
-            this.featuresManager!.fontBytes = fontBytesArray;
-            console.log('[GlyphCanvas]', 'Font bytes stored for managers');
+            console.log(
+                '[GlyphCanvas]',
+                'Editing font bytes stored, length:',
+                fontBytesArray.length
+            );
 
-            // Create HarfBuzz blob, face, and font if HarfBuzz is loaded
+            // DO NOT overwrite axesManager.fontBytes or featuresManager.fontBytes here.
+            // Those are sourced from the typing font (which has GSUB features).
+            // The typing font compiled event handler sets them.
+
+            // Create HarfBuzz blob, face, and font for the editing font
             // Pass initialFontLoaded flag to only load text from font on first load
             this.textRunEditor!.setFont(
                 fontBytesArray,
                 !this.initialFontLoaded
             ).then(async (hbFont) => {
+                // Rebuild editing font name→GID map for Stage 2 shaping
+                this.textRunEditor!.rebuildEditingFontNameToGid();
+
                 // Restore previous variation settings before updating UI
-                // This ensures the sliders show the previous values
                 this.axesManager!.variationSettings = previousVariationSettings;
 
-                // Update axes UI (will restore slider positions from variationSettings)
-                await this.axesManager!.updateAxesUI();
-                console.log('Updated axes UI after font load');
+                // Only update axes/features UI on initial load (before typing font is available)
+                // After that, the typing font compiled event handles UI updates
+                if (!this.initialFontLoaded) {
+                    // On first load, use editing font for features/axes as a fallback
+                    // until the typing font arrives
+                    this.axesManager!.fontBytes = fontBytesArray;
+                    this.featuresManager!.fontBytes = fontBytesArray;
+                    await this.axesManager!.updateAxesUI();
+                    console.log(
+                        'Updated axes UI after initial font load (editing font fallback)'
+                    );
 
-                // Update features UI (async, then shape text)
-                this.featuresManager!.updateFeaturesUI().then(async () => {
-                    // Shape text with new font after features are initialized
-                    this.textRunEditor!.shapeText();
+                    await this.featuresManager!.updateFeaturesUI();
+                } else {
+                    // On subsequent editing font reloads, restore axes UI
+                    // (features/axes fontBytes stay pointing to typing font)
+                    await this.axesManager!.updateAxesUI();
+                }
 
-                    // Update properties UI to show master list in text mode
-                    await this.updatePropertiesUI();
+                // Shape text with new editing font
+                // (Stage 2 will use the rebuilt name→GID map)
+                this.textRunEditor!.shapeText();
+                console.log(
+                    '[GlyphCanvas]',
+                    'Shaped text after editing font reload'
+                );
 
-                    // Auto-select first master on initial load
-                    if (
-                        !this.initialFontLoaded &&
-                        fontManager.currentFont?.fontModel?.masters
-                    ) {
-                        const firstMaster =
-                            fontManager.currentFont.fontModel.masters[0];
-                        if (
-                            firstMaster &&
-                            firstMaster.id &&
+                // Update properties UI to show master list in text mode
+                await this.updatePropertiesUI();
+
+                // Auto-select first master on initial load
+                if (
+                    !this.initialFontLoaded &&
+                    fontManager.currentFont?.fontModel?.masters
+                ) {
+                    const firstMaster =
+                        fontManager.currentFont.fontModel.masters[0];
+                    if (firstMaster && firstMaster.id && firstMaster.location) {
+                        await this.selectMaster(
+                            firstMaster.id,
                             firstMaster.location
-                        ) {
-                            await this.selectMaster(
-                                firstMaster.id,
-                                firstMaster.location
-                            );
-                        }
-                    }
-
-                    // Zoom to fit the entire text in the canvas only on initial load
-                    if (!this.initialFontLoaded) {
-                        const rect = this.canvas!.getBoundingClientRect();
-                        this.viewportManager!.zoomToFitText(
-                            this.textRunEditor!.shapedGlyphs,
-                            rect,
-                            this.render.bind(this)
                         );
-                        this.initialFontLoaded = true;
                     }
-                });
+                }
+
+                // Zoom to fit the entire text in the canvas only on initial load
+                if (!this.initialFontLoaded) {
+                    const rect = this.canvas!.getBoundingClientRect();
+                    this.viewportManager!.zoomToFitText(
+                        this.textRunEditor!.shapedGlyphs,
+                        rect,
+                        this.render.bind(this)
+                    );
+                    this.initialFontLoaded = true;
+                }
             });
         } catch (error) {
             console.error('Error setting font:', error);
@@ -2197,22 +2251,40 @@ class GlyphCanvas {
     }
 
     onTextChange(): void {
-        // Debounce font recompilation when text changes
+        // Run Stage 1 immediately to get glyph names for the new text
+        // (This was already triggered by setTextBuffer → shapeText,
+        //  so glyphNameBuffer is up to date)
+
+        // Debounce editing font recompilation with subset
         if (this.textChangeDebounceTimer) {
             clearTimeout(this.textChangeDebounceTimer);
         }
 
         this.textChangeDebounceTimer = setTimeout(() => {
             if (fontManager && fontManager.isReady()) {
-                console.log('🔄 Text changed, recompiling editing font...');
+                const subsetGlyphs = this.textRunEditor!.glyphNameBuffer || [];
+                console.log(
+                    '🔄 Text changed, recompiling editing font with subset:',
+                    subsetGlyphs.length,
+                    'glyphs:',
+                    subsetGlyphs
+                );
                 fontManager
-                    .compileEditingFont(this.textRunEditor!.textBuffer)
+                    .compileEditingFont(
+                        this.textRunEditor!.textBuffer,
+                        [],
+                        subsetGlyphs.length > 0 ? subsetGlyphs : undefined
+                    )
                     .catch((error: any) => {
                         console.error(
                             'Failed to recompile editing font:',
                             error
                         );
                     });
+            } else {
+                console.log(
+                    '🔄 Text changed but fontManager not ready, skipping recompile'
+                );
             }
         }, this.textChangeDebounceDelay);
     }
@@ -2726,6 +2798,7 @@ if (typeof document !== 'undefined' && document.addEventListener) {
 // Event handlers stored to prevent duplicate listeners
 let editingFontCompiledHandler: ((e: Event) => void) | null = null;
 let fontCompiledHandler: ((e: Event) => void) | null = null;
+let typingFontCompiledHandler: ((e: Event) => void) | null = null;
 
 // Set up listener for compiled fonts
 function setupFontLoadingListener() {
@@ -2741,6 +2814,60 @@ function setupFontLoadingListener() {
     if (fontCompiledHandler) {
         window.removeEventListener('fontCompiled', fontCompiledHandler);
     }
+    if (typingFontCompiledHandler) {
+        window.removeEventListener(
+            'typingFontCompiled',
+            typingFontCompiledHandler
+        );
+    }
+
+    // Listen for typing font compiled — set up Stage 1 shaping + features/axes UI
+    typingFontCompiledHandler = async (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        console.log(
+            '[GlyphCanvas]',
+            'Typing font compiled event received',
+            detail
+        );
+        if (window.glyphCanvas && detail && detail.fontBytes) {
+            const gc = window.glyphCanvas;
+            console.log(
+                '[GlyphCanvas]',
+                'Setting typing font on TextRunEditor, fontBytes length:',
+                detail.fontBytes.length
+            );
+
+            // Set typing font on TextRunEditor for Stage 1 shaping
+            gc.textRunEditor!.setTypingFont(detail.fontBytes);
+
+            // Source features/axes UI from the typing font (has GSUB features)
+            console.log(
+                '[GlyphCanvas]',
+                'Setting features/axes fontBytes from typing font'
+            );
+            gc.axesManager!.fontBytes = detail.fontBytes;
+            gc.featuresManager!.fontBytes = detail.fontBytes;
+
+            console.log('[GlyphCanvas]', 'Updating axes UI...');
+            await gc.axesManager!.updateAxesUI();
+            console.log('[GlyphCanvas]', 'Updating features UI...');
+            await gc.featuresManager!.updateFeaturesUI();
+            console.log(
+                '[GlyphCanvas]',
+                '✅ Features/axes UI sourced from typing font'
+            );
+        } else {
+            console.log(
+                '[GlyphCanvas]',
+                'Typing font event received but missing data:',
+                {
+                    hasGlyphCanvas: !!window.glyphCanvas,
+                    hasDetail: !!detail,
+                    hasFontBytes: detail && !!detail.fontBytes
+                }
+            );
+        }
+    };
 
     // Listen for editing font compiled by font manager (primary)
     editingFontCompiledHandler = async (e: Event) => {
@@ -2783,6 +2910,7 @@ function setupFontLoadingListener() {
         }
     };
 
+    window.addEventListener('typingFontCompiled', typingFontCompiledHandler);
     window.addEventListener('editingFontCompiled', editingFontCompiledHandler);
     window.addEventListener('fontCompiled', fontCompiledHandler);
 }

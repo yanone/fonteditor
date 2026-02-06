@@ -21,7 +21,7 @@
 // true = enabled (normal logs will print)
 // false = disabled (only errors and warnings will print)
 export const FACILITY_REGISTRY: Record<string, boolean> = {
-    AutoCompileManager: false,
+    AutoCompileManager: true,
     BabelfontModel: false,
     Bootstrap: false,
     CanvasPluginManager: false,
@@ -31,17 +31,17 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     FileBrowser: false,
     FileSystemAdapter: false,
     FilesystemPlugins: false,
-    FontCompilation: false,
+    FontCompilation: true,
     FontInterpolation: false,
-    FontManager: false,
-    GlyphCanvas: false,
+    FontManager: true,
+    GlyphCanvas: true,
     GlyphOverview: false,
     GlyphOverviewFilters: false,
     GlyphTileRendererFast: false,
     LayerDataNormalizer: false,
     Locations: false,
     MeasurementTool: false,
-    OpentypeFeatures: false,
+    OpentypeFeatures: true,
     OutlineEditor: false,
     PythonPostExecution: false,
     Renderer: false,
@@ -51,10 +51,10 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     StackPreviewAnimator: false,
     StateRestore: false,
     StateSync: false,
-    TextRun: false,
+    TextRun: true,
     TippyUtils: false,
     URLState: false,
-    Variations: false,
+    Variations: true,
     WasmInit: false
 };
 
