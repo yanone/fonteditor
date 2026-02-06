@@ -1234,6 +1234,10 @@ export class OutlineEditor {
                     ) as Transform;
 
                     // Multiply matrices to combine transforms
+                    // Transform format: [a, b, c, d, tx, ty] where matrix is:
+                    // | a  c  tx |
+                    // | b  d  ty |
+                    // | 0  0   1 |
                     const combinedTransform: Transform = [
                         parentTransform[0] * nestedTransformArray[0] +
                             parentTransform[2] * nestedTransformArray[1],
@@ -1242,7 +1246,7 @@ export class OutlineEditor {
                         parentTransform[0] * nestedTransformArray[2] +
                             parentTransform[2] * nestedTransformArray[3],
                         parentTransform[1] * nestedTransformArray[2] +
-                            parentTransform[3] * nestedTransformArray[1],
+                            parentTransform[3] * nestedTransformArray[3],
                         parentTransform[0] * nestedTransformArray[4] +
                             parentTransform[2] * nestedTransformArray[5] +
                             parentTransform[4],
