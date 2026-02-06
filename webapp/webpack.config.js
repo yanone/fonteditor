@@ -82,7 +82,9 @@ module.exports = {
     devServer: {
         static: [
             {
-                directory: path.join(__dirname, 'build')
+                directory: path.join(__dirname, 'build'),
+                // Don't watch the build directory - it's webpack's own output
+                watch: false
             }
         ],
         watchFiles: {
