@@ -65,7 +65,7 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
     // Complete font compiled with a subset of glyph names
     editing: {
         skip_kerning: false,
-        skip_features: false,
+        skip_features: true,
         skip_metrics: false,
         skip_outlines: false,
         dont_use_production_names: true
