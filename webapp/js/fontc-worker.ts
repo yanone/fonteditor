@@ -283,8 +283,6 @@ async function initializeWasm() {
 self.onmessage = async (event) => {
     const data = event.data;
 
-
-
     // Protocol 1: Type-based messages
     if (data.type === 'init') {
         try {
@@ -325,7 +323,7 @@ self.onmessage = async (event) => {
             // const cleanedFontData = stripLayerData(fontData);
 
             // Validate font data
-            validateFontData(cleanedFontData);
+            // validateFontData(cleanedFontData);
 
             const cleanedJson = JSON.stringify(cleanedFontData);
 
@@ -609,8 +607,6 @@ self.onmessage = async (event) => {
             // STEP 2: Clean font data (remove runtime-only layerData fields)
             const fontData = JSON.parse(babelfontJson);
             const cleanedFontData = stripLayerData(fontData);
-
-
 
             // Validate font data before compilation
             validateFontData(cleanedFontData);
