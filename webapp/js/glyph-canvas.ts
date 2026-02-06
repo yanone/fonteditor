@@ -53,7 +53,11 @@ class GlyphCanvas {
     glyphSelectionSequence: number = 0;
 
     textChangeDebounceTimer: any = null; // NodeJS.Timeout is not available in browser
-    textChangeDebounceDelay: number = 1000;
+    // Adaptive debounce timing for progressive typing compilation
+    textChangeLastKeystrokeTime: number = 0;
+    textChangeBurstThreshold: number = 200; // ms - keystrokes within this window considered "burst typing"
+    textChangeFastDelay: number = 50; // ms - delay during fast typing bursts
+    textChangeSlowDelay: number = 150; // ms - delay during slow typing
 
     resizeObserver: ResizeObserver | null = null;
 
@@ -2273,24 +2277,25 @@ class GlyphCanvas {
         // Run Stage 1 immediately to get glyph names for the new text
         // (This was already triggered by setTextBuffer → shapeText,
         //  so glyphNameBuffer is up to date)
-        console.warn('[DEBUG] onTextChange called, starting debounce timer');
+
+        // Calculate adaptive debounce delay based on typing speed
+        const now = Date.now();
+        const timeSinceLastKeystroke = now - this.textChangeLastKeystrokeTime;
+        this.textChangeLastKeystrokeTime = now;
+
+        // Determine if user is typing fast (burst) or slow
+        // Fast typing = keystrokes within burst threshold
+        const isBurstTyping = timeSinceLastKeystroke < this.textChangeBurstThreshold;
+        const debounceDelay = isBurstTyping ? this.textChangeFastDelay : this.textChangeSlowDelay;
 
         // Debounce editing font recompilation with subset
         if (this.textChangeDebounceTimer) {
-            console.warn('[DEBUG] Clearing existing debounce timer');
             clearTimeout(this.textChangeDebounceTimer);
         }
 
         this.textChangeDebounceTimer = setTimeout(() => {
-            console.warn('[DEBUG] Debounce timer fired, checking fontManager...');
             if (fontManager && fontManager.isReady()) {
                 const subsetGlyphs = this.textRunEditor!.glyphNameBuffer || [];
-                console.warn(
-                    '[DEBUG] Text changed, recompiling editing font with subset:',
-                    subsetGlyphs.length,
-                    'glyphs:',
-                    subsetGlyphs
-                );
                 fontManager
                     .compileEditingFont(
                         this.textRunEditor!.textBuffer,
@@ -2303,15 +2308,8 @@ class GlyphCanvas {
                             error
                         );
                     });
-            } else {
-                console.warn(
-                    '[DEBUG] Text changed but fontManager not ready, skipping recompile. fontManager:',
-                    !!fontManager,
-                    'isReady:',
-                    fontManager?.isReady()
-                );
             }
-        }, this.textChangeDebounceDelay);
+        }, debounceDelay);
     }
 
     startKeyboardZoom(zoomIn: boolean): void {
