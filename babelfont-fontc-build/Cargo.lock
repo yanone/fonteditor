@@ -81,9 +81,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.100"
+version = "1.0.101"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
+checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
 
 [[package]]
 name = "arrayvec"
@@ -110,7 +110,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "babelfont"
 version = "0.2.0-pre"
-source = "git+https://github.com/simoncozens/babelfont-rs.git?rev=5684c38aefa25f4b9b25be8e58aa1cfee19cec38#5684c38aefa25f4b9b25be8e58aa1cfee19cec38"
+source = "git+https://github.com/simoncozens/babelfont-rs.git?rev=c0a34dac67b118c6753184a12575845e52e6dfce#c0a34dac67b118c6753184a12575845e52e6dfce"
 dependencies = [
  "chrono",
  "fea-rs-ast",
@@ -627,7 +627,7 @@ dependencies = [
 [[package]]
 name = "font-types"
 version = "0.11.0"
-source = "git+https://github.com/googlefonts/fontations#4d690b5c34873261e8547af7c510c1c270772f1f"
+source = "git+https://github.com/googlefonts/fontations#41ec2bdd6dd8589b65eaaaf182b0a2e701d0d826"
 dependencies = [
  "bytemuck",
  "serde",
@@ -980,9 +980,9 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jiff"
-version = "0.2.18"
+version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e67e8da4c49d6d9909fe03361f9b620f58898859f5c7aded68351e85e71ecf50"
+checksum = "d89a5b5e10d5a9ad6e5d1f4bd58225f655d6fe9767575a5e8ac5a6fe64e04495"
 dependencies = [
  "jiff-static",
  "log",
@@ -993,9 +993,9 @@ dependencies = [
 
 [[package]]
 name = "jiff-static"
-version = "0.2.18"
+version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0c84ee7f197eca9a86c6fd6cb771e55eb991632f15f2bc3ca6ec838929e6e78"
+checksum = "ff7a39c8862fc1369215ccf0a8f12dd4598c7f6484704359f0351bd617034dbf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1351,7 +1351,7 @@ dependencies = [
 [[package]]
 name = "read-fonts"
 version = "0.37.0"
-source = "git+https://github.com/googlefonts/fontations#4d690b5c34873261e8547af7c510c1c270772f1f"
+source = "git+https://github.com/googlefonts/fontations#41ec2bdd6dd8589b65eaaaf182b0a2e701d0d826"
 dependencies = [
  "bytemuck",
  "font-types 0.11.0 (git+https://github.com/googlefonts/fontations)",
@@ -1389,9 +1389,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.12.2"
+version = "1.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843bc0191f75f3e22651ae5f1e72939ab2f72a4bc30fa80a066bd66edefc24d4"
+checksum = "e10754a14b9137dd7b1e3e5b0493cc9171fdd105e0ab477f51b72e7f3ac0e276"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -1401,9 +1401,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5276caf25ac86c8d810222b3dbb938e512c55c6831a10f3e6ed1c93b84041f1c"
+checksum = "6e1dd4122fc1595e8162618945476892eefca7b88c52820e74af6262213cae8f"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -1412,9 +1412,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.8"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
+checksum = "a96887878f22d7bad8a3b6dc5b7440e0ada9a245242924394987b21cf2210a4c"
 
 [[package]]
 name = "roxmltree"
@@ -1731,9 +1731,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.46"
+version = "0.3.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9da98b7d9b7dad93488a84b8248efc35352b0b2657397d4167e7ad67e5d535e5"
+checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
 dependencies = [
  "deranged",
  "itoa",
@@ -1754,9 +1754,9 @@ checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
 
 [[package]]
 name = "time-macros"
-version = "0.2.26"
+version = "0.2.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78cc610bac2dcee56805c99642447d4c5dbde4d01f752ffea0199aee1f601dc4"
+checksum = "2e70e4c5a0e0a8a4823ad65dfe1a6930e4f4d756dcd9dd7939022b5e8c501215"
 dependencies = [
  "num-conv",
  "time-core",
@@ -2077,7 +2077,7 @@ dependencies = [
 [[package]]
 name = "write-fonts"
 version = "0.45.0"
-source = "git+https://github.com/googlefonts/fontations#4d690b5c34873261e8547af7c510c1c270772f1f"
+source = "git+https://github.com/googlefonts/fontations#41ec2bdd6dd8589b65eaaaf182b0a2e701d0d826"
 dependencies = [
  "font-types 0.11.0 (git+https://github.com/googlefonts/fontations)",
  "indexmap 2.13.0",
