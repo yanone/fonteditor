@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 // Compile test for .glyphs files
-// Usage: node compile-test.mjs <path-to-font.glyphs>
+// Usage: node compile-test.mjs <path-to-font.glyphs> [--subset <glyph-names>]
+//
+// Options:
+//   --subset, -s <glyph-names>  Comma-delimited list of glyph names to include (e.g., "A,B,C,space")
+//
+// Examples:
+//   node compile-test.mjs ../examples/NestedComponents.glyphs
+//   node compile-test.mjs ../examples/NestedComponents.glyphs --subset A,B,C,space
+//   node compile-test.mjs /path/to/MyFont.glyphs -s A,B,C
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -13,7 +21,7 @@ import init, {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-async function testCompilation(fontPath) {
+async function testCompilation(fontPath, subsetGlyphNames) {
     console.log('[CompileTest]', 'Initializing WASM...');
 
     // Create output directory for compiled fonts
@@ -180,6 +188,12 @@ async function testCompilation(fontPath) {
         dont_use_production_names: true
     };
 
+    // Add subset glyphs if provided
+    if (subsetGlyphNames && subsetGlyphNames.length > 0) {
+        options.subset_glyphs = subsetGlyphNames;
+        console.log('[CompileTest]', `Subsetting to ${subsetGlyphNames.length} glyphs:`, subsetGlyphNames);
+    }
+
     console.log('[CompileTest]', `Testing ${targetName} target...\n`);
 
     const startTime = performance.now();
@@ -243,12 +257,13 @@ async function testCompilation(fontPath) {
 // Parse command line arguments
 const args = process.argv.slice(2);
 if (args.length === 0) {
-    console.error('Usage: node compile-test.mjs <path-to-font.glyphs>');
-    console.error('\nExample:');
-    console.error(
-        '  node compile-test.mjs ../examples/NestedComponents.glyphs'
-    );
-    console.error('  node compile-test.mjs /path/to/MyFont.glyphs');
+    console.error('Usage: node compile-test.mjs <path-to-font.glyphs> [--subset <glyph-names>]');
+    console.error('\nOptions:');
+    console.error('  --subset, -s <glyph-names>  Comma-delimited list of glyph names to include');
+    console.error('\nExamples:');
+    console.error('  node compile-test.mjs ../examples/NestedComponents.glyphs');
+    console.error('  node compile-test.mjs ../examples/NestedComponents.glyphs --subset A,B,C,space');
+    console.error('  node compile-test.mjs /path/to/MyFont.glyphs -s A,B,C');
     process.exit(1);
 }
 
@@ -263,7 +278,19 @@ if (!fontPath.endsWith('.glyphs') && !fontPath.endsWith('.babelfont')) {
     process.exit(1);
 }
 
-testCompilation(fontPath).catch((err) => {
+// Parse --subset or -s option
+let subsetGlyphNames = null;
+const subsetIndex = args.findIndex((arg) => arg === '--subset' || arg === '-s');
+if (subsetIndex !== -1 && subsetIndex + 1 < args.length) {
+    const subsetArg = args[subsetIndex + 1];
+    subsetGlyphNames = subsetArg.split(',').map((name) => name.trim()).filter((name) => name.length > 0);
+    if (subsetGlyphNames.length === 0) {
+        console.error('Error: --subset requires a comma-delimited list of glyph names');
+        process.exit(1);
+    }
+}
+
+testCompilation(fontPath, subsetGlyphNames).catch((err) => {
     console.error('[CompileTest]', 'Test failed:', err);
     process.exit(1);
 });
