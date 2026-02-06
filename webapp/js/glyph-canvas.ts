@@ -2254,17 +2254,20 @@ class GlyphCanvas {
         // Run Stage 1 immediately to get glyph names for the new text
         // (This was already triggered by setTextBuffer → shapeText,
         //  so glyphNameBuffer is up to date)
+        console.warn('[DEBUG] onTextChange called, starting debounce timer');
 
         // Debounce editing font recompilation with subset
         if (this.textChangeDebounceTimer) {
+            console.warn('[DEBUG] Clearing existing debounce timer');
             clearTimeout(this.textChangeDebounceTimer);
         }
 
         this.textChangeDebounceTimer = setTimeout(() => {
+            console.warn('[DEBUG] Debounce timer fired, checking fontManager...');
             if (fontManager && fontManager.isReady()) {
                 const subsetGlyphs = this.textRunEditor!.glyphNameBuffer || [];
-                console.log(
-                    '🔄 Text changed, recompiling editing font with subset:',
+                console.warn(
+                    '[DEBUG] Text changed, recompiling editing font with subset:',
                     subsetGlyphs.length,
                     'glyphs:',
                     subsetGlyphs
@@ -2282,8 +2285,11 @@ class GlyphCanvas {
                         );
                     });
             } else {
-                console.log(
-                    '🔄 Text changed but fontManager not ready, skipping recompile'
+                console.warn(
+                    '[DEBUG] Text changed but fontManager not ready, skipping recompile. fontManager:',
+                    !!fontManager,
+                    'isReady:',
+                    fontManager?.isReady()
                 );
             }
         }, this.textChangeDebounceDelay);
@@ -2856,6 +2862,46 @@ function setupFontLoadingListener() {
                 '[GlyphCanvas]',
                 '✅ Features/axes UI sourced from typing font'
             );
+
+            // Re-run Stage 1 shaping to populate glyphNameBuffer with the typing font
+            // This is necessary because the initial shapeText() may have run before
+            // the typing font was ready
+            // Only proceed if the editing font is already loaded (hbFont is set)
+            if (gc.textRunEditor!.textBuffer && gc.textRunEditor!.hbFont) {
+                console.log(
+                    '[GlyphCanvas]',
+                    'Re-shaping text with typing font to populate glyphNameBuffer'
+                );
+                gc.textRunEditor!.shapeText();
+
+                // Now recompile editing font with subset
+                const subsetGlyphs = gc.textRunEditor!.glyphNameBuffer || [];
+                if (subsetGlyphs.length > 0 && fontManager && fontManager.isReady()) {
+                    console.log(
+                        '[GlyphCanvas]',
+                        'Recompiling editing font with subset after typing font ready:',
+                        subsetGlyphs.length,
+                        'glyphs'
+                    );
+                    fontManager
+                        .compileEditingFont(
+                            gc.textRunEditor!.textBuffer,
+                            [],
+                            subsetGlyphs
+                        )
+                        .catch((error: any) => {
+                            console.error(
+                                'Failed to recompile editing font with subset:',
+                                error
+                            );
+                        });
+                }
+            } else if (gc.textRunEditor!.textBuffer) {
+                console.log(
+                    '[GlyphCanvas]',
+                    'Editing font not ready yet, skipping subset recompile (will happen after editing font loads)'
+                );
+            }
         } else {
             console.log(
                 '[GlyphCanvas]',

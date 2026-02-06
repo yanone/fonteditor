@@ -56,7 +56,7 @@ export class TextRunEditor {
     cursorX: number;
     clusterMap: any[];
     embeddingLevels: any;
-    callbacks: Record<string, Function>;
+    callbacks: Record<string, Function[]>;
     selectionStart: number | null;
     selectionEnd: number | null;
     fontBlob: Uint8Array | null;
@@ -123,12 +123,17 @@ export class TextRunEditor {
     }
 
     on(event: string, callback: Function) {
-        this.callbacks[event] = callback;
+        if (!this.callbacks[event]) {
+            this.callbacks[event] = [];
+        }
+        this.callbacks[event].push(callback);
     }
 
     call(event: string, ...args: any[]) {
         if (this.callbacks[event]) {
-            this.callbacks[event](...args);
+            for (const callback of this.callbacks[event]) {
+                callback(...args);
+            }
         }
     }
 
@@ -275,10 +280,12 @@ export class TextRunEditor {
         // Save to font object via Python
         this.saveTextBufferToFont();
 
-        // Trigger font recompilation (debounced)
-        this.call('textchanged');
-
+        // Shape text first to populate glyphNameBuffer BEFORE triggering recompilation
+        // This ensures the debounced recompile has the correct subset glyph list
         this.shapeText();
+
+        // Trigger font recompilation (debounced) - now glyphNameBuffer is populated
+        this.call('textchanged');
     }
 
     async selectGlyphByIndex(glyphIndex: number, fromKeyboard = false) {
@@ -941,11 +948,12 @@ export class TextRunEditor {
         console.log('New cursor position:', this.cursorPosition);
         console.log('New text:', this.textBuffer);
 
-        // Save to localStorage and trigger recompilation
+        // Reshape first to populate glyphNameBuffer BEFORE triggering recompilation
+        this.shapeText();
+
+        // Save to localStorage and trigger recompilation (now glyphNameBuffer is populated)
         this.saveTextBuffer();
 
-        // Reshape and render
-        this.shapeText();
         this.updateCursorVisualPosition();
 
         // If text is now empty, reset cursor to origin
