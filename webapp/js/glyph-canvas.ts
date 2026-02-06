@@ -1943,28 +1943,23 @@ class GlyphCanvas {
     }
 
     getCurrentGlyphName(): string {
-        // We're editing the main glyph
-        const glyphId = this.textRunEditor!.selectedGlyph?.g;
-        if (!glyphId) {
+        // Get the selected glyph index
+        const selectedIndex = this.textRunEditor!.selectedGlyphIndex;
+        if (selectedIndex < 0 || selectedIndex >= this.textRunEditor!.glyphNameBuffer.length) {
             return 'undefined';
         }
-        let glyphName = `GID ${glyphId}`;
 
-        // Get glyph name from font manager (source font) instead of compiled font
-        if (fontManager && fontManager.currentFont) {
-            glyphName = fontManager.getGlyphName(glyphId);
-        } else if (this.fontBytes) {
-            // Fallback to compiled font name using WASM
-            try {
-                glyphName = get_glyph_name(this.fontBytes, glyphId);
-            } catch (e) {
-                console.warn(
-                    `[GlyphCanvas] Failed to get glyph name for ${glyphId}:`,
-                    e
-                );
-            }
+        // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
+        // This uses the visual order index to get the correct glyph name,
+        // avoiding GID mismatch issues with subsetted fonts
+        const glyphName = this.textRunEditor!.glyphNameBuffer[selectedIndex];
+        if (glyphName) {
+            return glyphName;
         }
-        return glyphName;
+
+        // Fallback to GID-based name if buffer doesn't have the name
+        const glyphId = this.textRunEditor!.selectedGlyph?.g;
+        return glyphId !== undefined ? `GID ${glyphId}` : 'undefined';
     }
 
     doUIUpdate(): void {

@@ -517,18 +517,14 @@ export class GlyphCanvasRenderer {
                 return;
             }
 
-            const glyphId =
-                this.textRunEditor.shapedGlyphs[
-                    this.glyphCanvas.outlineEditor.hoveredGlyphIndex
-                ].g;
-            let glyphName = `GID ${glyphId}`;
+            const hoveredIndex = this.glyphCanvas.outlineEditor.hoveredGlyphIndex;
+            const glyphId = this.textRunEditor.shapedGlyphs[hoveredIndex].g;
 
-            // Get glyph name from font manager
-            if (
-                window.fontManager &&
-                window.fontManager.currentFont?.babelfontData
-            ) {
-                glyphName = window.fontManager.getGlyphName(glyphId);
+            // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
+            // instead of looking up GID in font manager (which uses full font glyph order)
+            let glyphName = this.textRunEditor.glyphNameBuffer[hoveredIndex];
+            if (!glyphName) {
+                glyphName = `GID ${glyphId}`;
             }
 
             // Get glyph position and advance from shaped data
@@ -2045,17 +2041,9 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        const glyphId = this.textRunEditor.shapedGlyphs[selectedGlyphIndex].g;
-
-        // Get glyph name from font manager (same way as tooltip does)
-        let glyphName = '';
-        if (window.fontManager?.currentFont?.babelfontData) {
-            try {
-                glyphName = window.fontManager.getGlyphName(glyphId);
-            } catch (error) {
-                console.warn('[Renderer] Failed to get glyph name:', error);
-            }
-        }
+        // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
+        // instead of looking up GID in font manager (which uses full font glyph order)
+        const glyphName = this.textRunEditor.glyphNameBuffer[selectedGlyphIndex] || '';
 
         // Get the current layer data
         const layerData =
@@ -2983,7 +2971,6 @@ export class GlyphCanvasRenderer {
 
         this.textRunEditor.shapedGlyphs.forEach(
             (glyph: any, glyphIndex: number) => {
-                const glyphId = glyph.g;
                 const xOffset = glyph.dx || 0;
                 const yOffset = glyph.dy || 0;
                 const xAdvance = glyph.ax || 0;
@@ -2992,19 +2979,9 @@ export class GlyphCanvasRenderer {
                 const glyphX = xPosition + xOffset;
                 const glyphY = yOffset;
 
-                // Get glyph name from font manager
-                let glyphName: string | undefined;
-                if (
-                    window.fontManager &&
-                    window.fontManager.currentFont?.babelfontData
-                ) {
-                    try {
-                        glyphName = window.fontManager.getGlyphName(glyphId);
-                    } catch (error) {
-                        // WASM not ready, use fallback
-                        glyphName = undefined;
-                    }
-                }
+                // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
+                // instead of looking up GID in font manager (which uses full font glyph order)
+                const glyphName = this.textRunEditor.glyphNameBuffer[glyphIndex];
 
                 console.log('[TextMeasure] Found glyph name:', glyphName);
                 if (!glyphName) {

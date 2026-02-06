@@ -1079,33 +1079,20 @@ export class TextRunEditor {
         }
 
         // Get glyph names for each cluster for debugging
+        // Use glyphNameBuffer instead of looking up GIDs in font manager
+        // to avoid GID mismatch issues with subsetted fonts
         const clusterWithNames = this.clusterMap.map((c) => {
             const glyphNames = [];
             for (let i = 0; i < c.glyphCount; i++) {
-                const glyph = this.shapedGlyphs[c.glyphIndex + i];
-                if (!glyph) {
-                    console.warn(
-                        '[TextRun]',
-                        'Missing glyph at index',
-                        c.glyphIndex + i
-                    );
-                    continue;
+                const glyphIndex = c.glyphIndex + i;
+                const glyphName = this.glyphNameBuffer[glyphIndex];
+                if (glyphName) {
+                    glyphNames.push(glyphName);
+                } else {
+                    const glyph = this.shapedGlyphs[glyphIndex];
+                    const glyphId = glyph ? glyph.g : '?';
+                    glyphNames.push(`GID${glyphId}`);
                 }
-                const glyphId = glyph.g;
-                let glyphName = `GID${glyphId}`;
-
-                // Get glyph name from font manager (source font)
-                if (
-                    window.fontManager &&
-                    window.fontManager.currentFont?.babelfontData
-                ) {
-                    try {
-                        glyphName = window.fontManager.getGlyphName(glyphId);
-                    } catch (error) {
-                        // WASM not ready, keep fallback
-                    }
-                }
-                glyphNames.push(glyphName);
             }
             return `[${c.start}-${c.end}) @ x=${c.x.toFixed(0)}, RTL=${c.isRTL}, glyphs=[${glyphNames.join(', ')}]`;
         });
