@@ -1939,22 +1939,32 @@ class GlyphCanvas {
         const selectedIndex = this.textRunEditor!.selectedGlyphIndex;
         if (
             selectedIndex < 0 ||
-            selectedIndex >= this.textRunEditor!.glyphNameBuffer.length
+            selectedIndex >= this.textRunEditor!.shapedGlyphs.length
         ) {
             return 'undefined';
         }
 
-        // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
-        // This uses the visual order index to get the correct glyph name,
-        // avoiding GID mismatch issues with subsetted fonts
-        const glyphName = this.textRunEditor!.glyphNameBuffer[selectedIndex];
-        if (glyphName) {
-            return glyphName;
+        // Get glyph ID from shaped glyphs (after OpenType feature substitutions)
+        const shapedGlyph = this.textRunEditor!.shapedGlyphs[selectedIndex];
+        const glyphId = shapedGlyph.g;
+
+        // Get actual glyph name from the shaped glyph ID
+        // This ensures we edit the correct glyph (e.g., "a.ss04" instead of "a")
+        if (this.textRunEditor!.fontBlob) {
+            try {
+                const glyphName = get_glyph_name(
+                    this.textRunEditor!.fontBlob,
+                    glyphId
+                );
+                return glyphName;
+            } catch (e) {
+                console.warn(`Failed to get glyph name for GID ${glyphId}:`, e);
+                return `GID ${glyphId}`;
+            }
         }
 
-        // Fallback to GID-based name if buffer doesn't have the name
-        const glyphId = this.textRunEditor!.selectedGlyph?.g;
-        return glyphId !== undefined ? `GID ${glyphId}` : 'undefined';
+        // Fallback to GID if font blob is not available
+        return `GID ${glyphId}`;
     }
 
     doUIUpdate(): void {

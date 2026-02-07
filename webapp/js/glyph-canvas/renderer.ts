@@ -2,6 +2,7 @@ import { adjustColorHueAndLightness, desaturateColor } from '../design';
 import APP_SETTINGS from '../settings';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 import { Logger } from '../logger';
+import { get_glyph_name } from '../../wasm-dist/babelfont_fontc_web';
 
 const console = new Logger('Renderer');
 
@@ -534,10 +535,23 @@ export class GlyphCanvasRenderer {
                 this.glyphCanvas.outlineEditor.hoveredGlyphIndex;
             const glyphId = this.textRunEditor.shapedGlyphs[hoveredIndex].g;
 
-            // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
-            // instead of looking up GID in font manager (which uses full font glyph order)
-            let glyphName = this.textRunEditor.glyphNameBuffer[hoveredIndex];
-            if (!glyphName) {
+            // Get actual glyph name from the shaped glyph ID (after OpenType feature substitutions)
+            // This ensures we show the correct glyph name (e.g., "a.ss04" instead of "a")
+            let glyphName: string;
+            if (this.textRunEditor.fontBlob) {
+                try {
+                    glyphName = get_glyph_name(
+                        this.textRunEditor.fontBlob,
+                        glyphId
+                    );
+                } catch (e) {
+                    console.warn(
+                        `Failed to get glyph name for GID ${glyphId}:`,
+                        e
+                    );
+                    glyphName = `GID ${glyphId}`;
+                }
+            } else {
                 glyphName = `GID ${glyphId}`;
             }
 
