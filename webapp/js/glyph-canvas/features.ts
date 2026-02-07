@@ -293,11 +293,11 @@ export class FeaturesManager {
             gsubCircle.style.width = '4px';
             gsubCircle.style.height = '4px';
             gsubCircle.style.borderRadius = '50%';
+            gsubCircle.style.backgroundColor = 'var(--text-primary)';
             if (hasGSUB) {
-                gsubCircle.style.backgroundColor = 'var(--accent-blue)';
+                gsubCircle.style.opacity = '0.7';
                 gsubCircle.title = 'GSUB';
             } else {
-                gsubCircle.style.backgroundColor = 'var(--text-primary)';
                 gsubCircle.style.opacity = '0.1';
             }
             tableIndicator.appendChild(gsubCircle);
@@ -307,11 +307,11 @@ export class FeaturesManager {
             gposCircle.style.width = '4px';
             gposCircle.style.height = '4px';
             gposCircle.style.borderRadius = '50%';
+            gposCircle.style.backgroundColor = 'var(--text-primary)';
             if (hasGPOS) {
-                gposCircle.style.backgroundColor = 'var(--accent-green)';
+                gposCircle.style.opacity = '0.7';
                 gposCircle.title = 'GPOS';
             } else {
-                gposCircle.style.backgroundColor = 'var(--text-primary)';
                 gposCircle.style.opacity = '0.1';
             }
             tableIndicator.appendChild(gposCircle);
