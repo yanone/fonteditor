@@ -428,8 +428,8 @@ export class GlyphCanvasRenderer {
      * Used for both glyph tooltips in text mode and component labels in edit mode.
      *
      * @param text - The label text to display
-     * @param x - X position (center of the label)
-     * @param y - Y position (top of the label box)
+     * @param x - X position (center of the label) in font coordinates
+     * @param y - Y position (top of the label box) in font coordinates
      * @param invScale - Inverse of current zoom scale for consistent sizing
      */
     drawHoverLabel(text: string, x: number, y: number, invScale: number): void {
@@ -439,11 +439,6 @@ export class GlyphCanvasRenderer {
             ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
             : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
 
-        // Save context to flip text right-side up
-        this.ctx.save();
-        this.ctx.translate(x, y);
-        this.ctx.scale(1, -1); // Flip Y to make text right-side up
-
         // Font size and metrics (scaled to remain constant regardless of zoom)
         const fontSize = 16 * invScale;
         this.ctx.font = `${fontSize}px IBM Plex Mono`;
@@ -451,6 +446,58 @@ export class GlyphCanvasRenderer {
         const padding = 10 * invScale;
         const bgWidth = metrics.width + padding * 2;
         const bgHeight = fontSize * 1.8;
+
+        // Calculate label bounds in font coordinates (before any adjustments)
+        // The label is centered horizontally around x, and starts at y (top edge)
+        const labelMinX = x - bgWidth / 2;
+        const labelMaxX = x + bgWidth / 2;
+        const labelMinY = y - bgHeight; // In flipped Y, label extends downward from y
+        const labelMaxY = y;
+
+        // Convert label corners to screen coordinates to check viewport bounds
+        const scale = this.viewportManager.scale;
+        const panX = this.viewportManager.panX;
+        const panY = this.viewportManager.panY;
+
+        // Screen coordinates (Y is flipped in font space)
+        const screenMinX = labelMinX * scale + panX;
+        const screenMaxX = labelMaxX * scale + panX;
+        const screenMinY = -labelMaxY * scale + panY; // Top edge in screen space
+        const screenMaxY = -labelMinY * scale + panY; // Bottom edge in screen space
+
+        // Canvas dimensions
+        const canvasWidth = this.canvas.width / window.devicePixelRatio;
+        const canvasHeight = this.canvas.height / window.devicePixelRatio;
+
+        // Use 1/3 of panToGlyph margin for tighter label constraint
+        const margin = APP_SETTINGS.OUTLINE_EDITOR.CANVAS_MARGIN / 3;
+
+        // Calculate adjustments needed to keep label within viewport
+        let adjustX = 0;
+        let adjustY = 0;
+
+        // Check horizontal bounds
+        if (screenMinX < margin) {
+            adjustX = (margin - screenMinX) / scale; // Move right
+        } else if (screenMaxX > canvasWidth - margin) {
+            adjustX = (canvasWidth - margin - screenMaxX) / scale; // Move left
+        }
+
+        // Check vertical bounds (remember screen Y is flipped)
+        if (screenMinY < margin) {
+            adjustY = -(margin - screenMinY) / scale; // Move down in font space
+        } else if (screenMaxY > canvasHeight - margin) {
+            adjustY = -(canvasHeight - margin - screenMaxY) / scale; // Move up in font space
+        }
+
+        // Apply adjustments to position
+        const adjustedX = x + adjustX;
+        const adjustedY = y + adjustY;
+
+        // Save context to flip text right-side up
+        this.ctx.save();
+        this.ctx.translate(adjustedX, adjustedY);
+        this.ctx.scale(1, -1); // Flip Y to make text right-side up
 
         // Center horizontally around origin
         const bgX = -bgWidth / 2;
