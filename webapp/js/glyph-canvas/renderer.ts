@@ -430,7 +430,9 @@ export class GlyphCanvasRenderer {
                         this.glyphCanvas.outlineEditor.isPreviewMode
                     ) {
                         // Preview mode: all glyphs in normal color (or faded for .notdef)
-                        this.ctx.fillStyle = isNotdef ? colors.GLYPH_NOTDEF : colors.GLYPH_NORMAL;
+                        this.ctx.fillStyle = isNotdef
+                            ? colors.GLYPH_NOTDEF
+                            : colors.GLYPH_NORMAL;
                     } else {
                         // Text edit mode: normal coloring
                         // Don't show hover effects in preview mode
@@ -443,7 +445,9 @@ export class GlyphCanvasRenderer {
                             this.ctx.fillStyle = colors.GLYPH_SELECTED;
                         } else {
                             // Use faded color for .notdef glyphs
-                            this.ctx.fillStyle = isNotdef ? colors.GLYPH_NOTDEF : colors.GLYPH_NORMAL;
+                            this.ctx.fillStyle = isNotdef
+                                ? colors.GLYPH_NOTDEF
+                                : colors.GLYPH_NORMAL;
                         }
                     }
 
@@ -521,7 +525,8 @@ export class GlyphCanvasRenderer {
                 return;
             }
 
-            const hoveredIndex = this.glyphCanvas.outlineEditor.hoveredGlyphIndex;
+            const hoveredIndex =
+                this.glyphCanvas.outlineEditor.hoveredGlyphIndex;
             const glyphId = this.textRunEditor.shapedGlyphs[hoveredIndex].g;
 
             // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
@@ -2047,7 +2052,8 @@ export class GlyphCanvasRenderer {
 
         // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
         // instead of looking up GID in font manager (which uses full font glyph order)
-        const glyphName = this.textRunEditor.glyphNameBuffer[selectedGlyphIndex] || '';
+        const glyphName =
+            this.textRunEditor.glyphNameBuffer[selectedGlyphIndex] || '';
 
         // Get the current layer data
         const layerData =
@@ -2985,7 +2991,8 @@ export class GlyphCanvasRenderer {
 
                 // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
                 // instead of looking up GID in font manager (which uses full font glyph order)
-                const glyphName = this.textRunEditor.glyphNameBuffer[glyphIndex];
+                const glyphName =
+                    this.textRunEditor.glyphNameBuffer[glyphIndex];
 
                 console.log('[TextMeasure] Found glyph name:', glyphName);
                 if (!glyphName) {
