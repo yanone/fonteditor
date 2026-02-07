@@ -120,6 +120,31 @@ export function get_glyph_order(font_bytes: Uint8Array): string[];
 export function get_glyphs_outlines(glyph_names_json: string, location_json: string, flatten_components: boolean): string;
 
 /**
+ * Compute layout closure for a set of glyphs
+ *
+ * Given a set of glyph names, returns all glyphs that are referenced
+ * in OpenType layout features (GSUB substitutions only). This includes
+ * substitution targets, ligature components, and alternate forms.
+ *
+ * Requires that a font has been stored via store_font() first.
+ *
+ * # Arguments
+ * * `glyph_names_json` - JSON array of glyph names, e.g., '["A", "B", "C"]'
+ *
+ * # Returns
+ * * `String` - JSON array of all glyphs in the closure set (sorted)
+ *
+ * # Example
+ * ```javascript
+ * // JavaScript usage:
+ * const initialGlyphs = ["a", "b"];
+ * const closure = JSON.parse(wasmModule.get_layout_closure(JSON.stringify(initialGlyphs)));
+ * // closure might be: ["a", "b", "a.sc", "b.sc", "a.alt", ...]
+ * ```
+ */
+export function get_layout_closure(glyph_names_json: string): string;
+
+/**
  * Get stylistic set names from compiled font bytes
  *
  * Returns a JSON string with structure:
@@ -198,6 +223,7 @@ export interface InitOutput {
     readonly compile_cached_font: (a: any) => [number, number, number, number];
     readonly compile_glyphs: (a: number, b: number) => [number, number, number, number];
     readonly get_glyphs_outlines: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+    readonly get_layout_closure: (a: number, b: number) => [number, number, number, number];
     readonly init: () => void;
     readonly interpolate_glyph: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];

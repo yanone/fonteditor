@@ -4,6 +4,8 @@ use babelfont::{
 };
 use wasm_bindgen::prelude::*;
 use std::sync::Mutex;
+use std::collections::HashSet;
+use smol_str::SmolStr;
 
 // Font reading module (using read-fonts/skrifa)
 mod font_reader;
@@ -270,6 +272,59 @@ pub fn get_glyphs_outlines(
     
     // Call the glyph outlines module function
     glyph_outlines::get_glyphs_outlines(font, &glyph_names, location_json, flatten_components)
+}
+
+/// Compute layout closure for a set of glyphs
+///
+/// Given a set of glyph names, returns all glyphs that are referenced
+/// in OpenType layout features (GSUB substitutions only). This includes
+/// substitution targets, ligature components, and alternate forms.
+///
+/// Requires that a font has been stored via store_font() first.
+///
+/// # Arguments
+/// * `glyph_names_json` - JSON array of glyph names, e.g., '["A", "B", "C"]'
+///
+/// # Returns
+/// * `String` - JSON array of all glyphs in the closure set (sorted)
+///
+/// # Example
+/// ```javascript
+/// // JavaScript usage:
+/// const initialGlyphs = ["a", "b"];
+/// const closure = JSON.parse(wasmModule.get_layout_closure(JSON.stringify(initialGlyphs)));
+/// // closure might be: ["a", "b", "a.sc", "b.sc", "a.alt", ...]
+/// ```
+#[wasm_bindgen]
+pub fn get_layout_closure(glyph_names_json: &str) -> Result<String, JsValue> {
+    let cache = FONT_CACHE.lock().unwrap();
+    let font = cache.as_ref()
+        .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
+    
+    // Parse input glyph names from JSON array
+    let glyph_names: Vec<String> = serde_json::from_str(glyph_names_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse glyph names JSON: {}", e)))?;
+    
+    // Convert Vec<String> to HashSet<SmolStr> for close_layout
+    let glyph_set: HashSet<SmolStr> = glyph_names
+        .into_iter()
+        .map(SmolStr::from)
+        .collect();
+    
+    // Compute the layout closure
+    let closure_set = babelfont::close_layout(font, glyph_set)
+        .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?;
+    
+    // Convert HashSet<SmolStr> back to sorted Vec<String> for consistent output
+    let mut result: Vec<String> = closure_set
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect();
+    result.sort();
+    
+    // Serialize to JSON array
+    serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize closure result: {}", e)))
 }
 
 /// Compile the cached font to TTF

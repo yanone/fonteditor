@@ -12,6 +12,7 @@ export class FeaturesManager {
     featureSettings: Record<string, boolean>;
     defaultFeatureSettings: Record<string, boolean>;
     fontBytes: Uint8Array | null;
+    editingFontBytes: Uint8Array | null;
     featuresSection: HTMLElement | null;
     featureResetButton: HTMLButtonElement | null;
     callbacks: Record<string, Function[]>;
@@ -19,7 +20,8 @@ export class FeaturesManager {
     constructor() {
         this.featureSettings = {}; // Store OpenType feature on/off states
         this.defaultFeatureSettings = {}; // Store default states for reset
-        this.fontBytes = null; // To be set to the compiled font bytes
+        this.fontBytes = null; // Typing font bytes (full features)
+        this.editingFontBytes = null; // Editing font bytes (subset with closure)
         this.featuresSection = null;
         this.featureResetButton = null;
         this.callbacks = {}; // Optional callbacks for interaction with GlyphCanvas
@@ -52,7 +54,7 @@ export class FeaturesManager {
     }
 
     async getDiscretionaryFeatures() {
-        // Get discretionary features from the compiled font
+        // Get discretionary features from the typing font (full feature set)
         if (!this.fontBytes) {
             console.log('[Features]', 'No fontBytes available');
             return [];
@@ -61,17 +63,42 @@ export class FeaturesManager {
         try {
             console.log(
                 '[Features]',
-                'Getting features from WASM, fontBytes length:',
+                'Getting features from typing font, fontBytes length:',
                 this.fontBytes.length
             );
             // Ensure WASM is initialized
             await ensureWasmInitialized();
-            // Get all features from the font using WASM
-            const featuresJson = get_font_features(this.fontBytes);
-            console.log('[Features]', 'Features JSON:', featuresJson);
-            const fontFeatures: string[] = JSON.parse(featuresJson);
 
-            // Get stylistic set names
+            // Get all features from typing font using WASM
+            const featuresJson = get_font_features(this.fontBytes);
+            console.log('[Features]', 'Typing font features:', featuresJson);
+            const typingFontFeatures: string[] = JSON.parse(featuresJson);
+
+            // Get features available in editing font (subset with closure)
+            let editingFontFeatures: Set<string> = new Set();
+            if (this.editingFontBytes) {
+                try {
+                    const editingFeaturesJson = get_font_features(
+                        this.editingFontBytes
+                    );
+                    editingFontFeatures = new Set(
+                        JSON.parse(editingFeaturesJson)
+                    );
+                    console.log(
+                        '[Features]',
+                        'Editing font features:',
+                        Array.from(editingFontFeatures)
+                    );
+                } catch (error) {
+                    console.warn(
+                        '[Features]',
+                        'Could not get editing font features:',
+                        error
+                    );
+                }
+            }
+
+            // Get stylistic set names from typing font
             const ssNamesJson = get_stylistic_set_names(this.fontBytes);
             console.log('[Features]', 'Stylistic set names JSON:', ssNamesJson);
             const ssNames: Record<string, string> = JSON.parse(ssNamesJson);
@@ -87,22 +114,24 @@ export class FeaturesManager {
             ]);
             const descriptions = featureInfo.descriptions;
 
-            // Filter to only discretionary features
-            const discretionaryInFont: string[] = fontFeatures.filter(
+            // Filter to only discretionary features from typing font
+            const discretionaryInFont: string[] = typingFontFeatures.filter(
                 (tag: string) => allDiscretionary.has(tag)
             );
 
-            // Build feature list with metadata
+            // Build feature list with metadata and availability
             return discretionaryInFont.map((tag: string) => {
                 // Use stylistic set name if available, otherwise fall back to description
                 const hasCustomName = !!ssNames[tag];
                 const description = ssNames[tag] || descriptions[tag] || tag;
+                const availableInEditingFont = editingFontFeatures.has(tag);
 
                 return {
                     tag: tag,
                     defaultOn: defaultOnFeatures.has(tag),
                     description: description,
-                    hasCustomName: hasCustomName
+                    hasCustomName: hasCustomName,
+                    availableInEditingFont: availableInEditingFont
                 };
             });
         } catch (error) {
@@ -195,7 +224,17 @@ export class FeaturesManager {
             const isEnabled = this.featureSettings[feature.tag];
             tagButton.classList.toggle('enabled', isEnabled);
 
+            // Disable if not available in editing font
+            const isAvailable = feature.availableInEditingFont !== false;
+            if (!isAvailable) {
+                tagButton.disabled = true;
+                tagButton.style.opacity = '0.4';
+                tagButton.style.cursor = 'not-allowed';
+                tagButton.title = 'Not available in current subset';
+            }
+
             tagButton.addEventListener('click', () => {
+                if (!isAvailable) return;
                 console.log('[Features]', `Toggling feature ${feature.tag}`);
                 this.featureSettings[feature.tag] =
                     !this.featureSettings[feature.tag];
@@ -207,6 +246,9 @@ export class FeaturesManager {
                     '[Features]',
                     `Feature ${feature.tag} is now ${this.featureSettings[feature.tag] ? 'enabled' : 'disabled'}`
                 );
+                if (!isAvailable) {
+                    descSpan.style.opacity = '0.4';
+                }
                 this.updateFeatureResetButton();
                 console.log('[Features]', 'Calling change callback');
                 this.call('change');

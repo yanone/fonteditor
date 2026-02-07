@@ -206,6 +206,11 @@ class FontManager {
     isCompiling: boolean;
     glyphOrderCache: string[] | null;
     lastChangeSource: string | null = null; // Track what triggered the last change (keyboard, mouse-drag, etc.)
+    closureCache: {
+        subsetGlyphs: string[];
+        activeFeatures: string;
+        closureSet: string[];
+    } | null = null;
 
     constructor() {
         this.fontDisplay = null;
@@ -220,6 +225,7 @@ class FontManager {
         this.isCompiling = false;
         this.glyphOrderCache = null; // Cache for glyph order to avoid re-parsing
         this.lastChangeSource = null;
+        this.closureCache = null;
     }
     init() {
         this.fontDisplay = document.getElementById('current-font-display');
@@ -449,15 +455,63 @@ class FontManager {
         const startTime = performance.now();
 
         try {
-            // Compile editing font with subset if glyph names provided
+            // Compute layout closure if subset glyphs provided
+            let glyphsToInclude = subsetGlyphs;
+
+            if (subsetGlyphs && subsetGlyphs.length > 0) {
+                // Check cache - closure only depends on base glyphs, not active features
+                // (close_layout returns ALL glyphs reachable via ANY feature)
+                const cacheValid =
+                    this.closureCache &&
+                    this.closureCache.subsetGlyphs.length ===
+                        subsetGlyphs.length &&
+                    this.closureCache.subsetGlyphs.every(
+                        (g: string, i: number) => g === subsetGlyphs[i]
+                    );
+
+                if (cacheValid) {
+                    console.log(
+                        `📦 Using cached layout closure (${this.closureCache!.closureSet.length} glyphs)`
+                    );
+                    glyphsToInclude = this.closureCache!.closureSet;
+                } else {
+                    // Compute layout closure via WASM
+                    console.log(
+                        `🔍 Computing layout closure from ${subsetGlyphs.length} base glyphs...`
+                    );
+
+                    // Ensure font is cached in WASM before computing closure
+                    const { store_font, get_layout_closure } =
+                        await import('../wasm-dist/babelfont_fontc_web');
+                    store_font(this.currentFont.babelfontJson);
+
+                    const closureJson = get_layout_closure(
+                        JSON.stringify(subsetGlyphs)
+                    );
+                    const closureSet = JSON.parse(closureJson);
+                    console.log(
+                        `✨ Layout closure expanded to ${closureSet.length} glyphs (${closureSet.length - subsetGlyphs.length} added)`
+                    );
+
+                    // Cache the result (only depends on base glyphs)
+                    this.closureCache = {
+                        subsetGlyphs: [...subsetGlyphs],
+                        activeFeatures: '', // Not used, kept for type compatibility
+                        closureSet
+                    };
+                    glyphsToInclude = closureSet;
+                }
+            }
+
+            // Compile editing font with layout closure subset
             console.log(
-                `🔨 Compiling editing font, subset_glyphs: ${subsetGlyphs ? subsetGlyphs.length + ' glyphs: [' + subsetGlyphs.join(', ') + ']' : 'none (full font)'}`
+                `🔨 Compiling editing font, subset_glyphs: ${glyphsToInclude ? glyphsToInclude.length + ' glyphs' : 'none (full font)'}`
             );
             const result = await fontCompilation.compileFromJson(
                 this.currentFont.babelfontJson,
                 'editing-font.ttf',
                 'editing',
-                subsetGlyphs
+                glyphsToInclude
             );
 
             this.editingFont = new Uint8Array(result.result);

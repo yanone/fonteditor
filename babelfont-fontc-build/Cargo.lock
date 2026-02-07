@@ -149,6 +149,7 @@ dependencies = [
  "read-fonts 0.37.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json",
  "skrifa",
+ "smol_str",
  "tempfile",
  "typeshare",
  "wasm-bindgen",

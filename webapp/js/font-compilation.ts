@@ -62,11 +62,11 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
         dont_use_production_names: true
     },
 
-    // Subset font for canvas display - GSUB skipped (handled by typing font),
-    // GPOS retained for mark positioning etc.
+    // Subset font for canvas display with layout closure.
+    // GSUB features included (via layout closure), GPOS retained for mark positioning.
     editing: {
         skip_kerning: false,
-        skip_features: true,
+        skip_features: false, // Include GSUB via layout closure subsetting
         skip_metrics: false,
         skip_outlines: false,
         dont_use_production_names: true

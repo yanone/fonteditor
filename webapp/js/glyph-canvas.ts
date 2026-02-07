@@ -399,76 +399,36 @@ class GlyphCanvas {
         this.setupSidebarFocusHandlers();
         this.setupAxesManagerEventHandlers();
         this.featuresManager!.on('change', async () => {
-            console.log('[GlyphCanvas]', 'Features changed, reshaping text');
-
-            // Set flag to skip rendering during feature change to prevent .notdef flicker
-            this.textRunEditor!.skipRenderingDuringFeatureChange = true;
+            console.log(
+                '[GlyphCanvas]',
+                'Features changed, re-running Stage 2 shaping'
+            );
 
             // Capture anchor before reshaping (cursor in text mode, bbox in editing mode)
-            // Also store in pendingFeatureChangeAnchor so it survives font recompilation
             if (
                 this.outlineEditor.active &&
                 this.outlineEditor.selectedLayerId
             ) {
                 // Editing mode: capture bbox center before reshaping
                 this.outlineEditor.captureAutoPanAnchor();
-                // Store for later application after font reloads
-                this.pendingFeatureChangeAnchor.editing =
-                    this.outlineEditor.autoPanAnchorScreen;
             } else {
                 // Text mode: capture cursor position before reshaping
                 this.captureTextModeAutoPanAnchor();
-                // Store for later application after font reloads
-                this.pendingFeatureChangeAnchor.text =
-                    this.textModeAutoPanAnchorScreen;
             }
 
-            // Save previous glyph name buffer to detect changes
-            const previousGlyphNames = [
-                ...(this.textRunEditor!.glyphNameBuffer || [])
-            ];
-
-            // Reshape text with new features — this re-runs Stage 1 + Stage 2
+            // Re-run Stage 2 only (apply new feature settings to existing glyph names)
+            // Stage 1 already ran and produced glyphNameBuffer with base glyphs
+            // Layout closure ensures all substituted glyphs are already in the editing font
+            // No need to recompile the font - just re-shape with different features
             console.log(
                 '[GlyphCanvas]',
-                'Calling shapeText with skipRender:',
-                !this.outlineEditor.active
+                'Re-running Stage 2 with updated features (no font recompilation needed)'
             );
-            this.textRunEditor!.shapeText(!this.outlineEditor.active);
+            this.textRunEditor!.shapeStage2WithFakeCodepoints();
 
-            // Check if Stage 1 produced different glyph names (features affect GSUB substitutions)
-            const currentGlyphNames = this.textRunEditor!.glyphNameBuffer || [];
-            const glyphNamesChanged =
-                previousGlyphNames.length !== currentGlyphNames.length ||
-                previousGlyphNames.some(
-                    (name, i) => name !== currentGlyphNames[i]
-                );
-
-            if (glyphNamesChanged && fontManager && fontManager.isReady()) {
-                console.log(
-                    '[GlyphCanvas]',
-                    'Feature change altered glyph names, recompiling editing font with new subset'
-                );
-                // Anchor was already captured at lines 398-401 BEFORE shapeText()
-                // (while old font was still valid). The pendingFeatureChangeAnchor
-                // will be applied after editing font reloads in editingFontCompiledHandler.
-                // Recompile editing font with new glyph name subset
-                fontManager
-                    .compileEditingFont(
-                        this.textRunEditor!.textBuffer,
-                        [],
-                        this.textRunEditor!.glyphNameBuffer
-                    )
-                    .catch((error: any) => {
-                        console.error(
-                            'Failed to recompile editing font after feature change:',
-                            error
-                        );
-                    });
-            } else {
-                // Glyph names didn't change, clear the skip rendering flag immediately
-                this.textRunEditor!.skipRenderingDuringFeatureChange = false;
-            }
+            // Build cluster map and update cursor position
+            this.textRunEditor!.buildClusterMap();
+            this.textRunEditor!.updateCursorVisualPosition();
 
             if (
                 this.outlineEditor.active &&
@@ -485,22 +445,15 @@ class GlyphCanvas {
                     []
                 );
 
-                // Only apply auto-pan if we're not waiting for font recompilation
-                if (!this.pendingFeatureChangeAnchor.editing) {
-                    this.outlineEditor.applyAutoPanAdjustment();
-                    this.outlineEditor.autoPanAnchorScreen = null;
-                }
-                this.updateComponentBreadcrumb(); // Update breadcrumb/glyph stack for substituted glyph
-
-                this.render(); // Render after auto-pan is applied
+                // Apply auto-pan adjustment and render
+                this.outlineEditor.applyAutoPanAdjustment();
+                this.outlineEditor.autoPanAnchorScreen = null;
+                this.updateComponentBreadcrumb();
+                this.render();
             } else {
-                // Text mode: apply auto-pan to keep cursor centered
-                // Only apply if we're not waiting for font recompilation
-                if (!this.pendingFeatureChangeAnchor.text) {
-                    this.applyTextModeAutoPanAdjustment();
-                    this.textModeAutoPanAnchorScreen = null;
-                }
-
+                // Text mode: apply auto-pan to keep cursor centered and render
+                this.applyTextModeAutoPanAdjustment();
+                this.textModeAutoPanAnchorScreen = null;
                 this.render();
             }
         });
@@ -2969,8 +2922,15 @@ function setupFontLoadingListener() {
                 detail.fontBytes.byteOffset + detail.fontBytes.byteLength
             );
 
-            // Check if we have a pending anchor from feature changes
+            // Update features manager with editing font bytes for availability checking
             const gc = window.glyphCanvas;
+            if (gc.featuresManager) {
+                gc.featuresManager.editingFontBytes = detail.fontBytes;
+                // Update features UI to reflect availability in editing font
+                await gc.featuresManager.updateFeaturesUI();
+            }
+
+            // Check if we have a pending anchor from feature changes
             const hasPendingAnchor =
                 gc.pendingFeatureChangeAnchor.editing ||
                 gc.pendingFeatureChangeAnchor.text;

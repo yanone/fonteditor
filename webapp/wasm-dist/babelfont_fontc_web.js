@@ -257,6 +257,52 @@ export function get_glyphs_outlines(glyph_names_json, location_json, flatten_com
 }
 
 /**
+ * Compute layout closure for a set of glyphs
+ *
+ * Given a set of glyph names, returns all glyphs that are referenced
+ * in OpenType layout features (GSUB substitutions only). This includes
+ * substitution targets, ligature components, and alternate forms.
+ *
+ * Requires that a font has been stored via store_font() first.
+ *
+ * # Arguments
+ * * `glyph_names_json` - JSON array of glyph names, e.g., '["A", "B", "C"]'
+ *
+ * # Returns
+ * * `String` - JSON array of all glyphs in the closure set (sorted)
+ *
+ * # Example
+ * ```javascript
+ * // JavaScript usage:
+ * const initialGlyphs = ["a", "b"];
+ * const closure = JSON.parse(wasmModule.get_layout_closure(JSON.stringify(initialGlyphs)));
+ * // closure might be: ["a", "b", "a.sc", "b.sc", "a.alt", ...]
+ * ```
+ * @param {string} glyph_names_json
+ * @returns {string}
+ */
+export function get_layout_closure(glyph_names_json) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(glyph_names_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.get_layout_closure(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Get stylistic set names from compiled font bytes
  *
  * Returns a JSON string with structure:
