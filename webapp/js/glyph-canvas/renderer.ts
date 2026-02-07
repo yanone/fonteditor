@@ -503,14 +503,19 @@ export class GlyphCanvasRenderer {
         const bgX = -bgWidth / 2;
         const bgY = 0; // Top of box at origin
 
-        // Draw background
+        // Draw background with rounded corners
+        const radius = 4 * invScale;
         this.ctx.fillStyle = colors.HOVER_LABEL_BG;
-        this.ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
+        this.ctx.beginPath();
+        this.ctx.roundRect(bgX, bgY, bgWidth, bgHeight, radius);
+        this.ctx.fill();
 
         // Draw border
         this.ctx.strokeStyle = colors.HOVER_LABEL_BORDER;
         this.ctx.lineWidth = 1 * invScale;
-        this.ctx.strokeRect(bgX, bgY, bgWidth, bgHeight);
+        this.ctx.beginPath();
+        this.ctx.roundRect(bgX, bgY, bgWidth, bgHeight, radius);
+        this.ctx.stroke();
 
         // Draw text with explicit baseline for consistent rendering
         this.ctx.fillStyle = colors.HOVER_LABEL_TEXT;
