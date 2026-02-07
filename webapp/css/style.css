@@ -4658,8 +4658,8 @@ kbd + kbd {
     gap: 8px;
     font-size: 12px;
     padding: 2px 0;
-    margin-left: -5px;
-    margin-right: -5px;
+    margin-left: -4px;
+    margin-right: -7px;
 }
 
 /* OpenType feature tag buttons use the general tag-button style */
