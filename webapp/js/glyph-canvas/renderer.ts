@@ -347,6 +347,11 @@ export class GlyphCanvasRenderer {
             return;
         }
 
+        // Skip rendering during feature changes to prevent .notdef flicker
+        if (this.textRunEditor.skipRenderingDuringFeatureChange) {
+            return;
+        }
+
         const invScale = 1 / this.viewportManager.scale;
         let xPosition = 0;
 
