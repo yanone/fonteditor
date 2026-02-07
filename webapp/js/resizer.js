@@ -264,7 +264,23 @@ class ResizableViews {
                     const topViews = topRow?.querySelectorAll('.view');
                     topViews?.forEach((view, index) => {
                         if (layout.vertical.top[index] !== undefined) {
-                            view.style.flex = layout.vertical.top[index];
+                            const savedFlex = layout.vertical.top[index];
+                            // Check if this is a fontinfo/overview view that should be collapsed
+                            if (
+                                (view.classList.contains('view-fontinfo') ||
+                                    view.classList.contains('view-overview')) &&
+                                !savedFlex.includes('0 0')
+                            ) {
+                                // Convert old flex ratio to fixed pixel width if it's very small (collapsed)
+                                const flexValue = parseFloat(savedFlex);
+                                if (flexValue < 0.05) {
+                                    view.style.flex = `0 0 24px`;
+                                } else {
+                                    view.style.flex = savedFlex;
+                                }
+                            } else {
+                                view.style.flex = savedFlex;
+                            }
                         }
                     });
                     console.log(
@@ -305,16 +321,10 @@ class ResizableViews {
 
         if (topViews && topViews.length === 3) {
             // fontinfo: collapsed (24px), overview: 35%, editor: 65%
-            // Assuming container width, calculate flex ratios
-            // For collapsed fontinfo, use minimal flex
-            const fontinfoFlex = 0.01; // Very small flex for collapsed state
-            const overviewFlex = 0.35;
-            const editorFlex = 0.65;
-            const total = fontinfoFlex + overviewFlex + editorFlex;
-
-            topViews[0].style.flex = `${fontinfoFlex / total}`; // fontinfo
-            topViews[1].style.flex = `${overviewFlex / total}`; // overview
-            topViews[2].style.flex = `${editorFlex / total}`; // editor
+            // Use fixed pixel width for collapsed fontinfo
+            topViews[0].style.flex = `0 0 24px`; // fontinfo - collapsed
+            topViews[1].style.flex = `0.35`; // overview
+            topViews[2].style.flex = `0.65`; // editor
 
             console.log(
                 '[Resizer]',
@@ -478,26 +488,29 @@ class ResizableViews {
             minRightTotalWidth += this.getMinWidth(view);
         });
 
-        // Basic minimum checks
-        if (
-            newLeftWidth < leftMinWidth ||
-            newRightTotalWidth < minRightTotalWidth
-        ) {
-            return;
+        // Clamp left width to minimum if it would go below
+        if (newLeftWidth < leftMinWidth) {
+            newLeftWidth = leftMinWidth;
         }
 
         // Calculate new widths
         const newWidths = {};
 
-        // Set new left width
+        // Set new left width (clamped to minimum)
         newWidths[dividerIndex] = newLeftWidth;
 
-        // Scale non-collapsed right views proportionally
-        const rightScale = newRightTotalWidth / rightTotalWidth;
-        nonCollapsedRightViews.forEach((view) => {
-            const index = views.indexOf(view);
-            newWidths[index] = this.startWidths[index] * rightScale;
-        });
+        // Recalculate right width after clamping
+        const widthChange = newLeftWidth - leftStartWidth;
+        const finalRightWidth = rightTotalWidth - widthChange;
+
+        // Scale non-collapsed right views proportionally to fit available space
+        if (nonCollapsedRightViews.length > 0) {
+            const rightScale = finalRightWidth / rightTotalWidth;
+            nonCollapsedRightViews.forEach((view) => {
+                const index = views.indexOf(view);
+                newWidths[index] = this.startWidths[index] * rightScale;
+            });
+        }
 
         // Lock all other views to minimum width if collapsed, otherwise keep unchanged
         views.forEach((view, index) => {
@@ -567,9 +580,16 @@ class ResizableViews {
             });
         }
 
-        // Apply the adjusted widths
+        // Apply the adjusted widths - use fixed pixel width for collapsed views
         views.forEach((view, index) => {
-            view.style.flex = `${adjustedWidths[index] / totalWidth}`;
+            const minWidth = this.getMinWidth(view);
+            if (adjustedWidths[index] <= minWidth + 5) {
+                // Collapsed view - use fixed pixel width
+                view.style.flex = `0 0 ${minWidth}px`;
+            } else {
+                // Non-collapsed view - use flex ratio
+                view.style.flex = `${adjustedWidths[index] / totalWidth}`;
+            }
         });
 
         // Update collapsed states
