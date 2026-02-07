@@ -162,3 +162,18 @@ import './share-button';
 import './sound-preloader.js';
 import './theme-switcher.js';
 import './view-settings.js';
+import { initViewTitleButtons } from './view-title-buttons';
+
+// Initialize view title buttons after DOM is ready and keyboard navigation is initialized
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        // Delay slightly to ensure keyboard-navigation.js has initialized
+        setTimeout(() => {
+            initViewTitleButtons();
+        }, 100);
+    });
+} else {
+    setTimeout(() => {
+        initViewTitleButtons();
+    }, 100);
+}

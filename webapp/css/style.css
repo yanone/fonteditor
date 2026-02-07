@@ -805,6 +805,40 @@ kbd + kbd {
     border-left-color: var(--text-secondary);
 }
 
+/* View Title Maximize and Collapse Buttons */
+.view-title-maximize-btn,
+.view-title-collapse-btn {
+    background-color: transparent;
+    border: none;
+    /* border-radius: 3px; */
+    color: var(--text-faint);
+    padding: 2px;
+    cursor: pointer;
+    /* transition: all 0.15s ease; */
+    height: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: -4px;
+}
+
+.view-title-maximize-btn .material-symbols-outlined,
+.view-title-collapse-btn .material-symbols-outlined {
+    font-size: 12px;
+}
+
+.view-title-maximize-btn:hover,
+.view-title-collapse-btn:hover {
+    background-color: var(--input-bg);
+    color: var(--text-secondary);
+}
+
+.view-title-maximize-btn:active,
+.view-title-collapse-btn:active {
+    background-color: var(--border-primary);
+    color: var(--text-primary);
+}
+
 /* Auto-run button - default (inactive) state */
 .view-title-button.auto-run {
     background-color: transparent;

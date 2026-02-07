@@ -55,6 +55,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     TippyUtils: false,
     URLState: false,
     Variations: true,
+    ViewTitleButtons: false,
     WasmInit: false
 };
 

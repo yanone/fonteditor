@@ -266,6 +266,14 @@ declare global {
 
         // From view-settings.js
         VIEW_SETTINGS: Record<string, any>;
+
+        // From keyboard-navigation.js
+        resizeView: (viewId: string) => void;
+        collapseActiveView: (viewId: string) => void;
+        getCurrentFocusedView: () => string | null;
+
+        // From view-title-buttons.ts
+        updateViewTitleButtonVisibility: (viewId: string) => void;
     }
 }
 

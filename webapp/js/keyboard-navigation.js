@@ -493,6 +493,10 @@
                 if (window.resizableViews) {
                     window.resizableViews.saveLayout();
                 }
+                // Notify view title buttons to update
+                window.dispatchEvent(
+                    new CustomEvent('viewResized', { detail: { viewId } })
+                );
             }, settings.animation.duration);
         } else {
             updateCollapsedStates();
@@ -500,6 +504,10 @@
             if (window.resizableViews) {
                 window.resizableViews.saveLayout();
             }
+            // Notify view title buttons to update
+            window.dispatchEvent(
+                new CustomEvent('viewResized', { detail: { viewId } })
+            );
         }
     }
 
@@ -661,6 +669,10 @@
                 if (viewId === currentFocusedView && viewId !== 'view-editor') {
                     focusView('view-editor');
                 }
+                // Notify view title buttons to update
+                window.dispatchEvent(
+                    new CustomEvent('viewResized', { detail: { viewId } })
+                );
             }, settings.animation.duration);
         } else {
             updateCollapsedStates();
@@ -671,6 +683,10 @@
             if (viewId === currentFocusedView && viewId !== 'view-editor') {
                 focusView('view-editor');
             }
+            // Notify view title buttons to update
+            window.dispatchEvent(
+                new CustomEvent('viewResized', { detail: { viewId } })
+            );
         }
     }
 
@@ -1494,4 +1510,6 @@
     // Expose focusView and getCurrentFocusedView globally for other scripts
     window.focusView = focusView;
     window.getCurrentFocusedView = () => currentFocusedView;
+    window.resizeView = resizeView;
+    window.collapseActiveView = collapseActiveView;
 })();
