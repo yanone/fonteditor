@@ -87,36 +87,10 @@ module.exports = {
                 watch: false
             }
         ],
-        watchFiles: {
-            paths: [
-                'js/**/*.ts',
-                'js/**/*.js',
-                'css/style.css',
-                'css/glyph-overview.css',
-                'css/tokens.json',
-                'index.html',
-                'manifest.json',
-                'assets/**/*'
-            ],
-            // Ignore generated files and test artifacts to prevent reload loops
-            options: {
-                ignored: [
-                    '**/tokens.css',
-                    '**/node_modules/**',
-                    '**/build/**',
-                    '**/test-results/**',
-                    '**/playwright-report/**',
-                    '**/*.png',  // Screenshot files
-                    '**/*.webm', // Video files
-                    '**/.git/**',
-                    '**/js/babelfont.d.ts'  // Type drift test touches this file
-                ]
-            }
-        },
         port: 8000,
         server: 'https',
-        hot: process.env.PLAYWRIGHT_TEST !== 'true',
-        liveReload: process.env.PLAYWRIGHT_TEST !== 'true',
+        hot: false,
+        liveReload: false,
         client: {
             overlay: process.env.PLAYWRIGHT_TEST !== 'true',
             webSocketURL: {
@@ -124,9 +98,7 @@ module.exports = {
                 pathname: '/ws',
                 port: 8000,
                 protocol: 'wss'
-            },
-            // Disable reconnect during tests to prevent reload loops
-            reconnect: process.env.PLAYWRIGHT_TEST !== 'true'
+            }
         },
         headers: {
             'Cross-Origin-Embedder-Policy': 'require-corp',
