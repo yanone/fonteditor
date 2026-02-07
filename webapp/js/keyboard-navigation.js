@@ -741,16 +741,35 @@
             const minWidthPerOther = 24; // Minimum width for each other view
 
             if (totalOtherWidth >= minWidthPerOther * otherViews.length) {
-                // Distribute remaining width evenly among other views
-                const otherViewWidth = totalOtherWidth / otherViews.length;
-                const totalWidth = targetViewWidth + totalOtherWidth;
-                const viewFlex = targetViewWidth / totalWidth;
-                const otherFlex = otherViewWidth / totalWidth;
+                // Separate collapsed and non-collapsed views
+                const collapsedViews = otherViews.filter(
+                    (v) => v.offsetWidth <= 24 + 5
+                ); // 5px tolerance
+                const nonCollapsedViews = otherViews.filter(
+                    (v) => v.offsetWidth > 24 + 5
+                );
 
-                view.style.flex = `${viewFlex}`;
-                otherViews.forEach((v) => {
-                    v.style.flex = `${otherFlex}`;
+                // Reserve width for collapsed views (24px each)
+                const collapsedWidth = collapsedViews.length * 24;
+                const availableForDistribution =
+                    totalOtherWidth - collapsedWidth;
+
+                // Set flex for the target view
+                view.style.flex = `${targetViewWidth}`;
+
+                // Set collapsed views to fixed pixel width
+                collapsedViews.forEach((v) => {
+                    v.style.flex = `0 0 24px`;
                 });
+
+                // Distribute remaining width to non-collapsed views as ratios
+                if (nonCollapsedViews.length > 0) {
+                    const nonCollapsedViewWidth =
+                        availableForDistribution / nonCollapsedViews.length;
+                    nonCollapsedViews.forEach((v) => {
+                        v.style.flex = `${nonCollapsedViewWidth}`;
+                    });
+                }
             }
         }
 
