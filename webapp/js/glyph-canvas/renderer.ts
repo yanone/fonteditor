@@ -110,6 +110,11 @@ export class GlyphCanvasRenderer {
     render() {
         if (!this.ctx || !this.canvas) return;
 
+        // Skip rendering during OpenType feature changes to prevent .notdef flicker
+        if (this.textRunEditor.skipRenderingDuringFeatureChange) {
+            return;
+        }
+
         // Track FPS by counting frames over time intervals
         const now = performance.now();
 
@@ -344,11 +349,6 @@ export class GlyphCanvasRenderer {
         }
 
         if (!this.textRunEditor.hbFont) {
-            return;
-        }
-
-        // Skip rendering during feature changes to prevent .notdef flicker
-        if (this.textRunEditor.skipRenderingDuringFeatureChange) {
             return;
         }
 

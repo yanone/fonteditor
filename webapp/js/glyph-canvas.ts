@@ -492,10 +492,7 @@ class GlyphCanvas {
                 }
                 this.updateComponentBreadcrumb(); // Update breadcrumb/glyph stack for substituted glyph
 
-                // Only render if we're not waiting for font recompilation (flag is false)
-                if (!this.textRunEditor!.skipRenderingDuringFeatureChange) {
-                    this.render(); // Render after auto-pan is applied
-                }
+                this.render(); // Render after auto-pan is applied
             } else {
                 // Text mode: apply auto-pan to keep cursor centered
                 // Only apply if we're not waiting for font recompilation
@@ -504,10 +501,7 @@ class GlyphCanvas {
                     this.textModeAutoPanAnchorScreen = null;
                 }
 
-                // Only render if we're not waiting for font recompilation (flag is false)
-                if (!this.textRunEditor!.skipRenderingDuringFeatureChange) {
-                    this.render();
-                }
+                this.render();
             }
         });
         this.setupTextEditorEventHandlers();
@@ -719,17 +713,13 @@ class GlyphCanvas {
     setupTextEditorEventHandlers(): void {
         this.textRunEditor!.on('cursormoved', () => {
             this.panToCursor();
-            if (!this.textRunEditor!.skipRenderingDuringFeatureChange) {
-                this.render();
-            }
+            this.render();
         });
         this.textRunEditor!.on('textchanged', () => {
             this.onTextChange();
         });
         this.textRunEditor!.on('render', () => {
-            if (!this.textRunEditor!.skipRenderingDuringFeatureChange) {
-                this.render();
-            }
+            this.render();
         });
         this.textRunEditor!.on('exitcomponentediting', () => {
             this.outlineEditor.exitAllComponentEditing();
