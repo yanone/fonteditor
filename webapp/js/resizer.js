@@ -251,8 +251,22 @@ class ResizableViews {
                 const topRow = document.querySelector('.top-row');
                 const bottomRow = document.querySelector('.bottom-row');
                 if (topRow && bottomRow) {
-                    topRow.style.flex = layout.horizontal.top;
-                    bottomRow.style.flex = layout.horizontal.bottom;
+                    // Check if bottom row should be collapsed
+                    const savedBottomFlex = layout.horizontal.bottom;
+                    if (!savedBottomFlex.includes('0 0')) {
+                        const flexValue = parseFloat(savedBottomFlex);
+                        // If bottom row flex is very small, it's collapsed - use fixed pixel height
+                        if (flexValue < 0.1) {
+                            bottomRow.style.flex = `0 0 ${ResizableViews.SECONDARY_MIN_HEIGHT}px`;
+                            topRow.style.flex = `1`;
+                        } else {
+                            topRow.style.flex = layout.horizontal.top;
+                            bottomRow.style.flex = layout.horizontal.bottom;
+                        }
+                    } else {
+                        topRow.style.flex = layout.horizontal.top;
+                        bottomRow.style.flex = layout.horizontal.bottom;
+                    }
                     console.log('[Resizer]', 'Applied horizontal layout');
                 }
             }
@@ -609,8 +623,8 @@ class ResizableViews {
         const topStartHeight = this.startHeights.top;
         const bottomStartHeight = this.startHeights.bottom;
 
-        const newTopHeight = topStartHeight + deltaY;
-        const newBottomHeight = bottomStartHeight - deltaY;
+        let newTopHeight = topStartHeight + deltaY;
+        let newBottomHeight = bottomStartHeight - deltaY;
 
         // Calculate minimum heights based on views in each row
         // Top row contains fontinfo and editor - use editor's min height
@@ -618,17 +632,33 @@ class ResizableViews {
         // Bottom row contains secondary views - use title bar height
         const bottomMinHeight = ResizableViews.SECONDARY_MIN_HEIGHT;
 
+        // Snap to minimum height if within 10 pixels (for bottom row collapse)
+        const snapThreshold = 10;
+        if (Math.abs(newBottomHeight - bottomMinHeight) < snapThreshold) {
+            newBottomHeight = bottomMinHeight;
+            newTopHeight = availableHeight - bottomMinHeight;
+        }
+
         if (
             newTopHeight >= topMinHeight &&
             newBottomHeight >= bottomMinHeight
         ) {
-            // Calculate flex-grow values based on the ratio of each row
-            const totalHeight = newTopHeight + newBottomHeight;
-            const topFlex = newTopHeight / totalHeight;
-            const bottomFlex = newBottomHeight / totalHeight;
+            // Check if bottom row is collapsed (at or near minimum height)
+            const isBottomCollapsed = Math.abs(newBottomHeight - bottomMinHeight) < 5;
+            
+            if (isBottomCollapsed) {
+                // Use fixed pixel height for collapsed bottom row
+                topRow.style.flex = `1`;
+                bottomRow.style.flex = `0 0 ${bottomMinHeight}px`;
+            } else {
+                // Calculate flex-grow values based on the ratio of each row
+                const totalHeight = newTopHeight + newBottomHeight;
+                const topFlex = newTopHeight / totalHeight;
+                const bottomFlex = newBottomHeight / totalHeight;
 
-            topRow.style.flex = `${topFlex}`;
-            bottomRow.style.flex = `${bottomFlex}`;
+                topRow.style.flex = `${topFlex}`;
+                bottomRow.style.flex = `${bottomFlex}`;
+            }
 
             // Update collapsed states
             this.updateCollapsedStates();

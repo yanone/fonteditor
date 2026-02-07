@@ -119,8 +119,14 @@
                 const bottomHeight = availableHeight - targetHeight;
 
                 if (bottomHeight >= 24) {
-                    topRow.style.flex = `${targetHeight / availableHeight}`;
-                    bottomRow.style.flex = `${bottomHeight / availableHeight}`;
+                    // Check if bottom row is at minimum (collapsed)
+                    if (Math.abs(bottomHeight - 24) < 5) {
+                        topRow.style.flex = `1`;
+                        bottomRow.style.flex = `0 0 24px`;
+                    } else {
+                        topRow.style.flex = `${targetHeight / availableHeight}`;
+                        bottomRow.style.flex = `${bottomHeight / availableHeight}`;
+                    }
                     expanded = true;
                 }
             }
@@ -642,11 +648,9 @@
                 freedSpace
             );
 
-            const newTopHeight = topRow.offsetHeight + freedSpace;
-            const totalHeight = newTopHeight + minBottomHeight;
-
-            topRow.style.flex = `${newTopHeight / totalHeight}`;
-            bottomRow.style.flex = `${minBottomHeight / totalHeight}`;
+            // Use fixed pixel height for collapsed bottom row
+            topRow.style.flex = `1`;
+            bottomRow.style.flex = `0 0 ${minBottomHeight}px`;
         }
 
         // Disable transitions and update collapsed states after animation completes
@@ -771,12 +775,17 @@
             const bottomTargetHeight = availableHeight - targetViewHeight;
 
             if (bottomTargetHeight >= 24) {
-                // Allow collapse to min height
-                const topFlex = targetViewHeight / availableHeight;
-                const bottomFlex = bottomTargetHeight / availableHeight;
+                // Check if bottom row is at minimum (collapsed)
+                if (Math.abs(bottomTargetHeight - 24) < 5) {
+                    topRow.style.flex = `1`;
+                    bottomRow.style.flex = `0 0 24px`;
+                } else {
+                    const topFlex = targetViewHeight / availableHeight;
+                    const bottomFlex = bottomTargetHeight / availableHeight;
 
-                topRow.style.flex = `${topFlex}`;
-                bottomRow.style.flex = `${bottomFlex}`;
+                    topRow.style.flex = `${topFlex}`;
+                    bottomRow.style.flex = `${bottomFlex}`;
+                }
             }
         }
     }
@@ -823,12 +832,18 @@
             const topTargetHeight = availableHeight - targetBottomHeight;
 
             if (topTargetHeight >= 200) {
-                // Ensure minimum height for top row (editor)
-                const topFlex = topTargetHeight / availableHeight;
-                const bottomFlex = targetBottomHeight / availableHeight;
+                // Check if bottom row is at minimum (collapsed)
+                if (Math.abs(targetBottomHeight - 24) < 5) {
+                    topRow.style.flex = `1`;
+                    bottomRow.style.flex = `0 0 24px`;
+                } else {
+                    // Ensure minimum height for top row (editor)
+                    const topFlex = topTargetHeight / availableHeight;
+                    const bottomFlex = targetBottomHeight / availableHeight;
 
-                topRow.style.flex = `${topFlex}`;
-                bottomRow.style.flex = `${bottomFlex}`;
+                    topRow.style.flex = `${topFlex}`;
+                    bottomRow.style.flex = `${bottomFlex}`;
+                }
             }
         }
 
