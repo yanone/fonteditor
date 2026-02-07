@@ -100,14 +100,13 @@
                             ? availableForDistribution /
                               nonCollapsedViews.length
                             : 0;
-                    const totalWidth = containerWidth;
 
-                    view.style.flex = `${targetWidth / totalWidth}`;
+                    view.style.flex = `${targetWidth}`;
                     collapsedViews.forEach((v) => {
-                        v.style.flex = `${24 / totalWidth}`; // Keep collapsed
+                        v.style.flex = `0 0 24px`; // Keep collapsed at exactly 24px
                     });
                     nonCollapsedViews.forEach((v) => {
-                        v.style.flex = `${nonCollapsedViewWidth / totalWidth}`;
+                        v.style.flex = `${nonCollapsedViewWidth}`;
                     });
                     expanded = true;
                 }
@@ -172,14 +171,13 @@
                             ? availableForDistribution /
                               nonCollapsedViews.length
                             : 0;
-                    const totalWidth = containerWidth;
 
-                    view.style.flex = `${targetWidth / totalWidth}`;
+                    view.style.flex = `${targetWidth}`;
                     collapsedViews.forEach((v) => {
-                        v.style.flex = `${24 / totalWidth}`; // Keep collapsed
+                        v.style.flex = `0 0 24px`; // Keep collapsed at exactly 24px
                     });
                     nonCollapsedViews.forEach((v) => {
-                        v.style.flex = `${nonCollapsedViewWidth / totalWidth}`;
+                        v.style.flex = `${nonCollapsedViewWidth}`;
                     });
                     expanded = true;
                 }
@@ -231,14 +229,13 @@
                             ? availableForDistribution /
                               nonCollapsedViews.length
                             : 0;
-                    const totalWidth = containerWidth;
 
-                    view.style.flex = `${targetWidth / totalWidth}`;
+                    view.style.flex = `${targetWidth}`;
                     collapsedViews.forEach((v) => {
-                        v.style.flex = `${24 / totalWidth}`; // Keep collapsed
+                        v.style.flex = `0 0 24px`; // Keep collapsed at exactly 24px
                     });
                     nonCollapsedViews.forEach((v) => {
-                        v.style.flex = `${nonCollapsedViewWidth / totalWidth}`;
+                        v.style.flex = `${nonCollapsedViewWidth}`;
                     });
                     expanded = true;
                 }
@@ -419,14 +416,13 @@
                                 ? availableForDistribution /
                                   nonCollapsedViews.length
                                 : 0;
-                        const totalWidth = containerWidth;
 
-                        view.style.flex = `${targetWidth / totalWidth}`;
+                        view.style.flex = `${targetWidth}`;
                         collapsedViews.forEach((v) => {
-                            v.style.flex = `${24 / totalWidth}`; // Keep collapsed
+                            v.style.flex = `0 0 24px`; // Keep collapsed at exactly 24px
                         });
                         nonCollapsedViews.forEach((v) => {
-                            v.style.flex = `${nonCollapsedViewWidth / totalWidth}`;
+                            v.style.flex = `${nonCollapsedViewWidth}`;
                         });
                     }
                 }
@@ -607,10 +603,6 @@
                 return;
             }
 
-            // Calculate total container width
-            let totalWidth = 0;
-            views.forEach((v) => (totalWidth += v.offsetWidth));
-
             // Distribute freed space proportionally among non-collapsed other views
             const totalOtherWidth = nonCollapsedOtherViews.reduce(
                 (sum, v) => sum + v.offsetWidth,
@@ -619,16 +611,16 @@
 
             views.forEach((v, i) => {
                 if (i === viewIndex) {
-                    // Collapse this view
-                    v.style.flex = `${minWidth / totalWidth}`;
+                    // Collapse this view to exactly 24px
+                    v.style.flex = `0 0 ${minWidth}px`;
                 } else if (v.offsetWidth <= 24 + 5) {
-                    // Keep already-collapsed views at their minimum
-                    v.style.flex = `${24 / totalWidth}`;
+                    // Keep already-collapsed views at exactly 24px
+                    v.style.flex = `0 0 24px`;
                 } else {
                     // Expand non-collapsed views proportionally
                     const proportion = v.offsetWidth / totalOtherWidth;
                     const newWidth = v.offsetWidth + freedSpace * proportion;
-                    v.style.flex = `${newWidth / totalWidth}`;
+                    v.style.flex = `${newWidth}`;
                 }
             });
         } else if (isBottomRow) {
