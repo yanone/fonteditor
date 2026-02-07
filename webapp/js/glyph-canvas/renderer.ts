@@ -512,13 +512,11 @@ export class GlyphCanvasRenderer {
         this.ctx.lineWidth = 1 * invScale;
         this.ctx.strokeRect(bgX, bgY, bgWidth, bgHeight);
 
-        // Draw text
+        // Draw text with explicit baseline for consistent rendering
         this.ctx.fillStyle = colors.HOVER_LABEL_TEXT;
-        this.ctx.fillText(
-            text,
-            bgX + padding,
-            bgY + fontSize * 0.85 + padding / 2 + 4
-        );
+        this.ctx.textBaseline = 'top';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(text, bgX + padding, bgY + padding - 3 * invScale);
 
         this.ctx.restore();
     }
@@ -1205,7 +1203,7 @@ export class GlyphCanvasRenderer {
                 this.ctx.restore();
 
                 // Collect anchor label for drawing later (on top of everything)
-                if (name && isSelected) {
+                if (name && (isSelected || isHovered)) {
                     anchorLabels.push({ name, x, y, anchorSize, fontSize });
                 }
             });
