@@ -423,6 +423,59 @@ export class GlyphCanvasRenderer {
         );
     }
 
+    /**
+     * Unified method to draw a hover label/tooltip with consistent styling.
+     * Used for both glyph tooltips in text mode and component labels in edit mode.
+     *
+     * @param text - The label text to display
+     * @param x - X position (center of the label)
+     * @param y - Y position (top of the label box)
+     * @param invScale - Inverse of current zoom scale for consistent sizing
+     */
+    drawHoverLabel(text: string, x: number, y: number, invScale: number): void {
+        const isDarkTheme =
+            document.documentElement.getAttribute('data-theme') !== 'light';
+        const colors = isDarkTheme
+            ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
+            : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+
+        // Save context to flip text right-side up
+        this.ctx.save();
+        this.ctx.translate(x, y);
+        this.ctx.scale(1, -1); // Flip Y to make text right-side up
+
+        // Font size and metrics (scaled to remain constant regardless of zoom)
+        const fontSize = 16 * invScale;
+        this.ctx.font = `${fontSize}px IBM Plex Mono`;
+        const metrics = this.ctx.measureText(text);
+        const padding = 10 * invScale;
+        const bgWidth = metrics.width + padding * 2;
+        const bgHeight = fontSize * 1.8;
+
+        // Center horizontally around origin
+        const bgX = -bgWidth / 2;
+        const bgY = 0; // Top of box at origin
+
+        // Draw background
+        this.ctx.fillStyle = colors.HOVER_LABEL_BG;
+        this.ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
+
+        // Draw border
+        this.ctx.strokeStyle = colors.HOVER_LABEL_BORDER;
+        this.ctx.lineWidth = 2 * invScale;
+        this.ctx.strokeRect(bgX, bgY, bgWidth, bgHeight);
+
+        // Draw text
+        this.ctx.fillStyle = colors.HOVER_LABEL_TEXT;
+        this.ctx.fillText(
+            text,
+            bgX + padding,
+            bgY + fontSize * 0.85 + padding / 2 + 4
+        );
+
+        this.ctx.restore();
+    }
+
     drawGlyphTooltip() {
         // Draw glyph name tooltip on hover (in font coordinate space)
         // Don't show tooltip for the selected glyph in glyph edit mode
@@ -489,50 +542,7 @@ export class GlyphCanvasRenderer {
             const tooltipY = glyphYOffset + visualMinY - 100; // 100 units below bottom of visual bounding box
 
             const invScale = 1 / this.viewportManager.scale;
-            const isDarkTheme =
-                document.documentElement.getAttribute('data-theme') !== 'light';
-
-            // Save context to flip text right-side up
-            this.ctx.save();
-            this.ctx.translate(tooltipX, tooltipY);
-            this.ctx.scale(1, -1); // Flip Y to make text right-side up
-
-            // Font size and metrics (scaled to remain constant regardless of zoom)
-            const fontSize = 16 * invScale;
-            this.ctx.font = `${fontSize}px IBM Plex Mono`;
-            const metrics = this.ctx.measureText(glyphName);
-            const padding = 10 * invScale;
-            const bgWidth = metrics.width + padding * 2;
-            const bgHeight = fontSize * 1.8;
-
-            // Center horizontally around origin
-            const bgX = -bgWidth / 2;
-            const bgY = 0; // Top of box at origin
-
-            // Draw background
-            this.ctx.fillStyle = isDarkTheme
-                ? 'rgba(40, 40, 40, 0.95)'
-                : 'rgba(255, 255, 255, 0.95)';
-            this.ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
-
-            // Draw border
-            this.ctx.strokeStyle = isDarkTheme
-                ? 'rgba(255, 255, 255, 0.3)'
-                : 'rgba(0, 0, 0, 0.3)';
-            this.ctx.lineWidth = 2 * invScale;
-            this.ctx.strokeRect(bgX, bgY, bgWidth, bgHeight);
-
-            // Draw text
-            this.ctx.fillStyle = isDarkTheme
-                ? 'rgba(255, 255, 255, 0.9)'
-                : 'rgba(0, 0, 0, 0.9)';
-            this.ctx.fillText(
-                glyphName,
-                bgX + padding,
-                bgY + fontSize * 0.85 + padding / 2 + 4
-            );
-
-            this.ctx.restore();
+            this.drawHoverLabel(glyphName, tooltipX, tooltipY, invScale);
         }
     }
 
@@ -1160,45 +1170,14 @@ export class GlyphCanvasRenderer {
             const centerX = (bounds.minX + bounds.maxX) / 2;
             const labelY = bounds.minY - 100; // 100 units below bottom in local space
 
-            this.ctx.save();
-            this.ctx.transform(a, b, c, d, tx, ty); // Apply component transform
-            this.ctx.translate(centerX, labelY);
-            this.ctx.scale(1, -1); // Flip Y to make text right-side up
+            // Apply component transform to get world coordinates
+            // Transform matrix: [a, b, c, d, tx, ty] represents:
+            // x' = a*x + c*y + tx
+            // y' = b*x + d*y + ty
+            const worldX = a * centerX + c * labelY + tx;
+            const worldY = b * centerX + d * labelY + ty;
 
-            const fontSize = 16 * invScale;
-            this.ctx.font = `${fontSize}px IBM Plex Mono`;
-            const metrics = this.ctx.measureText(componentName);
-            const padding = 10 * invScale;
-            const bgWidth = metrics.width + padding * 2;
-            const bgHeight = fontSize * 1.8;
-
-            const bgX = -bgWidth / 2;
-            const bgY = 0;
-
-            // Draw background
-            this.ctx.fillStyle = isDarkTheme
-                ? 'rgba(40, 40, 40, 0.95)'
-                : 'rgba(255, 255, 255, 0.95)';
-            this.ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
-
-            // Draw border
-            this.ctx.strokeStyle = isDarkTheme
-                ? 'rgba(255, 255, 255, 0.3)'
-                : 'rgba(0, 0, 0, 0.3)';
-            this.ctx.lineWidth = 2 * invScale;
-            this.ctx.strokeRect(bgX, bgY, bgWidth, bgHeight);
-
-            // Draw text
-            this.ctx.fillStyle = isDarkTheme
-                ? 'rgba(255, 255, 255, 0.9)'
-                : 'rgba(0, 0, 0, 0.9)';
-            this.ctx.fillText(
-                componentName,
-                bgX + padding,
-                bgY + fontSize * 0.85 + padding / 2 + 4
-            );
-
-            this.ctx.restore();
+            this.drawHoverLabel(componentName, worldX, worldY, invScale);
         });
 
         // Draw anchor labels on top of component labels

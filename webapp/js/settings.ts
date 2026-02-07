@@ -131,7 +131,12 @@ const APP_SETTINGS = {
             MEASUREMENT_TOOL_DOT: '#000000',
             MEASUREMENT_TOOL_LABEL_TEXT: '#ffffff',
             MEASUREMENT_TOOL_LABEL_BG: 'rgba(0, 0, 0, 0.85)',
-            MEASUREMENT_TOOL_CROSSHAIR: '#000000'
+            MEASUREMENT_TOOL_CROSSHAIR: '#000000',
+
+            // Hover labels (glyph tooltips and component labels)
+            HOVER_LABEL_BG: 'rgba(255, 255, 255, 0.95)',
+            HOVER_LABEL_BORDER: 'rgba(0, 0, 0, 0.3)',
+            HOVER_LABEL_TEXT: 'rgba(0, 0, 0, 0.9)'
         },
 
         // Colors - Dark Theme
@@ -183,7 +188,12 @@ const APP_SETTINGS = {
             MEASUREMENT_TOOL_DOT: '#ffffff',
             MEASUREMENT_TOOL_LABEL_TEXT: '#000000',
             MEASUREMENT_TOOL_LABEL_BG: 'rgba(255, 255, 255, 0.85)',
-            MEASUREMENT_TOOL_CROSSHAIR: '#ffffff'
+            MEASUREMENT_TOOL_CROSSHAIR: '#ffffff',
+
+            // Hover labels (glyph tooltips and component labels)
+            HOVER_LABEL_BG: 'rgba(40, 40, 40, 0.95)',
+            HOVER_LABEL_BORDER: 'rgba(255, 255, 255, 0.3)',
+            HOVER_LABEL_TEXT: 'rgba(255, 255, 255, 0.9)'
         }
     }
 
