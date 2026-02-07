@@ -54,7 +54,7 @@ export class FeaturesManager {
     }
 
     async getDiscretionaryFeatures() {
-        // Get discretionary features from the typing font (full feature set)
+        // Get discretionary features from both typing and editing fonts
         if (!this.fontBytes) {
             console.log('[Features]', 'No fontBytes available');
             return [];
@@ -72,9 +72,11 @@ export class FeaturesManager {
             // Get all features from typing font using WASM
             const featuresJson = get_font_features(this.fontBytes);
             console.log('[Features]', 'Typing font features:', featuresJson);
-            const typingFontFeatures: string[] = JSON.parse(featuresJson);
+            const typingFontFeatures: Set<string> = new Set(
+                JSON.parse(featuresJson)
+            );
 
-            // Get features available in editing font (subset with closure)
+            // Get features from editing font (subset with closure)
             let editingFontFeatures: Set<string> = new Set();
             if (this.editingFontBytes) {
                 try {
@@ -98,6 +100,17 @@ export class FeaturesManager {
                 }
             }
 
+            // Union of features from both fonts
+            const allFeatures = new Set([
+                ...typingFontFeatures,
+                ...editingFontFeatures
+            ]);
+            console.log(
+                '[Features]',
+                'Union of all features:',
+                Array.from(allFeatures)
+            );
+
             // Get stylistic set names from typing font
             const ssNamesJson = get_stylistic_set_names(this.fontBytes);
             console.log('[Features]', 'Stylistic set names JSON:', ssNamesJson);
@@ -114,10 +127,10 @@ export class FeaturesManager {
             ]);
             const descriptions = featureInfo.descriptions;
 
-            // Filter to only discretionary features from typing font
-            const discretionaryInFont: string[] = typingFontFeatures.filter(
-                (tag: string) => allDiscretionary.has(tag)
-            );
+            // Filter union to only discretionary features
+            const discretionaryInFont: string[] = Array.from(
+                allFeatures
+            ).filter((tag: string) => allDiscretionary.has(tag));
 
             // Build feature list with metadata and availability
             return discretionaryInFont.map((tag: string) => {
