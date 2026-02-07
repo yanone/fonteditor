@@ -30,6 +30,8 @@ interface CompilationOptions {
     skip_outlines: boolean;
     dont_use_production_names: boolean;
     subset_glyphs?: Array<string>;
+    drop_incompatible_paths?: boolean;
+    produce_varc_table?: boolean;
 }
 
 // Compilation target definitions
@@ -59,7 +61,9 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
         skip_features: false,
         skip_metrics: false, // Keep metrics - hits unimplemented code in babelfont-rs
         skip_outlines: false, // Keep outlines - skip_outlines hits unimplemented code in babelfont-rs
-        dont_use_production_names: true
+        dont_use_production_names: true,
+        drop_incompatible_paths: true, // Drop incompatible paths to avoid compilation errors when outlines are skipped
+        produce_varc_table: false
     },
 
     // Subset font for canvas display with layout closure.
@@ -69,8 +73,9 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
         skip_features: false, // Include GSUB via layout closure subsetting
         skip_metrics: false,
         skip_outlines: false,
-        dont_use_production_names: true
-        // Note: subset_glyphs array is added when calling compilation
+        dont_use_production_names: true,
+        drop_incompatible_paths: true, // Drop incompatible paths to avoid compilation errors when outlines are skipped
+        produce_varc_table: true // Produce varc table for interpolation manager
     }
 };
 

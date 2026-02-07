@@ -82,10 +82,14 @@ import fontManager from './font-manager';
 
                 while (needsRecompile && fontManager.currentFont?.dirty) {
                     compileCount++;
-                    const changeSource = fontManager.lastChangeSource || 'unknown';
+                    const changeSource =
+                        fontManager.lastChangeSource || 'unknown';
 
                     // Show message in terminal if available (only for first compile or every 5th)
-                    if (window.term && (compileCount === 1 || compileCount % 5 === 0)) {
+                    if (
+                        window.term &&
+                        (compileCount === 1 || compileCount % 5 === 0)
+                    ) {
                         window.term.echo(
                             `[[;cyan;]🔄 Auto-recompiling editing font (compile #${compileCount}, source: ${changeSource})...]`
                         );
@@ -93,21 +97,28 @@ import fontManager from './font-manager';
 
                     // Trigger recompilation - returns true if data changed and needs another compile
                     if (fontManager && fontManager.isReady()) {
-                        needsRecompile = await fontManager.recompileEditingFont();
+                        needsRecompile =
+                            await fontManager.recompileEditingFont();
                     } else {
                         needsRecompile = false;
                     }
 
                     // Log if we're doing another compile
                     if (needsRecompile && compileCount < 10) {
-                        console.log(`[AutoCompile] Compile #${compileCount} finished, data changed, continuing...`);
+                        console.log(
+                            `[AutoCompile] Compile #${compileCount} finished, data changed, continuing...`
+                        );
                     } else if (needsRecompile && compileCount === 10) {
-                        console.log('[AutoCompile] Many compilations in progress, suppressing further logs...');
+                        console.log(
+                            '[AutoCompile] Many compilations in progress, suppressing further logs...'
+                        );
                     }
                 }
 
                 if (compileCount > 1) {
-                    console.log(`[AutoCompile] Compilation chain completed after ${compileCount} compiles`);
+                    console.log(
+                        `[AutoCompile] Compilation chain completed after ${compileCount} compiles`
+                    );
                 }
             } finally {
                 isCompiling = false;

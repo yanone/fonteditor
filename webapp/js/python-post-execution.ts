@@ -9,9 +9,7 @@ import { Logger } from './logger';
 
 const console = new Logger('PythonPostExecution');
 
-console.log(
-    '🔧 Module loaded, setting up post-execution hooks...'
-);
+console.log('🔧 Module loaded, setting up post-execution hooks...');
 
 // Wait for required globals to be available
 function setupHooks() {

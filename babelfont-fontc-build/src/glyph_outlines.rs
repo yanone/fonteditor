@@ -4,15 +4,15 @@
 // for efficient batch rendering in the overview.
 // Optimized with persistent caching across requests for the same location.
 
-use babelfont::{Layer, Shape, Node, Tag};
+use babelfont::{Layer, Node, Shape, Tag};
 use fontdrasil::coords::{DesignCoord, DesignLocation, UserCoord};
+use kurbo::{Affine, Point};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
-use kurbo::{Affine, Point};
 
 use crate::interpolation::serialize_layer_with_components_cached;
 
@@ -63,8 +63,12 @@ pub fn get_glyphs_outlines(
     flatten_components: bool,
 ) -> Result<String, JsValue> {
     // Normalize location for cache key comparison
-    let normalized_location = if location_json.trim().is_empty() { "{}" } else { location_json };
-    
+    let normalized_location = if location_json.trim().is_empty() {
+        "{}"
+    } else {
+        location_json
+    };
+
     // Check if location changed - clear both caches if so
     {
         let mut cache_guard = OUTLINE_CACHE.lock().unwrap();
@@ -84,7 +88,7 @@ pub fn get_glyphs_outlines(
             }
         }
     }
-    
+
     // Check how many glyphs are already in persistent cache
     let mut cached_results: Vec<JsonValue> = Vec::new();
     let mut glyphs_to_process: Vec<String> = Vec::new();
@@ -102,30 +106,30 @@ pub fn get_glyphs_outlines(
             glyphs_to_process = glyph_names.to_vec();
         }
     }
-    
+
     // If all glyphs are cached, return immediately
     if glyphs_to_process.is_empty() {
         return serde_json::to_string(&cached_results)
             .map_err(|e| JsValue::from_str(&format!("Failed to serialize results: {}", e)));
     }
-    
+
     // Parse location
-    let location_map: HashMap<String, f64> = if location_json.trim().is_empty() || location_json == "{}" {
-        HashMap::new()
-    } else {
-        serde_json::from_str(location_json)
-            .map_err(|e| JsValue::from_str(&format!("Location parse error: {}", e)))?
-    };
-    
+    let location_map: HashMap<String, f64> =
+        if location_json.trim().is_empty() || location_json == "{}" {
+            HashMap::new()
+        } else {
+            serde_json::from_str(location_json)
+                .map_err(|e| JsValue::from_str(&format!("Location parse error: {}", e)))?
+        };
+
     // Convert to design space
     let design_location: DesignLocation = if location_map.is_empty() {
         // Use default location (all axes at default)
         font.axes
             .iter()
             .filter_map(|axis| {
-                axis.default.map(|default_val| {
-                    (axis.tag, DesignCoord::new(default_val.to_f64()))
-                })
+                axis.default
+                    .map(|default_val| (axis.tag, DesignCoord::new(default_val.to_f64())))
             })
             .collect()
     } else {
@@ -134,7 +138,7 @@ pub fn get_glyphs_outlines(
             .map(|(tag_str, user_value)| {
                 let tag = Tag::from_str(tag_str)
                     .map_err(|e| JsValue::from_str(&format!("Invalid tag '{}': {}", tag_str, e)))?;
-                
+
                 let design_value = if let Some(axis) = font.axes.iter().find(|a| a.tag == tag) {
                     match axis.userspace_to_designspace(UserCoord::new(*user_value)) {
                         Ok(design_coord) => design_coord,
@@ -143,14 +147,14 @@ pub fn get_glyphs_outlines(
                 } else {
                     DesignCoord::new(*user_value)
                 };
-                
+
                 Ok((tag, design_value))
             })
             .collect::<Result<Vec<_>, JsValue>>()?
             .into_iter()
             .collect()
     };
-    
+
     // Get or create persistent layer cache
     // This cache persists across requests for the same location
     let layer_cache: RefCell<HashMap<String, Layer>> = {
@@ -167,12 +171,12 @@ pub fn get_glyphs_outlines(
             RefCell::new(HashMap::new())
         }
     };
-    
+
     // Per-request JSON cache (not persisted, just for this batch)
     let json_cache: RefCell<HashMap<String, JsonValue>> = RefCell::new(HashMap::new());
-    
+
     let mut new_results: Vec<(String, JsonValue)> = Vec::with_capacity(glyphs_to_process.len());
-    
+
     for glyph_name in &glyphs_to_process {
         // Get glyph
         let _glyph = match font.glyphs.get(glyph_name) {
@@ -181,7 +185,7 @@ pub fn get_glyphs_outlines(
                 continue; // Skip missing glyphs
             }
         };
-        
+
         // Check cache first, then interpolate
         let layer = {
             let cache = layer_cache.borrow();
@@ -189,39 +193,55 @@ pub fn get_glyphs_outlines(
                 cached.clone()
             } else {
                 drop(cache);
-                let interpolated = font.interpolate_glyph(glyph_name, &design_location)
-                    .map_err(|e| JsValue::from_str(&format!("Interpolation failed for '{}': {:?}", glyph_name, e)))?;
-                layer_cache.borrow_mut().insert(glyph_name.clone(), interpolated.clone());
+                let interpolated = font
+                    .interpolate_glyph(glyph_name, &design_location)
+                    .map_err(|e| {
+                        JsValue::from_str(&format!(
+                            "Interpolation failed for '{}': {:?}",
+                            glyph_name, e
+                        ))
+                    })?;
+                layer_cache
+                    .borrow_mut()
+                    .insert(glyph_name.clone(), interpolated.clone());
                 interpolated
             }
         };
-        
+
         let (shapes, shapes_json) = if flatten_components {
             // For flattened mode, use cached flattening
-            let (flattened, _, _) = flatten_layer_components_cached(font, &layer, &design_location, &layer_cache)?;
+            let (flattened, _, _) =
+                flatten_layer_components_cached(font, &layer, &design_location, &layer_cache)?;
             let json = serde_json::to_value(&flattened)
                 .map_err(|e| JsValue::from_str(&format!("Serialization failed: {}", e)))?;
             (flattened, json)
         } else {
             // For non-flattened mode, use cached serialization
             let layer_json = serialize_layer_with_components_cached(
-                &layer, font, &design_location, &layer_cache, &json_cache
-            ).map_err(|e| JsValue::from_str(&e))?;
-            
+                &layer,
+                font,
+                &design_location,
+                &layer_cache,
+                &json_cache,
+            )
+            .map_err(|e| JsValue::from_str(&e))?;
+
             // Extract shapes array from layer JSON, or use empty array if missing
-            let shapes_json = layer_json.get("shapes")
+            let shapes_json = layer_json
+                .get("shapes")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!([]));
-            
+
             // For bounds calculation, we need flattened shapes
-            let (flattened_for_bounds, _, _) = flatten_layer_components_cached(font, &layer, &design_location, &layer_cache)?;
-            
+            let (flattened_for_bounds, _, _) =
+                flatten_layer_components_cached(font, &layer, &design_location, &layer_cache)?;
+
             (flattened_for_bounds, shapes_json)
         };
-        
+
         // Calculate bounds from the actual shapes (flattened paths)
         let bounds = calculate_bounds(&shapes);
-        
+
         // Build result object with the appropriate shapes JSON
         let result = serde_json::json!({
             "name": glyph_name,
@@ -229,11 +249,11 @@ pub fn get_glyphs_outlines(
             "shapes": shapes_json,
             "bounds": bounds,
         });
-        
+
         // Store in new_results for adding to persistent cache
         new_results.push((glyph_name.clone(), result));
     }
-    
+
     // Add new results to persistent cache
     {
         let mut cache_guard = OUTLINE_CACHE.lock().unwrap();
@@ -249,7 +269,7 @@ pub fn get_glyphs_outlines(
             }
         }
     }
-    
+
     // Save layer cache back to persistent storage
     {
         let layer_map = layer_cache.borrow();
@@ -268,7 +288,7 @@ pub fn get_glyphs_outlines(
             }
         }
     }
-    
+
     // Combine cached results with new results in original order
     let mut final_results = Vec::with_capacity(glyph_names.len());
     {
@@ -281,10 +301,10 @@ pub fn get_glyphs_outlines(
             }
         }
     }
-    
+
     let result_json = serde_json::to_string(&final_results)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize results: {}", e)))?;
-    
+
     Ok(result_json)
 }
 
@@ -299,7 +319,7 @@ fn flatten_layer_components_cached(
     let mut flattened_shapes = Vec::new();
     let mut comp_hits = 0usize;
     let mut comp_misses = 0usize;
-    
+
     for shape in &layer.shapes {
         match shape {
             Shape::Path(_) => {
@@ -316,18 +336,27 @@ fn flatten_layer_components_cached(
                     } else {
                         drop(cache);
                         comp_misses += 1;
-                        let interpolated = font.interpolate_glyph(&component.reference, location)
-                            .map_err(|e| JsValue::from_str(&format!("Failed to interpolate component '{}': {:?}", component.reference, e)))?;
-                        layer_cache.borrow_mut().insert(ref_key.clone(), interpolated.clone());
+                        let interpolated = font
+                            .interpolate_glyph(&component.reference, location)
+                            .map_err(|e| {
+                            JsValue::from_str(&format!(
+                                "Failed to interpolate component '{}': {:?}",
+                                component.reference, e
+                            ))
+                        })?;
+                        layer_cache
+                            .borrow_mut()
+                            .insert(ref_key.clone(), interpolated.clone());
                         interpolated
                     }
                 };
-                
+
                 // Recursively flatten components in the referenced glyph
-                let (ref_shapes, sub_hits, sub_misses) = flatten_layer_components_cached(font, &ref_layer, location, layer_cache)?;
+                let (ref_shapes, sub_hits, sub_misses) =
+                    flatten_layer_components_cached(font, &ref_layer, location, layer_cache)?;
                 comp_hits += sub_hits;
                 comp_misses += sub_misses;
-                
+
                 // Apply component transformation to each shape
                 for ref_shape in ref_shapes {
                     if let Shape::Path(mut path) = ref_shape {
@@ -339,23 +368,26 @@ fn flatten_layer_components_cached(
             }
         }
     }
-    
+
     Ok((flattened_shapes, comp_hits, comp_misses))
 }
 
 /// Transform path nodes by a transformation matrix
 fn transform_nodes(nodes: &[Node], transform: &Affine) -> Vec<Node> {
-    nodes.iter().map(|node| {
-        let point = Point::new(node.x, node.y);
-        let transformed = *transform * point;
-        Node {
-            x: transformed.x,
-            y: transformed.y,
-            nodetype: node.nodetype,
-            smooth: node.smooth,
-            format_specific: node.format_specific.clone(),
-        }
-    }).collect()
+    nodes
+        .iter()
+        .map(|node| {
+            let point = Point::new(node.x, node.y);
+            let transformed = *transform * point;
+            Node {
+                x: transformed.x,
+                y: transformed.y,
+                nodetype: node.nodetype,
+                smooth: node.smooth,
+                format_specific: node.format_specific.clone(),
+            }
+        })
+        .collect()
 }
 
 /// Calculate bounding box for shapes
@@ -364,7 +396,7 @@ fn calculate_bounds(shapes: &[Shape]) -> serde_json::Value {
     let mut min_y = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
-    
+
     for shape in shapes {
         if let Shape::Path(path) = shape {
             for node in &path.nodes {
@@ -375,7 +407,7 @@ fn calculate_bounds(shapes: &[Shape]) -> serde_json::Value {
             }
         }
     }
-    
+
     if min_x.is_finite() {
         serde_json::json!({
             "xMin": min_x,

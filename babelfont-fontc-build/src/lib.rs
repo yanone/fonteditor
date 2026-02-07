@@ -2,14 +2,17 @@ use babelfont::{
     convertors::fontir::{BabelfontIrSource, CompilationOptions},
     filters::FontFilter as _,
 };
-use wasm_bindgen::prelude::*;
-use std::sync::Mutex;
-use std::collections::HashSet;
 use smol_str::SmolStr;
+use std::collections::HashSet;
+use std::sync::Mutex;
+use wasm_bindgen::prelude::*;
 
 // Font reading module (using read-fonts/skrifa)
 mod font_reader;
-pub use font_reader::{get_font_axes, get_font_features, get_font_features_with_tables, get_glyph_name, get_glyph_order, get_stylistic_set_names};
+pub use font_reader::{
+    get_font_axes, get_font_features, get_font_features_with_tables, get_glyph_name,
+    get_glyph_order, get_stylistic_set_names,
+};
 
 // Interpolation module
 mod interpolation;
@@ -51,6 +54,8 @@ fn get_option(options: &JsValue, key: &str, default: bool) -> bool {
 ///  - `skip_outlines`: bool - Skip `glyf`/`gvar` table creation
 ///  - `dont_use_production_names`: bool - Don't use production names for glyphs
 ///  - `subset_glyphs`: String[] - List of glyph names to include
+///  - `drop_incompatible_paths`: bool - Drop incompatible paths during compilation
+///  - `produce_varc_table`: bool - Produce VARC table (variable fonts)
 ///
 /// # Returns
 /// * `Vec<u8>` - Compiled TTF font bytes
@@ -64,16 +69,14 @@ pub fn compile_babelfont(babelfont_json: &str, options: &JsValue) -> Result<Vec<
         if let Ok(subset_val) = js_sys::Reflect::get(options, &JsValue::from_str("subset_glyphs")) {
             if !subset_val.is_undefined() && !subset_val.is_null() {
                 if let Ok(array) = subset_val.dyn_into::<js_sys::Array>() {
-                    let subset_glyphs: Vec<String> = array
-                        .iter()
-                        .filter_map(|v| v.as_string())
-                        .collect();
-                    
+                    let subset_glyphs: Vec<String> =
+                        array.iter().filter_map(|v| v.as_string()).collect();
+
                     if !subset_glyphs.is_empty() {
                         let subsetter = babelfont::filters::RetainGlyphs::new(subset_glyphs);
-                        subsetter
-                            .apply(&mut font)
-                            .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
+                        subsetter.apply(&mut font).map_err(|e| {
+                            JsValue::from_str(&format!("Subsetting failed: {:?}", e))
+                        })?;
                     }
                 }
             }
@@ -123,13 +126,13 @@ pub fn version() -> String {
 pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
     let font: babelfont::Font = serde_json::from_str(babelfont_json)
         .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
-    
+
     let mut cache = FONT_CACHE.lock().unwrap();
     *cache = Some(font);
-    
+
     // Clear the outline cache since font changed
     glyph_outlines::clear_outline_cache();
-    
+
     Ok(())
 }
 
@@ -138,7 +141,7 @@ pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
 pub fn clear_font_cache() {
     let mut cache = FONT_CACHE.lock().unwrap();
     *cache = None;
-    
+
     // Also clear the outline cache
     glyph_outlines::clear_outline_cache();
 }
@@ -157,44 +160,45 @@ pub fn clear_font_cache() {
 #[wasm_bindgen]
 pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue> {
     web_sys::console::log_1(&format!("[Rust] Opening font file: {}", filename).into());
-    
+
     let path = std::path::PathBuf::from(filename);
-    let extension = path.extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
     // Parse the font based on file extension
     let font: babelfont::Font = match extension {
         "babelfont" => {
             // For .babelfont, just parse the JSON directly
-            serde_json::from_str(contents)
-                .map_err(|e| JsValue::from_str(&format!("Failed to parse .babelfont JSON: {}", e)))?
-        },
-        
+            serde_json::from_str(contents).map_err(|e| {
+                JsValue::from_str(&format!("Failed to parse .babelfont JSON: {}", e))
+            })?
+        }
+
         "glyphs" => {
             // Load Glyphs 2/3 format
             babelfont::convertors::glyphs3::load_str(contents, path.clone())
                 .map_err(|e| JsValue::from_str(&format!("Failed to load .glyphs file: {:?}", e)))?
-        },
-        
+        }
+
         "vfj" => {
             // Load FontLab VFJ format
             let _font_json: serde_json::Value = serde_json::from_str(contents)
                 .map_err(|e| JsValue::from_str(&format!("Failed to parse VFJ JSON: {}", e)))?;
             babelfont::convertors::fontlab::load(path.clone())
                 .map_err(|e| JsValue::from_str(&format!("Failed to load .vfj file: {:?}", e)))?
-        },
-        
+        }
+
         "ufo" => {
             // Load UFO format - note: this requires file system access which may not work in WASM
-            return Err(JsValue::from_str("UFO format requires file system access and is not yet supported in browser"));
-        },
-        
+            return Err(JsValue::from_str(
+                "UFO format requires file system access and is not yet supported in browser",
+            ));
+        }
+
         "designspace" => {
             // Load DesignSpace format - note: this requires file system access which may not work in WASM
             return Err(JsValue::from_str("DesignSpace format requires file system access and is not yet supported in browser"));
-        },
-        
+        }
+
         _ => {
             return Err(JsValue::from_str(&format!(
                 "Unsupported file format: .{}. Supported formats: .babelfont, .glyphs, .vfj",
@@ -202,26 +206,26 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
             )));
         }
     };
-    
-    web_sys::console::log_1(&format!(
-        "[Rust] Successfully loaded font with {} glyphs",
-        font.glyphs.len()
-    ).into());
-    
+
+    web_sys::console::log_1(
+        &format!(
+            "[Rust] Successfully loaded font with {} glyphs",
+            font.glyphs.len()
+        )
+        .into(),
+    );
+
     // Store in cache
     let mut cache = FONT_CACHE.lock().unwrap();
     *cache = Some(font.clone());
     drop(cache);
-    
+
     // Serialize to JSON for JavaScript
     let json = serde_json::to_string(&font)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize font to JSON: {}", e)))?;
-    
-    web_sys::console::log_1(&format!(
-        "[Rust] Serialized to JSON ({} bytes)",
-        json.len()
-    ).into());
-    
+
+    web_sys::console::log_1(&format!("[Rust] Serialized to JSON ({} bytes)", json.len()).into());
+
     Ok(json)
 }
 
@@ -238,9 +242,10 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
 #[wasm_bindgen]
 pub fn interpolate_glyph(glyph_name: &str, location_json: &str) -> Result<String, JsValue> {
     let cache = FONT_CACHE.lock().unwrap();
-    let font = cache.as_ref()
+    let font = cache
+        .as_ref()
         .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
-    
+
     // Call the interpolation module function
     interpolation::interpolate_glyph(font, glyph_name, location_json)
 }
@@ -263,13 +268,14 @@ pub fn get_glyphs_outlines(
     flatten_components: bool,
 ) -> Result<String, JsValue> {
     let cache = FONT_CACHE.lock().unwrap();
-    let font = cache.as_ref()
+    let font = cache
+        .as_ref()
         .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
-    
+
     // Parse glyph names array
     let glyph_names: Vec<String> = serde_json::from_str(glyph_names_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse glyph names: {}", e)))?;
-    
+
     // Call the glyph outlines module function
     glyph_outlines::get_glyphs_outlines(font, &glyph_names, location_json, flatten_components)
 }
@@ -298,30 +304,25 @@ pub fn get_glyphs_outlines(
 #[wasm_bindgen]
 pub fn get_layout_closure(glyph_names_json: &str) -> Result<String, JsValue> {
     let cache = FONT_CACHE.lock().unwrap();
-    let font = cache.as_ref()
+    let font = cache
+        .as_ref()
         .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
-    
+
     // Parse input glyph names from JSON array
     let glyph_names: Vec<String> = serde_json::from_str(glyph_names_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse glyph names JSON: {}", e)))?;
-    
+
     // Convert Vec<String> to HashSet<SmolStr> for close_layout
-    let glyph_set: HashSet<SmolStr> = glyph_names
-        .into_iter()
-        .map(SmolStr::from)
-        .collect();
-    
+    let glyph_set: HashSet<SmolStr> = glyph_names.into_iter().map(SmolStr::from).collect();
+
     // Compute the layout closure
     let closure_set = babelfont::close_layout(font, glyph_set)
         .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?;
-    
+
     // Convert HashSet<SmolStr> back to sorted Vec<String> for consistent output
-    let mut result: Vec<String> = closure_set
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect();
+    let mut result: Vec<String> = closure_set.into_iter().map(|s| s.to_string()).collect();
     result.sort();
-    
+
     // Serialize to JSON array
     serde_json::to_string(&result)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize closure result: {}", e)))
@@ -340,33 +341,32 @@ pub fn get_layout_closure(glyph_names_json: &str) -> Result<String, JsValue> {
 #[wasm_bindgen]
 pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
     let cache = FONT_CACHE.lock().unwrap();
-    let font = cache.as_ref()
+    let font = cache
+        .as_ref()
         .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
-    
+
     // Clone the font for compilation (in case we need to apply filters)
     let mut font_clone = font.clone();
-    
+
     // Handle subset_glyphs option if present
     if !options.is_undefined() && !options.is_null() {
         if let Ok(subset_val) = js_sys::Reflect::get(options, &JsValue::from_str("subset_glyphs")) {
             if !subset_val.is_undefined() && !subset_val.is_null() {
                 if let Ok(array) = subset_val.dyn_into::<js_sys::Array>() {
-                    let subset_glyphs: Vec<String> = array
-                        .iter()
-                        .filter_map(|v| v.as_string())
-                        .collect();
-                    
+                    let subset_glyphs: Vec<String> =
+                        array.iter().filter_map(|v| v.as_string()).collect();
+
                     if !subset_glyphs.is_empty() {
                         let subsetter = babelfont::filters::RetainGlyphs::new(subset_glyphs);
-                        subsetter
-                            .apply(&mut font_clone)
-                            .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
+                        subsetter.apply(&mut font_clone).map_err(|e| {
+                            JsValue::from_str(&format!("Subsetting failed: {:?}", e))
+                        })?;
                     }
                 }
             }
         }
     }
-    
+
     let compilation_options = CompilationOptions {
         skip_kerning: get_option(options, "skip_kerning", false),
         skip_features: get_option(options, "skip_features", false),
@@ -377,9 +377,9 @@ pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
         produce_varc_table: get_option(options, "produce_varc_table", false),
         debug_feature_file: None,
     };
-    
+
     let compiled_font = BabelfontIrSource::compile(font_clone, compilation_options)
         .map_err(|e| JsValue::from_str(&format!("Compilation failed: {:?}", e)))?;
-    
+
     Ok(compiled_font)
 }

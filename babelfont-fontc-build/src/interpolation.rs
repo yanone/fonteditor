@@ -140,7 +140,9 @@ fn manually_interpolate_layer(
     let target_value = target_location
         .iter()
         .next()
-        .map(|(_, coord): (&babelfont::Tag, &fontdrasil::coords::Coord<DesignSpace>)| coord.to_f64())
+        .map(
+            |(_, coord): (&babelfont::Tag, &fontdrasil::coords::Coord<DesignSpace>)| coord.to_f64(),
+        )
         .ok_or("No axis in target location")?;
 
     // Use the first master as template for structure
@@ -267,7 +269,10 @@ fn manually_interpolate_layer(
 }
 
 /// Interpolate a Path shape across masters
-fn interpolate_path_shape(master_paths: &[(&Shape, f64)], target_value: f64) -> Result<Shape, String> {
+fn interpolate_path_shape(
+    master_paths: &[(&Shape, f64)],
+    target_value: f64,
+) -> Result<Shape, String> {
     // Extract the Path from each shape
     let paths_with_locations: Vec<(&babelfont::Path, f64)> = master_paths
         .iter()
@@ -469,8 +474,8 @@ fn serialize_layer_recursive_cached(
     json_cache: &RefCell<HashMap<String, JsonValue>>,
 ) -> Result<JsonValue, String> {
     // First serialize the layer to JSON
-    let mut layer_json: JsonValue = serde_json::to_value(layer)
-        .map_err(|e| format!("Failed to serialize layer: {}", e))?;
+    let mut layer_json: JsonValue =
+        serde_json::to_value(layer).map_err(|e| format!("Failed to serialize layer: {}", e))?;
 
     // Get mutable access to shapes array
     if let Some(shapes) = layer_json.get_mut("shapes") {
@@ -495,8 +500,7 @@ fn serialize_layer_recursive_cached(
                         {
                             let cache = json_cache.borrow();
                             if let Some(cached_json) = cache.get(&reference) {
-                                component
-                                    .insert("layerData".to_string(), cached_json.clone());
+                                component.insert("layerData".to_string(), cached_json.clone());
                                 continue;
                             }
                         }
@@ -512,7 +516,9 @@ fn serialize_layer_recursive_cached(
                                 drop(cache);
                                 match font.interpolate_glyph(&reference, location) {
                                     Ok(interpolated) => {
-                                        layer_cache.borrow_mut().insert(reference.clone(), interpolated.clone());
+                                        layer_cache
+                                            .borrow_mut()
+                                            .insert(reference.clone(), interpolated.clone());
                                         interpolated
                                     }
                                     Err(_) => {
@@ -534,9 +540,10 @@ fn serialize_layer_recursive_cached(
                         ) {
                             Ok(component_layer_json) => {
                                 // Cache and insert the full layer JSON as layerData
-                                json_cache.borrow_mut().insert(reference.clone(), component_layer_json.clone());
-                                component
-                                    .insert("layerData".to_string(), component_layer_json);
+                                json_cache
+                                    .borrow_mut()
+                                    .insert(reference.clone(), component_layer_json.clone());
+                                component.insert("layerData".to_string(), component_layer_json);
                             }
                             Err(_) => {}
                         }
@@ -562,8 +569,8 @@ fn serialize_layer_recursive(
     visited: &mut HashSet<String>,
 ) -> Result<String, String> {
     // First serialize the layer to JSON
-    let mut layer_json: JsonValue = serde_json::to_value(layer)
-        .map_err(|e| format!("Failed to serialize layer: {}", e))?;
+    let mut layer_json: JsonValue =
+        serde_json::to_value(layer).map_err(|e| format!("Failed to serialize layer: {}", e))?;
 
     // Get mutable access to shapes array
     if let Some(shapes) = layer_json.get_mut("shapes") {
@@ -613,8 +620,10 @@ fn serialize_layer_recursive(
                                             Ok(component_json) => {
                                                 // Add layerData field to the component
                                                 // The transform stays in the component unchanged for JavaScript to apply
-                                                component
-                                                    .insert("layerData".to_string(), component_json);
+                                                component.insert(
+                                                    "layerData".to_string(),
+                                                    component_json,
+                                                );
                                             }
                                             Err(e) => {
                                                 web_sys::console::warn_1(
