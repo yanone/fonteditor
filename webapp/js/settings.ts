@@ -99,6 +99,7 @@ const APP_SETTINGS = {
             GLYPH_NORMAL: '#000000',
             GLYPH_HOVERED: '#e9b300',
             GLYPH_SELECTED: '#00ff00',
+            GLYPH_NOTDEF: 'rgba(0, 0, 0, 0.15)', // .notdef during font compilation
 
             // Glyphs when outline editor is active
             GLYPH_ACTIVE_IN_EDITOR: '#000000', // The glyph being edited
@@ -150,6 +151,7 @@ const APP_SETTINGS = {
             GLYPH_NORMAL: '#ffffff',
             GLYPH_HOVERED: '#e9b300',
             GLYPH_SELECTED: '#00ff00',
+            GLYPH_NOTDEF: 'rgba(255, 255, 255, 0.15)', // .notdef during font compilation
 
             // Glyphs when outline editor is active
             GLYPH_ACTIVE_IN_EDITOR: '#ffffff', // The glyph being edited

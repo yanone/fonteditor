@@ -406,6 +406,9 @@ export class GlyphCanvasRenderer {
                     !this.glyphCanvas.outlineEditor.isPreviewMode;
 
                 if (!skipHarfBuzz) {
+                    // Check if this is .notdef (GID 0) - use faded color during font compilation lag
+                    const isNotdef = glyphId === 0;
+
                     // Set color based on mode and state
                     if (
                         this.glyphCanvas.outlineEditor.active &&
@@ -426,8 +429,8 @@ export class GlyphCanvasRenderer {
                         this.glyphCanvas.outlineEditor.active &&
                         this.glyphCanvas.outlineEditor.isPreviewMode
                     ) {
-                        // Preview mode: all glyphs in normal color
-                        this.ctx.fillStyle = colors.GLYPH_NORMAL;
+                        // Preview mode: all glyphs in normal color (or faded for .notdef)
+                        this.ctx.fillStyle = isNotdef ? colors.GLYPH_NOTDEF : colors.GLYPH_NORMAL;
                     } else {
                         // Text edit mode: normal coloring
                         // Don't show hover effects in preview mode
@@ -439,7 +442,8 @@ export class GlyphCanvasRenderer {
                         } else if (isSelected) {
                             this.ctx.fillStyle = colors.GLYPH_SELECTED;
                         } else {
-                            this.ctx.fillStyle = colors.GLYPH_NORMAL;
+                            // Use faded color for .notdef glyphs
+                            this.ctx.fillStyle = isNotdef ? colors.GLYPH_NOTDEF : colors.GLYPH_NORMAL;
                         }
                     }
 
