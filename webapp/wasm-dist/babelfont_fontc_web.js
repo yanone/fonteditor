@@ -160,6 +160,47 @@ export function get_font_features(font_bytes) {
 }
 
 /**
+ * Get all available features from compiled font bytes with their table locations
+ *
+ * Returns a JSON object mapping feature tags to their tables:
+ * ```json
+ * {
+ *   "liga": ["GSUB"],
+ *   "kern": ["GPOS"],
+ *   "calt": ["GSUB", "GPOS"]
+ * }
+ * ```
+ *
+ * # Arguments
+ * * `font_bytes` - Compiled TTF/OTF font bytes
+ *
+ * # Returns
+ * * `String` - JSON object mapping feature tags to array of table names
+ * @param {Uint8Array} font_bytes
+ * @returns {string}
+ */
+export function get_font_features_with_tables(font_bytes) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArray8ToWasm0(font_bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.get_font_features_with_tables(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Get glyph name by ID from compiled font bytes
  *
  * # Arguments

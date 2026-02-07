@@ -9,7 +9,7 @@ use smol_str::SmolStr;
 
 // Font reading module (using read-fonts/skrifa)
 mod font_reader;
-pub use font_reader::{get_font_axes, get_font_features, get_glyph_name, get_glyph_order, get_stylistic_set_names};
+pub use font_reader::{get_font_axes, get_font_features, get_font_features_with_tables, get_glyph_name, get_glyph_order, get_stylistic_set_names};
 
 // Interpolation module
 mod interpolation;

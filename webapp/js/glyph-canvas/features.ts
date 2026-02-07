@@ -1,5 +1,6 @@
 import {
     get_font_features,
+    get_font_features_with_tables,
     get_stylistic_set_names
 } from '../../wasm-dist/babelfont_fontc_web';
 import { getOpentypeFeatureInfo } from '../opentype-features';
@@ -76,8 +77,21 @@ export class FeaturesManager {
                 JSON.parse(featuresJson)
             );
 
+            // Get table locations for all features from typing font (GSUB/GPOS)
+            const typingFeaturesWithTablesJson = get_font_features_with_tables(
+                this.fontBytes
+            );
+            const typingFeaturesWithTables: Record<string, string[]> =
+                JSON.parse(typingFeaturesWithTablesJson);
+            console.log(
+                '[Features]',
+                'Typing font features with tables:',
+                typingFeaturesWithTables
+            );
+
             // Get features from editing font (subset with closure)
             let editingFontFeatures: Set<string> = new Set();
+            let editingFeaturesWithTables: Record<string, string[]> = {};
             if (this.editingFontBytes) {
                 try {
                     const editingFeaturesJson = get_font_features(
@@ -90,6 +104,18 @@ export class FeaturesManager {
                         '[Features]',
                         'Editing font features:',
                         Array.from(editingFontFeatures)
+                    );
+
+                    // Get table locations from editing font
+                    const editingFeaturesWithTablesJson =
+                        get_font_features_with_tables(this.editingFontBytes);
+                    editingFeaturesWithTables = JSON.parse(
+                        editingFeaturesWithTablesJson
+                    );
+                    console.log(
+                        '[Features]',
+                        'Editing font features with tables:',
+                        editingFeaturesWithTables
                     );
                 } catch (error) {
                     console.warn(
@@ -105,6 +131,34 @@ export class FeaturesManager {
                 ...typingFontFeatures,
                 ...editingFontFeatures
             ]);
+
+            // Create union of table information from both fonts
+            const featuresWithTables: Record<string, Set<string>> = {};
+
+            // Add typing font tables
+            for (const [tag, tables] of Object.entries(
+                typingFeaturesWithTables
+            )) {
+                featuresWithTables[tag] = new Set(tables);
+            }
+
+            // Merge editing font tables
+            for (const [tag, tables] of Object.entries(
+                editingFeaturesWithTables
+            )) {
+                if (!featuresWithTables[tag]) {
+                    featuresWithTables[tag] = new Set();
+                }
+                for (const table of tables) {
+                    featuresWithTables[tag].add(table);
+                }
+            }
+
+            console.log(
+                '[Features]',
+                'Union of features with tables:',
+                featuresWithTables
+            );
             console.log(
                 '[Features]',
                 'Union of all features:',
@@ -144,7 +198,10 @@ export class FeaturesManager {
                     defaultOn: defaultOnFeatures.has(tag),
                     description: description,
                     hasCustomName: hasCustomName,
-                    availableInEditingFont: availableInEditingFont
+                    availableInEditingFont: availableInEditingFont,
+                    tables: featuresWithTables[tag]
+                        ? Array.from(featuresWithTables[tag])
+                        : []
                 };
             });
         } catch (error) {
@@ -227,6 +284,50 @@ export class FeaturesManager {
             featureRow.style.gap = '8px';
             featureRow.style.fontSize = '12px';
             featureRow.style.padding = '2px 0';
+
+            // Add GSUB/GPOS indicator
+            const tableIndicator = document.createElement('div');
+            tableIndicator.className = 'feature-table-indicator';
+            tableIndicator.style.width = '10px';
+            tableIndicator.style.height = '12px';
+            tableIndicator.style.display = 'flex';
+            tableIndicator.style.alignItems = 'center';
+            tableIndicator.style.justifyContent = 'space-between';
+            tableIndicator.style.flexShrink = '0';
+
+            const tables = feature.tables || [];
+            const hasGSUB = tables.includes('GSUB');
+            const hasGPOS = tables.includes('GPOS');
+
+            // GSUB indicator (left side)
+            const gsubCircle = document.createElement('div');
+            gsubCircle.style.width = '4px';
+            gsubCircle.style.height = '4px';
+            gsubCircle.style.borderRadius = '50%';
+            if (hasGSUB) {
+                gsubCircle.style.backgroundColor = 'var(--accent-blue)';
+                gsubCircle.title = 'GSUB';
+            } else {
+                gsubCircle.style.backgroundColor = 'var(--text-primary)';
+                gsubCircle.style.opacity = '0.1';
+            }
+            tableIndicator.appendChild(gsubCircle);
+
+            // GPOS indicator (right side)
+            const gposCircle = document.createElement('div');
+            gposCircle.style.width = '4px';
+            gposCircle.style.height = '4px';
+            gposCircle.style.borderRadius = '50%';
+            if (hasGPOS) {
+                gposCircle.style.backgroundColor = 'var(--accent-green)';
+                gposCircle.title = 'GPOS';
+            } else {
+                gposCircle.style.backgroundColor = 'var(--text-primary)';
+                gposCircle.style.opacity = '0.1';
+            }
+            tableIndicator.appendChild(gposCircle);
+
+            featureRow.appendChild(tableIndicator);
 
             const tagButton = document.createElement('button');
             tagButton.className = 'editor-feature-tag-button tag-button';

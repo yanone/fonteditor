@@ -14,6 +14,7 @@ export const store_font: (a: number, b: number) => [number, number];
 export const version: () => [number, number];
 export const get_font_axes: (a: number, b: number) => [number, number, number, number];
 export const get_font_features: (a: number, b: number) => [number, number, number, number];
+export const get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
 export const get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
 export const get_glyph_order: (a: number, b: number) => [number, number, number, number];
 export const get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];

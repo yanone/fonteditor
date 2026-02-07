@@ -82,6 +82,26 @@ export function get_font_axes(font_bytes: Uint8Array): string;
 export function get_font_features(font_bytes: Uint8Array): string;
 
 /**
+ * Get all available features from compiled font bytes with their table locations
+ *
+ * Returns a JSON object mapping feature tags to their tables:
+ * ```json
+ * {
+ *   "liga": ["GSUB"],
+ *   "kern": ["GPOS"],
+ *   "calt": ["GSUB", "GPOS"]
+ * }
+ * ```
+ *
+ * # Arguments
+ * * `font_bytes` - Compiled TTF/OTF font bytes
+ *
+ * # Returns
+ * * `String` - JSON object mapping feature tags to array of table names
+ */
+export function get_font_features_with_tables(font_bytes: Uint8Array): string;
+
+/**
  * Get glyph name by ID from compiled font bytes
  *
  * # Arguments
@@ -231,6 +251,7 @@ export interface InitOutput {
     readonly version: () => [number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features: (a: number, b: number) => [number, number, number, number];
+    readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
     readonly get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
     readonly get_glyph_order: (a: number, b: number) => [number, number, number, number];
     readonly get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
