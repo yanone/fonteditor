@@ -284,63 +284,6 @@ export class GlyphCanvasRenderer {
         return false;
     }
 
-    /**
-     * Calculate glow parameters (color and stroke width) based on zoom level.
-     * @param {string} baseColor - The base color to apply hue shift to
-     * @param {number} invScale - Inverse of viewport scale (1/scale)
-     * @param {number} opacity - Opacity for the glow color (0-1)
-     * @returns {{ glowColor: string, glowStrokeWidth: number, glowBlur: number }}
-     */
-    calculateGlowParams(
-        baseColor: string,
-        invScale: number,
-        opacity: number = 1.0
-    ): { glowColor: string; glowStrokeWidth: number; glowBlur: number } {
-        const glowBlur = APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_GLOW_BLUR;
-        const hueShift = APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_GLOW_HUE_SHIFT;
-
-        // Calculate glow stroke width based on zoom level
-        const glowStrokeMin =
-            APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_GLOW_STROKE_WIDTH_AT_MIN_ZOOM;
-        const glowStrokeMax =
-            APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_GLOW_STROKE_WIDTH_AT_MAX_ZOOM;
-        const glowInterpolationMin =
-            APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_GLOW_STROKE_INTERPOLATION_MIN;
-        const glowInterpolationMax =
-            APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_GLOW_STROKE_INTERPOLATION_MAX;
-
-        let glowStrokeWidth;
-        if (this.viewportManager.scale <= glowInterpolationMin) {
-            glowStrokeWidth = glowStrokeMin * invScale;
-        } else if (this.viewportManager.scale >= glowInterpolationMax) {
-            glowStrokeWidth = glowStrokeMax * invScale;
-        } else {
-            // Interpolate between min and max
-            const zoomFactor =
-                (this.viewportManager.scale - glowInterpolationMin) /
-                (glowInterpolationMax - glowInterpolationMin);
-            glowStrokeWidth =
-                (glowStrokeMin + (glowStrokeMax - glowStrokeMin) * zoomFactor) *
-                invScale;
-        }
-
-        // Shift hue for glow color
-        let glowColor = adjustColorHueAndLightness(baseColor, hueShift, 0);
-
-        // Parse and apply opacity
-        const glowMatch = glowColor.match(
-            /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/
-        );
-        if (glowMatch) {
-            const r = glowMatch[1];
-            const g = glowMatch[2];
-            const b = glowMatch[3];
-            glowColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
-        }
-
-        return { glowColor, glowStrokeWidth, glowBlur };
-    }
-
     drawShapedGlyphs() {
         if (
             !this.textRunEditor.shapedGlyphs ||
@@ -468,40 +411,8 @@ export class GlyphCanvasRenderer {
                         // Parse the SVG path data
                         const path = new Path2D(glyphData);
 
-                        // Apply glow effect for hovered glyph in text mode (dark theme only)
-                        // Skip glow in preview mode
-                        if (
-                            isDarkTheme &&
-                            !this.glyphCanvas.outlineEditor.active &&
-                            !this.glyphCanvas.outlineEditor.isPreviewMode &&
-                            isHovered
-                        ) {
-                            const { glowColor, glowBlur } =
-                                this.calculateGlowParams(
-                                    this.ctx.fillStyle as string,
-                                    invScale,
-                                    0.5 // Reduced opacity for subtler glow
-                                );
-
-                            // Apply glow using shadow on the fill
-                            this.ctx.shadowBlur = glowBlur;
-                            this.ctx.shadowColor = glowColor;
-                            this.ctx.shadowOffsetX = 0;
-                            this.ctx.shadowOffsetY = 0;
-                        }
-
-                        // Draw the fill (with shadow if hovered)
+                        // Draw the fill
                         this.ctx.fill(path);
-
-                        // Reset shadow after drawing
-                        if (
-                            isDarkTheme &&
-                            !this.glyphCanvas.outlineEditor.active &&
-                            isHovered
-                        ) {
-                            this.ctx.shadowBlur = 0;
-                            this.ctx.shadowColor = 'transparent';
-                        }
 
                         this.ctx.restore();
                     }
@@ -3745,40 +3656,6 @@ export class GlyphCanvasRenderer {
         if (isInterpolated) {
             strokeColor = desaturateColor(strokeColor);
             fillColor = desaturateColor(fillColor);
-        }
-
-        // Glow
-        if (isDarkTheme) {
-            const { glowColor, glowStrokeWidth, glowBlur } =
-                this.calculateGlowParams(strokeColor, invScale, 1.0);
-
-            this.ctx.save();
-            this.ctx.shadowBlur = glowBlur;
-            this.ctx.shadowColor = glowColor;
-            this.ctx.shadowOffsetX = 0;
-            this.ctx.shadowOffsetY = 0;
-            this.ctx.strokeStyle = glowColor;
-            this.ctx.lineWidth = glowStrokeWidth;
-
-            this.ctx.beginPath();
-            outlineShapes.forEach(({ nodes, transform }) => {
-                if (transform) {
-                    this.ctx.save();
-                    this.ctx.transform(
-                        transform[0],
-                        transform[1],
-                        transform[2],
-                        transform[3],
-                        transform[4],
-                        transform[5]
-                    );
-                }
-                this.buildPathFromNodes(nodes);
-                this.ctx.closePath();
-                if (transform) this.ctx.restore();
-            });
-            this.ctx.stroke();
-            this.ctx.restore();
         }
 
         // Fill

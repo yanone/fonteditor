@@ -48,14 +48,6 @@ const APP_SETTINGS = {
         COMPONENT_MARKER_SIZE: 10, // px - size of component origin marker
         SHOW_COMPONENT_ORIGIN_MARKERS: false, // whether to draw component origin markers
 
-        // Component glow effect
-        COMPONENT_GLOW_BLUR: 60, // font units - blur radius for component glow (stays constant in font space)
-        COMPONENT_GLOW_HUE_SHIFT: -20, // degrees - amount to shift hue on color wheel for glow color
-        COMPONENT_GLOW_STROKE_WIDTH_AT_MIN_ZOOM: 1, // px - glow stroke width at min zoom
-        COMPONENT_GLOW_STROKE_WIDTH_AT_MAX_ZOOM: 5, // px - glow stroke width at max zoom
-        COMPONENT_GLOW_STROKE_INTERPOLATION_MIN: 0.2, // zoom level where min width starts (20%)
-        COMPONENT_GLOW_STROKE_INTERPOLATION_MAX: 1.5, // zoom level where max width is reached (150%)
-
         // Stroke widths
         OUTLINE_STROKE_WIDTH: 1, // px - width of glyph outline paths
         OUTLINE_OPACITY: 0.4, // opacity of glyph outline paths in editing mode
@@ -97,7 +89,7 @@ const APP_SETTINGS = {
 
             // Glyphs in text/preview mode
             GLYPH_NORMAL: '#000000',
-            GLYPH_HOVERED: '#e9b300',
+            GLYPH_HOVERED: '#888888',
             GLYPH_SELECTED: '#00ff00',
             GLYPH_NOTDEF: 'rgba(0, 0, 0, 0.15)', // .notdef during font compilation
 
@@ -149,7 +141,7 @@ const APP_SETTINGS = {
 
             // Glyphs in text/preview mode
             GLYPH_NORMAL: '#ffffff',
-            GLYPH_HOVERED: '#e9b300',
+            GLYPH_HOVERED: '#777777',
             GLYPH_SELECTED: '#00ff00',
             GLYPH_NOTDEF: 'rgba(255, 255, 255, 0.15)', // .notdef during font compilation
 
