@@ -132,26 +132,15 @@ export class FeaturesManager {
                 ...editingFontFeatures
             ]);
 
-            // Create union of table information from both fonts
+            // Use table information only from editing font
+            // (GSUB/GPOS indicators should reflect what's in the editing font)
             const featuresWithTables: Record<string, Set<string>> = {};
 
-            // Add typing font tables
-            for (const [tag, tables] of Object.entries(
-                typingFeaturesWithTables
-            )) {
-                featuresWithTables[tag] = new Set(tables);
-            }
-
-            // Merge editing font tables
+            // Only use editing font tables for indicators
             for (const [tag, tables] of Object.entries(
                 editingFeaturesWithTables
             )) {
-                if (!featuresWithTables[tag]) {
-                    featuresWithTables[tag] = new Set();
-                }
-                for (const table of tables) {
-                    featuresWithTables[tag].add(table);
-                }
+                featuresWithTables[tag] = new Set(tables);
             }
 
             console.log(
