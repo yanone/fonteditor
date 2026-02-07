@@ -1,27 +1,89 @@
 #!/usr/bin/env node
 // Compile test for .glyphs files
-// Usage: node compile-test.mjs <path-to-font.glyphs> [--subset <glyph-names>]
+// Usage: node compile-test.mjs <path-to-font.glyphs> [--text <typed-text>]
 //
 // Options:
-//   --subset, -s <glyph-names>  Comma-delimited list of glyph names to include (e.g., "A,B,C,space")
+//   --text, -t <text>  Text to shape and use for layout closure subsetting
 //
 // Examples:
 //   node compile-test.mjs ../examples/NestedComponents.glyphs
-//   node compile-test.mjs ../examples/NestedComponents.glyphs --subset A,B,C,space
-//   node compile-test.mjs /path/to/MyFont.glyphs -s A,B,C
+//   node compile-test.mjs ../examples/NestedComponents.glyphs --text "Hello World"
+//   node compile-test.mjs /path/to/MyFont.glyphs -t "ABC"
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename } from 'path';
 import { existsSync } from 'fs';
+import harfbuzzjs from 'harfbuzzjs';
 import init, {
     compile_babelfont,
-    open_font_file
+    open_font_file,
+    store_font,
+    get_layout_closure,
+    get_glyph_name
 } from '../wasm-dist/babelfont_fontc_web.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-async function testCompilation(fontPath, subsetGlyphNames) {
+/**
+ * Shape text with HarfBuzz to get base glyphs (without features).
+ * This mimics the webapp's Stage 1 shaping for subsetting.
+ */
+function getBaseGlyphsFromText(text, fontBytes, hbInstance) {
+    console.log('[CompileTest]', `Shaping text: "${text}"`);
+
+    // Create HarfBuzz font from bytes
+    const blob = hbInstance.createBlob(fontBytes);
+    const face = hbInstance.createFace(blob, 0);
+    const hbFont = hbInstance.createFont(face);
+
+    // Create buffer and add text
+    const buffer = hbInstance.createBuffer();
+    buffer.addText(text);
+    buffer.guessSegmentProperties();
+
+    // Shape WITHOUT features to get base glyphs (like webapp Stage 1)
+    hbInstance.shape(hbFont, buffer);
+    const result = buffer.json();
+
+    // Extract unique glyph IDs
+    const uniqueGids = new Set();
+    for (const glyph of result) {
+        uniqueGids.add(glyph.g);
+    }
+
+    // Map GIDs to glyph names
+    const glyphNames = [];
+    for (const gid of uniqueGids) {
+        try {
+            const name = get_glyph_name(fontBytes, gid);
+            if (name && name !== '.notdef') {
+                glyphNames.push(name);
+            }
+        } catch (e) {
+            console.warn(
+                '[CompileTest]',
+                `Failed to get name for GID ${gid}:`,
+                e.message
+            );
+        }
+    }
+
+    // Cleanup
+    buffer.destroy();
+    hbFont.destroy();
+    face.destroy();
+    blob.destroy();
+
+    console.log(
+        '[CompileTest]',
+        `Found ${glyphNames.length} unique base glyphs:`,
+        glyphNames
+    );
+    return glyphNames;
+}
+
+async function testCompilation(fontPath, typedText) {
     console.log('[CompileTest]', 'Initializing WASM...');
 
     // Create output directory for compiled fonts
@@ -35,6 +97,10 @@ async function testCompilation(fontPath, subsetGlyphNames) {
     );
     const wasmBytes = readFileSync(wasmPath);
     await init(wasmBytes);
+
+    // Initialize HarfBuzz
+    console.log('[CompileTest]', 'Initializing HarfBuzz...');
+    const hbInstance = await harfbuzzjs;
 
     const fileName = basename(fontPath);
     const glyphsContents = readFileSync(fontPath, 'utf-8');
@@ -175,6 +241,92 @@ async function testCompilation(fontPath, subsetGlyphNames) {
         console.log(`📝 Feature code saved to: ${featureFile}\n`);
     }
 
+    // Compute subset glyphs from typed text using layout closure
+    let glyphsToInclude = undefined;
+
+    if (typedText) {
+        console.log('[CompileTest]', '\n=== LAYOUT CLOSURE SUBSETTING ===\n');
+
+        // First, compile a full font to use for shaping
+        console.log(
+            '[CompileTest]',
+            'Compiling full typing font for shaping...'
+        );
+        const typingFontBytes = compile_babelfont(cleanedBabelfontJson, {
+            skip_kerning: false,
+            skip_features: false,
+            skip_metrics: false,
+            skip_outlines: false,
+            dont_use_production_names: true
+        });
+        console.log(
+            '[CompileTest]',
+            `Typing font compiled (${typingFontBytes.length} bytes)`
+        );
+
+        // Shape text to get base glyphs (Stage 1)
+        const baseGlyphs = getBaseGlyphsFromText(
+            typedText,
+            typingFontBytes,
+            hbInstance
+        );
+
+        if (baseGlyphs.length === 0) {
+            console.warn(
+                '[CompileTest]',
+                'No glyphs found from text - using full font'
+            );
+        } else {
+            // Store font for layout closure computation
+            console.log(
+                '[CompileTest]',
+                'Storing font in WASM for layout closure...'
+            );
+            store_font(cleanedBabelfontJson);
+
+            // Compute layout closure (Stage 2)
+            console.log(
+                '[CompileTest]',
+                `Computing layout closure from ${baseGlyphs.length} base glyphs...`
+            );
+            const closureJson = get_layout_closure(JSON.stringify(baseGlyphs));
+            const closureSet = JSON.parse(closureJson);
+
+            const addedCount = closureSet.length - baseGlyphs.length;
+            console.log(
+                '[CompileTest]',
+                `✨ Layout closure expanded to ${closureSet.length} glyphs (${addedCount} added via features)`
+            );
+
+            glyphsToInclude = closureSet;
+
+            // Save closure details for debugging
+            const closureDebugFile = join(
+                outputDir,
+                'layout-closure-debug.json'
+            );
+            writeFileSync(
+                closureDebugFile,
+                JSON.stringify(
+                    {
+                        typedText,
+                        baseGlyphs,
+                        closureSet,
+                        addedGlyphs: closureSet.filter(
+                            (g) => !baseGlyphs.includes(g)
+                        )
+                    },
+                    null,
+                    2
+                )
+            );
+            console.log(
+                '[CompileTest]',
+                `Layout closure details saved to: ${closureDebugFile}\n`
+            );
+        }
+    }
+
     // Test just the 'editing' target for debugging
     const results = [];
     const targetName = 'editing';
@@ -182,16 +334,19 @@ async function testCompilation(fontPath, subsetGlyphNames) {
     // Editing target options (from font-compilation.ts)
     const options = {
         skip_kerning: false,
-        skip_features: false, // Try with features to see full error
+        skip_features: false, // Include features with layout closure subsetting
         skip_metrics: false,
         skip_outlines: false,
         dont_use_production_names: true
     };
 
-    // Add subset glyphs if provided
-    if (subsetGlyphNames && subsetGlyphNames.length > 0) {
-        options.subset_glyphs = subsetGlyphNames;
-        console.log('[CompileTest]', `Subsetting to ${subsetGlyphNames.length} glyphs:`, subsetGlyphNames);
+    // Add subset glyphs if computed from text
+    if (glyphsToInclude && glyphsToInclude.length > 0) {
+        options.subset_glyphs = glyphsToInclude;
+        console.log(
+            '[CompileTest]',
+            `Subsetting to ${glyphsToInclude.length} glyphs (via layout closure)`
+        );
     }
 
     console.log('[CompileTest]', `Testing ${targetName} target...\n`);
@@ -257,13 +412,21 @@ async function testCompilation(fontPath, subsetGlyphNames) {
 // Parse command line arguments
 const args = process.argv.slice(2);
 if (args.length === 0) {
-    console.error('Usage: node compile-test.mjs <path-to-font.glyphs> [--subset <glyph-names>]');
+    console.error(
+        'Usage: node compile-test.mjs <path-to-font.glyphs> [--text <typed-text>]'
+    );
     console.error('\nOptions:');
-    console.error('  --subset, -s <glyph-names>  Comma-delimited list of glyph names to include');
+    console.error(
+        '  --text, -t <text>  Text to shape and use for layout closure subsetting'
+    );
     console.error('\nExamples:');
-    console.error('  node compile-test.mjs ../examples/NestedComponents.glyphs');
-    console.error('  node compile-test.mjs ../examples/NestedComponents.glyphs --subset A,B,C,space');
-    console.error('  node compile-test.mjs /path/to/MyFont.glyphs -s A,B,C');
+    console.error(
+        '  node compile-test.mjs ../examples/NestedComponents.glyphs'
+    );
+    console.error(
+        '  node compile-test.mjs ../examples/NestedComponents.glyphs --text "Hello World"'
+    );
+    console.error('  node compile-test.mjs /path/to/MyFont.glyphs -t "ABC"');
     process.exit(1);
 }
 
@@ -278,19 +441,18 @@ if (!fontPath.endsWith('.glyphs') && !fontPath.endsWith('.babelfont')) {
     process.exit(1);
 }
 
-// Parse --subset or -s option
-let subsetGlyphNames = null;
-const subsetIndex = args.findIndex((arg) => arg === '--subset' || arg === '-s');
-if (subsetIndex !== -1 && subsetIndex + 1 < args.length) {
-    const subsetArg = args[subsetIndex + 1];
-    subsetGlyphNames = subsetArg.split(',').map((name) => name.trim()).filter((name) => name.length > 0);
-    if (subsetGlyphNames.length === 0) {
-        console.error('Error: --subset requires a comma-delimited list of glyph names');
+// Parse --text or -t option
+let typedText = null;
+const textIndex = args.findIndex((arg) => arg === '--text' || arg === '-t');
+if (textIndex !== -1 && textIndex + 1 < args.length) {
+    typedText = args[textIndex + 1];
+    if (!typedText || typedText.length === 0) {
+        console.error('Error: --text requires a non-empty string');
         process.exit(1);
     }
 }
 
-testCompilation(fontPath, subsetGlyphNames).catch((err) => {
+testCompilation(fontPath, typedText).catch((err) => {
     console.error('[CompileTest]', 'Test failed:', err);
     process.exit(1);
 });
