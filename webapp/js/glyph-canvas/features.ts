@@ -277,7 +277,7 @@ export class FeaturesManager {
             // Add GSUB/GPOS indicator
             const tableIndicator = document.createElement('div');
             tableIndicator.className = 'feature-table-indicator';
-            tableIndicator.style.width = '10px';
+            tableIndicator.style.width = '11px';
             tableIndicator.style.height = '12px';
             tableIndicator.style.display = 'flex';
             tableIndicator.style.alignItems = 'center';
