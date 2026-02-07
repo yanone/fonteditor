@@ -134,9 +134,9 @@ const APP_SETTINGS = {
             MEASUREMENT_TOOL_CROSSHAIR: '#000000',
 
             // Hover labels (glyph tooltips and component labels)
-            HOVER_LABEL_BG: 'rgba(255, 255, 255, 0.95)',
-            HOVER_LABEL_BORDER: 'rgba(0, 0, 0, 0.3)',
-            HOVER_LABEL_TEXT: 'rgba(0, 0, 0, 0.9)'
+            HOVER_LABEL_BG: '#c7c7c7',
+            HOVER_LABEL_BORDER: 'rgba(255, 255, 255, 0.5)',
+            HOVER_LABEL_TEXT: '#000000'
         },
 
         // Colors - Dark Theme
@@ -191,9 +191,9 @@ const APP_SETTINGS = {
             MEASUREMENT_TOOL_CROSSHAIR: '#ffffff',
 
             // Hover labels (glyph tooltips and component labels)
-            HOVER_LABEL_BG: 'rgba(40, 40, 40, 0.95)',
-            HOVER_LABEL_BORDER: 'rgba(255, 255, 255, 0.3)',
-            HOVER_LABEL_TEXT: 'rgba(255, 255, 255, 0.9)'
+            HOVER_LABEL_BG: '#444444',
+            HOVER_LABEL_BORDER: 'rgba(0, 0, 0, 0.5)',
+            HOVER_LABEL_TEXT: '#ffffff'
         }
     }
 

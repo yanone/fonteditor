@@ -462,7 +462,7 @@ export class GlyphCanvasRenderer {
 
         // Draw border
         this.ctx.strokeStyle = colors.HOVER_LABEL_BORDER;
-        this.ctx.lineWidth = 2 * invScale;
+        this.ctx.lineWidth = 1 * invScale;
         this.ctx.strokeRect(bgX, bgY, bgWidth, bgHeight);
 
         // Draw text
