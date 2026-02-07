@@ -65,6 +65,7 @@ export class TextRunEditor {
     spaceKeyPressTime: number | null; // Timestamp when space was pressed
     spaceActivatedPreview: boolean; // Whether space key activated preview mode
     cursorStyleBeforePreview: string | null; // Cursor style before entering preview mode
+    skipRenderingDuringFeatureChange: boolean; // Skip rendering during OpenType feature changes to prevent .notdef flicker
 
     constructor(featuresManager: FeaturesManager, axesManager: AxesManager) {
         this.featuresManager = featuresManager;
@@ -116,6 +117,7 @@ export class TextRunEditor {
         this.spaceKeyPressTime = null;
         this.spaceActivatedPreview = false;
         this.cursorStyleBeforePreview = null;
+        this.skipRenderingDuringFeatureChange = false;
 
         this.selectedMasterId = null; // No master selected by default
 
