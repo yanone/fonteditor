@@ -737,8 +737,10 @@ flex-direction: row;
 
 /* Disable view title bar buttons when their shortcuts are hidden (view not focused) */
 .view:not(.focused) .view-title-button,
+.view:not(.focused) .view-title-action-btn,
 .view:not(.focused) .script-file-dropdown-btn,
-.view:not(.focused) .script-file-reload-btn {
+.view:not(.focused) .script-file-reload-btn,
+.view:not(.focused) .editor-plugins-toggle {
     pointer-events: none;
     opacity: 0.5;
 }
