@@ -748,19 +748,30 @@
         if (shouldResizeWidth && views.length > 1) {
             const otherViews = views.filter((v, i) => i !== viewIndex);
             const totalOtherWidth = containerWidth - targetViewWidth;
-            const minWidthPerOther = 24; // Minimum width for each other view
+            const fontinfoMinWidth = window.resizableViews?.constructor?.FONTINFO_MIN_WIDTH || 24;
+            const minWidthPerOther = fontinfoMinWidth;
 
             if (totalOtherWidth >= minWidthPerOther * otherViews.length) {
-                // Separate collapsed and non-collapsed views
-                const collapsedViews = otherViews.filter(
-                    (v) => v.offsetWidth <= 24 + 5
-                ); // 5px tolerance
-                const nonCollapsedViews = otherViews.filter(
-                    (v) => v.offsetWidth > 24 + 5
-                );
+                // When forceResize is true (maximizing), collapse all other views
+                // Otherwise, separate based on current collapsed state
+                let collapsedViews, nonCollapsedViews;
+                
+                if (forceResize) {
+                    // Maximize mode: treat all other views as collapsed
+                    collapsedViews = otherViews;
+                    nonCollapsedViews = [];
+                } else {
+                    // Normal resize: separate based on current width
+                    collapsedViews = otherViews.filter(
+                        (v) => v.offsetWidth <= fontinfoMinWidth + 5
+                    ); // 5px tolerance
+                    nonCollapsedViews = otherViews.filter(
+                        (v) => v.offsetWidth > fontinfoMinWidth + 5
+                    );
+                }
 
-                // Reserve width for collapsed views (24px each)
-                const collapsedWidth = collapsedViews.length * 24;
+                // Reserve width for collapsed views
+                const collapsedWidth = collapsedViews.length * fontinfoMinWidth;
                 const availableForDistribution =
                     totalOtherWidth - collapsedWidth;
 
@@ -769,7 +780,7 @@
 
                 // Set collapsed views to fixed pixel width
                 collapsedViews.forEach((v) => {
-                    v.style.flex = `0 0 24px`;
+                    v.style.flex = `0 0 ${fontinfoMinWidth}px`;
                 });
 
                 // Distribute remaining width to non-collapsed views as ratios
