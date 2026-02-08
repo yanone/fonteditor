@@ -10,7 +10,13 @@
 //   node compile-test.mjs ../examples/NestedComponents.glyphs --text "Hello World"
 //   node compile-test.mjs /path/to/MyFont.glyphs -t "ABC"
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import {
+    readFileSync,
+    writeFileSync,
+    mkdirSync,
+    readdirSync,
+    unlinkSync
+} from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename } from 'path';
 import { existsSync } from 'fs';
@@ -22,6 +28,42 @@ import init, {
     get_layout_closure,
     get_glyph_name
 } from '../wasm-dist/babelfont_fontc_web.js';
+
+// Compilation target options (match webapp/js/font-compilation.ts)
+
+/**
+ * Typing font compilation options
+ * - skip_kerning: true (not needed for shaping)
+ * - skip_outlines: true (not needed for glyph name lookup)
+ * - produce_varc_table: false (not needed for shaping)
+ * - drop_incompatible_paths: true (prevent errors with incompatible paths)
+ */
+const TYPING_FONT_OPTIONS = {
+    skip_kerning: true,
+    skip_features: false,
+    skip_metrics: false,
+    skip_outlines: true,
+    dont_use_production_names: true,
+    drop_incompatible_paths: true,
+    produce_varc_table: false
+};
+
+/**
+ * Editing font compilation options
+ * - skip_kerning: false (include kerning)
+ * - skip_features: false (include GSUB via layout closure subsetting)
+ * - produce_varc_table: true (for interpolation manager)
+ * - drop_incompatible_paths: false (keep all paths)
+ */
+const EDITING_FONT_OPTIONS = {
+    skip_kerning: false,
+    skip_features: false,
+    skip_metrics: false,
+    skip_outlines: false,
+    dont_use_production_names: true,
+    drop_incompatible_paths: false,
+    produce_varc_table: true
+};
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -89,6 +131,13 @@ async function testCompilation(fontPath, typedText) {
     // Create output directory for compiled fonts
     const outputDir = join(__dirname, 'output');
     mkdirSync(outputDir, { recursive: true });
+
+    // Clean output directory - delete all existing files
+    console.log('[CompileTest]', 'Cleaning output directory...');
+    for (const file of readdirSync(outputDir)) {
+        const filePath = join(outputDir, file);
+        unlinkSync(filePath);
+    }
 
     // Load WASM module with explicit path
     const wasmPath = join(
@@ -192,7 +241,7 @@ async function testCompilation(fontPath, typedText) {
     const cleanedBabelfontJson = JSON.stringify(fontData);
 
     // Dump font data structure for debugging
-    const debugDataFile = join(outputDir, 'fontdata-debug.json');
+    const debugDataFile = join(outputDir, '0-source-fontdata.json');
     writeFileSync(debugDataFile, JSON.stringify(fontData, null, 2));
     console.log(
         '[CompileTest]',
@@ -236,7 +285,7 @@ async function testCompilation(fontPath, typedText) {
             '[CompileTest]',
             `Feature code (${featureCode.length} chars):\n`
         );
-        const featureFile = join(outputDir, 'features.fea');
+        const featureFile = join(outputDir, '0-source-features.fea');
         writeFileSync(featureFile, featureCode);
         console.log(`📝 Feature code saved to: ${featureFile}\n`);
     }
@@ -252,18 +301,23 @@ async function testCompilation(fontPath, typedText) {
             '[CompileTest]',
             'Compiling full typing font for shaping...'
         );
-        const typingFontBytes = compile_babelfont(cleanedBabelfontJson, {
-            skip_kerning: true,
-            skip_features: false,
-            skip_metrics: true,
-            skip_outlines: true,
-            dont_use_production_names: true,
-            drop_incompatible_paths: false,
-            produce_varc_table: false
-        });
+        const typingStartTime = performance.now();
+        const typingFontBytes = compile_babelfont(
+            cleanedBabelfontJson,
+            TYPING_FONT_OPTIONS
+        );
+        const typingDuration = (performance.now() - typingStartTime).toFixed(2);
         console.log(
             '[CompileTest]',
-            `Typing font compiled (${typingFontBytes.length} bytes)`
+            `Typing font compiled in ${typingDuration}ms (${typingFontBytes.length} bytes)`
+        );
+
+        // Save typing font as 1-typing.ttf
+        const typingOutputPath = join(outputDir, '1-typing.ttf');
+        writeFileSync(typingOutputPath, typingFontBytes);
+        console.log(
+            '[CompileTest]',
+            `💾 Saved typing font: ${typingOutputPath}`
         );
 
         // Shape text to get base glyphs (Stage 1)
@@ -305,7 +359,7 @@ async function testCompilation(fontPath, typedText) {
             // Save closure details for debugging
             const closureDebugFile = join(
                 outputDir,
-                'layout-closure-debug.json'
+                '2-editing-layout-closure-debug.json'
             );
             writeFileSync(
                 closureDebugFile,
@@ -333,20 +387,12 @@ async function testCompilation(fontPath, typedText) {
     const results = [];
     const targetName = 'editing';
 
-    // Editing target options (from font-compilation.ts)
-    const options = {
-        skip_kerning: false,
-        skip_features: false, // Include GSUB via layout closure subsetting
-        skip_metrics: false,
-        skip_outlines: false,
-        dont_use_production_names: true,
-        drop_incompatible_paths: true, // Drop incompatible paths to avoid compilation errors when outlines are skipped
-        produce_varc_table: true // Produce varc table for interpolation manager
-    };
+    // Build editing font options (copy constant to avoid mutation)
+    const editingOptions = { ...EDITING_FONT_OPTIONS };
 
     // Add subset glyphs if computed from text
     if (glyphsToInclude && glyphsToInclude.length > 0) {
-        options.subset_glyphs = glyphsToInclude;
+        editingOptions.subset_glyphs = glyphsToInclude;
         console.log(
             '[CompileTest]',
             `Subsetting to ${glyphsToInclude.length} glyphs (via layout closure)`
@@ -358,7 +404,10 @@ async function testCompilation(fontPath, typedText) {
     const startTime = performance.now();
     try {
         console.log('[CompileTest]', 'Calling compile_babelfont...');
-        const ttfBytes = compile_babelfont(cleanedBabelfontJson, options);
+        const ttfBytes = compile_babelfont(
+            cleanedBabelfontJson,
+            editingOptions
+        );
         const endTime = performance.now();
         const duration = (endTime - startTime).toFixed(2);
 
@@ -369,12 +418,8 @@ async function testCompilation(fontPath, typedText) {
             size: ttfBytes.length
         });
 
-        // Save compiled font to output directory
-        const fontBaseName = basename(fontPath, '.glyphs').replace(
-            '.babelfont',
-            ''
-        );
-        const outputPath = join(outputDir, `${fontBaseName}.ttf`);
+        // Save editing font as 2-editing.ttf
+        const outputPath = join(outputDir, '2-editing.ttf');
         writeFileSync(outputPath, ttfBytes);
 
         console.log(

@@ -59,10 +59,10 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
     typing: {
         skip_kerning: true,
         skip_features: false,
-        skip_metrics: false, // Keep metrics - hits unimplemented code in babelfont-rs
-        skip_outlines: false, // Keep outlines - skip_outlines hits unimplemented code in babelfont-rs
+        skip_metrics: false,
+        skip_outlines: true,
         dont_use_production_names: true,
-        drop_incompatible_paths: true, // Drop incompatible paths to avoid compilation errors when outlines are skipped
+        drop_incompatible_paths: false,
         produce_varc_table: false
     },
 
@@ -70,12 +70,12 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
     // GSUB features included (via layout closure), GPOS retained for mark positioning.
     editing: {
         skip_kerning: false,
-        skip_features: false, // Include GSUB via layout closure subsetting
+        skip_features: false,
         skip_metrics: false,
         skip_outlines: false,
         dont_use_production_names: true,
-        drop_incompatible_paths: true, // Drop incompatible paths to avoid compilation errors when outlines are skipped
-        produce_varc_table: true // Produce varc table for interpolation manager
+        drop_incompatible_paths: false,
+        produce_varc_table: true
     }
 };
 
