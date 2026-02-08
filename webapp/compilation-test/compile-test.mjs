@@ -253,11 +253,13 @@ async function testCompilation(fontPath, typedText) {
             'Compiling full typing font for shaping...'
         );
         const typingFontBytes = compile_babelfont(cleanedBabelfontJson, {
-            skip_kerning: false,
+            skip_kerning: true,
             skip_features: false,
-            skip_metrics: false,
-            skip_outlines: false,
-            dont_use_production_names: true
+            skip_metrics: true,
+            skip_outlines: true,
+            dont_use_production_names: true,
+            drop_incompatible_paths: false,
+            produce_varc_table: false
         });
         console.log(
             '[CompileTest]',
@@ -334,10 +336,12 @@ async function testCompilation(fontPath, typedText) {
     // Editing target options (from font-compilation.ts)
     const options = {
         skip_kerning: false,
-        skip_features: false, // Include features with layout closure subsetting
+        skip_features: false, // Include GSUB via layout closure subsetting
         skip_metrics: false,
         skip_outlines: false,
-        dont_use_production_names: true
+        dont_use_production_names: true,
+        drop_incompatible_paths: true, // Drop incompatible paths to avoid compilation errors when outlines are skipped
+        produce_varc_table: true // Produce varc table for interpolation manager
     };
 
     // Add subset glyphs if computed from text
