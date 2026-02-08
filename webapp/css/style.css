@@ -613,77 +613,41 @@ kbd + kbd {
     display: none;
 }
 
-/* Font info view - rotated title bar when collapsed to minimum width */
-.view-fontinfo.collapsed-width {
+/* Collapsed width views - rotated title bar when collapsed to minimum width */
+.view.collapsed-width {
     overflow: hidden;
 }
 
-.view-fontinfo.collapsed-width .view-content {
+.view.collapsed-width .view-content {
     display: none;
 }
 
-.view-fontinfo.collapsed-width .view-title-bar {
+.view.collapsed-width .view-title-bar {
     writing-mode: vertical-rl;
     text-orientation: mixed;
     transform: rotate(180deg);
     height: 100%;
-    width: 24px;
-    border-bottom: none;
-    border-right: 1px solid var(--border-primary);
     padding: 8px 0 0 0;
-    justify-content: flex-end; /* Align to top when rotated (flex-end because of 180deg rotation) */
-    position: relative;
-    top: 4px;
-    left: -2px;
-}
-
-.view-fontinfo.collapsed-width .view-title-bar .view-title-left {
-    flex-direction: row; /* Keep title and shortcut on same line */
-    gap: 6px;
-    white-space: nowrap;
-}
-
-.view-fontinfo.collapsed-width .view-title-bar .view-title-button,
-.view-fontinfo.collapsed-width .view-title-bar .view-title-action-btn,
-.view-fontinfo.collapsed-width .view-title-bar .view-title-actions {
-    display: none;
-}
-
-/* Overview view - rotated title bar when collapsed to minimum width */
-.view-overview.collapsed-width {
-    overflow: hidden;
-}
-
-.view-overview.collapsed-width .view-content {
-    display: none;
-}
-
-.view-overview.collapsed-width .view-title-bar {
-writing-mode: vertical-rl;
-    text-orientation: mixed;
-    transform: rotate(180deg);
-    /* height: 100%; */
-    width: 24px;
-    border-bottom: none;
-    /* border-right: 1px solid var(--border-primary); */
-    /* padding: 8px 0 0 0; */
     justify-content: flex-end;
-    position: relative;
-    /* top: 81px; */
-
 }
 
-.view-overview.collapsed-width .view-title-bar .view-title-left {
-    flex-direction: row; /* Keep title and shortcut on same line */
+.view.collapsed-width .view-title-bar .view-title-left {
+flex-direction: row;
     gap: 6px;
     white-space: nowrap;
+    left: 4px;
+    position: relative;
 }
 
-.view-overview.collapsed-width .view-title-bar .view-title-button,
-.view-overview.collapsed-width .view-title-bar .view-title-action-btn,
+.view.collapsed-width .view-title-bar .view-title-button,
+.view.collapsed-width .view-title-bar .view-title-action-btn,
+.view.collapsed-width .view-title-bar .view-title-actions {
+    display: none;
+}
+
+/* Overview-specific elements to hide when collapsed */
 .view-overview.collapsed-width .view-title-bar .overview-search-control,
-.view-overview.collapsed-width .view-title-bar .overview-size-control,
-.view-overview.collapsed-width .view-title-bar .view-title-actions {
+.view-overview.collapsed-width .view-title-bar .overview-size-control {
     display: none;
 }
 
