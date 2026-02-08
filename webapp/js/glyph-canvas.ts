@@ -42,6 +42,8 @@ class GlyphCanvas {
     isFocused: boolean = false;
     initialFontLoaded: boolean = false;
 
+    blurTimeoutId: any = null; // Delay blur to prevent cursor flicker when clicking sidebar
+
     mouseX: number = 0;
     mouseY: number = 0;
     glyphBounds: any[] = [];
@@ -2434,6 +2436,12 @@ class GlyphCanvas {
     }
 
     destroy(): void {
+        // Clear any pending blur timeout
+        if (this.blurTimeoutId) {
+            clearTimeout(this.blurTimeoutId);
+            this.blurTimeoutId = null;
+        }
+
         // Disconnect resize observer
         if (this.resizeObserver) {
             this.resizeObserver.disconnect();
@@ -2452,6 +2460,11 @@ class GlyphCanvas {
     // ==================== Cursor Methods ====================
 
     onFocus(): void {
+        // Cancel any pending blur timeout to prevent flicker
+        if (this.blurTimeoutId) {
+            clearTimeout(this.blurTimeoutId);
+            this.blurTimeoutId = null;
+        }
         this.isFocused = true;
         this.cursorVisible = true;
         // Don't render on focus change if in preview mode (no cursor visible)
@@ -2461,11 +2474,16 @@ class GlyphCanvas {
     }
 
     onBlur(): void {
-        this.isFocused = false;
-        // Don't render on blur if in preview mode (no cursor visible)
-        if (!this.outlineEditor.isPreviewMode) {
-            this.render();
-        }
+        // Delay blur to prevent cursor flicker when clicking sidebar elements
+        // Focus is typically restored within a few ms, so 100ms is plenty
+        this.blurTimeoutId = setTimeout(() => {
+            this.blurTimeoutId = null;
+            this.isFocused = false;
+            // Don't render on blur if in preview mode (no cursor visible)
+            if (!this.outlineEditor.isPreviewMode) {
+                this.render();
+            }
+        }, 100);
     }
 
     onKeyDown(e: KeyboardEvent): void {
