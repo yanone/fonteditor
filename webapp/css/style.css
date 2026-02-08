@@ -2,6 +2,90 @@
 @import url('tokens.css');
 @import url('glyph-overview.css');
 
+/* Local Inter font with OpenType features */
+@font-face {
+    font-family: 'Inter';
+    src: url('../assets/fonts/Inter.woff2') format('woff2');
+    font-weight: 100 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('../assets/fonts/Inter-Italic.woff2') format('woff2');
+    font-weight: 100 700;
+    font-style: italic;
+    font-display: swap;
+}
+
+/* Local Funnel Display font */
+@font-face {
+    font-family: 'Funnel Display';
+    src: url('../assets/fonts/FunnelDisplay.woff2') format('woff2');
+    font-weight: 400 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* Local IBM Plex Mono font */
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../assets/fonts/IBMPlexMono-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../assets/fonts/IBMPlexMono-Italic.woff2') format('woff2');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../assets/fonts/IBMPlexMono-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../assets/fonts/IBMPlexMono-MediumItalic.woff2') format('woff2');
+    font-weight: 500;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../assets/fonts/IBMPlexMono-SemiBold.woff2') format('woff2');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    src: url('../assets/fonts/IBMPlexMono-SemiBoldItalic.woff2') format('woff2');
+    font-weight: 600;
+    font-style: italic;
+    font-display: swap;
+}
+
+/* Local Material Symbols fonts */
+@font-face {
+    font-family: 'Material Symbols Outlined';
+    src: url('../assets/fonts/MaterialSymbolsOutlined.woff2') format('woff2');
+    font-weight: 100 700;
+    font-style: normal;
+    font-display: swap;
+}
+
 /* Additional CSS variable overrides not in tokens */
 :root {
     /* Font family fallbacks (tokens only has primary font) */
@@ -32,6 +116,7 @@ body {
         'Segoe UI',
         Roboto,
         sans-serif;
+    font-style: normal;
     background-color: var(--background-primary);
     color: var(--text-primary);
     height: 100vh;
@@ -329,7 +414,7 @@ kbd + kbd {
     color: var(--background-primary);
 }
 
-.update-button .material-symbols-rounded {
+.update-button .material-symbols-outlined {
     font-size: 18px;
 }
 
@@ -3752,7 +3837,7 @@ kbd + kbd {
     user-select: none;
 }
 
-.volume-icon.material-symbols-rounded {
+.volume-icon.material-symbols-outlined {
     font-variation-settings:
         'FILL' 1,
         'wght' 400,
@@ -4551,7 +4636,7 @@ kbd + kbd {
     height: 16px;
 }
 
-.editor-axis-play-button .material-symbols-rounded {
+.editor-axis-play-button .material-symbols-outlined {
     font-size: 14px;
 }
 

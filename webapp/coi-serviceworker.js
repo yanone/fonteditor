@@ -72,27 +72,11 @@ const CDN_PRECACHE = [
     'https://cdn.jsdelivr.net/npm/diff2html@3.4.47/bundles/css/diff2html.min.css',
     'https://cdn.jsdelivr.net/npm/diff2html@3.4.47/bundles/js/diff2html-ui.min.js',
     'https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js',
-
-    // Google Fonts CSS
-    'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;700&display=swap',
-    'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;700&display=swap',
-    'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Devanagari:wght@400;700&display=swap',
-    'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;700&display=swap',
-    'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;700&display=swap',
-    'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;700&display=swap',
-    'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;700&display=swap',
-    'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap',
-    'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200',
-    'https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200'
 ];
 
 // Helper function to check if URL is a CDN resource
 function isCDNResource(url) {
-    return (
-        url.includes('cdn.jsdelivr.net') ||
-        url.includes('fonts.googleapis.com') ||
-        url.includes('fonts.gstatic.com')
-    );
+    return url.includes('cdn.jsdelivr.net');
 }
 
 if (typeof window === 'undefined') {

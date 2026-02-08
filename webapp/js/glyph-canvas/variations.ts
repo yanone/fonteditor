@@ -213,7 +213,7 @@ export class AxesManager {
             const playButton = document.createElement('button');
             playButton.className = 'editor-axis-play-button';
             playButton.innerHTML =
-                '<span class="material-symbols-rounded">play_arrow</span>';
+                '<span class="material-symbols-outlined">play_arrow</span>';
             playButton.title = 'Animate axis';
 
             let animationActive = false;
@@ -263,7 +263,7 @@ export class AxesManager {
             const stopAnimation = () => {
                 animationActive = false;
                 playButton.innerHTML =
-                    '<span class="material-symbols-rounded">play_arrow</span>';
+                    '<span class="material-symbols-outlined">play_arrow</span>';
                 playButton.classList.remove('playing');
                 if (animationFrameId !== null) {
                     cancelAnimationFrame(animationFrameId);
@@ -279,7 +279,7 @@ export class AxesManager {
                     // Start animation
                     animationActive = true;
                     playButton.innerHTML =
-                        '<span class="material-symbols-rounded">pause</span>';
+                        '<span class="material-symbols-outlined">pause</span>';
                     playButton.classList.add('playing');
                     animationStartTime = performance.now();
                     animationStartValue = parseFloat(slider.value);
