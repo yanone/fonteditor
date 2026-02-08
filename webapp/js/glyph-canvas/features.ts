@@ -54,6 +54,57 @@ export class FeaturesManager {
         return featuresSection;
     }
 
+    /**
+     * Sort features by their order in the source font.
+     * Features defined in the source are ordered by their first occurrence.
+     * Compile-time features (not in source) are appended at the end,
+     * preserving their relative order from the compiled font.
+     */
+    sortFeaturesBySourceOrder(
+        features: Array<{ tag: string; [key: string]: any }>
+    ): Array<{ tag: string; [key: string]: any }> {
+        // Get source features from the font model
+        const sourceFeatures = window.currentFontModel?.features?.features;
+        if (!sourceFeatures || !Array.isArray(sourceFeatures)) {
+            return features;
+        }
+
+        // Build a map of feature tag -> first index in source
+        const sourceOrderMap = new Map<string, number>();
+        sourceFeatures.forEach(([tag], index) => {
+            if (!sourceOrderMap.has(tag)) {
+                sourceOrderMap.set(tag, index);
+            }
+        });
+
+        // Separate features into source-defined and compile-time
+        const sourceFeaturesList: Array<{ tag: string; [key: string]: any }> =
+            [];
+        const compileTimeFeatures: Array<{
+            tag: string;
+            [key: string]: any;
+        }> = [];
+
+        features.forEach((feature) => {
+            if (sourceOrderMap.has(feature.tag)) {
+                sourceFeaturesList.push(feature);
+            } else {
+                compileTimeFeatures.push(feature);
+            }
+        });
+
+        // Sort source features by their first occurrence index
+        sourceFeaturesList.sort((a, b) => {
+            const indexA = sourceOrderMap.get(a.tag)!;
+            const indexB = sourceOrderMap.get(b.tag)!;
+            return indexA - indexB;
+        });
+
+        // Compile-time features stay in their original order (already in features array order)
+        // Append compile-time features after source features
+        return [...sourceFeaturesList, ...compileTimeFeatures];
+    }
+
     async getDiscretionaryFeatures() {
         // Get discretionary features from both typing and editing fonts
         if (!this.fontBytes) {
@@ -176,7 +227,7 @@ export class FeaturesManager {
             ).filter((tag: string) => allDiscretionary.has(tag));
 
             // Build feature list with metadata and availability
-            return discretionaryInFont.map((tag: string) => {
+            const featureList = discretionaryInFont.map((tag: string) => {
                 // Use stylistic set name if available, otherwise fall back to description
                 const hasCustomName = !!ssNames[tag];
                 const description = ssNames[tag] || descriptions[tag] || tag;
@@ -193,6 +244,9 @@ export class FeaturesManager {
                         : []
                 };
             });
+
+            // Sort features by source order, with compile-time features appended
+            return this.sortFeaturesBySourceOrder(featureList);
         } catch (error) {
             console.error('[Features]', 'Failed to get features:', error);
             return [];
