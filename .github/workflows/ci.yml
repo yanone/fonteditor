@@ -35,6 +35,7 @@ jobs:
         working-directory: webapp
 
       - name: Inject dynamic version for PWA cache busting
+        id: version
         run: |
           COMMIT_SHORT=$(git rev-parse --short HEAD)
           DATE=$(date -u +"%Y%m%d-%H%M")
@@ -42,9 +43,12 @@ jobs:
           echo "Setting VERSION to: ${NEW_VERSION}"
           sed -i.bak "s/const VERSION = '[^']*'/const VERSION = '${NEW_VERSION}'/" webapp/coi-serviceworker.js
           rm webapp/coi-serviceworker.js.bak
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Build webapp with webpack
         run: npm run build --prefix webapp
+        env:
+          EDITOR_VERSION: ${{ steps.version.outputs.version }}
 
       - name: Run tests in webapp
         run: npm test --prefix webapp
@@ -87,3 +91,13 @@ jobs:
           directory: ./webapp/build
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
           branch: main
+
+      - name: Upload API docs to KV
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          echo "📤 Uploading API docs to KV for version: ${{ steps.version.outputs.version }}"
+          curl -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{ secrets.KV_NAMESPACE_ID_API_DOCS }}/values/api-docs:${{ steps.version.outputs.version }}" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Content-Type: text/plain" \
+            --data-binary @API.md
+          echo "✅ API docs uploaded successfully"

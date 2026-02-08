@@ -73,6 +73,8 @@ jobs:
 
       - name: Build webapp with webpack
         run: npm run build --prefix webapp
+        env:
+          EDITOR_VERSION: ${{ steps.version.outputs.VERSION }}
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
@@ -84,8 +86,18 @@ jobs:
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
           branch: main
 
+      - name: Upload API docs to KV
+        run: |
+          echo "📤 Uploading API docs to KV for version: ${{ steps.version.outputs.VERSION }}"
+          curl -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{ secrets.KV_NAMESPACE_ID_API_DOCS }}/values/api-docs:${{ steps.version.outputs.VERSION }}" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Content-Type: text/plain" \
+            --data-binary @API.md
+          echo "✅ API docs uploaded successfully"
+
       - name: Deployment summary
         run: |
           echo "✅ Release ${{ steps.version.outputs.VERSION }} deployed successfully!"
           echo "📦 GitHub Release created"
           echo "🚀 Deployed to Cloudflare Pages"
+          echo "📚 API docs stored in KV"

@@ -2,7 +2,12 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const UnusedWebpackPlugin = require('unused-webpack-plugin');
+const webpack = require('webpack');
 const { execSync } = require('child_process');
+
+// Get version from environment variable, package.json, or default to development
+const EDITOR_VERSION = process.env.EDITOR_VERSION ||
+    require('./package.json').version + '-dev';
 
 module.exports = {
     mode: 'development',
@@ -26,6 +31,9 @@ module.exports = {
             template: './index.html',
             inject: 'body',
             chunks: ['bootstrap']
+        }),
+        new webpack.DefinePlugin({
+            'process.env.EDITOR_VERSION': JSON.stringify(EDITOR_VERSION)
         }),
         new CopyWebpackPlugin({
             patterns: [

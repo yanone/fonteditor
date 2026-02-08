@@ -2098,6 +2098,12 @@ ${errorTraceback}
             headers['Authorization'] = `Bearer ${sessionToken}`;
         }
 
+        // Add editor version header for versioned API docs
+        const editorVersion = process.env.EDITOR_VERSION;
+        if (editorVersion) {
+            headers['X-Editor-Version'] = editorVersion;
+        }
+
         // Get selected model
         const selectedModel =
             this.selectedModelId || 'claude-sonnet-4-5-20250929';
