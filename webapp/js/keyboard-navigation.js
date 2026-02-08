@@ -179,11 +179,18 @@
                             : 0;
 
                     view.style.flex = `${targetWidth}`;
+                    // If both fontinfo and overview are open, also set overview to 25%
+                    if (isOverviewOpen && overviewView) {
+                        overviewView.style.flex = `${targetWidth}`;
+                    }
                     collapsedViews.forEach((v) => {
                         v.style.flex = `0 0 24px`; // Keep collapsed at exactly 24px
                     });
                     nonCollapsedViews.forEach((v) => {
-                        v.style.flex = `${nonCollapsedViewWidth}`;
+                        // Skip overview if we already set it above
+                        if (!(isOverviewOpen && v === overviewView)) {
+                            v.style.flex = `${nonCollapsedViewWidth}`;
+                        }
                     });
                     expanded = true;
                 }
@@ -237,11 +244,18 @@
                             : 0;
 
                     view.style.flex = `${targetWidth}`;
+                    // If both fontinfo and overview are open, also set fontinfo to 25%
+                    if (isFontinfoOpen && fontinfoView) {
+                        fontinfoView.style.flex = `${targetWidth}`;
+                    }
                     collapsedViews.forEach((v) => {
                         v.style.flex = `0 0 24px`; // Keep collapsed at exactly 24px
                     });
                     nonCollapsedViews.forEach((v) => {
-                        v.style.flex = `${nonCollapsedViewWidth}`;
+                        // Skip fontinfo if we already set it above
+                        if (!(isFontinfoOpen && v === fontinfoView)) {
+                            v.style.flex = `${nonCollapsedViewWidth}`;
+                        }
                     });
                     expanded = true;
                 }
