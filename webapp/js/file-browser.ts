@@ -1600,8 +1600,8 @@ async function initFileBrowser() {
             const homeBtn = document.createElement('button');
             homeBtn.id = 'file-browser-home-btn';
             homeBtn.className = 'view-title-button';
-            homeBtn.title = 'Go to opened font';
-            homeBtn.innerHTML = `<span class="material-symbols-outlined">location_on</span>`;
+            homeBtn.title = 'Locate opened font';
+            homeBtn.innerHTML = `<span class="material-symbols-outlined">my_location</span>`;
             homeBtn.style.display = 'none'; // Initially hidden
             homeBtn.addEventListener('click', navigateToCurrentFont);
             titleBarRight.appendChild(homeBtn);

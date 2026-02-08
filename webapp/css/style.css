@@ -610,7 +610,7 @@ kbd + kbd {
 .view:not(.view-editor).collapsed .view-title-bar .ai-context-toggle,
 .view:not(.view-editor).collapsed .view-title-bar .view-title-action-btn,
 .view:not(.view-editor).collapsed .view-title-bar .editor-plugins-toggle {
-    display: none;
+    display: none !important;
 }
 
 /* Collapsed width views - rotated title bar when collapsed to minimum width */
@@ -645,7 +645,7 @@ flex-direction: row;
 .view.collapsed-width .view-title-bar .view-title-button,
 .view.collapsed-width .view-title-bar .view-title-action-btn,
 .view.collapsed-width .view-title-bar .view-title-actions {
-    display: none;
+    display: none !important;
 }
 
 /* Overview-specific elements to hide when collapsed */
@@ -736,7 +736,9 @@ flex-direction: row;
 }
 
 /* Disable view title bar buttons when their shortcuts are hidden (view not focused) */
-.view:not(.focused) .view-title-button {
+.view:not(.focused) .view-title-button,
+.view:not(.focused) .script-file-dropdown-btn,
+.view:not(.focused) .script-file-reload-btn {
     pointer-events: none;
     opacity: 0.5;
 }
@@ -1850,7 +1852,7 @@ flex-direction: row;
     padding: 0 8px;
     border-radius: 0;
     cursor: pointer;
-    font-family: var(--font-families-mono);
+    font-family: var(--font-families-sans);
     font-size: 10px;
     font-weight: normal;
     transition: all 0.2s ease;
