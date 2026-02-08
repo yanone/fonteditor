@@ -608,7 +608,7 @@ kbd + kbd {
 /* Hide non-essential title bar elements when collapsed */
 .view:not(.view-editor).collapsed .view-title-bar .view-title-button,
 .view:not(.view-editor).collapsed .view-title-bar .ai-context-toggle,
-.view:not(.view-editor).collapsed .view-title-bar .ai-info-button,
+.view:not(.view-editor).collapsed .view-title-bar .view-title-action-btn,
 .view:not(.view-editor).collapsed .view-title-bar .editor-plugins-toggle {
     display: none;
 }
@@ -644,7 +644,8 @@ kbd + kbd {
 }
 
 .view-fontinfo.collapsed-width .view-title-bar .view-title-button,
-.view-fontinfo.collapsed-width .view-title-bar .ai-info-button {
+.view-fontinfo.collapsed-width .view-title-bar .view-title-action-btn,
+.view-fontinfo.collapsed-width .view-title-bar .view-title-actions {
     display: none;
 }
 
@@ -658,18 +659,18 @@ kbd + kbd {
 }
 
 .view-overview.collapsed-width .view-title-bar {
-    writing-mode: vertical-rl;
+writing-mode: vertical-rl;
     text-orientation: mixed;
     transform: rotate(180deg);
     /* height: 100%; */
     width: 24px;
     border-bottom: none;
-    border-right: 1px solid var(--border-primary);
-    padding: 8px 0 0 0;
-    justify-content: flex-end; /* Align to top when rotated (flex-end because of 180deg rotation) */
+    /* border-right: 1px solid var(--border-primary); */
+    /* padding: 8px 0 0 0; */
+    justify-content: flex-end;
     position: relative;
-    top: 4px;
-    left: -2px;
+    /* top: 81px; */
+
 }
 
 .view-overview.collapsed-width .view-title-bar .view-title-left {
@@ -679,9 +680,10 @@ kbd + kbd {
 }
 
 .view-overview.collapsed-width .view-title-bar .view-title-button,
-.view-overview.collapsed-width .view-title-bar .ai-info-button,
+.view-overview.collapsed-width .view-title-bar .view-title-action-btn,
 .view-overview.collapsed-width .view-title-bar .overview-search-control,
-.view-overview.collapsed-width .view-title-bar .overview-size-control {
+.view-overview.collapsed-width .view-title-bar .overview-size-control,
+.view-overview.collapsed-width .view-title-bar .view-title-actions {
     display: none;
 }
 
@@ -705,6 +707,22 @@ kbd + kbd {
     display: flex;
     align-items: center;
     gap: 6px;
+    height: 100%;
+}
+
+.view-title-heading {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding-right: 7px;
+    border-right: 1px solid var(--border-primary);
+    height: 100%;
+}
+
+.view-title-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
 }
 
 .view-title-right {
@@ -899,36 +917,29 @@ kbd + kbd {
     border-left-color: var(--text-secondary);
 }
 
-/* View Title Maximize and Collapse Buttons */
-.view-title-maximize-btn,
-.view-title-collapse-btn {
+/* View Title Action Buttons */
+.view-title-action-btn {
     background-color: transparent;
     border: none;
-    /* border-radius: 3px; */
     color: var(--text-faint);
     padding: 2px;
     cursor: pointer;
-    /* transition: all 0.15s ease; */
     height: auto;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: -4px;
 }
 
-.view-title-maximize-btn .material-symbols-outlined,
-.view-title-collapse-btn .material-symbols-outlined {
+.view-title-action-btn .material-symbols-outlined {
     font-size: 12px;
 }
 
-.view-title-maximize-btn:hover,
-.view-title-collapse-btn:hover {
+.view-title-action-btn:hover {
     background-color: var(--input-bg);
     color: var(--text-secondary);
 }
 
-.view-title-maximize-btn:active,
-.view-title-collapse-btn:active {
+.view-title-action-btn:active {
     background-color: var(--border-primary);
     color: var(--text-primary);
 }
@@ -1483,28 +1494,6 @@ kbd + kbd {
 
 .plugin-ui-color-input:hover {
     border-color: var(--border-secondary);
-}
-
-/* AI Info Button */
-.ai-info-button {
-    margin-left: 0px;
-    background-color: transparent;
-    border: none;
-    color: var(--accent-blue);
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    height: auto;
-}
-
-.ai-info-button:hover {
-    color: var(--accent-cyan);
-}
-
-.ai-info-button .material-symbols-outlined {
-    font-size: 18px;
 }
 
 /* AI Info Popup Specific Styles */

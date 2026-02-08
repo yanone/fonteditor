@@ -195,16 +195,16 @@ function addButtonsToView(viewConfig: ViewInfo): void {
         return;
     }
 
-    // Find view-title-left container
-    const titleLeft = titleBar.querySelector('.view-title-left') as HTMLElement;
-    if (!titleLeft) {
-        console.warn('Title left not found for:', viewConfig.id);
+    // Find view-title-actions container
+    const titleActions = titleBar.querySelector('.view-title-actions') as HTMLElement;
+    if (!titleActions) {
+        console.warn('Title actions not found for:', viewConfig.id);
         return;
     }
 
     // Create maximize button
     const maximizeBtn = document.createElement('button');
-    maximizeBtn.className = 'view-title-maximize-btn';
+    maximizeBtn.className = 'view-title-action-btn view-title-maximize-btn';
     maximizeBtn.title = `Maximize view (${viewConfig.shortcut})`;
     maximizeBtn.innerHTML = `<span class="material-symbols-outlined">open_in_full</span>`;
     maximizeBtn.addEventListener('click', (e) => {
@@ -213,11 +213,11 @@ function addButtonsToView(viewConfig: ViewInfo): void {
         handleMaximizeClick(viewConfig.id);
     });
 
-    // Append buttons to title-left (after title and shortcut)
+    // Append buttons to view-title-actions
     // Skip collapse button for editor view
     if (viewConfig.id !== 'view-editor') {
         const collapseBtn = document.createElement('button');
-        collapseBtn.className = 'view-title-collapse-btn';
+        collapseBtn.className = 'view-title-action-btn view-title-collapse-btn';
         collapseBtn.title = 'Collapse view (⌘Escape)';
         collapseBtn.innerHTML = `<span class="material-symbols-outlined">close</span>`;
         collapseBtn.addEventListener('click', (e) => {
@@ -225,9 +225,9 @@ function addButtonsToView(viewConfig: ViewInfo): void {
             e.stopPropagation();
             handleCollapseClick(viewConfig.id);
         });
-        titleLeft.appendChild(collapseBtn);
+        titleActions.appendChild(collapseBtn);
     }
-    titleLeft.appendChild(maximizeBtn);
+    titleActions.appendChild(maximizeBtn);
 
     // Update initial visibility
     updateButtonVisibility(viewConfig.id);
