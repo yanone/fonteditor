@@ -689,7 +689,7 @@ flex-direction: row;
 .view-title-actions {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: none;
 }
 
 .view-title-right {
