@@ -5,8 +5,17 @@
 /* Local Inter font with OpenType features */
 @font-face {
     font-family: 'Inter';
-    src: url('../assets/fonts/Inter.woff2') format('woff2');
+    src: url('../assets/fonts/Inter-UI.woff2') format('woff2');
     font-weight: 100 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* Local Inter UI font for canvas labels */
+@font-face {
+    font-family: 'Inter UI';
+    src: url('../assets/fonts/Inter-UI.woff2') format('woff2');
+    font-weight: 400;
     font-style: normal;
     font-display: swap;
 }
@@ -4733,6 +4742,7 @@ kbd + kbd {
     font-size: 11px;
     flex: 1;
     user-select: none;
+    font-family: 'Inter UI';
 }
 
 .tag-description.custom-name {

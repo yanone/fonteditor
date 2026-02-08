@@ -441,7 +441,7 @@ export class GlyphCanvasRenderer {
 
         // Font size and metrics (scaled to remain constant regardless of zoom)
         const fontSize = 16 * invScale;
-        this.ctx.font = `${fontSize}px IBM Plex Mono`;
+        this.ctx.font = `${fontSize}px 'Inter UI', sans-serif`;
         const metrics = this.ctx.measureText(text);
         const padding = 10 * invScale;
         const bgWidth = metrics.width + padding * 2;
@@ -2435,7 +2435,7 @@ export class GlyphCanvasRenderer {
         this.ctx.scale(1, -1);
 
         const labelFontSize = fontSize * 0.83;
-        this.ctx.font = `${labelFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        this.ctx.font = `${labelFontSize}px 'Inter UI', sans-serif`;
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
 
