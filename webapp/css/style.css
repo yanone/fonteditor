@@ -623,20 +623,23 @@ kbd + kbd {
 }
 
 .view.collapsed-width .view-title-bar {
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    transform: rotate(180deg);
-    height: 100%;
-    padding: 8px 0 0 0;
+    /* writing-mode: vertical-lr; */
+    /* text-orientation: mixed; */
+    transform: rotate(-90deg);
+    /* height: 100%; */
     justify-content: flex-end;
+    border: none;
 }
 
 .view.collapsed-width .view-title-bar .view-title-left {
 flex-direction: row;
     gap: 6px;
     white-space: nowrap;
-    left: 4px;
-    position: relative;
+}
+
+.view.collapsed-width .view-title-heading {
+    padding-right: 3px;
+    border-right: none;
 }
 
 .view.collapsed-width .view-title-bar .view-title-button,
