@@ -19,12 +19,12 @@ function initOverviewView() {
         mainContainer.style.height = '100%';
         mainContainer.style.overflow = 'hidden';
 
-        // Create left sidebar (identical styling to editor view sidebar)
+        // Create left sidebar (uses consolidated sidebar styles)
         const leftSidebar = document.createElement('div');
         leftSidebar.id = 'overview-sidebar';
+        leftSidebar.className = 'view-sidebar view-sidebar-left';
         leftSidebar.style.width = '200px';
         leftSidebar.style.height = '100%';
-        leftSidebar.style.backgroundColor = 'var(--background-editor-sidebar)';
         leftSidebar.style.borderRight = '1px solid var(--border-primary)';
         leftSidebar.style.padding = '12px';
         leftSidebar.style.overflowY = 'auto';
@@ -117,17 +117,12 @@ function initOverviewView() {
         overviewContent.appendChild(mainContainer);
 
         // Observe when the overview view gains/loses focus (via 'focused' class)
+        // CSS handles sidebar background color changes based on .view.focused
         const overviewView = document.querySelector('#view-overview');
         if (overviewView) {
-            const updateSidebarStyles = () => {
-                const isFocused = overviewView.classList.contains('focused');
+            const updateCollapsedState = () => {
                 const isCollapsed =
                     overviewView.classList.contains('collapsed-width');
-                const bgColor = isFocused
-                    ? 'var(--background-editor-sidebar)'
-                    : 'var(--background-secondary)';
-                leftSidebar.style.backgroundColor = bgColor;
-
                 // Hide entire container when view is collapsed
                 mainContainer.style.display = isCollapsed ? 'none' : 'flex';
             };
@@ -138,7 +133,7 @@ function initOverviewView() {
                         mutation.type === 'attributes' &&
                         mutation.attributeName === 'class'
                     ) {
-                        updateSidebarStyles();
+                        updateCollapsedState();
                     }
                 });
             });
@@ -148,7 +143,7 @@ function initOverviewView() {
             });
 
             // Set initial state
-            updateSidebarStyles();
+            updateCollapsedState();
         }
 
         console.log('[OverviewView]', 'Overview view initialized with sidebar');

@@ -125,16 +125,16 @@ class FontInfoManager {
         this.featuresTab.style.overflow = 'hidden';
         this.featuresTab.innerHTML = `
             <div class="features-container">
-                <div class="features-sidebar">
-                    <div class="editor-section-title">Prefixes</div>
-                    <div class="features-list" id="prefixes-list"></div>
-                    <div class="editor-section-title">Classes</div>
-                    <div class="features-list" id="classes-list"></div>
-                    <div class="editor-section-title">Features</div>
-                    <div class="features-list" id="features-list"></div>
+                <div class="features-sidebar view-sidebar view-sidebar-left">
+                    <div class="sidebar-section-title">Prefixes</div>
+                    <div class="features-list sidebar-list" id="prefixes-list"></div>
+                    <div class="sidebar-section-title">Classes</div>
+                    <div class="features-list sidebar-list" id="classes-list"></div>
+                    <div class="sidebar-section-title">Features</div>
+                    <div class="features-list sidebar-list" id="features-list"></div>
                 </div>
                 <div class="features-editor-container">
-                    <div class="features-editor-legend">
+                    <div class="glyph-filter-legend">
                         <label class="feature-auto-checkbox">
                             <input type="checkbox" id="feature-automatic-checkbox" />
                             <span>Automatically Generated</span>
@@ -422,7 +422,7 @@ class FontInfoManager {
         tag?: string
     ): HTMLElement {
         const item = document.createElement('div');
-        item.className = 'feature-list-item';
+        item.className = 'feature-list-item sidebar-item';
 
         // For features, show GSUB/GPOS indicators and feature name
         if (type === 'feature' && tag) {

@@ -988,7 +988,7 @@ export class GlyphOverviewFilterManager {
         depth: number
     ): HTMLElement {
         const item = document.createElement('div');
-        item.className = 'glyph-filter-item';
+        item.className = 'glyph-filter-item sidebar-item';
         item.dataset.pluginKeyword = plugin.keyword; // For reliable lookup
         if (this.activeFilter === plugin) {
             item.classList.add('active');

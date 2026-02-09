@@ -313,12 +313,38 @@
     user-select: none;
 }
 
+/* Hover states - matches consolidated sidebar-item pattern */
 .glyph-filter-item:hover {
-    background-color: color-mix(in srgb, var(--background-hover) 50%, transparent);
+    background-color: rgba(255, 255, 255, 0.05);
 }
 
+.view-overview.focused .glyph-filter-item:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme='light'] .glyph-filter-item:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+:root[data-theme='light'] .view-overview.focused .glyph-filter-item:hover {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Active/Selected states - matches consolidated sidebar-item pattern */
 .glyph-filter-item.active {
-    background-color: var(--background-hover);
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.view-overview.focused .glyph-filter-item.active {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+:root[data-theme='light'] .glyph-filter-item.active {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme='light'] .view-overview.focused .glyph-filter-item.active {
+    background-color: rgba(0, 0, 0, 0.1);
 }
 
 .glyph-filter-item.active .glyph-filter-item-label,
@@ -357,7 +383,11 @@
 }
 
 .glyph-filter-item.active .glyph-filter-item-count {
-    background-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+:root[data-theme='light'] .glyph-filter-item.active .glyph-filter-item-count {
+    background-color: rgba(0, 0, 0, 0.1);
 }
 
 /* Filter Error Overlay */

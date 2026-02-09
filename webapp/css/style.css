@@ -4516,22 +4516,38 @@ flex-direction: row;
     border-top: 1px solid var(--border-primary);
 }
 
-/* Dark theme colors */
+/* Dark theme colors - matches consolidated sidebar-item pattern */
 :root:not([data-theme='light']) .editor-layer-item:hover:not(.selected) {
     background-color: rgba(255, 255, 255, 0.05);
 }
 
-:root:not([data-theme='light']) .editor-layer-item.selected {
-    background-color: rgba(255, 255, 255, 0.1);
+:root:not([data-theme='light']) .view-editor.focused .editor-layer-item:hover:not(.selected) {
+    background-color: rgba(255, 255, 255, 0.08);
 }
 
-/* Light theme colors */
+:root:not([data-theme='light']) .editor-layer-item.selected {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+:root:not([data-theme='light']) .view-editor.focused .editor-layer-item.selected {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Light theme colors - matches consolidated sidebar-item pattern */
 :root[data-theme='light'] .editor-layer-item:hover:not(.selected) {
-    background-color: rgba(255, 255, 255, 1);
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+:root[data-theme='light'] .view-editor.focused .editor-layer-item:hover:not(.selected) {
+    background-color: rgba(0, 0, 0, 0.06);
 }
 
 :root[data-theme='light'] .editor-layer-item.selected {
-    background-color: rgba(0, 0, 0, 0.075);
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme='light'] .view-editor.focused .editor-layer-item.selected {
+    background-color: rgba(0, 0, 0, 0.1);
 }
 
 /* Inactive layer items (master without corresponding layer) */
@@ -4693,6 +4709,139 @@ flex-direction: row;
 :root[data-theme='light'] .tag-button.enabled:hover {
     background: rgba(0, 0, 0, 0.12);
 }
+
+/* ============================================================================
+   CONSOLIDATED SIDEBAR STYLES
+   ============================================================================
+   These styles are shared across all three top view sidebars (editor, fontinfo,
+   overview). Background colors and selection states automatically change based
+   on whether the parent view has the 'focused' class.
+   ============================================================================ */
+
+/* Base sidebar container styles */
+.view-sidebar {
+    width: 200px;
+    min-width: 200px;
+    height: 100%;
+    padding: 12px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex-shrink: 0;
+    background-color: var(--background-secondary);
+    border-color: var(--border-primary);
+}
+
+/* Sidebar background when parent view is focused */
+.view.focused .view-sidebar {
+    background-color: var(--background-editor-sidebar);
+}
+
+/* Sidebar positioned on the left (border on right) */
+.view-sidebar-left {
+    border-right: 1px solid var(--border-primary);
+}
+
+/* Sidebar positioned on the right (border on left) */
+.view-sidebar-right {
+    border-left: 1px solid var(--border-primary);
+}
+
+/* Sidebar section title (shared across all sidebars) */
+.sidebar-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 12px;
+    margin-bottom: 6px;
+}
+
+.sidebar-section-title:first-child {
+    margin-top: 0;
+}
+
+/* Sidebar list container (extends to edges) */
+.sidebar-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 0 -12px;
+}
+
+/* Individual sidebar item */
+.sidebar-item {
+    padding: 5px 12px;
+    border-radius: 0;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text-primary);
+    background-color: transparent;
+    border-top: none;
+    border-bottom: 1px solid var(--border-primary);
+    border-left: none;
+    border-right: none;
+    transition: background-color 0.15s ease;
+}
+
+.sidebar-item:first-child {
+    border-top: 1px solid var(--border-primary);
+}
+
+/* Dark theme - sidebar item hover (view not focused) */
+:root:not([data-theme='light']) .sidebar-item:hover:not(.selected) {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Dark theme - sidebar item hover (view focused) */
+:root:not([data-theme='light']) .view.focused .sidebar-item:hover:not(.selected) {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Dark theme - sidebar item selected (view not focused) */
+:root:not([data-theme='light']) .sidebar-item.selected {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Dark theme - sidebar item selected (view focused) */
+:root:not([data-theme='light']) .view.focused .sidebar-item.selected {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Light theme - sidebar item hover (view not focused) */
+:root[data-theme='light'] .sidebar-item:hover:not(.selected) {
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+/* Light theme - sidebar item hover (view focused) */
+:root[data-theme='light'] .view.focused .sidebar-item:hover:not(.selected) {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Light theme - sidebar item selected (view not focused) */
+:root[data-theme='light'] .sidebar-item.selected {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Light theme - sidebar item selected (view focused) */
+:root[data-theme='light'] .view.focused .sidebar-item.selected {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Inactive/disabled sidebar item */
+.sidebar-item.inactive {
+    opacity: 0.4;
+    cursor: default;
+}
+
+:root:not([data-theme='light']) .sidebar-item.inactive:hover,
+:root[data-theme='light'] .sidebar-item.inactive:hover {
+    background-color: transparent;
+}
+
+
 
 /* General Tag Description Style (used by OpenType features and plugins) */
 .tag-description {
@@ -5449,8 +5598,8 @@ flex-direction: row;
     flex-shrink: 0;
     border-right: 1px solid var(--border-primary);
     overflow-y: auto;
-    background-color: var(--background-tertiary);
     padding: 12px;
+    /* Background color is handled by consolidated sidebar styles */
 }
 
 /* Section titles for prefixes, classes, features */
@@ -5503,22 +5652,38 @@ flex-direction: row;
     border-top: 1px solid var(--border-primary);
 }
 
-/* Dark theme colors */
+/* Dark theme colors - matches consolidated sidebar-item pattern */
 :root:not([data-theme='light']) .feature-list-item:hover:not(.selected) {
     background-color: rgba(255, 255, 255, 0.05);
 }
 
-:root:not([data-theme='light']) .feature-list-item.selected {
-    background-color: rgba(255, 255, 255, 0.1);
+:root:not([data-theme='light']) .view-fontinfo.focused .feature-list-item:hover:not(.selected) {
+    background-color: rgba(255, 255, 255, 0.08);
 }
 
-/* Light theme colors */
+:root:not([data-theme='light']) .feature-list-item.selected {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+:root:not([data-theme='light']) .view-fontinfo.focused .feature-list-item.selected {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Light theme colors - matches consolidated sidebar-item pattern */
 :root[data-theme='light'] .feature-list-item:hover:not(.selected) {
-    background-color: rgba(255, 255, 255, 1);
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+:root[data-theme='light'] .view-fontinfo.focused .feature-list-item:hover:not(.selected) {
+    background-color: rgba(0, 0, 0, 0.06);
 }
 
 :root[data-theme='light'] .feature-list-item.selected {
-    background-color: rgba(0, 0, 0, 0.075);
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme='light'] .view-fontinfo.focused .feature-list-item.selected {
+    background-color: rgba(0, 0, 0, 0.1);
 }
 
 /* GSUB/GPOS indicator dots */
@@ -5568,15 +5733,6 @@ flex-direction: row;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-}
-
-.features-editor-legend {
-    display: flex;
-    align-items: center;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border-primary);
-    background-color: var(--background-tertiary);
-    min-height: 32px;
 }
 
 .feature-auto-checkbox {
@@ -5640,3 +5796,11 @@ flex-direction: row;
 #fontinfo-names-content::-webkit-scrollbar-thumb {
     background: transparent;
 }
+
+/* ace editor overwrite */
+
+.ace-chrome .ace_gutter {
+    background: transparent;
+    border-right: 1px solid var(--border-primary);
+}
+

@@ -1488,7 +1488,7 @@ class GlyphCanvas {
 
         for (const master of fontModel.masters) {
             const masterItem = document.createElement('div');
-            masterItem.className = 'editor-layer-item';
+            masterItem.className = 'editor-layer-item sidebar-item';
             masterItem.setAttribute('data-master-id', master.id!);
 
             // In edit mode, find corresponding layer for this master
@@ -2698,10 +2698,10 @@ function initCanvas() {
         // Create left sidebar for glyph properties
         const leftSidebar = document.createElement('div');
         leftSidebar.id = 'glyph-properties-sidebar';
+        leftSidebar.className = 'view-sidebar view-sidebar-left';
         leftSidebar.style.width = '200px';
         leftSidebar.style.minWidth = '200px';
         leftSidebar.style.height = '100%';
-        leftSidebar.style.backgroundColor = 'var(--background-editor-sidebar)';
         leftSidebar.style.borderRight = '1px solid var(--border-primary)';
         leftSidebar.style.padding = '12px';
         leftSidebar.style.overflowY = 'auto';
@@ -2712,10 +2712,10 @@ function initCanvas() {
         // Create right sidebar for axes
         const rightSidebar = document.createElement('div');
         rightSidebar.id = 'glyph-editor-sidebar';
+        rightSidebar.className = 'view-sidebar view-sidebar-right';
         rightSidebar.style.width = '200px';
         rightSidebar.style.minWidth = '200px';
         rightSidebar.style.height = '100%';
-        rightSidebar.style.backgroundColor = 'var(--background-editor-sidebar)';
         rightSidebar.style.borderLeft = '1px solid var(--border-primary)';
         rightSidebar.style.padding = '12px';
         rightSidebar.style.overflowY = 'auto';
@@ -2763,25 +2763,15 @@ function initCanvas() {
         window.glyphCanvas.axesSection = axesSection;
 
         // Observe when the editor view gains/loses focus (via 'focused' class)
+        // CSS handles sidebar background color changes based on .view.focused
         const editorView = document.querySelector('#view-editor');
         if (editorView) {
-            const updateSidebarStyles = () => {
-                const isFocused = editorView.classList.contains('focused');
-                const bgColor = isFocused
-                    ? 'var(--background-editor-sidebar)'
-                    : 'var(--background-secondary)';
-                leftSidebar.style.backgroundColor = bgColor;
-                rightSidebar.style.backgroundColor = bgColor;
-            };
-
             const observer = new MutationObserver((mutations) => {
                 mutations.forEach((mutation) => {
                     if (
                         mutation.type === 'attributes' &&
                         mutation.attributeName === 'class'
                     ) {
-                        // Update sidebar styles when focus changes
-                        updateSidebarStyles();
                         // Render when focused class changes
                         window.glyphCanvas.render();
                     }
@@ -2791,9 +2781,6 @@ function initCanvas() {
                 attributes: true,
                 attributeFilter: ['class']
             });
-
-            // Set initial state
-            updateSidebarStyles();
         }
 
         // Listen for font compilation events
