@@ -758,8 +758,6 @@ flex-direction: row;
 
 /* Content containers for views with text content */
 .view-content {
-    margin-right: 20px;
-    margin-left: 15px;
     margin-top: 0px;
     margin-bottom: 0px;
     overflow: auto;
@@ -5437,4 +5435,209 @@ flex-direction: row;
     font-size: 10px;
     opacity: 0.7;
     margin-left: auto;
+}
+
+/* Font Info - Features View Styles */
+.features-container {
+    display: flex;
+    height: 100%;
+    overflow: hidden;
+}
+
+.features-sidebar {
+    width: 200px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border-primary);
+    overflow-y: auto;
+    background-color: var(--background-tertiary);
+    padding: 12px;
+}
+
+/* Section titles for prefixes, classes, features */
+.features-sidebar .editor-section-title {
+    margin-top: 12px;
+    margin-bottom: 6px;
+}
+
+.features-sidebar .editor-section-title:first-child {
+    margin-top: 0;
+}
+
+.features-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 0 -12px;
+}
+
+.features-list + .editor-section-title {
+    margin-top: 20px;
+}
+
+.features-empty {
+    padding: 16px;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 12px;
+}
+
+.feature-list-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    cursor: pointer;
+    border-radius: 0;
+    font-family: var(--font-families-sans);
+    font-size: 11px;
+    color: var(--text-primary);
+    background-color: transparent;
+    border-top: none;
+    border-bottom: 1px solid var(--border-primary);
+    border-left: none;
+    border-right: none;
+    transition: background-color 0.15s ease;
+}
+
+.feature-list-item:first-child {
+    border-top: 1px solid var(--border-primary);
+}
+
+/* Dark theme colors */
+:root:not([data-theme='light']) .feature-list-item:hover:not(.selected) {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+:root:not([data-theme='light']) .feature-list-item.selected {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Light theme colors */
+:root[data-theme='light'] .feature-list-item:hover:not(.selected) {
+    background-color: rgba(255, 255, 255, 1);
+}
+
+:root[data-theme='light'] .feature-list-item.selected {
+    background-color: rgba(0, 0, 0, 0.075);
+}
+
+/* GSUB/GPOS indicator dots */
+.feature-table-indicator {
+    width: 11px;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+.feature-table-circle {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background-color: var(--text-primary);
+    opacity: 0.1;
+}
+
+.feature-tag {
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.feature-name {
+    font-family: var(--font-families-sans);
+    font-size: 11px;
+    color: var(--text-primary);
+    opacity: 0.7;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.feature-auto-icon {
+    font-size: 14px !important;
+    color: var(--text-secondary);
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+.features-editor-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.features-editor-legend {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-primary);
+    background-color: var(--background-tertiary);
+    min-height: 32px;
+}
+
+.feature-auto-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-family: var(--font-families-sans);
+    font-size: 11px;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.feature-auto-checkbox input[type='checkbox'] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    margin: 0;
+    filter: saturate(0);
+}
+
+.features-editor {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Background color based on view focus state */
+.view-fontinfo.focused .features-editor {
+    background-color: var(--background-primary);
+}
+
+.view-fontinfo:not(.focused) .features-editor {
+    background-color: var(--background-secondary);
+}
+
+/* Ace Editor in features view */
+.features-editor .ace_editor {
+    font-family: var(--font-families-mono);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* Font Info Names content - ensure it scrolls properly */
+#fontinfo-names-content {
+    margin-right: 20px;
+    margin-left: 15px;
+    margin-top: 0px;
+    margin-bottom: 0px;
+}
+
+#fontinfo-names-content::-webkit-scrollbar {
+    width: 0;
+    display: none;
+}
+
+#fontinfo-names-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#fontinfo-names-content::-webkit-scrollbar-thumb {
+    background: transparent;
 }

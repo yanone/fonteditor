@@ -33,6 +33,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     FilesystemPlugins: false,
     FontCompilation: true,
     FontInterpolation: false,
+    FontInfo: true,
     FontManager: true,
     GlyphCanvas: true,
     GlyphOverview: false,
@@ -51,10 +52,10 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     StackPreviewAnimator: false,
     StateRestore: false,
     StateSync: false,
-    TextRun: true,
+    TextRun: false,
     TippyUtils: false,
     URLState: false,
-    Variations: true,
+    Variations: false,
     ViewTitleButtons: false,
     WasmInit: false
 };

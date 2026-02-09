@@ -171,6 +171,11 @@ declare global {
         // From font-interpolation.js
         fontInterpolation: FontInterpolationManager;
 
+        // From font-info.ts
+        fontInfoManager: {
+            updateEditorTheme: (theme: 'light' | 'dark') => void;
+        };
+
         // From glyph-canvas.js
         glyphCanvas: GlyphCanvas;
 

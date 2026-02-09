@@ -173,6 +173,14 @@
                         scriptEditor.editor.setTheme('ace/theme/monokai');
                     }
                 }
+
+                // Update font info features editor theme
+                const fontInfoManager = window.fontInfoManager;
+                if (fontInfoManager && fontInfoManager.updateEditorTheme) {
+                    fontInfoManager.updateEditorTheme(
+                        theme === THEMES.LIGHT ? 'light' : 'dark'
+                    );
+                }
             }, 100);
         }
 
