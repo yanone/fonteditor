@@ -21,6 +21,8 @@ export function clear_font_cache(): void;
  *  - `skip_outlines`: bool - Skip `glyf`/`gvar` table creation
  *  - `dont_use_production_names`: bool - Don't use production names for glyphs
  *  - `subset_glyphs`: String[] - List of glyph names to include
+ *  - `drop_incompatible_paths`: bool - Drop incompatible paths during compilation
+ *  - `produce_varc_table`: bool - Produce VARC table (variable fonts)
  *
  * # Returns
  * * `Vec<u8>` - Compiled TTF font bytes
@@ -238,6 +240,12 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
+    readonly get_font_features: (a: number, b: number) => [number, number, number, number];
+    readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
+    readonly get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly get_glyph_order: (a: number, b: number) => [number, number, number, number];
+    readonly get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
     readonly clear_font_cache: () => void;
     readonly compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
     readonly compile_cached_font: (a: any) => [number, number, number, number];
@@ -249,12 +257,6 @@ export interface InitOutput {
     readonly open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly store_font: (a: number, b: number) => [number, number];
     readonly version: () => [number, number];
-    readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
-    readonly get_font_features: (a: number, b: number) => [number, number, number, number];
-    readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
-    readonly get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
-    readonly get_glyph_order: (a: number, b: number) => [number, number, number, number];
-    readonly get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;

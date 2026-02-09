@@ -22,6 +22,8 @@ export function clear_font_cache() {
  *  - `skip_outlines`: bool - Skip `glyf`/`gvar` table creation
  *  - `dont_use_production_names`: bool - Don't use production names for glyphs
  *  - `subset_glyphs`: String[] - List of glyph names to include
+ *  - `drop_incompatible_paths`: bool - Drop incompatible paths during compilation
+ *  - `produce_varc_table`: bool - Produce VARC table (variable fonts)
  *
  * # Returns
  * * `Vec<u8>` - Compiled TTF font bytes
