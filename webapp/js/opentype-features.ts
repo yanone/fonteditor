@@ -244,6 +244,505 @@ export const REQUIRED_FEATURES = new Set([
     'vatu' // Vattu Variants
 ]);
 
+/**
+ * OpenType feature execution order per writing script.
+ *
+ * Based on HarfBuzz shaping engine implementation (https://github.com/harfbuzz/harfbuzz).
+ * Features are applied in the order listed below. Stages marked with "PAUSE" indicate
+ * GSUB processing pauses for reordering operations.
+ *
+ * User features (discretionary features controlled by users) are applied at specific
+ * points in the pipeline, indicated by "USER_FEATURES" markers.
+ *
+ * Note: This represents the standard HarfBuzz implementation. Actual behavior may vary
+ * based on shaper implementation and font design.
+ *
+ * Last updated: December 2024 (HarfBuzz main branch)
+ */
+export const FEATURE_EXECUTION_ORDER: Record<string, string[]> = {
+    /**
+     * Default shaper - used for Latin, Cyrillic, Greek, and other scripts without
+     * script-specific shaping requirements.
+     */
+    default: [
+        // Required variation alternates
+        'rvrn', // Required Variation Alternates
+        '--- GSUB PAUSE ---',
+
+        // Directional features (applied based on text direction)
+        'ltra',
+        'ltrm', // LTR direction (horizontal)
+        'rtla',
+        'rtlm', // RTL direction (horizontal)
+
+        // Automatic features
+        'frac',
+        'numr',
+        'dnom', // Fractions (if enabled)
+        'rand', // Randomize
+
+        // Common features - applied to all scripts
+        'abvm', // Above-base Mark Positioning
+        'blwm', // Below-base Mark Positioning
+        'ccmp', // Glyph Composition/Decomposition
+        'locl', // Localized Forms
+        'mark', // Mark Positioning
+        'mkmk', // Mark to Mark Positioning
+        'rlig', // Required Ligatures
+
+        // Default horizontal features
+        'calt', // Contextual Alternates
+        'clig', // Contextual Ligatures
+        'curs', // Cursive Positioning
+        'dist', // Distances
+        'kern', // Kerning
+        'liga', // Standard Ligatures
+        'rclt', // Required Contextual Alternates
+
+        // Vertical text features (if vertical direction)
+        'vert', // Vertical Alternates
+
+        // USER FEATURES APPLIED HERE
+        '--- USER FEATURES ---',
+
+        // GPOS positioning features applied after substitutions
+        '--- GPOS STAGE ---'
+    ],
+
+    /**
+     * Arabic shaper - used for Arabic, N'Ko, Syriac, and Mongolian scripts.
+     */
+    arabic: [
+        'rvrn', // Required Variation Alternates
+        '--- GSUB PAUSE ---',
+        'ccmp', // Glyph Composition/Decomposition
+        'locl', // Localized Forms
+        '--- GSUB PAUSE ---',
+
+        'stch', // Stretching (Arabic kashida)
+        '--- GSUB PAUSE ---',
+
+        // Joining features (applied with pauses between each)
+        'isol', // Isolated Forms
+        '--- GSUB PAUSE ---',
+        'fina', // Terminal Forms
+        '--- GSUB PAUSE ---',
+        'fin2', // Terminal Forms #2
+        '--- GSUB PAUSE ---',
+        'fin3', // Terminal Forms #3
+        '--- GSUB PAUSE ---',
+        'medi', // Medial Forms
+        '--- GSUB PAUSE ---',
+        'med2', // Medial Forms #2
+        '--- GSUB PAUSE ---',
+        'init', // Initial Forms
+        '--- GSUB PAUSE ---',
+
+        'rlig', // Required Ligatures
+        'rclt', // Required Contextual Alternates
+        '--- GSUB PAUSE ---',
+
+        'calt', // Contextual Alternates
+
+        // USER FEATURES (liga, clig) APPLIED HERE
+        '--- USER FEATURES ---',
+
+        'mset', // Mark Positioning via Substitution
+
+        // GPOS features
+        '--- GPOS STAGE ---',
+        'curs', // Cursive Positioning
+        'kern', // Kerning
+        'mark', // Mark Positioning
+        'mkmk' // Mark to Mark Positioning
+    ],
+
+    /**
+     * Indic shapers - used for Devanagari, Bengali, Gujarati, Gurmukhi, Kannada,
+     * Malayalam, Oriya, Tamil, Telugu.
+     */
+    indic: [
+        'rvrn', // Required Variation Alternates
+        '--- GSUB PAUSE (setup syllables) ---',
+
+        'locl', // Localized Forms
+        'ccmp', // Glyph Composition/Decomposition
+        '--- GSUB PAUSE (initial reordering) ---',
+
+        // Basic features (applied with pauses between each)
+        'nukt', // Nukta Forms
+        '--- GSUB PAUSE ---',
+        'akhn', // Akhand
+        '--- GSUB PAUSE ---',
+        'rphf', // Reph Form
+        '--- GSUB PAUSE ---',
+        'rkrf', // Rakar Forms
+        '--- GSUB PAUSE ---',
+        'pref', // Pre-base Forms
+        '--- GSUB PAUSE ---',
+        'blwf', // Below-base Forms
+        '--- GSUB PAUSE ---',
+        'abvf', // Above-base Forms
+        '--- GSUB PAUSE ---',
+        'half', // Half Forms
+        '--- GSUB PAUSE ---',
+        'pstf', // Post-base Forms
+        '--- GSUB PAUSE ---',
+        'vatu', // Vattu Variants
+        '--- GSUB PAUSE ---',
+        'cjct', // Conjunct Forms
+
+        '--- GSUB PAUSE (final reordering) ---',
+
+        // Other features (applied after reordering)
+        'init', // Initial Forms
+        'pres', // Pre-base Substitutions
+        'abvs', // Above-base Substitutions
+        'blws', // Below-base Substitutions
+        'psts', // Post-base Substitutions
+        'haln', // Halant Forms
+
+        // Note: 'liga' is disabled by default in Indic scripts
+
+        // USER FEATURES APPLIED HERE (except liga)
+        '--- USER FEATURES ---',
+
+        // GPOS features
+        '--- GPOS STAGE ---',
+        'abvm', // Above-base Mark Positioning
+        'blwm', // Below-base Mark Positioning
+        'dist', // Distances
+        'mark', // Mark Positioning
+        'mkmk' // Mark to Mark Positioning
+    ],
+
+    /**
+     * Myanmar (Burmese) shaper.
+     */
+    myanmar: [
+        'rvrn', // Required Variation Alternates
+        '--- GSUB PAUSE (setup syllables) ---',
+
+        'locl', // Localized Forms
+        'ccmp', // Glyph Composition/Decomposition
+
+        '--- GSUB PAUSE (reorder) ---',
+
+        // Basic features (applied with pauses between each)
+        'rphf', // Reph Form
+        '--- GSUB PAUSE ---',
+        'pref', // Pre-base Forms
+        '--- GSUB PAUSE ---',
+        'blwf', // Below-base Forms
+        '--- GSUB PAUSE ---',
+        'pstf', // Post-base Forms
+
+        '--- GSUB PAUSE (clear syllables) ---',
+
+        // Other features
+        'pres', // Pre-base Substitutions
+        'abvs', // Above-base Substitutions
+        'blws', // Below-base Substitutions
+        'psts', // Post-base Substitutions
+        'haln', // Halant Forms
+
+        // USER FEATURES APPLIED HERE
+        '--- USER FEATURES ---',
+
+        // GPOS features
+        '--- GPOS STAGE ---',
+        'mark', // Mark Positioning
+        'mkmk' // Mark to Mark Positioning
+    ],
+
+    /**
+     * Khmer (Cambodian) shaper.
+     */
+    khmer: [
+        'rvrn', // Required Variation Alternates
+        '--- GSUB PAUSE (setup syllables) ---',
+        '--- GSUB PAUSE (reorder) ---',
+
+        'locl', // Localized Forms
+        'ccmp', // Glyph Composition/Decomposition
+
+        // Basic features (no pauses between in Khmer)
+        'pref', // Pre-base Forms
+        'blwf', // Below-base Forms
+        'abvf', // Above-base Forms
+        'pstf', // Post-base Forms
+        'cfar', // Conjunct Form After Ro
+
+        // Other features
+        'pres', // Pre-base Substitutions
+        'abvs', // Above-base Substitutions
+        'blws', // Below-base Substitutions
+        'psts', // Post-base Substitutions
+
+        // Note: 'clig' is enabled by default, 'liga' is disabled
+        'clig', // Contextual Ligatures
+
+        // USER FEATURES APPLIED HERE (except liga which is disabled)
+        '--- USER FEATURES ---',
+
+        // GPOS features
+        '--- GPOS STAGE ---',
+        'mark', // Mark Positioning
+        'mkmk' // Mark to Mark Positioning
+    ],
+
+    /**
+     * USE (Universal Shaping Engine) - used for many scripts including
+     * Balinese, Javanese, Lao, Thai (new behavior), and others.
+     */
+    use: [
+        'rvrn', // Required Variation Alternates
+        '--- GSUB PAUSE (setup syllables) ---',
+
+        // Default glyph pre-processing group
+        'locl', // Localized Forms
+        'ccmp', // Glyph Composition/Decomposition
+        'nukt', // Nukta Forms
+        'akhn', // Akhand
+
+        // Reordering group
+        '--- GSUB PAUSE (clear substitution flags) ---',
+        'rphf', // Reph Form
+        '--- GSUB PAUSE (record rphf) ---',
+        '--- GSUB PAUSE (clear substitution flags) ---',
+        'pref', // Pre-base Forms
+        '--- GSUB PAUSE (record pref) ---',
+
+        // Orthographic unit shaping group
+        'rkrf', // Rakar Forms
+        'abvf', // Above-base Forms
+        'blwf', // Below-base Forms
+        'half', // Half Forms
+        'pstf', // Post-base Forms
+        'vatu', // Vattu Variants
+        'cjct', // Conjunct Forms
+
+        '--- GSUB PAUSE (reorder) ---',
+        '--- GSUB PAUSE (clear syllables) ---',
+
+        // Topographical features
+        'isol', // Isolated Forms
+        'init', // Initial Forms
+        'medi', // Medial Forms
+        'fina', // Terminal Forms
+
+        '--- GSUB PAUSE ---',
+
+        // Standard typographic presentation
+        'abvs', // Above-base Substitutions
+        'blws', // Below-base Substitutions
+        'psts', // Post-base Substitutions
+        'haln', // Halant Forms
+        'calt', // Contextual Alternates
+        'clig', // Contextual Ligatures
+        'liga', // Standard Ligatures
+
+        // USER FEATURES APPLIED HERE
+        '--- USER FEATURES ---',
+
+        // GPOS features
+        '--- GPOS STAGE ---',
+        'abvm', // Above-base Mark Positioning
+        'blwm', // Below-base Mark Positioning
+        'mark', // Mark Positioning
+        'mkmk' // Mark to Mark Positioning
+    ],
+
+    /**
+     * Hangul (Korean) shaper.
+     */
+    hangul: [
+        'rvrn', // Required Variation Alternates
+        '--- GSUB PAUSE ---',
+
+        'ljmo', // Leading Jamo Forms
+        'vjmo', // Vowel Jamo Forms
+        'tjmo', // Trailing Jamo Forms
+
+        // USER FEATURES APPLIED HERE
+        '--- USER FEATURES ---',
+
+        // Common features
+        'ccmp', // Glyph Composition/Decomposition
+        'locl', // Localized Forms
+
+        // GPOS features
+        '--- GPOS STAGE ---'
+    ],
+
+    /**
+     * Hebrew shaper - similar to default shaper with mark positioning.
+     */
+    hebrew: [
+        'rvrn', // Required Variation Alternates
+        '--- GSUB PAUSE ---',
+
+        // Common features
+        'ccmp', // Glyph Composition/Decomposition
+        'locl', // Localized Forms
+
+        // Discretionary features
+        'calt', // Contextual Alternates
+        'clig', // Contextual Ligatures
+        'liga', // Standard Ligatures
+        'rclt', // Required Contextual Alternates
+        'rlig', // Required Ligatures
+
+        // USER FEATURES APPLIED HERE
+        '--- USER FEATURES ---',
+
+        // GPOS features
+        '--- GPOS STAGE ---',
+        'kern', // Kerning
+        'mark', // Mark Positioning
+        'mkmk' // Mark to Mark Positioning
+    ],
+
+    /**
+     * Thai shaper (old behavior) - similar to USE for new behavior.
+     */
+    thai: [
+        'rvrn', // Required Variation Alternates
+        '--- GSUB PAUSE ---',
+
+        'ccmp', // Glyph Composition/Decomposition
+        'locl', // Localized Forms
+
+        // USER FEATURES APPLIED HERE
+        '--- USER FEATURES ---',
+
+        // GPOS features
+        '--- GPOS STAGE ---',
+        'kern', // Kerning
+        'mark', // Mark Positioning
+        'mkmk' // Mark to Mark Positioning
+    ]
+};
+
+/**
+ * Mapping of OpenType script tags to shaper names.
+ *
+ * This maps four-character OpenType script tags to the corresponding
+ * HarfBuzz shaper implementation that determines feature execution order.
+ *
+ * Based on HarfBuzz shaper categorization (hb-ot-shaper.hh and script-specific shapers).
+ */
+export const SCRIPT_TO_SHAPER: Record<string, string> = {
+    // Default shaper - Latin, Cyrillic, Greek and most other scripts
+    'DFLT': 'default',
+    'latn': 'default',
+    'cyrl': 'default',
+    'grek': 'default',
+    'armn': 'default', // Armenian
+    'geor': 'default', // Georgian
+    'geok': 'default', // Georgian Khutsuri
+    'ethi': 'default', // Ethiopic
+    'cher': 'default', // Cherokee
+    'cans': 'default', // Canadian Aboriginal
+    'ogam': 'default', // Ogham
+    'runr': 'default', // Runic
+    'yi  ': 'default', // Yi
+
+    // Arabic shaper - Arabic and related scripts
+    'arab': 'arabic', // Arabic
+    'nko ': 'arabic', // N'Ko
+    'syrc': 'arabic', // Syriac
+    'mong': 'arabic', // Mongolian
+    'phag': 'arabic', // Phags-pa
+    'mand': 'arabic', // Mandaic
+    'phlp': 'arabic', // Psalter Pahlavi
+    'avst': 'arabic', // Avestan
+
+    // Indic shapers - Brahmic scripts
+    'deva': 'indic', // Devanagari
+    'beng': 'indic', // Bengali
+    'guru': 'indic', // Gurmukhi
+    'gujr': 'indic', // Gujarati
+    'orya': 'indic', // Oriya
+    'taml': 'indic', // Tamil
+    'telu': 'indic', // Telugu
+    'knda': 'indic', // Kannada
+    'mlym': 'indic', // Malayalam
+    'sinh': 'indic', // Sinhala
+
+    // Myanmar shaper
+    'mymr': 'myanmar', // Myanmar (Burmese)
+
+    // Khmer shaper
+    'khmr': 'khmer', // Khmer (Cambodian)
+
+    // Hangul shaper
+    'hang': 'hangul', // Hangul (Korean)
+
+    // Hebrew shaper
+    'hebr': 'hebrew', // Hebrew
+
+    // Thai shaper (old behavior)
+    'thai': 'thai', // Thai
+
+    // USE (Universal Shaping Engine) - many scripts
+    'bali': 'use', // Balinese
+    'batk': 'use', // Batak
+    'bugi': 'use', // Buginese
+    'buhd': 'use', // Buhid
+    'cham': 'use', // Cham
+    'dupl': 'use', // Duployan
+    'egyp': 'use', // Egyptian Hieroglyphs
+    'gran': 'use', // Grantha
+    'hano': 'use', // Hanunoo
+    'java': 'use', // Javanese
+    'kali': 'use', // Kayah Li
+    'khar': 'use', // Kharoshthi
+    'khoj': 'use', // Khojki
+    'sind': 'use', // Khudawadi
+    'lana': 'use', // Tai Tham (Lanna)
+    'lao ': 'use', // Lao
+    'lepc': 'use', // Lepcha
+    'limb': 'use', // Limbu
+    'mahj': 'use', // Mahajani
+    'mani': 'use', // Manichaean
+    'marc': 'use', // Marchen
+    'mtei': 'use', // Meetei Mayek
+    'modi': 'use', // Modi
+    'mult': 'use', // Multani
+    'newa': 'use', // Newa
+    'pauc': 'use', // Pau Cin Hau
+    'rjng': 'use', // Rejang
+    'saur': 'use', // Saurashtra
+    'shrd': 'use', // Sharada
+    'sidd': 'use', // Siddham
+    'sund': 'use', // Sundanese
+    'sylo': 'use', // Syloti Nagri
+    'tagb': 'use', // Tagbanwa
+    'takr': 'use', // Takri
+    'tale': 'use', // Tai Le
+    'talu': 'use', // New Tai Lue
+    'tavt': 'use', // Tai Viet
+    'tfng': 'use', // Tifinagh
+    'tirh': 'use', // Tirhuta
+    'brah': 'use', // Brahmi
+    'cakm': 'use' // Chakma
+};
+
+/**
+ * Get the feature execution order for a given script.
+ *
+ * @param script - Script tag (e.g., 'latn', 'arab', 'deva') or shaper name
+ * @returns Array of features in execution order, or default order if script not found
+ */
+export function getFeatureExecutionOrder(script: string): string[] {
+    const shaper =
+        SCRIPT_TO_SHAPER[script.toLowerCase()] || script.toLowerCase();
+    return (
+        FEATURE_EXECUTION_ORDER[shaper] || FEATURE_EXECUTION_ORDER['default']
+    );
+}
+
 // Feature descriptions for documentation purposes
 export const FEATURE_DESCRIPTIONS: Record<string, string> = {
     // Discretionary features (on by default)
