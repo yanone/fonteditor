@@ -699,7 +699,9 @@ class FontInfoManager {
         const discretionary: any[] = [];
 
         // Get all features from execution order (excluding markers)
-        const execOrderList = executionOrder.filter((f) => !f.startsWith('---'));
+        const execOrderList = executionOrder.filter(
+            (f) => !f.startsWith('---')
+        );
         const execOrderFeatures = new Set(execOrderList);
 
         features.forEach(([tag, codeData], index) => {
