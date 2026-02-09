@@ -34,7 +34,7 @@ class FontInfoManager {
     private classListItems: Map<string, HTMLElement> = new Map();
     private featureListItems: Map<number, HTMLElement> = new Map();
     private fontDataLoaded = false;
-    private selectedScript: string = 'DFLT';
+    private selectedShaper: string = 'default';
     private draggedFeatureIndex: number | null = null;
 
     init() {
@@ -375,10 +375,10 @@ class FontInfoManager {
 
         // Parse all feature code for languagesystem declarations
         const allCode: string[] = [];
-        
+
         // Collect from prefixes
         if (font.features.prefixes) {
-            Object.values(font.features.prefixes).forEach(prefix => {
+            Object.values(font.features.prefixes).forEach((prefix) => {
                 if (prefix.code) allCode.push(prefix.code);
             });
         }
@@ -392,7 +392,7 @@ class FontInfoManager {
 
         // Parse languagesystem declarations
         const languageSystemRegex = /languagesystem\s+(\w+)\s+\w+/gi;
-        allCode.forEach(code => {
+        allCode.forEach((code) => {
             let match;
             while ((match = languageSystemRegex.exec(code)) !== null) {
                 scripts.add(match[1]);
@@ -427,12 +427,37 @@ class FontInfoManager {
         const supportedScripts = this.extractLanguageSystems();
         console.log('[FontInfo] Supported scripts:', supportedScripts);
 
-        // Build feature list with script dropdown
+        // Map scripts to shapers and deduplicate
+        const shaperMap = new Map<string, string[]>(); // shaper -> [scripts]
+        supportedScripts.forEach((script) => {
+            const shaper = SCRIPT_TO_SHAPER[script] || 'default';
+            if (!shaperMap.has(shaper)) {
+                shaperMap.set(shaper, []);
+            }
+            shaperMap.get(shaper)!.push(script);
+        });
+
+        // Get unique shapers sorted alphabetically
+        const availableShapers = Array.from(shaperMap.keys()).sort();
+
+        // Ensure selectedShaper is valid, otherwise use first available
+        if (
+            !availableShapers.includes(this.selectedShaper) &&
+            availableShapers.length > 0
+        ) {
+            this.selectedShaper = availableShapers[0];
+            console.log(
+                '[FontInfo] Defaulting to shaper:',
+                this.selectedShaper
+            );
+        }
+
+        // Build feature list with shaper dropdown
         this.featureListItems.clear();
         listContainer.innerHTML = '';
 
-        // Add script selector dropdown if multiple scripts
-        if (supportedScripts.length > 1) {
+        // Add shaper selector dropdown if multiple shapers
+        if (availableShapers.length > 1) {
             const scriptSelectorContainer = document.createElement('div');
             scriptSelectorContainer.className = 'feature-script-selector';
             scriptSelectorContainer.style.cssText = `
@@ -444,7 +469,7 @@ class FontInfoManager {
             `;
 
             const label = document.createElement('span');
-            label.textContent = 'Script:';
+            label.textContent = 'Shaper:';
             label.style.color = 'var(--text-secondary)';
 
             const select = document.createElement('select');
@@ -461,19 +486,26 @@ class FontInfoManager {
                 cursor: pointer;
             `;
 
-            supportedScripts.forEach(script => {
+            availableShapers.forEach((shaper) => {
                 const option = document.createElement('option');
-                option.value = script;
-                option.textContent = script;
-                if (script === this.selectedScript) {
+                option.value = shaper;
+                // Capitalize shaper name for display
+                const displayName =
+                    shaper.charAt(0).toUpperCase() + shaper.slice(1);
+                option.textContent = displayName;
+                if (shaper === this.selectedShaper) {
                     option.selected = true;
                 }
                 select.appendChild(option);
             });
 
             select.addEventListener('change', () => {
-                this.selectedScript = select.value;
-                this.loadFeaturesList(); // Reload with new script order
+                this.selectedShaper = select.value;
+                console.log(
+                    '[FontInfo] Shaper changed to:',
+                    this.selectedShaper
+                );
+                this.loadFeaturesList(); // Reload with new shaper order
             });
 
             scriptSelectorContainer.appendChild(label);
@@ -481,50 +513,136 @@ class FontInfoManager {
             listContainer.appendChild(scriptSelectorContainer);
         }
 
-        // Get feature execution order for selected script
-        const executionOrder = getFeatureExecutionOrder(this.selectedScript);
-        console.log('[FontInfo] Execution order for', this.selectedScript, ':', executionOrder);
-
-        // Build ordered feature list
-        const orderedFeatures = this.orderFeaturesByScript(features, executionOrder);
-
-        let addedSeparator = false;
-        orderedFeatures.forEach(
-            (
-                { tag, codeData, index, isDiscretionary: isDisc, isUserFeature },
-                displayIndex
-            ) => {
-                // Add separator before first discretionary user feature
-                if (isDisc && isUserFeature && !addedSeparator) {
-                    const separator = document.createElement('div');
-                    separator.className = 'feature-section-separator';
-                    separator.style.cssText = `
-                        padding: 6px 12px;
-                        font-size: 10px;
-                        color: var(--text-secondary);
-                        opacity: 0.5;
-                        font-weight: 500;
-                        letter-spacing: 0.05em;
-                        text-transform: uppercase;
-                        margin-top: 8px;
-                    `;
-                    separator.textContent = 'Discretionary (sortable)';
-                    listContainer.appendChild(separator);
-                    addedSeparator = true;
-                }
-
-                const item = this.createListItem(
-                    'feature',
-                    index,
-                    codeData,
-                    tag,
-                    isDisc,
-                    isUserFeature
-                );
-                this.featureListItems.set(index, item);
-                listContainer.appendChild(item);
-            }
+        // Get feature execution order for selected shaper
+        const executionOrder = getFeatureExecutionOrder(this.selectedShaper);
+        console.log(
+            '[FontInfo] Execution order for',
+            this.selectedShaper,
+            ':',
+            executionOrder
         );
+
+        // Build categorized feature lists
+        const categorized = this.categorizeFeaturesByScript(
+            features,
+            executionOrder,
+            supportedScripts
+        );
+
+        // Helper to add section header
+        const addSectionHeader = (text: string) => {
+            const separator = document.createElement('div');
+            separator.className = 'feature-section-separator';
+            separator.style.cssText = `
+                padding: 6px 12px;
+                font-size: 10px;
+                color: var(--text-secondary);
+                opacity: 0.5;
+                font-weight: 500;
+                letter-spacing: 0.05em;
+                text-transform: uppercase;
+                margin-top: 8px;
+            `;
+            separator.textContent = text;
+            listContainer.appendChild(separator);
+        };
+
+        // Add features by category
+        if (categorized.usedByShaper.length > 0) {
+            addSectionHeader('Required (by shaper)');
+            categorized.usedByShaper.forEach(
+                ({
+                    tag,
+                    codeData,
+                    index,
+                    isDiscretionary: isDisc,
+                    isUserFeature
+                }) => {
+                    const item = this.createListItem(
+                        'feature',
+                        index,
+                        codeData,
+                        tag,
+                        isDisc,
+                        isUserFeature
+                    );
+                    this.featureListItems.set(index, item);
+                    listContainer.appendChild(item);
+                }
+            );
+        }
+
+        if (categorized.notUsedByShaper.length > 0) {
+            addSectionHeader('Required (other)');
+            categorized.notUsedByShaper.forEach(
+                ({
+                    tag,
+                    codeData,
+                    index,
+                    isDiscretionary: isDisc,
+                    isUserFeature
+                }) => {
+                    const item = this.createListItem(
+                        'feature',
+                        index,
+                        codeData,
+                        tag,
+                        isDisc,
+                        isUserFeature
+                    );
+                    this.featureListItems.set(index, item);
+                    listContainer.appendChild(item);
+                }
+            );
+        }
+
+        if (categorized.notInLanguagesystem.length > 0) {
+            addSectionHeader('Not in languagesystem');
+            categorized.notInLanguagesystem.forEach(
+                ({
+                    tag,
+                    codeData,
+                    index,
+                    isDiscretionary: isDisc,
+                    isUserFeature
+                }) => {
+                    const item = this.createListItem(
+                        'feature',
+                        index,
+                        codeData,
+                        tag,
+                        isDisc,
+                        isUserFeature
+                    );
+                    this.featureListItems.set(index, item);
+                    listContainer.appendChild(item);
+                }
+            );
+        }
+
+        if (categorized.discretionary.length > 0) {
+            addSectionHeader('Discretionary (sortable)');
+            categorized.discretionary.forEach(
+                ({
+                    tag,
+                    codeData,
+                    index,
+                    isDiscretionary: isDisc,
+                    isUserFeature
+                }) => {
+                    const item = this.createListItem(
+                        'feature',
+                        index,
+                        codeData,
+                        tag,
+                        isDisc,
+                        isUserFeature
+                    );
+                    this.featureListItems.set(index, item);
+                    listContainer.appendChild(item);
+                }
+            );
+        }
 
         // Select first item if none selected
         if (!this.selectedItem && features.length > 0) {
@@ -541,101 +659,103 @@ class FontInfoManager {
         }
     }
 
-    private orderFeaturesByScript(
+    private categorizeFeaturesByScript(
         features: Array<[string, Babelfont.PossiblyAutomaticCode]>,
-        executionOrder: string[]
-    ): Array<{
-        tag: string;
-        codeData: Babelfont.PossiblyAutomaticCode;
-        index: number;
-        isDiscretionary: boolean;
-        isUserFeature: boolean;
-    }> {
-        // Find where user features are inserted
-        const userFeatureIndex = executionOrder.indexOf('--- USER FEATURES ---');
-        const featuresBeforeUser = userFeatureIndex >= 0 
-            ? executionOrder.slice(0, userFeatureIndex).filter(f => !f.startsWith('---'))
-            : [];
-        const featuresAfterUser = userFeatureIndex >= 0
-            ? executionOrder.slice(userFeatureIndex + 1).filter(f => !f.startsWith('---'))
-            : [];
-
-        const orderedResult: Array<{
+        executionOrder: string[],
+        supportedScripts: string[]
+    ): {
+        usedByShaper: Array<{
             tag: string;
             codeData: Babelfont.PossiblyAutomaticCode;
             index: number;
             isDiscretionary: boolean;
             isUserFeature: boolean;
-        }> = [];
+        }>;
+        notUsedByShaper: Array<{
+            tag: string;
+            codeData: Babelfont.PossiblyAutomaticCode;
+            index: number;
+            isDiscretionary: boolean;
+            isUserFeature: boolean;
+        }>;
+        notInLanguagesystem: Array<{
+            tag: string;
+            codeData: Babelfont.PossiblyAutomaticCode;
+            index: number;
+            isDiscretionary: boolean;
+            isUserFeature: boolean;
+        }>;
+        discretionary: Array<{
+            tag: string;
+            codeData: Babelfont.PossiblyAutomaticCode;
+            index: number;
+            isDiscretionary: boolean;
+            isUserFeature: boolean;
+        }>;
+    } {
+        const usedByShaper: any[] = [];
+        const notUsedByShaper: any[] = [];
+        const notInLanguagesystem: any[] = [];
+        const discretionary: any[] = [];
 
-        const featureMap = new Map<string, { codeData: Babelfont.PossiblyAutomaticCode; index: number }>();
+        // Get all features from execution order (excluding markers)
+        const execOrderList = executionOrder.filter((f) => !f.startsWith('---'));
+        const execOrderFeatures = new Set(execOrderList);
+
         features.forEach(([tag, codeData], index) => {
-            featureMap.set(tag, { codeData, index });
-        });
-
-        // Add features that appear before user features (non-discretionary)
-        featuresBeforeUser.forEach(tag => {
-            const feature = featureMap.get(tag);
-            if (feature) {
-                orderedResult.push({
-                    tag,
-                    codeData: feature.codeData,
-                    index: feature.index,
-                    isDiscretionary: false,
-                    isUserFeature: false
-                });
-                featureMap.delete(tag);
-            }
-        });
-
-        // Add discretionary features (user features) - these are draggable
-        const discretionaryFeatures: typeof orderedResult = [];
-        featureMap.forEach(({ codeData, index }, tag) => {
-            if (isDiscretionary(tag)) {
-                discretionaryFeatures.push({
-                    tag,
-                    codeData,
-                    index,
-                    isDiscretionary: true,
-                    isUserFeature: true
-                });
-            }
-        });
-        
-        // Keep discretionary features in their current source order
-        discretionaryFeatures.sort((a, b) => a.index - b.index);
-        orderedResult.push(...discretionaryFeatures);
-
-        // Remove discretionary features from map
-        discretionaryFeatures.forEach(f => featureMap.delete(f.tag));
-
-        // Add remaining required features that appear after user features
-        featuresAfterUser.forEach(tag => {
-            const feature = featureMap.get(tag);
-            if (feature) {
-                orderedResult.push({
-                    tag,
-                    codeData: feature.codeData,
-                    index: feature.index,
-                    isDiscretionary: false,
-                    isUserFeature: false
-                });
-                featureMap.delete(tag);
-            }
-        });
-
-        // Add any remaining features not in execution order at the end
-        featureMap.forEach(({ codeData, index }, tag) => {
-            orderedResult.push({
+            const isDisc = isDiscretionary(tag);
+            const featureData = {
                 tag,
                 codeData,
                 index,
-                isDiscretionary: isDiscretionary(tag),
-                isUserFeature: false
-            });
+                isDiscretionary: isDisc,
+                isUserFeature: isDisc
+            };
+
+            if (isDisc) {
+                // Discretionary features go in their own category
+                discretionary.push(featureData);
+            } else {
+                // Check if feature has actual code (not empty/automatic)
+                const code = codeData.code || '';
+                const hasCode = code.trim().length > 0 && !codeData.automatic;
+
+                if (!hasCode) {
+                    // Feature exists but has no code
+                    notInLanguagesystem.push(featureData);
+                } else if (execOrderFeatures.has(tag)) {
+                    // Required feature used by current shaper
+                    usedByShaper.push(featureData);
+                } else {
+                    // Required feature not used by current shaper
+                    notUsedByShaper.push(featureData);
+                }
+            }
         });
 
-        return orderedResult;
+        // Sort each category
+        // Used by shaper: by execution order (without markers)
+        usedByShaper.sort((a, b) => {
+            const aPos = execOrderList.indexOf(a.tag);
+            const bPos = execOrderList.indexOf(b.tag);
+            return aPos - bPos;
+        });
+
+        // Not used by shaper: alphabetically
+        notUsedByShaper.sort((a, b) => a.tag.localeCompare(b.tag));
+
+        // Not in languagesystem: alphabetically
+        notInLanguagesystem.sort((a, b) => a.tag.localeCompare(b.tag));
+
+        // Discretionary: by source order
+        discretionary.sort((a, b) => a.index - b.index);
+
+        return {
+            usedByShaper,
+            notUsedByShaper,
+            notInLanguagesystem,
+            discretionary
+        };
     }
 
     private createListItem(
@@ -648,62 +768,58 @@ class FontInfoManager {
     ): HTMLElement {
         const item = document.createElement('div');
         item.className = 'feature-list-item sidebar-item';
-        
+
         // Add draggable attribute for discretionary features
         if (isDiscretionaryFeature && isUserFeature) {
             item.setAttribute('draggable', 'true');
             item.classList.add('draggable-feature');
-            item.addEventListener('dragstart', (e) => this.onFeatureDragStart(e, key as number));
+            item.addEventListener('dragstart', (e) =>
+                this.onFeatureDragStart(e, key as number)
+            );
             item.addEventListener('dragover', (e) => this.onFeatureDragOver(e));
-            item.addEventListener('drop', (e) => this.onFeatureDrop(e, key as number));
+            item.addEventListener('drop', (e) =>
+                this.onFeatureDrop(e, key as number)
+            );
             item.addEventListener('dragend', () => this.onFeatureDragEnd());
         }
 
         // For features, show GSUB/GPOS indicators and feature name
         if (type === 'feature' && tag) {
-            // Add drag handle for discretionary features (replaces GSUB/GPOS indicator)
-            if (isDiscretionaryFeature && isUserFeature) {
-                const dragHandle = document.createElement('span');
-                dragHandle.className = 'material-symbols-outlined feature-drag-handle';
-                dragHandle.textContent = 'drag_indicator';
-                item.appendChild(dragHandle);
+            // Analyze feature for GSUB/GPOS content
+            const font = window.currentFontModel;
+            const analysis = font
+                ? font.analyzeFeatureTables(tag)
+                : { hasGSUB: false, hasGPOS: false };
+
+            // GSUB/GPOS indicators
+            const tableIndicator = document.createElement('div');
+            tableIndicator.className = 'feature-table-indicator';
+
+            // GSUB indicator (left circle)
+            const gsubCircle = document.createElement('div');
+            gsubCircle.className = 'feature-table-circle';
+            if (analysis.hasGSUB) {
+                gsubCircle.style.opacity = '0.7';
+                gsubCircle.title = 'GSUB (Glyph Substitution)';
             } else {
-                // Analyze feature for GSUB/GPOS content
-                const font = window.currentFontModel;
-                const analysis = font
-                    ? font.analyzeFeatureTables(tag)
-                    : { hasGSUB: false, hasGPOS: false };
-
-                // GSUB/GPOS indicators
-                const tableIndicator = document.createElement('div');
-                tableIndicator.className = 'feature-table-indicator';
-
-                // GSUB indicator (left circle)
-                const gsubCircle = document.createElement('div');
-                gsubCircle.className = 'feature-table-circle';
-                if (analysis.hasGSUB) {
-                    gsubCircle.style.opacity = '0.7';
-                    gsubCircle.title = 'GSUB (Glyph Substitution)';
-                } else {
-                    gsubCircle.style.opacity = '0.1';
-                    gsubCircle.title = '';
-                }
-                tableIndicator.appendChild(gsubCircle);
-
-                // GPOS indicator (right circle)
-                const gposCircle = document.createElement('div');
-                gposCircle.className = 'feature-table-circle';
-                if (analysis.hasGPOS) {
-                    gposCircle.style.opacity = '0.7';
-                    gposCircle.title = 'GPOS (Glyph Positioning)';
-                } else {
-                    gposCircle.style.opacity = '0.1';
-                    gposCircle.title = '';
-                }
-                tableIndicator.appendChild(gposCircle);
-
-                item.appendChild(tableIndicator);
+                gsubCircle.style.opacity = '0.1';
+                gsubCircle.title = '';
             }
+            tableIndicator.appendChild(gsubCircle);
+
+            // GPOS indicator (right circle)
+            const gposCircle = document.createElement('div');
+            gposCircle.className = 'feature-table-circle';
+            if (analysis.hasGPOS) {
+                gposCircle.style.opacity = '0.7';
+                gposCircle.title = 'GPOS (Glyph Positioning)';
+            } else {
+                gposCircle.style.opacity = '0.1';
+                gposCircle.title = '';
+            }
+            tableIndicator.appendChild(gposCircle);
+
+            item.appendChild(tableIndicator);
 
             // Feature tag (4-digit code)
             const tagSpan = document.createElement('span');
@@ -905,8 +1021,11 @@ class FontInfoManager {
 
     private onFeatureDrop(e: DragEvent, targetIndex: number) {
         e.preventDefault();
-        
-        if (this.draggedFeatureIndex === null || this.draggedFeatureIndex === targetIndex) {
+
+        if (
+            this.draggedFeatureIndex === null ||
+            this.draggedFeatureIndex === targetIndex
+        ) {
             return;
         }
 
@@ -918,18 +1037,24 @@ class FontInfoManager {
         const targetTag = features[targetIndex]?.[0];
 
         // Only allow reordering discretionary features
-        if (!draggedTag || !targetTag || !isDiscretionary(draggedTag) || !isDiscretionary(targetTag)) {
+        if (
+            !draggedTag ||
+            !targetTag ||
+            !isDiscretionary(draggedTag) ||
+            !isDiscretionary(targetTag)
+        ) {
             return;
         }
 
         // Reorder features in the font model
         const [movedFeature] = features.splice(this.draggedFeatureIndex, 1);
-        
+
         // Adjust target index if moving down
-        const adjustedTargetIndex = this.draggedFeatureIndex < targetIndex 
-            ? targetIndex - 1 
-            : targetIndex;
-        
+        const adjustedTargetIndex =
+            this.draggedFeatureIndex < targetIndex
+                ? targetIndex - 1
+                : targetIndex;
+
         features.splice(adjustedTargetIndex, 0, movedFeature);
 
         // Mark font as dirty
@@ -944,7 +1069,9 @@ class FontInfoManager {
         this.loadFeaturesList();
 
         // Re-select the moved feature
-        const newIndex = features.findIndex(([tag]) => tag === draggedFeatureTag);
+        const newIndex = features.findIndex(
+            ([tag]) => tag === draggedFeatureTag
+        );
         if (newIndex >= 0) {
             this.selectItem('feature', newIndex);
         }
@@ -953,7 +1080,7 @@ class FontInfoManager {
     private onFeatureDragEnd() {
         this.draggedFeatureIndex = null;
         // Reset dragging class
-        document.querySelectorAll('.draggable-feature').forEach(item => {
+        document.querySelectorAll('.draggable-feature').forEach((item) => {
             item.classList.remove('dragging');
         });
     }
