@@ -645,6 +645,32 @@ class FontInfoManager {
             );
         }
 
+        // Post-USER FEATURES section (features that come after '--- USER FEATURES ---' marker)
+        if (categorized.postUserFeatures.length > 0) {
+            const shaperDisplayName = this.selectedShaper.charAt(0).toUpperCase() + this.selectedShaper.slice(1);
+            addSectionHeader(`Used by ${shaperDisplayName} shaper`);
+            categorized.postUserFeatures.forEach(
+                ({
+                    tag,
+                    codeData,
+                    index,
+                    isDiscretionary: isDisc,
+                    isUserFeature
+                }) => {
+                    const item = this.createListItem(
+                        'feature',
+                        index,
+                        codeData,
+                        tag,
+                        isDisc,
+                        isUserFeature
+                    );
+                    this.featureListItems.set(index, item);
+                    listContainer.appendChild(item);
+                }
+            );
+        }
+
         // Select first item if none selected
         if (!this.selectedItem && features.length > 0) {
             this.selectItem('feature', 0);
@@ -666,6 +692,13 @@ class FontInfoManager {
         supportedScripts: string[]
     ): {
         usedByShaper: Array<{
+            tag: string;
+            codeData: Babelfont.PossiblyAutomaticCode;
+            index: number;
+            isDiscretionary: boolean;
+            isUserFeature: boolean;
+        }>;
+        postUserFeatures: Array<{
             tag: string;
             codeData: Babelfont.PossiblyAutomaticCode;
             index: number;
@@ -695,15 +728,30 @@ class FontInfoManager {
         }>;
     } {
         const usedByShaper: any[] = [];
+        const postUserFeatures: any[] = [];
         const notUsedByShaper: any[] = [];
         const notInLanguagesystem: any[] = [];
         const discretionary: any[] = [];
 
-        // Get all features from execution order (excluding markers)
-        const execOrderList = executionOrder.filter(
-            (f) => !f.startsWith('---')
-        );
-        const execOrderFeatures = new Set(execOrderList);
+        // Split execution order at '--- USER FEATURES ---' marker
+        const userFeaturesIndex = executionOrder.indexOf('--- USER FEATURES ---');
+        let preUserFeatures: string[] = [];
+        let postUserFeaturesList: string[] = [];
+        
+        if (userFeaturesIndex >= 0) {
+            preUserFeatures = executionOrder.slice(0, userFeaturesIndex).filter(
+                (f) => !f.startsWith('---')
+            );
+            postUserFeaturesList = executionOrder.slice(userFeaturesIndex + 1).filter(
+                (f) => !f.startsWith('---')
+            );
+        } else {
+            // No USER FEATURES marker, treat all as pre-user
+            preUserFeatures = executionOrder.filter((f) => !f.startsWith('---'));
+        }
+        
+        const preUserFeaturesSet = new Set(preUserFeatures);
+        const postUserFeaturesSet = new Set(postUserFeaturesList);
 
         features.forEach(([tag, codeData], index) => {
             const isDisc = isDiscretionary(tag);
@@ -719,13 +767,12 @@ class FontInfoManager {
                 // Discretionary features go in their own category
                 discretionary.push(featureData);
             } else {
-                // Check if feature has actual code
-                const code = codeData.code || '';
-                const hasCode = code.trim().length > 0;
-
-                if (execOrderFeatures.has(tag)) {
-                    // Required feature used by current shaper
+                if (preUserFeaturesSet.has(tag)) {
+                    // Feature before USER FEATURES marker
                     usedByShaper.push(featureData);
+                } else if (postUserFeaturesSet.has(tag)) {
+                    // Feature after USER FEATURES marker
+                    postUserFeatures.push(featureData);
                 } else {
                     // Required feature not used by current shaper
                     notUsedByShaper.push(featureData);
@@ -734,10 +781,17 @@ class FontInfoManager {
         });
 
         // Sort each category
-        // Used by shaper: by execution order (without markers)
+        // Used by shaper: by execution order (before USER FEATURES)
         usedByShaper.sort((a, b) => {
-            const aPos = execOrderList.indexOf(a.tag);
-            const bPos = execOrderList.indexOf(b.tag);
+            const aPos = preUserFeatures.indexOf(a.tag);
+            const bPos = preUserFeatures.indexOf(b.tag);
+            return aPos - bPos;
+        });
+
+        // Post-user features: by execution order (after USER FEATURES)
+        postUserFeatures.sort((a, b) => {
+            const aPos = postUserFeaturesList.indexOf(a.tag);
+            const bPos = postUserFeaturesList.indexOf(b.tag);
             return aPos - bPos;
         });
 
@@ -752,6 +806,7 @@ class FontInfoManager {
 
         return {
             usedByShaper,
+            postUserFeatures,
             notUsedByShaper,
             notInLanguagesystem,
             discretionary
