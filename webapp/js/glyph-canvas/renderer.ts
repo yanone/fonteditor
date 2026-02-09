@@ -431,8 +431,10 @@ export class GlyphCanvasRenderer {
      * @param x - X position (center of the label) in font coordinates
      * @param y - Y position (top of the label box) in font coordinates
      * @param invScale - Inverse of current zoom scale for consistent sizing
+     * @param offsetX - Optional X offset when canvas has been translated (e.g., inside drawOutlineEditor)
+     * @param offsetY - Optional Y offset when canvas has been translated
      */
-    drawHoverLabel(text: string, x: number, y: number, invScale: number): void {
+    drawHoverLabel(text: string, x: number, y: number, invScale: number, offsetX: number = 0, offsetY: number = 0): void {
         const isDarkTheme =
             document.documentElement.getAttribute('data-theme') !== 'light';
         const colors = isDarkTheme
@@ -460,10 +462,11 @@ export class GlyphCanvasRenderer {
         const panY = this.viewportManager.panY;
 
         // Screen coordinates (Y is flipped in font space)
-        const screenMinX = labelMinX * scale + panX;
-        const screenMaxX = labelMaxX * scale + panX;
-        const screenMinY = -labelMaxY * scale + panY; // Top edge in screen space
-        const screenMaxY = -labelMinY * scale + panY; // Bottom edge in screen space
+        // Account for canvas translation offset when called from inside drawOutlineEditor
+        const screenMinX = (labelMinX + offsetX) * scale + panX;
+        const screenMaxX = (labelMaxX + offsetX) * scale + panX;
+        const screenMinY = -(labelMaxY + offsetY) * scale + panY; // Top edge in screen space
+        const screenMaxY = -(labelMinY + offsetY) * scale + panY; // Bottom edge in screen space
 
         // Canvas dimensions
         const canvasWidth = this.canvas.width / window.devicePixelRatio;
@@ -1227,7 +1230,8 @@ export class GlyphCanvasRenderer {
             const worldX = a * centerX + c * labelY + tx;
             const worldY = b * centerX + d * labelY + ty;
 
-            this.drawHoverLabel(componentName, worldX, worldY, invScale);
+            // Pass glyph offset since we're inside ctx.translate(x, y) context
+            this.drawHoverLabel(componentName, worldX, worldY, invScale, x, y);
         });
 
         // Draw anchor labels on top of component labels
