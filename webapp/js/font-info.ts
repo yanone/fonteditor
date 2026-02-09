@@ -207,8 +207,10 @@ class FontInfoManager {
             enableLiveAutocompletion: false,
             showGutter: true,
             showLineNumbers: true,
-            wrap: false
+            wrap: true
         });
+        // Enable indented soft wrap on the session (must be set on session, not editor)
+        this.featuresEditor.session.setOption('indentedSoftWrap', true);
 
         // Set up change handler
         this.featuresEditor.on('change', () => this.onFeatureCodeChanged());
@@ -978,8 +980,8 @@ class FontInfoManager {
         // Load code into editor
         if (this.featuresEditor) {
             this.featuresEditor.setValue(codeData.code || '', -1);
-            // Enable line wrapping only for classes, not for prefixes and features
-            this.featuresEditor.session.setUseWrapMode(type === 'class');
+            // Enable line wrapping for all cases (prefixes, classes, and features)
+            this.featuresEditor.session.setUseWrapMode(true);
         }
 
         // Update automatic checkbox
