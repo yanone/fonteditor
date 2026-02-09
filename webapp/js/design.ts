@@ -131,7 +131,76 @@ export function desaturateColor(colorString: string): string {
     return `rgba(${gray}, ${gray}, ${gray}, ${a})`;
 }
 
+/**
+ * Converts any color format to rgba() string
+ * Handles: 8-digit hex (#RRGGBBAA), 6-digit hex (#RRGGBB), rgba(), rgb()
+ * @param {string} colorString - Color in various formats
+ * @returns {string} Color in rgba() format
+ */
+export function toRgba(colorString: string): string {
+    // Already rgba() - return as-is
+    if (colorString.startsWith('rgba(')) {
+        return colorString;
+    }
+
+    // rgb() - convert to rgba with alpha=1
+    const rgbMatch = colorString.match(
+        /rgb\((\d+),\s*(\d+),\s*(\d+)\)/
+    );
+    if (rgbMatch) {
+        const r = parseInt(rgbMatch[1]);
+        const g = parseInt(rgbMatch[2]);
+        const b = parseInt(rgbMatch[3]);
+        return `rgba(${r}, ${g}, ${b}, 1)`;
+    }
+
+    // 8-digit hex with alpha (#RRGGBBAA)
+    const hex8Match = colorString.match(/^#([0-9a-fA-F]{8})$/);
+    if (hex8Match) {
+        const hex = hex8Match[1];
+        const r = parseInt(hex.substr(0, 2), 16);
+        const g = parseInt(hex.substr(2, 2), 16);
+        const b = parseInt(hex.substr(4, 2), 16);
+        const a = parseInt(hex.substr(6, 2), 16) / 255;
+        return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+    }
+
+    // 6-digit hex (#RRGGBB) - alpha=1
+    const hex6Match = colorString.match(/^#([0-9a-fA-F]{6})$/);
+    if (hex6Match) {
+        const hex = hex6Match[1];
+        const r = parseInt(hex.substr(0, 2), 16);
+        const g = parseInt(hex.substr(2, 2), 16);
+        const b = parseInt(hex.substr(4, 2), 16);
+        return `rgba(${r}, ${g}, ${b}, 1)`;
+    }
+
+    // 3-digit hex (#RGB) - alpha=1
+    const hex3Match = colorString.match(/^#([0-9a-fA-F]{3})$/);
+    if (hex3Match) {
+        const hex = hex3Match[1];
+        const r = parseInt(hex[0] + hex[0], 16);
+        const g = parseInt(hex[1] + hex[1], 16);
+        const b = parseInt(hex[2] + hex[2], 16);
+        return `rgba(${r}, ${g}, ${b}, 1)`;
+    }
+
+    // 4-digit hex with alpha (#RGBA)
+    const hex4Match = colorString.match(/^#([0-9a-fA-F]{4})$/);
+    if (hex4Match) {
+        const hex = hex4Match[1];
+        const r = parseInt(hex[0] + hex[0], 16);
+        const g = parseInt(hex[1] + hex[1], 16);
+        const b = parseInt(hex[2] + hex[2], 16);
+        const a = parseInt(hex[3] + hex[3], 16) / 255;
+        return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+    }
+
+    // Can't parse, return original
+    return colorString;
+}
+
 // Export for module use (Node.js/Jest)
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { adjustColorHueAndLightness, desaturateColor };
+    module.exports = { adjustColorHueAndLightness, desaturateColor, toRgba };
 }

@@ -90,7 +90,7 @@ const APP_SETTINGS = {
             // Glyphs in text/preview mode
             GLYPH_NORMAL: '#000000',
             GLYPH_HOVERED: '#888888',
-            GLYPH_SELECTED: '#00ff00',
+            GLYPH_SELECTED: '#090a09',
             GLYPH_NOTDEF: 'rgba(0, 0, 0, 0.15)', // .notdef during font compilation
 
             // Glyphs when outline editor is active
@@ -118,13 +118,9 @@ const APP_SETTINGS = {
             ANCHOR_STROKE: '#000000',
 
             // Components
-            COMPONENT_NORMAL: '#49b9deff',
-            COMPONENT_HOVERED: '#cc66cc',
-            COMPONENT_SELECTED: '#cc00cc',
-            COMPONENT_STROKE: '#000000',
-            COMPONENT_FILL_NORMAL: 'rgba(0, 153, 204, 0.15)',
-            COMPONENT_FILL_HOVERED: 'rgba(204, 102, 204, 0.2)',
-            COMPONENT_FILL_SELECTED: 'rgba(204, 0, 204, 0.25)',
+            COMPONENT_FILL_NORMAL: '#75b5c6cc',
+            COMPONENT_FILL_HOVERED: '#75b5c6aa',
+            COMPONENT_FILL_SELECTED: '#2f8ceaff',
 
             // Measurement tool
             MEASUREMENT_TOOL_LINE: '#000000',
@@ -137,6 +133,18 @@ const APP_SETTINGS = {
             HOVER_LABEL_BG: '#c7c7c7',
             HOVER_LABEL_BORDER: 'rgba(255, 255, 255, 0.5)',
             HOVER_LABEL_TEXT: '#000000'
+        },
+
+        // Colors - Glyph Overview (Light Theme)
+        GLYPH_OVERVIEW_COLORS_LIGHT: {
+            COMPONENT: '#75b5c6',
+            PATH: '#aaaaaa'
+        },
+
+        // Colors - Glyph Overview (Dark Theme)
+        GLYPH_OVERVIEW_COLORS_DARK: {
+            COMPONENT: '#75b5c6',
+            PATH: '#777777'
         },
 
         // Colors - Dark Theme
@@ -175,13 +183,9 @@ const APP_SETTINGS = {
             ANCHOR_STROKE: '#ffffff',
 
             // Components
-            COMPONENT_NORMAL: '#00ffff',
-            COMPONENT_HOVERED: '#ff88ff',
-            COMPONENT_SELECTED: '#ff00ff',
-            COMPONENT_STROKE: '#ffffff',
-            COMPONENT_FILL_NORMAL: 'rgba(0, 255, 255, 0.15)',
-            COMPONENT_FILL_HOVERED: 'rgba(255, 136, 255, 0.2)',
-            COMPONENT_FILL_SELECTED: 'rgba(255, 0, 255, 0.3)',
+            COMPONENT_FILL_NORMAL: '#75b5c6cc',
+            COMPONENT_FILL_HOVERED: '#75b5c6aa',
+            COMPONENT_FILL_SELECTED: '#2f8ceaff',
 
             // Measurement tool
             MEASUREMENT_TOOL_LINE: '#ffffff',

@@ -87,13 +87,17 @@ if (typeof APP_SETTINGS === 'undefined') {
                 ANCHOR_HOVERED: '#ff88ff',
                 ANCHOR_SELECTED: '#ff00ff',
                 ANCHOR_STROKE: '#ffffff',
-                COMPONENT_NORMAL: '#00ffff',
-                COMPONENT_HOVERED: '#ff88ff',
-                COMPONENT_SELECTED: '#ff00ff',
-                COMPONENT_STROKE: '#ffffff',
                 COMPONENT_FILL_NORMAL: 'rgba(0, 255, 255, 0.15)',
                 COMPONENT_FILL_HOVERED: 'rgba(255, 136, 255, 0.2)',
                 COMPONENT_FILL_SELECTED: 'rgba(255, 0, 255, 0.3)'
+            },
+            GLYPH_OVERVIEW_COLORS_DARK: {
+                COMPONENT: '#75b5c6',
+                PATH: '#777777'
+            },
+            GLYPH_OVERVIEW_COLORS_LIGHT: {
+                COMPONENT: '#75b5c6',
+                PATH: '#aaaaaa'
             },
             COLORS_LIGHT: {
                 GRID: 'rgba(0, 0, 0, 0.075)',
@@ -116,10 +120,6 @@ if (typeof APP_SETTINGS === 'undefined') {
                 ANCHOR_HOVERED: '#ff88ff',
                 ANCHOR_SELECTED: '#ff00ff',
                 ANCHOR_STROKE: '#000000',
-                COMPONENT_NORMAL: '#49b9deff',
-                COMPONENT_HOVERED: '#cc66cc',
-                COMPONENT_SELECTED: '#cc00cc',
-                COMPONENT_STROKE: '#000000',
                 COMPONENT_FILL_NORMAL: 'rgba(0, 153, 204, 0.15)',
                 COMPONENT_FILL_HOVERED: 'rgba(204, 102, 204, 0.2)',
                 COMPONENT_FILL_SELECTED: 'rgba(204, 0, 204, 0.25)'

@@ -1,4 +1,4 @@
-import { adjustColorHueAndLightness, desaturateColor } from '../design';
+import { desaturateColor, toRgba } from '../design';
 import APP_SETTINGS from '../settings';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 import { Logger } from '../logger';
@@ -1054,73 +1054,6 @@ export class GlyphCanvasRenderer {
                         }
                     }
                 }
-
-                // Draw component reference marker at origin
-                // Skip drawing markers if disabled or if zoom is under minimum threshold
-                if (
-                    !APP_SETTINGS.OUTLINE_EDITOR.SHOW_COMPONENT_ORIGIN_MARKERS
-                ) {
-                    this.ctx.restore();
-                    return;
-                }
-                const minZoomForHandles =
-                    APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
-                if (this.viewportManager.scale < minZoomForHandles) {
-                    this.ctx.restore();
-                    return;
-                }
-
-                const markerSize =
-                    APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_MARKER_SIZE *
-                    invScale; // Draw cross marker
-                const colors = isDarkTheme
-                    ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
-                    : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
-
-                // Determine marker stroke color based on state
-                const baseMarkerColor = isSelected
-                    ? colors.COMPONENT_SELECTED
-                    : colors.COMPONENT_NORMAL;
-
-                // For hover, make it 20% darker
-                let markerStrokeColor = isHovered
-                    ? adjustColorHueAndLightness(baseMarkerColor, 0, -20)
-                    : baseMarkerColor;
-
-                // Apply monochrome for interpolated data
-                if (isInterpolated) {
-                    markerStrokeColor = desaturateColor(markerStrokeColor);
-                }
-
-                this.ctx.strokeStyle = markerStrokeColor;
-                this.ctx.lineWidth = 2 * invScale;
-                this.ctx.beginPath();
-                this.ctx.moveTo(-markerSize, 0);
-                this.ctx.lineTo(markerSize, 0);
-                this.ctx.moveTo(0, -markerSize);
-                this.ctx.lineTo(0, markerSize);
-                this.ctx.stroke();
-
-                // Draw circle around cross
-                this.ctx.beginPath();
-                this.ctx.arc(0, 0, markerSize, 0, Math.PI * 2);
-                this.ctx.stroke();
-
-                // Draw component reference name with inverse transform for normal aspect
-                const fontSize = 12 * invScale;
-                this.ctx.save();
-                this.applyInverseComponentTransform(); // Cancel out component transform
-                this.ctx.scale(1, -1); // Flip Y axis
-                this.ctx.font = `${fontSize}px monospace`;
-                this.ctx.fillStyle = isDarkTheme
-                    ? 'rgba(255, 255, 255, 0.8)'
-                    : 'rgba(0, 0, 0, 0.8)';
-                this.ctx.fillText(
-                    ('reference' in shape && shape.reference) || 'component',
-                    markerSize * 1.5,
-                    markerSize
-                );
-                this.ctx.restore();
 
                 this.ctx.restore();
             });
@@ -3438,30 +3371,6 @@ export class GlyphCanvasRenderer {
                 isDarkTheme
             );
 
-            // Draw component marker
-            if (
-                APP_SETTINGS.OUTLINE_EDITOR.SHOW_COMPONENT_ORIGIN_MARKERS &&
-                this.viewportManager.scale >=
-                    APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES
-            ) {
-                const markerSize =
-                    APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_MARKER_SIZE *
-                    invScale;
-
-                this.ctx.strokeStyle = colors.COMPONENT_NORMAL;
-                this.ctx.lineWidth = 2 * invScale;
-                this.ctx.beginPath();
-                this.ctx.moveTo(-markerSize, 0);
-                this.ctx.lineTo(markerSize, 0);
-                this.ctx.moveTo(0, -markerSize);
-                this.ctx.lineTo(0, markerSize);
-                this.ctx.stroke();
-
-                this.ctx.beginPath();
-                this.ctx.arc(0, 0, markerSize, 0, Math.PI * 2);
-                this.ctx.stroke();
-            }
-
             this.ctx.restore();
         });
     }
@@ -3538,42 +3447,6 @@ export class GlyphCanvasRenderer {
                 invScale,
                 isDarkTheme
             );
-
-            // Draw component marker
-            if (
-                APP_SETTINGS.OUTLINE_EDITOR.SHOW_COMPONENT_ORIGIN_MARKERS &&
-                this.viewportManager.scale >=
-                    APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES
-            ) {
-                const colors = isDarkTheme
-                    ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
-                    : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
-                const markerSize =
-                    APP_SETTINGS.OUTLINE_EDITOR.COMPONENT_MARKER_SIZE *
-                    invScale;
-                const markerStrokeColor = isSelected
-                    ? colors.COMPONENT_SELECTED
-                    : isHovered
-                      ? adjustColorHueAndLightness(
-                            colors.COMPONENT_NORMAL,
-                            0,
-                            -20
-                        )
-                      : colors.COMPONENT_NORMAL;
-
-                this.ctx.strokeStyle = markerStrokeColor;
-                this.ctx.lineWidth = 2 * invScale;
-                this.ctx.beginPath();
-                this.ctx.moveTo(-markerSize, 0);
-                this.ctx.lineTo(markerSize, 0);
-                this.ctx.moveTo(0, -markerSize);
-                this.ctx.lineTo(0, markerSize);
-                this.ctx.stroke();
-
-                this.ctx.beginPath();
-                this.ctx.arc(0, 0, markerSize, 0, Math.PI * 2);
-                this.ctx.stroke();
-            }
 
             this.ctx.restore();
         });
@@ -3672,22 +3545,16 @@ export class GlyphCanvasRenderer {
             ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
             : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
 
-        const baseStrokeColor = isSelected
-            ? colors.COMPONENT_SELECTED
-            : colors.COMPONENT_NORMAL;
-        let strokeColor = isHovered
-            ? adjustColorHueAndLightness(baseStrokeColor, 0, 50)
-            : baseStrokeColor;
-
-        const baseFillColor = isSelected
+        let fillColor = isSelected
             ? colors.COMPONENT_FILL_SELECTED
-            : colors.COMPONENT_FILL_NORMAL;
-        let fillColor = isHovered
-            ? adjustColorHueAndLightness(baseFillColor, 0, 50)
-            : baseFillColor;
+            : isHovered
+              ? colors.COMPONENT_FILL_HOVERED
+              : colors.COMPONENT_FILL_NORMAL;
+
+        // Convert to rgba format for consistent alpha handling
+        fillColor = toRgba(fillColor);
 
         if (isInterpolated) {
-            strokeColor = desaturateColor(strokeColor);
             fillColor = desaturateColor(fillColor);
         }
 
@@ -3713,27 +3580,5 @@ export class GlyphCanvasRenderer {
         });
         this.ctx.fillStyle = fillColor;
         this.ctx.fill();
-
-        // Stroke
-        this.ctx.beginPath();
-        outlineShapes.forEach(({ nodes, transform }) => {
-            if (transform) {
-                this.ctx.save();
-                this.ctx.transform(
-                    transform[0],
-                    transform[1],
-                    transform[2],
-                    transform[3],
-                    transform[4],
-                    transform[5]
-                );
-            }
-            this.buildPathFromNodes(nodes);
-            this.ctx.closePath();
-            if (transform) this.ctx.restore();
-        });
-        this.ctx.strokeStyle = strokeColor;
-        this.ctx.lineWidth = 1 * invScale;
-        this.ctx.stroke();
     }
 }

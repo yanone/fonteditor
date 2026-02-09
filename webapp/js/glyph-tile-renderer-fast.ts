@@ -5,6 +5,7 @@
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import { DecomposedAffineTransform } from './babelfont-model';
 import { Logger } from './logger';
+import APP_SETTINGS from './settings';
 
 const console = new Logger('GlyphTileRendererFast');
 
@@ -36,16 +37,16 @@ class FastGlyphTileRenderer {
     }
 
     /**
-     * Update cached theme colors from CSS variables
+     * Update cached theme colors from settings
      */
     public updateThemeColors(): void {
-        const computedStyle = getComputedStyle(document.documentElement);
-        this.componentColor = computedStyle
-            .getPropertyValue('--glyph-overview-component-color')
-            .trim();
-        this.pathColor = computedStyle
-            .getPropertyValue('--glyph-overview-path-color')
-            .trim();
+        const isDarkTheme =
+            document.documentElement.getAttribute('data-theme') !== 'light';
+        const colors = isDarkTheme
+            ? APP_SETTINGS.OUTLINE_EDITOR.GLYPH_OVERVIEW_COLORS_DARK
+            : APP_SETTINGS.OUTLINE_EDITOR.GLYPH_OVERVIEW_COLORS_LIGHT;
+        this.componentColor = colors.COMPONENT;
+        this.pathColor = colors.PATH;
         this.colorsInitialized = true;
     }
 
