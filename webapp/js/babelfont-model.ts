@@ -2846,4 +2846,138 @@ export class Font extends ModelBase {
             masterCount > 1 ? ` ${axisCount} axes, ${masterCount} masters` : '';
         return `<Font "${familyName}" ${glyphCount} glyphs${info}>`;
     }
+
+    /**
+     * Analyze a feature's code to determine if it contains GSUB and/or GPOS rules
+     * @param featureTag - The 4-character feature tag (e.g., "liga", "kern")
+     * @returns Object with hasGSUB and hasGPOS boolean flags
+     * @example
+     * const analysis = font.analyzeFeatureTables("liga")
+     * if (analysis.hasGSUB) console.log("Feature has substitution rules")
+     */
+    analyzeFeatureTables(featureTag: string): {
+        hasGSUB: boolean;
+        hasGPOS: boolean;
+    } {
+        if (!this.features?.features) {
+            return { hasGSUB: false, hasGPOS: false };
+        }
+
+        // Find the feature by tag
+        const feature = this.features.features.find(
+            ([tag]) => tag === featureTag
+        );
+        if (!feature) {
+            return { hasGSUB: false, hasGPOS: false };
+        }
+
+        const code = feature[1].code || '';
+        return this._analyzeFeatureCode(code);
+    }
+
+    /**
+     * Internal method to analyze feature code for GSUB/GPOS content
+     * Handles lookup references by parsing all features and prefixes
+     */
+    private _analyzeFeatureCode(code: string): {
+        hasGSUB: boolean;
+        hasGPOS: boolean;
+    } {
+        // GSUB keywords from OpenType Feature File Specification
+        const gsubKeywords = ['substitute', 'sub', 'reversesub', 'rsub'];
+
+        // GPOS keywords from OpenType Feature File Specification
+        const gposKeywords = ['position', 'pos', 'valueRecordDef', 'cursive'];
+
+        let hasGSUB = false;
+        let hasGPOS = false;
+
+        // Check for direct GSUB keywords
+        for (const keyword of gsubKeywords) {
+            // Match keyword as whole word (not part of another word)
+            const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+            if (regex.test(code)) {
+                hasGSUB = true;
+                break;
+            }
+        }
+
+        // Check for direct GPOS keywords
+        for (const keyword of gposKeywords) {
+            const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+            if (regex.test(code)) {
+                hasGPOS = true;
+                break;
+            }
+        }
+
+        // Check for lookup references (e.g., "lookup LOOKUP_NAME;")
+        const lookupRefPattern = /lookup\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*;/g;
+        const lookupRefs: string[] = [];
+        let match;
+        while ((match = lookupRefPattern.exec(code)) !== null) {
+            lookupRefs.push(match[1]);
+        }
+
+        // If we found lookup references, analyze those lookups
+        if (lookupRefs.length > 0) {
+            for (const lookupName of lookupRefs) {
+                const lookupAnalysis = this._analyzeLookupByName(lookupName);
+                if (lookupAnalysis.hasGSUB) hasGSUB = true;
+                if (lookupAnalysis.hasGPOS) hasGPOS = true;
+            }
+        }
+
+        return { hasGSUB, hasGPOS };
+    }
+
+    /**
+     * Find and analyze a named lookup in features or prefixes
+     */
+    private _analyzeLookupByName(lookupName: string): {
+        hasGSUB: boolean;
+        hasGPOS: boolean;
+    } {
+        if (!this.features) {
+            return { hasGSUB: false, hasGPOS: false };
+        }
+
+        // Search in prefixes
+        if (this.features.prefixes) {
+            const prefixCode = this.features.prefixes[lookupName];
+            if (prefixCode?.code) {
+                return this._analyzeFeatureCode(prefixCode.code);
+            }
+        }
+
+        // Search in all features for named lookup blocks
+        // Pattern: lookup NAME { ... } NAME;
+        const lookupPattern = new RegExp(
+            `lookup\\s+${lookupName}\\s*\\{([^}]+)\\}\\s*${lookupName}\\s*;`,
+            'gs'
+        );
+
+        if (this.features.features) {
+            for (const [, featureData] of this.features.features) {
+                const featureCode = featureData.code || '';
+                const lookupMatch = lookupPattern.exec(featureCode);
+                if (lookupMatch) {
+                    return this._analyzeFeatureCode(lookupMatch[1]);
+                }
+            }
+        }
+
+        // Also check prefixes for lookup blocks
+        if (this.features.prefixes) {
+            for (const prefixCode of Object.values(this.features.prefixes)) {
+                const code = prefixCode.code || '';
+                const lookupMatch = lookupPattern.exec(code);
+                if (lookupMatch) {
+                    return this._analyzeFeatureCode(lookupMatch[1]);
+                }
+            }
+        }
+
+        return { hasGSUB: false, hasGPOS: false };
+    }
 }

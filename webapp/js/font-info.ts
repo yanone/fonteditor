@@ -426,18 +426,38 @@ class FontInfoManager {
 
         // For features, show GSUB/GPOS indicators and feature name
         if (type === 'feature' && tag) {
-            // GSUB/GPOS indicators (placeholder)
+            // Analyze feature for GSUB/GPOS content
+            const font = window.currentFontModel;
+            const analysis = font
+                ? font.analyzeFeatureTables(tag)
+                : { hasGSUB: false, hasGPOS: false };
+
+            // GSUB/GPOS indicators
             const tableIndicator = document.createElement('div');
             tableIndicator.className = 'feature-table-indicator';
 
+            // GSUB indicator (left circle)
             const gsubCircle = document.createElement('div');
             gsubCircle.className = 'feature-table-circle';
-            gsubCircle.title = 'GSUB';
+            if (analysis.hasGSUB) {
+                gsubCircle.style.opacity = '0.7';
+                gsubCircle.title = 'GSUB (Glyph Substitution)';
+            } else {
+                gsubCircle.style.opacity = '0.1';
+                gsubCircle.title = '';
+            }
             tableIndicator.appendChild(gsubCircle);
 
+            // GPOS indicator (right circle)
             const gposCircle = document.createElement('div');
             gposCircle.className = 'feature-table-circle';
-            gposCircle.title = 'GPOS';
+            if (analysis.hasGPOS) {
+                gposCircle.style.opacity = '0.7';
+                gposCircle.title = 'GPOS (Glyph Positioning)';
+            } else {
+                gposCircle.style.opacity = '0.1';
+                gposCircle.title = '';
+            }
             tableIndicator.appendChild(gposCircle);
 
             item.appendChild(tableIndicator);
