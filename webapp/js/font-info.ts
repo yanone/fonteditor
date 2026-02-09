@@ -549,33 +549,11 @@ class FontInfoManager {
 
         // Add features by category
         if (categorized.usedByShaper.length > 0) {
-            const shaperDisplayName = this.selectedShaper.charAt(0).toUpperCase() + this.selectedShaper.slice(1);
+            const shaperDisplayName =
+                this.selectedShaper.charAt(0).toUpperCase() +
+                this.selectedShaper.slice(1);
             addSectionHeader(`Used by ${shaperDisplayName} shaper`);
             categorized.usedByShaper.forEach(
-                ({
-                    tag,
-                    codeData,
-                    index,
-                    isDiscretionary: isDisc,
-                    isUserFeature
-                }) => {
-                    const item = this.createListItem(
-                        'feature',
-                        index,
-                        codeData,
-                        tag,
-                        isDisc,
-                        isUserFeature
-                    );
-                    this.featureListItems.set(index, item);
-                    listContainer.appendChild(item);
-                }
-            );
-        }
-
-        if (categorized.notUsedByShaper.length > 0) {
-            addSectionHeader('Used by other shapers');
-            categorized.notUsedByShaper.forEach(
                 ({
                     tag,
                     codeData,
@@ -647,8 +625,10 @@ class FontInfoManager {
 
         // Post-USER FEATURES section (features that come after '--- USER FEATURES ---' marker)
         if (categorized.postUserFeatures.length > 0) {
-            const shaperDisplayName = this.selectedShaper.charAt(0).toUpperCase() + this.selectedShaper.slice(1);
-            addSectionHeader(`Used by ${shaperDisplayName} shaper`);
+            const shaperDisplayName =
+                this.selectedShaper.charAt(0).toUpperCase() +
+                this.selectedShaper.slice(1);
+            addSectionHeader(`Used by ${shaperDisplayName} shaper, continued`);
             categorized.postUserFeatures.forEach(
                 ({
                     tag,
@@ -665,6 +645,35 @@ class FontInfoManager {
                         isDisc,
                         isUserFeature
                     );
+                    this.featureListItems.set(index, item);
+                    listContainer.appendChild(item);
+                }
+            );
+        }
+
+        // "Used by other shapers" section - moved to bottom with 70% opacity
+        if (categorized.notUsedByShaper.length > 0) {
+            const shaperDisplayName =
+                this.selectedShaper.charAt(0).toUpperCase() +
+                this.selectedShaper.slice(1);
+            addSectionHeader(`Inactive for ${shaperDisplayName} shaper`);
+            categorized.notUsedByShaper.forEach(
+                ({
+                    tag,
+                    codeData,
+                    index,
+                    isDiscretionary: isDisc,
+                    isUserFeature
+                }) => {
+                    const item = this.createListItem(
+                        'feature',
+                        index,
+                        codeData,
+                        tag,
+                        isDisc,
+                        isUserFeature
+                    );
+                    item.style.opacity = '0.6';
                     this.featureListItems.set(index, item);
                     listContainer.appendChild(item);
                 }
@@ -734,22 +743,26 @@ class FontInfoManager {
         const discretionary: any[] = [];
 
         // Split execution order at '--- USER FEATURES ---' marker
-        const userFeaturesIndex = executionOrder.indexOf('--- USER FEATURES ---');
+        const userFeaturesIndex = executionOrder.indexOf(
+            '--- USER FEATURES ---'
+        );
         let preUserFeatures: string[] = [];
         let postUserFeaturesList: string[] = [];
-        
+
         if (userFeaturesIndex >= 0) {
-            preUserFeatures = executionOrder.slice(0, userFeaturesIndex).filter(
-                (f) => !f.startsWith('---')
-            );
-            postUserFeaturesList = executionOrder.slice(userFeaturesIndex + 1).filter(
-                (f) => !f.startsWith('---')
-            );
+            preUserFeatures = executionOrder
+                .slice(0, userFeaturesIndex)
+                .filter((f) => !f.startsWith('---'));
+            postUserFeaturesList = executionOrder
+                .slice(userFeaturesIndex + 1)
+                .filter((f) => !f.startsWith('---'));
         } else {
             // No USER FEATURES marker, treat all as pre-user
-            preUserFeatures = executionOrder.filter((f) => !f.startsWith('---'));
+            preUserFeatures = executionOrder.filter(
+                (f) => !f.startsWith('---')
+            );
         }
-        
+
         const preUserFeaturesSet = new Set(preUserFeatures);
         const postUserFeaturesSet = new Set(postUserFeaturesList);
 

@@ -26,7 +26,7 @@ export const DEFAULT_ON_FEATURES = new Set([
 
 // Features that are discretionary (subject to user control) but OFF by default
 export const DEFAULT_OFF_FEATURES = new Set([
-    'aalt', // Access All Alternates
+    // 'aalt', // Access All Alternates
     'afrc', // Alternative Fractions
     'case', // Case-sensitive Forms
     'cpct', // Centered CJK Punctuation
