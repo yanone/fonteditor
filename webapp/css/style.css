@@ -5728,6 +5728,60 @@ flex-direction: row;
     flex-shrink: 0;
 }
 
+/* Drag handle for sortable features */
+.feature-drag-handle {
+    width: 11px;
+    height: 12px;
+    font-size: 14px !important;
+    color: var(--text-primary);
+    opacity: 0.3;
+    flex-shrink: 0;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.feature-drag-handle:active {
+    cursor: grabbing;
+}
+
+.feature-list-item:hover .feature-drag-handle {
+    opacity: 0.5;
+}
+
+/* Draggable features */
+.draggable-feature {
+    cursor: move;
+}
+
+.draggable-feature:active {
+    cursor: grabbing;
+}
+
+.draggable-feature.dragging {
+    opacity: 0.5;
+}
+
+/* Script selector dropdown */
+.feature-script-selector {
+    margin-bottom: 8px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+}
+
+.feature-script-dropdown:hover {
+    border-color: var(--text-primary);
+}
+
+.feature-script-dropdown:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
 .features-editor-container {
     flex: 1;
     display: flex;

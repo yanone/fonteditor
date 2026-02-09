@@ -5,7 +5,12 @@
 
 import { Logger } from './logger';
 import type { Babelfont } from './babelfont';
-import { getFeatureDescription } from './opentype-features';
+import {
+    getFeatureDescription,
+    getFeatureExecutionOrder,
+    isDiscretionary,
+    SCRIPT_TO_SHAPER
+} from './opentype-features';
 const console = new Logger('FontInfo');
 
 const FONTINFO_TAB_STORAGE_KEY = 'fontinfo-selected-tab';
@@ -29,6 +34,8 @@ class FontInfoManager {
     private classListItems: Map<string, HTMLElement> = new Map();
     private featureListItems: Map<number, HTMLElement> = new Map();
     private fontDataLoaded = false;
+    private selectedScript: string = 'DFLT';
+    private draggedFeatureIndex: number | null = null;
 
     init() {
         const viewContent = document.querySelector(
@@ -359,6 +366,42 @@ class FontInfoManager {
         });
     }
 
+    private extractLanguageSystems(): string[] {
+        const font = window.currentFontModel;
+        if (!font || !font.features) return ['DFLT'];
+
+        const scripts = new Set<string>();
+        scripts.add('DFLT'); // Always include default
+
+        // Parse all feature code for languagesystem declarations
+        const allCode: string[] = [];
+        
+        // Collect from prefixes
+        if (font.features.prefixes) {
+            Object.values(font.features.prefixes).forEach(prefix => {
+                if (prefix.code) allCode.push(prefix.code);
+            });
+        }
+
+        // Collect from features
+        if (font.features.features) {
+            font.features.features.forEach(([_, codeData]) => {
+                if (codeData.code) allCode.push(codeData.code);
+            });
+        }
+
+        // Parse languagesystem declarations
+        const languageSystemRegex = /languagesystem\s+(\w+)\s+\w+/gi;
+        allCode.forEach(code => {
+            let match;
+            while ((match = languageSystemRegex.exec(code)) !== null) {
+                scripts.add(match[1]);
+            }
+        });
+
+        return Array.from(scripts).sort();
+    }
+
     private loadFeaturesList() {
         const listContainer = document.getElementById('features-list');
         console.log('[FontInfo] loadFeaturesList - container:', listContainer);
@@ -380,20 +423,103 @@ class FontInfoManager {
             return;
         }
 
-        // Build feature list
+        // Detect supported scripts and create dropdown
+        const supportedScripts = this.extractLanguageSystems();
+        console.log('[FontInfo] Supported scripts:', supportedScripts);
+
+        // Build feature list with script dropdown
         this.featureListItems.clear();
         listContainer.innerHTML = '';
 
-        features.forEach(
+        // Add script selector dropdown if multiple scripts
+        if (supportedScripts.length > 1) {
+            const scriptSelectorContainer = document.createElement('div');
+            scriptSelectorContainer.className = 'feature-script-selector';
+            scriptSelectorContainer.style.cssText = `
+                margin-bottom: 8px;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 11px;
+            `;
+
+            const label = document.createElement('span');
+            label.textContent = 'Script:';
+            label.style.color = 'var(--text-secondary)';
+
+            const select = document.createElement('select');
+            select.className = 'feature-script-dropdown';
+            select.style.cssText = `
+                flex: 1;
+                padding: 4px 8px;
+                background: var(--input-bg);
+                color: var(--text-primary);
+                border: 1px solid var(--border-primary);
+                border-radius: 4px;
+                font-family: var(--font-families-mono);
+                font-size: 11px;
+                cursor: pointer;
+            `;
+
+            supportedScripts.forEach(script => {
+                const option = document.createElement('option');
+                option.value = script;
+                option.textContent = script;
+                if (script === this.selectedScript) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+
+            select.addEventListener('change', () => {
+                this.selectedScript = select.value;
+                this.loadFeaturesList(); // Reload with new script order
+            });
+
+            scriptSelectorContainer.appendChild(label);
+            scriptSelectorContainer.appendChild(select);
+            listContainer.appendChild(scriptSelectorContainer);
+        }
+
+        // Get feature execution order for selected script
+        const executionOrder = getFeatureExecutionOrder(this.selectedScript);
+        console.log('[FontInfo] Execution order for', this.selectedScript, ':', executionOrder);
+
+        // Build ordered feature list
+        const orderedFeatures = this.orderFeaturesByScript(features, executionOrder);
+
+        let addedSeparator = false;
+        orderedFeatures.forEach(
             (
-                [tag, codeData]: [string, Babelfont.PossiblyAutomaticCode],
-                index: number
+                { tag, codeData, index, isDiscretionary: isDisc, isUserFeature },
+                displayIndex
             ) => {
+                // Add separator before first discretionary user feature
+                if (isDisc && isUserFeature && !addedSeparator) {
+                    const separator = document.createElement('div');
+                    separator.className = 'feature-section-separator';
+                    separator.style.cssText = `
+                        padding: 6px 12px;
+                        font-size: 10px;
+                        color: var(--text-secondary);
+                        opacity: 0.5;
+                        font-weight: 500;
+                        letter-spacing: 0.05em;
+                        text-transform: uppercase;
+                        margin-top: 8px;
+                    `;
+                    separator.textContent = 'Discretionary (sortable)';
+                    listContainer.appendChild(separator);
+                    addedSeparator = true;
+                }
+
                 const item = this.createListItem(
                     'feature',
                     index,
                     codeData,
-                    tag
+                    tag,
+                    isDisc,
+                    isUserFeature
                 );
                 this.featureListItems.set(index, item);
                 listContainer.appendChild(item);
@@ -415,52 +541,169 @@ class FontInfoManager {
         }
     }
 
+    private orderFeaturesByScript(
+        features: Array<[string, Babelfont.PossiblyAutomaticCode]>,
+        executionOrder: string[]
+    ): Array<{
+        tag: string;
+        codeData: Babelfont.PossiblyAutomaticCode;
+        index: number;
+        isDiscretionary: boolean;
+        isUserFeature: boolean;
+    }> {
+        // Find where user features are inserted
+        const userFeatureIndex = executionOrder.indexOf('--- USER FEATURES ---');
+        const featuresBeforeUser = userFeatureIndex >= 0 
+            ? executionOrder.slice(0, userFeatureIndex).filter(f => !f.startsWith('---'))
+            : [];
+        const featuresAfterUser = userFeatureIndex >= 0
+            ? executionOrder.slice(userFeatureIndex + 1).filter(f => !f.startsWith('---'))
+            : [];
+
+        const orderedResult: Array<{
+            tag: string;
+            codeData: Babelfont.PossiblyAutomaticCode;
+            index: number;
+            isDiscretionary: boolean;
+            isUserFeature: boolean;
+        }> = [];
+
+        const featureMap = new Map<string, { codeData: Babelfont.PossiblyAutomaticCode; index: number }>();
+        features.forEach(([tag, codeData], index) => {
+            featureMap.set(tag, { codeData, index });
+        });
+
+        // Add features that appear before user features (non-discretionary)
+        featuresBeforeUser.forEach(tag => {
+            const feature = featureMap.get(tag);
+            if (feature) {
+                orderedResult.push({
+                    tag,
+                    codeData: feature.codeData,
+                    index: feature.index,
+                    isDiscretionary: false,
+                    isUserFeature: false
+                });
+                featureMap.delete(tag);
+            }
+        });
+
+        // Add discretionary features (user features) - these are draggable
+        const discretionaryFeatures: typeof orderedResult = [];
+        featureMap.forEach(({ codeData, index }, tag) => {
+            if (isDiscretionary(tag)) {
+                discretionaryFeatures.push({
+                    tag,
+                    codeData,
+                    index,
+                    isDiscretionary: true,
+                    isUserFeature: true
+                });
+            }
+        });
+        
+        // Keep discretionary features in their current source order
+        discretionaryFeatures.sort((a, b) => a.index - b.index);
+        orderedResult.push(...discretionaryFeatures);
+
+        // Remove discretionary features from map
+        discretionaryFeatures.forEach(f => featureMap.delete(f.tag));
+
+        // Add remaining required features that appear after user features
+        featuresAfterUser.forEach(tag => {
+            const feature = featureMap.get(tag);
+            if (feature) {
+                orderedResult.push({
+                    tag,
+                    codeData: feature.codeData,
+                    index: feature.index,
+                    isDiscretionary: false,
+                    isUserFeature: false
+                });
+                featureMap.delete(tag);
+            }
+        });
+
+        // Add any remaining features not in execution order at the end
+        featureMap.forEach(({ codeData, index }, tag) => {
+            orderedResult.push({
+                tag,
+                codeData,
+                index,
+                isDiscretionary: isDiscretionary(tag),
+                isUserFeature: false
+            });
+        });
+
+        return orderedResult;
+    }
+
     private createListItem(
         type: FeatureItemType,
         key: string | number,
         codeData: Babelfont.PossiblyAutomaticCode,
-        tag?: string
+        tag?: string,
+        isDiscretionaryFeature?: boolean,
+        isUserFeature?: boolean
     ): HTMLElement {
         const item = document.createElement('div');
         item.className = 'feature-list-item sidebar-item';
+        
+        // Add draggable attribute for discretionary features
+        if (isDiscretionaryFeature && isUserFeature) {
+            item.setAttribute('draggable', 'true');
+            item.classList.add('draggable-feature');
+            item.addEventListener('dragstart', (e) => this.onFeatureDragStart(e, key as number));
+            item.addEventListener('dragover', (e) => this.onFeatureDragOver(e));
+            item.addEventListener('drop', (e) => this.onFeatureDrop(e, key as number));
+            item.addEventListener('dragend', () => this.onFeatureDragEnd());
+        }
 
         // For features, show GSUB/GPOS indicators and feature name
         if (type === 'feature' && tag) {
-            // Analyze feature for GSUB/GPOS content
-            const font = window.currentFontModel;
-            const analysis = font
-                ? font.analyzeFeatureTables(tag)
-                : { hasGSUB: false, hasGPOS: false };
-
-            // GSUB/GPOS indicators
-            const tableIndicator = document.createElement('div');
-            tableIndicator.className = 'feature-table-indicator';
-
-            // GSUB indicator (left circle)
-            const gsubCircle = document.createElement('div');
-            gsubCircle.className = 'feature-table-circle';
-            if (analysis.hasGSUB) {
-                gsubCircle.style.opacity = '0.7';
-                gsubCircle.title = 'GSUB (Glyph Substitution)';
+            // Add drag handle for discretionary features (replaces GSUB/GPOS indicator)
+            if (isDiscretionaryFeature && isUserFeature) {
+                const dragHandle = document.createElement('span');
+                dragHandle.className = 'material-symbols-outlined feature-drag-handle';
+                dragHandle.textContent = 'drag_indicator';
+                item.appendChild(dragHandle);
             } else {
-                gsubCircle.style.opacity = '0.1';
-                gsubCircle.title = '';
-            }
-            tableIndicator.appendChild(gsubCircle);
+                // Analyze feature for GSUB/GPOS content
+                const font = window.currentFontModel;
+                const analysis = font
+                    ? font.analyzeFeatureTables(tag)
+                    : { hasGSUB: false, hasGPOS: false };
 
-            // GPOS indicator (right circle)
-            const gposCircle = document.createElement('div');
-            gposCircle.className = 'feature-table-circle';
-            if (analysis.hasGPOS) {
-                gposCircle.style.opacity = '0.7';
-                gposCircle.title = 'GPOS (Glyph Positioning)';
-            } else {
-                gposCircle.style.opacity = '0.1';
-                gposCircle.title = '';
-            }
-            tableIndicator.appendChild(gposCircle);
+                // GSUB/GPOS indicators
+                const tableIndicator = document.createElement('div');
+                tableIndicator.className = 'feature-table-indicator';
 
-            item.appendChild(tableIndicator);
+                // GSUB indicator (left circle)
+                const gsubCircle = document.createElement('div');
+                gsubCircle.className = 'feature-table-circle';
+                if (analysis.hasGSUB) {
+                    gsubCircle.style.opacity = '0.7';
+                    gsubCircle.title = 'GSUB (Glyph Substitution)';
+                } else {
+                    gsubCircle.style.opacity = '0.1';
+                    gsubCircle.title = '';
+                }
+                tableIndicator.appendChild(gsubCircle);
+
+                // GPOS indicator (right circle)
+                const gposCircle = document.createElement('div');
+                gposCircle.className = 'feature-table-circle';
+                if (analysis.hasGPOS) {
+                    gposCircle.style.opacity = '0.7';
+                    gposCircle.title = 'GPOS (Glyph Positioning)';
+                } else {
+                    gposCircle.style.opacity = '0.1';
+                    gposCircle.title = '';
+                }
+                tableIndicator.appendChild(gposCircle);
+
+                item.appendChild(tableIndicator);
+            }
 
             // Feature tag (4-digit code)
             const tagSpan = document.createElement('span');
@@ -642,6 +885,77 @@ class FontInfoManager {
                 window.fontManager.currentFont.markDirty();
             }
         }
+    }
+
+    private onFeatureDragStart(e: DragEvent, index: number) {
+        this.draggedFeatureIndex = index;
+        const target = e.target as HTMLElement;
+        target.classList.add('dragging');
+        if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = 'move';
+        }
+    }
+
+    private onFeatureDragOver(e: DragEvent) {
+        e.preventDefault();
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'move';
+        }
+    }
+
+    private onFeatureDrop(e: DragEvent, targetIndex: number) {
+        e.preventDefault();
+        
+        if (this.draggedFeatureIndex === null || this.draggedFeatureIndex === targetIndex) {
+            return;
+        }
+
+        const font = window.currentFontModel;
+        if (!font || !font.features || !font.features.features) return;
+
+        const features = font.features.features;
+        const draggedTag = features[this.draggedFeatureIndex]?.[0];
+        const targetTag = features[targetIndex]?.[0];
+
+        // Only allow reordering discretionary features
+        if (!draggedTag || !targetTag || !isDiscretionary(draggedTag) || !isDiscretionary(targetTag)) {
+            return;
+        }
+
+        // Reorder features in the font model
+        const [movedFeature] = features.splice(this.draggedFeatureIndex, 1);
+        
+        // Adjust target index if moving down
+        const adjustedTargetIndex = this.draggedFeatureIndex < targetIndex 
+            ? targetIndex - 1 
+            : targetIndex;
+        
+        features.splice(adjustedTargetIndex, 0, movedFeature);
+
+        // Mark font as dirty
+        if (window.fontManager?.currentFont) {
+            window.fontManager.currentFont.markDirty();
+        }
+
+        // Remember the dragged feature tag to re-select it
+        const draggedFeatureTag = movedFeature[0];
+
+        // Reload the list
+        this.loadFeaturesList();
+
+        // Re-select the moved feature
+        const newIndex = features.findIndex(([tag]) => tag === draggedFeatureTag);
+        if (newIndex >= 0) {
+            this.selectItem('feature', newIndex);
+        }
+    }
+
+    private onFeatureDragEnd() {
+        this.draggedFeatureIndex = null;
+        // Reset dragging class
+        document.querySelectorAll('.draggable-feature').forEach(item => {
+            item.classList.remove('dragging');
+        });
     }
 
     /**
