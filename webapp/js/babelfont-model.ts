@@ -2872,14 +2872,20 @@ export class Font extends ModelBase {
         }
 
         const code = feature[1].code || '';
-        return this._analyzeFeatureCode(code);
+        // Use a set to track visited features to prevent infinite recursion
+        const visitedFeatures = new Set<string>([featureTag]);
+        return this._analyzeFeatureCode(code, visitedFeatures);
     }
 
     /**
      * Internal method to analyze feature code for GSUB/GPOS content
-     * Handles lookup references by parsing all features and prefixes
+     * Handles lookup references and feature references by parsing all features and prefixes
+     * @param visitedFeatures - Set of feature tags already visited to prevent infinite recursion
      */
-    private _analyzeFeatureCode(code: string): {
+    private _analyzeFeatureCode(
+        code: string,
+        visitedFeatures: Set<string> = new Set()
+    ): {
         hasGSUB: boolean;
         hasGPOS: boolean;
     } {
@@ -2911,10 +2917,41 @@ export class Font extends ModelBase {
             }
         }
 
+        // Check for feature references (e.g., "feature salt;" in aalt)
+        const featureRefPattern = /\bfeature\s+([a-zA-Z0-9]{4})\s*;/g;
+        const featureRefs: string[] = [];
+        let match;
+        while ((match = featureRefPattern.exec(code)) !== null) {
+            const referencedTag = match[1];
+            // Only process if we haven't visited this feature already
+            if (!visitedFeatures.has(referencedTag)) {
+                featureRefs.push(referencedTag);
+            }
+        }
+
+        // Recursively analyze referenced features
+        if (featureRefs.length > 0 && this.features?.features) {
+            for (const refTag of featureRefs) {
+                const refFeature = this.features.features.find(
+                    ([tag]) => tag === refTag
+                );
+                if (refFeature) {
+                    // Mark this feature as visited to prevent infinite recursion
+                    const newVisited = new Set(visitedFeatures);
+                    newVisited.add(refTag);
+                    const refAnalysis = this._analyzeFeatureCode(
+                        refFeature[1].code || '',
+                        newVisited
+                    );
+                    if (refAnalysis.hasGSUB) hasGSUB = true;
+                    if (refAnalysis.hasGPOS) hasGPOS = true;
+                }
+            }
+        }
+
         // Check for lookup references (e.g., "lookup LOOKUP_NAME;")
         const lookupRefPattern = /lookup\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*;/g;
         const lookupRefs: string[] = [];
-        let match;
         while ((match = lookupRefPattern.exec(code)) !== null) {
             lookupRefs.push(match[1]);
         }
@@ -2922,7 +2959,10 @@ export class Font extends ModelBase {
         // If we found lookup references, analyze those lookups
         if (lookupRefs.length > 0) {
             for (const lookupName of lookupRefs) {
-                const lookupAnalysis = this._analyzeLookupByName(lookupName);
+                const lookupAnalysis = this._analyzeLookupByName(
+                    lookupName,
+                    visitedFeatures
+                );
                 if (lookupAnalysis.hasGSUB) hasGSUB = true;
                 if (lookupAnalysis.hasGPOS) hasGPOS = true;
             }
@@ -2933,8 +2973,12 @@ export class Font extends ModelBase {
 
     /**
      * Find and analyze a named lookup in features or prefixes
+     * @param visitedFeatures - Set of feature tags already visited to prevent infinite recursion
      */
-    private _analyzeLookupByName(lookupName: string): {
+    private _analyzeLookupByName(
+        lookupName: string,
+        visitedFeatures: Set<string> = new Set()
+    ): {
         hasGSUB: boolean;
         hasGPOS: boolean;
     } {
@@ -2946,7 +2990,10 @@ export class Font extends ModelBase {
         if (this.features.prefixes) {
             const prefixCode = this.features.prefixes[lookupName];
             if (prefixCode?.code) {
-                return this._analyzeFeatureCode(prefixCode.code);
+                return this._analyzeFeatureCode(
+                    prefixCode.code,
+                    visitedFeatures
+                );
             }
         }
 
@@ -2962,7 +3009,10 @@ export class Font extends ModelBase {
                 const featureCode = featureData.code || '';
                 const lookupMatch = lookupPattern.exec(featureCode);
                 if (lookupMatch) {
-                    return this._analyzeFeatureCode(lookupMatch[1]);
+                    return this._analyzeFeatureCode(
+                        lookupMatch[1],
+                        visitedFeatures
+                    );
                 }
             }
         }
@@ -2973,7 +3023,10 @@ export class Font extends ModelBase {
                 const code = prefixCode.code || '';
                 const lookupMatch = lookupPattern.exec(code);
                 if (lookupMatch) {
-                    return this._analyzeFeatureCode(lookupMatch[1]);
+                    return this._analyzeFeatureCode(
+                        lookupMatch[1],
+                        visitedFeatures
+                    );
                 }
             }
         }
