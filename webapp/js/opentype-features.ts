@@ -851,7 +851,15 @@ export const FEATURE_DESCRIPTIONS: Record<string, string> = {
     dnom: 'Denominators - Replaces glyphs with denominator forms for fractions',
 
     // Arabic stretching
-    stch: 'Stretching - Arabic kashida justification (seen)'
+    stch: 'Stretching - Arabic kashida justification (tatweel)',
+
+    // Additional required features from execution order
+    ccmp: 'Glyph Composition / Decomposition - Composes or decomposes base and mark glyphs',
+    mark: 'Mark Positioning - Positions marks (diacritics) relative to base glyphs',
+    mkmk: 'Mark to Mark Positioning - Positions marks relative to other marks',
+    rclt: 'Required Contextual Alternates - Required contextual alternates that must be applied',
+    rlig: 'Required Ligatures - Required ligatures that must be applied for correct rendering',
+    rvrn: 'Required Variation Alternates - Selects alternate glyphs for variable fonts'
 };
 
 // Add descriptions for character variant features
