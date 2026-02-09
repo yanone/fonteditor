@@ -51,13 +51,8 @@ class FontInfoManager {
             this.switchTab(savedTab);
         });
 
-        // Also re-apply tab state after layout is restored (resizer.js runs after 100ms)
-        setTimeout(() => {
-            this.switchTab(this.currentTab);
-        }, 150);
-
-        // Listen for font changes
-        window.addEventListener('fontLoaded', () => this.onFontLoaded());
+        // Listen for font changes - use fontReady which fires after currentFontModel is set
+        window.addEventListener('fontReady', () => this.onFontLoaded());
 
         console.log('[FontInfo] Initialized');
     }
@@ -278,12 +273,19 @@ class FontInfoManager {
         this.classListItems.clear();
         this.featureListItems.clear();
         // Load features data if we're on the features tab
-        if (this.currentTab === 'features' && window.currentFontModel) {
+        if (this.currentTab === 'features') {
             console.log('[FontInfo] Loading features lists (onFontLoaded)');
+            // Ensure editor is initialized before loading data
+            if (!this.featuresEditorInitialized) {
+                this.initializeFeaturesEditor();
+                this.featuresEditorInitialized = true;
+            }
             // Defer to ensure font model is fully available and DOM is ready
             requestAnimationFrame(() => {
-                this.loadAllLists();
-                this.fontDataLoaded = true;
+                if (window.currentFontModel) {
+                    this.loadAllLists();
+                    this.fontDataLoaded = true;
+                }
             });
         }
     }
