@@ -978,6 +978,8 @@ class FontInfoManager {
         // Load code into editor
         if (this.featuresEditor) {
             this.featuresEditor.setValue(codeData.code || '', -1);
+            // Enable line wrapping only for classes, not for prefixes and features
+            this.featuresEditor.session.setUseWrapMode(type === 'class');
         }
 
         // Update automatic checkbox
