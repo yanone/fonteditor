@@ -799,7 +799,59 @@ export const FEATURE_DESCRIPTIONS: Record<string, string> = {
     trad: 'Traditional Forms - Replaces simplified forms with traditional forms',
     twid: 'Third Widths - Replaces glyphs with third-width variants',
     unic: 'Unicase - Replaces glyphs with unicase forms',
-    zero: 'Slashed Zero - Replaces standard zero with slashed zero'
+    zero: 'Slashed Zero - Replaces standard zero with slashed zero',
+
+    // Required features (always applied, not discretionary)
+    abvf: 'Above-base Forms - Positions marks above base characters',
+    abvm: 'Above-base Mark Positioning - Positions marks above base glyphs',
+    abvs: 'Above-base Substitutions - Substitutes ligatures for above-base mark combinations',
+    akhn: 'Akhand - Joins consonant combinations into ligatures in Indic scripts',
+    blwf: 'Below-base Forms - Positions marks below base characters',
+    blwm: 'Below-base Mark Positioning - Positions marks below base glyphs',
+    blws: 'Below-base Substitutions - Substitutes ligatures for below-base mark combinations',
+    cfar: 'Conjunct Form After Ro - Special conjunct forms after reph in Khmer',
+    cjct: 'Conjunct Forms - Forms conjuncts in Indic scripts',
+    curs: 'Cursive Positioning - Fine-tunes cursive attachment positions',
+    dist: 'Distances - Controls distances between glyphs',
+    dtls: 'Dotless Forms - Substitutes dotted glyphs with dotless forms',
+    fin2: 'Terminal Forms #2 - Final form variants for specific scripts',
+    fin3: 'Terminal Forms #3 - Final form variants for specific scripts',
+    fina: 'Terminal Forms - Substitutes final forms in Arabic and similar scripts',
+    flac: 'Flattened Accent Forms - Uses flattened accents for stacking',
+    half: 'Half Forms - Forms half-forms in Indic conjuncts',
+    haln: 'Halant Forms - Final forms after halant in Indic scripts',
+    init: 'Initial Forms - Substitutes initial forms in Arabic and similar scripts',
+    isol: 'Isolated Forms - Substitutes isolated forms in Arabic and similar scripts',
+    jalt: 'Justification Alternates - Uses wider glyphs for justification',
+    ljmo: 'Leading Jamo Forms - Leading jamo forms for Hangul syllables',
+    med2: 'Medial Forms #2 - Medial form variants for specific scripts',
+    medi: 'Medial Forms - Substitutes medial forms in Arabic and similar scripts',
+    mset: 'Mark Positioning via Substitution - Positions marks via substitution',
+    nukt: 'Nukta Forms - Forms nukta combinations in Indic scripts',
+    pref: 'Pre-base Forms - Pre-base forms for reordering in Indic scripts',
+    pres: 'Pre-base Substitutions - Substitutions before base glyph in Indic scripts',
+    pstf: 'Post-base Forms - Post-base forms for reordering in Indic scripts',
+    psts: 'Post-base Substitutions - Substitutions after base glyph in Indic scripts',
+    rphf: 'Reph Form - Forms reph in Indic scripts',
+    rkrf: 'Rakar Forms - Forms rakar in Devanagari and similar scripts',
+    tjmo: 'Trailing Jamo Forms - Trailing jamo forms for Hangul syllables',
+    vatu: 'Vattu Variants - Vattu variants in Devanagari and similar scripts',
+    vjmo: 'Vowel Jamo Forms - Vowel jamo forms for Hangul syllables',
+
+    // Direction and vertical text features
+    ltra: 'Left-to-Right Alternates - Uses alternates for left-to-right text',
+    ltrm: 'Left-to-Right Mirrored Forms - Uses mirrored forms for LTR text',
+    rtla: 'Right-to-Left Alternates - Uses alternates for right-to-left text',
+    rtlm: 'Right-to-Left Mirrored Forms - Uses mirrored forms for RTL text',
+    vert: 'Vertical Alternates - Substitutes glyphs for vertical text',
+    vrt2: 'Vertical Alternates and Rotation - Rotates and substitutes for vertical text',
+
+    // Fraction features
+    numr: 'Numerators - Replaces glyphs with numerator forms for fractions',
+    dnom: 'Denominators - Replaces glyphs with denominator forms for fractions',
+
+    // Arabic stretching
+    stch: 'Stretching - Arabic kashida justification (seen)'
 };
 
 // Add descriptions for character variant features

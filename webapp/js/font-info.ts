@@ -549,7 +549,8 @@ class FontInfoManager {
 
         // Add features by category
         if (categorized.usedByShaper.length > 0) {
-            addSectionHeader('Required (by shaper)');
+            const shaperDisplayName = this.selectedShaper.charAt(0).toUpperCase() + this.selectedShaper.slice(1);
+            addSectionHeader(`Used by ${shaperDisplayName} shaper`);
             categorized.usedByShaper.forEach(
                 ({
                     tag,
@@ -573,7 +574,7 @@ class FontInfoManager {
         }
 
         if (categorized.notUsedByShaper.length > 0) {
-            addSectionHeader('Required (other)');
+            addSectionHeader('Used by other shapers');
             categorized.notUsedByShaper.forEach(
                 ({
                     tag,
@@ -718,14 +719,11 @@ class FontInfoManager {
                 // Discretionary features go in their own category
                 discretionary.push(featureData);
             } else {
-                // Check if feature has actual code (not empty/automatic)
+                // Check if feature has actual code
                 const code = codeData.code || '';
-                const hasCode = code.trim().length > 0 && !codeData.automatic;
+                const hasCode = code.trim().length > 0;
 
-                if (!hasCode) {
-                    // Feature exists but has no code
-                    notInLanguagesystem.push(featureData);
-                } else if (execOrderFeatures.has(tag)) {
+                if (execOrderFeatures.has(tag)) {
                     // Required feature used by current shaper
                     usedByShaper.push(featureData);
                 } else {
