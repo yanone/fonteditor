@@ -4476,7 +4476,7 @@ flex-direction: row;
 /* Section headlines for both sidebars */
 .editor-section-title {
     font-size: 10px;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
