@@ -1585,15 +1585,17 @@ export class TextRunEditor {
         }
 
         try {
-            // Two-stage shaping: use typing font for GSUB (Stage 1),
-            // then editing font for GPOS (Stage 2)
+            // Two-stage processing:
+            // Stage 1: Get base glyph names from Unicode via font model (for closure/subsetting)
+            // Stage 2: Shape text with editing font using BiDi-aware run processing (for rendering)
             if (this.hbTypingFont && this.hbFont) {
-                // Stage 1: Shape with typing font (full GSUB + bidi) → glyph name list
+                // Stage 1: Get base glyph names from Unicode (no shaping)
+                // This avoids HarfBuzz's script-specific glyph selection (e.g., Arabic positional forms)
                 this.shapeStage1ForGlyphNames();
 
-                // Stage 2: Shape glyph names with editing font (GPOS only)
-                // via fake codepoints + setNominalGlyphFunc
-                this.shapeStage2WithFakeCodepoints();
+                // Stage 2: Shape text with editing font using BiDi-aware run processing
+                // Splits text into BiDi runs, shapes each separately, then reorders into visual order
+                this.shapeStage2WithBiDiRuns();
             } else if (this.hbFont) {
                 // Fallback: single-font shaping (no typing font yet)
                 if (
@@ -1758,47 +1760,62 @@ export class TextRunEditor {
         this.updateCursorVisualPosition();
     }
     /**
-     * Stage 1: Shape text with typing font (has GSUB features) using bidi,
-     * producing an LTR visual-order glyph name buffer.
-     * Stores result in this.glyphNameBuffer and this.glyphNameBufferClusters.
+     * Stage 1: Get base glyph names from Unicode codepoints via the font model.
+     * This bypasses HarfBuzz shaping to avoid script-specific glyph selection
+     * (e.g., Arabic positional forms being selected before closure computation).
+     * Stores unique base glyph names in glyphNameBuffer for layout closure.
      */
     shapeStage1ForGlyphNames() {
-        if (!this.hbTypingFont || !this.typingFontBytes) return;
+        console.log('Stage 1: Getting base glyph names from Unicode codepoints');
 
-        // Apply variation settings to typing font too
-        if (Object.keys(this.axesManager.variationSettings).length > 0) {
-            this.hbTypingFont.setVariations(this.axesManager.variationSettings);
+        // Use the font model to look up glyphs by Unicode codepoint
+        const fontModel = window.currentFontModel;
+        if (!fontModel) {
+            console.warn('Stage 1: No font model available');
+            this.glyphNameBuffer = [];
+            this.glyphNameBufferClusters = [];
+            return;
         }
 
-        // Shape WITHOUT features to get base glyphs for subsetting.
-        // Layout closure will find all possible substitutions from these base glyphs.
-        // Features will be applied in Stage 2 with the editing font.
-        if (this.bidi) {
-            this.shapeTextWithBidiNoFeatures(this.hbTypingFont);
-        } else {
-            this.shapeTextSimpleNoFeatures(this.hbTypingFont);
-        }
-
-        // Now this.shapedGlyphs has the visual-order BASE glyphs from Stage 1.
-        // Map GIDs to glyph names using the typing font.
-        const glyphNames: string[] = [];
+        const baseGlyphNames: string[] = [];
         const clusterValues: number[] = [];
+        const seenGlyphs = new Set<string>();
 
-        for (const glyph of this.shapedGlyphs) {
-            try {
-                const name = get_glyph_name(this.typingFontBytes, glyph.g);
-                glyphNames.push(name || '.notdef');
-            } catch (e) {
-                glyphNames.push('.notdef');
+        // Iterate through each character in the text buffer
+        for (let i = 0; i < this.textBuffer.length; i++) {
+            const char = this.textBuffer[i];
+            const codepoint = char.codePointAt(0);
+
+            if (codepoint === undefined) {
+                console.warn(`Stage 1: Invalid codepoint at position ${i}`);
+                clusterValues.push(i);
+                continue;
             }
-            clusterValues.push(glyph.cl || 0);
+
+            // Look up glyph in font model by codepoint
+            const glyph = fontModel.findGlyphByCodepoint(codepoint);
+
+            if (glyph && glyph.name) {
+                // Track unique glyphs for closure computation
+                if (!seenGlyphs.has(glyph.name)) {
+                    baseGlyphNames.push(glyph.name);
+                    seenGlyphs.add(glyph.name);
+                }
+                // Still track cluster position for each character
+                clusterValues.push(i);
+            } else {
+                console.warn(
+                    `Stage 1: No glyph found for codepoint U+${codepoint.toString(16).toUpperCase().padStart(4, '0')} ("${char}")`
+                );
+                clusterValues.push(i);
+            }
         }
 
-        this.glyphNameBuffer = glyphNames;
+        this.glyphNameBuffer = baseGlyphNames;
         this.glyphNameBufferClusters = clusterValues;
 
         console.log(
-            'Stage 1 base glyph names (no features applied):',
+            'Stage 1 base glyph names (from Unicode):',
             this.glyphNameBuffer
         );
     }
@@ -1871,11 +1888,11 @@ export class TextRunEditor {
     }
 
     /**
-     * Stage 2: Shape the text with the editing font using standard HarfBuzz.
-     * The editing font now includes GSUB features via layout closure, so we can
-     * use standard shaping with segment property guessing and active features.
+     * Stage 2: Shape text with editing font using BiDi-aware run processing.
+     * Splits text into BiDi runs, shapes each separately, then reorders into visual order.
+     * This ensures correct rendering of mixed LTR/RTL text.
      */
-    shapeStage2WithFakeCodepoints() {
+    shapeStage2WithBiDiRuns() {
         if (!this.hbFont || !this.hb) {
             console.log('Stage 2: skipped (no hbFont or hb)');
             this.shapedGlyphs = [];
@@ -1889,28 +1906,130 @@ export class TextRunEditor {
             this.hbFont.setVariations(this.axesManager.variationSettings);
         }
 
-        console.log('Stage 2: Standard shaping with editing font (GSUB+GPOS)');
+        console.log('Stage 2: BiDi-aware shaping with editing font (GSUB+GPOS)');
 
-        // Use standard HarfBuzz shaping with editing font
-        const buffer = this.hb.createBuffer();
-        buffer.addText(this.textBuffer);
-        buffer.guessSegmentProperties();
+        // Get embedding levels from bidi-js
+        const embedLevels = this.bidi.getEmbeddingLevels(this.textBuffer);
+        this.embeddingLevels = embedLevels;
 
-        // Apply active features from sidebar
-        const features = this.featuresManager.getHarfBuzzFeatures();
-        console.log('Stage 2: Applying features:', features);
+        // Split into runs by embedding level
+        const runs = [];
+        let currentLevel = embedLevels.levels[0];
+        let runStart = 0;
 
-        if (features) {
-            this.hb.shape(this.hbFont, buffer, features);
-        } else {
-            this.hb.shape(this.hbFont, buffer);
+        for (let i = 1; i <= this.textBuffer.length; i++) {
+            if (
+                i === this.textBuffer.length ||
+                embedLevels.levels[i] !== currentLevel
+            ) {
+                const runText = this.textBuffer.substring(runStart, i);
+                const direction = currentLevel % 2 === 0 ? 'ltr' : 'rtl';
+                runs.push({
+                    text: runText,
+                    level: currentLevel,
+                    direction: direction,
+                    start: runStart,
+                    end: i
+                });
+                if (i < this.textBuffer.length) {
+                    currentLevel = embedLevels.levels[i];
+                    runStart = i;
+                }
+            }
         }
 
-        // Get shaped results (both GSUB and GPOS applied)
-        this.shapedGlyphs = buffer.json();
+        console.log(
+            '[TextRun]',
+            'Stage 2 logical runs:',
+            runs.map((r: any) => `${r.direction}:${r.level}:"${r.text}"`)
+        );
 
-        // Clean up
-        buffer.destroy();
+        // Shape each run with HarfBuzz in its logical direction
+        const features = this.featuresManager.getHarfBuzzFeatures();
+        const shapedRuns = [];
+
+        for (const run of runs) {
+            const buffer = this.hb.createBuffer();
+            buffer.addText(run.text);
+            buffer.setDirection(run.direction);
+            buffer.guessSegmentProperties();
+
+            if (features) {
+                this.hb.shape(this.hbFont, buffer, features);
+            } else {
+                this.hb.shape(this.hbFont, buffer);
+            }
+
+            const glyphs = buffer.json();
+            buffer.destroy();
+
+            // Adjust cluster values to be relative to the full string
+            for (const glyph of glyphs) {
+                glyph.cl = (glyph.cl || 0) + run.start;
+            }
+
+            shapedRuns.push({
+                ...run,
+                glyphs: glyphs
+            });
+        }
+
+        // Reorder runs using bidi-js
+        const reorderedIndices = this.bidi.getReorderedIndices(
+            this.textBuffer,
+            embedLevels
+        );
+
+        // Build visual glyph order
+        const logicalPosToGlyphs = new Map();
+        for (const run of shapedRuns) {
+            for (const glyph of run.glyphs) {
+                const clusterPos = glyph.cl || 0;
+                if (!logicalPosToGlyphs.has(clusterPos)) {
+                    logicalPosToGlyphs.set(clusterPos, []);
+                }
+                logicalPosToGlyphs.get(clusterPos).push(glyph);
+            }
+        }
+
+        const addedClusters = new Set();
+        const allGlyphs = [];
+
+        for (const charIdx of reorderedIndices) {
+            let clusterStart = charIdx;
+
+            // Find the cluster that contains this character
+            for (const [clusterPos, glyphs] of logicalPosToGlyphs) {
+                if (clusterPos <= charIdx) {
+                    let nextClusterPos = this.textBuffer.length;
+                    for (const [otherPos, _] of logicalPosToGlyphs) {
+                        if (
+                            otherPos > clusterPos &&
+                            otherPos < nextClusterPos
+                        ) {
+                            nextClusterPos = otherPos;
+                        }
+                    }
+
+                    if (charIdx >= clusterPos && charIdx < nextClusterPos) {
+                        clusterStart = clusterPos;
+                        break;
+                    }
+                }
+            }
+
+            if (
+                !addedClusters.has(clusterStart) &&
+                logicalPosToGlyphs.has(clusterStart)
+            ) {
+                const glyphs = logicalPosToGlyphs.get(clusterStart);
+                allGlyphs.push(...glyphs);
+                addedClusters.add(clusterStart);
+            }
+        }
+
+        this.shapedGlyphs = allGlyphs;
+        this.bidiRuns = shapedRuns;
 
         // Build cluster map for cursor positioning
         this.buildClusterMap();

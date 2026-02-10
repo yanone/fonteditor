@@ -426,7 +426,7 @@ class GlyphCanvas {
                 '[GlyphCanvas]',
                 'Re-running Stage 2 with updated features (no font recompilation needed)'
             );
-            this.textRunEditor!.shapeStage2WithFakeCodepoints();
+            this.textRunEditor!.shapeStage2WithBiDiRuns();
 
             // Build cluster map and update cursor position
             this.textRunEditor!.buildClusterMap();
