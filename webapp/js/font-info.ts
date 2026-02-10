@@ -39,6 +39,13 @@ class FontInfoManager {
     private selectedShaper: string = 'default';
     private draggedFeatureIndex: number | null = null;
 
+    // Adaptive debounce timing for feature code compilation
+    private featureCodeDebounceTimer: any = null;
+    private featureCodeLastKeystrokeTime: number = 0;
+    private featureCodeBurstThreshold: number = 200; // ms - keystrokes within this window considered "burst typing"
+    private featureCodeFastDelay: number = 50; // ms - delay during fast typing bursts
+    private featureCodeSlowDelay: number = 150; // ms - delay during slow typing
+
     // Search-related properties
     private searchInput: HTMLInputElement | null = null;
     private searchTerms: string[] = [];
@@ -1736,6 +1743,44 @@ class FontInfoManager {
         if (window.fontManager?.currentFont) {
             window.fontManager.currentFont.markDirty();
         }
+
+        // Calculate adaptive debounce delay based on typing speed
+        const now = Date.now();
+        const timeSinceLastKeystroke = now - this.featureCodeLastKeystrokeTime;
+        this.featureCodeLastKeystrokeTime = now;
+
+        // Determine if user is typing fast (burst) or slow
+        // Fast typing = keystrokes within burst threshold
+        const isBurstTyping =
+            timeSinceLastKeystroke < this.featureCodeBurstThreshold;
+        const debounceDelay = isBurstTyping
+            ? this.featureCodeFastDelay
+            : this.featureCodeSlowDelay;
+
+        // Debounce font recompilation
+        if (this.featureCodeDebounceTimer) {
+            clearTimeout(this.featureCodeDebounceTimer);
+        }
+
+        this.featureCodeDebounceTimer = setTimeout(() => {
+            if (window.fontManager?.isReady()) {
+                // Sync feature code changes to JSON before compilation
+                // The compiler uses babelfontJson, so we must serialize the model changes
+                if (window.fontManager.currentFont?.fontModel) {
+                    window.fontManager.currentFont.babelfontJson =
+                        window.fontManager.currentFont.fontModel.toJSONString();
+                }
+
+                window.fontManager
+                    .recompileEditingFont()
+                    .catch((error: any) => {
+                        console.error(
+                            'Failed to recompile font after feature code change:',
+                            error
+                        );
+                    });
+            }
+        }, debounceDelay);
     }
 
     private onAutomaticCheckboxChanged() {
