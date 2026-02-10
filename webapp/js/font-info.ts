@@ -61,7 +61,123 @@ class FontInfoManager {
         // Listen for font changes - use fontReady which fires after currentFontModel is set
         window.addEventListener('fontReady', () => this.onFontLoaded());
 
+        // Set up keyboard navigation for feature editor
+        this.setupKeyboardNavigation();
+
         console.log('[FontInfo] Initialized');
+    }
+
+    private setupKeyboardNavigation() {
+        document.addEventListener('keydown', (e: KeyboardEvent) => {
+            // Only handle arrow keys when features tab is visible
+            if (this.currentTab !== 'features') return;
+            if (!this.featuresTab || this.featuresTab.style.display === 'none') return;
+
+            // Don't handle if Ace editor has focus
+            if (this.featuresEditor && this.featuresEditor.isFocused()) return;
+
+            // Don't handle if focus is in an input or textarea
+            const activeElement = document.activeElement;
+            if (
+                activeElement &&
+                (activeElement.tagName === 'INPUT' ||
+                    activeElement.tagName === 'TEXTAREA' ||
+                    activeElement.getAttribute('contenteditable') === 'true')
+            ) {
+                return;
+            }
+
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                this.navigateSidebar('up');
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                this.navigateSidebar('down');
+            }
+        });
+    }
+
+    private getAllSidebarItems(): HTMLElement[] {
+        // Get all feature-list-item elements in DOM order (prefixes, then classes, then features)
+        if (!this.featuresTab) return [];
+        return Array.from(
+            this.featuresTab.querySelectorAll('.feature-list-item')
+        );
+    }
+
+    private navigateSidebar(direction: 'up' | 'down') {
+        const items = this.getAllSidebarItems();
+        if (items.length === 0) return;
+
+        // Find currently selected item
+        let currentIndex = -1;
+        if (this.selectedItem) {
+            const selectedElement =
+                this.selectedItem.type === 'prefix'
+                    ? this.prefixListItems.get(this.selectedItem.key as string)
+                    : this.selectedItem.type === 'class'
+                      ? this.classListItems.get(this.selectedItem.key as string)
+                      : this.featureListItems.get(this.selectedItem.key as number);
+
+            if (selectedElement) {
+                currentIndex = items.indexOf(selectedElement);
+            }
+        }
+
+        // Calculate new index
+        let newIndex: number;
+        if (direction === 'up') {
+            newIndex = currentIndex - 1;
+            // Don't wrap - stop at top
+            if (newIndex < 0) return;
+        } else {
+            newIndex = currentIndex + 1;
+            // Don't wrap - stop at bottom
+            if (newIndex >= items.length) return;
+        }
+
+        // Get the target item and find its type and key
+        const targetItem = items[newIndex];
+        if (!targetItem) return;
+
+        // Find the type and key from the stored maps
+        let targetType: FeatureItemType | null = null;
+        let targetKey: string | number | null = null;
+
+        // Check prefix map
+        for (const [key, element] of this.prefixListItems.entries()) {
+            if (element === targetItem) {
+                targetType = 'prefix';
+                targetKey = key;
+                break;
+            }
+        }
+
+        // Check class map
+        if (!targetType) {
+            for (const [key, element] of this.classListItems.entries()) {
+                if (element === targetItem) {
+                    targetType = 'class';
+                    targetKey = key;
+                    break;
+                }
+            }
+        }
+
+        // Check feature map
+        if (!targetType) {
+            for (const [key, element] of this.featureListItems.entries()) {
+                if (element === targetItem) {
+                    targetType = 'feature';
+                    targetKey = key;
+                    break;
+                }
+            }
+        }
+
+        if (targetType && targetKey !== null) {
+            this.selectItem(targetType, targetKey, true);
+        }
     }
 
     private getSavedTab(): FontInfoTab {
@@ -958,7 +1074,7 @@ class FontInfoManager {
         return item;
     }
 
-    private selectItem(type: FeatureItemType, key: string | number) {
+    private selectItem(type: FeatureItemType, key: string | number, scrollIntoView: boolean = false) {
         const font = window.currentFontModel;
         if (!font || !font.features) return;
 
@@ -1008,6 +1124,10 @@ class FontInfoManager {
 
         if (selectedElement) {
             selectedElement.classList.add('selected');
+            // Scroll into view if navigating with keyboard
+            if (scrollIntoView) {
+                selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
         }
 
         // Load code into editor
