@@ -1109,8 +1109,10 @@ class FontManager {
 
             // After updating the cache, dispatch glyphChanged event for all affected glyphs
             // This ensures the glyph overview refreshes with the updated outline data
-            const currentGlyphName = window.glyphCanvas?.outlineEditor?.currentGlyphName;
-            const currentLayerId = window.glyphCanvas?.outlineEditor?.selectedLayerId;
+            const currentGlyphName =
+                window.glyphCanvas?.outlineEditor?.currentGlyphName;
+            const currentLayerId =
+                window.glyphCanvas?.outlineEditor?.selectedLayerId;
             const rootGlyphName = window.glyphCanvas?.getCurrentGlyphName();
 
             // Collect all glyphs that need to be refreshed
@@ -1122,7 +1124,10 @@ class FontManager {
 
                 // Find all glyphs that use the current glyph as a component
                 // This handles nested components like "o" inside "ö", "õ", "ø", etc.
-                const glyphsUsingComponent = window.currentFontModel?.findGlyphsUsingComponent(currentGlyphName);
+                const glyphsUsingComponent =
+                    window.currentFontModel?.findGlyphsUsingComponent(
+                        currentGlyphName
+                    );
                 if (glyphsUsingComponent) {
                     for (const glyphName of glyphsUsingComponent) {
                         glyphsToRefresh.add(glyphName);

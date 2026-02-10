@@ -434,7 +434,14 @@ export class GlyphCanvasRenderer {
      * @param offsetX - Optional X offset when canvas has been translated (e.g., inside drawOutlineEditor)
      * @param offsetY - Optional Y offset when canvas has been translated
      */
-    drawHoverLabel(text: string, x: number, y: number, invScale: number, offsetX: number = 0, offsetY: number = 0): void {
+    drawHoverLabel(
+        text: string,
+        x: number,
+        y: number,
+        invScale: number,
+        offsetX: number = 0,
+        offsetY: number = 0
+    ): void {
         const isDarkTheme =
             document.documentElement.getAttribute('data-theme') !== 'light';
         const colors = isDarkTheme

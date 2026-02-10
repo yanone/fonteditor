@@ -748,14 +748,15 @@
         if (shouldResizeWidth && views.length > 1) {
             const otherViews = views.filter((v, i) => i !== viewIndex);
             const totalOtherWidth = containerWidth - targetViewWidth;
-            const fontinfoMinWidth = window.resizableViews?.constructor?.FONTINFO_MIN_WIDTH || 24;
+            const fontinfoMinWidth =
+                window.resizableViews?.constructor?.FONTINFO_MIN_WIDTH || 24;
             const minWidthPerOther = fontinfoMinWidth;
 
             if (totalOtherWidth >= minWidthPerOther * otherViews.length) {
                 // When forceResize is true (maximizing), collapse all other views
                 // Otherwise, separate based on current collapsed state
                 let collapsedViews, nonCollapsedViews;
-                
+
                 if (forceResize) {
                     // Maximize mode: treat all other views as collapsed
                     collapsedViews = otherViews;

@@ -1766,7 +1766,9 @@ export class TextRunEditor {
      * Stores unique base glyph names in glyphNameBuffer for layout closure.
      */
     shapeStage1ForGlyphNames() {
-        console.log('Stage 1: Getting base glyph names from Unicode codepoints');
+        console.log(
+            'Stage 1: Getting base glyph names from Unicode codepoints'
+        );
 
         // Use the font model to look up glyphs by Unicode codepoint
         const fontModel = window.currentFontModel;
@@ -1906,7 +1908,9 @@ export class TextRunEditor {
             this.hbFont.setVariations(this.axesManager.variationSettings);
         }
 
-        console.log('Stage 2: BiDi-aware shaping with editing font (GSUB+GPOS)');
+        console.log(
+            'Stage 2: BiDi-aware shaping with editing font (GSUB+GPOS)'
+        );
 
         // Get embedding levels from bidi-js
         const embedLevels = this.bidi.getEmbeddingLevels(this.textBuffer);

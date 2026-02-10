@@ -2666,11 +2666,11 @@ export class Font extends ModelBase {
      */
     findGlyphsUsingComponent(componentGlyphName: string): string[] {
         const affectedGlyphs = new Set<string>();
-        
+
         // Helper function to check if a layer contains the component
         const layerContainsComponent = (layer: any): boolean => {
             if (!layer || !layer.shapes) return false;
-            
+
             for (const shape of layer.shapes) {
                 // Check if this shape is a component referencing the target
                 if (shape && typeof shape === 'object') {
@@ -2679,18 +2679,21 @@ export class Font extends ModelBase {
                         return true;
                     }
                     // Handle nested format: { Component: { reference: "glyphName" } }
-                    if (shape.Component && shape.Component.reference === componentGlyphName) {
+                    if (
+                        shape.Component &&
+                        shape.Component.reference === componentGlyphName
+                    ) {
                         return true;
                     }
                 }
             }
             return false;
         };
-        
+
         // Search through all glyphs
         for (const glyphData of this._data.glyphs) {
             if (!glyphData.layers) continue;
-            
+
             // Check all layers of this glyph
             for (const layer of glyphData.layers) {
                 if (layerContainsComponent(layer)) {
@@ -2699,7 +2702,7 @@ export class Font extends ModelBase {
                 }
             }
         }
-        
+
         return Array.from(affectedGlyphs);
     }
 

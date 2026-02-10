@@ -644,8 +644,9 @@ class ResizableViews {
             newBottomHeight >= bottomMinHeight
         ) {
             // Check if bottom row is collapsed (at or near minimum height)
-            const isBottomCollapsed = Math.abs(newBottomHeight - bottomMinHeight) < 5;
-            
+            const isBottomCollapsed =
+                Math.abs(newBottomHeight - bottomMinHeight) < 5;
+
             if (isBottomCollapsed) {
                 // Use fixed pixel height for collapsed bottom row
                 topRow.style.flex = `1`;

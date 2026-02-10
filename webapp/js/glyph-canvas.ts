@@ -209,7 +209,9 @@ class GlyphCanvas {
         this.canvas!.addEventListener('mousedown', (e) => this.onMouseDown(e));
         this.canvas!.addEventListener('mousemove', (e) => this.onMouseMove(e));
         this.canvas!.addEventListener('mouseup', (e) => this.onMouseUp(e));
-        this.canvas!.addEventListener('mouseleave', (e) => this.onMouseLeave(e));
+        this.canvas!.addEventListener('mouseleave', (e) =>
+            this.onMouseLeave(e)
+        );
 
         // Wheel event for zooming
         this.canvas!.addEventListener('wheel', (e) => this.onWheel(e), {

@@ -71,7 +71,7 @@ const CDN_PRECACHE = [
     'https://cdn.jsdelivr.net/npm/diff@5.1.0/dist/diff.min.js',
     'https://cdn.jsdelivr.net/npm/diff2html@3.4.47/bundles/css/diff2html.min.css',
     'https://cdn.jsdelivr.net/npm/diff2html@3.4.47/bundles/js/diff2html-ui.min.js',
-    'https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js',
+    'https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js'
 ];
 
 // Helper function to check if URL is a CDN resource

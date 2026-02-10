@@ -196,7 +196,9 @@ function addButtonsToView(viewConfig: ViewInfo): void {
     }
 
     // Find view-title-actions container
-    const titleActions = titleBar.querySelector('.view-title-actions') as HTMLElement;
+    const titleActions = titleBar.querySelector(
+        '.view-title-actions'
+    ) as HTMLElement;
     if (!titleActions) {
         console.warn('Title actions not found for:', viewConfig.id);
         return;

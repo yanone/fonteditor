@@ -6,8 +6,8 @@ const webpack = require('webpack');
 const { execSync } = require('child_process');
 
 // Get version from environment variable, package.json, or default to development
-const EDITOR_VERSION = process.env.EDITOR_VERSION ||
-    require('./package.json').version + '-dev';
+const EDITOR_VERSION =
+    process.env.EDITOR_VERSION || require('./package.json').version + '-dev';
 
 module.exports = {
     mode: 'development',

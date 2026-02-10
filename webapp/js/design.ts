@@ -144,9 +144,7 @@ export function toRgba(colorString: string): string {
     }
 
     // rgb() - convert to rgba with alpha=1
-    const rgbMatch = colorString.match(
-        /rgb\((\d+),\s*(\d+),\s*(\d+)\)/
-    );
+    const rgbMatch = colorString.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
     if (rgbMatch) {
         const r = parseInt(rgbMatch[1]);
         const g = parseInt(rgbMatch[2]);

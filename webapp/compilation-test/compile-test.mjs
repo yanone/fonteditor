@@ -69,8 +69,8 @@ function getBaseGlyphsFromUnicode(text, fontData) {
         const codepoint = char.codePointAt(0);
 
         // Find glyph with this codepoint
-        const glyph = glyphs.find(g =>
-            g.codepoints && g.codepoints.includes(codepoint)
+        const glyph = glyphs.find(
+            (g) => g.codepoints && g.codepoints.includes(codepoint)
         );
 
         if (glyph && glyph.name && !seenGlyphs.has(glyph.name)) {
@@ -113,8 +113,6 @@ async function testCompilation(fontPath, typedText) {
     );
     const wasmBytes = readFileSync(wasmPath);
     await init(wasmBytes);
-
-
 
     const fileName = basename(fontPath);
     const glyphsContents = readFileSync(fontPath, 'utf-8');
