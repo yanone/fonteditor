@@ -45,6 +45,7 @@ class FontInfoManager {
     private featureCodeData: Map<number, { tag: string; code: string }> =
         new Map();
     private searchMarkers: number[] = [];
+    private classGlyphMembers: Map<string, Set<string>> = new Map();
 
     init() {
         const viewContent = document.querySelector(
@@ -339,20 +340,43 @@ class FontInfoManager {
             });
         }
 
+        // Helper function to check if any search term matches a glyph name
+        const termMatchesGlyph = (glyphName: string): boolean => {
+            const glyphLower = glyphName.toLowerCase();
+            return this.searchTerms.every((term) => glyphLower.includes(term));
+        };
+
+        // Find all classes that contain matching glyphs (recursively)
+        const matchingClasses = new Set<string>();
+        if (this.searchTerms.length > 0) {
+            this.classGlyphMembers.forEach((_, className) => {
+                const allGlyphs = this.getAllGlyphsInClass(className);
+                for (const glyph of allGlyphs) {
+                    if (termMatchesGlyph(glyph)) {
+                        matchingClasses.add(className);
+                        break;
+                    }
+                }
+            });
+        }
+
         // Filter classes
         if (classesList) {
             this.classListItems.forEach((element, key) => {
                 let visible = true;
                 if (this.searchTerms.length > 0) {
                     const codeData = this.classCodeData.get(key);
-                    const searchText = (
+                    // Check: direct match in name/code OR class contains matching glyph
+                    const directMatch = (
                         key +
                         ' ' +
                         (codeData || '')
                     ).toLowerCase();
-                    visible = this.searchTerms.every((term) =>
-                        searchText.includes(term)
+                    const hasDirectMatch = this.searchTerms.every((term) =>
+                        directMatch.includes(term)
                     );
+                    const hasMatchingGlyph = matchingClasses.has(key);
+                    visible = hasDirectMatch || hasMatchingGlyph;
                 }
                 element.style.display = visible ? '' : 'none';
                 if (visible) hasVisibleClasses = true;
@@ -372,9 +396,22 @@ class FontInfoManager {
                               (codeData.code || '')
                           ).toLowerCase()
                         : '';
-                    visible = this.searchTerms.every((term) =>
+                    // Check: direct match in tag/code OR feature references a matching class
+                    const hasDirectMatch = this.searchTerms.every((term) =>
                         searchText.includes(term)
                     );
+                    // Check if feature references any class that contains matching glyphs
+                    let referencesMatchingClass = false;
+                    if (codeData?.code) {
+                        for (const className of matchingClasses) {
+                            const classRef = '@' + className;
+                            if (codeData.code.includes(classRef)) {
+                                referencesMatchingClass = true;
+                                break;
+                            }
+                        }
+                    }
+                    visible = hasDirectMatch || referencesMatchingClass;
                 }
                 element.style.display = visible ? '' : 'none';
                 if (visible) hasVisibleFeatures = true;
@@ -449,6 +486,106 @@ class FontInfoManager {
                 this.searchMarkers.push(markerId);
             }
         });
+
+        // Also highlight class names that contain matching glyphs
+        this.classGlyphMembers.forEach((members, className) => {
+            const allGlyphs = this.getAllGlyphsInClass(className);
+            const hasMatchingGlyph = Array.from(allGlyphs).some((glyph) => {
+                const glyphLower = glyph.toLowerCase();
+                return this.searchTerms.every((term) =>
+                    glyphLower.includes(term)
+                );
+            });
+
+            if (hasMatchingGlyph) {
+                // Highlight class name references (@ClassName)
+                const classRefPattern = new RegExp(
+                    '@' + className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+                    'g'
+                );
+                let match;
+                while ((match = classRefPattern.exec(content)) !== null) {
+                    const startPos =
+                        this.featuresEditor.session.doc.indexToPosition(
+                            match.index
+                        );
+                    const endPos =
+                        this.featuresEditor.session.doc.indexToPosition(
+                            match.index + match[0].length
+                        );
+                    const range = new Range(
+                        startPos.row,
+                        startPos.column,
+                        endPos.row,
+                        endPos.column
+                    );
+                    const markerId = this.featuresEditor.session.addMarker(
+                        range,
+                        'ace_search_highlight',
+                        'text'
+                    );
+                    this.searchMarkers.push(markerId);
+                }
+            }
+        });
+
+        // Highlight individual glyph names within class definitions
+        const classDefPattern = /@(\w+)\s*=\s*\[([\s\S]*?)\]/g;
+        let classDefMatch;
+        while ((classDefMatch = classDefPattern.exec(content)) !== null) {
+            const className = classDefMatch[1];
+            const classContent = classDefMatch[2];
+            const classStartIndex =
+                classDefMatch.index + classDefMatch[0].indexOf('[') + 1;
+
+            // Check if this class contains matching glyphs
+            const allGlyphs = this.getAllGlyphsInClass(className);
+            const matchingGlyphs = Array.from(allGlyphs).filter((glyph) => {
+                const glyphLower = glyph.toLowerCase();
+                return this.searchTerms.every((term) =>
+                    glyphLower.includes(term)
+                );
+            });
+
+            if (matchingGlyphs.length > 0) {
+                // Highlight each matching glyph within the class definition
+                matchingGlyphs.forEach((glyph) => {
+                    const glyphPattern = new RegExp(
+                        '(?:(?<=\\s)|(?<=\\[))' +
+                            glyph.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+                            '(?:(?=\\s)|(?=\\]))',
+                        'g'
+                    );
+                    let glyphMatch;
+                    while (
+                        (glyphMatch = glyphPattern.exec(classContent)) !== null
+                    ) {
+                        const absoluteIndex =
+                            classStartIndex + glyphMatch.index;
+                        const startPos =
+                            this.featuresEditor.session.doc.indexToPosition(
+                                absoluteIndex
+                            );
+                        const endPos =
+                            this.featuresEditor.session.doc.indexToPosition(
+                                absoluteIndex + glyphMatch[0].length
+                            );
+                        const range = new Range(
+                            startPos.row,
+                            startPos.column,
+                            endPos.row,
+                            endPos.column
+                        );
+                        const markerId = this.featuresEditor.session.addMarker(
+                            range,
+                            'ace_search_highlight',
+                            'text'
+                        );
+                        this.searchMarkers.push(markerId);
+                    }
+                });
+            }
+        }
     }
 
     private createContentContainers(viewContent: HTMLElement) {
@@ -718,6 +855,68 @@ class FontInfoManager {
         }
     }
 
+    private parseClassGlyphMembers(classCode: string): Set<string> {
+        const glyphs = new Set<string>();
+        if (!classCode) return glyphs;
+
+        // Remove comments
+        const codeWithoutComments = classCode.replace(/#.*/g, '');
+
+        // Split by whitespace - the class code is already a space-separated list
+        const tokens = codeWithoutComments
+            .split(/\s+/)
+            .map((t) => t.trim())
+            .filter((t) => t.length > 0);
+
+        tokens.forEach((token) => {
+            if (token.startsWith('@')) {
+                // It's a nested class reference - will be resolved later
+                glyphs.add(token);
+            } else {
+                // It's a glyph name
+                glyphs.add(token);
+            }
+        });
+
+        return glyphs;
+    }
+
+    private getAllGlyphsInClass(
+        className: string,
+        visited: Set<string> = new Set()
+    ): Set<string> {
+        const allGlyphs = new Set<string>();
+
+        // Prevent infinite recursion
+        if (visited.has(className)) return allGlyphs;
+        visited.add(className);
+
+        // Remove @ prefix if present
+        const cleanName = className.startsWith('@')
+            ? className.slice(1)
+            : className;
+        const members = this.classGlyphMembers.get(cleanName);
+
+        if (!members) return allGlyphs;
+
+        members.forEach((member) => {
+            if (member.startsWith('@')) {
+                // Recursively get glyphs from nested class
+                const nestedGlyphs = this.getAllGlyphsInClass(member, visited);
+                nestedGlyphs.forEach((g) => allGlyphs.add(g));
+            } else {
+                allGlyphs.add(member);
+            }
+        });
+
+        return allGlyphs;
+    }
+
+    private classContainsGlyph(className: string, glyphName: string): boolean {
+        const allGlyphs = this.getAllGlyphsInClass(className);
+        return allGlyphs.has(glyphName);
+    }
+
     private loadClassesList() {
         const listContainer = document.getElementById('classes-list');
         if (!listContainer) return;
@@ -740,12 +939,18 @@ class FontInfoManager {
 
         this.classListItems.clear();
         this.classCodeData.clear();
+        this.classGlyphMembers.clear();
         listContainer.innerHTML = '';
 
         classKeys.forEach((key) => {
             const item = this.createListItem('class', key, classes[key]);
             this.classListItems.set(key, item);
             this.classCodeData.set(key, classes[key].code || '');
+            // Parse and store glyph members for this class
+            const members = this.parseClassGlyphMembers(
+                classes[key].code || ''
+            );
+            this.classGlyphMembers.set(key, members);
             listContainer.appendChild(item);
         });
 
