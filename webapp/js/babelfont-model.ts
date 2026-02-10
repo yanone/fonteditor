@@ -2656,6 +2656,54 @@ export class Font extends ModelBase {
     }
 
     /**
+     * Find all glyphs that reference a given glyph as a component
+     * This recursively finds glyphs at any nesting level
+     * @param componentGlyphName - Name of the component glyph to search for
+     * @returns Array of glyph names that contain this component
+     * @example
+     * glyphs = font.findGlyphsUsingComponent("o")
+     * # Returns ["ö", "õ", "ø", ...] if they use "o" as a component
+     */
+    findGlyphsUsingComponent(componentGlyphName: string): string[] {
+        const affectedGlyphs = new Set<string>();
+        
+        // Helper function to check if a layer contains the component
+        const layerContainsComponent = (layer: any): boolean => {
+            if (!layer || !layer.shapes) return false;
+            
+            for (const shape of layer.shapes) {
+                // Check if this shape is a component referencing the target
+                if (shape && typeof shape === 'object') {
+                    // Handle flat format: { reference: "glyphName" }
+                    if (shape.reference === componentGlyphName) {
+                        return true;
+                    }
+                    // Handle nested format: { Component: { reference: "glyphName" } }
+                    if (shape.Component && shape.Component.reference === componentGlyphName) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        
+        // Search through all glyphs
+        for (const glyphData of this._data.glyphs) {
+            if (!glyphData.layers) continue;
+            
+            // Check all layers of this glyph
+            for (const layer of glyphData.layers) {
+                if (layerContainsComponent(layer)) {
+                    affectedGlyphs.add(glyphData.name);
+                    break; // Found in one layer, no need to check others
+                }
+            }
+        }
+        
+        return Array.from(affectedGlyphs);
+    }
+
+    /**
      * Duplicate a glyph with a new name
      * @example
      * new_glyph = font.duplicateGlyph(glyph, "A.alt")

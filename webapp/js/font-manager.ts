@@ -1092,6 +1092,7 @@ class FontManager {
     /**
      * Update the worker's font cache with current font data.
      * Call this after dragging ends to ensure caches are updated.
+     * Also dispatches glyphChanged event to refresh the glyph overview.
      */
     async updateWorkerFontCache(): Promise<void> {
         if (!this.currentFont) {
@@ -1105,6 +1106,50 @@ class FontManager {
                 babelfontJson: this.currentFont.babelfontJson
             });
             console.log('[FontManager] Worker font cache updated after drag');
+
+            // After updating the cache, dispatch glyphChanged event for all affected glyphs
+            // This ensures the glyph overview refreshes with the updated outline data
+            const currentGlyphName = window.glyphCanvas?.outlineEditor?.currentGlyphName;
+            const currentLayerId = window.glyphCanvas?.outlineEditor?.selectedLayerId;
+            const rootGlyphName = window.glyphCanvas?.getCurrentGlyphName();
+
+            // Collect all glyphs that need to be refreshed
+            const glyphsToRefresh = new Set<string>();
+
+            if (currentGlyphName) {
+                // Add the currently edited glyph
+                glyphsToRefresh.add(currentGlyphName);
+
+                // Find all glyphs that use the current glyph as a component
+                // This handles nested components like "o" inside "ö", "õ", "ø", etc.
+                const glyphsUsingComponent = window.currentFontModel?.findGlyphsUsingComponent(currentGlyphName);
+                if (glyphsUsingComponent) {
+                    for (const glyphName of glyphsUsingComponent) {
+                        glyphsToRefresh.add(glyphName);
+                    }
+                }
+            }
+
+            // Also add the root glyph if different (for nested component editing)
+            if (rootGlyphName && rootGlyphName !== currentGlyphName) {
+                glyphsToRefresh.add(rootGlyphName);
+            }
+
+            // Dispatch glyphChanged events for all affected glyphs
+            for (const glyphName of glyphsToRefresh) {
+                console.log(
+                    '[FontManager] Dispatching glyphChanged event for',
+                    glyphName
+                );
+                window.dispatchEvent(
+                    new CustomEvent('glyphChanged', {
+                        detail: {
+                            glyphName: glyphName,
+                            layerId: currentLayerId
+                        }
+                    })
+                );
+            }
         } catch (error) {
             console.error(
                 '[FontManager] Error updating worker font cache:',
