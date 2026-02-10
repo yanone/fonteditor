@@ -1,6 +1,7 @@
 /* Design tokens imported from tokens.css (generated from tokens.json) */
 @import url('tokens.css');
 @import url('glyph-overview.css');
+@import url('features-editor.css');
 
 /* Local Inter font with OpenType features */
 @font-face {
@@ -5780,54 +5781,6 @@ flex-direction: row;
 .feature-script-dropdown:focus {
     outline: none;
     border-color: var(--primary);
-}
-
-.features-editor-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.feature-auto-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-    font-family: var(--font-families-sans);
-    font-size: 11px;
-    color: var(--text-secondary);
-    user-select: none;
-}
-
-.feature-auto-checkbox input[type='checkbox'] {
-    width: 14px;
-    height: 14px;
-    cursor: pointer;
-    margin: 0;
-    filter: saturate(0);
-}
-
-.features-editor {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
-}
-
-/* Background color based on view focus state */
-.view-fontinfo.focused .features-editor {
-    background-color: var(--background-primary);
-}
-
-.view-fontinfo:not(.focused) .features-editor {
-    background-color: var(--background-secondary);
-}
-
-/* Ace Editor in features view */
-.features-editor .ace_editor {
-    font-family: var(--font-families-mono);
-    font-size: 12px;
-    line-height: 1.6;
 }
 
 /* Font Info Names content - ensure it scrolls properly */

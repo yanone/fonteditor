@@ -57,6 +57,10 @@ module.exports = {
                 {
                     from: 'js/overview-view.js',
                     to: 'js/overview-view.js'
+                },
+                {
+                    from: 'js/mode-fea.js',
+                    to: 'js/mode-fea.js'
                 }
             ]
         })

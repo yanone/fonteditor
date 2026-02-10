@@ -197,7 +197,16 @@ class FontInfoManager {
         };
 
         this.featuresEditor.setTheme(getInitialTheme());
-        this.featuresEditor.session.setMode('ace/mode/text'); // Could be a custom FEA mode later
+
+        // Set FEA mode with error handling
+        try {
+            this.featuresEditor.session.setMode('ace/mode/fea');
+            console.log('[FontInfo] FEA mode loaded successfully');
+        } catch (e) {
+            console.error('[FontInfo] Failed to load FEA mode:', e);
+            // Fallback to text mode
+            this.featuresEditor.session.setMode('ace/mode/text');
+        }
         this.featuresEditor.setOptions({
             fontSize: '12px',
             fontFamily: "'IBM Plex Mono', monospace",
