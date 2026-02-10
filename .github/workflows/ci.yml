@@ -94,6 +94,7 @@ jobs:
 
       - name: Upload API docs to KV
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        working-directory: .
         run: |
           echo "📤 Uploading API docs to KV for version: ${{ steps.version.outputs.version }}"
           curl -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{ secrets.KV_NAMESPACE_ID_API_DOCS }}/values/api-docs:${{ steps.version.outputs.version }}" \
