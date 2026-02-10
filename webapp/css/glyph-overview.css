@@ -158,7 +158,6 @@
     border-left: 1px solid var(--border-primary);
     border-right: 1px solid var(--border-primary);
     padding: 2px 6px;
-    transition: border-color 0.15s ease;
 }
 
 .view-overview.focused .overview-search-control {

@@ -154,3 +154,9 @@
 :root[data-theme='light'] .features-editor .ace_string.ace_fea {
     color: var(--accent-purple);
 }
+
+/* Search control in overview title bar */
+.view-fontinfo .overview-search-control {
+    margin-right: 0px;
+    border-right: none;
+}
