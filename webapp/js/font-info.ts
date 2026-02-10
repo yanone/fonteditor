@@ -455,6 +455,11 @@ class FontInfoManager {
         }
 
         // Build feature list with shaper dropdown
+        // Save scroll position before rebuilding
+        const sidebar = listContainer.closest('.features-sidebar');
+        const wasAtBottom = sidebar ? 
+            (sidebar.scrollHeight - sidebar.scrollTop - sidebar.clientHeight < 5) : false;
+        
         this.featureListItems.clear();
         listContainer.innerHTML = '';
 
@@ -694,6 +699,11 @@ class FontInfoManager {
         } else if (this.selectedItem) {
             // Re-select current item to refresh
             this.selectItem(this.selectedItem.type, this.selectedItem.key);
+        }
+
+        // Restore scroll position if was at bottom
+        if (wasAtBottom && sidebar) {
+            sidebar.scrollTop = sidebar.scrollHeight;
         }
     }
 
