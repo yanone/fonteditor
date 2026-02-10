@@ -59,7 +59,7 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
     typing: {
         skip_kerning: true,
         skip_features: false,
-        skip_metrics: false,
+        skip_metrics: true,
         skip_outlines: true,
         dont_use_production_names: true,
         drop_incompatible_paths: false,

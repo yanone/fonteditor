@@ -41,7 +41,7 @@ import init, {
 const TYPING_FONT_OPTIONS = {
     skip_kerning: true,
     skip_features: false,
-    skip_metrics: false,
+    skip_metrics: true,
     skip_outlines: true,
     dont_use_production_names: true,
     drop_incompatible_paths: true,
@@ -61,7 +61,7 @@ const EDITING_FONT_OPTIONS = {
     skip_metrics: false,
     skip_outlines: false,
     dont_use_production_names: true,
-    drop_incompatible_paths: false,
+    drop_incompatible_paths: true,
     produce_varc_table: true
 };
 
