@@ -416,6 +416,42 @@ class FontInfoManager {
                 element.style.display = visible ? '' : 'none';
                 if (visible) hasVisibleFeatures = true;
             });
+
+            // Hide section separators that don't have any visible features
+            if (this.searchTerms.length > 0) {
+                const allChildren = Array.from(featuresList.children);
+                let currentSeparator: Element | null = null;
+                let hasVisibleFeatureInSection = false;
+
+                allChildren.forEach((child) => {
+                    if (child.classList.contains('feature-section-separator')) {
+                        // Hide previous separator if no visible features in its section
+                        if (currentSeparator && !hasVisibleFeatureInSection) {
+                            (currentSeparator as HTMLElement).style.display =
+                                'none';
+                        }
+                        currentSeparator = child;
+                        hasVisibleFeatureInSection = false;
+                    } else if (child.classList.contains('feature-list-item')) {
+                        if ((child as HTMLElement).style.display !== 'none') {
+                            hasVisibleFeatureInSection = true;
+                        }
+                    }
+                });
+
+                // Handle the last separator
+                if (currentSeparator && !hasVisibleFeatureInSection) {
+                    (currentSeparator as HTMLElement).style.display = 'none';
+                }
+            } else {
+                // Show all separators when no search
+                const separators = featuresList.querySelectorAll(
+                    '.feature-section-separator'
+                );
+                separators.forEach((sep) => {
+                    (sep as HTMLElement).style.display = '';
+                });
+            }
         }
 
         // Show/hide section titles based on whether they have visible items
