@@ -209,7 +209,7 @@ class GlyphCanvas {
         this.canvas!.addEventListener('mousedown', (e) => this.onMouseDown(e));
         this.canvas!.addEventListener('mousemove', (e) => this.onMouseMove(e));
         this.canvas!.addEventListener('mouseup', (e) => this.onMouseUp(e));
-        this.canvas!.addEventListener('mouseleave', (e) => this.onMouseUp(e));
+        this.canvas!.addEventListener('mouseleave', (e) => this.onMouseLeave(e));
 
         // Wheel event for zooming
         this.canvas!.addEventListener('wheel', (e) => this.onWheel(e), {
@@ -983,6 +983,30 @@ class GlyphCanvas {
 
         // Update cursor based on current mouse position and Cmd key state
         this.updateCursorStyle(e);
+
+        this.render();
+    }
+
+    onMouseLeave(e: MouseEvent): void {
+        // Call onMouseUp first to handle any ongoing drag operations
+        this.onMouseUp(e);
+
+        // Clear all hover states when mouse leaves the canvas
+        const hadHover =
+            this.outlineEditor.hoveredGlyphIndex >= 0 ||
+            this.outlineEditor.hoveredComponentIndex !== null ||
+            this.outlineEditor.hoveredAnchorIndex !== null ||
+            this.outlineEditor.hoveredPointIndex !== null;
+
+        this.outlineEditor.hoveredGlyphIndex = -1;
+        this.outlineEditor.hoveredComponentIndex = null;
+        this.outlineEditor.hoveredAnchorIndex = null;
+        this.outlineEditor.hoveredPointIndex = null;
+
+        // Re-render only if there was a hover state to clear
+        if (hadHover) {
+            this.render();
+        }
     }
 
     onWheel(e: WheelEvent): void {

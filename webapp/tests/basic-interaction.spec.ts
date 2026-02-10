@@ -52,13 +52,13 @@ test.describe('Font Editor Basic Workflow', () => {
         console.log('[Test] Waiting for canvas ready');
         await waitForCanvasReady(page);
 
-        // Click on editor view to activate it (prevents popups in screenshots)
-        console.log('[Test] Clicking canvas');
-        await page.keyboard.press('Meta+Shift+E');
-
         // Move mouse far outside the viewport to avoid triggering any hover effects
         await page.mouse.move(-100, -100);
         await page.waitForTimeout(200);
+
+        // Click on editor view to activate it (prevents popups in screenshots)
+        console.log('[Test] Clicking canvas');
+        await page.keyboard.press('Meta+Shift+E');
 
         // Wait for rendering to complete
         await page.waitForTimeout(500);
@@ -85,7 +85,7 @@ test.describe('Font Editor Basic Workflow', () => {
         await page.waitForTimeout(200);
 
         // Load font by right-clicking on a file and selecting "Open" from context menu
-        console.log('[Test] Right-clicking on first .glyphs file');
+        console.log('[Test] Double-clicking on first .glyphs file');
         await page.getByText('✏️ Fustat.glyphs').dblclick();
         await page.waitForTimeout(200);
 
@@ -104,22 +104,31 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // SNAPSHOT POINT 2: Font loaded
         console.log('[Test] Taking snapshot 2: font loaded');
-        await page.mouse.move(-100, -100);
-        await page.waitForTimeout(100);
         const snapshot2 = await takeSnapshot(page, '02', 'font-loaded', expect);
 
-        // Type some text - use JavaScript (no need to click, just set via evaluate)
-        // Set Arabic text directly (keyboard.type doesn't handle combining diacritics well)
-        console.log('[Test] Setting text buffer');
+        // Type some text - click canvas to focus, then type
+        // This triggers the subsetted font compilation via onTextChange debounce
+        console.log('[Test] Typing text on canvas');
+        await page.click('#glyph-canvas-container canvas');
+        await page.waitForTimeout(100);
+        // Move mouse far outside the viewport to avoid triggering any hover effects
+        await page.mouse.move(-100, -100);
+        await page.waitForTimeout(200);
+        // Set text directly and wait for compilation to complete
         await page.evaluate(() => {
-            if (window.glyphCanvas?.textRunEditor) {
-                // Set new Arabic text using the correct method
-                window.glyphCanvas.textRunEditor.setTextBuffer(
-                    'hello مَرحَباً'
-                );
-                window.glyphCanvas.textRunEditor.cursorPosition =
-                    window.glyphCanvas.textRunEditor.textBuffer.length;
-            }
+            return new Promise((resolve) => {
+                window.addEventListener('editingFontCompiled', resolve, {
+                    once: true
+                });
+                if (window.glyphCanvas && window.glyphCanvas.textRunEditor) {
+                    window.glyphCanvas.textRunEditor.setTextBuffer(
+                        'hello مَرحَباً'
+                    );
+                    // Move cursor to end of text so ArrowLeft can move it
+                    window.glyphCanvas.textRunEditor.cursorPosition =
+                        'hello مَرحَباً'.length;
+                }
+            });
         });
 
         // Cmd+0
@@ -132,8 +141,6 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // SNAPSHOT POINT 3: Text typed
         console.log('[Test] Taking snapshot 3: text typed');
-        await page.mouse.move(-100, -100);
-        await page.waitForTimeout(100);
         const snapshot3 = await takeSnapshot(page, '03', 'text-typed', expect);
         expect(snapshot3.displayedText).toContain('hello مَرحَباً');
 

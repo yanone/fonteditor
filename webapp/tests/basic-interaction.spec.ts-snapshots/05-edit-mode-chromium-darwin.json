@@ -1,26 +1,25 @@
 {
   "label": "edit-mode",
   "appliedFeatures": {
-    "aalt": false,
-    "case": false,
-    "dlig": false,
-    "frac": false,
-    "kern": true,
-    "liga": true,
     "locl": true,
+    "liga": true,
+    "subs": false,
+    "sinf": false,
+    "sups": false,
+    "frac": false,
     "ordn": false,
     "pnum": false,
-    "sinf": false,
+    "tnum": false,
+    "case": false,
+    "dlig": false,
+    "zero": false,
     "ss01": false,
     "ss02": false,
     "ss03": false,
     "ss04": false,
     "ss05": false,
     "ss06": false,
-    "subs": false,
-    "sups": false,
-    "tnum": false,
-    "zero": false
+    "kern": true
   },
   "axisLocations": {
     "wght": 200
