@@ -37,6 +37,14 @@ class FontInfoManager {
     private selectedShaper: string = 'default';
     private draggedFeatureIndex: number | null = null;
 
+    // Search-related properties
+    private searchInput: HTMLInputElement | null = null;
+    private searchTerms: string[] = [];
+    private prefixCodeData: Map<string, string> = new Map();
+    private classCodeData: Map<string, string> = new Map();
+    private featureCodeData: Map<number, { tag: string; code: string }> =
+        new Map();
+
     init() {
         const viewContent = document.querySelector(
             '#view-fontinfo .view-content'
@@ -48,6 +56,9 @@ class FontInfoManager {
 
         // Create tab selector buttons in title bar
         this.createTabButtons();
+
+        // Initialize search for features tab
+        this.initFeaturesSearch();
 
         // Create content containers
         this.createContentContainers(viewContent as HTMLElement);
@@ -67,11 +78,18 @@ class FontInfoManager {
         console.log('[FontInfo] Initialized');
     }
 
+    private isViewActive(): boolean {
+        const fontInfoView = document.querySelector('#view-fontinfo');
+        return fontInfoView?.classList.contains('focused') ?? false;
+    }
+
     private setupKeyboardNavigation() {
         document.addEventListener('keydown', (e: KeyboardEvent) => {
-            // Only handle arrow keys when features tab is visible
+            // Only handle arrow keys when font info view is active and features tab is visible
+            if (!this.isViewActive()) return;
             if (this.currentTab !== 'features') return;
-            if (!this.featuresTab || this.featuresTab.style.display === 'none') return;
+            if (!this.featuresTab || this.featuresTab.style.display === 'none')
+                return;
 
             // Don't handle if Ace editor has focus
             if (this.featuresEditor && this.featuresEditor.isFocused()) return;
@@ -117,7 +135,9 @@ class FontInfoManager {
                     ? this.prefixListItems.get(this.selectedItem.key as string)
                     : this.selectedItem.type === 'class'
                       ? this.classListItems.get(this.selectedItem.key as string)
-                      : this.featureListItems.get(this.selectedItem.key as number);
+                      : this.featureListItems.get(
+                            this.selectedItem.key as number
+                        );
 
             if (selectedElement) {
                 currentIndex = items.indexOf(selectedElement);
@@ -204,8 +224,9 @@ class FontInfoManager {
             titleBar.appendChild(titleBarRight);
         }
 
-        // Clear existing content
-        titleBarRight.innerHTML = '';
+        // Remove existing tab buttons but preserve search control
+        const existingButtons = titleBarRight.querySelectorAll('.context-tab');
+        existingButtons.forEach((btn) => btn.remove());
 
         // Create Names button
         const namesButton = document.createElement('button');
@@ -225,6 +246,158 @@ class FontInfoManager {
 
         titleBarRight.appendChild(namesButton);
         titleBarRight.appendChild(featuresButton);
+    }
+
+    private initFeaturesSearch() {
+        // Find search input in DOM
+        this.searchInput = document.getElementById(
+            'fontinfo-search-input'
+        ) as HTMLInputElement;
+
+        if (this.searchInput) {
+            // Listen for input changes
+            this.searchInput.addEventListener('input', (e) => {
+                const value = (e.target as HTMLInputElement).value.trim();
+                this.searchTerms = value
+                    .split(/\s+/)
+                    .filter((term) => term.length > 0)
+                    .map((term) => term.toLowerCase());
+                this.applyFeaturesSearch();
+            });
+
+            // Listen for keyboard shortcut (Cmd+F)
+            document.addEventListener('keydown', (e) => {
+                if (
+                    (e.metaKey || e.ctrlKey) &&
+                    e.key === 'f' &&
+                    this.isViewActive() &&
+                    this.currentTab === 'features'
+                ) {
+                    e.preventDefault();
+                    if (this.searchInput) {
+                        this.searchInput.focus();
+                        this.searchInput.select();
+                    }
+                }
+
+                // Escape key clears selection and filters
+                if (
+                    e.key === 'Escape' &&
+                    this.isViewActive() &&
+                    this.currentTab === 'features'
+                ) {
+                    // Only handle if search input is focused or there's an active selection
+                    if (
+                        this.searchInput &&
+                        this.searchInput === document.activeElement
+                    ) {
+                        this.searchInput.blur();
+                    }
+                    if (this.searchTerms.length > 0) {
+                        this.searchTerms = [];
+                        if (this.searchInput) {
+                            this.searchInput.value = '';
+                        }
+                        this.applyFeaturesSearch();
+                    }
+                }
+            });
+        }
+    }
+
+    private applyFeaturesSearch() {
+        if (!this.featuresTab) return;
+
+        // Get the three list containers
+        const prefixesList = document.getElementById('prefixes-list');
+        const classesList = document.getElementById('classes-list');
+        const featuresList = document.getElementById('features-list');
+
+        // Track visibility of sections
+        let hasVisiblePrefixes = false;
+        let hasVisibleClasses = false;
+        let hasVisibleFeatures = false;
+
+        // Filter prefixes
+        if (prefixesList) {
+            this.prefixListItems.forEach((element, key) => {
+                let visible = true;
+                if (this.searchTerms.length > 0) {
+                    const codeData = this.prefixCodeData.get(key);
+                    const searchText = (
+                        key +
+                        ' ' +
+                        (codeData || '')
+                    ).toLowerCase();
+                    visible = this.searchTerms.every((term) =>
+                        searchText.includes(term)
+                    );
+                }
+                element.style.display = visible ? '' : 'none';
+                if (visible) hasVisiblePrefixes = true;
+            });
+        }
+
+        // Filter classes
+        if (classesList) {
+            this.classListItems.forEach((element, key) => {
+                let visible = true;
+                if (this.searchTerms.length > 0) {
+                    const codeData = this.classCodeData.get(key);
+                    const searchText = (
+                        key +
+                        ' ' +
+                        (codeData || '')
+                    ).toLowerCase();
+                    visible = this.searchTerms.every((term) =>
+                        searchText.includes(term)
+                    );
+                }
+                element.style.display = visible ? '' : 'none';
+                if (visible) hasVisibleClasses = true;
+            });
+        }
+
+        // Filter features
+        if (featuresList) {
+            this.featureListItems.forEach((element, key) => {
+                let visible = true;
+                if (this.searchTerms.length > 0) {
+                    const codeData = this.featureCodeData.get(key);
+                    const searchText = codeData
+                        ? (
+                              codeData.tag +
+                              ' ' +
+                              (codeData.code || '')
+                          ).toLowerCase()
+                        : '';
+                    visible = this.searchTerms.every((term) =>
+                        searchText.includes(term)
+                    );
+                }
+                element.style.display = visible ? '' : 'none';
+                if (visible) hasVisibleFeatures = true;
+            });
+        }
+
+        // Show/hide section titles based on whether they have visible items
+        const sidebar = this.featuresTab.querySelector('.features-sidebar');
+        if (sidebar) {
+            const sectionTitles = sidebar.querySelectorAll(
+                '.sidebar-section-title'
+            );
+            sectionTitles.forEach((title, index) => {
+                let hasVisibleItems = false;
+                if (index === 0) hasVisibleItems = hasVisiblePrefixes;
+                else if (index === 1) hasVisibleItems = hasVisibleClasses;
+                else if (index === 2) hasVisibleItems = hasVisibleFeatures;
+
+                (title as HTMLElement).style.display =
+                    hasVisibleItems || this.searchTerms.length === 0
+                        ? ''
+                        : 'none';
+            });
+        }
     }
 
     private createContentContainers(viewContent: HTMLElement) {
@@ -390,6 +563,30 @@ class FontInfoManager {
                 this.loadAllLists();
                 this.fontDataLoaded = true;
             }
+            // Show search control
+            const searchControl = document.getElementById(
+                'fontinfo-search-control'
+            );
+            if (searchControl) {
+                searchControl.style.display = '';
+            }
+        } else {
+            // Hide search control and clear search when leaving features tab
+            const searchControl = document.getElementById(
+                'fontinfo-search-control'
+            );
+            if (searchControl) {
+                searchControl.style.display = 'none';
+            }
+            // Clear search terms and reset visibility
+            if (this.searchTerms.length > 0) {
+                this.searchTerms = [];
+                if (this.searchInput) {
+                    this.searchInput.value = '';
+                }
+                // Reset all items to visible
+                this.applyFeaturesSearch();
+            }
         }
 
         console.log(`[FontInfo] Switched to ${tab} tab`);
@@ -454,13 +651,20 @@ class FontInfoManager {
         }
 
         this.prefixListItems.clear();
+        this.prefixCodeData.clear();
         listContainer.innerHTML = '';
 
         prefixKeys.forEach((key) => {
             const item = this.createListItem('prefix', key, prefixes[key]);
             this.prefixListItems.set(key, item);
+            this.prefixCodeData.set(key, prefixes[key].code || '');
             listContainer.appendChild(item);
         });
+
+        // Apply search filter if there are active search terms
+        if (this.searchTerms.length > 0) {
+            this.applyFeaturesSearch();
+        }
     }
 
     private loadClassesList() {
@@ -484,13 +688,20 @@ class FontInfoManager {
         }
 
         this.classListItems.clear();
+        this.classCodeData.clear();
         listContainer.innerHTML = '';
 
         classKeys.forEach((key) => {
             const item = this.createListItem('class', key, classes[key]);
             this.classListItems.set(key, item);
+            this.classCodeData.set(key, classes[key].code || '');
             listContainer.appendChild(item);
         });
+
+        // Apply search filter if there are active search terms
+        if (this.searchTerms.length > 0) {
+            this.applyFeaturesSearch();
+        }
     }
 
     private extractLanguageSystems(): string[] {
@@ -582,10 +793,13 @@ class FontInfoManager {
         // Build feature list with shaper dropdown
         // Save scroll position before rebuilding
         const sidebar = listContainer.closest('.features-sidebar');
-        const wasAtBottom = sidebar ? 
-            (sidebar.scrollHeight - sidebar.scrollTop - sidebar.clientHeight < 5) : false;
-        
+        const wasAtBottom = sidebar
+            ? sidebar.scrollHeight - sidebar.scrollTop - sidebar.clientHeight <
+              5
+            : false;
+
         this.featureListItems.clear();
+        this.featureCodeData.clear();
         listContainer.innerHTML = '';
 
         // Add shaper selector dropdown if multiple shapers
@@ -702,6 +916,10 @@ class FontInfoManager {
                         isUserFeature
                     );
                     this.featureListItems.set(index, item);
+                    this.featureCodeData.set(index, {
+                        tag,
+                        code: codeData.code || ''
+                    });
                     listContainer.appendChild(item);
                 }
             );
@@ -726,6 +944,10 @@ class FontInfoManager {
                         isUserFeature
                     );
                     this.featureListItems.set(index, item);
+                    this.featureCodeData.set(index, {
+                        tag,
+                        code: codeData.code || ''
+                    });
                     listContainer.appendChild(item);
                 }
             );
@@ -750,6 +972,10 @@ class FontInfoManager {
                         isUserFeature
                     );
                     this.featureListItems.set(index, item);
+                    this.featureCodeData.set(index, {
+                        tag,
+                        code: codeData.code || ''
+                    });
                     listContainer.appendChild(item);
                 }
             );
@@ -778,6 +1004,10 @@ class FontInfoManager {
                         isUserFeature
                     );
                     this.featureListItems.set(index, item);
+                    this.featureCodeData.set(index, {
+                        tag,
+                        code: codeData.code || ''
+                    });
                     listContainer.appendChild(item);
                 }
             );
@@ -807,9 +1037,18 @@ class FontInfoManager {
                     );
                     item.style.opacity = '0.6';
                     this.featureListItems.set(index, item);
+                    this.featureCodeData.set(index, {
+                        tag,
+                        code: codeData.code || ''
+                    });
                     listContainer.appendChild(item);
                 }
             );
+        }
+
+        // Apply search filter if there are active search terms
+        if (this.searchTerms.length > 0) {
+            this.applyFeaturesSearch();
         }
 
         // Select first item if none selected
@@ -993,7 +1232,7 @@ class FontInfoManager {
             // Analyze code for GSUB/GPOS content
             const font = window.currentFontModel;
             let analysis = { hasGSUB: false, hasGPOS: false };
-            
+
             if (font) {
                 if (type === 'feature' && tag) {
                     analysis = font.analyzeFeatureTables(tag);
@@ -1074,7 +1313,11 @@ class FontInfoManager {
         return item;
     }
 
-    private selectItem(type: FeatureItemType, key: string | number, scrollIntoView: boolean = false) {
+    private selectItem(
+        type: FeatureItemType,
+        key: string | number,
+        scrollIntoView: boolean = false
+    ) {
         const font = window.currentFontModel;
         if (!font || !font.features) return;
 
@@ -1126,7 +1369,10 @@ class FontInfoManager {
             selectedElement.classList.add('selected');
             // Scroll into view if navigating with keyboard
             if (scrollIntoView) {
-                selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                selectedElement.scrollIntoView({
+                    block: 'nearest',
+                    behavior: 'smooth'
+                });
             }
         }
 

@@ -655,6 +655,11 @@ flex-direction: row;
     display: none;
 }
 
+/* Hide font info search when view is collapsed */
+.view-fontinfo.collapsed-width .view-title-bar #fontinfo-search-control {
+    display: none;
+}
+
 /* View Title Bar */
 .view-title-bar {
     height: 24px;
