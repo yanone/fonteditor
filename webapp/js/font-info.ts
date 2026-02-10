@@ -11,6 +11,8 @@ import {
     isDiscretionary,
     SCRIPT_TO_SHAPER
 } from './opentype-features';
+// Import FEA mode for Ace Editor (registers the mode automatically)
+import './mode-fea';
 const console = new Logger('FontInfo');
 
 const FONTINFO_TAB_STORAGE_KEY = 'fontinfo-selected-tab';
