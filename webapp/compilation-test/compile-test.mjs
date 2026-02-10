@@ -20,33 +20,14 @@ import {
 import { fileURLToPath } from 'url';
 import { dirname, join, basename } from 'path';
 import { existsSync } from 'fs';
-import harfbuzzjs from 'harfbuzzjs';
 import init, {
     compile_babelfont,
     open_font_file,
     store_font,
-    get_layout_closure,
-    get_glyph_name
+    get_layout_closure
 } from '../wasm-dist/babelfont_fontc_web.js';
 
 // Compilation target options (match webapp/js/font-compilation.ts)
-
-/**
- * Typing font compilation options
- * - skip_kerning: true (not needed for shaping)
- * - skip_outlines: true (not needed for glyph name lookup)
- * - produce_varc_table: false (not needed for shaping)
- * - drop_incompatible_paths: true (prevent errors with incompatible paths)
- */
-const TYPING_FONT_OPTIONS = {
-    skip_kerning: true,
-    skip_features: false,
-    skip_metrics: true,
-    skip_outlines: true,
-    dont_use_production_names: true,
-    drop_incompatible_paths: true,
-    produce_varc_table: false
-};
 
 /**
  * Editing font compilation options
@@ -68,61 +49,47 @@ const EDITING_FONT_OPTIONS = {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Shape text with HarfBuzz to get base glyphs (without features).
- * This mimics the webapp's Stage 1 shaping for subsetting.
+ * Get base glyph names from input text by looking up Unicode codepoints in the font data.
+ * This bypasses HarfBuzz shaping to avoid script-specific glyph selection (e.g., Arabic positional forms).
+ * Returns the "encoded" base glyphs that will be used as the starting set for layout closure.
+ *
+ * @param {string} text - The input text to get glyphs for
+ * @param {object} fontData - The parsed babelfont font data object
+ * @returns {string[]} Array of glyph names for the input text
  */
-function getBaseGlyphsFromText(text, fontBytes, hbInstance) {
-    console.log('[CompileTest]', `Shaping text: "${text}"`);
+function getBaseGlyphsFromUnicode(text, fontData) {
+    console.log('[CompileTest]', `Getting base glyphs for text: "${text}"`);
 
-    // Create HarfBuzz font from bytes
-    const blob = hbInstance.createBlob(fontBytes);
-    const face = hbInstance.createFace(blob, 0);
-    const hbFont = hbInstance.createFont(face);
+    const glyphs = fontData.glyphs || [];
+    const baseGlyphs = [];
+    const seenGlyphs = new Set();
 
-    // Create buffer and add text
-    const buffer = hbInstance.createBuffer();
-    buffer.addText(text);
-    buffer.guessSegmentProperties();
+    // Iterate through each character in the text
+    for (const char of text) {
+        const codepoint = char.codePointAt(0);
 
-    // Shape WITHOUT features to get base glyphs (like webapp Stage 1)
-    hbInstance.shape(hbFont, buffer);
-    const result = buffer.json();
+        // Find glyph with this codepoint
+        const glyph = glyphs.find(g =>
+            g.codepoints && g.codepoints.includes(codepoint)
+        );
 
-    // Extract unique glyph IDs
-    const uniqueGids = new Set();
-    for (const glyph of result) {
-        uniqueGids.add(glyph.g);
-    }
-
-    // Map GIDs to glyph names
-    const glyphNames = [];
-    for (const gid of uniqueGids) {
-        try {
-            const name = get_glyph_name(fontBytes, gid);
-            if (name && name !== '.notdef') {
-                glyphNames.push(name);
-            }
-        } catch (e) {
+        if (glyph && glyph.name && !seenGlyphs.has(glyph.name)) {
+            baseGlyphs.push(glyph.name);
+            seenGlyphs.add(glyph.name);
+        } else if (!glyph) {
             console.warn(
                 '[CompileTest]',
-                `Failed to get name for GID ${gid}:`,
-                e.message
+                `No glyph found for codepoint U+${codepoint.toString(16).toUpperCase().padStart(4, '0')} ("${char}")`
             );
         }
     }
 
-    // Cleanup
-    buffer.destroy();
-    hbFont.destroy();
-    face.destroy();
-    blob.destroy();
-
     console.log(
         '[CompileTest]',
-        `Found ${glyphNames.length} unique base glyphs:`,
-        glyphNames
+        `Found ${baseGlyphs.length} unique base glyphs from Unicode:`,
+        baseGlyphs
     );
-    return glyphNames;
+    return baseGlyphs;
 }
 
 async function testCompilation(fontPath, typedText) {
@@ -147,9 +114,7 @@ async function testCompilation(fontPath, typedText) {
     const wasmBytes = readFileSync(wasmPath);
     await init(wasmBytes);
 
-    // Initialize HarfBuzz
-    console.log('[CompileTest]', 'Initializing HarfBuzz...');
-    const hbInstance = await harfbuzzjs;
+
 
     const fileName = basename(fontPath);
     const glyphsContents = readFileSync(fontPath, 'utf-8');
@@ -296,36 +261,10 @@ async function testCompilation(fontPath, typedText) {
     if (typedText) {
         console.log('[CompileTest]', '\n=== LAYOUT CLOSURE SUBSETTING ===\n');
 
-        // First, compile a full font to use for shaping
-        console.log(
-            '[CompileTest]',
-            'Compiling full typing font for shaping...'
-        );
-        const typingStartTime = performance.now();
-        const typingFontBytes = compile_babelfont(
-            cleanedBabelfontJson,
-            TYPING_FONT_OPTIONS
-        );
-        const typingDuration = (performance.now() - typingStartTime).toFixed(2);
-        console.log(
-            '[CompileTest]',
-            `Typing font compiled in ${typingDuration}ms (${typingFontBytes.length} bytes)`
-        );
-
-        // Save typing font as 1-typing.ttf
-        const typingOutputPath = join(outputDir, '1-typing.ttf');
-        writeFileSync(typingOutputPath, typingFontBytes);
-        console.log(
-            '[CompileTest]',
-            `💾 Saved typing font: ${typingOutputPath}`
-        );
-
-        // Shape text to get base glyphs (Stage 1)
-        const baseGlyphs = getBaseGlyphsFromText(
-            typedText,
-            typingFontBytes,
-            hbInstance
-        );
+        // Get base glyphs directly from Unicode codepoints (no shaping)
+        // This avoids HarfBuzz's script-specific glyph selection (e.g., Arabic positional forms)
+        const baseGlyphs = getBaseGlyphsFromUnicode(typedText, fontData);
+        console.log('[CompileTest]', 'baseGlyphs: ' + baseGlyphs);
 
         if (baseGlyphs.length === 0) {
             console.warn(
