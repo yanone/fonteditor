@@ -1252,8 +1252,12 @@ value = "Alt numbers";
 tag = ss05;
 },
 {
-automatic = 1;
-code = "sub a by a.ss06;
+code = "  featureNames {
+    name 1 \"Double-story tailed a\";
+    name 3 \"Double-story tailed a\";
+  };
+
+sub a by a.ss06;
 sub aacute by aacute.ss06;
 sub abreve by abreve.ss06;
 sub acaron by acaron.ss06;
