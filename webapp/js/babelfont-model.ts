@@ -2874,15 +2874,58 @@ export class Font extends ModelBase {
         const code = feature[1].code || '';
         // Use a set to track visited features to prevent infinite recursion
         const visitedFeatures = new Set<string>([featureTag]);
-        return this._analyzeFeatureCode(code, visitedFeatures);
+        return this._analyzeOpenTypeCodeInternal(code, visitedFeatures);
     }
 
     /**
-     * Internal method to analyze feature code for GSUB/GPOS content
+     * Analyze any OpenType feature code to determine if it contains GSUB and/or GPOS rules
+     * This is a general-purpose method that can analyze code from features, prefixes, or any other source
+     * @param code - The AFDKO feature code to analyze
+     * @returns Object with hasGSUB and hasGPOS boolean flags
+     * @example
+     * const analysis = font.analyzeOpenTypeCode("substitute a by b;")
+     * if (analysis.hasGSUB) console.log("Code contains substitution rules")
+     */
+    analyzeOpenTypeCode(code: string): {
+        hasGSUB: boolean;
+        hasGPOS: boolean;
+    } {
+        // Use an empty set since we're analyzing standalone code without feature references
+        return this._analyzeOpenTypeCodeInternal(code, new Set());
+    }
+
+    /**
+     * Analyze a prefix's code to determine if it contains GSUB and/or GPOS rules
+     * @param prefixName - The name of the prefix to analyze
+     * @returns Object with hasGSUB and hasGPOS boolean flags
+     * @example
+     * const analysis = font.analyzePrefix("myLookup")
+     * if (analysis.hasGSUB) console.log("Prefix contains substitution rules")
+     */
+    analyzePrefix(prefixName: string): {
+        hasGSUB: boolean;
+        hasGPOS: boolean;
+    } {
+        if (!this.features?.prefixes) {
+            return { hasGSUB: false, hasGPOS: false };
+        }
+
+        const prefix = this.features.prefixes[prefixName];
+        if (!prefix) {
+            return { hasGSUB: false, hasGPOS: false };
+        }
+
+        const code = prefix.code || '';
+        // Use an empty set since prefixes don't have feature tag references
+        return this._analyzeOpenTypeCodeInternal(code, new Set());
+    }
+
+    /**
+     * Internal method to analyze OpenType code for GSUB/GPOS content
      * Handles lookup references and feature references by parsing all features and prefixes
      * @param visitedFeatures - Set of feature tags already visited to prevent infinite recursion
      */
-    private _analyzeFeatureCode(
+    private _analyzeOpenTypeCodeInternal(
         code: string,
         visitedFeatures: Set<string> = new Set()
     ): {
@@ -2939,7 +2982,7 @@ export class Font extends ModelBase {
                     // Mark this feature as visited to prevent infinite recursion
                     const newVisited = new Set(visitedFeatures);
                     newVisited.add(refTag);
-                    const refAnalysis = this._analyzeFeatureCode(
+                    const refAnalysis = this._analyzeOpenTypeCodeInternal(
                         refFeature[1].code || '',
                         newVisited
                     );
@@ -2990,7 +3033,7 @@ export class Font extends ModelBase {
         if (this.features.prefixes) {
             const prefixCode = this.features.prefixes[lookupName];
             if (prefixCode?.code) {
-                return this._analyzeFeatureCode(
+                return this._analyzeOpenTypeCodeInternal(
                     prefixCode.code,
                     visitedFeatures
                 );
@@ -3009,7 +3052,7 @@ export class Font extends ModelBase {
                 const featureCode = featureData.code || '';
                 const lookupMatch = lookupPattern.exec(featureCode);
                 if (lookupMatch) {
-                    return this._analyzeFeatureCode(
+                    return this._analyzeOpenTypeCodeInternal(
                         lookupMatch[1],
                         visitedFeatures
                     );
@@ -3023,7 +3066,7 @@ export class Font extends ModelBase {
                 const code = prefixCode.code || '';
                 const lookupMatch = lookupPattern.exec(code);
                 if (lookupMatch) {
-                    return this._analyzeFeatureCode(
+                    return this._analyzeOpenTypeCodeInternal(
                         lookupMatch[1],
                         visitedFeatures
                     );

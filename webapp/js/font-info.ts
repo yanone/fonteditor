@@ -863,13 +863,19 @@ class FontInfoManager {
             item.addEventListener('dragend', () => this.onFeatureDragEnd());
         }
 
-        // For features, show GSUB/GPOS indicators and feature name
-        if (type === 'feature' && tag) {
-            // Analyze feature for GSUB/GPOS content
+        // For features and prefixes, show GSUB/GPOS indicators
+        if (type === 'feature' || type === 'prefix') {
+            // Analyze code for GSUB/GPOS content
             const font = window.currentFontModel;
-            const analysis = font
-                ? font.analyzeFeatureTables(tag)
-                : { hasGSUB: false, hasGPOS: false };
+            let analysis = { hasGSUB: false, hasGPOS: false };
+            
+            if (font) {
+                if (type === 'feature' && tag) {
+                    analysis = font.analyzeFeatureTables(tag);
+                } else if (type === 'prefix' && typeof key === 'string') {
+                    analysis = font.analyzePrefix(key);
+                }
+            }
 
             // GSUB/GPOS indicators
             const tableIndicator = document.createElement('div');
@@ -901,20 +907,28 @@ class FontInfoManager {
 
             item.appendChild(tableIndicator);
 
-            // Feature tag (4-digit code)
-            const tagSpan = document.createElement('span');
-            tagSpan.className = 'feature-tag';
-            tagSpan.textContent = tag;
-            item.appendChild(tagSpan);
+            if (type === 'feature' && tag) {
+                // Feature tag (4-digit code)
+                const tagSpan = document.createElement('span');
+                tagSpan.className = 'feature-tag';
+                tagSpan.textContent = tag;
+                item.appendChild(tagSpan);
 
-            // Feature name
-            const description = getFeatureDescription(tag);
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'feature-name';
-            nameSpan.textContent = description.split(' - ')[0] || tag;
-            item.appendChild(nameSpan);
+                // Feature name
+                const description = getFeatureDescription(tag);
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'feature-name';
+                nameSpan.textContent = description.split(' - ')[0] || tag;
+                item.appendChild(nameSpan);
+            } else {
+                // For prefixes, show the key in feature-name style
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'feature-name';
+                nameSpan.textContent = String(key);
+                item.appendChild(nameSpan);
+            }
         } else {
-            // For prefixes and classes, show the key in feature-name style
+            // For classes, show the key in feature-name style without indicators
             const nameSpan = document.createElement('span');
             nameSpan.className = 'feature-name';
             nameSpan.textContent = String(key);
