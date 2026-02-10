@@ -160,3 +160,14 @@
     margin-right: 0px;
     border-right: none;
 }
+
+/* Search term highlighting in Ace editor */
+.ace_search_highlight {
+    position: absolute;
+    background: rgba(255, 200, 0, 0.3);
+    z-index: 20;
+}
+
+:root[data-theme='light'] .ace_search_highlight {
+    background: rgba(255, 220, 0, 0.4);
+}

@@ -44,6 +44,7 @@ class FontInfoManager {
     private classCodeData: Map<string, string> = new Map();
     private featureCodeData: Map<number, { tag: string; code: string }> =
         new Map();
+    private searchMarkers: number[] = [];
 
     init() {
         const viewContent = document.querySelector(
@@ -398,6 +399,56 @@ class FontInfoManager {
                         : 'none';
             });
         }
+
+        // Update search highlighting in editor
+        this.highlightSearchTermsInEditor();
+    }
+
+    private highlightSearchTermsInEditor() {
+        if (!this.featuresEditor) return;
+
+        // Clear existing markers
+        this.searchMarkers.forEach((id) =>
+            this.featuresEditor.session.removeMarker(id)
+        );
+        this.searchMarkers = [];
+
+        // If no search terms, don't add any markers
+        if (this.searchTerms.length === 0) return;
+
+        // Get the Range class from Ace
+        const Range = window.ace.require('ace/range').Range;
+        const content = this.featuresEditor.getValue();
+
+        // Find and highlight each occurrence of each search term
+        this.searchTerms.forEach((term) => {
+            // Escape special regex characters in the search term
+            const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(escapedTerm, 'gi');
+            let match;
+
+            while ((match = regex.exec(content)) !== null) {
+                const startPos =
+                    this.featuresEditor.session.doc.indexToPosition(
+                        match.index
+                    );
+                const endPos = this.featuresEditor.session.doc.indexToPosition(
+                    match.index + match[0].length
+                );
+                const range = new Range(
+                    startPos.row,
+                    startPos.column,
+                    endPos.row,
+                    endPos.column
+                );
+                const markerId = this.featuresEditor.session.addMarker(
+                    range,
+                    'ace_search_highlight',
+                    'text'
+                );
+                this.searchMarkers.push(markerId);
+            }
+        });
     }
 
     private createContentContainers(viewContent: HTMLElement) {
@@ -1381,6 +1432,8 @@ class FontInfoManager {
             this.featuresEditor.setValue(codeData.code || '', -1);
             // Enable line wrapping for all cases (prefixes, classes, and features)
             this.featuresEditor.session.setUseWrapMode(true);
+            // Highlight search terms in the loaded content
+            this.highlightSearchTermsInEditor();
         }
 
         // Update automatic checkbox
@@ -1398,6 +1451,11 @@ class FontInfoManager {
         this.selectedItem = null;
         if (this.featuresEditor) {
             this.featuresEditor.setValue('', -1);
+            // Clear search markers when editor is cleared
+            this.searchMarkers.forEach((id) =>
+                this.featuresEditor.session.removeMarker(id)
+            );
+            this.searchMarkers = [];
         }
         const autoCheckbox = document.getElementById(
             'feature-automatic-checkbox'
