@@ -88,11 +88,20 @@ jobs:
 
       - name: Upload API docs to KV
         run: |
+          set -e
           echo "📤 Uploading API docs to KV for version: ${{ steps.version.outputs.VERSION }}"
-          curl -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{ secrets.KV_NAMESPACE_ID_API_DOCS }}/values/api-docs:${{ steps.version.outputs.VERSION }}" \
+          RESPONSE=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{ secrets.KV_NAMESPACE_ID_API_DOCS }}/values/api-docs:${{ steps.version.outputs.VERSION }}" \
             -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             -H "Content-Type: text/plain" \
-            --data-binary @API.md
+            --data-binary @API.md)
+          
+          # Check if upload was successful
+          if echo "$RESPONSE" | grep -q '"success":false'; then
+            echo "❌ API docs upload failed!"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+          
           echo "✅ API docs uploaded successfully"
 
       - name: Deployment summary

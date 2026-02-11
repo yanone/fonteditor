@@ -96,9 +96,18 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         working-directory: .
         run: |
+          set -e
           echo "📤 Uploading API docs to KV for version: ${{ steps.version.outputs.version }}"
-          curl -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{ secrets.KV_NAMESPACE_ID_API_DOCS }}/values/api-docs:${{ steps.version.outputs.version }}" \
+          RESPONSE=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{ secrets.KV_NAMESPACE_ID_API_DOCS }}/values/api-docs:${{ steps.version.outputs.version }}" \
             -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             -H "Content-Type: text/plain" \
-            --data-binary @API.md
+            --data-binary @API.md)
+          
+          # Check if upload was successful
+          if echo "$RESPONSE" | grep -q '"success":false'; then
+            echo "❌ API docs upload failed!"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+          
           echo "✅ API docs uploaded successfully"
