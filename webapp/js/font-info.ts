@@ -55,6 +55,7 @@ class FontInfoManager {
         new Map();
     private searchMarkers: number[] = [];
     private classGlyphMembers: Map<string, Set<string>> = new Map();
+    private resizeObserver: ResizeObserver | null = null;
 
     init() {
         const viewContent = document.querySelector(
@@ -83,6 +84,9 @@ class FontInfoManager {
         // Listen for font changes - use fontReady which fires after currentFontModel is set
         window.addEventListener('fontReady', () => this.onFontLoaded());
 
+        // Set up ResizeObserver to resize the Ace editor continuously during dragging
+        this.setupResizeObserver();
+
         // Set up keyboard navigation for feature editor
         this.setupKeyboardNavigation();
 
@@ -92,6 +96,19 @@ class FontInfoManager {
     private isViewActive(): boolean {
         const fontInfoView = document.querySelector('#view-fontinfo');
         return fontInfoView?.classList.contains('focused') ?? false;
+    }
+
+    private setupResizeObserver() {
+        const fontInfoView = document.querySelector('#view-fontinfo');
+        if (!fontInfoView) return;
+
+        this.resizeObserver = new ResizeObserver(() => {
+            if (this.featuresEditor) {
+                this.featuresEditor.resize();
+            }
+        });
+
+        this.resizeObserver.observe(fontInfoView);
     }
 
     private setupKeyboardNavigation() {
