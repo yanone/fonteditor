@@ -2000,26 +2000,7 @@ export class OutlineEditor {
         }
 
         // Find the master for this layer
-        // Extract master ID from LayerType union if needed
-        let masterIdToFind: string | undefined;
-        if (typeof layer.master === 'string') {
-            masterIdToFind = layer.master;
-        } else if (layer.master && typeof layer.master === 'object') {
-            // Internally tagged format: {type: "DefaultForMaster", master: "id"}
-            if (
-                'type' in layer.master &&
-                layer.master.type === 'DefaultForMaster' &&
-                'master' in layer.master
-            ) {
-                masterIdToFind = layer.master.master;
-            } else if (
-                'type' in layer.master &&
-                layer.master.type === 'AssociatedWithMaster' &&
-                'master' in layer.master
-            ) {
-                masterIdToFind = layer.master.master;
-            }
-        }
+        const masterIdToFind = layer.master?.master;
         const master = masters.find((m) => m.id === masterIdToFind);
         if (!master || !master.location) {
             console.warn('No master location found for layer', {
@@ -2150,23 +2131,7 @@ export class OutlineEditor {
 
         // Check each layer to find a match
         for (const layer of layers) {
-            // Extract master ID from LayerType
-            let masterId: string | undefined;
-            const layerMaster = layer.master;
-
-            if (layerMaster && typeof layerMaster === 'object') {
-                // New format: {type: "DefaultForMaster", master: "id"}
-                if (
-                    'type' in layerMaster &&
-                    layerMaster.type === 'DefaultForMaster'
-                ) {
-                    masterId = (layerMaster as any).master;
-                }
-                // Old format: {DefaultForMaster: "id"}
-                else if ('DefaultForMaster' in layerMaster) {
-                    masterId = (layerMaster as any).DefaultForMaster;
-                }
-            }
+            const masterId = layer.master?.master;
 
             const master = masters.find((m) => m.id === masterId);
             if (!master || !master.location) {

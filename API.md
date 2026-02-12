@@ -1,7 +1,5 @@
 # Font Object Model API Documentation
 
-**Version:** v0.1.5
-
 *Auto-generated from JavaScript object model introspection*
 
 
@@ -116,6 +114,16 @@ Find a glyph by codepoint
 glyph = font.findGlyphByCodepoint(0x0041)  # Find 'A'
 ```
 
+#### `findGlyphsUsingComponent(componentGlyphName: str) -> list[str]`
+Find all glyphs that reference a given glyph as a component
+This recursively finds glyphs at any nesting level
+
+**Example:**
+```python
+glyphs = font.findGlyphsUsingComponent("o")
+# Returns ["ö", "õ", "ø", ...] if they use "o" as a component
+```
+
 #### `duplicateGlyph(glyph: [Glyph](#glyph), newName: str) -> [Glyph](#glyph)`
 Duplicate a glyph with a new name
 
@@ -164,6 +172,34 @@ Create a Font instance from JSON string
 Create a Font instance from parsed JSON data
 
 #### `toString() -> str`
+#### `analyzeFeatureTables(featureTag: str) -> { hasGSUB: boolean; hasGPOS: boolean; }`
+Analyze a feature's code to determine if it contains GSUB and/or GPOS rules
+
+**Example:**
+```python
+const analysis = font.analyzeFeatureTables("liga")
+if (analysis.hasGSUB) console.log("Feature has substitution rules")
+```
+
+#### `analyzeOpenTypeCode(code: str) -> { hasGSUB: boolean; hasGPOS: boolean; }`
+Analyze any OpenType feature code to determine if it contains GSUB and/or GPOS rules
+This is a general-purpose method that can analyze code from features, prefixes, or any other source
+
+**Example:**
+```python
+const analysis = font.analyzeOpenTypeCode("substitute a by b;")
+if (analysis.hasGSUB) console.log("Code contains substitution rules")
+```
+
+#### `analyzePrefix(prefixName: str) -> { hasGSUB: boolean; hasGPOS: boolean; }`
+Analyze a prefix's code to determine if it contains GSUB and/or GPOS rules
+
+**Example:**
+```python
+const analysis = font.analyzePrefix("myLookup")
+if (analysis.hasGSUB) console.log("Prefix contains substitution rules")
+```
+
 ---
 
 
@@ -252,10 +288,11 @@ layer = glyph.layers[0]
 
 ### Methods
 
+#### `getMasterId() -> str | None`
 #### `addShape(shape: Babelfont.Shape) -> [Shape](#shape)`
 Add a new shape to the layer
 
-#### `addPath(closed: bool) -> [Path](#path)`
+#### `addPath(closed: bool | dict, any>) -> [Path](#path)`
 Add a new path to the layer
 
 **Example:**
@@ -319,6 +356,49 @@ Calculate intersections between a line segment and all paths in this layer
 
 #### `getSidebearingsAtHeight(y: float | int) -> { left: number; right: number; } | None`
 Calculate sidebearings at a given Y height by measuring distance from glyph edges to first/last outline intersections
+
+#### `adjustStrokeThickness(horizontalFactor: float | int, verticalFactor: float | int, options: { maxRayLength?: number; collinearEpsilon?: number; selfHitMinDistance?: number; }) -> float | int`
+Expand/contract stroke thickness with separate horizontal and vertical factors.
+
+Usage model:
+- Required: `horizontalFactor`, `verticalFactor`
+- Optional: `options` object
+
+Factors:
+- `1.0` = keep current thickness on that axis
+- `>1.0` = expand stroke thickness on that axis
+- `<1.0` = contract stroke thickness on that axis
+
+Behavior:
+- Works only on direct paths in this layer (components are ignored).
+- Detects opposite-winding contour counterparts to estimate local stroke vectors.
+- Preserves straight on-curve/off-curve triplets after transformation.
+- Horizontal and vertical straight triplets stay axis-aligned.
+- Diagonal straight triplets remain straight, but angle may change.
+
+Options:
+- `maxRayLength` (default: auto from glyph bbox, min 2000):
+  maximum distance used to search opposite contour hits.
+  Increase for very large/complex glyphs if some strokes are not detected.
+- `collinearEpsilon` (default: `0.01`):
+  tolerance for detecting straight triplets.
+  Increase slightly if nearly-straight handles should be treated as straight.
+- `selfHitMinDistance` (default: `2`):
+ minimum ray distance when same-contour fallback is used (single-path glyphs).
+ Increase if adjacent-edge hits are still preferred over opposite stroke edges.
+
+**Example:**
+```python
+// Uniform 10% expansion on both axes
+layer.adjustStrokeThickness(1.1, 1.1);
+// Expand horizontal thickness, keep vertical thickness unchanged
+layer.adjustStrokeThickness(1.2, 1.0);
+// Contract vertical thickness with custom detection tuning
+layer.adjustStrokeThickness(1.0, 0.9, {
+    maxRayLength: 5000,
+    collinearEpsilon: 0.02
+});
+```
 
 #### `getMatchingLayerOnGlyph(glyphName: str) -> [Layer](#layer) | None`
 Find the matching layer on another glyph that represents the same master

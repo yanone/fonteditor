@@ -1523,19 +1523,11 @@ class GlyphCanvas {
                 correspondingLayer = glyphLayers.find((layer) => {
                     const layerMaster = layer.master;
                     if (layerMaster && typeof layerMaster === 'object') {
-                        // New format: {type: "DefaultForMaster", master: "id"}
                         if (
                             'type' in layerMaster &&
                             layerMaster.type === 'DefaultForMaster'
                         ) {
                             return (layerMaster as any).master === master.id;
-                        }
-                        // Old format: {DefaultForMaster: "id"}
-                        if ('DefaultForMaster' in layerMaster) {
-                            return (
-                                (layerMaster as any).DefaultForMaster ===
-                                master.id
-                            );
                         }
                     }
                     return false;

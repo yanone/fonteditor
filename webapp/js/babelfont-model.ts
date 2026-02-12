@@ -118,6 +118,51 @@ function markFontDirty(): void {
     }
 }
 
+function isDevelopmentMode(): boolean {
+    return typeof window.isDevelopment === 'function'
+        ? window.isDevelopment()
+        : false;
+}
+
+function isTaggedLayerType(value: any): boolean {
+    if (!value || typeof value !== 'object' || !('type' in value)) {
+        return false;
+    }
+
+    if (value.type === 'FreeFloating') {
+        return !('master' in value) || value.master === undefined;
+    }
+
+    if (
+        (value.type === 'DefaultForMaster' ||
+            value.type === 'AssociatedWithMaster') &&
+        typeof value.master === 'string'
+    ) {
+        return true;
+    }
+
+    return false;
+}
+
+function assertTaggedLayerMaster(master: any, context: string): void {
+    if (!isDevelopmentMode() || master === undefined) {
+        return;
+    }
+
+    if (!isTaggedLayerType(master)) {
+        let formatted = '[unserializable]';
+        try {
+            formatted = JSON.stringify(master);
+        } catch (_error) {
+            formatted = '[unserializable]';
+        }
+
+        throw new Error(
+            `[BabelfontModel] Non-tagged layer.master detected at ${context}. Received: ${formatted}`
+        );
+    }
+}
+
 /**
  * Base class for model objects that wrap JSON data
  */
@@ -800,6 +845,10 @@ export class Layer extends ArrayElementBase {
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
 
+    private getMasterId(): string | undefined {
+        return this.master?.master;
+    }
+
     get width(): number {
         return this.data.width;
     }
@@ -928,10 +977,14 @@ export class Layer extends ArrayElementBase {
     }
 
     get master(): Babelfont.LayerType | undefined {
+        const layerId = this.data.id || '[no-layer-id]';
+        assertTaggedLayerMaster(this.data.master, `Layer#${layerId}.master`);
         return this.data.master;
     }
 
     set master(value: Babelfont.LayerType | undefined) {
+        const layerId = this.data.id || '[no-layer-id]';
+        assertTaggedLayerMaster(value, `Layer#${layerId}.master(set)`);
         this.data.master = value;
     }
 
@@ -1047,10 +1100,19 @@ export class Layer extends ArrayElementBase {
      * @example
      * path = layer.addPath(closed=True)
      */
-    addPath(closed: boolean = true): Path {
+    addPath(closed: boolean | Record<string, any> = true): Path {
+        // Pyodide/JS interop can pass keyword arguments as an object,
+        // e.g. addPath(closed=True) may arrive as { closed: true }.
+        const resolvedClosed =
+            typeof closed === 'boolean'
+                ? closed
+                : !!closed && typeof closed === 'object' && 'closed' in closed
+                  ? !!(closed as any).closed
+                  : true;
+
         const pathData: Babelfont.Path = {
             nodes: [],
-            closed
+            closed: resolvedClosed
         };
         const shapeData: Babelfont.Shape = pathData;
         const shape = this.addShape(shapeData);
@@ -1620,8 +1682,8 @@ export class Layer extends ArrayElementBase {
         const glyph = this.parent() as Glyph;
         const font = glyph ? (glyph.parent() as Font) : undefined;
 
-        // Get the master ID from the layer data
-        const masterId = this.data.master?.DefaultForMaster;
+        // Get the master ID from tagged layer data
+        const masterId = this.data.master?.master;
 
         return Layer.calculateBoundingBox(
             this.data,
@@ -1872,22 +1934,747 @@ export class Layer extends ArrayElementBase {
     }
 
     /**
+     * Expand/contract stroke thickness with separate horizontal and vertical factors.
+     *
+     * Usage model:
+     * - Required: `horizontalFactor`, `verticalFactor`
+     * - Optional: `options` object
+     *
+     * Factors:
+     * - `1.0` = keep current thickness on that axis
+     * - `>1.0` = expand stroke thickness on that axis
+     * - `<1.0` = contract stroke thickness on that axis
+     *
+     * Behavior:
+     * - Works only on direct paths in this layer (components are ignored).
+     * - Detects opposite-winding contour counterparts to estimate local stroke vectors.
+     * - Preserves straight on-curve/off-curve triplets after transformation.
+     * - Horizontal and vertical straight triplets stay axis-aligned.
+     * - Diagonal straight triplets remain straight, but angle may change.
+     *
+     * Options:
+     * - `maxRayLength` (default: auto from glyph bbox, min 2000):
+     *   maximum distance used to search opposite contour hits.
+     *   Increase for very large/complex glyphs if some strokes are not detected.
+     * - `collinearEpsilon` (default: `0.01`):
+     *   tolerance for detecting straight triplets.
+     *   Increase slightly if nearly-straight handles should be treated as straight.
+     * - `selfHitMinDistance` (default: `2`):
+     *   minimum ray distance when same-contour fallback is used (single-path glyphs).
+     *   Increase if adjacent-edge hits are still preferred over opposite stroke edges.
+     *
+     * @param horizontalFactor Scale factor for horizontal stroke component (X axis), must be > 0
+     * @param verticalFactor Scale factor for vertical stroke component (Y axis), must be > 0
+     * @param options Optional tuning parameters
+     * @returns Number of nodes changed
+     *
+     * @example
+     * // Uniform 10% expansion on both axes
+     * layer.adjustStrokeThickness(1.1, 1.1);
+     *
+     * @example
+     * // Expand horizontal thickness, keep vertical thickness unchanged
+     * layer.adjustStrokeThickness(1.2, 1.0);
+     *
+     * @example
+     * // Contract vertical thickness with custom detection tuning
+     * layer.adjustStrokeThickness(1.0, 0.9, {
+     *     maxRayLength: 5000,
+     *     collinearEpsilon: 0.02
+     * });
+     */
+    adjustStrokeThickness(
+        horizontalFactor: number,
+        verticalFactor: number,
+        options: {
+            maxRayLength?: number;
+            collinearEpsilon?: number;
+            selfHitMinDistance?: number;
+        } = {}
+    ): number {
+        if (
+            !isFinite(horizontalFactor) ||
+            !isFinite(verticalFactor) ||
+            horizontalFactor <= 0 ||
+            verticalFactor <= 0
+        ) {
+            throw new Error(
+                'adjustStrokeThickness requires positive finite factors'
+            );
+        }
+
+        if (!this.shapes || this.shapes.length === 0) {
+            return 0;
+        }
+
+        type MutableNode = {
+            x: number;
+            y: number;
+            nodetype?: string;
+            type?: string;
+            smooth?: boolean;
+        };
+
+        type MutablePath = {
+            pathData: any;
+            nodes: MutableNode[];
+            closed: boolean;
+            winding: number;
+            wasString: boolean;
+            mirrorShape: any | null;
+            mirrorWasString: boolean;
+            mirrorUsesNestedPath: boolean;
+        };
+
+        type SegmentInfo = {
+            pathIndex: number;
+            type: 'line' | 'quadratic' | 'cubic';
+            points: Array<{ x: number; y: number }>;
+        };
+
+        type TripletConstraint = {
+            pathIndex: number;
+            onIndex: number;
+            prevIndex: number;
+            nextIndex: number;
+            orientation: 'horizontal' | 'vertical' | 'diagonal';
+            direction: { x: number; y: number };
+        };
+
+        type PathBounds = {
+            minX: number;
+            maxX: number;
+            minY: number;
+            maxY: number;
+        };
+
+        const collinearEpsilon = options.collinearEpsilon ?? 0.01;
+        const selfHitMinDistance = Math.max(0, options.selfHitMinDistance ?? 2);
+
+        const isOffCurve = (node: MutableNode | undefined): boolean => {
+            if (!node) return false;
+            const type = (node.type || node.nodetype || '')
+                .toString()
+                .toLowerCase();
+            return type === 'o' || type === 'offcurve';
+        };
+
+        const signedArea = (nodes: MutableNode[]): number => {
+            if (nodes.length < 3) return 0;
+            let area = 0;
+            for (let i = 0; i < nodes.length; i++) {
+                const p0 = nodes[i];
+                const p1 = nodes[(i + 1) % nodes.length];
+                area += p0.x * p1.y - p1.x * p0.y;
+            }
+            return area * 0.5;
+        };
+
+        const getPathBounds = (nodes: MutableNode[]): PathBounds => {
+            let minX = Infinity;
+            let maxX = -Infinity;
+            let minY = Infinity;
+            let maxY = -Infinity;
+
+            for (const node of nodes) {
+                if (node.x < minX) minX = node.x;
+                if (node.x > maxX) maxX = node.x;
+                if (node.y < minY) minY = node.y;
+                if (node.y > maxY) maxY = node.y;
+            }
+
+            return { minX, maxX, minY, maxY };
+        };
+
+        const normalize = (
+            x: number,
+            y: number
+        ): { x: number; y: number } | null => {
+            const length = Math.hypot(x, y);
+            if (length < 1e-9) return null;
+            return { x: x / length, y: y / length };
+        };
+
+        const projectOnDirection = (
+            point: { x: number; y: number },
+            origin: { x: number; y: number },
+            direction: { x: number; y: number }
+        ): { x: number; y: number } => {
+            const vx = point.x - origin.x;
+            const vy = point.y - origin.y;
+            const t = vx * direction.x + vy * direction.y;
+            return {
+                x: origin.x + direction.x * t,
+                y: origin.y + direction.y * t
+            };
+        };
+
+        const getNode = (
+            nodes: MutableNode[],
+            index: number,
+            closed: boolean
+        ): MutableNode | null => {
+            if (nodes.length === 0) return null;
+            if (closed) {
+                const wrapped =
+                    ((index % nodes.length) + nodes.length) % nodes.length;
+                return nodes[wrapped] || null;
+            }
+            if (index < 0 || index >= nodes.length) return null;
+            return nodes[index] || null;
+        };
+
+        const intersectionOnLineSegment = (
+            segA: { x: number; y: number },
+            segB: { x: number; y: number },
+            rayOrigin: { x: number; y: number },
+            rayDir: { x: number; y: number },
+            maxRayLength: number
+        ): { x: number; y: number; distance: number } | null => {
+            const vx = segB.x - segA.x;
+            const vy = segB.y - segA.y;
+            const denom = rayDir.x * vy - rayDir.y * vx;
+
+            if (Math.abs(denom) < 1e-10) {
+                return null;
+            }
+
+            const wx = segA.x - rayOrigin.x;
+            const wy = segA.y - rayOrigin.y;
+
+            const t = (wx * vy - wy * vx) / denom;
+            const u = (wx * rayDir.y - wy * rayDir.x) / denom;
+
+            if (t <= 1e-6 || t > maxRayLength) return null;
+            if (u < -1e-6 || u > 1 + 1e-6) return null;
+
+            return {
+                x: rayOrigin.x + rayDir.x * t,
+                y: rayOrigin.y + rayDir.y * t,
+                distance: t
+            };
+        };
+
+        const findNearestRayHit = (
+            origin: { x: number; y: number },
+            rayDir: { x: number; y: number },
+            sourcePathIndex: number,
+            sourceWinding: number,
+            maxRayLength: number,
+            segments: SegmentInfo[],
+            pathWindings: number[]
+        ): { x: number; y: number; distance: number } | null => {
+            const line = {
+                p1: { x: origin.x, y: origin.y },
+                p2: {
+                    x: origin.x + rayDir.x * maxRayLength,
+                    y: origin.y + rayDir.y * maxRayLength
+                }
+            };
+
+            const scan = (
+                requireOppositeWinding: boolean,
+                allowSamePath: boolean
+            ): { x: number; y: number; distance: number } | null => {
+                let nearest: {
+                    x: number;
+                    y: number;
+                    distance: number;
+                } | null = null;
+
+                for (const segment of segments) {
+                    const isSamePath = segment.pathIndex === sourcePathIndex;
+                    if (isSamePath && !allowSamePath) {
+                        continue;
+                    }
+
+                    if (requireOppositeWinding) {
+                        const targetWinding =
+                            pathWindings[segment.pathIndex] || 0;
+                        if (sourceWinding !== 0 && targetWinding !== 0) {
+                            if (
+                                Math.sign(sourceWinding) ===
+                                Math.sign(targetWinding)
+                            ) {
+                                continue;
+                            }
+                        }
+                    }
+
+                    if (
+                        segment.type === 'line' &&
+                        segment.points.length === 2
+                    ) {
+                        const hit = intersectionOnLineSegment(
+                            segment.points[0],
+                            segment.points[1],
+                            origin,
+                            rayDir,
+                            maxRayLength
+                        );
+                        if (!hit) continue;
+                        if (isSamePath && hit.distance <= selfHitMinDistance) {
+                            continue;
+                        }
+                        if (!nearest || hit.distance < nearest.distance) {
+                            nearest = hit;
+                        }
+                        continue;
+                    }
+
+                    try {
+                        const curve = new Bezier(segment.points as any);
+                        const results = curve.intersects(line as any);
+                        if (!Array.isArray(results)) continue;
+
+                        for (const result of results) {
+                            let point: { x: number; y: number } | null = null;
+
+                            if (typeof result === 'string') {
+                                const parts = result.split('/');
+                                const tLine = parseFloat(parts[1]);
+                                if (!isFinite(tLine)) continue;
+                                point = {
+                                    x:
+                                        line.p1.x +
+                                        (line.p2.x - line.p1.x) * tLine,
+                                    y:
+                                        line.p1.y +
+                                        (line.p2.y - line.p1.y) * tLine
+                                };
+                            } else if (typeof result === 'number') {
+                                const curvePoint = curve.get(result);
+                                point = { x: curvePoint.x, y: curvePoint.y };
+                            }
+
+                            if (!point) continue;
+                            const dx = point.x - origin.x;
+                            const dy = point.y - origin.y;
+                            const distance = dx * rayDir.x + dy * rayDir.y;
+                            if (distance <= 1e-6 || distance > maxRayLength) {
+                                continue;
+                            }
+                            if (isSamePath && distance <= selfHitMinDistance) {
+                                continue;
+                            }
+
+                            if (!nearest || distance < nearest.distance) {
+                                nearest = {
+                                    x: point.x,
+                                    y: point.y,
+                                    distance
+                                };
+                            }
+                        }
+                    } catch (_error) {
+                        continue;
+                    }
+                }
+
+                return nearest;
+            };
+
+            return (
+                scan(true, false) ||
+                scan(false, false) ||
+                scan(true, true) ||
+                scan(false, true)
+            );
+        };
+
+        const mutablePaths: MutablePath[] = [];
+        const tripletConstraints: TripletConstraint[] = [];
+
+        for (const shape of this.shapes) {
+            if (!shape.isPath()) continue;
+
+            const rawShapeData = shape.toJSON() as any;
+            const pathData = shape.asPath().toJSON() as any;
+            if (!pathData || !pathData.nodes) continue;
+
+            const hasRawNodes =
+                rawShapeData &&
+                typeof rawShapeData === 'object' &&
+                'nodes' in rawShapeData;
+            const rawHasNestedPath =
+                rawShapeData &&
+                typeof rawShapeData === 'object' &&
+                'Path' in rawShapeData &&
+                rawShapeData.Path &&
+                typeof rawShapeData.Path === 'object';
+
+            const mirrorShape =
+                hasRawNodes && rawShapeData !== pathData ? rawShapeData : null;
+            const mirrorWasString =
+                !!mirrorShape && typeof mirrorShape.nodes === 'string';
+
+            const wasString = typeof pathData.nodes === 'string';
+            if (wasString) {
+                pathData.nodes = LayerDataNormalizer.parseNodes(pathData.nodes);
+            }
+            if (mirrorShape && typeof mirrorShape.nodes === 'string') {
+                mirrorShape.nodes = LayerDataNormalizer.parseNodes(
+                    mirrorShape.nodes
+                );
+            }
+            if (!Array.isArray(pathData.nodes) || pathData.nodes.length < 2) {
+                continue;
+            }
+
+            const nodes = pathData.nodes as MutableNode[];
+            if (mirrorShape && Array.isArray(mirrorShape.nodes)) {
+                mirrorShape.nodes = nodes;
+            }
+
+            const closed = pathData.closed !== false;
+            if (mirrorShape) {
+                if (mirrorShape.closed === undefined) {
+                    mirrorShape.closed = closed;
+                }
+                if (rawHasNestedPath && rawShapeData.Path) {
+                    rawShapeData.Path.nodes = nodes;
+                    if (rawShapeData.Path.closed === undefined) {
+                        rawShapeData.Path.closed = closed;
+                    }
+                }
+            }
+
+            const winding = signedArea(nodes);
+            const pathIndex = mutablePaths.length;
+
+            for (let i = 0; i < nodes.length; i++) {
+                const onNode = nodes[i];
+                if (isOffCurve(onNode)) continue;
+
+                const prevIndex = i - 1;
+                const nextIndex = i + 1;
+                const prevNode = getNode(nodes, prevIndex, closed);
+                const nextNode = getNode(nodes, nextIndex, closed);
+
+                if (!isOffCurve(prevNode || undefined)) continue;
+                if (!isOffCurve(nextNode || undefined)) continue;
+                if (!prevNode || !nextNode) continue;
+
+                const v1x = prevNode.x - onNode.x;
+                const v1y = prevNode.y - onNode.y;
+                const v2x = nextNode.x - onNode.x;
+                const v2y = nextNode.y - onNode.y;
+
+                const cross = Math.abs(v1x * v2y - v1y * v2x);
+                const scale = Math.max(
+                    1,
+                    Math.hypot(v1x, v1y) + Math.hypot(v2x, v2y)
+                );
+                if (cross > collinearEpsilon * scale) {
+                    continue;
+                }
+
+                const baseDir =
+                    normalize(
+                        nextNode.x - prevNode.x,
+                        nextNode.y - prevNode.y
+                    ) ||
+                    normalize(v1x + v2x, v1y + v2y) ||
+                    normalize(1, 0);
+                if (!baseDir) continue;
+
+                let orientation: 'horizontal' | 'vertical' | 'diagonal' =
+                    'diagonal';
+                if (Math.abs(baseDir.y) < 0.01) {
+                    orientation = 'horizontal';
+                } else if (Math.abs(baseDir.x) < 0.01) {
+                    orientation = 'vertical';
+                }
+
+                tripletConstraints.push({
+                    pathIndex,
+                    onIndex: i,
+                    prevIndex: closed
+                        ? ((prevIndex % nodes.length) + nodes.length) %
+                          nodes.length
+                        : prevIndex,
+                    nextIndex: closed
+                        ? ((nextIndex % nodes.length) + nodes.length) %
+                          nodes.length
+                        : nextIndex,
+                    orientation,
+                    direction: baseDir
+                });
+            }
+
+            mutablePaths.push({
+                pathData,
+                nodes,
+                closed,
+                winding,
+                wasString,
+                mirrorShape,
+                mirrorWasString,
+                mirrorUsesNestedPath: rawHasNestedPath
+            });
+        }
+
+        if (mutablePaths.length === 0) {
+            return 0;
+        }
+
+        const pathWindings = mutablePaths.map((path) => path.winding);
+        const segments: SegmentInfo[] = [];
+
+        for (let pathIndex = 0; pathIndex < mutablePaths.length; pathIndex++) {
+            const path = mutablePaths[pathIndex];
+            const pathSegments = Layer.processPathSegments({
+                nodes: path.nodes,
+                closed: path.closed
+            });
+            for (const segment of pathSegments) {
+                segments.push({
+                    pathIndex,
+                    type: segment.type,
+                    points: segment.points
+                });
+            }
+        }
+
+        const bbox = this.getBoundingBox(false);
+        const maxRayLength =
+            options.maxRayLength ??
+            Math.max(2000, bbox ? Math.max(bbox.width, bbox.height) * 4 : 4000);
+
+        const displacements: Array<Array<{ x: number; y: number }>> =
+            mutablePaths.map((path) => path.nodes.map(() => ({ x: 0, y: 0 })));
+
+        for (let pathIndex = 0; pathIndex < mutablePaths.length; pathIndex++) {
+            const path = mutablePaths[pathIndex];
+            const windingSign = Math.sign(path.winding) || 1;
+
+            for (let i = 0; i < path.nodes.length; i++) {
+                const prev = getNode(path.nodes, i - 1, path.closed);
+                const curr = getNode(path.nodes, i, path.closed);
+                const next = getNode(path.nodes, i + 1, path.closed);
+                if (!prev || !curr || !next) continue;
+
+                const tangent = normalize(next.x - prev.x, next.y - prev.y);
+                if (!tangent) continue;
+
+                const outward =
+                    windingSign > 0
+                        ? { x: tangent.y, y: -tangent.x }
+                        : { x: -tangent.y, y: tangent.x };
+                const inwardNorm = normalize(-outward.x, -outward.y);
+                if (!inwardNorm) continue;
+
+                const hit = findNearestRayHit(
+                    { x: curr.x, y: curr.y },
+                    inwardNorm,
+                    pathIndex,
+                    path.winding,
+                    maxRayLength,
+                    segments,
+                    pathWindings
+                );
+
+                if (!hit) continue;
+
+                const vecX = hit.x - curr.x;
+                const vecY = hit.y - curr.y;
+                const targetX = vecX * horizontalFactor;
+                const targetY = vecY * verticalFactor;
+
+                displacements[pathIndex][i] = {
+                    x: -0.5 * (targetX - vecX),
+                    y: -0.5 * (targetY - vecY)
+                };
+            }
+        }
+
+        let changedNodes = 0;
+        for (let pathIndex = 0; pathIndex < mutablePaths.length; pathIndex++) {
+            const path = mutablePaths[pathIndex];
+            const pathDisplacements = displacements[pathIndex];
+            for (let i = 0; i < path.nodes.length; i++) {
+                const delta = pathDisplacements[i];
+                if (!delta) continue;
+
+                if (Math.abs(delta.x) > 1e-9 || Math.abs(delta.y) > 1e-9) {
+                    path.nodes[i].x += delta.x;
+                    path.nodes[i].y += delta.y;
+                    changedNodes++;
+                }
+            }
+        }
+
+        const applyTripletConstraints = () => {
+            for (const constraint of tripletConstraints) {
+                const path = mutablePaths[constraint.pathIndex];
+                if (!path) continue;
+
+                const onNode = path.nodes[constraint.onIndex];
+                const prevNode = path.nodes[constraint.prevIndex];
+                const nextNode = path.nodes[constraint.nextIndex];
+                if (!onNode || !prevNode || !nextNode) continue;
+
+                if (constraint.orientation === 'horizontal') {
+                    prevNode.y = onNode.y;
+                    nextNode.y = onNode.y;
+                    continue;
+                }
+
+                if (constraint.orientation === 'vertical') {
+                    prevNode.x = onNode.x;
+                    nextNode.x = onNode.x;
+                    continue;
+                }
+
+                const scaledDir = normalize(
+                    constraint.direction.x * horizontalFactor,
+                    constraint.direction.y * verticalFactor
+                );
+                const direction = scaledDir || constraint.direction;
+
+                const projectedPrev = projectOnDirection(
+                    prevNode,
+                    onNode,
+                    direction
+                );
+                const projectedNext = projectOnDirection(
+                    nextNode,
+                    onNode,
+                    direction
+                );
+
+                prevNode.x = projectedPrev.x;
+                prevNode.y = projectedPrev.y;
+                nextNode.x = projectedNext.x;
+                nextNode.y = projectedNext.y;
+            }
+        };
+
+        applyTripletConstraints();
+
+        const applyHorizontalContainment = () => {
+            if (mutablePaths.length < 2) {
+                return;
+            }
+
+            const sortedByArea = mutablePaths
+                .map((path, index) => ({
+                    index,
+                    area: Math.abs(signedArea(path.nodes))
+                }))
+                .sort((a, b) => b.area - a.area);
+
+            const outerPath = mutablePaths[sortedByArea[0].index];
+            const innerPath = mutablePaths[sortedByArea[1].index];
+
+            if (outerPath && innerPath) {
+                const outerBounds = getPathBounds(outerPath.nodes);
+                const containmentInset = 0.5;
+                const minAllowedX = outerBounds.minX + containmentInset;
+                const maxAllowedX = outerBounds.maxX - containmentInset;
+
+                for (const node of innerPath.nodes) {
+                    const nextX = Math.max(
+                        minAllowedX,
+                        Math.min(maxAllowedX, node.x)
+                    );
+                    if (Math.abs(nextX - node.x) > 1e-9) {
+                        node.x = nextX;
+                        changedNodes++;
+                    }
+                }
+
+                // Light smoothing on inner contour to reduce localized jaggedness
+                // after asymmetric hit pairing.
+                if (innerPath.closed && innerPath.nodes.length >= 6) {
+                    const original = innerPath.nodes.map((node) => ({
+                        x: node.x,
+                        y: node.y,
+                        off: isOffCurve(node)
+                    }));
+                    const smoothWeight = 0.2;
+
+                    for (let i = 0; i < innerPath.nodes.length; i++) {
+                        const node = innerPath.nodes[i];
+                        if (!isOffCurve(node)) continue;
+
+                        const prev = original[
+                            (i - 1 + original.length) % original.length
+                        ];
+                        const curr = original[i];
+                        const next = original[(i + 1) % original.length];
+
+                        if (horizontalFactor !== 1) {
+                            node.x =
+                                curr.x * (1 - 2 * smoothWeight) +
+                                (prev.x + next.x) * smoothWeight;
+                        }
+
+                        if (verticalFactor !== 1) {
+                            node.y =
+                                curr.y * (1 - 2 * smoothWeight) +
+                                (prev.y + next.y) * smoothWeight;
+                        }
+                    }
+                }
+            }
+        };
+
+        // First containment/smoothing pass.
+        applyHorizontalContainment();
+
+        // Re-apply straight triplet invariants after containment/smoothing.
+        applyTripletConstraints();
+
+        // Final containment guard because the second triplet pass can move points
+        // back outside on some masters.
+        applyHorizontalContainment();
+
+        for (const path of mutablePaths) {
+            const shouldSerializePrimary = path.wasString;
+            const shouldSerializeMirror = path.mirrorWasString;
+
+            if (shouldSerializePrimary || shouldSerializeMirror) {
+                const serializedNodes = LayerDataNormalizer.serializeNodes(
+                    path.nodes as any
+                );
+
+                if (shouldSerializePrimary) {
+                    path.pathData.nodes = serializedNodes;
+                }
+
+                if (path.mirrorShape && shouldSerializeMirror) {
+                    path.mirrorShape.nodes = serializedNodes;
+                }
+
+                if (path.mirrorUsesNestedPath && path.mirrorShape?.Path) {
+                    path.mirrorShape.Path.nodes = serializedNodes;
+                }
+            } else {
+                if (path.mirrorShape && Array.isArray(path.mirrorShape.nodes)) {
+                    path.mirrorShape.nodes = path.nodes;
+                }
+                if (path.mirrorUsesNestedPath && path.mirrorShape?.Path) {
+                    path.mirrorShape.Path.nodes = path.nodes;
+                }
+            }
+        }
+
+        if (changedNodes > 0) {
+            markFontDirty();
+        }
+
+        return changedNodes;
+    }
+
+    /**
      * Find the matching layer on another glyph that represents the same master
      * @param glyphName - The name of the glyph to find the matching layer on
      * @returns The matching layer on the specified glyph, or undefined if not found
      */
     getMatchingLayerOnGlyph(glyphName: string): Layer | undefined {
         // Get the master ID of this layer
-        let thisMasterId: string | undefined = undefined;
-        if (typeof this.master === 'object') {
-            if ('DefaultForMaster' in this.master) {
-                thisMasterId = this.master.DefaultForMaster as string;
-            } else if ('AssociatedWithMaster' in this.master) {
-                thisMasterId = this.master.AssociatedWithMaster as string;
-            }
-        } else {
-            thisMasterId = this.master as string | undefined;
-        }
+        const thisMasterId = this.getMasterId();
 
         if (!thisMasterId) {
             return undefined;
@@ -1906,16 +2693,7 @@ export class Layer extends ArrayElementBase {
 
         // Find the layer on the target glyph with the same master ID
         for (const layer of targetGlyph.layers) {
-            let layerMasterId: string | undefined = undefined;
-            if (typeof layer.master === 'object') {
-                if ('DefaultForMaster' in layer.master) {
-                    layerMasterId = layer.master.DefaultForMaster as string;
-                } else if ('AssociatedWithMaster' in layer.master) {
-                    layerMasterId = layer.master.AssociatedWithMaster as string;
-                }
-            } else {
-                layerMasterId = layer.master as string | undefined;
-            }
+            const layerMasterId = layer.master?.master;
 
             if (layerMasterId === thisMasterId) {
                 return layer;
@@ -1926,16 +2704,7 @@ export class Layer extends ArrayElementBase {
     }
 
     toString(): string {
-        let masterId: string = 'unknown';
-        if (typeof this.master === 'object') {
-            if ('DefaultForMaster' in this.master) {
-                masterId = this.master.DefaultForMaster as string;
-            } else if ('AssociatedWithMaster' in this.master) {
-                masterId = this.master.AssociatedWithMaster as string;
-            }
-        } else if (this.master) {
-            masterId = this.master as string;
-        }
+        const masterId = this.getMasterId() || 'unknown';
         const shapesCount = this.shapes?.length || 0;
         return `<Layer width=${this.width} master="${masterId}" shapes=${shapesCount}>`;
     }
@@ -2006,33 +2775,28 @@ export class Glyph extends ArrayElementBase {
         for (let i = 0; i < this.data.layers.length; i++) {
             const layer = this.data.layers[i];
 
+            const layerId = layer.id || '[no-layer-id]';
+            assertTaggedLayerMaster(
+                layer.master,
+                `Glyph#${this.name}.${layerId}`
+            );
+
             // Skip background layers
             if (layer.is_background) continue;
 
             // Check if this is a default layer
-            // New format: {type: "DefaultForMaster", master: "id"}
-            // Old format: {DefaultForMaster: "id"}
             const isDefaultLayer =
                 layer.master &&
                 typeof layer.master === 'object' &&
-                (('type' in layer.master &&
-                    layer.master.type === 'DefaultForMaster') ||
-                    'DefaultForMaster' in layer.master);
+                'type' in layer.master &&
+                layer.master.type === 'DefaultForMaster';
 
             if (!isDefaultLayer) continue;
 
-            // Extract master ID from layer.master
-            // New format: layer.master.master
-            // Old format: layer.master.DefaultForMaster
             let masterId: string | undefined;
             if (layer.master && typeof layer.master === 'object') {
-                if (
-                    'type' in layer.master &&
-                    layer.master.type === 'DefaultForMaster'
-                ) {
+                if ('type' in layer.master) {
                     masterId = (layer.master as any).master;
-                } else if ('DefaultForMaster' in layer.master) {
-                    masterId = (layer.master as any).DefaultForMaster;
                 }
             }
             if (!masterId) {
@@ -2055,16 +2819,8 @@ export class Glyph extends ArrayElementBase {
             const getMasterId = (layer: Layer): string => {
                 const masterData = layer.master;
                 if (masterData && typeof masterData === 'object') {
-                    // New format: {type: "DefaultForMaster", master: "id"}
-                    if (
-                        'type' in masterData &&
-                        masterData.type === 'DefaultForMaster'
-                    ) {
+                    if ('type' in masterData) {
                         return (masterData as any).master || '';
-                    }
-                    // Old format: {DefaultForMaster: "id"}
-                    if ('DefaultForMaster' in masterData) {
-                        return (masterData as any).DefaultForMaster || '';
                     }
                 }
                 // Fallback to layer id
@@ -2174,7 +2930,6 @@ export class Glyph extends ArrayElementBase {
             const master = l.master;
             if (!master) return false;
             if (typeof master === 'object') {
-                // New format: {type: "DefaultForMaster", master: "id"}
                 if (
                     master.type === 'DefaultForMaster' &&
                     master.master === masterId
@@ -2187,11 +2942,6 @@ export class Glyph extends ArrayElementBase {
                 ) {
                     return true;
                 }
-                // Old format: {DefaultForMaster: "id"}
-                return (
-                    master.DefaultForMaster === masterId ||
-                    master.AssociatedWithMaster === masterId
-                );
             }
             return false;
         });
@@ -2839,30 +3589,41 @@ export class Font extends ModelBase {
         return JSON.stringify(
             this._data,
             (key, value) => {
-                // When serializing shape objects, filter out normalizer wrapper properties
-                // The normalizer adds { Path: {...}, nodes: [...], isInterpolated?: bool }
-                // but we only want { Path: {...} } or { Component: {...} } in the JSON
+                // When serializing shape objects, normalize normalizer wrappers
+                // back to plain (untagged) babelfont Shape objects.
+                //
+                // Input wrappers can look like:
+                //   { Path: {...}, nodes: [...], isInterpolated?: bool }
+                //   { Component: {...}, isInterpolated?: bool }
+                //
+                // Output must be plain shapes for Rust serde untagged enums:
+                //   { nodes: ..., closed: ... }  OR  { reference: ..., transform: ... }
                 if (
                     value &&
                     typeof value === 'object' &&
                     !Array.isArray(value)
                 ) {
-                    // Check if this looks like a normalizer wrapper for a Path shape
-                    // It will have BOTH 'Path' and 'nodes' at the same level (duplicate property)
-                    if (
-                        'Path' in value &&
-                        'nodes' in value &&
-                        !('Component' in value)
-                    ) {
-                        return { Path: value.Path };
+                    // Normalize wrapped Path shape to unwrapped Path payload
+                    if ('Path' in value && !('Component' in value)) {
+                        const pathPayload =
+                            value.Path && typeof value.Path === 'object'
+                                ? value.Path
+                                : null;
+                        if (pathPayload) {
+                            return { ...pathPayload };
+                        }
                     }
-                    // Check if this looks like a normalizer wrapper for a Component shape
-                    if (
-                        'Component' in value &&
-                        ('isInterpolated' in value || 'nodes' in value) &&
-                        !('Path' in value)
-                    ) {
-                        return { Component: value.Component };
+
+                    // Normalize wrapped Component shape to unwrapped Component payload
+                    if ('Component' in value && !('Path' in value)) {
+                        const componentPayload =
+                            value.Component &&
+                            typeof value.Component === 'object'
+                                ? value.Component
+                                : null;
+                        if (componentPayload) {
+                            return { ...componentPayload };
+                        }
                     }
                 }
                 return value;

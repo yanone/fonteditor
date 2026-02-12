@@ -6,8 +6,57 @@
  */
 
 import { Logger } from './logger';
+import { fontCompilation } from './font-compilation';
 
 const console = new Logger('PythonPostExecution');
+
+let postExecutionSyncInProgress = false;
+let postExecutionSyncQueued = false;
+
+async function syncRustAndRecompileEditingFont(): Promise<void> {
+    if (postExecutionSyncInProgress) {
+        postExecutionSyncQueued = true;
+        return;
+    }
+
+    postExecutionSyncInProgress = true;
+
+    try {
+        do {
+            postExecutionSyncQueued = false;
+
+            const currentFont = window.fontManager?.currentFont;
+            if (!currentFont) {
+                return;
+            }
+
+            if (fontCompilation?.isInitialized) {
+                try {
+                    await fontCompilation.sendMessage({
+                        type: 'storeFontJson',
+                        babelfontJson: currentFont.babelfontJson
+                    });
+                } catch (error) {
+                    console.error(
+                        '[PythonPostExec] Failed to sync font JSON to Rust cache:',
+                        error
+                    );
+                }
+            }
+
+            try {
+                await window.fontManager.recompileEditingFont();
+            } catch (error) {
+                console.error(
+                    '[PythonPostExec] Failed to recompile editing font after Python execution:',
+                    error
+                );
+            }
+        } while (postExecutionSyncQueued);
+    } finally {
+        postExecutionSyncInProgress = false;
+    }
+}
 
 console.log('🔧 Module loaded, setting up post-execution hooks...');
 
@@ -63,6 +112,10 @@ function setupHooks() {
                     window.glyphCanvas!.render();
                 });
             }
+
+            // Keep Rust-side cache in sync after Python manipulations,
+            // then recompile the editing font from the updated source JSON
+            void syncRustAndRecompileEditingFont();
         }
 
         // Trigger font recompilation via auto-compile manager

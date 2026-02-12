@@ -18,22 +18,132 @@ import init, {
 let initialized = false;
 let cachedBabelfontJson: string | null = null; // Cache babelfont JSON for re-use
 
+function parseErrorLineColumn(message: string): {
+    line?: number;
+    column?: number;
+} {
+    const match = message.match(/line\s+(\d+)\s+column\s+(\d+)/i);
+    if (!match) return {};
+    return {
+        line: parseInt(match[1], 10),
+        column: parseInt(match[2], 10)
+    };
+}
+
+function getJsonSnippetAtLineColumn(
+    jsonText: string,
+    line: number,
+    column: number,
+    contextRadius: number = 120
+): string {
+    if (line < 1 || column < 1) return '';
+
+    let offset = 0;
+    let currentLine = 1;
+    while (currentLine < line && offset < jsonText.length) {
+        const nextNewline = jsonText.indexOf('\n', offset);
+        if (nextNewline === -1) {
+            return '';
+        }
+        offset = nextNewline + 1;
+        currentLine++;
+    }
+
+    const targetOffset = Math.min(offset + column - 1, jsonText.length - 1);
+    const start = Math.max(0, targetOffset - contextRadius);
+    const end = Math.min(jsonText.length, targetOffset + contextRadius);
+    const snippet = jsonText.slice(start, end);
+    const pointerPad = Math.max(0, targetOffset - start);
+    return `${snippet}\n${' '.repeat(pointerPad)}^`;
+}
+
+function inspectInvalidShapes(fontData: any, maxIssues: number = 8): string[] {
+    const issues: string[] = [];
+
+    const glyphEntries: Array<{ glyph: any; glyphIndex: number }> = [];
+    if (Array.isArray(fontData?.glyphs)) {
+        fontData.glyphs.forEach((g: any, i: number) =>
+            glyphEntries.push({ glyph: g, glyphIndex: i })
+        );
+    } else if (fontData?.glyphs && typeof fontData.glyphs === 'object') {
+        Object.values(fontData.glyphs).forEach((g: any, i: number) =>
+            glyphEntries.push({ glyph: g, glyphIndex: i })
+        );
+    }
+
+    const isValidShapeForUntaggedEnum = (shape: any): boolean => {
+        if (!shape || typeof shape !== 'object') return false;
+
+        const hasPathLike =
+            'nodes' in shape &&
+            (Array.isArray(shape.nodes) || typeof shape.nodes === 'string');
+        const hasComponentLike =
+            'reference' in shape && typeof shape.reference === 'string';
+
+        return hasPathLike || hasComponentLike;
+    };
+
+    for (const { glyph, glyphIndex } of glyphEntries) {
+        if (!glyph || !Array.isArray(glyph.layers)) continue;
+        const glyphName = glyph.name || `[glyph-${glyphIndex}]`;
+
+        for (
+            let layerIndex = 0;
+            layerIndex < glyph.layers.length;
+            layerIndex++
+        ) {
+            const layer = glyph.layers[layerIndex];
+            if (!layer || !Array.isArray(layer.shapes)) continue;
+            const layerId = layer.id || `[layer-${layerIndex}]`;
+
+            for (
+                let shapeIndex = 0;
+                shapeIndex < layer.shapes.length;
+                shapeIndex++
+            ) {
+                const shape = layer.shapes[shapeIndex];
+                if (isValidShapeForUntaggedEnum(shape)) {
+                    continue;
+                }
+
+                const keys =
+                    shape && typeof shape === 'object'
+                        ? Object.keys(shape).join(',')
+                        : typeof shape;
+                issues.push(
+                    `glyph=${glyphName} layer=${layerId} layerIndex=${layerIndex} shapeIndex=${shapeIndex} keys=${keys}`
+                );
+
+                if (shape && typeof shape === 'object') {
+                    const hint =
+                        'Path' in shape || 'Component' in shape
+                            ? ' (looks like wrapped shape: Path/Component key present)'
+                            : '';
+                    issues.push(`  shape=${JSON.stringify(shape)}${hint}`);
+                }
+
+                if (issues.length >= maxIssues * 2) {
+                    return issues;
+                }
+            }
+        }
+    }
+
+    return issues;
+}
+
 /**
  * Strip layerData fields from components in the font JSON,
  * ensure all layers have a shapes array,
- * convert old enum formats to new formats,
  * and filter out AssociatedWithMaster layers that aren't brace layers
  *
  * layerData is a runtime-only field used for rendering nested components
  * and must not be saved to files or passed to fontc compilation.
  *
- * Old enum formats (from typeshare):
- *   LayerType: {type: "DefaultForMaster", master: "id"}
- *   Shape: {type: "Path", path: {...}} or {type: "Component", component: {...}}
- *
- * New enum formats (actual babelfont-rs serde):
- *   LayerType: {DefaultForMaster: "id"}
- *   Shape: {Path: {...}} or {Component: {...}}
+ * LayerType uses tagged format:
+ *   {type: "DefaultForMaster", master: "id"}
+ *   {type: "AssociatedWithMaster", master: "id"}
+ *   {type: "FreeFloating"}
  *
  * AssociatedWithMaster layers without location data are old backup layers
  * that should not be compiled.
@@ -84,47 +194,16 @@ function stripLayerData(fontData: any): any {
 
                 const master = layer.master;
 
-                // Handle internally tagged format: {type: "DefaultForMaster", master: "id"}
-                if ('type' in master) {
-                    if (master.type === 'DefaultForMaster') return true;
-                    if (master.type === 'FreeFloating') return true;
-                    if (master.type === 'AssociatedWithMaster') {
-                        // Only keep if it has location data (brace layer)
-                        return (
-                            layer.location &&
-                            Object.keys(layer.location).length > 0
-                        );
-                    }
-                }
-
-                // Handle externally tagged format (from CLI): {"DefaultForMaster": "id"}
-                // Convert to internally tagged for WASM compatibility
-                if ('DefaultForMaster' in master) {
-                    layer.master = {
-                        type: 'DefaultForMaster',
-                        master: master.DefaultForMaster
-                    };
-                    return true;
-                }
-                if (
-                    'FreeFloating' in master ||
-                    Object.keys(master).length === 0
-                ) {
-                    layer.master = { type: 'FreeFloating' };
-                    return true;
-                }
-                if ('AssociatedWithMaster' in master) {
-                    layer.master = {
-                        type: 'AssociatedWithMaster',
-                        master: master.AssociatedWithMaster
-                    };
+                if (master.type === 'DefaultForMaster') return true;
+                if (master.type === 'FreeFloating') return true;
+                if (master.type === 'AssociatedWithMaster') {
                     // Only keep if it has location data (brace layer)
                     return (
                         layer.location && Object.keys(layer.location).length > 0
                     );
                 }
 
-                return true;
+                return false;
             });
 
             // Validate dotaccentcomb AFTER filtering
@@ -353,6 +432,39 @@ self.onmessage = async (event) => {
             });
         } catch (error: any) {
             console.error('[Fontc Worker] Error:', error);
+            const errorText = error?.message || error?.toString?.() || '';
+            const { line, column } = parseErrorLineColumn(errorText);
+            if (line && column) {
+                try {
+                    const snippet = getJsonSnippetAtLineColumn(
+                        data.babelfontJson || '',
+                        line,
+                        column
+                    );
+                    if (snippet) {
+                        self.postMessage({
+                            type: 'debug',
+                            message: `[Worker] JSON parse context (line ${line}, col ${column}):\n${snippet}`
+                        });
+                    }
+                } catch (_snippetError) {
+                    // Best-effort diagnostics only
+                }
+            }
+
+            try {
+                const parsed = JSON.parse(data.babelfontJson || '{}');
+                const shapeIssues = inspectInvalidShapes(parsed);
+                if (shapeIssues.length > 0) {
+                    self.postMessage({
+                        type: 'debug',
+                        message: `[Worker] Potential invalid shapes for untagged enum Shape:\n${shapeIssues.join('\n')}`
+                    });
+                }
+            } catch (_inspectError) {
+                // Best-effort diagnostics only
+            }
+
             self.postMessage({
                 type: 'error',
                 id: data.id,
@@ -395,6 +507,40 @@ self.onmessage = async (event) => {
             });
         } catch (e: any) {
             console.error(`[Fontc Worker] Error storing font JSON:`, e);
+            const errorText = e?.message || e?.toString?.() || '';
+            const { line, column } = parseErrorLineColumn(errorText);
+
+            if (line && column) {
+                try {
+                    const snippet = getJsonSnippetAtLineColumn(
+                        babelfontJson,
+                        line,
+                        column
+                    );
+                    if (snippet) {
+                        self.postMessage({
+                            type: 'debug',
+                            message: `[Worker] storeFontJson parse context (line ${line}, col ${column}):\n${snippet}`
+                        });
+                    }
+                } catch (_snippetError) {
+                    // Best-effort diagnostics only
+                }
+            }
+
+            try {
+                const parsed = JSON.parse(babelfontJson);
+                const shapeIssues = inspectInvalidShapes(parsed);
+                if (shapeIssues.length > 0) {
+                    self.postMessage({
+                        type: 'debug',
+                        message: `[Worker] storeFontJson potential invalid shapes:\n${shapeIssues.join('\n')}`
+                    });
+                }
+            } catch (_inspectError) {
+                // Best-effort diagnostics only
+            }
+
             self.postMessage({
                 id,
                 type: 'storeFontJson',

@@ -60,18 +60,49 @@ class OpenedFont {
         this.fileHandle = fileHandle;
         this.directoryHandle = directoryHandle;
 
-        // Normalize layer master references from dict format to _master field
-        // Babelfont format stores: master: { DefaultForMaster: "id" } or { AssociatedWithMaster: "id" }
-        // We need: _master: "id"
+        // Normalize layer master references to tagged LayerType objects
         for (const glyph of this.babelfontData.glyphs || []) {
             for (const layer of glyph.layers || []) {
-                if (layer.master && typeof layer.master === 'object') {
-                    // Extract master ID from dict format
-                    const masterDict = layer.master;
-                    if ('DefaultForMaster' in masterDict) {
-                        layer.master = masterDict.DefaultForMaster;
-                    } else if ('AssociatedWithMaster' in masterDict) {
-                        layer.master = masterDict.AssociatedWithMaster;
+                if (!layer.master) {
+                    continue;
+                }
+
+                const masterData = layer.master;
+
+                if (typeof masterData === 'string') {
+                    layer.master = {
+                        type: 'DefaultForMaster',
+                        master: masterData
+                    };
+                    continue;
+                }
+
+                if (typeof masterData === 'object') {
+                    if ('type' in masterData) {
+                        continue;
+                    }
+
+                    if ('DefaultForMaster' in masterData) {
+                        layer.master = {
+                            type: 'DefaultForMaster',
+                            master: masterData.DefaultForMaster
+                        };
+                        continue;
+                    }
+
+                    if ('AssociatedWithMaster' in masterData) {
+                        layer.master = {
+                            type: 'AssociatedWithMaster',
+                            master: masterData.AssociatedWithMaster
+                        };
+                        continue;
+                    }
+
+                    if (
+                        'FreeFloating' in masterData ||
+                        Object.keys(masterData).length === 0
+                    ) {
+                        layer.master = { type: 'FreeFloating' };
                     }
                 }
             }
@@ -813,42 +844,15 @@ class FontManager {
             // (not AssociatedWithMaster layers, which are intermediate/alternate designs)
             if (!layer.is_background) {
                 // Check if this is a default layer
-                // New format: {type: "DefaultForMaster", master: "id"}
-                // Old format: {DefaultForMaster: "id"}
                 const layerAny = layer as any;
                 const isDefaultLayer =
                     layerAny.master &&
                     typeof layerAny.master === 'object' &&
-                    (('type' in layerAny.master &&
-                        layerAny.master.type === 'DefaultForMaster') ||
-                        'DefaultForMaster' in layerAny.master);
+                    'type' in layerAny.master &&
+                    layerAny.master.type === 'DefaultForMaster';
 
                 if (isDefaultLayer) {
-                    let master_id = layer.master || layer.id;
-                    // Extract string from LayerType union if needed
-                    let masterIdStr: string;
-                    if (typeof master_id === 'string') {
-                        masterIdStr = master_id;
-                    } else if (master_id && typeof master_id === 'object') {
-                        // Internally tagged format: {type: "DefaultForMaster", master: "id"}
-                        if (
-                            'type' in master_id &&
-                            master_id.type === 'DefaultForMaster' &&
-                            'master' in master_id
-                        ) {
-                            masterIdStr = master_id.master;
-                        } else if (
-                            'type' in master_id &&
-                            master_id.type === 'AssociatedWithMaster' &&
-                            'master' in master_id
-                        ) {
-                            masterIdStr = master_id.master;
-                        } else {
-                            masterIdStr = layer.id as string;
-                        }
-                    } else {
-                        masterIdStr = layer.id as string;
-                    }
+                    const masterIdStr = layerAny.master?.master || layer.id;
                     if (master_ids.has(masterIdStr)) {
                         layersData.push({
                             id: layer.id as string,
@@ -989,8 +993,7 @@ class FontManager {
             ...(layerData.format_specific && {
                 format_specific: layerData.format_specific
             }),
-            // Preserve the master property which contains DefaultForMaster
-            // This is crucial for the layer to be recognized as a default layer
+            // Preserve the tagged master property
             ...((layerData as any).master && {
                 master: (layerData as any).master
             })
