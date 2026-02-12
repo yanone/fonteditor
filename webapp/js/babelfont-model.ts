@@ -15,6 +15,11 @@ import type { Babelfont } from './babelfont';
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
+import {
+    applySkeletonStrokeThickness,
+    type StrokePath,
+    type SkeletonStrokeOptions
+} from './stroke/skeleton-stroke';
 
 const console = new Logger('BabelfontModel');
 
@@ -1990,6 +1995,9 @@ export class Layer extends ArrayElementBase {
             maxRayLength?: number;
             collinearEpsilon?: number;
             selfHitMinDistance?: number;
+            lineAxisEpsilon?: number;
+            fillProbeDistance?: number;
+            segmentSampleSteps?: number;
         } = {}
     ): number {
         if (
@@ -2007,283 +2015,16 @@ export class Layer extends ArrayElementBase {
             return 0;
         }
 
-        type MutableNode = {
-            x: number;
-            y: number;
-            nodetype?: string;
-            type?: string;
-            smooth?: boolean;
-        };
-
         type MutablePath = {
             pathData: any;
-            nodes: MutableNode[];
+            nodes: StrokePath['nodes'];
             closed: boolean;
-            winding: number;
             wasString: boolean;
             mirrorShape: any | null;
             mirrorWasString: boolean;
             mirrorUsesNestedPath: boolean;
         };
-
-        type SegmentInfo = {
-            pathIndex: number;
-            type: 'line' | 'quadratic' | 'cubic';
-            points: Array<{ x: number; y: number }>;
-        };
-
-        type TripletConstraint = {
-            pathIndex: number;
-            onIndex: number;
-            prevIndex: number;
-            nextIndex: number;
-            orientation: 'horizontal' | 'vertical' | 'diagonal';
-            direction: { x: number; y: number };
-        };
-
-        type PathBounds = {
-            minX: number;
-            maxX: number;
-            minY: number;
-            maxY: number;
-        };
-
-        const collinearEpsilon = options.collinearEpsilon ?? 0.01;
-        const selfHitMinDistance = Math.max(0, options.selfHitMinDistance ?? 2);
-
-        const isOffCurve = (node: MutableNode | undefined): boolean => {
-            if (!node) return false;
-            const type = (node.type || node.nodetype || '')
-                .toString()
-                .toLowerCase();
-            return type === 'o' || type === 'offcurve';
-        };
-
-        const signedArea = (nodes: MutableNode[]): number => {
-            if (nodes.length < 3) return 0;
-            let area = 0;
-            for (let i = 0; i < nodes.length; i++) {
-                const p0 = nodes[i];
-                const p1 = nodes[(i + 1) % nodes.length];
-                area += p0.x * p1.y - p1.x * p0.y;
-            }
-            return area * 0.5;
-        };
-
-        const getPathBounds = (nodes: MutableNode[]): PathBounds => {
-            let minX = Infinity;
-            let maxX = -Infinity;
-            let minY = Infinity;
-            let maxY = -Infinity;
-
-            for (const node of nodes) {
-                if (node.x < minX) minX = node.x;
-                if (node.x > maxX) maxX = node.x;
-                if (node.y < minY) minY = node.y;
-                if (node.y > maxY) maxY = node.y;
-            }
-
-            return { minX, maxX, minY, maxY };
-        };
-
-        const normalize = (
-            x: number,
-            y: number
-        ): { x: number; y: number } | null => {
-            const length = Math.hypot(x, y);
-            if (length < 1e-9) return null;
-            return { x: x / length, y: y / length };
-        };
-
-        const projectOnDirection = (
-            point: { x: number; y: number },
-            origin: { x: number; y: number },
-            direction: { x: number; y: number }
-        ): { x: number; y: number } => {
-            const vx = point.x - origin.x;
-            const vy = point.y - origin.y;
-            const t = vx * direction.x + vy * direction.y;
-            return {
-                x: origin.x + direction.x * t,
-                y: origin.y + direction.y * t
-            };
-        };
-
-        const getNode = (
-            nodes: MutableNode[],
-            index: number,
-            closed: boolean
-        ): MutableNode | null => {
-            if (nodes.length === 0) return null;
-            if (closed) {
-                const wrapped =
-                    ((index % nodes.length) + nodes.length) % nodes.length;
-                return nodes[wrapped] || null;
-            }
-            if (index < 0 || index >= nodes.length) return null;
-            return nodes[index] || null;
-        };
-
-        const intersectionOnLineSegment = (
-            segA: { x: number; y: number },
-            segB: { x: number; y: number },
-            rayOrigin: { x: number; y: number },
-            rayDir: { x: number; y: number },
-            maxRayLength: number
-        ): { x: number; y: number; distance: number } | null => {
-            const vx = segB.x - segA.x;
-            const vy = segB.y - segA.y;
-            const denom = rayDir.x * vy - rayDir.y * vx;
-
-            if (Math.abs(denom) < 1e-10) {
-                return null;
-            }
-
-            const wx = segA.x - rayOrigin.x;
-            const wy = segA.y - rayOrigin.y;
-
-            const t = (wx * vy - wy * vx) / denom;
-            const u = (wx * rayDir.y - wy * rayDir.x) / denom;
-
-            if (t <= 1e-6 || t > maxRayLength) return null;
-            if (u < -1e-6 || u > 1 + 1e-6) return null;
-
-            return {
-                x: rayOrigin.x + rayDir.x * t,
-                y: rayOrigin.y + rayDir.y * t,
-                distance: t
-            };
-        };
-
-        const findNearestRayHit = (
-            origin: { x: number; y: number },
-            rayDir: { x: number; y: number },
-            sourcePathIndex: number,
-            sourceWinding: number,
-            maxRayLength: number,
-            segments: SegmentInfo[],
-            pathWindings: number[]
-        ): { x: number; y: number; distance: number } | null => {
-            const line = {
-                p1: { x: origin.x, y: origin.y },
-                p2: {
-                    x: origin.x + rayDir.x * maxRayLength,
-                    y: origin.y + rayDir.y * maxRayLength
-                }
-            };
-
-            const scan = (
-                requireOppositeWinding: boolean,
-                allowSamePath: boolean
-            ): { x: number; y: number; distance: number } | null => {
-                let nearest: {
-                    x: number;
-                    y: number;
-                    distance: number;
-                } | null = null;
-
-                for (const segment of segments) {
-                    const isSamePath = segment.pathIndex === sourcePathIndex;
-                    if (isSamePath && !allowSamePath) {
-                        continue;
-                    }
-
-                    if (requireOppositeWinding) {
-                        const targetWinding =
-                            pathWindings[segment.pathIndex] || 0;
-                        if (sourceWinding !== 0 && targetWinding !== 0) {
-                            if (
-                                Math.sign(sourceWinding) ===
-                                Math.sign(targetWinding)
-                            ) {
-                                continue;
-                            }
-                        }
-                    }
-
-                    if (
-                        segment.type === 'line' &&
-                        segment.points.length === 2
-                    ) {
-                        const hit = intersectionOnLineSegment(
-                            segment.points[0],
-                            segment.points[1],
-                            origin,
-                            rayDir,
-                            maxRayLength
-                        );
-                        if (!hit) continue;
-                        if (isSamePath && hit.distance <= selfHitMinDistance) {
-                            continue;
-                        }
-                        if (!nearest || hit.distance < nearest.distance) {
-                            nearest = hit;
-                        }
-                        continue;
-                    }
-
-                    try {
-                        const curve = new Bezier(segment.points as any);
-                        const results = curve.intersects(line as any);
-                        if (!Array.isArray(results)) continue;
-
-                        for (const result of results) {
-                            let point: { x: number; y: number } | null = null;
-
-                            if (typeof result === 'string') {
-                                const parts = result.split('/');
-                                const tLine = parseFloat(parts[1]);
-                                if (!isFinite(tLine)) continue;
-                                point = {
-                                    x:
-                                        line.p1.x +
-                                        (line.p2.x - line.p1.x) * tLine,
-                                    y:
-                                        line.p1.y +
-                                        (line.p2.y - line.p1.y) * tLine
-                                };
-                            } else if (typeof result === 'number') {
-                                const curvePoint = curve.get(result);
-                                point = { x: curvePoint.x, y: curvePoint.y };
-                            }
-
-                            if (!point) continue;
-                            const dx = point.x - origin.x;
-                            const dy = point.y - origin.y;
-                            const distance = dx * rayDir.x + dy * rayDir.y;
-                            if (distance <= 1e-6 || distance > maxRayLength) {
-                                continue;
-                            }
-                            if (isSamePath && distance <= selfHitMinDistance) {
-                                continue;
-                            }
-
-                            if (!nearest || distance < nearest.distance) {
-                                nearest = {
-                                    x: point.x,
-                                    y: point.y,
-                                    distance
-                                };
-                            }
-                        }
-                    } catch (_error) {
-                        continue;
-                    }
-                }
-
-                return nearest;
-            };
-
-            return (
-                scan(true, false) ||
-                scan(false, false) ||
-                scan(true, true) ||
-                scan(false, true)
-            );
-        };
-
         const mutablePaths: MutablePath[] = [];
-        const tripletConstraints: TripletConstraint[] = [];
 
         for (const shape of this.shapes) {
             if (!shape.isPath()) continue;
@@ -2321,7 +2062,7 @@ export class Layer extends ArrayElementBase {
                 continue;
             }
 
-            const nodes = pathData.nodes as MutableNode[];
+            const nodes = pathData.nodes as StrokePath['nodes'];
             if (mirrorShape && Array.isArray(mirrorShape.nodes)) {
                 mirrorShape.nodes = nodes;
             }
@@ -2339,74 +2080,10 @@ export class Layer extends ArrayElementBase {
                 }
             }
 
-            const winding = signedArea(nodes);
-            const pathIndex = mutablePaths.length;
-
-            for (let i = 0; i < nodes.length; i++) {
-                const onNode = nodes[i];
-                if (isOffCurve(onNode)) continue;
-
-                const prevIndex = i - 1;
-                const nextIndex = i + 1;
-                const prevNode = getNode(nodes, prevIndex, closed);
-                const nextNode = getNode(nodes, nextIndex, closed);
-
-                if (!isOffCurve(prevNode || undefined)) continue;
-                if (!isOffCurve(nextNode || undefined)) continue;
-                if (!prevNode || !nextNode) continue;
-
-                const v1x = prevNode.x - onNode.x;
-                const v1y = prevNode.y - onNode.y;
-                const v2x = nextNode.x - onNode.x;
-                const v2y = nextNode.y - onNode.y;
-
-                const cross = Math.abs(v1x * v2y - v1y * v2x);
-                const scale = Math.max(
-                    1,
-                    Math.hypot(v1x, v1y) + Math.hypot(v2x, v2y)
-                );
-                if (cross > collinearEpsilon * scale) {
-                    continue;
-                }
-
-                const baseDir =
-                    normalize(
-                        nextNode.x - prevNode.x,
-                        nextNode.y - prevNode.y
-                    ) ||
-                    normalize(v1x + v2x, v1y + v2y) ||
-                    normalize(1, 0);
-                if (!baseDir) continue;
-
-                let orientation: 'horizontal' | 'vertical' | 'diagonal' =
-                    'diagonal';
-                if (Math.abs(baseDir.y) < 0.01) {
-                    orientation = 'horizontal';
-                } else if (Math.abs(baseDir.x) < 0.01) {
-                    orientation = 'vertical';
-                }
-
-                tripletConstraints.push({
-                    pathIndex,
-                    onIndex: i,
-                    prevIndex: closed
-                        ? ((prevIndex % nodes.length) + nodes.length) %
-                          nodes.length
-                        : prevIndex,
-                    nextIndex: closed
-                        ? ((nextIndex % nodes.length) + nodes.length) %
-                          nodes.length
-                        : nextIndex,
-                    orientation,
-                    direction: baseDir
-                });
-            }
-
             mutablePaths.push({
                 pathData,
                 nodes,
                 closed,
-                winding,
                 wasString,
                 mirrorShape,
                 mirrorWasString,
@@ -2418,217 +2095,77 @@ export class Layer extends ArrayElementBase {
             return 0;
         }
 
-        const pathWindings = mutablePaths.map((path) => path.winding);
-        const segments: SegmentInfo[] = [];
-
-        for (let pathIndex = 0; pathIndex < mutablePaths.length; pathIndex++) {
-            const path = mutablePaths[pathIndex];
-            const pathSegments = Layer.processPathSegments({
-                nodes: path.nodes,
-                closed: path.closed
-            });
-            for (const segment of pathSegments) {
-                segments.push({
-                    pathIndex,
-                    type: segment.type,
-                    points: segment.points
-                });
-            }
-        }
-
         const bbox = this.getBoundingBox(false);
-        const maxRayLength =
+        const computedMaxRayLength =
             options.maxRayLength ??
             Math.max(2000, bbox ? Math.max(bbox.width, bbox.height) * 4 : 4000);
 
-        const displacements: Array<Array<{ x: number; y: number }>> =
-            mutablePaths.map((path) => path.nodes.map(() => ({ x: 0, y: 0 })));
+        const getBounds = (nodes: StrokePath['nodes']) => {
+            let minX = Infinity;
+            let minY = Infinity;
+            let maxX = -Infinity;
+            let maxY = -Infinity;
 
-        for (let pathIndex = 0; pathIndex < mutablePaths.length; pathIndex++) {
-            const path = mutablePaths[pathIndex];
-            const windingSign = Math.sign(path.winding) || 1;
-
-            for (let i = 0; i < path.nodes.length; i++) {
-                const prev = getNode(path.nodes, i - 1, path.closed);
-                const curr = getNode(path.nodes, i, path.closed);
-                const next = getNode(path.nodes, i + 1, path.closed);
-                if (!prev || !curr || !next) continue;
-
-                const tangent = normalize(next.x - prev.x, next.y - prev.y);
-                if (!tangent) continue;
-
-                const outward =
-                    windingSign > 0
-                        ? { x: tangent.y, y: -tangent.x }
-                        : { x: -tangent.y, y: tangent.x };
-                const inwardNorm = normalize(-outward.x, -outward.y);
-                if (!inwardNorm) continue;
-
-                const hit = findNearestRayHit(
-                    { x: curr.x, y: curr.y },
-                    inwardNorm,
-                    pathIndex,
-                    path.winding,
-                    maxRayLength,
-                    segments,
-                    pathWindings
-                );
-
-                if (!hit) continue;
-
-                const vecX = hit.x - curr.x;
-                const vecY = hit.y - curr.y;
-                const targetX = vecX * horizontalFactor;
-                const targetY = vecY * verticalFactor;
-
-                displacements[pathIndex][i] = {
-                    x: -0.5 * (targetX - vecX),
-                    y: -0.5 * (targetY - vecY)
-                };
+            for (const node of nodes) {
+                if (node.x < minX) minX = node.x;
+                if (node.y < minY) minY = node.y;
+                if (node.x > maxX) maxX = node.x;
+                if (node.y > maxY) maxY = node.y;
             }
-        }
 
-        let changedNodes = 0;
-        for (let pathIndex = 0; pathIndex < mutablePaths.length; pathIndex++) {
-            const path = mutablePaths[pathIndex];
-            const pathDisplacements = displacements[pathIndex];
-            for (let i = 0; i < path.nodes.length; i++) {
-                const delta = pathDisplacements[i];
-                if (!delta) continue;
+            return { minX, minY, maxX, maxY };
+        };
 
-                if (Math.abs(delta.x) > 1e-9 || Math.abs(delta.y) > 1e-9) {
-                    path.nodes[i].x += delta.x;
-                    path.nodes[i].y += delta.y;
-                    changedNodes++;
+        const boundsBefore = mutablePaths.map((path) => getBounds(path.nodes));
+
+        const strokeOptions: SkeletonStrokeOptions = {
+            ...options,
+            maxRayLength: computedMaxRayLength
+        };
+
+        const changedNodes = applySkeletonStrokeThickness(
+            mutablePaths.map((path) => ({
+                nodes: path.nodes,
+                closed: path.closed
+            })),
+            horizontalFactor,
+            verticalFactor,
+            strokeOptions
+        );
+
+        if (changedNodes > 0) {
+            for (let i = 0; i < mutablePaths.length; i++) {
+                const path = mutablePaths[i];
+                if (!path.closed || path.nodes.length < 2) continue;
+
+                const before = boundsBefore[i];
+                const after = getBounds(path.nodes);
+
+                let shiftX = 0;
+                let shiftY = 0;
+
+                if (horizontalFactor !== 1) {
+                    const beforeCenterX = (before.minX + before.maxX) * 0.5;
+                    const afterCenterX = (after.minX + after.maxX) * 0.5;
+                    shiftX = beforeCenterX - afterCenterX;
                 }
-            }
-        }
 
-        const applyTripletConstraints = () => {
-            for (const constraint of tripletConstraints) {
-                const path = mutablePaths[constraint.pathIndex];
-                if (!path) continue;
+                if (verticalFactor !== 1) {
+                    const beforeCenterY = (before.minY + before.maxY) * 0.5;
+                    const afterCenterY = (after.minY + after.maxY) * 0.5;
+                    shiftY = beforeCenterY - afterCenterY;
+                }
 
-                const onNode = path.nodes[constraint.onIndex];
-                const prevNode = path.nodes[constraint.prevIndex];
-                const nextNode = path.nodes[constraint.nextIndex];
-                if (!onNode || !prevNode || !nextNode) continue;
-
-                if (constraint.orientation === 'horizontal') {
-                    prevNode.y = onNode.y;
-                    nextNode.y = onNode.y;
+                if (Math.abs(shiftX) <= 1e-9 && Math.abs(shiftY) <= 1e-9) {
                     continue;
                 }
 
-                if (constraint.orientation === 'vertical') {
-                    prevNode.x = onNode.x;
-                    nextNode.x = onNode.x;
-                    continue;
-                }
-
-                const scaledDir = normalize(
-                    constraint.direction.x * horizontalFactor,
-                    constraint.direction.y * verticalFactor
-                );
-                const direction = scaledDir || constraint.direction;
-
-                const projectedPrev = projectOnDirection(
-                    prevNode,
-                    onNode,
-                    direction
-                );
-                const projectedNext = projectOnDirection(
-                    nextNode,
-                    onNode,
-                    direction
-                );
-
-                prevNode.x = projectedPrev.x;
-                prevNode.y = projectedPrev.y;
-                nextNode.x = projectedNext.x;
-                nextNode.y = projectedNext.y;
-            }
-        };
-
-        applyTripletConstraints();
-
-        const applyHorizontalContainment = () => {
-            if (mutablePaths.length < 2) {
-                return;
-            }
-
-            const sortedByArea = mutablePaths
-                .map((path, index) => ({
-                    index,
-                    area: Math.abs(signedArea(path.nodes))
-                }))
-                .sort((a, b) => b.area - a.area);
-
-            const outerPath = mutablePaths[sortedByArea[0].index];
-            const innerPath = mutablePaths[sortedByArea[1].index];
-
-            if (outerPath && innerPath) {
-                const outerBounds = getPathBounds(outerPath.nodes);
-                const containmentInset = 0.5;
-                const minAllowedX = outerBounds.minX + containmentInset;
-                const maxAllowedX = outerBounds.maxX - containmentInset;
-
-                for (const node of innerPath.nodes) {
-                    const nextX = Math.max(
-                        minAllowedX,
-                        Math.min(maxAllowedX, node.x)
-                    );
-                    if (Math.abs(nextX - node.x) > 1e-9) {
-                        node.x = nextX;
-                        changedNodes++;
-                    }
-                }
-
-                // Light smoothing on inner contour to reduce localized jaggedness
-                // after asymmetric hit pairing.
-                if (innerPath.closed && innerPath.nodes.length >= 6) {
-                    const original = innerPath.nodes.map((node) => ({
-                        x: node.x,
-                        y: node.y,
-                        off: isOffCurve(node)
-                    }));
-                    const smoothWeight = 0.2;
-
-                    for (let i = 0; i < innerPath.nodes.length; i++) {
-                        const node = innerPath.nodes[i];
-                        if (!isOffCurve(node)) continue;
-
-                        const prev = original[
-                            (i - 1 + original.length) % original.length
-                        ];
-                        const curr = original[i];
-                        const next = original[(i + 1) % original.length];
-
-                        if (horizontalFactor !== 1) {
-                            node.x =
-                                curr.x * (1 - 2 * smoothWeight) +
-                                (prev.x + next.x) * smoothWeight;
-                        }
-
-                        if (verticalFactor !== 1) {
-                            node.y =
-                                curr.y * (1 - 2 * smoothWeight) +
-                                (prev.y + next.y) * smoothWeight;
-                        }
-                    }
+                for (const node of path.nodes) {
+                    node.x += shiftX;
+                    node.y += shiftY;
                 }
             }
-        };
-
-        // First containment/smoothing pass.
-        applyHorizontalContainment();
-
-        // Re-apply straight triplet invariants after containment/smoothing.
-        applyTripletConstraints();
-
-        // Final containment guard because the second triplet pass can move points
-        // back outside on some masters.
-        applyHorizontalContainment();
+        }
 
         for (const path of mutablePaths) {
             const shouldSerializePrimary = path.wasString;

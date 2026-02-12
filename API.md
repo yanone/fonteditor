@@ -357,7 +357,7 @@ Calculate intersections between a line segment and all paths in this layer
 #### `getSidebearingsAtHeight(y: float | int) -> { left: number; right: number; } | None`
 Calculate sidebearings at a given Y height by measuring distance from glyph edges to first/last outline intersections
 
-#### `adjustStrokeThickness(horizontalFactor: float | int, verticalFactor: float | int, options: { maxRayLength?: number; collinearEpsilon?: number; selfHitMinDistance?: number; }) -> float | int`
+#### `adjustStrokeThickness(horizontalFactor: float | int, verticalFactor: float | int, options: { maxRayLength?: number; collinearEpsilon?: number; selfHitMinDistance?: number; lineAxisEpsilon?: number; fillProbeDistance?: number; segmentSampleSteps?: number; }) -> float | int`
 Expand/contract stroke thickness with separate horizontal and vertical factors.
 
 Usage model:
@@ -384,8 +384,8 @@ Options:
   tolerance for detecting straight triplets.
   Increase slightly if nearly-straight handles should be treated as straight.
 - `selfHitMinDistance` (default: `2`):
- minimum ray distance when same-contour fallback is used (single-path glyphs).
- Increase if adjacent-edge hits are still preferred over opposite stroke edges.
+  minimum ray distance when same-contour fallback is used (single-path glyphs).
+  Increase if adjacent-edge hits are still preferred over opposite stroke edges.
 
 **Example:**
 ```python
