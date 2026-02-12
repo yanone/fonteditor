@@ -41,12 +41,12 @@ Add to your MCP client configuration (e.g., Claude Desktop `config.json`):
 
 ```json
 {
-  "mcpServers": {
-    "context-font-editor": {
-      "command": "node",
-      "args": ["/path/to/context-font-editor/mcp-server/build/index.js"]
+    "mcpServers": {
+        "context-font-editor": {
+            "command": "node",
+            "args": ["/path/to/context-font-editor/mcp-server/build/index.js"]
+        }
     }
-  }
 }
 ```
 
@@ -83,11 +83,11 @@ Filter and search console logs:
 
 ```json
 {
-  "level": "error", // Filter by log level (log, warn, error, etc.)
-  "prefix": "FontCompilation", // Filter by prefix tag
-  "search": "compile", // Search in log arguments
-  "limit": 50, // Max results (default: 50)
-  "since": 1234567890 // Unix timestamp in ms
+    "level": "error", // Filter by log level (log, warn, error, etc.)
+    "prefix": "FontCompilation", // Filter by prefix tag
+    "search": "compile", // Search in log arguments
+    "limit": 50, // Max results (default: 50)
+    "since": 1234567890 // Unix timestamp in ms
 }
 ```
 
@@ -97,9 +97,25 @@ Retrieve specific runtime data:
 
 ```json
 {
-  "key": "fontManager.currentFont.name" // Supports dot notation
+    "key": "fontManager.currentFont.name" // Supports dot and bracket notation (e.g. glyphs[0].name)
 }
 ```
+
+Returns a structured payload:
+
+```json
+{
+    "key": "fontManager.currentFont.name",
+    "found": true,
+    "value": "MyFont",
+    "traversedPath": ["fontManager", "currentFont", "name"],
+    "missingSegment": null,
+    "availableTopLevelKeys": ["fontManager", "glyphCanvas"],
+    "hint": null
+}
+```
+
+If a key is missing, the tool returns `found: false` with a hint instead of throwing.
 
 ### `clear_logs`
 
@@ -119,7 +135,7 @@ Execute JavaScript code in the webapp context:
 
 ```json
 {
-  "code": "window.fontManager.currentFont.name"
+    "code": "window.fontManager.currentFont.name"
 }
 ```
 
