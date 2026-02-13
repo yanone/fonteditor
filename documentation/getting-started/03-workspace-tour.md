@@ -8,7 +8,7 @@ Counterpunch is organized into focused views that match different phases of type
 
 ## Main Views
 
-Counterpunch organizes its workspace into several focused views, each serving a distinct purpose. **Font Info** presents metadata and high-level font information, while **Overview** allows you to browse many glyphs at once for broader inspection. The **Editor** is where you draw and refine glyph outlines directly. **Files** handles opening, saving, and managing file locations. For advanced workflows, the **Assistant** view generates guided changes through AI, **Scripts** provides a space for writing and running Python code, and **Konsole** offers an interactive Python command environment.
+Counterpunch organizes its workspace into several focused views, each serving a distinct purpose. **Font Info** presents metadata and high-level font information, while **Overview** allows you to browse many glyphs at once for broader inspection. The **Editor** is where you draw and refine glyph outlines directly. **Features** provides a dedicated environment for writing and debugging OpenType feature code with integrated shaping preview. **Files** handles opening, saving, and managing file locations. For advanced workflows, the **Assistant** view generates guided changes through AI, **Scripts** provides a space for writing and running Python code, and **Konsole** offers an interactive Python command environment.
 
 ## How to Learn the UI Quickly
 
@@ -24,10 +24,11 @@ When first learning Counterpunch, consider beginning in the Editor view, where d
     1. Font Info
     2. Overview
     3. Editor
-    4. Files
-    5. Assistant
-    6. Scripts
-    7. Konsole
+    4. Features
+    5. Files
+    6. Assistant
+    7. Scripts
+    8. Konsole
 - Alt text: Counterpunch UI with major views labeled for orientation.
 
 ### Screenshot 2 — Switching between views
@@ -43,4 +44,5 @@ When first learning Counterpunch, consider beginning in the Editor view, where d
 
 - [Files View Basics](../files/01-files-view-basics.md)
 - [Glyph Editor Basics](../editor/01-glyph-editor-basics.md)
+- [Feature Code Editor](../features/01-feature-code-editor.md)
 - [Keyboard Shortcuts](../reference/keyboard-shortcuts.md)

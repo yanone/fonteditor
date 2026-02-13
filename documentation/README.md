@@ -18,8 +18,9 @@ This documentation is designed as a practical user guide for real font-productio
 
 1. [Open, Save, and File Formats](files/03-open-save-formats.md)
 2. [Axes, Masters, and Interpolation](editor/02-axes-masters-interpolation.md)
-3. [Glyph Overview Basics](overview/01-glyph-overview-basics.md)
-4. [Code-Driven Glyph Filters](overview/02-code-driven-filters.md)
+3. [Feature Code Editor](features/01-feature-code-editor.md)
+4. [Glyph Overview Basics](overview/01-glyph-overview-basics.md)
+5. [Code-Driven Glyph Filters](overview/02-code-driven-filters.md)
 
 ### Path C: Automation and AI
 
@@ -47,6 +48,10 @@ This documentation is designed as a practical user guide for real font-productio
 
 - [Glyph Editor Basics](editor/01-glyph-editor-basics.md)
 - [Axes, Masters, and Interpolation](editor/02-axes-masters-interpolation.md)
+
+### Features
+
+- [Feature Code Editor](features/01-feature-code-editor.md)
 
 ### Overview
 
