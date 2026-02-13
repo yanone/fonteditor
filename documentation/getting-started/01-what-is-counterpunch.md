@@ -39,3 +39,8 @@ The editor supports a range of type design activities. You can open and work wit
 ## Next Step
 
 Continue with [Your First Session](02-first-session.md).
+
+## Related Pages
+
+- [Before You Begin](00-before-you-begin.md)
+- [Workspace Tour](03-workspace-tour.md)

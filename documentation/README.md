@@ -4,15 +4,18 @@ Audience: type designers at all levels, with beginner-first wording.
 
 This documentation is designed as a practical user guide for real font-production work in Counterpunch. It leads from first launch and orientation to day-to-day tasks such as file management, glyph editing, scripting, AI-assisted workflows, and troubleshooting. The structure is intentionally progressive: beginners can follow a guided sequence, while experienced type designers can jump directly to focused reference pages.
 
+**New to Counterpunch?** Start with [Before You Begin](getting-started/00-before-you-begin.md) to understand browser requirements, PWA installation, and how the application works.
+
 ## Reading Paths
 
 ### Path A: First Day with Counterpunch
 
-1. [What is Counterpunch?](getting-started/01-what-is-counterpunch.md)
-2. [Your First Session](getting-started/02-first-session.md)
-3. [Workspace Tour](getting-started/03-workspace-tour.md)
-4. [Files View Basics](files/01-files-view-basics.md)
-5. [Glyph Editor Basics](editor/01-glyph-editor-basics.md)
+1. [Before You Begin](getting-started/00-before-you-begin.md)
+2. [What is Counterpunch?](getting-started/01-what-is-counterpunch.md)
+3. [Your First Session](getting-started/02-first-session.md)
+4. [Workspace Tour](getting-started/03-workspace-tour.md)
+5. [Files View Basics](files/01-files-view-basics.md)
+6. [Glyph Editor Basics](editor/01-glyph-editor-basics.md)
 
 ### Path B: Production Workflow
 
@@ -34,6 +37,7 @@ This documentation is designed as a practical user guide for real font-productio
 
 ### Getting Started
 
+- [Before You Begin](getting-started/00-before-you-begin.md)
 - [What is Counterpunch?](getting-started/01-what-is-counterpunch.md)
 - [Your First Session](getting-started/02-first-session.md)
 - [Workspace Tour](getting-started/03-workspace-tour.md)

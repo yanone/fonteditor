@@ -8,7 +8,7 @@ This page walks a new user from launch to first successful save in a short, stru
 
 ## Before You Begin
 
-For the best experience, we recommend using a Chromium-based browser. Having a sample font source file ready—such as a `.glyphs` or `.babelfont` file—will help you follow along more easily.
+For the best experience, we recommend using a Chromium-based browser—see [Before You Begin](00-before-you-begin.md) for browser setup and PWA installation details. Having a sample font source file ready—such as a `.glyphs` or `.babelfont` file—will help you follow along more easily.
 
 ## Quick Start Checklist
 
