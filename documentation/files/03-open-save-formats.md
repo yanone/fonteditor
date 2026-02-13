@@ -8,22 +8,15 @@ This page explains which source files you can open, what saving means in Counter
 
 ## Common Source Formats
 
-- `.babelfont`
-- `.glyphs`
-- `.vfj`
-
-Some formats may be converted internally for editing.
+Counterpunch can open several established source formats, including `.babelfont`, `.glyphs`, and `.vfj`. Some formats may be converted internally to facilitate editing, though this happens transparently.
 
 ## Recommended Save Workflow
 
-1. Open source file in Files view.
-2. Edit in Editor view.
-3. Save after meaningful steps.
-4. Keep versioned snapshots in your project folder.
+A reliable save workflow helps maintain project integrity. After opening a source file in the Files view and making edits in the Editor view, save your work after completing meaningful changes. For added safety, consider maintaining versioned snapshots within your project folder.
 
 ## Preview/Compile Mental Model
 
-Your edits are transformed into a live preview font for shaping and rendering inside the app. If preview looks wrong, verify recent edits first, then inspect scripting/filter actions.
+As you work, your edits are continuously transformed into a live preview font that powers the shaping and rendering you see within the application. If the preview doesn't match your expectations, verify your recent edits first, then consider whether any scripting or filter actions might be affecting the output.
 
 ## Suggested Screenshots
 

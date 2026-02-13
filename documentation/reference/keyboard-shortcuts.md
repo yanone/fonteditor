@@ -8,23 +8,26 @@ Use shortcuts to move faster between views and trigger common actions with less 
 
 ## Global View Navigation
 
-- `Cmd/Ctrl + Shift + E` → Editor
-- `Cmd/Ctrl + Shift + O` → Overview
-- `Cmd/Ctrl + Shift + F` → Files
-- `Cmd/Ctrl + Shift + A` → Assistant
-- `Cmd/Ctrl + Shift + S` → Scripts
-- `Cmd/Ctrl + Shift + K` → Konsole
-- `Cmd/Ctrl + Shift + I` → Font Info
+These shortcuts allow you to move quickly between different areas of Counterpunch:
+
+- `Cmd/Ctrl + Shift + E` navigates to the Editor
+- `Cmd/Ctrl + Shift + O` opens the Overview
+- `Cmd/Ctrl + Shift + F` switches to Files
+- `Cmd/Ctrl + Shift + A` displays the Assistant
+- `Cmd/Ctrl + Shift + S` opens Scripts
+- `Cmd/Ctrl + Shift + K` shows the Konsole
+- `Cmd/Ctrl + Shift + I` reveals Font Info
 
 ## Script and Konsole Actions
 
-- `Cmd/Ctrl + Alt + R` → Run script/primary execute action in context.
-- `Cmd/Ctrl + K` → Clear Konsole output.
+When working with Python, these shortcuts streamline common operations:
+
+- `Cmd/Ctrl + Alt + R` runs the current script or executes the primary action in the active context
+- `Cmd/Ctrl + K` clears the Konsole output for a fresh start
 
 ## Notes for Beginners
 
-- Shortcut availability can depend on active view/focus.
-- On macOS use `Cmd`; on Windows/Linux use `Ctrl`.
+Keep in mind that some shortcuts may only be available when certain views are active or have focus. Additionally, keyboard conventions differ between platforms: macOS uses `Cmd` while Windows and Linux use `Ctrl`.
 
 ## Suggested Screenshots
 

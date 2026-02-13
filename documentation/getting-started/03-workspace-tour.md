@@ -8,20 +8,11 @@ Counterpunch is organized into focused views that match different phases of type
 
 ## Main Views
 
-- **Font Info**: metadata and high-level font information.
-- **Overview**: browse many glyphs at once.
-- **Editor**: draw and edit glyph outlines.
-- **Files**: open, save, and manage file locations.
-- **Assistant**: generate guided changes with AI.
-- **Scripts**: write and run Python scripts.
-- **Konsole**: interactive Python commands.
+Counterpunch organizes its workspace into several focused views, each serving a distinct purpose. **Font Info** presents metadata and high-level font information, while **Overview** allows you to browse many glyphs at once for broader inspection. The **Editor** is where you draw and refine glyph outlines directly. **Files** handles opening, saving, and managing file locations. For advanced workflows, the **Assistant** view generates guided changes through AI, **Scripts** provides a space for writing and running Python code, and **Konsole** offers an interactive Python command environment.
 
 ## How to Learn the UI Quickly
 
-1. Start in Editor for direct visual feedback.
-2. Use Overview to jump between glyphs.
-3. Use Files only when changing source or saving snapshots.
-4. Add Scripts and Assistant once basic editing feels comfortable.
+When first learning Counterpunch, consider beginning in the Editor view, where direct visual feedback makes learning more intuitive. The Overview view becomes useful once you want to navigate between glyphs more fluidly. You'll primarily interact with the Files view when opening new sources or saving snapshots. The Scripts and Assistant views can wait until basic editing workflows feel comfortable and you're ready to explore automation.
 
 ## Suggested Screenshots
 

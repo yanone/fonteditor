@@ -8,22 +8,15 @@ Counterpunch can read and write files directly in a local folder through the bro
 
 ## How It Works
 
-1. In Files view, choose **Disk**.
-2. Click **Open Folder** and select your project folder.
-3. Grant browser permission.
-4. Work normally; save writes to disk.
+Enabling local disk access is straightforward. In the Files view, select **Disk** as your storage context, then click **Open Folder** and choose your project folder. After granting the necessary browser permissions, your folder will behave like a normal project tree, with saves writing directly to disk.
 
 ## Common Permission States
 
-- Access granted: folder behaves like a normal project tree.
-- Access expired/revoked: you may see a disabled state and need to re-enable.
-- Unsupported browser: disk access controls may be unavailable.
+The browser manages permissions through several states. When access is granted, your folder functions seamlessly within Counterpunch. If permissions expire or are revoked, the interface will indicate a disabled state and prompt you to re-enable access. Some browsers may not support this feature, in which case the disk access controls will be unavailable.
 
 ## Recovery Steps
 
-1. Click **Re-enable access** when shown.
-2. Re-select the same folder.
-3. Confirm write permission in browser prompt.
+If you need to restore access to a folder, the process is simple. Click the **Re-enable access** button when it appears, select the same folder again, and confirm write permission in the browser prompt that follows.
 
 ## Suggested Screenshots
 

@@ -8,22 +8,15 @@ Counterpunch supports variable-font workflows by letting you edit masters at def
 
 ## Quick Vocabulary
 
-- **Axis**: a design dimension, like weight or width.
-- **Master**: a key design source at a specific axis location.
-- **Interpolation**: generated shapes between masters.
+Variable font design introduces a few key concepts. An **axis** represents a design dimension, such as weight or width. A **master** is a key design source positioned at a specific location along one or more axes. **Interpolation** refers to the generated shapes that exist between masters, creating smooth transitions across the design space.
 
 ## Beginner Workflow
 
-1. Set up or inspect axes.
-2. Edit a glyph in one master.
-3. Move to another master and edit intentionally.
-4. Preview in-between results to check consistency.
+Working with variable fonts follows a deliberate pattern. After setting up or inspecting your axes, edit a glyph in one master, then move to another master and make intentional edits there. Preview the in-between results to verify that transitions remain smooth and coherent.
 
 ## What to Watch For
 
-- Compatible point structure across masters.
-- Smooth transitions at intermediate positions.
-- No sudden shape kinks when moving sliders.
+Successful interpolation depends on compatible point structures across masters. Look for smooth transitions at intermediate positions, and watch for sudden shape discontinuities when moving axis sliders—these often indicate compatibility issues that need attention.
 
 ## Suggested Screenshots
 

@@ -8,58 +8,27 @@ Use this page when something fails and you need a fast, structured path back to 
 
 ## App Does Not Start Correctly
 
-Possible causes:
+Several factors can prevent Counterpunch from starting properly. Browser compatibility issues, missing cross-origin isolation requirements, or WebAssembly memory constraints can all interfere with the initial load.
 
-- Browser compatibility issue.
-- Missing cross-origin isolation requirements.
-- WebAssembly memory or startup failure.
-
-Recovery:
-
-1. Refresh once.
-2. Try current Chrome/Edge build.
-3. Reopen the project and retry with a smaller file.
+To recover, try refreshing the page once to see if the issue resolves. If problems persist, consider using a current build of Chrome or Edge for better compatibility. You might also try reopening the project with a smaller font file to reduce memory requirements.
 
 ## Local Disk Folder Is Not Accessible
 
-Possible causes:
+Folders may become inaccessible when permissions expire, are revoked, or when your browser session changes in ways that affect stored permissions.
 
-- Permission expired or revoked.
-- Browser session changed.
-
-Recovery:
-
-1. Go to Files → Disk.
-2. Click re-enable access.
-3. Re-select folder and allow read/write.
+You can restore access by navigating to Files → Disk and clicking the **Re-enable access** button. Select the same folder again and allow read/write permissions in the browser prompt that appears.
 
 ## Script or Filter Fails
 
-Possible causes:
+Script and filter failures typically stem from Python syntax errors, unexpected object or property usage, or executing code in the wrong context.
 
-- Python syntax error.
-- Unexpected object/property use.
-- Wrong execution context.
-
-Recovery:
-
-1. Re-run with smaller scope.
-2. Read first error line carefully.
-3. Validate assumptions in Konsole.
+To diagnose the issue, try re-running the operation with a smaller scope to isolate the problem. Read the first line of the error message carefully, as it often points directly to the issue. You can validate your assumptions about the font model by testing simpler versions of your code in the Konsole.
 
 ## AI Assistant Is Unavailable
 
-Possible causes:
+The AI Assistant may be unavailable if you're not signed in, lack an active Advanced subscription or trial, or have reached your usage limit.
 
-- Not signed in.
-- No active Advanced subscription/trial.
-- Usage limit reached.
-
-Recovery:
-
-1. Confirm login state.
-2. Check subscription status.
-3. Review usage warning and manage account.
+Resolve this by first confirming that you're logged in correctly. Check your subscription status through the account management interface, and review any usage warnings that may explain the limitation.
 
 ## Suggested Screenshots
 

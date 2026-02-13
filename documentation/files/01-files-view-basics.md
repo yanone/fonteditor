@@ -8,14 +8,11 @@ The Files view is where you open fonts, control where your work is stored, and s
 
 ## Core Concepts
 
-- **Memory**: in-browser storage for quick experiments.
-- **Disk**: direct access to a local folder when permission is granted.
+Counterpunch distinguishes between two storage contexts. **Memory** provides in-browser storage ideal for quick experiments and temporary work, while **Disk** offers direct access to a local folder when you grant the appropriate permissions. Understanding this distinction helps you choose the right storage approach for different types of work.
 
 ## Typical Tasks
 
-1. Open a font from a folder.
-2. Check where your current file lives (Memory or Disk).
-3. Save changes back to the same location.
+Most file operations follow a familiar pattern. You can open a font from any accessible folder, check whether your current file resides in Memory or Disk storage, and save changes back to the same location when you're ready to preserve your work.
 
 ## Suggested Screenshots
 

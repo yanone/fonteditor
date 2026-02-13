@@ -8,17 +8,11 @@ Treat AI output as draft work that should be reviewed, constrained, and intentio
 
 ## Review Checklist Before Running AI Output
 
-1. Confirm the task scope is correct.
-2. Read generated code or action summary.
-3. Check whether it affects one glyph or many.
-4. Save your font before applying broad changes.
-5. Prefer review-first over auto-run when learning.
+Before applying AI-generated changes, several verification steps help ensure quality outcomes. Confirm that the task scope matches your intention, read through the generated code or action summary carefully, and understand whether the operation will affect a single glyph or many. Saving your font before applying broad changes provides an easy recovery path. When you're still learning, reviewing proposals before execution generally produces better results than automatic application.
 
 ## Safe Prompting Tips
 
-- Ask for one operation per request.
-- Include concrete constraints (glyph range, axis, layer, naming).
-- Ask AI to explain what it will change.
+Effective prompts help the AI understand your needs precisely. Requesting one operation at a time keeps changes manageable and easier to verify. Including concrete constraints—such as specific glyph ranges, axis values, layer names, or naming patterns—helps the AI generate more accurate proposals. You can also ask the AI to explain what it intends to change before it generates the actual code.
 
 ## Suggested Screenshots
 

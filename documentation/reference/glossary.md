@@ -4,18 +4,18 @@ Type design tools combine geometric, typographic, and technical vocabulary, whic
 
 ## Summary
 
-A quick reference of common terms used in Counterpunch.
+This glossary provides quick definitions of common terms used throughout Counterpunch's documentation and interface.
 
-- **Glyph**: one character shape in a font.
-- **Contour**: a connected outline path.
-- **Node/Point**: an editable point on a contour.
-- **Layer**: a design state of a glyph, often tied to a master.
-- **Axis**: a variable dimension (for example weight).
-- **Master**: a key design source at a specific axis location.
-- **Instance**: a named style generated from axis values.
-- **Interpolation**: generating shapes between masters.
-- **Context**: the area where code or AI applies (font, script, filter).
-- **Filter Script**: code that decides which glyphs are shown in Overview.
+- **Glyph**: A single character shape within a font, such as a letter, number, or symbol.
+- **Contour**: A connected outline path that defines part of a glyph's shape.
+- **Node/Point**: An editable point along a contour that you can move to adjust the shape.
+- **Layer**: A design state of a glyph, often corresponding to a master in variable fonts.
+- **Axis**: A variable dimension along which a font can change, such as weight or width.
+- **Master**: A key design source positioned at a specific location within the variable design space.
+- **Instance**: A named style generated from specific axis values, representing one variant of the variable font.
+- **Interpolation**: The process of generating intermediate shapes between masters.
+- **Context**: The operational environment where code or AI applies, such as font context, script context, or filter context.
+- **Filter Script**: Code that determines which glyphs appear in the Overview based on custom criteria.
 
 ## Suggested Screenshots
 

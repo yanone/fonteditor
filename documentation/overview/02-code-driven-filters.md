@@ -8,21 +8,15 @@ You can narrow glyph lists with filter logic, including custom scripts loaded fr
 
 ## Filter Types
 
-- Built-in filters (quick selection helpers).
-- Custom filter scripts loaded from your Filters folder.
+Filters come in two varieties. Built-in filters offer quick selection helpers for common scenarios, while custom filter scripts—loaded from your dedicated Filters folder—enable specialized selection logic tailored to your specific needs.
 
 ## Beginner Workflow
 
-1. Start with a built-in filter.
-2. Observe which glyphs remain visible.
-3. Apply one custom filter script.
-4. If filter fails, inspect error and refine script.
+When starting with filters, try applying a built-in filter first and observe which glyphs remain visible. Then experiment with a custom filter script to understand how programmable selection works. If a filter encounters an error, read the error message carefully and refine your script incrementally.
 
 ## Troubleshooting Filter Errors
 
-- Read the error message first.
-- Check syntax and expected API usage in your filter script.
-- Re-run after one small fix at a time.
+When filters fail, the error message typically provides valuable guidance. Begin by checking your syntax and verifying that you're using the expected API patterns. After making corrections, re-run the filter with a single small change at a time to isolate any remaining issues.
 
 ## Suggested Screenshots
 

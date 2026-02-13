@@ -8,16 +8,11 @@ Konsole is best for short exploratory commands, rapid validation steps, and debu
 
 ## Good Uses of Konsole
 
-- Inspect a single glyph attribute.
-- Test a tiny transformation idea.
-- Quickly verify script assumptions before editing full script files.
+The Konsole excels at certain types of tasks. It's ideal for inspecting a single glyph attribute quickly, testing a small transformation idea before committing to a full script, and verifying assumptions about the font model before writing more substantial code.
 
 ## Not Ideal for Konsole
 
-- Long reusable scripts.
-- Multi-step production workflows.
-
-Move those to Scripts view.
+Some workflows are better suited to the Scripts view. Long scripts intended for reuse, and multi-step production workflows with complex logic, benefit from the structure and persistence that the Scripts editor provides.
 
 ## Suggested Screenshots
 

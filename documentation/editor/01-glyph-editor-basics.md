@@ -8,17 +8,11 @@ The Editor view is where you draw and refine outlines with direct visual feedbac
 
 ## Core Actions for Beginners
 
-- Select points and contours.
-- Move points and handles carefully.
-- Zoom in for precision and out for shape rhythm.
-- Save after each successful micro-change.
+The editor offers several fundamental operations. You can select points and contours to modify them, move points and handles with precision, and adjust your zoom level to balance detailed work with overall rhythm assessment. Saving after each successful change helps build confidence and provides natural checkpoints.
 
 ## A Safe First Practice
 
-1. Open a simple glyph (for example `H` or `O`).
-2. Move one point slightly.
-3. Check side bearings and visual balance.
-4. Undo/redo to learn confidence and recovery.
+When beginning, consider opening a simple glyph such as **H** or **O**, then moving a single point slightly to observe the effect. Check how this change affects side bearings and visual balance, and experiment with undo and redo to build familiarity with the recovery process.
 
 ## Suggested Screenshots
 

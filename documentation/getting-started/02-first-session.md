@@ -8,22 +8,15 @@ This page walks a new user from launch to first successful save in a short, stru
 
 ## Before You Begin
 
-- Use a Chromium-based browser for best compatibility.
-- Prepare one sample font source file (for example `.glyphs` or `.babelfont`).
+For the best experience, we recommend using a Chromium-based browser. Having a sample font source file ready—such as a `.glyphs` or `.babelfont` file—will help you follow along more easily.
 
 ## Quick Start Checklist
 
-1. Open Counterpunch.
-2. Go to **Files** view.
-3. Choose a source file and open it.
-4. Switch to **Editor** view and make one visible edit.
-5. Save your work.
+Your first session follows a simple progression: open Counterpunch and navigate to the **Files** view, where you can select and open a source file. Once the font loads, switch to the **Editor** view and make a small, visible edit to one glyph. Finally, save your work to complete the basic editing cycle.
 
 ## Beginner Tips
 
-- Save often when trying new operations.
-- Use small edits first to verify your workflow.
-- If a panel is unfamiliar, keep going and use the workspace tour next.
+As you explore, remember to save frequently when experimenting with new operations. Starting with small, focused edits helps you verify that your workflow is functioning as expected. If you encounter an unfamiliar panel, you can continue with your current task and return to the workspace tour later for a more comprehensive overview.
 
 ## Suggested Screenshots
 

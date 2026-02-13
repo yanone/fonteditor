@@ -8,15 +8,11 @@ The AI Assistant helps generate Python code and guided operations for font-editi
 
 ## What It Can Help With
 
-- Repetitive glyph edits.
-- Structured transformations across many glyphs.
-- Script drafting and refinement.
+The AI Assistant is particularly effective for certain categories of work. It can handle repetitive glyph edits that would be tedious to perform manually, generate structured transformations across many glyphs while maintaining consistency, and help draft or refine scripts when you're working with Python automation.
 
 ## Assistant Contexts
 
-- **Font context**: operations on current font data.
-- **Script context**: AI helps build or refine scripts.
-- **Glyph filter context**: AI helps debug filter logic.
+The assistant operates in different contexts depending on your current task. In **Font context**, it can propose operations on the current font data. **Script context** focuses on helping you develop or improve Python code. **Glyph filter context** assists with debugging and refining filter logic.
 
 ## Suggested Screenshots
 

@@ -8,15 +8,11 @@ Counterpunch includes a browser-based Python environment that can inspect and mo
 
 ## What Makes It Useful
 
-- Repeat complex edits consistently.
-- Automate cleanup and transformation tasks.
-- Explore font data structure directly.
+The Python environment excels at several tasks that would be tedious manually. You can repeat complex edits with perfect consistency, automate cleanup and transformation operations, and explore the font data structure directly through interactive queries.
 
 ## Mental Model for Beginners
 
-- Python runs inside Counterpunch.
-- Scripts operate on the current font context.
-- You can test quickly in Konsole, then formalize in Scripts view.
+Understanding how Python integrates with Counterpunch helps clarify its role. The Python runtime operates entirely within the browser, and scripts interact with the currently loaded font context. For exploration and testing, the Konsole provides immediate feedback, while the Scripts view offers a more structured environment for code you intend to reuse.
 
 ## Suggested Screenshots
 

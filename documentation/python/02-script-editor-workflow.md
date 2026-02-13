@@ -8,16 +8,11 @@ Use Scripts view to write reusable Python code for repeatable font operations wi
 
 ## Recommended Workflow
 
-1. Start with a small test script.
-2. Run and inspect output.
-3. Verify visual changes in Editor/Overview.
-4. Save script when stable.
+Developing reliable scripts follows a natural progression. Begin with a small test script to verify basic functionality, then run it and inspect the output carefully. Check that any visual changes appear as expected in the Editor or Overview views before saving the script for future use.
 
 ## Beginner Safety Pattern
 
-- Make one type of change per script run.
-- Save font before running destructive scripts.
-- Keep script versions for rollback.
+When you're still learning, certain practices reduce risk and make troubleshooting easier. Focus each script on a single type of change rather than combining multiple operations. Save your font before running scripts that modify data destructively, and maintain different versions of your scripts so you can revert to earlier approaches if needed.
 
 ## Suggested Screenshots
 

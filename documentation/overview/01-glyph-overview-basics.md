@@ -8,10 +8,7 @@ Overview helps you inspect many glyphs at once, search quickly, and choose the n
 
 ## Main Actions
 
-- Search glyphs by name.
-- Resize thumbnails for broad scan vs detail check.
-- Select one or many glyphs.
-- Jump selected glyphs into Editor workflow.
+The Overview view supports several navigation and selection operations. You can search for glyphs by name, adjust thumbnail size to balance broad scanning with detail inspection, and select one or multiple glyphs for further work. Selected glyphs can be opened directly in the Editor for detailed refinement.
 
 ## Suggested Screenshots
 

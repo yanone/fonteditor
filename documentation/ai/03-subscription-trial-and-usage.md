@@ -1,34 +1,26 @@
 # Subscription, Trial, and Usage
 
-Because AI features are account- and plan-aware, users need a clear operational understanding of entitlement states before troubleshooting behavior. In Counterpunch, assistant availability depends on sign-in status, tier eligibility, and usage state. This page explains those mechanics in user-facing terms so access issues can be diagnosed quickly.
+Because AI features are account- and plan-aware, understanding how access is managed helps you work more smoothly and troubleshoot more effectively. In Counterpunch, the availability of AI features depends on your sign-in status, subscription tier, and current usage state. This page explains these relationships in practical terms so you can quickly identify and resolve any access issues that arise.
 
 ## Summary
 
-AI Assistant access is tied to account status, plan level, and usage conditions surfaced in-product. This page explains the practical states users encounter during normal use, trial onboarding, and limit-reached scenarios.
+AI Assistant access is governed by your account status, subscription plan, and usage conditions that the application monitors and displays. This page describes the practical states you'll encounter during normal use, when onboarding with a trial, and if you reach usage limits.
 
 ## Access Model
 
-- You need to be signed in.
-- AI Assistant features require the Advanced tier.
-- A trial period may be offered for eligible users.
+The AI Assistant requires authentication and plan eligibility. You'll need to be signed in with an active account, and AI features specifically require the Advanced subscription tier. Depending on your account status, you may be offered a trial period to explore these capabilities.
 
 ## Usage and Billing Signals in the UI
 
-- Remaining usage/credits can be shown in the Assistant panel.
-- Low or exhausted balance states may trigger warnings.
-- Overage/limit conditions can disable AI actions until resolved.
+The application provides visibility into your usage through several interface elements. The Assistant panel can display your remaining usage credits, and the system may present warnings when your balance becomes low or is exhausted. If you encounter overage or limit conditions, AI actions will be temporarily unavailable until you address the situation through account management.
 
 ## Account Management
 
-- Use in-app account management links to update subscription state.
-- If AI is unexpectedly unavailable, verify:
-    1. login status
-    2. active plan
-    3. usage balance state
+The application includes links to account management features where you can review and update your subscription status. If AI features become unexpectedly unavailable, you can troubleshoot by verifying your login status, confirming that your plan is active, and checking your current usage balance state.
 
 ## Important Note About Pricing Numbers
 
-Do not hardcode plan prices or quota numbers in this documentation unless they are maintained as canonical values in this repository. Link to the official pricing/account page for current values.
+Pricing and quota information should remain current and accurate, so specific plan prices and quota numbers are not documented here unless they are maintained as canonical values within this repository. For current pricing details, please refer to the official pricing and account management pages.
 
 ## Suggested Screenshots
 
