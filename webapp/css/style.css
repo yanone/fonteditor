@@ -2433,6 +2433,15 @@ flex-direction: row;
 }
 
 .file-item.python-file {
+    color: var(--text-primary);
+}
+
+.file-item.python-file .file-name {
+    color: var(--text-primary);
+    font-weight: 400;
+}
+
+.file-item.python-file .file-type-icon {
     color: var(--accent-yellow);
 }
 
