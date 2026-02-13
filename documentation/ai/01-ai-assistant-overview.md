@@ -1,0 +1,46 @@
+# AI Assistant Overview
+
+The AI Assistant is designed to reduce repetitive work while keeping the designer in control of outcomes. In Counterpunch, AI is most effective when treated as a collaborator that drafts operations, scripts, or corrective steps for review. This page introduces how to use it strategically in type design workflows rather than as a one-click black box.
+
+## Summary
+
+The AI Assistant helps generate Python code and guided operations for font-editing tasks across multiple contexts. It is intended to accelerate structured work while preserving deliberate review and artistic decision-making.
+
+## What It Can Help With
+
+- Repetitive glyph edits.
+- Structured transformations across many glyphs.
+- Script drafting and refinement.
+
+## Assistant Contexts
+
+- **Font context**: operations on current font data.
+- **Script context**: AI helps build or refine scripts.
+- **Glyph filter context**: AI helps debug filter logic.
+
+## Suggested Screenshots
+
+### Screenshot 1 — Assistant panel main UI
+
+- Filename: `ai-01-01-assistant-panel.png`
+- Capture: Assistant view with prompt area and action controls.
+- Suggested annotations:
+    1. Prompt input
+    2. Context selector
+    3. Run/apply control
+- Alt text: AI Assistant panel with prompt and context controls.
+
+### Screenshot 2 — AI-generated action result
+
+- Filename: `ai-01-02-generated-result.png`
+- Capture: generated script or action output with review options.
+- Suggested annotations:
+    1. Generated code/output
+    2. Review/edit option
+    3. Execute option
+- Alt text: AI-generated output in assistant with review and run options.
+
+## Related Pages
+
+- [AI Safety and Review](02-ai-safety-and-review.md)
+- [Subscription, Trial, and Usage](03-subscription-trial-and-usage.md)
