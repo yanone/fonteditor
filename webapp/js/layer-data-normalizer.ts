@@ -270,11 +270,21 @@ export class LayerDataNormalizer {
             return -1;
         }
 
-        // Find first on-curve point to start
+        // Prefer explicit Move start if present, otherwise use first on-curve point
         let startIdx = 0;
         for (let i = 0; i < nodes.length; i++) {
             const { nodetype: type } = nodes[i];
-            if (type === 'Curve' || type === 'QCurve' || type === 'Line') {
+            if (type === 'Move') {
+                startIdx = i;
+                break;
+            }
+        }
+        for (let i = 0; i < nodes.length; i++) {
+            const { nodetype: type } = nodes[i];
+            if (
+                startIdx === 0 &&
+                (type === 'Curve' || type === 'QCurve' || type === 'Line')
+            ) {
                 startIdx = i;
                 break;
             }
@@ -298,7 +308,12 @@ export class LayerDataNormalizer {
                 nodetype: next1Type
             } = nodes[nextIdx];
 
-            if (type === 'Line' || type === 'Curve' || type === 'QCurve') {
+            if (
+                type === 'Move' ||
+                type === 'Line' ||
+                type === 'Curve' ||
+                type === 'QCurve'
+            ) {
                 // We're at an on-curve point, look ahead for next segment
                 if (next1Type === 'OffCurve') {
                     // Next is off-curve - check if cubic (two consecutive off-curve)

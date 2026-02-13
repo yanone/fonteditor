@@ -2436,11 +2436,21 @@ export class GlyphCanvasRenderer {
         // Use the provided path target or default to canvas context
         const target = pathTarget || this.ctx;
 
-        // Find first on-curve point to start
+        // Prefer explicit Move start if present, otherwise use first on-curve point
         let startIdx = 0;
         for (let i = 0; i < nodes.length; i++) {
-            const { x, y, nodetype: type } = nodes[i];
-            if (type === 'Curve' || type === 'QCurve' || type === 'Line') {
+            const { nodetype: type } = nodes[i];
+            if (type === 'Move') {
+                startIdx = i;
+                break;
+            }
+        }
+        for (let i = 0; i < nodes.length; i++) {
+            const { nodetype: type } = nodes[i];
+            if (
+                startIdx === 0 &&
+                (type === 'Curve' || type === 'QCurve' || type === 'Line')
+            ) {
                 startIdx = i;
                 break;
             }
@@ -2457,7 +2467,7 @@ export class GlyphCanvasRenderer {
             const next2Idx = (startIdx + i + 2) % nodes.length;
             const next3Idx = (startIdx + i + 3) % nodes.length;
 
-            const { x, y, nodetype: type } = nodes[idx];
+            const { nodetype: type } = nodes[idx];
             const {
                 x: next1X,
                 y: next1Y,
@@ -2465,7 +2475,7 @@ export class GlyphCanvasRenderer {
             } = nodes[nextIdx];
 
             // Check if we're at an on-curve point
-            if (type !== 'OffCurve' && type !== 'Move') {
+            if (type !== 'OffCurve') {
                 // We're at an on-curve point, look ahead for next segment
                 if (next1Type === 'OffCurve') {
                     // Next is off-curve - check if cubic (two consecutive off-curve)
