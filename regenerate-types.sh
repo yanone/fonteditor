@@ -14,53 +14,33 @@ echo "🔄 Regenerating TypeScript definitions from babelfont-ts"
 echo "========================================================="
 echo ""
 
-# Get current babelfont-rs commit from Cargo.lock
-echo "📋 Step 1/4: Detecting babelfont-rs version from Cargo.lock..."
-CARGO_LOCK="$SCRIPT_DIR/babelfont-fontc-build/Cargo.lock"
+echo "📋 Step 1/3: Resolving local babelfont-rs clone..."
+BABELFONT_RS_DIR="${BABELFONT_RS_DIR:-$SCRIPT_DIR/../babelfont-rs}"
 
-if [ ! -f "$CARGO_LOCK" ]; then
-    echo "❌ Cargo.lock not found at $CARGO_LOCK"
-    echo "   Run './build-fontc-wasm.sh' first to generate Cargo.lock"
+if [ ! -d "$BABELFONT_RS_DIR/.git" ]; then
+    echo "❌ Local babelfont-rs clone not found at $BABELFONT_RS_DIR"
+    echo "   Clone it next to this repo:"
+    echo "   git clone https://github.com/simoncozens/babelfont-rs.git \"$SCRIPT_DIR/../babelfont-rs\""
     exit 1
 fi
 
-# Extract git commit hash from Cargo.lock
-COMMIT=$(grep -A 20 '^\[\[package\]\]' "$CARGO_LOCK" | \
-         grep -A 20 'name = "babelfont"' | \
-
-         grep 'source = "git' | \
-         head -1 | \
-         sed 's/.*#//' | \
-         sed 's/".*//')
-
-if [ -z "$COMMIT" ]; then
-    echo "❌ Could not extract babelfont-rs commit from Cargo.lock"
+if ! git -C "$BABELFONT_RS_DIR" pull --ff-only --quiet; then
+    echo "❌ Failed to fast-forward local babelfont-rs clone at $BABELFONT_RS_DIR"
+    echo "   Ensure the clone has a clean branch that tracks origin (e.g. main)."
     exit 1
 fi
 
-echo "✅ Found babelfont-rs commit: $COMMIT"
-echo ""
-
-# Clone babelfont-rs at specific commit
-echo "📦 Step 2/4: Cloning babelfont-rs at commit $COMMIT..."
-TEMP_DIR=$(mktemp -d)
-cd "$TEMP_DIR"
-
-git clone --quiet https://github.com/simoncozens/babelfont-rs.git babelfont-rs
-cd babelfont-rs
-git checkout --quiet "$COMMIT"
-
-echo "✅ Cloned babelfont-rs to $TEMP_DIR/babelfont-rs"
+COMMIT=$(git -C "$BABELFONT_RS_DIR" rev-parse --short HEAD)
+echo "✅ Using local babelfont-rs at $BABELFONT_RS_DIR@$COMMIT"
 echo ""
 
 # Extract types from babelfont-ts/src/underlying.ts
-echo "⚙️  Step 3/4: Extracting TypeScript definitions from babelfont-ts..."
-UNDERLYING_FILE="$TEMP_DIR/babelfont-rs/babelfont-ts/src/underlying.ts"
+echo "⚙️  Step 2/3: Extracting TypeScript definitions from babelfont-ts..."
+UNDERLYING_FILE="$BABELFONT_RS_DIR/babelfont-ts/src/underlying.ts"
 
 if [ ! -f "$UNDERLYING_FILE" ]; then
     echo "❌ underlying.ts not found at $UNDERLYING_FILE"
     cd "$SCRIPT_DIR"
-    rm -rf "$TEMP_DIR"
     exit 1
 fi
 
@@ -96,14 +76,12 @@ fi
     # LayerType uses serde(tag="type", content="master") - typeshare generates correctly
     
     echo "}"
-} > "$TEMP_DIR/babelfont.d.ts"
+} > "$OUTPUT_FILE"
 
 echo "✅ Generated TypeScript definitions"
 echo ""
 
-# Copy to webapp directory
-echo "📝 Step 4/4: Installing new type definitions..."
-cp "$TEMP_DIR/babelfont.d.ts" "$OUTPUT_FILE"
+echo "📝 Step 3/3: Installing new type definitions..."
 
 # Add custom properties used in this codebase
 echo "🔧 Adding custom properties..."
@@ -141,14 +119,12 @@ echo "🎨 Formatting with prettier..."
 cd "$WEBAPP_DIR"
 npx prettier --write "js/babelfont.d.ts"
 
-# Clean up
 cd "$SCRIPT_DIR"
-rm -rf "$TEMP_DIR"
 
 echo "✅ Type definitions regenerated successfully!"
 echo ""
 echo "File: $OUTPUT_FILE"
-echo "From: babelfont-rs@$COMMIT (babelfont-ts/src/underlying.ts)"
+echo "From: local babelfont-rs clone at $BABELFONT_RS_DIR@$COMMIT (babelfont-ts/src/underlying.ts)"
 echo ""
 echo "Next steps:"
 echo "  1. Review changes: git diff webapp/js/babelfont.d.ts"

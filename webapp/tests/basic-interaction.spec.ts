@@ -86,7 +86,7 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // Load font by right-clicking on a file and selecting "Open" from context menu
         console.log('[Test] Double-clicking on first .glyphs file');
-        await page.getByText('✏️ Fustat.glyphs').dblclick();
+        await page.getByText('Fustat.glyphs').dblclick();
         await page.waitForTimeout(200);
 
         console.log('[Test] Waiting for font to load');

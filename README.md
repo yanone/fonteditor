@@ -27,7 +27,7 @@ TypeScript types are auto-generated from `babelfont-rs` and must stay in sync. T
 ./check-type-drift.sh
 ```
 
-All three components (WASM, types, drift check) lock to the same `babelfont-rs` commit via `Cargo.lock` for version coherence.
+Type generation and drift checks use the local `../babelfont-rs` clone directly (`babelfont-ts/src/underlying.ts`). Keep that clone up to date (`git -C ../babelfont-rs pull --ff-only`).
 
 ## Releasing a New Version
 

@@ -9,24 +9,22 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Extract babelfont-rs commit from WASM build Cargo.lock
-WASM_CARGO_LOCK="babelfont-fontc-build/Cargo.lock"
-if [ ! -f "$WASM_CARGO_LOCK" ]; then
-    echo -e "${RED}❌ Error: $WASM_CARGO_LOCK not found${NC}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BABELFONT_RS_DIR="${BABELFONT_RS_DIR:-$SCRIPT_DIR/../babelfont-rs}"
+
+if [ ! -d "$BABELFONT_RS_DIR/.git" ]; then
+    echo -e "${RED}❌ Error: Local babelfont-rs clone not found at $BABELFONT_RS_DIR${NC}"
+    echo "   Clone it next to this repo:"
+    echo "   git clone https://github.com/simoncozens/babelfont-rs.git \"$SCRIPT_DIR/../babelfont-rs\""
     exit 1
 fi
 
-WASM_COMMIT=$(grep -A 2 'name = "babelfont"' "$WASM_CARGO_LOCK" | grep 'source = "git' | head -1 | sed 's/.*#\([a-f0-9]*\)".*/\1/')
-if [ -z "$WASM_COMMIT" ]; then
-    echo -e "${RED}❌ Error: Could not extract babelfont-rs commit from $WASM_CARGO_LOCK${NC}"
-    exit 1
-fi
-
-echo "📦 WASM built from babelfont-rs commit: $WASM_COMMIT"
+BABELFONT_RS_COMMIT=$(git -C "$BABELFONT_RS_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+echo "📦 Using local babelfont-rs clone: $BABELFONT_RS_DIR@$BABELFONT_RS_COMMIT"
 
 # Generate types to temporary file
 TEMP_TYPES=$(mktemp)
-echo "🔨 Generating types from babelfont-rs@$WASM_COMMIT..."
+echo "🔨 Generating types from local babelfont-rs clone..."
 
 # Run generate-types-stdout.sh (stderr goes to console, stdout to temp file)
 if ! ./generate-types-stdout.sh > "$TEMP_TYPES"; then
@@ -61,14 +59,14 @@ fi
 
 # Check if there are differences
 if diff -q "$TEMP_TYPES" "$COMMITTED_TYPES" > /dev/null 2>&1; then
-    echo -e "${GREEN}✅ Type definitions are in sync with babelfont-rs@$WASM_COMMIT${NC}"
+    echo -e "${GREEN}✅ Type definitions are in sync with local babelfont-rs@$BABELFONT_RS_COMMIT${NC}"
     rm -f "$TEMP_TYPES"
     exit 0
 else
     echo -e "${RED}❌ Type drift detected!${NC}"
     echo ""
     echo -e "${YELLOW}The committed type definitions (webapp/js/babelfont.d.ts) are out of sync${NC}"
-    echo -e "${YELLOW}with the types from babelfont-rs@$WASM_COMMIT${NC}"
+    echo -e "${YELLOW}with the types from local babelfont-rs@$BABELFONT_RS_COMMIT${NC}"
     echo ""
     echo "To see the differences:"
     echo "  diff webapp/js/babelfont.d.ts <(./regenerate-types.sh)"
@@ -76,7 +74,7 @@ else
     echo "To fix this, run:"
     echo "  ./regenerate-types.sh > webapp/js/babelfont.d.ts"
     echo "  git add webapp/js/babelfont.d.ts"
-    echo "  git commit -m 'Update type definitions from babelfont-rs@$WASM_COMMIT'"
+    echo "  git commit -m 'Update type definitions from local babelfont-rs@$BABELFONT_RS_COMMIT'"
     echo ""
     
     # Show a preview of differences (first 20 lines)
