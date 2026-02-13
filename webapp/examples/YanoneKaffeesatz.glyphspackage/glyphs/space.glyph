@@ -1,0 +1,17 @@
+{
+color = 3;
+glyphname = space;
+kernLeft = space;
+kernRight = space;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+width = 190;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+width = 140;
+}
+);
+unicode = 32;
+}

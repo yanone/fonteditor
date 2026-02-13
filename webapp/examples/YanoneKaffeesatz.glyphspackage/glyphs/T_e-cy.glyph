@@ -1,0 +1,29 @@
+{
+color = 4;
+glyphname = "Te-cy";
+kernLeft = T;
+kernRight = T;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = T;
+}
+);
+width = 360;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = T;
+}
+);
+width = 380;
+}
+);
+metricLeft = T;
+metricRight = T;
+unicode = 1058;
+}

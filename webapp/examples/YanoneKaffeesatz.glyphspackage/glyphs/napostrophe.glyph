@@ -1,0 +1,34 @@
+{
+glyphname = napostrophe;
+kernLeft = n;
+kernRight = n;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = n;
+},
+{
+pos = (33,0);
+ref = quoteright;
+}
+);
+width = 422;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = n;
+},
+{
+pos = (7,0);
+ref = quoteright;
+}
+);
+width = 361;
+}
+);
+unicode = 329;
+}

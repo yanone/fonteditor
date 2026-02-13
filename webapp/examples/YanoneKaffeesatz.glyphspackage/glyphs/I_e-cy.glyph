@@ -1,0 +1,41 @@
+{
+color = 4;
+glyphname = "Ie-cy";
+kernLeft = H;
+kernRight = E;
+layers = (
+{
+anchors = (
+{
+name = top;
+pos = (179,700);
+}
+);
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = E;
+}
+);
+width = 357;
+},
+{
+anchors = (
+{
+name = top;
+pos = (157,700);
+}
+);
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = E;
+}
+);
+width = 300;
+}
+);
+metricLeft = "En-cy";
+metricRight = E;
+unicode = 1045;
+}

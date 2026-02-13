@@ -1,0 +1,26 @@
+{
+color = 4;
+glyphname = "ii-cy.loclBGR";
+kernLeft = u;
+kernRight = u;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = u;
+}
+);
+width = 445;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = u;
+}
+);
+width = 358;
+}
+);
+}

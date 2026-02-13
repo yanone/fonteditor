@@ -1,0 +1,50 @@
+{
+color = 3;
+glyphname = j;
+kernLeft = j;
+kernRight = i;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = jdotless;
+},
+{
+pos = (-35,0);
+ref = dotaccentcomb;
+}
+);
+width = 179;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = jdotless;
+},
+{
+pos = (-46,0);
+ref = dotaccentcomb;
+}
+);
+width = 187;
+},
+{
+associatedMasterId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+layerId = "5BF1FA14-1383-4FF9-A7C6-64D01DBACA9A";
+name = "Light Jul 10 13, 09:29";
+shapes = (
+{
+ref = jdotless;
+},
+{
+pos = (-35,0);
+ref = dotaccentcomb;
+}
+);
+width = 179;
+}
+);
+unicode = 106;
+}

@@ -1,0 +1,35 @@
+{
+color = 4;
+glyphname = "Iigrave-cy";
+kernLeft = H;
+kernRight = H;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = "Ii-cy";
+},
+{
+pos = (80,200);
+ref = gravecomb;
+}
+);
+width = 470;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = "Ii-cy";
+},
+{
+pos = (61,200);
+ref = gravecomb;
+}
+);
+width = 397;
+}
+);
+unicode = 1037;
+}

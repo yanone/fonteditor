@@ -1,0 +1,34 @@
+{
+glyphname = acircumflexgrave;
+kernLeft = a;
+kernRight = a;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = a;
+},
+{
+pos = (21,0);
+ref = circumflexcomb_gravecomb;
+}
+);
+width = 383;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = a;
+},
+{
+pos = (6,0);
+ref = circumflexcomb_gravecomb;
+}
+);
+width = 338;
+}
+);
+unicode = 7847;
+}

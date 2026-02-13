@@ -1,0 +1,35 @@
+{
+color = 4;
+glyphname = "Kje-cy";
+kernLeft = H;
+kernRight = K;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = "Ka-cy";
+},
+{
+pos = (96,200);
+ref = acutecomb;
+}
+);
+width = 411;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = "Ka-cy";
+},
+{
+pos = (65,200);
+ref = acutecomb;
+}
+);
+width = 385;
+}
+);
+unicode = 1036;
+}

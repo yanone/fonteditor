@@ -1,0 +1,39 @@
+{
+color = 4;
+glyphname = tcaron;
+kernLeft = t;
+kernRight = t;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+alignment = -1;
+ref = t;
+},
+{
+alignment = -1;
+pos = (208,21);
+ref = __caroncomb.alt;
+}
+);
+width = 305;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+alignment = -1;
+ref = t;
+},
+{
+alignment = -1;
+pos = (216,45);
+ref = __caroncomb.alt;
+}
+);
+width = 334;
+}
+);
+unicode = 357;
+}

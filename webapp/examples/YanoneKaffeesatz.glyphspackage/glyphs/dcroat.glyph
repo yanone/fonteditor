@@ -1,0 +1,37 @@
+{
+glyphname = dcroat;
+kernLeft = o;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+alignment = -1;
+ref = d;
+},
+{
+alignment = -1;
+pos = (160,-10);
+ref = macroncomb;
+}
+);
+width = 398;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+alignment = -1;
+ref = d;
+},
+{
+alignment = -1;
+pos = (102,-10);
+ref = macroncomb;
+}
+);
+width = 391;
+}
+);
+unicode = 273;
+}

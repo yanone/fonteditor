@@ -1,0 +1,29 @@
+{
+color = 4;
+glyphname = "Dze-cy";
+kernLeft = S;
+kernRight = S;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = S;
+}
+);
+width = 383;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = S;
+}
+);
+width = 344;
+}
+);
+metricLeft = S;
+metricRight = S;
+unicode = 1029;
+}

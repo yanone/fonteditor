@@ -1,0 +1,33 @@
+{
+color = 3;
+glyphname = florin;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = integral;
+},
+{
+pos = (30,206);
+ref = minus;
+}
+);
+width = 488;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = integral;
+},
+{
+pos = (40,170);
+ref = minus;
+}
+);
+width = 456;
+}
+);
+unicode = 402;
+}

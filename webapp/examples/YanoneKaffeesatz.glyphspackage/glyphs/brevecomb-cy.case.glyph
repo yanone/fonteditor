@@ -1,0 +1,40 @@
+{
+color = 4;
+glyphname = "brevecomb-cy.case";
+layers = (
+{
+anchors = (
+{
+name = _top;
+pos = (175,700);
+}
+);
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+alignment = -1;
+pos = (50,200);
+ref = "brevecomb-cy";
+}
+);
+width = 349;
+},
+{
+anchors = (
+{
+name = _top;
+pos = (190,700);
+}
+);
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+alignment = -1;
+pos = (41,200);
+ref = "brevecomb-cy";
+}
+);
+width = 380;
+}
+);
+}

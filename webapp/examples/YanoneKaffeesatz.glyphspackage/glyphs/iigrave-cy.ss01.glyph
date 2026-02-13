@@ -1,0 +1,42 @@
+{
+color = 4;
+glyphname = "iigrave-cy.ss01";
+kernLeft = u;
+kernRight = n;
+layers = (
+{
+associatedMasterId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+layerId = "1A97840C-00EB-45FE-8D8D-2E841865655B";
+name = "new Layer";
+width = 600;
+},
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = "ii-cy.ss01";
+},
+{
+pos = (68,0);
+ref = gravecomb;
+}
+);
+width = 445;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = "ii-cy.ss01";
+},
+{
+pos = (62,0);
+ref = gravecomb;
+}
+);
+width = 394;
+}
+);
+metricLeft = "en-cy";
+metricRight = "en-cy";
+}

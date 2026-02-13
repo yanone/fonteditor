@@ -1,0 +1,53 @@
+{
+color = 4;
+glyphname = "Em-cy";
+kernLeft = H;
+kernRight = H;
+layers = (
+{
+hints = (
+{
+horizontal = 1;
+place = (0,0);
+type = Stem;
+},
+{
+horizontal = 1;
+place = (0,0);
+type = Stem;
+}
+);
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = M;
+}
+);
+width = 510;
+},
+{
+hints = (
+{
+horizontal = 1;
+place = (0,0);
+type = Stem;
+},
+{
+horizontal = 1;
+place = (0,0);
+type = Stem;
+}
+);
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = M;
+}
+);
+width = 477;
+}
+);
+metricLeft = "En-cy";
+metricRight = "En-cy";
+unicode = 1052;
+}

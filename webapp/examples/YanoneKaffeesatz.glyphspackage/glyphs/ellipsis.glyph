@@ -1,0 +1,45 @@
+{
+color = 3;
+glyphname = ellipsis;
+kernLeft = period;
+kernRight = period;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+pos = (-10,0);
+ref = period;
+},
+{
+pos = (132,0);
+ref = period;
+},
+{
+pos = (274,0);
+ref = period;
+}
+);
+width = 448;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+pos = (3,0);
+ref = period;
+},
+{
+pos = (188,0);
+ref = period;
+},
+{
+pos = (373,0);
+ref = period;
+}
+);
+width = 562;
+}
+);
+unicode = 8230;
+}

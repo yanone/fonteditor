@@ -1,0 +1,41 @@
+{
+color = 4;
+glyphname = "io-cy";
+kernLeft = o;
+kernRight = e;
+layers = (
+{
+associatedMasterId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+layerId = "1A97840C-00EB-45FE-8D8D-2E841865655B";
+name = "new Layer";
+width = 600;
+},
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = e;
+},
+{
+pos = (95,0);
+ref = dieresiscomb;
+}
+);
+width = 390;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = e;
+},
+{
+pos = (32,0);
+ref = dieresiscomb;
+}
+);
+width = 344;
+}
+);
+unicode = 1105;
+}

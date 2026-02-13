@@ -1,0 +1,32 @@
+{
+color = 4;
+glyphname = "El-cy.loclBGR";
+kernLeft = A;
+kernRight = A;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+angle = 180;
+pos = (421,700);
+ref = V;
+}
+);
+width = 421;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+angle = 180;
+pos = (420,700);
+ref = V;
+}
+);
+width = 420;
+}
+);
+metricLeft = A;
+metricRight = A;
+}

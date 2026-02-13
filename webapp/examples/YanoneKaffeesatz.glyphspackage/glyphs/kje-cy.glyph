@@ -1,0 +1,42 @@
+{
+color = 4;
+glyphname = "kje-cy";
+kernLeft = n;
+kernRight = k;
+layers = (
+{
+associatedMasterId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+layerId = "1A97840C-00EB-45FE-8D8D-2E841865655B";
+name = "new Layer";
+width = 600;
+},
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = "ka-cy";
+},
+{
+pos = (84,0);
+ref = acutecomb;
+}
+);
+width = 372;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = "ka-cy";
+},
+{
+pos = (48,0);
+ref = acutecomb;
+}
+);
+width = 361;
+}
+);
+metricLeft = "en-cy";
+unicode = 1116;
+}

@@ -1,0 +1,35 @@
+{
+color = 3;
+glyphname = edieresis;
+kernLeft = o;
+kernRight = e;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = e;
+},
+{
+pos = (95,0);
+ref = dieresiscomb;
+}
+);
+width = 390;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = e;
+},
+{
+pos = (32,0);
+ref = dieresiscomb;
+}
+);
+width = 344;
+}
+);
+unicode = 235;
+}

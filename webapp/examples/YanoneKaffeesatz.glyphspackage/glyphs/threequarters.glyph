@@ -1,0 +1,42 @@
+{
+glyphname = threequarters;
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = three.numr;
+},
+{
+pos = (429,0);
+ref = fraction;
+},
+{
+pos = (625,0);
+ref = four.dnom;
+}
+);
+width = 1031;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = three.numr;
+},
+{
+pos = (348,0);
+ref = fraction;
+},
+{
+pos = (543,0);
+ref = four.dnom;
+}
+);
+width = 923;
+}
+);
+metricLeft = three.numr;
+metricRight = three.numr;
+unicode = 190;
+}

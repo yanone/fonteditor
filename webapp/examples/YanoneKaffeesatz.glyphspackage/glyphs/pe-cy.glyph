@@ -1,0 +1,69 @@
+{
+color = 4;
+glyphname = "pe-cy";
+kernLeft = n;
+kernRight = u;
+layers = (
+{
+associatedMasterId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+layerId = "1A97840C-00EB-45FE-8D8D-2E841865655B";
+name = "new Layer";
+width = 600;
+},
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+closed = 1;
+nodes = (
+(92,0,o),
+(92,0,o),
+(92,10,cs),
+(92,476,l),
+(329,476,l),
+(329,0,l),
+(353,0,o),
+(353,0,o),
+(353,10,cs),
+(353,500,l),
+(92,500,ls),
+(68,500,o),
+(68,500,o),
+(68,489,cs),
+(68,0,l)
+);
+}
+);
+width = 421;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+closed = 1;
+nodes = (
+(154,0,o),
+(154,0,o),
+(154,20,cs),
+(154,395,l),
+(225,395,l),
+(225,0,l),
+(337,0,o),
+(337,0,o),
+(337,20,cs),
+(337,500,l),
+(154,500,ls),
+(42,500,o),
+(42,499,o),
+(42,477,cs),
+(42,0,l)
+);
+}
+);
+width = 379;
+}
+);
+metricLeft = "en-cy";
+metricRight = "en-cy";
+unicode = 1087;
+}

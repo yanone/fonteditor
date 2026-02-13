@@ -1,0 +1,69 @@
+{
+color = 9;
+glyphname = horncomb;
+layers = (
+{
+anchors = (
+{
+name = _topright;
+pos = (108,500);
+},
+{
+name = topright;
+pos = (108,500);
+}
+);
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+closed = 1;
+nodes = (
+(123,475,o),
+(145,519,o),
+(143,562,c),
+(143,576,o),
+(118,580,o),
+(118,566,cs),
+(118,526,o),
+(107,499,o),
+(51,499,c),
+(50,475,l)
+);
+}
+);
+width = 215;
+},
+{
+anchors = (
+{
+name = _topright;
+pos = (139,500);
+},
+{
+name = topright;
+pos = (139,500);
+}
+);
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+closed = 1;
+nodes = (
+(181,428,o),
+(210,515,o),
+(208,558,c),
+(208,572,o),
+(120,576,o),
+(120,562,cs),
+(120,522,o),
+(107,497,o),
+(51,497,c),
+(50,428,l)
+);
+}
+);
+width = 278;
+}
+);
+unicode = 795;
+}

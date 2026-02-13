@@ -1,0 +1,35 @@
+{
+color = 4;
+glyphname = "Ushort-cy";
+kernLeft = "U-cy";
+kernRight = "U-cy";
+layers = (
+{
+layerId = "B965DA2D-85AA-48ED-BC60-A8A438260572";
+shapes = (
+{
+ref = "U-cy";
+},
+{
+pos = (67,200);
+ref = "brevecomb-cy";
+}
+);
+width = 377;
+},
+{
+layerId = "113A2EC7-7A34-4A41-8395-62473D9E96C5";
+shapes = (
+{
+ref = "U-cy";
+},
+{
+pos = (45,200);
+ref = "brevecomb-cy";
+}
+);
+width = 375;
+}
+);
+unicode = 1038;
+}
