@@ -610,35 +610,63 @@ self.onmessage = async (event) => {
 
     // Handle open font file request
     if (data.type === 'openFont') {
-        const { id, filename, contents } = data;
+        const { id, filename, contents, packageEntries } = data;
 
-        if (!filename || !contents) {
+        if (!filename || (!contents && !packageEntries)) {
             self.postMessage({
                 id,
                 type: 'openFont',
-                error: 'Missing filename or contents'
+                error: 'Missing filename or input contents'
             });
             return;
         }
 
         try {
-            // Convert Uint8Array to string for WASM
-            // Both OPFS and disk now return Uint8Array consistently
-            // Use Latin-1 encoding (1:1 byte mapping) to preserve exact bytes
-            // Rust will detect format and decode properly (handles both UTF-8 text and binary plist)
-            if (!(contents instanceof Uint8Array)) {
-                console.error(
-                    `[Fontc Worker] Expected Uint8Array, got:`,
-                    typeof contents
-                );
-                throw new Error(`Expected Uint8Array, got ${typeof contents}`);
+            let payload: string;
+
+            if (packageEntries && typeof packageEntries === 'object') {
+                const utf8Decoder = new TextDecoder('utf-8');
+                const stringEntries: Record<string, string> = {};
+
+                for (const [relativePath, fileContents] of Object.entries(
+                    packageEntries
+                )) {
+                    if (fileContents instanceof Uint8Array) {
+                        stringEntries[relativePath] =
+                            utf8Decoder.decode(fileContents);
+                    } else if (typeof fileContents === 'string') {
+                        stringEntries[relativePath] = fileContents;
+                    } else {
+                        throw new Error(
+                            `Invalid glyphspackage entry type at ${relativePath}`
+                        );
+                    }
+                }
+
+                payload = JSON.stringify(stringEntries);
+            } else {
+                // Convert Uint8Array to string for WASM
+                // Both OPFS and disk now return Uint8Array consistently
+                // Use Latin-1 encoding (1:1 byte mapping) to preserve exact bytes
+                // Rust will detect format and decode properly (handles both UTF-8 text and binary plist)
+                if (typeof contents === 'string') {
+                    payload = contents;
+                } else if (contents instanceof Uint8Array) {
+                    payload = Array.from(contents, (byte) =>
+                        String.fromCharCode(byte)
+                    ).join('');
+                } else {
+                    console.error(
+                        `[Fontc Worker] Expected Uint8Array|string, got:`,
+                        typeof contents
+                    );
+                    throw new Error(
+                        `Expected Uint8Array|string, got ${typeof contents}`
+                    );
+                }
             }
 
-            const contentsStr = Array.from(contents, (byte) =>
-                String.fromCharCode(byte)
-            ).join('');
-
-            const babelfontJson = open_font_file(filename, contentsStr);
+            const babelfontJson = open_font_file(filename, payload);
 
             // Store in cache (both in WASM and in worker)
             store_font(babelfontJson);

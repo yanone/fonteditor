@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-babelfont = { git = "https://github.com/simoncozens/babelfont-rs.git", rev = "0c4a3ea7fb6ae5fa46ad9a1b9778f8fec8055ad5", features = ["fontir", "glyphs", "ufo", "fontlab"] }
+babelfont = { path = "../../babelfont-rs/babelfont", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
 typeshare = "1.0"
 kurbo = "0.13"
 fontdrasil = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts" }

@@ -111,46 +111,59 @@ function updatePathDisplay(path: string) {
     pathTextElement.textContent = displayPath;
 }
 
-function getFileIcon(filename: string, isDir: boolean): string {
-    if (isDir) return '📁';
+function fileTypeIcon(iconName: string): string {
+    return `<span class="material-symbols-outlined file-type-icon">${iconName}</span>`;
+}
 
-    const ext = filename.split('.').pop()?.toLowerCase();
+function getFileIcon(filename: string, isDir: boolean): string {
+    const lowerName = filename.toLowerCase();
+
+    if (isDir) {
+        return lowerName.endsWith('.glyphspackage')
+            ? fileTypeIcon('folder_zip')
+            : fileTypeIcon('folder');
+    }
+
+    const ext = lowerName.split('.').pop()?.toLowerCase();
     switch (ext) {
         case 'py':
-            return '🐍';
+            return fileTypeIcon('code');
         case 'txt':
-            return '📄';
+            return fileTypeIcon('description');
         case 'json':
-            return '🔧';
+            return fileTypeIcon('data_object');
         case 'md':
-            return '📝';
+            return fileTypeIcon('article');
         case 'html':
-            return '🌐';
+            return fileTypeIcon('language');
         case 'css':
-            return '🎨';
+            return fileTypeIcon('palette');
         case 'js':
-            return '⚡';
+            return fileTypeIcon('code');
         case 'png':
         case 'jpg':
         case 'jpeg':
         case 'gif':
-            return '🖼️';
+            return fileTypeIcon('image');
         case 'pdf':
-            return '📕';
+            return fileTypeIcon('picture_as_pdf');
         case 'zip':
-            return '🗜️';
+            return fileTypeIcon('folder_zip');
         case 'ttf':
         case 'otf':
         case 'woff':
         case 'woff2':
-            return '🔤';
+            return fileTypeIcon('font_download');
         case 'babelfont':
         case 'glyphs':
+        case 'glyphspackage':
+        case 'vfj':
+        case 'sfd':
         case 'ufo':
         case 'designspace':
-            return '✏️';
+            return fileTypeIcon('format_shapes');
         default:
-            return '📄';
+            return fileTypeIcon('draft');
     }
 }
 
@@ -163,20 +176,28 @@ function getFileClass(filename: string, isDir: boolean): string {
 }
 
 function isSupportedFontFormat(name: string, isDir: boolean): boolean {
-    // Skip directories
-    if (isDir) return false;
+    const lowerName = name.toLowerCase();
+
+    if (lowerName.endsWith('.glyphspackage')) {
+        return true;
+    }
+
+    if (isDir) {
+        return false;
+    }
 
     // Check for supported font formats
     const supportedExtensions = [
         '.babelfont', // Native format
         '.glyphs', // Glyphs 2/3
-        '.vfj' // FontLab VFJ
+        '.vfj', // FontLab VFJ
+        '.sfd' // FontForge SFD
         // Available after full file system support:
         // '.ufo', // Unified Font Object
         // '.designspace' // DesignSpace
     ];
 
-    return supportedExtensions.some((ext) => name.endsWith(ext));
+    return supportedExtensions.some((ext) => lowerName.endsWith(ext));
 }
 
 // Helper functions for plugin menu dropdowns
@@ -202,7 +223,7 @@ function createFileContextMenuHtml(
     const items: string[] = [];
 
     // Open (for supported font formats)
-    if (!isDir && isSupportedFontFormat(name, false)) {
+    if (isSupportedFontFormat(name, isDir)) {
         items.push(`
             <div class="plugin-menu-item" data-action="open">
                 <span class="material-symbols-outlined">folder_open</span>
@@ -480,6 +501,55 @@ async function openInScriptEditor(path: string) {
     }
 }
 
+async function collectDirectoryEntries(
+    rootPath: string
+): Promise<Record<string, Uint8Array>> {
+    const entries: Record<string, Uint8Array> = {};
+    const requiredTopLevelFiles = new Set([
+        'fontinfo.plist',
+        'order.plist',
+        'UIState.plist'
+    ]);
+
+    const walk = async (currentPath: string) => {
+        const items =
+            await fileSystemCache.activeAdapter.scanDirectory(currentPath);
+
+        for (const [, data] of Object.entries(items)) {
+            const itemPath = data.path;
+            if (data.is_dir) {
+                await walk(itemPath);
+                continue;
+            }
+
+            const content =
+                await fileSystemCache.activeAdapter.readFile(itemPath);
+            const bytes =
+                typeof content === 'string'
+                    ? new TextEncoder().encode(content)
+                    : new Uint8Array(content as any);
+
+            const relativePath = itemPath
+                .slice(rootPath.length)
+                .replace(/^\/+/, '');
+
+            const isGlyphFile =
+                relativePath.startsWith('glyphs/') &&
+                relativePath.endsWith('.glyph');
+            const isRequiredTopLevel = requiredTopLevelFiles.has(relativePath);
+
+            if (!isGlyphFile && !isRequiredTopLevel) {
+                continue;
+            }
+
+            entries[relativePath] = bytes;
+        }
+    };
+
+    await walk(rootPath);
+    return entries;
+}
+
 async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
     if (!window.pyodide) {
         alert('Python not ready yet. Please wait a moment and try again.');
@@ -493,17 +563,34 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
         const startTime = performance.now();
         console.log('[FileBrowser]', `Opening font: ${path}`);
 
-        let contents = await fileSystemCache.activeAdapter.readFile(path);
-
         // Determine file extension
         const extension = path.split('.').pop()?.toLowerCase() || '';
+        const isGlyphsPackage = extension === 'glyphspackage';
 
-        // For text-based formats (.babelfont is JSON), decode from UTF-8
-        // For binary formats (.glyphs, .ufo, etc.), keep as Uint8Array - Python/Rust handles format detection
-        if (extension === 'babelfont' && contents instanceof Uint8Array) {
-            contents = new TextDecoder('utf-8').decode(contents);
+        let contents: string | Uint8Array | undefined;
+        let packageEntries: Record<string, Uint8Array> | undefined;
+
+        if (isGlyphsPackage) {
+            packageEntries = await collectDirectoryEntries(path);
+
+            if (
+                !packageEntries['fontinfo.plist'] ||
+                !packageEntries['order.plist']
+            ) {
+                throw new Error(
+                    'Invalid .glyphspackage: missing fontinfo.plist or order.plist'
+                );
+            }
+        } else {
+            contents = await fileSystemCache.activeAdapter.readFile(path);
+
+            // For text-based formats (.babelfont is JSON), decode from UTF-8
+            // For binary formats (.glyphs, .ufo, etc.), keep as Uint8Array - Python/Rust handles format detection
+            if (extension === 'babelfont' && contents instanceof Uint8Array) {
+                contents = new TextDecoder('utf-8').decode(contents);
+            }
+            // All other formats: keep as Uint8Array for worker to handle
         }
-        // All other formats: keep as Uint8Array for worker to handle
 
         let babelfontJson: string;
 
@@ -552,7 +639,8 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
                     type: 'openFont',
                     id,
                     filename: path.split('/').pop() || path,
-                    contents // Uint8Array for binary formats, string for .babelfont
+                    contents,
+                    packageEntries
                 });
             });
 
@@ -1137,8 +1225,15 @@ async function buildFileTree(rootPath = '/') {
     const sortedItems = Object.entries(items)
         .filter(([name]) => !HIDDEN_FILES.includes(name))
         .sort(([a, aData], [b, bData]) => {
-            if (aData.is_dir && !bData.is_dir) return -1;
-            if (!aData.is_dir && bData.is_dir) return 1;
+            const aIsGlyphsPackage =
+                aData.is_dir && a.toLowerCase().endsWith('.glyphspackage');
+            const bIsGlyphsPackage =
+                bData.is_dir && b.toLowerCase().endsWith('.glyphspackage');
+            const aIsDirectory = aData.is_dir && !aIsGlyphsPackage;
+            const bIsDirectory = bData.is_dir && !bIsGlyphsPackage;
+
+            if (aIsDirectory && !bIsDirectory) return -1;
+            if (!aIsDirectory && bIsDirectory) return 1;
             return a.localeCompare(b);
         });
 
@@ -1146,27 +1241,32 @@ async function buildFileTree(rootPath = '/') {
     const currentFontPath = window.fontManager?.currentFont?.path || null;
 
     for (const [name, data] of sortedItems) {
-        const icon = getFileIcon(name, data.is_dir);
-        const fileClass = getFileClass(name, data.is_dir);
-        const sizeText = data.is_dir
+        const isGlyphsPackage =
+            data.is_dir && name.toLowerCase().endsWith('.glyphspackage');
+        const displayIsDir = data.is_dir && !isGlyphsPackage;
+
+        const icon = getFileIcon(name, displayIsDir);
+        const fileClass = getFileClass(name, displayIsDir);
+        const sizeText = displayIsDir
             ? ''
             : `<span class="file-size">${formatFileSize(data.size)}</span>`;
 
         // Check if this is a supported font file
         const isFontFile = isSupportedFontFormat(name, data.is_dir);
+        const fontSourceClass = isFontFile ? 'font-source' : '';
 
         // Add 'current-font' class if this is the opened font
-        const isCurrentFont = !data.is_dir && currentFontPath === data.path;
+        const isCurrentFont = isFontFile && currentFontPath === data.path;
         const currentFontClass = isCurrentFont ? 'current-font' : '';
 
         // Add 'in-font-path' class if this is a directory in the path to the current font
         const isInFontPath =
-            data.is_dir &&
+            displayIsDir &&
             currentFontPath &&
             currentFontPath.startsWith(data.path + '/');
         const fontPathClass = isInFontPath ? 'in-font-path' : '';
 
-        html += `<div class="file-item ${fileClass} ${currentFontClass} ${fontPathClass}" data-path="${data.path}" data-name="${name}" data-is-dir="${data.is_dir}" data-is-font="${isFontFile}">
+        html += `<div class="file-item ${fileClass} ${fontSourceClass} ${currentFontClass} ${fontPathClass}" data-path="${data.path}" data-name="${name}" data-is-dir="${data.is_dir}" data-is-font="${isFontFile}">
             <span class="file-name">${icon} ${name}</span>${sizeText}
         </div>`;
     }
@@ -1449,15 +1549,15 @@ function setupFileItemClickHandlers() {
                 clickPrevent = true;
 
                 // Handle double-click
-                if (isDir) {
-                    navigateToPath(path);
-                } else if (isFont) {
+                if (isFont) {
                     console.log(
                         '[FileBrowser]',
                         'Double-click opening font:',
                         path
                     );
                     openFont(path);
+                } else if (isDir) {
+                    navigateToPath(path);
                 }
 
                 setTimeout(() => {
@@ -1469,7 +1569,7 @@ function setupFileItemClickHandlers() {
                     clickTimer = null;
 
                     // Handle single-click
-                    if (isDir) {
+                    if (isDir && !isFont) {
                         navigateToPath(path);
                     } else {
                         selectFile(path);

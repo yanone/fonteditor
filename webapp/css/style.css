@@ -2415,8 +2415,17 @@ flex-direction: row;
 }
 
 .file-item.directory {
-    color: var(--accent-cyan);
+    color: #000000;
     font-weight: 500;
+}
+
+.file-item.directory .file-name {
+    color: #000000;
+    font-weight: 500;
+}
+
+.file-item.directory .file-type-icon {
+    color: var(--accent-orange);
 }
 
 .file-item.file {
@@ -2553,6 +2562,16 @@ flex-direction: row;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.file-item .file-type-icon {
+    font-size: calc(var(--size, 1) * (16px / var(--pixel-density, 1)));
+    vertical-align: text-bottom;
+    margin-right: 6px;
+}
+
+.file-item.font-source .file-type-icon {
+    color: var(--view-files);
 }
 
 /* Inline rename input */

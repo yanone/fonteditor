@@ -3,7 +3,7 @@ use babelfont::{
     filters::FontFilter as _,
 };
 use smol_str::SmolStr;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
 
@@ -162,10 +162,14 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
     web_sys::console::log_1(&format!("[Rust] Opening font file: {}", filename).into());
 
     let path = std::path::PathBuf::from(filename);
-    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
 
     // Parse the font based on file extension
-    let font: babelfont::Font = match extension {
+    let font: babelfont::Font = match extension.as_str() {
         "babelfont" => {
             // For .babelfont, just parse the JSON directly
             serde_json::from_str(contents).map_err(|e| {
@@ -179,12 +183,34 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
                 .map_err(|e| JsValue::from_str(&format!("Failed to load .glyphs file: {:?}", e)))?
         }
 
+        "glyphspackage" => {
+            // Load Glyphs package from a JSON-encoded in-memory file tree.
+            // Expected format: { "relative/path": "file contents", ... }
+            let entries: HashMap<String, String> = serde_json::from_str(contents).map_err(|e| {
+                JsValue::from_str(&format!(
+                    "Failed to parse .glyphspackage entries JSON: {}",
+                    e
+                ))
+            })?;
+
+            babelfont::convertors::glyphs3::load_package_entries(path.clone(), &entries)
+                .map_err(|e| {
+                    JsValue::from_str(&format!("Failed to load .glyphspackage: {:?}", e))
+                })?
+        }
+
         "vfj" => {
             // Load FontLab VFJ format
             let _font_json: serde_json::Value = serde_json::from_str(contents)
                 .map_err(|e| JsValue::from_str(&format!("Failed to parse VFJ JSON: {}", e)))?;
             babelfont::convertors::fontlab::load(path.clone())
                 .map_err(|e| JsValue::from_str(&format!("Failed to load .vfj file: {:?}", e)))?
+        }
+
+        "sfd" => {
+            // Load FontForge SFD format from string content
+            babelfont::convertors::fontforge::load_str(contents)
+                .map_err(|e| JsValue::from_str(&format!("Failed to load .sfd file: {:?}", e)))?
         }
 
         "ufo" => {
@@ -201,7 +227,7 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
 
         _ => {
             return Err(JsValue::from_str(&format!(
-                "Unsupported file format: .{}. Supported formats: .babelfont, .glyphs, .vfj",
+                "Unsupported file format: .{}. Supported formats: .babelfont, .glyphs, .glyphspackage, .vfj, .sfd",
                 extension
             )));
         }

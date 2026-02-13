@@ -80,12 +80,12 @@ Users will see an orange update notification button in the title bar within 10 m
 
 - ✅ User file sytem I/O
 - ✅ App state saved in URL, can be shared and restored
-- ✅ .glyphs I/O
-- ✅ .vfj I/O
-- ◻️ .vfb I/O
-- ◻️ .glyphspackage I/O
-- ◻️ .ufo/.designspace I/O
-- ✅ .babelfont I/O
+- ✅ .babelfont input/outut
+- ✅ .glyphs input/outut
+- ◻️ .glyphspackage input
+- ✅ .sfb input
+- ◻️ .vfj input
+- ◻️ .vfb input
 - ◻️ Python scripts I/O
 - ✅ Glyph overview
 - ✅ Glyph search and filtering
