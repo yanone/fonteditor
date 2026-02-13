@@ -4,7 +4,8 @@
     "type": "commonjs",
     "main": "coi-serviceworker.js",
     "scripts": {
-        "test": "npm run test:type-drift && npm run test:tsc && playwright test",
+        "test": "npm run test:babelfont-pin && npm run test:type-drift && npm run test:tsc && playwright test",
+        "test:babelfont-pin": "cd .. && bash ./check-babelfont-pin-latest.sh",
         "test:type-drift": "cd .. && ./check-type-drift.sh",
         "test:tsc": "tsc --noEmit",
         "test:ui": "playwright test --ui",

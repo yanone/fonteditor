@@ -24,10 +24,18 @@ TypeScript types are auto-generated from `babelfont-rs` and must stay in sync. T
 ./regenerate-types.sh
 
 # Verify sync (runs in CI)
+./check-babelfont-pin-latest.sh
 ./check-type-drift.sh
 ```
 
-Type generation and drift checks use the local `../babelfont-rs` clone directly (`babelfont-ts/src/underlying.ts`). Keep that clone up to date (`git -C ../babelfont-rs pull --ff-only`).
+Type generation and drift checks use `../babelfont-rs` when available. In CI (or without a local clone), scripts fall back to `.babelfont-rs-ref` and clone a pinned repo+commit for deterministic checks.
+
+Pin file format:
+
+```text
+repo=https://github.com/<owner>/babelfont-rs.git
+commit=<full-40-char-sha>
+```
 
 ## Releasing a New Version
 

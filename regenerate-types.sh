@@ -9,29 +9,63 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WEBAPP_DIR="$SCRIPT_DIR/webapp"
 OUTPUT_FILE="$WEBAPP_DIR/js/babelfont.d.ts"
+PIN_FILE="$SCRIPT_DIR/.babelfont-rs-ref"
+DEFAULT_REPO_URL="https://github.com/simoncozens/babelfont-rs.git"
 
 echo "🔄 Regenerating TypeScript definitions from babelfont-ts"
 echo "========================================================="
 echo ""
 
 echo "📋 Step 1/3: Resolving local babelfont-rs clone..."
-BABELFONT_RS_DIR="${BABELFONT_RS_DIR:-$SCRIPT_DIR/../babelfont-rs}"
+DEFAULT_LOCAL_BABELFONT_RS_DIR="$SCRIPT_DIR/../babelfont-rs"
+BABELFONT_RS_DIR="${BABELFONT_RS_DIR:-$DEFAULT_LOCAL_BABELFONT_RS_DIR}"
+TEMP_DIR=""
 
-if [ ! -d "$BABELFONT_RS_DIR/.git" ]; then
-    echo "❌ Local babelfont-rs clone not found at $BABELFONT_RS_DIR"
-    echo "   Clone it next to this repo:"
-    echo "   git clone https://github.com/simoncozens/babelfont-rs.git \"$SCRIPT_DIR/../babelfont-rs\""
-    exit 1
+cleanup() {
+    if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
+        rm -rf "$TEMP_DIR"
+    fi
+}
+trap cleanup EXIT
+
+if [ -d "$BABELFONT_RS_DIR/.git" ]; then
+    COMMIT=$(git -C "$BABELFONT_RS_DIR" rev-parse --short HEAD)
+    echo "✅ Using local babelfont-rs at $BABELFONT_RS_DIR@$COMMIT"
+else
+    if [ ! -f "$PIN_FILE" ]; then
+        echo "❌ No local babelfont-rs clone found and no pin file at $PIN_FILE"
+        echo "   Either clone babelfont-rs next to this repo, or add a pinned commit SHA to $PIN_FILE"
+        exit 1
+    fi
+
+    PINNED_REPO_URL=$(grep '^repo=' "$PIN_FILE" | tail -1 | cut -d'=' -f2-)
+    PINNED_COMMIT=$(grep '^commit=' "$PIN_FILE" | tail -1 | cut -d'=' -f2-)
+
+    # Backwards compatibility: old format with only the commit SHA
+    if [ -z "$PINNED_COMMIT" ]; then
+        PINNED_COMMIT=$(tr -d '[:space:]' < "$PIN_FILE")
+    fi
+
+    if [ -z "$PINNED_REPO_URL" ]; then
+        PINNED_REPO_URL="$DEFAULT_REPO_URL"
+    fi
+
+    if [ -z "$PINNED_COMMIT" ]; then
+        echo "❌ Pin file is empty: $PIN_FILE"
+        exit 1
+    fi
+
+    echo "⬇️  No local clone found, cloning pinned babelfont-rs from $PINNED_REPO_URL@$PINNED_COMMIT..."
+    TEMP_DIR=$(mktemp -d)
+    BABELFONT_RS_DIR="$TEMP_DIR/babelfont-rs"
+    git clone --quiet "$PINNED_REPO_URL" "$BABELFONT_RS_DIR"
+    if ! git -C "$BABELFONT_RS_DIR" checkout --quiet "$PINNED_COMMIT"; then
+        echo "❌ Failed to checkout pinned commit $PINNED_COMMIT from $PIN_FILE"
+        exit 1
+    fi
+    COMMIT=$(git -C "$BABELFONT_RS_DIR" rev-parse --short HEAD)
+    echo "✅ Using pinned babelfont-rs at $BABELFONT_RS_DIR@$COMMIT"
 fi
-
-if ! git -C "$BABELFONT_RS_DIR" pull --ff-only --quiet; then
-    echo "❌ Failed to fast-forward local babelfont-rs clone at $BABELFONT_RS_DIR"
-    echo "   Ensure the clone has a clean branch that tracks origin (e.g. main)."
-    exit 1
-fi
-
-COMMIT=$(git -C "$BABELFONT_RS_DIR" rev-parse --short HEAD)
-echo "✅ Using local babelfont-rs at $BABELFONT_RS_DIR@$COMMIT"
 echo ""
 
 # Extract types from babelfont-ts/src/underlying.ts
@@ -124,7 +158,7 @@ cd "$SCRIPT_DIR"
 echo "✅ Type definitions regenerated successfully!"
 echo ""
 echo "File: $OUTPUT_FILE"
-echo "From: local babelfont-rs clone at $BABELFONT_RS_DIR@$COMMIT (babelfont-ts/src/underlying.ts)"
+echo "From: babelfont-rs at $BABELFONT_RS_DIR@$COMMIT (babelfont-ts/src/underlying.ts)"
 echo ""
 echo "Next steps:"
 echo "  1. Review changes: git diff webapp/js/babelfont.d.ts"
