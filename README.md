@@ -82,7 +82,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ✅ App state saved in URL, can be shared and restored
 - ✅ .babelfont input/outut
 - ✅ .glyphs input/outut
-- ◻️ .glyphspackage input
+- ✅ .glyphspackage input
 - ✅ .sfb input
 - ◻️ .vfj input
 - ◻️ .vfb input

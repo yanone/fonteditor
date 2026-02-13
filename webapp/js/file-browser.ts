@@ -182,6 +182,10 @@ function isSupportedFontFormat(name: string, isDir: boolean): boolean {
         return true;
     }
 
+    if (isDir && lowerName.endsWith('.ufo')) {
+        return true;
+    }
+
     if (isDir) {
         return false;
     }
@@ -191,10 +195,8 @@ function isSupportedFontFormat(name: string, isDir: boolean): boolean {
         '.babelfont', // Native format
         '.glyphs', // Glyphs 2/3
         '.vfj', // FontLab VFJ
-        '.sfd' // FontForge SFD
-        // Available after full file system support:
-        // '.ufo', // Unified Font Object
-        // '.designspace' // DesignSpace
+        '.sfd', // FontForge SFD
+        '.designspace' // DesignSpace
     ];
 
     return supportedExtensions.some((ext) => lowerName.endsWith(ext));
@@ -550,6 +552,45 @@ async function collectDirectoryEntries(
     return entries;
 }
 
+async function collectAllDirectoryEntries(
+    rootPath: string
+): Promise<Record<string, Uint8Array>> {
+    const entries: Record<string, Uint8Array> = {};
+
+    const walk = async (currentPath: string) => {
+        const items =
+            await fileSystemCache.activeAdapter.scanDirectory(currentPath);
+
+        for (const [, data] of Object.entries(items)) {
+            const itemPath = data.path;
+            if (data.is_dir) {
+                await walk(itemPath);
+                continue;
+            }
+
+            const content =
+                await fileSystemCache.activeAdapter.readFile(itemPath);
+            const bytes =
+                typeof content === 'string'
+                    ? new TextEncoder().encode(content)
+                    : new Uint8Array(content as any);
+
+            const relativePath = itemPath
+                .slice(rootPath.length)
+                .replace(/^\/+/, '');
+            entries[relativePath] = bytes;
+        }
+    };
+
+    await walk(rootPath);
+    return entries;
+}
+
+function getParentPath(path: string): string {
+    const idx = path.lastIndexOf('/');
+    return idx >= 0 ? path.slice(0, idx) : '';
+}
+
 async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
     if (!window.pyodide) {
         alert('Python not ready yet. Please wait a moment and try again.');
@@ -566,9 +607,12 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
         // Determine file extension
         const extension = path.split('.').pop()?.toLowerCase() || '';
         const isGlyphsPackage = extension === 'glyphspackage';
+        const isUfoDirectory = extension === 'ufo';
+        const isDesignspace = extension === 'designspace';
 
         let contents: string | Uint8Array | undefined;
         let packageEntries: Record<string, Uint8Array> | undefined;
+        let projectEntries: Record<string, Uint8Array> | undefined;
 
         if (isGlyphsPackage) {
             packageEntries = await collectDirectoryEntries(path);
@@ -581,6 +625,11 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
                     'Invalid .glyphspackage: missing fontinfo.plist or order.plist'
                 );
             }
+        } else if (isUfoDirectory) {
+            projectEntries = await collectAllDirectoryEntries(path);
+        } else if (isDesignspace) {
+            const projectRoot = getParentPath(path);
+            projectEntries = await collectAllDirectoryEntries(projectRoot);
         } else {
             contents = await fileSystemCache.activeAdapter.readFile(path);
 
@@ -640,7 +689,8 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
                     id,
                     filename: path.split('/').pop() || path,
                     contents,
-                    packageEntries
+                    packageEntries,
+                    projectEntries
                 });
             });
 

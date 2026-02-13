@@ -214,20 +214,25 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
         }
 
         "ufo" => {
-            // Load UFO format - note: this requires file system access which may not work in WASM
-            return Err(JsValue::from_str(
-                "UFO format requires file system access and is not yet supported in browser",
-            ));
+            let entries: HashMap<String, String> = serde_json::from_str(contents).map_err(|e| {
+                JsValue::from_str(&format!("Failed to parse .ufo entries JSON: {}", e))
+            })?;
+            babelfont::convertors::ufo::load_entries(path.clone(), &entries)
+                .map_err(|e| JsValue::from_str(&format!("Failed to load .ufo: {:?}", e)))?
         }
 
         "designspace" => {
-            // Load DesignSpace format - note: this requires file system access which may not work in WASM
-            return Err(JsValue::from_str("DesignSpace format requires file system access and is not yet supported in browser"));
+            let entries: HashMap<String, String> = serde_json::from_str(contents).map_err(|e| {
+                JsValue::from_str(&format!("Failed to parse .designspace entries JSON: {}", e))
+            })?;
+            babelfont::convertors::designspace::load_entries(path.clone(), &entries).map_err(
+                |e| JsValue::from_str(&format!("Failed to load .designspace: {:?}", e)),
+            )?
         }
 
         _ => {
             return Err(JsValue::from_str(&format!(
-                "Unsupported file format: .{}. Supported formats: .babelfont, .glyphs, .glyphspackage, .vfj, .sfd",
+                "Unsupported file format: .{}. Supported formats: .babelfont, .glyphs, .glyphspackage, .vfj, .sfd, .ufo, .designspace",
                 extension
             )));
         }

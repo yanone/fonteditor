@@ -56,6 +56,14 @@ class OpenedFont {
     ) {
         this.babelfontJson = babelfontJson;
         this.babelfontData = JSON.parse(babelfontJson);
+        this.babelfontData.glyphs = this.babelfontData.glyphs || [];
+        this.babelfontData.masters = this.babelfontData.masters || [];
+        this.babelfontData.axes = this.babelfontData.axes || [];
+        const knownMasterIds = new Set<string>(
+            this.babelfontData.masters
+                .map((m: any) => m?.id)
+                .filter((id: any) => typeof id === 'string')
+        );
         this.sourcePlugin = sourcePlugin;
         this.fileHandle = fileHandle;
         this.directoryHandle = directoryHandle;
@@ -64,6 +72,16 @@ class OpenedFont {
         for (const glyph of this.babelfontData.glyphs || []) {
             for (const layer of glyph.layers || []) {
                 if (!layer.master) {
+                    if (
+                        !layer.is_background &&
+                        typeof layer.id === 'string' &&
+                        knownMasterIds.has(layer.id)
+                    ) {
+                        layer.master = {
+                            type: 'DefaultForMaster',
+                            master: layer.id
+                        };
+                    }
                     continue;
                 }
 
@@ -82,10 +100,37 @@ class OpenedFont {
                         continue;
                     }
 
+                    if (
+                        'master' in masterData &&
+                        typeof (masterData as any).master === 'string'
+                    ) {
+                        layer.master = {
+                            type: 'DefaultForMaster',
+                            master: (masterData as any).master
+                        };
+                        continue;
+                    }
+
                     if ('DefaultForMaster' in masterData) {
                         layer.master = {
                             type: 'DefaultForMaster',
                             master: masterData.DefaultForMaster
+                        };
+                        continue;
+                    }
+
+                    if ('default_for_master' in masterData) {
+                        layer.master = {
+                            type: 'DefaultForMaster',
+                            master: (masterData as any).default_for_master
+                        };
+                        continue;
+                    }
+
+                    if ('associated_with_master' in masterData) {
+                        layer.master = {
+                            type: 'AssociatedWithMaster',
+                            master: (masterData as any).associated_with_master
                         };
                         continue;
                     }
@@ -111,7 +156,7 @@ class OpenedFont {
         this.fontModel = Font.fromData(this.babelfontData); // Create object model
         this.path = path;
         this.name =
-            this.babelfontData?.names.family_name.dflt || 'Untitled Font';
+            this.babelfontData?.names?.family_name?.dflt || 'Untitled Font';
         this.dirty = false;
         this.changeVersion = 0;
     }
@@ -845,10 +890,12 @@ class FontManager {
             if (!layer.is_background) {
                 // Check if this is a default layer
                 const layerAny = layer as any;
-                const isDefaultLayer =
+                const hasTaggedMaster =
                     layerAny.master &&
                     typeof layerAny.master === 'object' &&
-                    'type' in layerAny.master &&
+                    'type' in layerAny.master;
+                const isDefaultLayer =
+                    hasTaggedMaster &&
                     layerAny.master.type === 'DefaultForMaster';
 
                 if (isDefaultLayer) {
@@ -864,16 +911,15 @@ class FontManager {
                 }
             }
         }
-        let axes_order = this.currentFont!.babelfontData.axes.map(
-            (axis: Babelfont.Axis) => axis.tag
-        );
+        const axes = this.currentFont!.babelfontData.axes || [];
+        let axes_order = axes.map((axis: Babelfont.Axis) => axis.tag);
 
         let mastersData = [];
         for (let master of this.currentFont!.babelfontData
             .masters as Babelfont.Master[]) {
             let userspaceLocation = designspaceToUserspace(
                 master.location || {},
-                this.currentFont!.babelfontData.axes
+                axes
             );
             // Extract master name from I18NDictionary (use 'en' or first available)
             let masterName =

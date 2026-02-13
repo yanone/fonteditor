@@ -610,9 +610,10 @@ self.onmessage = async (event) => {
 
     // Handle open font file request
     if (data.type === 'openFont') {
-        const { id, filename, contents, packageEntries } = data;
+        const { id, filename, contents, packageEntries, projectEntries } = data;
+        const entryMap = packageEntries || projectEntries;
 
-        if (!filename || (!contents && !packageEntries)) {
+        if (!filename || (!contents && !entryMap)) {
             self.postMessage({
                 id,
                 type: 'openFont',
@@ -624,12 +625,12 @@ self.onmessage = async (event) => {
         try {
             let payload: string;
 
-            if (packageEntries && typeof packageEntries === 'object') {
+            if (entryMap && typeof entryMap === 'object') {
                 const utf8Decoder = new TextDecoder('utf-8');
                 const stringEntries: Record<string, string> = {};
 
                 for (const [relativePath, fileContents] of Object.entries(
-                    packageEntries
+                    entryMap
                 )) {
                     if (fileContents instanceof Uint8Array) {
                         stringEntries[relativePath] =
@@ -638,7 +639,7 @@ self.onmessage = async (event) => {
                         stringEntries[relativePath] = fileContents;
                     } else {
                         throw new Error(
-                            `Invalid glyphspackage entry type at ${relativePath}`
+                            `Invalid project entry type at ${relativePath}`
                         );
                     }
                 }

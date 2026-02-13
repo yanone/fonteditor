@@ -121,10 +121,11 @@ dependencies = [
  "indexmap 2.13.0",
  "kurbo 0.13.0",
  "log",
- "norad",
+ "norad 0.18.0",
  "num-traits",
  "ordered-float",
  "paste",
+ "plist",
  "regex",
  "roxmltree",
  "serde",
@@ -1134,6 +1135,22 @@ dependencies = [
  "base64",
  "close_already",
  "indexmap 2.13.0",
+ "log",
+ "plist",
+ "quick-xml",
+ "serde",
+ "serde_derive",
+ "serde_repr",
+ "thiserror",
+]
+
+[[package]]
+name = "norad"
+version = "0.18.0"
+dependencies = [
+ "base64",
+ "close_already",
+ "indexmap 2.13.0",
  "kurbo 0.13.0",
  "log",
  "plist",
@@ -1859,7 +1876,7 @@ dependencies = [
  "indexmap 2.13.0",
  "kurbo 0.13.0",
  "log",
- "norad",
+ "norad 0.17.0",
  "ordered-float",
  "plist",
  "serde",
