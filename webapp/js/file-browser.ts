@@ -115,11 +115,17 @@ function fileTypeIcon(iconName: string): string {
     return `<span class="material-symbols-outlined file-type-icon">${iconName}</span>`;
 }
 
+function isFontPackageDirectory(filename: string, isDir: boolean): boolean {
+    if (!isDir) return false;
+    const lowerName = filename.toLowerCase();
+    return lowerName.endsWith('.glyphspackage') || lowerName.endsWith('.ufo');
+}
+
 function getFileIcon(filename: string, isDir: boolean): string {
     const lowerName = filename.toLowerCase();
 
     if (isDir) {
-        return lowerName.endsWith('.glyphspackage')
+        return isFontPackageDirectory(filename, isDir)
             ? fileTypeIcon('folder_zip')
             : fileTypeIcon('folder');
     }
@@ -178,11 +184,7 @@ function getFileClass(filename: string, isDir: boolean): string {
 function isSupportedFontFormat(name: string, isDir: boolean): boolean {
     const lowerName = name.toLowerCase();
 
-    if (lowerName.endsWith('.glyphspackage')) {
-        return true;
-    }
-
-    if (isDir && lowerName.endsWith('.ufo')) {
+    if (isFontPackageDirectory(name, isDir)) {
         return true;
     }
 
@@ -1275,12 +1277,16 @@ async function buildFileTree(rootPath = '/') {
     const sortedItems = Object.entries(items)
         .filter(([name]) => !HIDDEN_FILES.includes(name))
         .sort(([a, aData], [b, bData]) => {
-            const aIsGlyphsPackage =
-                aData.is_dir && a.toLowerCase().endsWith('.glyphspackage');
-            const bIsGlyphsPackage =
-                bData.is_dir && b.toLowerCase().endsWith('.glyphspackage');
-            const aIsDirectory = aData.is_dir && !aIsGlyphsPackage;
-            const bIsDirectory = bData.is_dir && !bIsGlyphsPackage;
+            const aIsFontPackageDirectory = isFontPackageDirectory(
+                a,
+                aData.is_dir
+            );
+            const bIsFontPackageDirectory = isFontPackageDirectory(
+                b,
+                bData.is_dir
+            );
+            const aIsDirectory = aData.is_dir && !aIsFontPackageDirectory;
+            const bIsDirectory = bData.is_dir && !bIsFontPackageDirectory;
 
             if (aIsDirectory && !bIsDirectory) return -1;
             if (!aIsDirectory && bIsDirectory) return 1;
@@ -1291,9 +1297,8 @@ async function buildFileTree(rootPath = '/') {
     const currentFontPath = window.fontManager?.currentFont?.path || null;
 
     for (const [name, data] of sortedItems) {
-        const isGlyphsPackage =
-            data.is_dir && name.toLowerCase().endsWith('.glyphspackage');
-        const displayIsDir = data.is_dir && !isGlyphsPackage;
+        const isPackageDirectory = isFontPackageDirectory(name, data.is_dir);
+        const displayIsDir = data.is_dir && !isPackageDirectory;
 
         const icon = getFileIcon(name, displayIsDir);
         const fileClass = getFileClass(name, displayIsDir);
