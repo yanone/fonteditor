@@ -575,13 +575,17 @@ const stateManager = new StateManager();
 };
 
 // Install global error handlers
-window.addEventListener('error', (event) => {
+window.addEventListener('error', async (event) => {
     const reason = event.error || event.message || 'Unknown window error';
-    const report = stateManager.captureError(reason, 'window.error');
+    stateManager.captureError(reason, 'window.error');
+    const mappedReport = await stateManager.captureErrorMapped(
+        reason,
+        'window.error'
+    );
     const snapshot = stateManager.getStateSnapshot();
 
     void sendErrorReportToServer({
-        ...report,
+        ...mappedReport,
         state: snapshot.state,
         history: snapshot.history,
         events: snapshot.events,
@@ -594,16 +598,17 @@ window.addEventListener('error', (event) => {
     });
 });
 
-window.addEventListener('unhandledrejection', (event) => {
+window.addEventListener('unhandledrejection', async (event) => {
     const reason = event.reason || 'Unhandled promise rejection';
-    const report = stateManager.captureError(
+    stateManager.captureError(reason, 'window.unhandledrejection');
+    const mappedReport = await stateManager.captureErrorMapped(
         reason,
         'window.unhandledrejection'
     );
     const snapshot = stateManager.getStateSnapshot();
 
     void sendErrorReportToServer({
-        ...report,
+        ...mappedReport,
         state: snapshot.state,
         history: snapshot.history,
         events: snapshot.events,
