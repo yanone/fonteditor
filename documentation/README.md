@@ -1,6 +1,6 @@
 # Counterpunch User Documentation
 
-Audience: type designers at all levels, with beginner-first wording.
+Audience: type designers at all levels.
 
 This documentation is designed as a practical user guide for real font-production work in Counterpunch. It leads from first launch and orientation to day-to-day tasks such as file management, glyph editing, scripting, AI-assisted workflows, and troubleshooting. The structure is intentionally progressive: beginners can follow a guided sequence, while experienced type designers can jump directly to focused reference pages.
 

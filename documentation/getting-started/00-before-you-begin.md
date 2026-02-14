@@ -1,19 +1,19 @@
 # Before You Begin
 
-Counterpunch is a browser-native font editor that runs entirely in your web browser without requiring any installation, downloads, or local server setup. This page explains how to get the best experience from the application, including browser recommendations and optional offline capabilities.
+Counterpunch is a font editor that runs entirely in your web browser without requiring any installation, downloads, or local server setup. This page explains how to get the best experience from the application, including browser recommendations and optional offline capabilities.
 
 ## How It Works
 
-The application runs completely in your browser. When you visit Counterpunch, the editor loads into your browser's memory and executes there. Your font data, edits, and scripts all remain on your computer—nothing is uploaded to remote servers for processing. This architecture provides several advantages:
+The application runs completely in your browser. When you visit https://editor.counterpunch.space, the editor loads into your browser's memory and executes there. Your font data, edits, and scripts all remain on your computer—nothing is uploaded to remote servers for processing. This architecture provides several advantages:
 
 - **No installation required**: Open the URL and start working immediately
 - **Cross-platform**: Works on macOS, Windows, and Linux without platform-specific builds
-- **Automatic updates**: The latest version loads each time you visit
+- **Instant updates**: Updating to the latest version takes just one click
 - **Privacy by design**: Your font files never leave your machine
 
 ## Recommended Browser: Chrome
 
-While Counterpunch works in several modern browsers, **Chrome (or Chromium-based browsers like Edge and Brave) provides the best experience** for one critical reason: **hot-reloading of external files**.
+While Counterpunch works in several modern browsers, **Chrome (or Chromium) provides the best experience** for one critical reason: **hot-reloading of external files**.
 
 When you grant Counterpunch access to a local folder on disk, Chrome can automatically detect when files in that folder change. If you edit a source file externally—in another editor, through a script, or via version control—Chrome will immediately refresh Counterpunch's view of that file without requiring manual reloading. This creates a seamless workflow where external changes appear instantly in the editor.
 
@@ -29,7 +29,11 @@ For full functionality, your browser needs to support:
 
 Chrome and Chromium-based browsers have the most complete and reliable implementation of these standards.
 
+If you don’re need hot-reloading of files because you’re only ever working directly in the editor, **Edge** and **Safari** are your second-best options. Other browsers are not recommended.
+
 ## Install as a Progressive Web App (PWA)
+
+A Progressive Web App (PWA) is simply a website that gets downloaded to your computer and treated as a regular app.
 
 Counterpunch can be installed as a Progressive Web App, which provides several benefits:
 
@@ -37,13 +41,14 @@ Counterpunch can be installed as a Progressive Web App, which provides several b
 - **Desktop integration**: Launch from your applications menu or dock like a native app
 - **Dedicated window**: Run Counterpunch in its own window without browser tabs and address bar
 - **Faster startup**: The application shell loads from cache rather than downloading
+- **Direct file opening**: Drag and drop font files on the app icon like any normal app
 
 ### How to Install
 
 The installation process is simple and takes just a moment:
 
 1. Open Counterpunch in Chrome (or a Chromium-based browser)
-2. Look for the install icon in your browser's address bar (usually a ⊕ or computer icon)
+2. Look for the install icon in your browser's address bar (usually computer icon)
 3. Click the install button and confirm
 4. Counterpunch will now appear in your applications menu
 
@@ -67,6 +72,14 @@ On your first visit or after installation, Counterpunch may request permissions 
 - **Folder access** (optional): If you want to work directly with files on disk rather than browser memory
 
 You control these permissions and can adjust them at any time through your browser's settings.
+
+## Updating The App
+
+Simply reloading the website won’t reload the latest application version, because of intentional caching.
+
+When a new app update is available, an Update symbol will appear in the app’s title bar and only once you click that will the app update to the latest version.
+
+This behaviour is identical whether you’re using it online of offline as a PWA.
 
 ## Suggested Screenshots
 

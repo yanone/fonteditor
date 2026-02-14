@@ -4,7 +4,7 @@ Counterpunch is a browser-native type design environment that combines visual ed
 
 ## Summary
 
-Counterpunch is a browser-based font editor for designing and refining typefaces with both manual and code-assisted workflows. You can draw glyphs, manage structured font data, run Python scripts against the current font model, and use an AI assistant to accelerate repetitive operations while keeping control over final design decisions.
+Counterpunch is a font editor for designing and refining typefaces with both manual and code-assisted workflows. You can draw glyphs, manage structured font data, run Python scripts against the current font model, and use an AI assistant to accelerate repetitive operations while keeping control over final design decisions.
 
 ## Who This Is For
 
@@ -12,7 +12,7 @@ Counterpunch serves designers at various stages of their practice. Beginners wil
 
 ## What Counterpunch Helps You Do
 
-The editor supports a range of type design activities. You can open and work with existing font source files, draw and refine glyph outlines, and develop variable fonts through masters, axes, and interpolation. Python scripting enables automation of repetitive edits, while the integrated AI assistant can generate and help you review proposed changes.
+The editor supports a range of type design activities. You can open and work with existing font source files, draw and refine glyph outlines, and develop variable fonts through masters, axes, and interpolation. Python scripting enables automation of repetitive edits, while the integrated AI assistant can generate and help you automate otherwise tedious repetitive data edits or help analyze.
 
 ## Suggested Screenshots
 
