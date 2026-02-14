@@ -7,6 +7,10 @@ import { Logger } from './logger';
 
 const console = new Logger('Bootstrap');
 
+window.EDITOR_VERSION = process.env.EDITOR_VERSION || null;
+window.BUILD_HASH_FULL = process.env.BUILD_HASH_FULL || null;
+window.BUILD_HASH_SHORT = process.env.BUILD_HASH_SHORT || null;
+
 // Utility function to update loading status (extracted from loading-animation.js)
 window.updateLoadingStatus = function (
     message: string,

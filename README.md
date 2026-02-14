@@ -12,6 +12,7 @@ Try the editor live:
 Run the app locally with `cd webapp && npm run dev`
 
 - Load assistant test conversation with `?assistant_style_test`
+- Trigger end-to-end error reporting tests from DevTools: `window.triggerRuntimeErrorForTesting()` and `window.triggerUnhandledRejectionForTesting()`
 
 ### Type Drift Detection
 

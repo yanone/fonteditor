@@ -1,113 +1,118 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - "**"
-  pull_request:
-    branches:
-      - "**"
+    push:
+        branches:
+            - "**"
+    pull_request:
+        branches:
+            - "**"
 
 permissions:
-  contents: read
-  deployments: write
-  pages: write
-  id-token: write
+    contents: read
+    deployments: write
+    pages: write
+    id-token: write
 
 jobs:
-  build:
-    runs-on: macos-latest
+    build:
+        runs-on: macos-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
 
-      - name: Install dependencies in webapp
-        run: npm install --prefix webapp
+            - name: Install dependencies in webapp
+              run: npm install --prefix webapp
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium webkit
-        working-directory: webapp
+            - name: Install Playwright browsers
+              run: npx playwright install --with-deps chromium webkit
+              working-directory: webapp
 
-      - name: Inject dynamic version for PWA cache busting
-        id: version
-        run: |
-          COMMIT_SHORT=$(git rev-parse --short HEAD)
-          DATE=$(date -u +"%Y%m%d-%H%M")
-          NEW_VERSION="v0.0.0-preview-${DATE}-${COMMIT_SHORT}"
-          echo "Setting VERSION to: ${NEW_VERSION}"
-          sed -i.bak "s/const VERSION = '[^']*'/const VERSION = '${NEW_VERSION}'/" webapp/coi-serviceworker.js
-          rm webapp/coi-serviceworker.js.bak
-          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+            - name: Inject dynamic version for PWA cache busting
+              id: version
+              run: |
+                  COMMIT_FULL="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+                  COMMIT_SHORT=$(git rev-parse --short "$COMMIT_FULL")
+                  DATE=$(date -u +"%Y%m%d-%H%M")
+                  NEW_VERSION="v0.0.0-preview-${DATE}-${COMMIT_SHORT}"
+                  echo "Setting VERSION to: ${NEW_VERSION}"
+                  sed -i.bak "s/const VERSION = '[^']*'/const VERSION = '${NEW_VERSION}'/" webapp/coi-serviceworker.js
+                  rm webapp/coi-serviceworker.js.bak
+                  echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+                  echo "commit_full=${COMMIT_FULL}" >> $GITHUB_OUTPUT
+                  echo "commit_short=${COMMIT_SHORT}" >> $GITHUB_OUTPUT
 
-      - name: Build webapp with webpack
-        run: npm run build --prefix webapp
-        env:
-          EDITOR_VERSION: ${{ steps.version.outputs.version }}
+            - name: Build webapp with webpack
+              run: npm run build --prefix webapp
+              env:
+                  EDITOR_VERSION: ${{ steps.version.outputs.version }}
+                  BUILD_HASH_FULL: ${{ steps.version.outputs.commit_full }}
+                  BUILD_HASH_SHORT: ${{ steps.version.outputs.commit_short }}
 
-      - name: Run tests in webapp
-        run: npm test --prefix webapp
+            - name: Run tests in webapp
+              run: npm test --prefix webapp
 
-      - name: Upload Playwright report and artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: |
-            webapp/playwright-report/
-            webapp/test-results/
-          retention-days: 14
+            - name: Upload Playwright report and artifacts
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: playwright-report
+                  path: |
+                      webapp/playwright-report/
+                      webapp/test-results/
+                  retention-days: 14
 
-      - name: Setup Pages
-        if: always()
-        uses: actions/configure-pages@v4
+            - name: Setup Pages
+              if: always()
+              uses: actions/configure-pages@v4
 
-      - name: Upload Pages artifact
-        if: always()
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: webapp/playwright-report/
+            - name: Upload Pages artifact
+              if: always()
+              uses: actions/upload-pages-artifact@v3
+              with:
+                  path: webapp/playwright-report/
 
-      - name: Deploy to GitHub Pages
-        if: always()
-        id: deployment
-        uses: actions/deploy-pages@v4
+            - name: Deploy to GitHub Pages
+              if: always()
+              id: deployment
+              uses: actions/deploy-pages@v4
 
-      - name: Check code formatting with Prettier
-        run: cd webapp && npx prettier -c .
+            - name: Check code formatting with Prettier
+              run: cd webapp && npx prettier -c .
 
-      - name: Deploy preview to Cloudflare Pages
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: cloudflare/pages-action@v1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: editorpreview
-          directory: ./webapp/build
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          branch: main
+            - name: Deploy preview to Cloudflare Pages
+              if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+              uses: cloudflare/pages-action@v1
+              with:
+                  apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  projectName: editorpreview
+                  directory: ./webapp/build
+                  gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+                  branch: main
 
-      - name: Upload API docs to KV
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        working-directory: .
-        run: |
-          set -e
-          echo "📤 Uploading API docs to KV for version: ${{ steps.version.outputs.version }}"
-          RESPONSE=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{ secrets.KV_NAMESPACE_ID_API_DOCS }}/values/api-docs:${{ steps.version.outputs.version }}" \
-            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-            -H "Content-Type: text/plain" \
-            --data-binary @API.md)
-          
-          # Check if upload was successful
-          if echo "$RESPONSE" | grep -q '"success":false'; then
-            echo "❌ API docs upload failed!"
-            echo "Response: $RESPONSE"
-            exit 1
-          fi
-          
-          echo "✅ API docs uploaded successfully"
+            - name: Upload API docs to KV
+              if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+              working-directory: .
+              run: |
+                  set -e
+                  echo "📤 Uploading API docs to KV for version: ${{ steps.version.outputs.version }}"
+                  RESPONSE=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{ secrets.KV_NAMESPACE_ID_API_DOCS }}/values/api-docs:${{ steps.version.outputs.version }}" \
+                    -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+                    -H "Content-Type: text/plain" \
+                    --data-binary @API.md)
+
+                  # Check if upload was successful
+                  if echo "$RESPONSE" | grep -q '"success":false'; then
+                    echo "❌ API docs upload failed!"
+                    echo "Response: $RESPONSE"
+                    exit 1
+                  fi
+
+                  echo "✅ API docs uploaded successfully"

@@ -55,6 +55,75 @@ export interface EditorState {
 
 const HISTORY_RETENTION_MS = 10000; // 10 seconds
 const SYNC_DEBOUNCE_MS = 100; // Debounce URL updates
+const ERROR_REPORT_ENDPOINT = '/api/errors/report';
+
+function getWebsiteURL(): string {
+    const hostname = window.location.hostname;
+
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return 'http://localhost:8788';
+    }
+
+    if (
+        hostname === 'editor.counterpunch.space' ||
+        hostname === 'preview.editor.counterpunch.space'
+    ) {
+        return 'https://counterpunch.space';
+    }
+
+    return 'https://counterpunch.space';
+}
+
+function getSessionTokenFromCookie(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'editor_session') {
+            return value;
+        }
+    }
+
+    return null;
+}
+
+function safeErrorReason(reason: any): string {
+    if (typeof reason === 'string') {
+        return reason;
+    }
+
+    try {
+        return JSON.stringify(reason);
+    } catch (error) {
+        return String(reason);
+    }
+}
+
+async function sendErrorReportToServer(payload: Record<string, any>) {
+    try {
+        const websiteURL = getWebsiteURL();
+        const sessionToken =
+            (window as any).authManager?.getSessionToken?.() ||
+            getSessionTokenFromCookie();
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        };
+
+        if (sessionToken) {
+            headers.Authorization = `Bearer ${sessionToken}`;
+        }
+
+        await fetch(`${websiteURL}${ERROR_REPORT_ENDPOINT}`, {
+            method: 'POST',
+            credentials: 'include',
+            keepalive: true,
+            headers,
+            body: JSON.stringify(payload)
+        });
+    } catch (error) {
+        console.warn('Failed to send error report to server:', error);
+    }
+}
 
 export class StateManager {
     private _state: Record<string, any> = {};
@@ -488,14 +557,63 @@ const stateManager = new StateManager();
 
 // Assign to window
 (window as any).stateManager = stateManager;
+(window as any).triggerRuntimeErrorForTesting = (message?: string) => {
+    const errorMessage =
+        message ||
+        `Counterpunch runtime error test (${new Date().toISOString()})`;
+
+    window.setTimeout(() => {
+        throw new Error(errorMessage);
+    }, 0);
+};
+(window as any).triggerUnhandledRejectionForTesting = (message?: string) => {
+    const errorMessage =
+        message ||
+        `Counterpunch unhandled rejection test (${new Date().toISOString()})`;
+
+    Promise.reject(new Error(errorMessage));
+};
 
 // Install global error handlers
 window.addEventListener('error', (event) => {
-    stateManager.captureError(event.error);
+    const reason = event.error || event.message || 'Unknown window error';
+    const report = stateManager.captureError(reason, 'window.error');
+    const snapshot = stateManager.getStateSnapshot();
+
+    void sendErrorReportToServer({
+        ...report,
+        state: snapshot.state,
+        history: snapshot.history,
+        events: snapshot.events,
+        source: 'editor.window.error',
+        reason: safeErrorReason(reason),
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        appVersion: (window as any).EDITOR_VERSION || null,
+        buildHash: (window as any).BUILD_HASH_FULL || null
+    });
 });
 
 window.addEventListener('unhandledrejection', (event) => {
-    stateManager.captureError(event.reason);
+    const reason = event.reason || 'Unhandled promise rejection';
+    const report = stateManager.captureError(
+        reason,
+        'window.unhandledrejection'
+    );
+    const snapshot = stateManager.getStateSnapshot();
+
+    void sendErrorReportToServer({
+        ...report,
+        state: snapshot.state,
+        history: snapshot.history,
+        events: snapshot.events,
+        source: 'editor.window.unhandledrejection',
+        reason: safeErrorReason(reason),
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        appVersion: (window as any).EDITOR_VERSION || null,
+        buildHash: (window as any).BUILD_HASH_FULL || null
+    });
 });
 
 export default stateManager;

@@ -28,6 +28,11 @@ declare global {
         isTestMode: () => boolean;
         isTest: () => boolean;
 
+        // Build metadata
+        EDITOR_VERSION: string | null;
+        BUILD_HASH_FULL: string | null;
+        BUILD_HASH_SHORT: string | null;
+
         // From mcp-transport.js
         mcpTransport: MCPLogTransport;
 

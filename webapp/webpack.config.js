@@ -9,6 +9,27 @@ const { execSync } = require('child_process');
 const EDITOR_VERSION =
     process.env.EDITOR_VERSION || require('./package.json').version + '-dev';
 
+const resolveGitCommit = () => {
+    if (process.env.BUILD_HASH_FULL) {
+        return process.env.BUILD_HASH_FULL;
+    }
+
+    try {
+        return execSync('git rev-parse HEAD', {
+            cwd: path.resolve(__dirname, '..'),
+            stdio: ['ignore', 'pipe', 'ignore']
+        })
+            .toString()
+            .trim();
+    } catch (_error) {
+        return 'dev-unknown';
+    }
+};
+
+const BUILD_HASH_FULL = resolveGitCommit();
+const BUILD_HASH_SHORT =
+    process.env.BUILD_HASH_SHORT || BUILD_HASH_FULL.substring(0, 12);
+
 module.exports = {
     mode: 'development',
     devtool: 'source-map',
@@ -34,7 +55,9 @@ module.exports = {
             chunks: ['bootstrap']
         }),
         new webpack.DefinePlugin({
-            'process.env.EDITOR_VERSION': JSON.stringify(EDITOR_VERSION)
+            'process.env.EDITOR_VERSION': JSON.stringify(EDITOR_VERSION),
+            'process.env.BUILD_HASH_FULL': JSON.stringify(BUILD_HASH_FULL),
+            'process.env.BUILD_HASH_SHORT': JSON.stringify(BUILD_HASH_SHORT)
         }),
         new CopyWebpackPlugin({
             patterns: [
