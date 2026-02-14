@@ -15,7 +15,6 @@ import {
     DiskPlugin,
     TitleBarMenuItem
 } from './filesystem-plugins';
-import { updateUrlState } from './url-state';
 import {
     getOrCreateBackdrop,
     addTippyBackdropSupport,
@@ -750,7 +749,12 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
         // Update URL to reflect current file
         const pluginId = fileSystemCache.currentPlugin.getId();
         const fileUri = createFileUri(pluginId, path);
-        updateUrlState({ file: fileUri });
+        if (window.stateManager) {
+            window.stateManager.editor_file = fileUri;
+            window.stateManager.recordEvent('file_opened', 'FileBrowser', {
+                fileUri
+            });
+        }
 
         // Play done sound
         if (window.playSound) {
@@ -2189,8 +2193,9 @@ window.addEventListener('fontReady', async () => {
             (window as any).initStateSync(window.glyphCanvas);
         }
 
-        // Restore state from URL after a short delay to ensure everything is ready
-        setTimeout(async () => {
+        // Restore state from URL after initial editing font compile completes.
+        // This avoids late initialization/compile steps resetting restored mode/location.
+        const restoreOnce = async () => {
             if ((window as any).restoreStateFromUrl && window.glyphCanvas) {
                 await (window as any).restoreStateFromUrl(window.glyphCanvas);
             }
@@ -2198,7 +2203,30 @@ window.addEventListener('fontReady', async () => {
             if ((window as any).enableSync) {
                 (window as any).enableSync();
             }
-        }, 500);
+        };
+
+        let restored = false;
+        const runRestoreOnce = async () => {
+            if (restored) {
+                return;
+            }
+            restored = true;
+            await restoreOnce();
+        };
+
+        // Preferred: wait for first editing font compilation to finish.
+        window.addEventListener(
+            'editingFontCompiled',
+            async () => {
+                await runRestoreOnce();
+            },
+            { once: true }
+        );
+
+        // Fallback: if event doesn't arrive, restore after a safety timeout.
+        setTimeout(async () => {
+            await runRestoreOnce();
+        }, 2000);
     }
 });
 

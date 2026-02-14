@@ -10,6 +10,7 @@ import ResizableViews from './resizer.js';
 import SaveButton from './save-button.js';
 import { Font } from './babelfont-model.js';
 import type MCPLogTransport from './mcp-transport.js';
+import type { StateManager, EditorState } from './state-manager.js';
 declare global {
     // Any property augmentation we make to the Window interface
     // should be declared here.
@@ -164,6 +165,22 @@ declare global {
 
         // From font-manager.js
         fontManager: FontManager;
+
+        // From state-manager.ts
+        stateManager: StateManager & {
+            focused_view: string;
+            editor_file: string;
+            editor_text_buffer: string;
+            editor_cursor_position: number;
+            editor_mode: 'text' | 'edit';
+            editor_glyph_stack: string;
+            editor_isInterpolating: boolean;
+            editor_isAnimating: boolean;
+            editor_opentype_features_in_subset: Record<string, boolean>;
+            editor_opentype_features_not_in_subset: Record<string, boolean>;
+            editor_variation_location: Record<string, number>;
+            [key: string]: any;
+        };
 
         // From babelfont-model.js
         currentFontModel: Font | null;

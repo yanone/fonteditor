@@ -1,0 +1,501 @@
+// Central State Manager with Automatic Change Tracking
+// Captures all state changes with full stack traces for error reporting
+
+import { Logger } from './logger';
+import {
+    updateUrlState,
+    encodeLocation,
+    encodeFeatures,
+    decodeLocation,
+    decodeFeatures
+} from './url-state';
+import { mapStackTrace } from './stack-mapper';
+
+const console = new Logger('StateManager');
+
+export interface StateChange {
+    timestamp: number;
+    key: string;
+    oldValue: any;
+    newValue: any;
+    stack: string;
+}
+
+export interface StateEvent {
+    timestamp: number;
+    type: string;
+    source: string;
+    payload?: Record<string, any>;
+    stack: string;
+}
+
+export interface ErrorReport {
+    error: {
+        message: string;
+        stack: string;
+    };
+    timestamp: number;
+    state: Record<string, any>;
+    history: StateChange[];
+    events: StateEvent[];
+}
+
+export interface EditorState {
+    file: string;
+    text_buffer: string;
+    cursor_position: number;
+    mode: 'text' | 'edit';
+    glyph_stack: string;
+    isInterpolating: boolean;
+    isAnimating: boolean;
+    opentype_features_in_subset: Record<string, boolean>;
+    opentype_features_not_in_subset: Record<string, boolean>;
+    variation_location: Record<string, number>;
+}
+
+const HISTORY_RETENTION_MS = 10000; // 10 seconds
+const SYNC_DEBOUNCE_MS = 100; // Debounce URL updates
+
+export class StateManager {
+    private _state: Record<string, any> = {};
+    private _history: StateChange[] = [];
+    private _events: StateEvent[] = [];
+    private _urlSyncEnabled: boolean = false;
+    private _urlSyncDebounceTimer: number | null = null;
+
+    constructor() {
+        // Root-level UI state
+        this._state.focused_view = '';
+
+        // Initialize with default editor state (flattened)
+        this._state.editor_file = '';
+        this._state.editor_text_buffer = 'Hamburgevons';
+        this._state.editor_cursor_position = 0;
+        this._state.editor_mode = 'text' as 'text' | 'edit';
+        this._state.editor_glyph_stack = '';
+        this._state.editor_isInterpolating = false;
+        this._state.editor_isAnimating = false;
+        this._state.editor_opentype_features_in_subset = {};
+        this._state.editor_opentype_features_not_in_subset = {};
+        this._state.editor_variation_location = {};
+
+        console.log('StateManager initialized');
+
+        // Return a Proxy to intercept all property access
+        return new Proxy(this, {
+            get: (target, prop: string) => {
+                // Allow access to methods and private properties
+                if (
+                    prop.startsWith('_') ||
+                    typeof (target as any)[prop] === 'function'
+                ) {
+                    return (target as any)[prop];
+                }
+                // Return state values
+                return target._state[prop];
+            },
+            set: (target, prop: string, value) => {
+                // Don't track private properties or methods
+                if (prop.startsWith('_')) {
+                    (target as any)[prop] = value;
+                    return true;
+                }
+
+                const oldValue = target._state[prop];
+
+                // Only record if value actually changed
+                if (oldValue === value) {
+                    return true;
+                }
+
+                // Capture and clean stack trace
+                const rawStack = new Error().stack || '';
+                // Remove "Error" line and Proxy/StateManager internals
+                const stack = rawStack
+                    .split('\n')
+                    .slice(1) // Remove "Error" line
+                    .filter(
+                        (line) =>
+                            !line.includes('Proxy.set') &&
+                            !line.includes('state-manager')
+                    )
+                    .join('\n');
+
+                // Record the change
+                const change: StateChange = {
+                    timestamp: performance.now(),
+                    key: prop,
+                    oldValue: oldValue,
+                    newValue: value,
+                    stack: stack
+                };
+
+                target._history.push(change);
+                target._state[prop] = value;
+
+                // Map stack asynchronously so historical records point to original source
+                mapStackTrace(stack)
+                    .then((mappedStack) => {
+                        if (mappedStack) {
+                            change.stack = mappedStack;
+                        }
+                    })
+                    .catch((error) => {
+                        console.warn(
+                            'Failed to source-map history stack:',
+                            error
+                        );
+                    });
+
+                // Prune old history and events
+                target._pruneHistory();
+
+                // Sync to URL if enabled (debounced)
+                if (target._urlSyncEnabled) {
+                    target._syncToUrl();
+                }
+
+                console.log(`State changed: ${prop}`);
+
+                return true;
+            }
+        });
+    }
+
+    private _pruneHistory(): void {
+        const now = performance.now();
+        const cutoff = now - HISTORY_RETENTION_MS;
+
+        // Remove state changes older than retention window
+        this._history = this._history.filter(
+            (change) => change.timestamp >= cutoff
+        );
+
+        // Remove events older than retention window
+        this._events = this._events.filter(
+            (event) => event.timestamp >= cutoff
+        );
+    }
+
+    private _syncToUrl(): void {
+        // Debounce URL updates to avoid excessive history entries
+        if (this._urlSyncDebounceTimer !== null) {
+            clearTimeout(this._urlSyncDebounceTimer);
+        }
+
+        this._urlSyncDebounceTimer = window.setTimeout(() => {
+            this._urlSyncDebounceTimer = null;
+            this._performUrlSync();
+        }, SYNC_DEBOUNCE_MS);
+    }
+
+    private _performUrlSync(): void {
+        // Encode state to URL parameters (read from flat structure)
+        const urlState: any = {};
+
+        // File URI
+        const fileUri = this._state.editor_file;
+        if (fileUri) {
+            urlState.file = fileUri;
+        }
+
+        // Text buffer (limit length)
+        const textBuffer = this._state.editor_text_buffer;
+        if (textBuffer && textBuffer.length < 200) {
+            urlState.text = encodeURIComponent(textBuffer);
+        }
+
+        // Cursor position
+        urlState.cursor = this._state.editor_cursor_position;
+
+        // Mode
+        urlState.mode = this._state.editor_mode;
+
+        // OpenType features (only active ones)
+        const activeFeatures = Object.entries(
+            this._state.editor_opentype_features_in_subset || {}
+        )
+            .filter(([tag, enabled]) => enabled)
+            .map(([tag, _]) => tag);
+
+        if (activeFeatures.length > 0) {
+            urlState.features = encodeFeatures(activeFeatures);
+        } else {
+            urlState.features = null;
+        }
+
+        // Variation location
+        const varLocation = this._state.editor_variation_location;
+        if (varLocation && Object.keys(varLocation).length > 0) {
+            urlState.location = encodeLocation(varLocation);
+        } else {
+            urlState.location = null;
+        }
+
+        updateUrlState(urlState);
+    }
+
+    /**
+     * Enable URL synchronization
+     */
+    enableUrlSync(): void {
+        this._urlSyncEnabled = true;
+        console.log('URL sync enabled');
+    }
+
+    /**
+     * Disable URL synchronization
+     */
+    disableUrlSync(): void {
+        this._urlSyncEnabled = false;
+        if (this._urlSyncDebounceTimer !== null) {
+            clearTimeout(this._urlSyncDebounceTimer);
+            this._urlSyncDebounceTimer = null;
+        }
+        console.log('URL sync disabled');
+    }
+
+    /**
+     * Check if URL sync is enabled
+     */
+    isUrlSyncEnabled(): boolean {
+        return this._urlSyncEnabled;
+    }
+
+    /**
+     * Get a snapshot of current state and history
+     */
+    getStateSnapshot(): {
+        state: Record<string, any>;
+        history: StateChange[];
+        events: StateEvent[];
+    } {
+        return {
+            state: JSON.parse(JSON.stringify(this._state)), // Deep copy
+            history: [...this._history], // Shallow copy is fine
+            events: JSON.parse(JSON.stringify(this._events))
+        };
+    }
+
+    /**
+     * Get a snapshot with source-mapped stack traces
+     * Use this for error reporting to get readable stacks
+     */
+    async getStateSnapshotMapped(): Promise<{
+        state: Record<string, any>;
+        history: StateChange[];
+        events: StateEvent[];
+    }> {
+        const snapshot = this.getStateSnapshot();
+
+        // Map all stack traces in parallel
+        const mappedHistory = await Promise.all(
+            snapshot.history.map(async (change) => ({
+                ...change,
+                stack: await mapStackTrace(change.stack)
+            }))
+        );
+
+        return {
+            state: snapshot.state,
+            history: mappedHistory,
+            events: snapshot.events
+        };
+    }
+
+    /**
+     * Capture error with full state and history
+     */
+    captureError(error: Error | any, actionContext?: string): ErrorReport {
+        const report: ErrorReport = {
+            error: {
+                message: error?.message || String(error),
+                stack: error?.stack || ''
+            },
+            timestamp: performance.now(),
+            state: JSON.parse(JSON.stringify(this._state)),
+            history: [...this._history],
+            events: JSON.parse(JSON.stringify(this._events))
+        };
+
+        // Log the error report (will be source-mapped by browser devtools)
+        console.error('[StateManager] Error captured:');
+        console.error(JSON.stringify(report, null, 2));
+
+        // Also log source-mapped version asynchronously
+        this.captureErrorMapped(error, actionContext).then((mappedReport) => {
+            console.error('[StateManager] Error captured (source-mapped):');
+            console.error(JSON.stringify(mappedReport, null, 2));
+        });
+
+        return report;
+    }
+
+    /**
+     * Capture error with source-mapped stack traces
+     * Use this for sending error reports with readable stacks
+     */
+    async captureErrorMapped(
+        error: Error | any,
+        actionContext?: string
+    ): Promise<ErrorReport> {
+        const snapshot = await this.getStateSnapshotMapped();
+
+        const report: ErrorReport = {
+            error: {
+                message: error?.message || String(error),
+                stack: await mapStackTrace(error?.stack || '')
+            },
+            timestamp: performance.now(),
+            state: snapshot.state,
+            history: snapshot.history,
+            events: snapshot.events
+        };
+
+        return report;
+    }
+
+    /**
+     * Clear history (for testing/debugging)
+     */
+    clearHistory(): void {
+        this._history = [];
+        this._events = [];
+        console.log('History cleared');
+    }
+
+    /**
+     * Get history for a specific key or time range
+     */
+    getHistory(key?: string, since?: number): StateChange[] {
+        let filtered = this._history;
+
+        if (key) {
+            filtered = filtered.filter((change) => change.key === key);
+        }
+
+        if (since) {
+            filtered = filtered.filter((change) => change.timestamp >= since);
+        }
+
+        return filtered;
+    }
+
+    /**
+     * Record a high-level event for debugging timelines
+     */
+    recordEvent(
+        type: string,
+        source: string,
+        payload?: Record<string, any>
+    ): void {
+        const rawStack = new Error().stack || '';
+        const stack = rawStack
+            .split('\n')
+            .slice(1)
+            .filter(
+                (line) =>
+                    !line.includes('recordEvent') &&
+                    !line.includes('state-manager')
+            )
+            .join('\n');
+
+        const event: StateEvent = {
+            timestamp: performance.now(),
+            type,
+            source,
+            payload,
+            stack
+        };
+
+        this._events.push(event);
+
+        mapStackTrace(stack)
+            .then((mappedStack) => {
+                if (mappedStack) {
+                    event.stack = mappedStack;
+                }
+            })
+            .catch((error) => {
+                console.warn('Failed to source-map event stack:', error);
+            });
+
+        this._pruneHistory();
+    }
+
+    /**
+     * Get event history for a specific event type or time range
+     */
+    getEventHistory(type?: string, since?: number): StateEvent[] {
+        let filtered = this._events;
+
+        if (type) {
+            filtered = filtered.filter((event) => event.type === type);
+        }
+
+        if (since) {
+            filtered = filtered.filter((event) => event.timestamp >= since);
+        }
+
+        return filtered;
+    }
+
+    /**
+     * Export state and history as pretty JSON
+     */
+    exportJSON(): string {
+        return JSON.stringify(this.getStateSnapshot(), null, 2);
+    }
+
+    /**
+     * Export state and history with source-mapped stacks
+     * Use this for error reporting
+     */
+    async exportJSONMapped(): Promise<string> {
+        const snapshot = await this.getStateSnapshotMapped();
+        return JSON.stringify(snapshot, null, 2);
+    }
+
+    /**
+     * Get direct access to state (for reading, not mutation)
+     */
+    getState(): Record<string, any> {
+        return this._state;
+    }
+
+    /**
+     * Get direct access to history array
+     */
+    get history(): StateChange[] {
+        return this._history;
+    }
+
+    /**
+     * Get direct access to event history array
+     */
+    get events(): StateEvent[] {
+        return this._events;
+    }
+}
+
+// Export singleton instance creation helper
+export function createStateManager(): StateManager {
+    return new StateManager();
+}
+
+// Create singleton instance
+const stateManager = new StateManager();
+
+// Assign to window
+(window as any).stateManager = stateManager;
+
+// Install global error handlers
+window.addEventListener('error', (event) => {
+    stateManager.captureError(event.error);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+    stateManager.captureError(event.reason);
+});
+
+export default stateManager;

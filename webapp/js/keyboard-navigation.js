@@ -1070,6 +1070,21 @@
             view.classList.add('focused');
             currentFocusedView = viewId;
 
+            // Track focused view in central state manager (root-level UI state)
+            if (window.stateManager) {
+                window.stateManager.focused_view = viewId;
+                if (window.stateManager.recordEvent) {
+                    window.stateManager.recordEvent(
+                        'view_focused',
+                        'KeyboardNavigation',
+                        {
+                            viewId,
+                            viaKeyboard
+                        }
+                    );
+                }
+            }
+
             // Save the last active view to localStorage
             localStorage.setItem('last_active_view', viewId);
 

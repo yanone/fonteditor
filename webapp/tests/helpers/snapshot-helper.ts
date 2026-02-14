@@ -6,36 +6,15 @@
  */
 
 export interface AppSnapshot {
-    timestamp: number;
     label: string;
-
-    // OpenType features and axis locations
-    appliedFeatures: any;
-    axisLocations: any;
-
-    // Glyph stack and mode
-    glyphStack: any;
-    isInterpolating: boolean;
-    isAnimating: boolean;
-
-    // Text mode
-    cursorPosition: number | null;
-    textModeActive: boolean;
-
-    // Editing mode
-    activeGlyph: string | null;
-    editingMode: boolean;
-
-    // Text on canvas
-    displayedText: string | null;
+    state: Record<string, any>;
 }
 
 /**
  * Prepare snapshot for comparison by removing timestamp
  */
 export function snapshotForComparison(snapshot: AppSnapshot): string {
-    const { timestamp, ...snapshotWithoutTimestamp } = snapshot;
-    return JSON.stringify(snapshotWithoutTimestamp, null, 2);
+    return JSON.stringify(snapshot, null, 2);
 }
 
 /**
@@ -61,41 +40,15 @@ export async function captureSnapshot(
             }
         };
 
-        // Extract SVG representation of canvas
-        const glyphCanvas = safeGet('glyphCanvas');
-        const textRunEditor = glyphCanvas?.textRunEditor;
-        const viewportManager = glyphCanvas?.viewportManager;
-        const featuresManager = glyphCanvas?.featuresManager;
-        const axesManager = glyphCanvas?.axesManager;
+        // Prefer centralized state from StateManager
+        const stateSnapshot = safeGet('stateManager.getStateSnapshot')
+            ? safeGet('stateManager').getStateSnapshot()
+            : null;
+        const state = stateSnapshot?.state || {};
 
         const snapshot: AppSnapshot = {
-            timestamp: Date.now(),
             label: snapshotLabel,
-
-            // OpenType features and axis locations
-            appliedFeatures: JSON.parse(
-                JSON.stringify(featuresManager?.featureSettings || null)
-            ),
-            axisLocations: JSON.parse(
-                JSON.stringify(axesManager?.variationSettings || null)
-            ),
-
-            // Glyph stack and mode
-            glyphStack: glyphCanvas?.outlineEditor?.glyphStack || null,
-            isInterpolating:
-                glyphCanvas?.outlineEditor?.isInterpolating || false,
-            isAnimating: glyphCanvas?.outlineEditor?.isAnimating || false,
-
-            // Text mode
-            cursorPosition: textRunEditor?.cursorPosition ?? null,
-            textModeActive: textRunEditor?.isTextMode || false,
-
-            // Editing mode
-            activeGlyph: glyphCanvas?.outlineEditor?.currentGlyphName || null,
-            editingMode: glyphCanvas?.outlineEditor?.active || false,
-
-            // Text on canvas
-            displayedText: textRunEditor?.textBuffer || null
+            state: JSON.parse(JSON.stringify(state || {}))
         };
 
         // Ensure everything is JSON-serializable by doing a round-trip
@@ -113,17 +66,15 @@ export function compareSnapshots(
 ): any {
     const differences: any = {};
 
-    const keys = Object.keys(snapshot1) as Array<keyof AppSnapshot>;
+    const keys = Object.keys(snapshot1.state || {});
     for (const key of keys) {
-        if (key === 'timestamp' || key === 'label') continue;
-
-        const val1 = JSON.stringify(snapshot1[key]);
-        const val2 = JSON.stringify(snapshot2[key]);
+        const val1 = JSON.stringify(snapshot1.state[key]);
+        const val2 = JSON.stringify(snapshot2.state[key]);
 
         if (val1 !== val2) {
             differences[key] = {
-                before: snapshot1[key],
-                after: snapshot2[key]
+                before: snapshot1.state[key],
+                after: snapshot2.state[key]
             };
         }
     }

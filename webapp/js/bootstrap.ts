@@ -2,6 +2,7 @@ import './wasm-init'; // Initialize WASM module
 import './tab-lifecycle.js';
 import './mcp-transport';
 import './critical-error-handler';
+import './state-manager'; // Initialize state manager early
 import { Logger } from './logger';
 
 const console = new Logger('Bootstrap');

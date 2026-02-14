@@ -1,35 +1,37 @@
 {
   "label": "edit-mode",
-  "appliedFeatures": {
-    "locl": true,
-    "liga": true,
-    "subs": false,
-    "sinf": false,
-    "sups": false,
-    "frac": false,
-    "ordn": false,
-    "pnum": false,
-    "tnum": false,
-    "case": false,
-    "dlig": false,
-    "zero": false,
-    "ss01": false,
-    "ss02": false,
-    "ss03": false,
-    "ss04": false,
-    "ss05": false,
-    "ss06": false,
-    "kern": true
-  },
-  "axisLocations": {
-    "wght": 200
-  },
-  "glyphStack": "alef-ar.short.fina@3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
-  "isInterpolating": false,
-  "isAnimating": false,
-  "cursorPosition": 12,
-  "textModeActive": false,
-  "activeGlyph": "alef-ar.short.fina",
-  "editingMode": true,
-  "displayedText": "hello مَرحَباً"
+  "state": {
+    "focused_view": "view-editor",
+    "editor_file": "memory:///user/Fustat.glyphs",
+    "editor_text_buffer": "hello مَرحَباً",
+    "editor_cursor_position": 7,
+    "editor_mode": "edit",
+    "editor_glyph_stack": "alef-ar.short.fina@3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+    "editor_isInterpolating": false,
+    "editor_isAnimating": false,
+    "editor_opentype_features_in_subset": {
+      "liga": true,
+      "pnum": false,
+      "tnum": false,
+      "dlig": false,
+      "ss01": false,
+      "ss04": false,
+      "kern": true
+    },
+    "editor_opentype_features_not_in_subset": {
+      "locl": true,
+      "subs": false,
+      "sinf": false,
+      "sups": false,
+      "frac": false,
+      "ordn": false,
+      "case": false,
+      "zero": false,
+      "ss02": false,
+      "ss03": false,
+      "ss05": false,
+      "ss06": false
+    },
+    "editor_variation_location": {}
+  }
 }

@@ -1,13 +1,16 @@
 {
   "label": "initial-state",
-  "appliedFeatures": {},
-  "axisLocations": {},
-  "glyphStack": null,
-  "isInterpolating": false,
-  "isAnimating": false,
-  "cursorPosition": 0,
-  "textModeActive": false,
-  "activeGlyph": null,
-  "editingMode": false,
-  "displayedText": "Hamburgevons"
+  "state": {
+    "focused_view": "view-editor",
+    "editor_file": "",
+    "editor_text_buffer": "Hamburgevons",
+    "editor_cursor_position": 0,
+    "editor_mode": "text",
+    "editor_glyph_stack": "",
+    "editor_isInterpolating": false,
+    "editor_isAnimating": false,
+    "editor_opentype_features_in_subset": {},
+    "editor_opentype_features_not_in_subset": {},
+    "editor_variation_location": {}
+  }
 }

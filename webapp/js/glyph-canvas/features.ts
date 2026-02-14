@@ -12,6 +12,7 @@ const console = new Logger('OpentypeFeatures');
 export class FeaturesManager {
     featureSettings: Record<string, boolean>;
     defaultFeatureSettings: Record<string, boolean>;
+    featureAvailabilityInEditingSubset: Record<string, boolean>;
     fontBytes: Uint8Array | null;
     editingFontBytes: Uint8Array | null;
     featuresSection: HTMLElement | null;
@@ -21,6 +22,7 @@ export class FeaturesManager {
     constructor() {
         this.featureSettings = {}; // Store OpenType feature on/off states
         this.defaultFeatureSettings = {}; // Store default states for reset
+        this.featureAvailabilityInEditingSubset = {}; // Store if feature is available in current editing subset
         this.fontBytes = null; // Typing font bytes (full features)
         this.editingFontBytes = null; // Editing font bytes (subset with closure)
         this.featuresSection = null;
@@ -267,9 +269,11 @@ export class FeaturesManager {
                 '[Features]',
                 'No discretionary features found in font'
             );
+            this.featureAvailabilityInEditingSubset = {};
             requestAnimationFrame(() => {
                 this.featuresSection!.innerHTML = '';
             });
+            this.call('updated');
             return; // No discretionary features
         }
 
@@ -316,6 +320,13 @@ export class FeaturesManager {
             if (this.featureSettings[feature.tag] === undefined) {
                 this.featureSettings[feature.tag] = feature.defaultOn;
             }
+        });
+
+        // Track availability based on the same condition used for sidebar buttons
+        this.featureAvailabilityInEditingSubset = {};
+        features.forEach((feature: any) => {
+            this.featureAvailabilityInEditingSubset[feature.tag] =
+                feature.availableInEditingFont !== false;
         });
 
         // Create button for each feature (no separate scrollable container)
@@ -382,7 +393,8 @@ export class FeaturesManager {
             tagButton.classList.toggle('enabled', isEnabled);
 
             // Disable if not available in editing font
-            const isAvailable = feature.availableInEditingFont !== false;
+            const isAvailable =
+                this.featureAvailabilityInEditingSubset[feature.tag] !== false;
             if (!isAvailable) {
                 tagButton.disabled = true;
                 tagButton.style.opacity = '0.4';
@@ -434,6 +446,11 @@ export class FeaturesManager {
         });
 
         this.updateFeatureResetButton();
+
+        // Notify listeners that feature state/UI has been fully refreshed.
+        // This allows external state synchronizers to capture initial/default states
+        // (e.g. default-on features like kern) without implying a user change.
+        this.call('updated');
 
         console.log('[Features]', `Created ${features.length} feature buttons`);
     }

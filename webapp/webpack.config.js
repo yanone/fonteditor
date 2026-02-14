@@ -11,6 +11,7 @@ const EDITOR_VERSION =
 
 module.exports = {
     mode: 'development',
+    devtool: 'source-map',
     entry: {
         'bootstrap': './js/bootstrap.ts',
         'fontc-worker': './js/fontc-worker.ts',

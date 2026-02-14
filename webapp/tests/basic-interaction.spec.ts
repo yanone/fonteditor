@@ -142,7 +142,7 @@ test.describe('Font Editor Basic Workflow', () => {
         // SNAPSHOT POINT 3: Text typed
         console.log('[Test] Taking snapshot 3: text typed');
         const snapshot3 = await takeSnapshot(page, '03', 'text-typed', expect);
-        expect(snapshot3.displayedText).toContain('hello مَرحَباً');
+        expect(snapshot3.state.editor_text_buffer).toContain('hello مَرحَباً');
 
         // Use keyboard navigation (arrows, etc)
         console.log('[Test] Moving cursor with arrow keys');
@@ -158,7 +158,9 @@ test.describe('Font Editor Basic Workflow', () => {
             'cursor-moved',
             expect
         );
-        expect(snapshot4.cursorPosition).not.toBe(snapshot3.cursorPosition);
+        expect(snapshot4.state.editor_cursor_position).not.toBe(
+            snapshot3.state.editor_cursor_position
+        );
 
         // Enter edit mode directly via JavaScript (keyboard shortcuts don't work reliably in tests)
         console.log('[Test] Entering edit mode');
@@ -174,8 +176,8 @@ test.describe('Font Editor Basic Workflow', () => {
         // SNAPSHOT POINT 5: Edit mode entered
         console.log('[Test] Taking snapshot 5: edit mode');
         const snapshot5 = await takeSnapshot(page, '05', 'edit-mode', expect);
-        expect(snapshot5.editingMode).toBe(true);
-        expect(snapshot5.activeGlyph).toBeTruthy();
+        expect(snapshot5.state.editor_mode).toBe('edit');
+        expect(snapshot5.state.editor_glyph_stack).toBeTruthy();
 
         // Move to fatha-tanween
         console.log('[Test] Moving to fatha-tanween');
