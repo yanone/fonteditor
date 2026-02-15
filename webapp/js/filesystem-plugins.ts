@@ -307,7 +307,11 @@ export class DiskPlugin extends FilesystemPlugin {
                         records.length
                     );
                     // Dispatch event that file-browser listens for
-                    window.dispatchEvent(new CustomEvent('diskFilesChanged'));
+                    window.dispatchEvent(
+                        new CustomEvent('diskFilesChanged', {
+                            detail: { records }
+                        })
+                    );
                 }
             );
 

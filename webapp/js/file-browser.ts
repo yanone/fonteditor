@@ -46,6 +46,169 @@ let fileSystemCache: FileSystemState = {
     activeAdapter: pluginRegistry.getDefault()!.getAdapter()
 };
 
+let diskFontReloadDebounceTimer: number | null = null;
+const pendingDiskChangePaths = new Set<string>();
+
+function normalizeObservedPath(path: string): string {
+    const cleaned = path.replace(/\\/g, '/').replace(/^\/+/, '');
+    return `/${cleaned}`.replace(/\/+/g, '/');
+}
+
+function extractChangedPathsFromRecords(records: any[]): string[] {
+    const paths = new Set<string>();
+
+    const addPath = (value: any) => {
+        if (typeof value === 'string' && value.trim()) {
+            paths.add(normalizeObservedPath(value));
+        }
+    };
+
+    for (const record of records || []) {
+        if (!record || typeof record !== 'object') {
+            continue;
+        }
+
+        addPath((record as any).path);
+        addPath((record as any).relativePath);
+        addPath((record as any).changedPath);
+        addPath((record as any).oldPath);
+        addPath((record as any).newPath);
+
+        const relComps = (record as any).relativePathComponents;
+        if (Array.isArray(relComps) && relComps.length > 0) {
+            addPath(relComps.join('/'));
+        }
+
+        const movedFrom = (record as any).movedFrom;
+        if (movedFrom && typeof movedFrom === 'object') {
+            addPath((movedFrom as any).path);
+            const comps = (movedFrom as any).relativePathComponents;
+            if (Array.isArray(comps) && comps.length > 0) {
+                addPath(comps.join('/'));
+            }
+        }
+
+        const movedTo = (record as any).movedTo;
+        if (movedTo && typeof movedTo === 'object') {
+            addPath((movedTo as any).path);
+            const comps = (movedTo as any).relativePathComponents;
+            if (Array.isArray(comps) && comps.length > 0) {
+                addPath(comps.join('/'));
+            }
+        }
+    }
+
+    return Array.from(paths);
+}
+
+function getFontWatchRoots(fontPath: string): string[] {
+    const extension = fontPath.split('.').pop()?.toLowerCase() || '';
+
+    if (
+        extension === 'ufo' ||
+        extension === 'glyphspackage' ||
+        extension === 'glyphpackage'
+    ) {
+        return [fontPath];
+    }
+
+    if (extension === 'designspace') {
+        const parent = fontPath.substring(0, fontPath.lastIndexOf('/')) || '/';
+        return [parent];
+    }
+
+    return [fontPath];
+}
+
+function isPathWithinRoot(path: string, root: string): boolean {
+    const normalizedPath = normalizeObservedPath(path);
+    const normalizedRoot = normalizeObservedPath(root);
+
+    if (normalizedPath === normalizedRoot) {
+        return true;
+    }
+
+    return normalizedPath.startsWith(`${normalizedRoot}/`);
+}
+
+function changedPathsAffectCurrentFont(
+    changedPaths: string[],
+    currentFontPath: string
+): boolean {
+    const watchRoots = getFontWatchRoots(currentFontPath);
+    return changedPaths.some((changedPath) =>
+        watchRoots.some((root) => isPathWithinRoot(changedPath, root))
+    );
+}
+
+function promptExternalFontChangeAction(): 'reload' | 'keep' | 'diff' {
+    const choice = window
+        .prompt(
+            'External font changes detected while you have unsaved edits.\\n\\nChoose action:\\nR = Reload external changes\\nK = Keep local changes\\nD = Diff later',
+            'K'
+        )
+        ?.trim()
+        .toLowerCase();
+
+    if (choice === 'r' || choice === 'reload') {
+        return 'reload';
+    }
+    if (choice === 'd' || choice === 'diff') {
+        return 'diff';
+    }
+    return 'keep';
+}
+
+async function maybeReloadCurrentFontFromDisk(
+    changedPaths: string[]
+): Promise<void> {
+    if (!changedPaths.length) {
+        return;
+    }
+
+    const currentFont = window.fontManager?.currentFont;
+    if (!currentFont) {
+        return;
+    }
+
+    if (currentFont.sourcePlugin.getId() !== 'disk') {
+        return;
+    }
+
+    if (!changedPathsAffectCurrentFont(changedPaths, currentFont.path)) {
+        return;
+    }
+
+    if (window.fontManager.isExternalReloading) {
+        return;
+    }
+
+    if (currentFont.dirty) {
+        const action = promptExternalFontChangeAction();
+        if (action === 'keep') {
+            return;
+        }
+        if (action === 'diff') {
+            alert(
+                'Diff later is not implemented yet. Keeping your local changes for now.'
+            );
+            return;
+        }
+    }
+
+    try {
+        await window.fontManager.reloadCurrentFontFromSource({
+            preserveUiState: true
+        });
+        console.log('[FileBrowser]', 'External font reload completed');
+    } catch (error) {
+        console.error('[FileBrowser]', 'External font reload failed:', error);
+        const errorMessage =
+            error instanceof Error ? error.message : String(error);
+        alert(`Failed to reload externally changed font: ${errorMessage}`);
+    }
+}
+
 function formatFileSize(bytes: number): string {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -2121,8 +2284,11 @@ window.addEventListener('pluginFolderClosed', async () => {
 });
 
 // Listen for disk file system changes (FileSystemObserver)
-window.addEventListener('diskFilesChanged', async () => {
+window.addEventListener('diskFilesChanged', async (event: Event) => {
     const { currentPlugin, currentPath, activeAdapter } = fileSystemCache;
+
+    const detail = (event as CustomEvent).detail || {};
+    const changedPaths = extractChangedPathsFromRecords(detail.records || []);
 
     // Only respond if we're currently in disk context
     if (currentPlugin.getId() !== 'disk') {
@@ -2166,6 +2332,21 @@ window.addEventListener('diskFilesChanged', async () => {
 
     // Refresh the view
     await navigateToPath(targetPath);
+
+    // Debounced external font hot reload (targeted by changed paths)
+    for (const changedPath of changedPaths) {
+        pendingDiskChangePaths.add(changedPath);
+    }
+
+    if (diskFontReloadDebounceTimer !== null) {
+        window.clearTimeout(diskFontReloadDebounceTimer);
+    }
+
+    diskFontReloadDebounceTimer = window.setTimeout(async () => {
+        const pathsToProcess = Array.from(pendingDiskChangePaths);
+        pendingDiskChangePaths.clear();
+        await maybeReloadCurrentFontFromDisk(pathsToProcess);
+    }, 400);
 });
 
 // Listen for font ready event to refresh file browser highlighting

@@ -32,6 +32,7 @@ class FontInfoManager {
     private featuresEditor: any = null;
     private featuresEditorInitialized = false;
     private selectedItem: SelectedItem | null = null;
+    private selectedFeatureTag: string | null = null;
     private prefixListItems: Map<string, HTMLElement> = new Map();
     private classListItems: Map<string, HTMLElement> = new Map();
     private featureListItems: Map<number, HTMLElement> = new Map();
@@ -1369,8 +1370,26 @@ class FontInfoManager {
             this.applyFeaturesSearch();
         }
 
-        // Select first item if none selected
-        if (!this.selectedItem && features.length > 0) {
+        // Restore selection by feature tag when possible (stable across fonts/index changes)
+        if (this.selectedFeatureTag) {
+            const matchingFeatureIndex = features.findIndex(
+                ([tag]) => tag === this.selectedFeatureTag
+            );
+            if (matchingFeatureIndex >= 0) {
+                this.selectItem('feature', matchingFeatureIndex);
+            } else if (!this.selectedItem && features.length > 0) {
+                this.selectItem('feature', 0);
+            } else if (
+                this.selectedItem?.type === 'feature' &&
+                typeof this.selectedItem.key === 'number' &&
+                this.selectedItem.key >= features.length
+            ) {
+                this.selectItem('feature', features.length - 1);
+            } else if (this.selectedItem) {
+                // Re-select current item to refresh
+                this.selectItem(this.selectedItem.type, this.selectedItem.key);
+            }
+        } else if (!this.selectedItem && features.length > 0) {
             this.selectItem('feature', 0);
         } else if (
             this.selectedItem?.type === 'feature' &&
@@ -1658,6 +1677,7 @@ class FontInfoManager {
             const [tag, code] = features[key];
             codeData = code;
             label = `feature: ${tag}`;
+            this.selectedFeatureTag = tag;
         }
 
         if (!codeData) return;

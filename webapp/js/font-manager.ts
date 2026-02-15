@@ -35,6 +35,24 @@ export type GlyphData = {
     axesOrder: string[];
 };
 
+type ReloadCurrentFontOptions = {
+    preserveUiState?: boolean;
+};
+
+type CapturedGlyphCanvasState = {
+    wasEditMode: boolean;
+    selectedGlyphIndex: number;
+    selectedLayerId: string | null;
+    cursorPosition: number;
+    textBuffer: string;
+    variationSettings: Record<string, number> | null;
+    viewport: {
+        scale: number;
+        panX: number;
+        panY: number;
+    } | null;
+};
+
 class OpenedFont {
     babelfontJson: string;
     babelfontData: any;
@@ -287,6 +305,7 @@ class FontManager {
         activeFeatures: string;
         closureSet: string[];
     } | null = null;
+    isExternalReloading: boolean = false;
 
     constructor() {
         this.fontDisplay = null;
@@ -302,6 +321,7 @@ class FontManager {
         this.glyphOrderCache = null; // Cache for glyph order to avoid re-parsing
         this.lastChangeSource = null;
         this.closureCache = null;
+        this.isExternalReloading = false;
     }
     init() {
         this.fontDisplay = document.getElementById('current-font-display');
@@ -390,6 +410,367 @@ class FontManager {
         await this.onOpened(); // same thing
     }
 
+    private getParentPath(path: string): string {
+        const idx = path.lastIndexOf('/');
+        return idx >= 0 ? path.slice(0, idx) : '';
+    }
+
+    private async collectGlyphsPackageEntries(
+        rootPath: string,
+        sourcePlugin: FilesystemPlugin
+    ): Promise<Record<string, Uint8Array>> {
+        const entries: Record<string, Uint8Array> = {};
+        const requiredTopLevelFiles = new Set([
+            'fontinfo.plist',
+            'order.plist',
+            'UIState.plist'
+        ]);
+        const adapter = sourcePlugin.getAdapter();
+
+        const walk = async (currentPath: string): Promise<void> => {
+            const items = await adapter.scanDirectory(currentPath);
+
+            for (const [, data] of Object.entries(items)) {
+                const itemPath = data.path;
+                if (data.is_dir) {
+                    await walk(itemPath);
+                    continue;
+                }
+
+                const content = await adapter.readFile(itemPath);
+                const bytes =
+                    typeof content === 'string'
+                        ? new TextEncoder().encode(content)
+                        : new Uint8Array(content as any);
+
+                const relativePath = itemPath
+                    .slice(rootPath.length)
+                    .replace(/^\/+/, '');
+
+                const isGlyphFile =
+                    relativePath.startsWith('glyphs/') &&
+                    relativePath.endsWith('.glyph');
+                const isRequiredTopLevel =
+                    requiredTopLevelFiles.has(relativePath);
+
+                if (!isGlyphFile && !isRequiredTopLevel) {
+                    continue;
+                }
+
+                entries[relativePath] = bytes;
+            }
+        };
+
+        await walk(rootPath);
+        return entries;
+    }
+
+    private async collectAllDirectoryEntries(
+        rootPath: string,
+        sourcePlugin: FilesystemPlugin
+    ): Promise<Record<string, Uint8Array>> {
+        const entries: Record<string, Uint8Array> = {};
+        const adapter = sourcePlugin.getAdapter();
+
+        const walk = async (currentPath: string): Promise<void> => {
+            const items = await adapter.scanDirectory(currentPath);
+
+            for (const [, data] of Object.entries(items)) {
+                const itemPath = data.path;
+                if (data.is_dir) {
+                    await walk(itemPath);
+                    continue;
+                }
+
+                const content = await adapter.readFile(itemPath);
+                const bytes =
+                    typeof content === 'string'
+                        ? new TextEncoder().encode(content)
+                        : new Uint8Array(content as any);
+
+                const relativePath = itemPath
+                    .slice(rootPath.length)
+                    .replace(/^\/+/, '');
+                entries[relativePath] = bytes;
+            }
+        };
+
+        await walk(rootPath);
+        return entries;
+    }
+
+    private async loadBabelfontJsonFromSource(
+        font: OpenedFont
+    ): Promise<string> {
+        const extension = font.path.split('.').pop()?.toLowerCase() || '';
+        const isGlyphsPackage =
+            extension === 'glyphspackage' || extension === 'glyphpackage';
+        const isUfoDirectory = extension === 'ufo';
+        const isDesignspace = extension === 'designspace';
+
+        let contents: string | Uint8Array | undefined;
+        let packageEntries: Record<string, Uint8Array> | undefined;
+        let projectEntries: Record<string, Uint8Array> | undefined;
+
+        if (isGlyphsPackage) {
+            packageEntries = await this.collectGlyphsPackageEntries(
+                font.path,
+                font.sourcePlugin
+            );
+
+            if (
+                !packageEntries['fontinfo.plist'] ||
+                !packageEntries['order.plist']
+            ) {
+                throw new Error(
+                    'Invalid .glyphspackage: missing fontinfo.plist or order.plist'
+                );
+            }
+        } else if (isUfoDirectory) {
+            projectEntries = await this.collectAllDirectoryEntries(
+                font.path,
+                font.sourcePlugin
+            );
+        } else if (isDesignspace) {
+            const projectRoot = this.getParentPath(font.path);
+            projectEntries = await this.collectAllDirectoryEntries(
+                projectRoot,
+                font.sourcePlugin
+            );
+        } else {
+            contents = await font.sourcePlugin.getAdapter().readFile(font.path);
+            if (extension === 'babelfont' && contents instanceof Uint8Array) {
+                contents = new TextDecoder('utf-8').decode(contents);
+            }
+        }
+
+        if (extension === 'babelfont') {
+            return contents as string;
+        }
+
+        if (!window.fontCompilation?.worker) {
+            throw new Error('Font compilation worker not initialized');
+        }
+
+        return await new Promise<string>((resolve, reject) => {
+            const id = Math.random().toString(36);
+            const timeout = setTimeout(() => {
+                reject(new Error('Font conversion timeout after 30 seconds'));
+            }, 30000);
+
+            const handleMessage = (e: MessageEvent) => {
+                if (e.data.id === id && e.data.type === 'openFont') {
+                    clearTimeout(timeout);
+                    window.fontCompilation!.worker!.removeEventListener(
+                        'message',
+                        handleMessage
+                    );
+
+                    if (e.data.error) {
+                        reject(new Error(e.data.error));
+                    } else {
+                        resolve(e.data.babelfontJson);
+                    }
+                }
+            };
+
+            window.fontCompilation!.worker!.addEventListener(
+                'message',
+                handleMessage
+            );
+
+            window.fontCompilation!.worker!.postMessage({
+                type: 'openFont',
+                id,
+                filename: font.path.split('/').pop() || font.path,
+                contents,
+                packageEntries,
+                projectEntries
+            });
+        });
+    }
+
+    private captureGlyphCanvasState(): CapturedGlyphCanvasState | null {
+        const glyphCanvas = window.glyphCanvas as any;
+        if (!glyphCanvas || !glyphCanvas.textRunEditor) {
+            return null;
+        }
+
+        return {
+            wasEditMode: !!glyphCanvas.outlineEditor?.active,
+            selectedGlyphIndex:
+                typeof glyphCanvas.textRunEditor.selectedGlyphIndex === 'number'
+                    ? glyphCanvas.textRunEditor.selectedGlyphIndex
+                    : -1,
+            selectedLayerId: glyphCanvas.outlineEditor?.selectedLayerId || null,
+            cursorPosition:
+                typeof glyphCanvas.textRunEditor.cursorPosition === 'number'
+                    ? glyphCanvas.textRunEditor.cursorPosition
+                    : 0,
+            textBuffer: glyphCanvas.textRunEditor.textBuffer || '',
+            variationSettings: glyphCanvas.axesManager?.variationSettings
+                ? { ...glyphCanvas.axesManager.variationSettings }
+                : null,
+            viewport: glyphCanvas.viewportManager
+                ? {
+                      scale: glyphCanvas.viewportManager.scale,
+                      panX: glyphCanvas.viewportManager.panX,
+                      panY: glyphCanvas.viewportManager.panY
+                  }
+                : null
+        };
+    }
+
+    private async restoreGlyphCanvasState(
+        state: CapturedGlyphCanvasState
+    ): Promise<void> {
+        const glyphCanvas = window.glyphCanvas as any;
+        if (!glyphCanvas || !glyphCanvas.textRunEditor) {
+            return;
+        }
+
+        if (state.variationSettings && glyphCanvas.axesManager) {
+            glyphCanvas.axesManager.variationSettings = {
+                ...state.variationSettings
+            };
+        }
+
+        glyphCanvas.textRunEditor.textBuffer = state.textBuffer || '';
+        glyphCanvas.textRunEditor.shapeText();
+
+        const maxCursorPosition = glyphCanvas.textRunEditor.textBuffer.length;
+        glyphCanvas.textRunEditor.cursorPosition = Math.max(
+            0,
+            Math.min(state.cursorPosition, maxCursorPosition)
+        );
+        glyphCanvas.textRunEditor.updateCursorVisualPosition();
+
+        if (state.wasEditMode && state.selectedGlyphIndex >= 0) {
+            await glyphCanvas.textRunEditor.selectGlyphByIndex(
+                state.selectedGlyphIndex
+            );
+
+            if (state.selectedLayerId) {
+                glyphCanvas.outlineEditor.selectedLayerId =
+                    state.selectedLayerId;
+            }
+        } else if (glyphCanvas.outlineEditor?.active) {
+            glyphCanvas.exitGlyphEditMode();
+        }
+
+        if (state.viewport && glyphCanvas.viewportManager) {
+            glyphCanvas.viewportManager.scale = state.viewport.scale;
+            glyphCanvas.viewportManager.panX = state.viewport.panX;
+            glyphCanvas.viewportManager.panY = state.viewport.panY;
+        }
+
+        glyphCanvas.render();
+    }
+
+    async reloadCurrentFontFromSource(
+        options: ReloadCurrentFontOptions = {}
+    ): Promise<boolean> {
+        if (!this.currentFont || !this.currentFontId) {
+            return false;
+        }
+
+        if (this.isExternalReloading) {
+            return false;
+        }
+
+        const preserveUiState = options.preserveUiState !== false;
+        const capturedUiState = preserveUiState
+            ? this.captureGlyphCanvasState()
+            : null;
+
+        const previousFontId = this.currentFontId;
+        const previousOpenedFont = this.currentFont;
+        const previousTypingFont = this.typingFont;
+        const previousEditingFont = this.editingFont;
+        const previousGlyphOrderCache = this.glyphOrderCache;
+        const previousClosureCache = this.closureCache;
+
+        this.isExternalReloading = true;
+        document.body.classList.add('loading');
+
+        try {
+            const babelfontJson =
+                await this.loadBabelfontJsonFromSource(previousOpenedFont);
+
+            const storeResult = await fontCompilation.sendMessage({
+                type: 'storeFontJson',
+                babelfontJson
+            });
+            if (storeResult?.error) {
+                throw new Error(
+                    `Failed to cache externally reloaded font: ${storeResult.error}`
+                );
+            }
+
+            const reloadedFont = new OpenedFont(
+                babelfontJson,
+                previousOpenedFont.path,
+                previousOpenedFont.sourcePlugin,
+                previousOpenedFont.fileHandle,
+                previousOpenedFont.directoryHandle
+            );
+
+            this.openedFonts.set(previousFontId, reloadedFont);
+            this.currentFontId = previousFontId;
+
+            this.typingFont = null;
+            this.editingFont = null;
+            this.glyphOrderCache = null;
+            this.closureCache = null;
+            this.lastChangeSource = 'external-reload';
+
+            const subsetGlyphs =
+                window.glyphCanvas?.textRunEditor?.glyphNameBuffer;
+            const textBuffer =
+                window.glyphCanvas?.textRunEditor?.textBuffer ||
+                this.currentText ||
+                '';
+
+            await this.compileTypingFont();
+            await this.compileEditingFont(
+                textBuffer,
+                this.selectedFeatures,
+                subsetGlyphs && subsetGlyphs.length > 0
+                    ? subsetGlyphs
+                    : undefined
+            );
+
+            if (capturedUiState) {
+                await this.restoreGlyphCanvasState(capturedUiState);
+            }
+
+            await this.updateFontDisplay();
+            await this.updateDirtyIndicator();
+            if (window.saveButton) {
+                window.saveButton.updateButtonState();
+            }
+
+            window.dispatchEvent(
+                new CustomEvent('fontReady', {
+                    detail: { path: reloadedFont.path, reloaded: true }
+                })
+            );
+
+            return true;
+        } catch (error) {
+            this.openedFonts.set(previousFontId, previousOpenedFont);
+            this.currentFontId = previousFontId;
+            this.typingFont = previousTypingFont;
+            this.editingFont = previousEditingFont;
+            this.glyphOrderCache = previousGlyphOrderCache;
+            this.closureCache = previousClosureCache;
+            throw error;
+        } finally {
+            this.isExternalReloading = false;
+            document.body.classList.remove('loading');
+        }
+    }
+
     /**
      * Initialize the font manager when a font is loaded
      * Compiles the typing font immediately
@@ -421,6 +802,7 @@ class FontManager {
         this.typingFont = null;
         this.editingFont = null;
         this.glyphOrderCache = null; // Clear cache for new font
+        this.closureCache = null;
 
         // Reset initialFontLoaded flag in glyphCanvas when new font is loaded
         if (window.glyphCanvas) {
