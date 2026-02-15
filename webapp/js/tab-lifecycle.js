@@ -230,20 +230,16 @@ class TabLifecycleManager {
     checkUnsavedChanges() {
         // Check if there are any unsaved fonts
         try {
-            // Check if the dirty indicator is visible
-            const dirtyIndicator = document.getElementById(
-                'file-dirty-indicator'
-            );
-            if (
-                dirtyIndicator &&
-                dirtyIndicator.classList.contains('visible')
-            ) {
+            const currentFont = window.fontManager?.currentFont;
+            if (currentFont?.hasUnsavedChanges) {
                 return true;
             }
 
-            // Also check if there are any open fonts (via the font manager)
-            if (window.fontManager && window.fontManager.openedFonts.size > 0) {
-                // Assume if fonts are open, they might have changes
+            // Fallback to UI indicator if font state is temporarily unavailable
+            const dirtyIndicator = document.getElementById(
+                'file-dirty-indicator'
+            );
+            if (dirtyIndicator?.classList.contains('visible')) {
                 return true;
             }
 

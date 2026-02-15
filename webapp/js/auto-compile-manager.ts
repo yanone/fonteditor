@@ -21,8 +21,8 @@ import fontManager from './font-manager';
             return;
         }
 
-        // Check if font is dirty and we're not already compiling
-        if (fontManager.currentFont?.dirty && !isCompiling) {
+        // Check if font needs recompilation and we're not already compiling
+        if (fontManager.currentFont?.needsRecompile && !isCompiling) {
             // Trigger compilation immediately (non-blocking)
             triggerCompilation().catch((err) => {
                 console.error('Compilation error:', err);
@@ -72,7 +72,7 @@ import fontManager from './font-manager';
             return;
         }
 
-        if (fontManager.currentFont?.dirty) {
+        if (fontManager.currentFont?.needsRecompile) {
             isCompiling = true;
 
             try {
@@ -80,7 +80,7 @@ import fontManager from './font-manager';
                 let compileCount = 0;
                 let needsRecompile = true;
 
-                while (needsRecompile && fontManager.currentFont?.dirty) {
+                while (needsRecompile && fontManager.currentFont?.needsRecompile) {
                     compileCount++;
                     const changeSource =
                         fontManager.lastChangeSource || 'unknown';
@@ -149,10 +149,10 @@ import fontManager from './font-manager';
     }
 
     /**
-     * Manual test function to check dirty state without waiting.
+     * Manual test function to check compile-pending state without waiting.
      */
     async function testDirtyCheck() {
-        return fontManager.currentFont?.dirty;
+        return fontManager.currentFont?.needsRecompile;
     }
 
     /**

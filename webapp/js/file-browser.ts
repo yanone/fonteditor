@@ -141,22 +141,23 @@ function changedPathsAffectCurrentFont(
     );
 }
 
-function promptExternalFontChangeAction(): 'reload' | 'keep' | 'diff' {
-    const choice = window
-        .prompt(
-            'External font changes detected while you have unsaved edits.\\n\\nChoose action:\\nR = Reload external changes\\nK = Keep local changes\\nD = Diff later',
-            'K'
-        )
-        ?.trim()
-        .toLowerCase();
+function hasUnsavedFontChanges(currentFont: any): boolean {
+    if (!currentFont) {
+        return false;
+    }
 
-    if (choice === 'r' || choice === 'reload') {
-        return 'reload';
+    if (currentFont.hasUnsavedChanges === true) {
+        return true;
     }
-    if (choice === 'd' || choice === 'diff') {
-        return 'diff';
-    }
-    return 'keep';
+
+    const dirtyIndicator = document.getElementById('file-dirty-indicator');
+    return !!dirtyIndicator?.classList.contains('visible');
+}
+
+function confirmExternalFontReload(): boolean {
+    return window.confirm(
+        'External font changes detected with unsaved local changes. OK = reload external (discard local unsaved); Cancel = keep local changes.'
+    );
 }
 
 async function maybeReloadCurrentFontFromDisk(
@@ -183,15 +184,9 @@ async function maybeReloadCurrentFontFromDisk(
         return;
     }
 
-    if (currentFont.dirty) {
-        const action = promptExternalFontChangeAction();
-        if (action === 'keep') {
-            return;
-        }
-        if (action === 'diff') {
-            alert(
-                'Diff later is not implemented yet. Keeping your local changes for now.'
-            );
+    if (hasUnsavedFontChanges(currentFont)) {
+        const shouldReloadExternal = confirmExternalFontReload();
+        if (!shouldReloadExternal) {
             return;
         }
     }

@@ -101,6 +101,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ✅ Glyph filtering plugins
 - ◻️ Insert glyphs into editor text
 - ✅ OpenType feature code editor
+- ✅ Hot-reloading fonts on external changes (Chrome/Chromium only)
 - ◻️ Fontspector integration (incl. glyph-level messages)
 - ◻️ Interactive demo
 - ◻️ Basic documentation

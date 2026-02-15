@@ -59,7 +59,8 @@ class OpenedFont {
     fontModel: Font; // Object model facade
     name: string;
     path: string;
-    dirty: boolean;
+    needsRecompile: boolean;
+    hasUnsavedChanges: boolean;
     sourcePlugin: FilesystemPlugin;
     fileHandle?: FileSystemFileHandle;
     directoryHandle?: FileSystemDirectoryHandle;
@@ -175,16 +176,20 @@ class OpenedFont {
         this.path = path;
         this.name =
             this.babelfontData?.names?.family_name?.dflt || 'Untitled Font';
-        this.dirty = false;
+        this.needsRecompile = false;
+        this.hasUnsavedChanges = false;
         this.changeVersion = 0;
     }
 
     /**
-     * Mark the font as dirty and increment change version
+     * Mark font as changed:
+     * - needsRecompile: auto-compile pipeline should rebuild editing font
+     * - hasUnsavedChanges: save indicator and unload warnings
      * This allows tracking whether data changed during compilation
      */
     markDirty(changeSource?: string): void {
-        this.dirty = true;
+        this.needsRecompile = true;
+        this.hasUnsavedChanges = true;
         this.changeVersion++;
     }
 
@@ -280,8 +285,9 @@ class OpenedFont {
             await adapter.writeFile(this.path, this.babelfontJson);
         }
 
-        // Clear dirty flag after successful save
-        this.dirty = false;
+        // Clear unsaved/sync flags after successful save
+        this.needsRecompile = false;
+        this.hasUnsavedChanges = false;
     }
 }
 
@@ -382,7 +388,7 @@ class FontManager {
 
     async updateDirtyIndicator() {
         // Update visual indicator
-        if (this.currentFont?.dirty) {
+        if (this.currentFont?.hasUnsavedChanges) {
             this.dirtyIndicator!.classList.add('visible');
         } else {
             this.dirtyIndicator!.classList.remove('visible');
@@ -390,7 +396,7 @@ class FontManager {
 
         // Update document title
         const baseTitle = 'Counterpunch Editor';
-        if (this.currentFont?.dirty && this.currentFont?.name) {
+        if (this.currentFont?.hasUnsavedChanges && this.currentFont?.name) {
             document.title = `● ${this.currentFont.name} - ${baseTitle}`;
         } else if (this.currentFont?.name) {
             document.title = `${this.currentFont.name} - ${baseTitle}`;
@@ -1038,16 +1044,16 @@ class FontManager {
 
         // After compilation, check if data changed during the compilation
         if (this.currentFont.changeVersion !== startVersion) {
-            // Data changed during compilation! Mark dirty again so auto-compile
+            // Data changed during compilation! Keep compile flag enabled so auto-compile
             // loop will trigger a fresh compilation with latest data.
-            // Don't clear dirty flag - keep it true to trigger another compile.
+            // Don't clear compile flag - keep it true to trigger another compile.
             console.log(
                 `[FontManager] Data changed during compilation (v${startVersion} → v${this.currentFont.changeVersion}), marking for recompile...`
             );
             return true; // Indicates recompilation needed
         } else {
-            // No changes occurred during compilation, safe to clear dirty flag
-            this.currentFont.dirty = false;
+            // No changes occurred during compilation, safe to clear compile flag
+            this.currentFont.needsRecompile = false;
             return false; // No recompilation needed
         }
     }

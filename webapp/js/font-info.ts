@@ -31,6 +31,7 @@ class FontInfoManager {
     private featuresTab: HTMLElement | null = null;
     private featuresEditor: any = null;
     private featuresEditorInitialized = false;
+    private suppressFeatureEditorChange = false;
     private selectedItem: SelectedItem | null = null;
     private selectedFeatureTag: string | null = null;
     private prefixListItems: Map<string, HTMLElement> = new Map();
@@ -1716,7 +1717,9 @@ class FontInfoManager {
 
         // Load code into editor
         if (this.featuresEditor) {
+            this.suppressFeatureEditorChange = true;
             this.featuresEditor.setValue(codeData.code || '', -1);
+            this.suppressFeatureEditorChange = false;
             // Enable line wrapping for all cases (prefixes, classes, and features)
             this.featuresEditor.session.setUseWrapMode(true);
             // Highlight search terms in the loaded content
@@ -1737,7 +1740,9 @@ class FontInfoManager {
     private clearEditor() {
         this.selectedItem = null;
         if (this.featuresEditor) {
+            this.suppressFeatureEditorChange = true;
             this.featuresEditor.setValue('', -1);
+            this.suppressFeatureEditorChange = false;
             // Clear search markers when editor is cleared
             this.searchMarkers.forEach((id) =>
                 this.featuresEditor.session.removeMarker(id)
@@ -1754,6 +1759,10 @@ class FontInfoManager {
     }
 
     private onFeatureCodeChanged() {
+        if (this.suppressFeatureEditorChange) {
+            return;
+        }
+
         const font = window.currentFontModel;
         if (!font || !font.features || !this.selectedItem) return;
 
