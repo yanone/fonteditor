@@ -683,6 +683,15 @@ flex-direction: row;
     height: 100%;
 }
 
+.view-title-window-actions {
+    display: flex;
+    align-items: center;
+    gap: 0px;
+    margin-right: 0px;
+    margin-left: -4px;
+    height: 100%;
+}
+
 .view-title-heading {
     display: flex;
     align-items: center;

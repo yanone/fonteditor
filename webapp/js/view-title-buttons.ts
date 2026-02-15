@@ -195,13 +195,24 @@ function addButtonsToView(viewConfig: ViewInfo): void {
         return;
     }
 
-    // Find view-title-actions container
-    const titleActions = titleBar.querySelector(
-        '.view-title-actions'
+    const titleLeft = titleBar.querySelector('.view-title-left') as HTMLElement;
+    const titleHeading = titleBar.querySelector(
+        '.view-title-heading'
     ) as HTMLElement;
-    if (!titleActions) {
-        console.warn('Title actions not found for:', viewConfig.id);
+
+    if (!titleLeft || !titleHeading) {
+        console.warn('Title left/heading not found for:', viewConfig.id);
         return;
+    }
+
+    // Create (or reuse) container for window actions on the LEFT of title
+    let titleWindowActions = titleBar.querySelector(
+        '.view-title-window-actions'
+    ) as HTMLElement;
+    if (!titleWindowActions) {
+        titleWindowActions = document.createElement('div');
+        titleWindowActions.className = 'view-title-window-actions';
+        titleLeft.insertBefore(titleWindowActions, titleHeading);
     }
 
     // Create maximize button
@@ -215,7 +226,7 @@ function addButtonsToView(viewConfig: ViewInfo): void {
         handleMaximizeClick(viewConfig.id);
     });
 
-    // Append buttons to view-title-actions
+    // Append buttons to left-side window actions
     // Skip collapse button for editor view
     if (viewConfig.id !== 'view-editor') {
         const collapseBtn = document.createElement('button');
@@ -227,9 +238,9 @@ function addButtonsToView(viewConfig: ViewInfo): void {
             e.stopPropagation();
             handleCollapseClick(viewConfig.id);
         });
-        titleActions.appendChild(collapseBtn);
+        titleWindowActions.appendChild(collapseBtn);
     }
-    titleActions.appendChild(maximizeBtn);
+    titleWindowActions.appendChild(maximizeBtn);
 
     // Update initial visibility
     updateButtonVisibility(viewConfig.id);
