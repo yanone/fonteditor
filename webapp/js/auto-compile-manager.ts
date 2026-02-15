@@ -80,7 +80,10 @@ import fontManager from './font-manager';
                 let compileCount = 0;
                 let needsRecompile = true;
 
-                while (needsRecompile && fontManager.currentFont?.needsRecompile) {
+                while (
+                    needsRecompile &&
+                    fontManager.currentFont?.needsRecompile
+                ) {
                     compileCount++;
                     const changeSource =
                         fontManager.lastChangeSource || 'unknown';
