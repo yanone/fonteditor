@@ -32,19 +32,16 @@ setup(
     description="Minimal template for Context Font Editor canvas plugins",  # Change this
     author="Yanone",  # Change this to your name
     license="GPL-3.0-or-later",
-    
     # Package contents
     packages=find_packages(),
     python_requires=">=3.10",
-    
     # Entry point registration
     # Format: "plugin_id = package_name:ClassName"
     entry_points={
-        "context_canvas_plugins": [
+        "counterpunch_canvas_plugins": [
             "base = base_canvas_plugin:BaseCanvasPlugin",  # Change both parts
         ],
     },
-    
     # PyPI classifiers
     classifiers=[
         "Development Status :: 3 - Alpha",

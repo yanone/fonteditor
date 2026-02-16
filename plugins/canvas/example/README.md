@@ -49,11 +49,11 @@ def draw_above(self, layer_data, glyph_name, ctx, viewport_manager):
 
 ## Entry Points
 
-The plugin is registered using setuptools entry points in the `context_canvas_plugins` group:
+The plugin is registered using setuptools entry points in the `counterpunch_canvas_plugins` group:
 
 ```python
 entry_points={
-    "context_canvas_plugins": [
+    "counterpunch_canvas_plugins": [
         "example = example_canvas_plugin:ExampleCanvasPlugin",
     ],
 }

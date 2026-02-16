@@ -61,11 +61,11 @@ This will:
 
 ## Entry Points
 
-Register your plugin in `setup.py` using the `context_canvas_plugins` entry point:
+Register your plugin in `setup.py` using the `counterpunch_canvas_plugins` entry point:
 
 ```python
 entry_points={
-    "context_canvas_plugins": [
+    "counterpunch_canvas_plugins": [
         "your_plugin = your_plugin_name:YourPluginClass",
     ],
 }

@@ -25,18 +25,15 @@ setup(
     description="General glyph filters: All Glyphs, Encoded Characters, Unencoded Glyphs",
     author="Yanone",
     license="GPL-3.0-or-later",
-    
     packages=find_packages(),
     python_requires=">=3.10",
-    
     entry_points={
-        "context_glyph_filter_plugins": [
+        "counterpunch_glyphfilter_plugins": [
             "all_glyphs = general_filter_plugin:AllGlyphsFilter",
             "encoded_glyphs = general_filter_plugin:EncodedGlyphsFilter",
             "unencoded_glyphs = general_filter_plugin:UnencodedGlyphsFilter",
         ],
     },
-    
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",

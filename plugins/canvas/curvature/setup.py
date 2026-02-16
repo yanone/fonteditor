@@ -28,7 +28,7 @@ setup(
     packages=find_packages(),
     python_requires=">=3.10",
     entry_points={
-        "context_canvas_plugins": [
+        "counterpunch_canvas_plugins": [
             "curvature = curvature_comb_plugin:CurvatureCombPlugin",
         ],
     },

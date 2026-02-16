@@ -198,7 +198,7 @@ export class GlyphOverviewFilterManager {
 
     /**
      * Discover and load all glyph filter plugins from installed packages.
-     * Uses Python's entry_points system to find plugins in the 'context_glyph_filter_plugins' group.
+     * Uses Python's entry_points system to find plugins in the 'counterpunch_glyphfilter_plugins' group.
      */
     async discoverPlugins(): Promise<void> {
         if (!window.pyodide) {
@@ -214,14 +214,14 @@ export class GlyphOverviewFilterManager {
                 import sys
                 from importlib.metadata import entry_points
 
-                # Discover plugins in the 'context_glyph_filter_plugins' group
+                # Discover plugins in the 'counterpunch_glyphfilter_plugins' group
                 discovered_plugins = []
                 
                 # Handle different Python versions (entry_points API changed in 3.10)
                 if sys.version_info >= (3, 10):
-                    eps = entry_points(group='context_glyph_filter_plugins')
+                    eps = entry_points(group='counterpunch_glyphfilter_plugins')
                 else:
-                    eps = entry_points().get('context_glyph_filter_plugins', [])
+                    eps = entry_points().get('counterpunch_glyphfilter_plugins', [])
                 
                 for ep in eps:
                     try:

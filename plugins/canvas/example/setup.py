@@ -28,7 +28,7 @@ setup(
     packages=find_packages(),
     python_requires=">=3.10",
     entry_points={
-        "context_canvas_plugins": [
+        "counterpunch_canvas_plugins": [
             "example = example_canvas_plugin:ExampleCanvasPlugin",
         ],
     },

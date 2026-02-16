@@ -32,19 +32,16 @@ setup(
     description="Minimal template for Context Font Editor glyph filter plugins",
     author="Yanone",
     license="GPL-3.0-or-later",
-    
     # Package contents
     packages=find_packages(),
     python_requires=">=3.10",
-    
     # Entry point registration
     # Format: "plugin_id = package_name:ClassName"
     entry_points={
-        "context_glyph_filter_plugins": [
+        "counterpunch_glyphfilter_plugins": [
             "base = base_glyph_filter_plugin:BaseGlyphFilterPlugin",
         ],
     },
-    
     # PyPI classifiers
     classifiers=[
         "Development Status :: 3 - Alpha",

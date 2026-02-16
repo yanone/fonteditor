@@ -125,7 +125,7 @@ export class CanvasPluginManager {
 
     /**
      * Discover and load all canvas plugins from installed packages.
-     * Uses Python's entry_points system to find plugins in the 'context_canvas_plugins' group.
+     * Uses Python's entry_points system to find plugins in the 'counterpunch_canvas_plugins' group.
      */
     async discoverPlugins(): Promise<void> {
         if (!window.pyodide) {
@@ -141,14 +141,14 @@ export class CanvasPluginManager {
                 import sys
                 from importlib.metadata import entry_points
 
-                # Discover plugins in the 'context_canvas_plugins' group
+                # Discover plugins in the 'counterpunch_canvas_plugins' group
                 discovered_plugins = []
                 
                 # Handle different Python versions (entry_points API changed in 3.10)
                 if sys.version_info >= (3, 10):
-                    eps = entry_points(group='context_canvas_plugins')
+                    eps = entry_points(group='counterpunch_canvas_plugins')
                 else:
-                    eps = entry_points().get('context_canvas_plugins', [])
+                    eps = entry_points().get('counterpunch_canvas_plugins', [])
                 
                 for ep in eps:
                     try:
