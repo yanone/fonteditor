@@ -7,6 +7,15 @@ class SaveButton {
     constructor() {
         this.button = $('#save-font-btn');
         this.isSaving = false;
+        this.saveEnabled =
+            typeof window.isDevelopment === 'function'
+                ? window.isDevelopment()
+                : true;
+
+        if (!this.saveEnabled) {
+            this.button.hide().prop('disabled', true);
+            return;
+        }
 
         // Bind event handlers
         this.button.on('click', () => this.handleSave());
@@ -84,6 +93,10 @@ class SaveButton {
      * Handle save action
      */
     async handleSave() {
+        if (!this.saveEnabled) {
+            return;
+        }
+
         if (this.isSaving || this.button.prop('disabled')) {
             return;
         }
@@ -156,6 +169,11 @@ class SaveButton {
      * Update button state based on current font
      */
     updateButtonState() {
+        if (!this.saveEnabled) {
+            this.button.hide().prop('disabled', true);
+            return;
+        }
+
         const hasFontOpen =
             window.fontManager && window.fontManager.currentFont;
 
