@@ -83,6 +83,38 @@ test.describe('Font Editor Basic Workflow', () => {
         return snapshot;
     };
 
+    const waitForSubsetEditingFontState = async (
+        page: any,
+        expectedFilename: string
+    ) => {
+        await page.waitForFunction(
+            (filename) => {
+                const state =
+                    window.stateManager?.getStateSnapshot?.()?.state || null;
+                if (!state) return false;
+
+                const editorFile = state.editor_file || '';
+                if (!editorFile.includes(filename)) return false;
+
+                const featuresInSubset =
+                    state.editor_opentype_features_in_subset || {};
+                const featuresNotInSubset =
+                    state.editor_opentype_features_not_in_subset || {};
+                const glyphCount =
+                    window.glyphCanvas?.textRunEditor?.glyphNameBuffer
+                        ?.length || 0;
+
+                return (
+                    Object.keys(featuresInSubset).length > 0 &&
+                    Object.keys(featuresNotInSubset).length > 0 &&
+                    glyphCount > 0
+                );
+            },
+            expectedFilename,
+            { timeout: 15000 }
+        );
+    };
+
     test('open YanoneKaffeesatz.glyphspackage and snapshot full window', async ({
         page
     }) => {
@@ -95,6 +127,10 @@ test.describe('Font Editor Basic Workflow', () => {
         await page.waitForTimeout(200);
 
         await waitForFontLoaded(page);
+        await waitForSubsetEditingFontState(
+            page,
+            'YanoneKaffeesatz.glyphspackage'
+        );
         await page.waitForTimeout(300);
 
         await takeWindowSnapshot(
@@ -116,6 +152,10 @@ test.describe('Font Editor Basic Workflow', () => {
         await page.waitForTimeout(200);
 
         await waitForFontLoaded(page);
+        await waitForSubsetEditingFontState(
+            page,
+            'YanoneKaffeesatz.designspace'
+        );
         await page.waitForTimeout(300);
 
         await takeWindowSnapshot(
