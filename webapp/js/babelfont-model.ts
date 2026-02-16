@@ -1905,7 +1905,7 @@ export class Layer extends ArrayElementBase {
      * @param y - Y coordinate at which to measure
      * @returns Object with left and right sidebearing distances, or null if no intersections found at this height. Negative values indicate outline extends beyond glyph edges.
      */
-    private getSidebearingsAtHeight(y: number): {
+    getSidebearingsAtHeight(y: number): {
         left: number;
         right: number;
     } | null {
@@ -2253,6 +2253,52 @@ export class Layer extends ArrayElementBase {
 export class Glyph extends ArrayElementBase {
     private _layerWrappers: Layer[] | null = null;
 
+    private static normalizeNodeType(nodeType: string | undefined): string {
+        switch (nodeType) {
+            case 'Move':
+            case 'Line':
+            case 'OffCurve':
+            case 'Curve':
+            case 'QCurve':
+                return nodeType;
+            default:
+                return String(nodeType || 'Unknown');
+        }
+    }
+
+    private getLayerIdentifier(layer: Layer): string {
+        return layer.id || layer.master?.master || '[unknown-layer]';
+    }
+
+    private getNormalizedLayerShapeStructure(layer: Layer): string[] {
+        const shapes = layer.shapes || [];
+        const componentSignatures: string[] = [];
+        const pathSignatures: string[] = [];
+
+        for (const shape of shapes) {
+            if (shape.isComponent()) {
+                const component = shape.asComponent();
+                componentSignatures.push(`C:${component.reference || ''}`);
+                continue;
+            }
+
+            if (shape.isPath()) {
+                const path = shape.asPath();
+                const nodeTypes = path.nodes.map((node) =>
+                    Glyph.normalizeNodeType(node.nodetype)
+                );
+                const closedFlag = path.closed === false ? '0' : '1';
+                pathSignatures.push(
+                    `P:${closedFlag}:${nodeTypes.length}:${nodeTypes.join(',')}`
+                );
+            }
+        }
+
+        // Normalize mixed shape ordering by comparing components first,
+        // then paths, while preserving relative order within each type.
+        return [...componentSignatures, ...pathSignatures];
+    }
+
     get name(): string {
         return this.data.name;
     }
@@ -2483,6 +2529,65 @@ export class Glyph extends ArrayElementBase {
             return false;
         });
         return index >= 0 ? layers[index] : undefined;
+    }
+
+    /**
+     * Compare outline structure across main layers (the same list shown in the UI).
+     *
+     * For compatibility checks, mixed shape sequences are normalized by moving
+     * components before paths while preserving their relative order inside each type.
+     */
+    calculateOutlineCompatibility(): {
+        compatible: boolean;
+        layerCount: number;
+        referenceLayerId?: string;
+        incompatibleLayerIds: string[];
+    } {
+        const layers = this.layers || [];
+        if (layers.length === 0) {
+            return {
+                compatible: true,
+                layerCount: 0,
+                incompatibleLayerIds: []
+            };
+        }
+
+        if (layers.length === 1) {
+            return {
+                compatible: true,
+                layerCount: 1,
+                referenceLayerId: this.getLayerIdentifier(layers[0]),
+                incompatibleLayerIds: []
+            };
+        }
+
+        const referenceLayer = layers[0];
+        const referenceLayerId = this.getLayerIdentifier(referenceLayer);
+        const referenceSignature =
+            this.getNormalizedLayerShapeStructure(referenceLayer);
+        const incompatibleLayerIds: string[] = [];
+
+        for (let i = 1; i < layers.length; i++) {
+            const layer = layers[i];
+            const signature = this.getNormalizedLayerShapeStructure(layer);
+
+            const isCompatible =
+                signature.length === referenceSignature.length &&
+                signature.every(
+                    (item, index) => item === referenceSignature[index]
+                );
+
+            if (!isCompatible) {
+                incompatibleLayerIds.push(this.getLayerIdentifier(layer));
+            }
+        }
+
+        return {
+            compatible: incompatibleLayerIds.length === 0,
+            layerCount: layers.length,
+            referenceLayerId,
+            incompatibleLayerIds
+        };
     }
 
     toString(): string {

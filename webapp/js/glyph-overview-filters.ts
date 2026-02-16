@@ -22,7 +22,8 @@ const console = new Logger('GlyphOverviewFilters');
  */
 const FILTER_PATHS: Record<string, string> = {
     'basic': 'Basic',
-    'basic/glyph_categories': 'Categories'
+    'basic/glyph_categories': 'Categories',
+    'basic/debugging': 'Debugging'
 };
 
 /**

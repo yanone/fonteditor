@@ -22,7 +22,9 @@ from setuptools import setup, find_packages
 setup(
     name="general-filter-plugin",
     version="0.1.0",
-    description="General glyph filters: All Glyphs, Encoded Characters, Unencoded Glyphs",
+    description=(
+        "General glyph filters: All Glyphs, Encoded Characters, " "Unencoded Glyphs"
+    ),
     author="Yanone",
     license="GPL-3.0-or-later",
     packages=find_packages(),
@@ -31,13 +33,20 @@ setup(
         "counterpunch_glyphfilter_plugins": [
             "all_glyphs = general_filter_plugin:AllGlyphsFilter",
             "encoded_glyphs = general_filter_plugin:EncodedGlyphsFilter",
+            (
+                "incompatible_outlines = "
+                "general_filter_plugin:IncompatibleOutlinesFilter"
+            ),
             "unencoded_glyphs = general_filter_plugin:UnencodedGlyphsFilter",
         ],
     },
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
-        "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+        (
+            "License :: OSI Approved :: "
+            "GNU General Public License v3 or later (GPLv3+)"
+        ),
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",

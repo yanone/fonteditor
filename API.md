@@ -249,6 +249,12 @@ Find a layer by ID
 #### `findLayerByMasterId(masterId: str) -> [Layer](#layer) | None`
 Find a layer by master ID
 
+#### `calculateOutlineCompatibility() -> { compatible: boolean; layerCount: number; referenceLayerId?: string; incompatibleLayerIds: string[]; }`
+Compare outline structure across main layers (the same list shown in the UI).
+
+For compatibility checks, mixed shape sequences are normalized by moving
+components before paths while preserving their relative order inside each type.
+
 #### `toString() -> str`
 ---
 
@@ -288,7 +294,6 @@ layer = glyph.layers[0]
 
 ### Methods
 
-#### `getMasterId() -> str | None`
 #### `addShape(shape: Babelfont.Shape) -> [Shape](#shape)`
 Add a new shape to the layer
 
@@ -310,10 +315,6 @@ component = layer.addComponent("A")
 component = layer.addComponent("acutecomb", [1, 0, 0, 1, 250, 500])
 ```
 
-#### `normalizeTransform(transform: list[float | int] | Babelfont.DecomposedAffine | None = None) -> Babelfont.DecomposedAffine`
-Normalize transform to DecomposedAffine format
-Converts legacy 6-element affine matrix to DecomposedAffine
-
 #### `removeShape(index: float | int) -> None`
 Remove a shape at the specified index
 
@@ -334,13 +335,6 @@ Handles the babelfont node format where:
 - Nodes can have 'type' (lowercase: o, c, l, q, etc.) or 'nodetype' (capitalized: OffCurve, Curve, Line, etc.)
 - Segments are sequences: [oncurve] [offcurve*] [oncurve]
 - For closed paths, the path can start with offcurve nodes
-
-#### `flattenComponents(layerData: Any, font: [Font](#font) | None = None, masterId: str | None = None) -> list[Babelfont.Path]`
-Flatten all components in the layer to paths with their transforms applied
-This recursively processes nested components to any depth
-
-#### `getDirectPaths() -> list[Babelfont.Path]`
-Get only direct paths in this layer (no components)
 
 #### `getAllPaths() -> list[Babelfont.Path]`
 Get all paths in this layer including transformed paths from components (recursively flattened)

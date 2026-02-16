@@ -20,6 +20,12 @@ Provides basic glyph filters: All Glyphs, Encoded Characters, Unencoded Glyphs.
 
 from .all_glyphs import AllGlyphsFilter
 from .encoded_glyphs import EncodedGlyphsFilter
+from .incompatible_outlines import IncompatibleOutlinesFilter
 from .unencoded_glyphs import UnencodedGlyphsFilter
 
-__all__ = ['AllGlyphsFilter', 'EncodedGlyphsFilter', 'UnencodedGlyphsFilter']
+__all__ = [
+    "EncodedGlyphsFilter",
+    "AllGlyphsFilter",
+    "IncompatibleOutlinesFilter",
+    "UnencodedGlyphsFilter",
+]
