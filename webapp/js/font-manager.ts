@@ -1074,13 +1074,9 @@ class FontManager {
             return; // Feature disabled in settings
         }
 
-        const currentFont = this.currentFont;
-        if (!this.typingFont || !currentFont) {
+        if (!this.typingFont) {
             return;
         }
-
-        const targetDirectory = this.getParentPath(currentFont.path) || '/';
-        const targetPluginId = currentFont.sourcePlugin.getId();
 
         window.uploadFiles(
             [
@@ -1091,8 +1087,8 @@ class FontManager {
                 )
             ],
             {
-                directory: targetDirectory,
-                pluginId: targetPluginId
+                directory: '/user',
+                pluginId: 'memory'
             }
         );
     }
@@ -1105,13 +1101,9 @@ class FontManager {
             return; // Feature disabled in settings
         }
 
-        const currentFont = this.currentFont;
-        if (!this.editingFont || !currentFont) {
+        if (!this.editingFont) {
             return;
         }
-
-        const targetDirectory = this.getParentPath(currentFont.path) || '/';
-        const targetPluginId = currentFont.sourcePlugin.getId();
 
         window.uploadFiles(
             [
@@ -1122,8 +1114,8 @@ class FontManager {
                 )
             ],
             {
-                directory: targetDirectory,
-                pluginId: targetPluginId
+                directory: '/user',
+                pluginId: 'memory'
             }
         );
     }
