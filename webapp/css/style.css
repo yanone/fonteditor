@@ -5850,6 +5850,7 @@ flex-direction: row;
 
 .ace-chrome .ace_gutter {
     background: transparent;
-    border-right: 1px solid var(--border-primary);
+    border-right: 1px solid
+        color-mix(in srgb, var(--border-primary) 35%, transparent);
 }
 
