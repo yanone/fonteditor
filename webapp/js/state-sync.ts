@@ -21,6 +21,20 @@ export function disableSync() {
  */
 export function enableSync() {
     window.stateManager?.enableUrlSync();
+
+    // Seed StateManager with current runtime variation settings immediately.
+    // Without this, editor_variation_location stays empty until the first
+    // axis animation completes.
+    const axesManager = window.glyphCanvas?.axesManager;
+    if (axesManager && window.stateManager) {
+        const location = axesManager.variationSettings || {};
+        const roundedLocation: Record<string, number> = {};
+        for (const [tag, value] of Object.entries(location)) {
+            roundedLocation[tag] = Math.round(value);
+        }
+        window.stateManager.editor_variation_location = roundedLocation;
+    }
+
     console.log('URL sync enabled');
 }
 
@@ -109,6 +123,25 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
 
     // Monitor axis/location changes
     if (glyphCanvas.axesManager) {
+        const syncVariationLocation = (
+            eventType: 'variation_location_initialized' | 'variation_location_changed'
+        ) => {
+            const location = glyphCanvas.axesManager!.variationSettings || {};
+            const roundedLocation: Record<string, number> = {};
+            for (const [tag, value] of Object.entries(location)) {
+                roundedLocation[tag] = Math.round(value);
+            }
+
+            window.stateManager.editor_variation_location = roundedLocation;
+
+            // Only record events when URL sync is active.
+            if (!window.stateManager.isUrlSyncEnabled()) return;
+
+            window.stateManager.recordEvent(eventType, 'AxesManager', {
+                axisCount: Object.keys(roundedLocation).length
+            });
+        };
+
         const syncAnimationFlags = () => {
             window.stateManager.editor_isAnimating =
                 !!glyphCanvas.axesManager!.isAnimating;
@@ -129,26 +162,14 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
         glyphCanvas.axesManager.on('sliderMouseUp', () => {
             if (!window.stateManager.isUrlSyncEnabled()) return;
             syncAnimationFlags();
+            syncVariationLocation('variation_location_changed');
         });
 
         // Listen to animation complete - this fires when sliders finish moving
         glyphCanvas.axesManager.on('animationComplete', () => {
-            if (!window.stateManager.isUrlSyncEnabled()) return;
+            syncVariationLocation('variation_location_changed');
 
-            const location = glyphCanvas.axesManager!.variationSettings;
-            // Round values to integers
-            const roundedLocation: Record<string, number> = {};
-            for (const [tag, value] of Object.entries(location)) {
-                roundedLocation[tag] = Math.round(value);
-            }
-            window.stateManager.editor_variation_location = roundedLocation;
-            window.stateManager.recordEvent(
-                'variation_location_changed',
-                'AxesManager',
-                {
-                    axisCount: Object.keys(roundedLocation).length
-                }
-            );
+            if (!window.stateManager.isUrlSyncEnabled()) return;
 
             syncAnimationFlags();
         });
@@ -156,7 +177,11 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
         glyphCanvas.axesManager.on('textFieldAnimationComplete', () => {
             if (!window.stateManager.isUrlSyncEnabled()) return;
             syncAnimationFlags();
+            syncVariationLocation('variation_location_changed');
         });
+
+        // Capture current defaults at startup/font load even before any user axis interaction.
+        syncVariationLocation('variation_location_initialized');
     }
 
     // Monitor feature changes
