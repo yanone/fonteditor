@@ -1,0 +1,52 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="Eogonek" format="2">
+  <advance width="357"/>
+  <unicode hex="0118"/>
+  <guideline x="322" y="65" angle="90"/>
+  <outline>
+    <contour>
+      <point x="278" y="-195" type="curve" smooth="yes"/>
+      <point x="299" y="-195"/>
+      <point x="320" y="-190"/>
+      <point x="320" y="-178" type="curve" smooth="yes"/>
+      <point x="320" y="-172"/>
+      <point x="317" y="-167"/>
+      <point x="314" y="-162" type="curve"/>
+      <point x="302" y="-169"/>
+      <point x="293" y="-172"/>
+      <point x="279" y="-172" type="curve" smooth="yes"/>
+      <point x="248" y="-172"/>
+      <point x="233" y="-154"/>
+      <point x="233" y="-119" type="curve" smooth="yes"/>
+      <point x="233" y="-72"/>
+      <point x="270" y="-29"/>
+      <point x="312" y="-2" type="curve" smooth="yes"/>
+      <point x="321" y="4"/>
+      <point x="322" y="6"/>
+      <point x="322" y="24" type="curve"/>
+      <point x="95" y="24" type="line"/>
+      <point x="95" y="372" type="line"/>
+      <point x="292" y="372" type="line" smooth="yes"/>
+      <point x="300" y="372"/>
+      <point x="300" y="376"/>
+      <point x="300" y="396" type="curve"/>
+      <point x="95" y="396" type="line"/>
+      <point x="95" y="676" type="line"/>
+      <point x="314" y="676" type="line" smooth="yes"/>
+      <point x="320" y="676"/>
+      <point x="320" y="680"/>
+      <point x="320" y="700" type="curve"/>
+      <point x="81" y="700" type="line" smooth="yes"/>
+      <point x="71" y="700"/>
+      <point x="71" y="690"/>
+      <point x="71" y="690" type="curve"/>
+      <point x="71" y="0" type="line"/>
+      <point x="279" y="0" type="line"/>
+      <point x="242" y="-27"/>
+      <point x="209" y="-73"/>
+      <point x="209" y="-119" type="curve" smooth="yes"/>
+      <point x="209" y="-169"/>
+      <point x="236" y="-195"/>
+    </contour>
+  </outline>
+</glyph>

@@ -1,0 +1,217 @@
+# automatic
+@Uppercase = [ A Aacute Abreve Acircumflex Adieresis Agrave Amacron Aogonek Aring Atilde AE B C Cacute Ccaron Ccedilla D Eth Dcaron Dcroat E Eacute Ecaron Ecircumflex Edieresis Edotaccent Egrave Emacron Eogonek F G Gbreve Gcommaaccent H I IJ Iacute Icircumflex Idieresis Idotaccent Igrave Imacron Iogonek J K Kcommaaccent L Lacute Lcaron Lcommaaccent Ldot Lslash M N Nacute Ncaron Ncommaaccent Ntilde O Oacute Ocircumflex Odieresis Ograve Ohungarumlaut Omacron Oslash Otilde OE P Thorn Q R Racute Rcaron Rcommaaccent S Sacute Scaron Scedilla Scommaaccent T Tcaron Tcedilla Tcommaaccent U Uacute Ucircumflex Udieresis Ugrave Uhungarumlaut Umacron Uogonek Uring V W Wacute Wcircumflex Wdieresis Wgrave X Y Yacute Ycircumflex Ydieresis Ygrave Z Zacute Zcaron Zdotaccent A-cy Be-cy Ve-cy Ge-cy Gje-cy Gheupturn-cy De-cy Ie-cy Iegrave-cy Io-cy Zhe-cy Ze-cy Ii-cy Iishort-cy Iigrave-cy Ka-cy Kje-cy El-cy Em-cy En-cy O-cy Pe-cy Er-cy Es-cy Te-cy U-cy Ushort-cy Ef-cy Ha-cy Che-cy Tse-cy Sha-cy Shcha-cy Dzhe-cy Softsign-cy Hardsign-cy Yeru-cy Lje-cy Nje-cy Dze-cy E-cy Ereversed-cy I-cy Yi-cy Je-cy Tshe-cy Iu-cy Ia-cy Dje-cy Yat-cy Yusbig-cy Izhitsa-cy Kadescender-cy Kaverticalstroke-cy Endescender-cy Ustraitstroke-cy Cheverticalstroke-cy Schwa-cy De-cy.loclBGR Ii-cy.loclBGR Iishort-cy.loclBGR Iigrave-cy.loclBGR El-cy.loclBGR Ef-cy.loclBGR Gamma Delta Pi Omega
+];
+
+# Prefix: Languagesystems
+# automatic
+languagesystem DFLT dflt;
+languagesystem latn dflt;
+languagesystem cyrl dflt;
+languagesystem latn ROM;
+languagesystem latn MOL;
+languagesystem latn CAT;
+languagesystem cyrl SRB;
+languagesystem cyrl BGR;
+
+
+feature aalt {
+# automatic
+feature ccmp;
+feature locl;
+feature sups;
+feature numr;
+feature dnom;
+feature frac;
+feature ordn;
+feature case;
+feature salt;
+feature ss01;
+feature ss02;
+feature ss03;
+feature ss04;
+feature ss05;
+
+} aalt;
+
+feature ccmp {
+# automatic
+lookup ccmp_Other_1 {
+	@CombiningTopAccents = [gravecomb];
+	sub [i j]' @CombiningTopAccents by [idotless jdotless];
+	@Markscomb = [gravecomb commaaccentcomb brevecomb-cy];
+	@MarkscombCase = [gravecomb.case commaaccentcomb.case brevecomb-cy.case];
+	sub @Markscomb @Markscomb' by @MarkscombCase;
+	sub @Uppercase @Markscomb' by @MarkscombCase;
+} ccmp_Other_1;
+
+lookup ccmp_Other_2 {
+	sub @Markscomb' @MarkscombCase by @MarkscombCase;
+	sub @MarkscombCase @Markscomb' by @MarkscombCase;
+} ccmp_Other_2;
+
+} ccmp;
+
+feature locl {
+# automatic
+script latn;
+language ROM;
+sub Scedilla by Scommaaccent;
+sub scedilla by scommaaccent;
+sub Tcedilla by Tcommaaccent;
+sub tcedilla by tcommaaccent;
+language MOL;
+sub Scedilla by Scommaaccent;
+sub scedilla by scommaaccent;
+sub Tcedilla by Tcommaaccent;
+sub tcedilla by tcommaaccent;
+language CAT;
+sub  l' periodcentered' l by ldot;
+sub  L' periodcentered' L by Ldot;
+
+script cyrl;
+language SRB;
+sub be-cy by be-cy.loclSRB;
+language BGR;
+sub De-cy by De-cy.loclBGR;
+sub Ii-cy by Ii-cy.loclBGR;
+sub Iishort-cy by Iishort-cy.loclBGR;
+sub Iigrave-cy by Iigrave-cy.loclBGR;
+sub El-cy by El-cy.loclBGR;
+sub Ef-cy by Ef-cy.loclBGR;
+sub ve-cy by ve-cy.loclBGR;
+sub ge-cy by ge-cy.loclBGR;
+sub de-cy by de-cy.loclBGR;
+sub zhe-cy by zhe-cy.loclBGR;
+sub ze-cy by ze-cy.loclBGR;
+sub ii-cy by ii-cy.loclBGR;
+sub iishort-cy by iishort-cy.loclBGR;
+sub iigrave-cy by iigrave-cy.loclBGR;
+sub ka-cy by ka-cy.loclBGR;
+sub el-cy by el-cy.loclBGR;
+sub pe-cy by pe-cy.loclBGR;
+sub te-cy by te-cy.loclBGR;
+sub che-cy by che-cy.loclBGR;
+sub tse-cy by tse-cy.loclBGR;
+sub sha-cy by sha-cy.loclBGR;
+sub shcha-cy by shcha-cy.loclBGR;
+sub softsign-cy by softsign-cy.loclBGR;
+sub hardsign-cy by hardsign-cy.loclBGR;
+sub iu-cy by iu-cy.loclBGR;
+
+} locl;
+
+feature sups {
+# automatic
+sub one by onesuperior;
+sub two by twosuperior;
+sub three by threesuperior;
+sub four by foursuperior;
+
+} sups;
+
+feature numr {
+# automatic
+sub one by one.numr;
+sub two by two.numr;
+sub three by three.numr;
+sub four by four.numr;
+
+} numr;
+
+feature dnom {
+# automatic
+sub one by one.dnom;
+sub two by two.dnom;
+sub three by three.dnom;
+sub four by four.dnom;
+
+} dnom;
+
+feature frac {
+# automatic
+sub one slash four by onequarter;
+sub one slash two by onehalf;
+sub three slash four by threequarters;
+
+} frac;
+
+feature ordn {
+# automatic
+sub [zero one two three four five six seven eight nine] [A a]' by ordfeminine;
+sub [zero one two three four five six seven eight nine] [O o]' by ordmasculine;
+sub N o period by numero;
+
+} ordn;
+
+feature dlig {
+sub t z by t_z;
+
+} dlig;
+
+feature case {
+# automatic
+sub gravecomb by gravecomb.case;
+sub commaaccentcomb by commaaccentcomb.case;
+sub brevecomb-cy by brevecomb-cy.case;
+
+} case;
+
+feature liga {
+# automatic
+sub f f l by f_f_l;
+sub f f i by f_f_i;
+sub f i by fi;
+sub f f by f_f;
+sub f l by fl;
+
+} liga;
+
+feature salt {
+# automatic
+sub g by g.ss01;
+sub ii-cy by ii-cy.ss01;
+sub iishort-cy by iishort-cy.ss01;
+sub iigrave-cy by iigrave-cy.ss01;
+
+} salt;
+
+feature ss01 {
+# automatic
+sub g by g.ss01;
+sub ii-cy by ii-cy.ss01;
+sub iishort-cy by iishort-cy.ss01;
+sub iigrave-cy by iigrave-cy.ss01;
+
+} ss01;
+
+feature ss02 {
+# automatic
+sub f by f.ss02;
+
+} ss02;
+
+feature ss03 {
+# automatic
+sub ampersand by ampersand.ss03;
+
+} ss03;
+
+feature ss04 {
+# automatic
+sub ampersand by ampersand.ss04;
+
+} ss04;
+
+feature ss05 {
+# automatic
+sub germandbls by germandbls.ss05;
+sub z by z.ss05;
+sub t_z by t_z.ss05;
+
+} ss05;
+
+feature cpsp {
+# automatic
+pos @Uppercase <5 0 10 0>;
+
+} cpsp;

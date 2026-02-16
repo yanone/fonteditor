@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="De-cy" format="2">
+  <advance width="467"/>
+  <unicode hex="0414"/>
+  <outline>
+    <contour>
+      <point x="34" y="-160" type="curve"/>
+      <point x="44" y="-96"/>
+      <point x="44" y="-29"/>
+      <point x="44" y="0" type="curve"/>
+      <point x="406" y="0" type="line"/>
+      <point x="406" y="-29"/>
+      <point x="406" y="-96"/>
+      <point x="416" y="-160" type="curve"/>
+      <point x="421" y="-160"/>
+      <point x="432" y="-160"/>
+      <point x="432" y="-154" type="curve" smooth="yes"/>
+      <point x="432" y="24" type="line"/>
+      <point x="382" y="24" type="line"/>
+      <point x="382" y="700" type="line"/>
+      <point x="180" y="700" type="line" smooth="yes"/>
+      <point x="157" y="700"/>
+      <point x="155" y="700"/>
+      <point x="155" y="690" type="curve"/>
+      <point x="126" y="87"/>
+      <point x="87" y="24"/>
+      <point x="30" y="24" type="curve" smooth="yes"/>
+      <point x="18" y="24" type="line"/>
+      <point x="18" y="-154" type="line" smooth="yes"/>
+      <point x="18" y="-160"/>
+      <point x="29" y="-160"/>
+    </contour>
+    <contour>
+      <point x="80" y="24" type="line"/>
+      <point x="125" y="59"/>
+      <point x="147" y="201"/>
+      <point x="178" y="676" type="curve"/>
+      <point x="358" y="676" type="line"/>
+      <point x="358" y="24" type="line"/>
+    </contour>
+  </outline>
+  <lib>
+    <dict>
+      <key>public.markColor</key>
+      <string>0.67,0.95,0.38,1</string>
+    </dict>
+  </lib>
+</glyph>

@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>lib</key>
+    <dict>
+      <key>com.schriftgestaltung.layerId</key>
+      <string>686790B6-3A75-47A4-B8C1-83B8EA97264F</string>
+      <key>com.schriftgestaltung.layerOrderInGlyph.Kaverticalstroke-cy</key>
+      <integer>2</integer>
+    </dict>
+  </dict>
+</plist>

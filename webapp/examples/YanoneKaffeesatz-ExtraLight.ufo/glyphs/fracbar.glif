@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="fracbar" format="2">
+  <advance width="736"/>
+  <outline>
+    <contour>
+      <point x="151" y="-8" type="curve"/>
+      <point x="151" y="-8"/>
+      <point x="594" y="695"/>
+      <point x="594" y="695" type="curve"/>
+      <point x="594" y="705"/>
+      <point x="577" y="708"/>
+      <point x="577" y="708" type="curve"/>
+      <point x="135" y="3" type="line"/>
+      <point x="135" y="-9"/>
+      <point x="151" y="-8"/>
+    </contour>
+  </outline>
+</glyph>

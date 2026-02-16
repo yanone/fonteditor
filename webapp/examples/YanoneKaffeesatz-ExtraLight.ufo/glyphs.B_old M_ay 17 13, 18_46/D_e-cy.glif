@@ -1,0 +1,39 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="De-cy" format="2">
+  <advance width="435"/>
+  <unicode hex="0414"/>
+  <outline>
+    <contour>
+      <point x="405" y="700" type="line"/>
+      <point x="230" y="700" type="line" smooth="yes"/>
+      <point x="121" y="700"/>
+      <point x="119" y="697"/>
+      <point x="118" y="676" type="curve" smooth="yes"/>
+      <point x="104" y="397" type="line" smooth="yes"/>
+      <point x="94" y="193"/>
+      <point x="85" y="135"/>
+      <point x="55" y="105" type="curve"/>
+      <point x="114" y="0" type="line"/>
+      <point x="405" y="0" type="line"/>
+    </contour>
+    <contour>
+      <point x="293" y="595" type="line"/>
+      <point x="293" y="105" type="line"/>
+      <point x="169" y="105" type="line"/>
+      <point x="192" y="138"/>
+      <point x="200" y="193"/>
+      <point x="212" y="378" type="curve" smooth="yes"/>
+      <point x="226" y="595" type="line"/>
+    </contour>
+    <component base="descender-cy.case" xScale="-1" xOffset="140"/>
+    <component base="descender-cy.case" xOffset="335"/>
+  </outline>
+  <lib>
+    <dict>
+      <key>com.schriftgestaltung.Glyphs.shapeOrder</key>
+      <string>PPCC</string>
+      <key>public.markColor</key>
+      <string>0.67,0.95,0.38,1</string>
+    </dict>
+  </lib>
+</glyph>

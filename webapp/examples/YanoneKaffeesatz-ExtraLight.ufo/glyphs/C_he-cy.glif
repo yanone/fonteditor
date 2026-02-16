@@ -1,0 +1,43 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="Che-cy" format="2">
+  <advance width="411"/>
+  <unicode hex="0427"/>
+  <outline>
+    <contour>
+      <point x="319" y="0" type="line"/>
+      <point x="343" y="0"/>
+      <point x="343" y="0"/>
+      <point x="343" y="10" type="curve"/>
+      <point x="343" y="700" type="line"/>
+      <point x="319" y="700"/>
+      <point x="319" y="699"/>
+      <point x="319" y="690" type="curve"/>
+      <point x="319" y="340" type="line"/>
+      <point x="274" y="322"/>
+      <point x="229" y="314"/>
+      <point x="191" y="314" type="curve" smooth="yes"/>
+      <point x="112" y="314"/>
+      <point x="63" y="369"/>
+      <point x="64" y="475" type="curve"/>
+      <point x="64" y="700" type="line"/>
+      <point x="40" y="700"/>
+      <point x="40" y="700"/>
+      <point x="40" y="690" type="curve"/>
+      <point x="40" y="468" type="line"/>
+      <point x="41" y="351"/>
+      <point x="98" y="290"/>
+      <point x="189" y="290" type="curve" smooth="yes"/>
+      <point x="226" y="290"/>
+      <point x="272" y="297"/>
+      <point x="319" y="311" type="curve"/>
+    </contour>
+  </outline>
+  <lib>
+    <dict>
+      <key>com.schriftgestaltung.Glyphs.glyph.rightMetricsKey</key>
+      <string>En-cy</string>
+      <key>public.markColor</key>
+      <string>0.67,0.95,0.38,1</string>
+    </dict>
+  </lib>
+</glyph>

@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="Gbreve" format="2">
+  <advance width="415"/>
+  <unicode hex="011E"/>
+  <anchor x="218" y="0" name="bottom"/>
+  <anchor x="229" y="907" name="top"/>
+  <outline>
+    <component base="G"/>
+    <component base="brevecomb" xOffset="103" yOffset="200"/>
+  </outline>
+  <lib>
+    <dict>
+      <key>public.markColor</key>
+      <string>0.97,1,0,1</string>
+    </dict>
+  </lib>
+</glyph>

@@ -1,0 +1,40 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="sha-cy" format="2">
+  <advance width="570"/>
+  <unicode hex="0448"/>
+  <outline>
+    <contour>
+      <point x="42" y="0" type="line"/>
+      <point x="419" y="0" type="line"/>
+      <point x="533" y="0"/>
+      <point x="528" y="0"/>
+      <point x="528" y="20" type="curve"/>
+      <point x="528" y="500" type="line"/>
+      <point x="417" y="500"/>
+      <point x="416" y="500"/>
+      <point x="416" y="480" type="curve"/>
+      <point x="416" y="105" type="line"/>
+      <point x="341" y="105" type="line"/>
+      <point x="341" y="500" type="line"/>
+      <point x="230" y="500"/>
+      <point x="229" y="500"/>
+      <point x="229" y="480" type="curve"/>
+      <point x="229" y="105" type="line"/>
+      <point x="154" y="105" type="line"/>
+      <point x="154" y="500" type="line"/>
+      <point x="40" y="500"/>
+      <point x="42" y="500"/>
+      <point x="42" y="480" type="curve"/>
+    </contour>
+  </outline>
+  <lib>
+    <dict>
+      <key>com.schriftgestaltung.Glyphs.glyph.leftMetricsKey</key>
+      <string>en-cy</string>
+      <key>com.schriftgestaltung.Glyphs.glyph.rightMetricsKey</key>
+      <string>en-cy</string>
+      <key>public.markColor</key>
+      <string>0.67,0.95,0.38,1</string>
+    </dict>
+  </lib>
+</glyph>

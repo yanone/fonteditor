@@ -1,0 +1,100 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="circumflexcomb_tildecomb" format="2">
+  <outline>
+    <contour>
+      <point x="207.505" y="564.695" type="curve" smooth="yes"/>
+      <point x="238.851" y="564.695"/>
+      <point x="271.023" y="568.82"/>
+      <point x="271.023" y="586.967" type="curve"/>
+      <point x="271.023" y="608.415"/>
+      <point x="190.182" y="690.905"/>
+      <point x="190.182" y="690.905" type="curve"/>
+      <point x="182.758" y="699.154"/>
+      <point x="172.859" y="702.453"/>
+      <point x="164.611" y="702.453" type="curve" smooth="yes"/>
+      <point x="158.011" y="702.453"/>
+      <point x="152.237" y="701.628"/>
+      <point x="146.463" y="699.979" type="curve"/>
+      <point x="49.949" y="589.442" type="line"/>
+      <point x="63.973" y="572.119"/>
+      <point x="83.77" y="565.52"/>
+      <point x="112.642" y="565.52" type="curve" smooth="yes"/>
+      <point x="132.439" y="565.52"/>
+      <point x="163.786" y="620.788"/>
+      <point x="163.786" y="620.788" type="curve"/>
+      <point x="180.284" y="589.442"/>
+      <point x="207.505" y="564.695"/>
+    </contour>
+    <contour>
+      <point x="217.533" y="719.571" type="curve" smooth="yes"/>
+      <point x="269.501" y="719.571"/>
+      <point x="314.871" y="781.438"/>
+      <point x="314.871" y="781.438" type="curve"/>
+      <point x="314.871" y="781.438"/>
+      <point x="302.497" y="832.582"/>
+      <point x="285.174" y="832.582" type="curve" smooth="yes"/>
+      <point x="269.501" y="832.582"/>
+      <point x="271.151" y="807.01"/>
+      <point x="235.68" y="807.01" type="curve" smooth="yes"/>
+      <point x="205.159" y="807.01"/>
+      <point x="201.859" y="842.481"/>
+      <point x="168.039" y="842.481" type="curve" smooth="yes"/>
+      <point x="138.342" y="842.481"/>
+      <point x="93.798" y="822.683"/>
+      <point x="64.101" y="774.014" type="curve"/>
+      <point x="64.101" y="774.014"/>
+      <point x="82.249" y="728.644"/>
+      <point x="107.821" y="728.644" type="curve"/>
+      <point x="120.194" y="728.644"/>
+      <point x="126.794" y="754.216"/>
+      <point x="152.365" y="754.216" type="curve"/>
+      <point x="183.712" y="754.216"/>
+      <point x="176.288" y="719.571"/>
+    </contour>
+  </outline>
+  <lib>
+    <dict>
+      <key>com.schriftgestaltung.Glyphs.originalWidth</key>
+      <integer>365</integer>
+      <key>com.schriftgestaltung.hints</key>
+      <array>
+        <dict>
+          <key>horizontal</key>
+          <true/>
+          <key>name</key>
+          <string></string>
+          <key>options</key>
+          <integer>0</integer>
+          <key>place</key>
+          <array>
+            <integer>111</integer>
+            <integer>0</integer>
+          </array>
+          <key>stem</key>
+          <integer>-2</integer>
+          <key>type</key>
+          <string>Stem</string>
+        </dict>
+        <dict>
+          <key>horizontal</key>
+          <true/>
+          <key>name</key>
+          <string></string>
+          <key>options</key>
+          <integer>0</integer>
+          <key>place</key>
+          <array>
+            <integer>111</integer>
+            <integer>0</integer>
+          </array>
+          <key>stem</key>
+          <integer>-2</integer>
+          <key>type</key>
+          <string>Stem</string>
+        </dict>
+      </array>
+      <key>public.markColor</key>
+      <string>0.98,0.36,0.67,1</string>
+    </dict>
+  </lib>
+</glyph>

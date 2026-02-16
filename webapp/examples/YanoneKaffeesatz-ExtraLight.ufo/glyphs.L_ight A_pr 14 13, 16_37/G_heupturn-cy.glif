@@ -1,0 +1,43 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="Gheupturn-cy" format="2">
+  <advance width="347"/>
+  <unicode hex="0490"/>
+  <outline>
+    <contour>
+      <point x="71" y="0" type="line"/>
+      <point x="85" y="0" type="line"/>
+      <point x="95" y="0"/>
+      <point x="95" y="10"/>
+      <point x="95" y="10" type="curve"/>
+      <point x="95" y="676" type="line"/>
+      <point x="321" y="676" type="line"/>
+      <point x="326" y="676"/>
+      <point x="326" y="680"/>
+      <point x="326" y="700" type="curve"/>
+      <point x="81" y="700" type="line"/>
+      <point x="71" y="700"/>
+      <point x="71" y="690"/>
+      <point x="71" y="690" type="curve"/>
+    </contour>
+    <contour>
+      <point x="302" y="700" type="curve"/>
+      <point x="326" y="700" type="line"/>
+      <point x="326" y="784" type="line"/>
+      <point x="326" y="790"/>
+      <point x="319" y="791"/>
+      <point x="310" y="791" type="curve"/>
+      <point x="305" y="756"/>
+      <point x="303" y="727"/>
+    </contour>
+  </outline>
+  <lib>
+    <dict>
+      <key>com.schriftgestaltung.Glyphs.glyph.leftMetricsKey</key>
+      <string>En-cy</string>
+      <key>com.schriftgestaltung.Glyphs.glyph.rightMetricsKey</key>
+      <string>Ge-cy</string>
+      <key>public.markColor</key>
+      <string>0.67,0.95,0.38,1</string>
+    </dict>
+  </lib>
+</glyph>

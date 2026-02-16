@@ -1,0 +1,43 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="Lje-cy" format="2">
+  <advance width="744"/>
+  <unicode hex="0409"/>
+  <outline>
+    <contour>
+      <point x="428" y="700" type="line"/>
+      <point x="180" y="700" type="line" smooth="yes"/>
+      <point x="175" y="700"/>
+      <point x="170" y="699"/>
+      <point x="170" y="687" type="curve" smooth="yes"/>
+      <point x="158" y="297"/>
+      <point x="136" y="22"/>
+      <point x="65" y="22" type="curve" smooth="yes"/>
+      <point x="51" y="22"/>
+      <point x="31" y="25"/>
+      <point x="18" y="30" type="curve"/>
+      <point x="15" y="26"/>
+      <point x="12" y="19"/>
+      <point x="12" y="11" type="curve" smooth="yes"/>
+      <point x="12" y="0"/>
+      <point x="40" y="-5"/>
+      <point x="69" y="-5" type="curve" smooth="yes"/>
+      <point x="163" y="-5"/>
+      <point x="178" y="272"/>
+      <point x="195" y="675" type="curve"/>
+      <point x="404" y="675" type="line"/>
+    </contour>
+    <component base="Softsign-cy" xOffset="336"/>
+  </outline>
+  <lib>
+    <dict>
+      <key>com.schriftgestaltung.Glyphs.glyph.leftMetricsKey</key>
+      <string>El-cy</string>
+      <key>com.schriftgestaltung.Glyphs.glyph.rightMetricsKey</key>
+      <string>Softsign-cy</string>
+      <key>com.schriftgestaltung.Glyphs.shapeOrder</key>
+      <string>PC</string>
+      <key>public.markColor</key>
+      <string>0.67,0.95,0.38,1</string>
+    </dict>
+  </lib>
+</glyph>

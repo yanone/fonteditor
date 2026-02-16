@@ -1,0 +1,90 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="numbersign" format="2">
+  <advance width="450"/>
+  <unicode hex="0023"/>
+  <outline>
+    <contour>
+      <point x="277" y="107" type="line"/>
+      <point x="299" y="107"/>
+      <point x="301" y="107"/>
+      <point x="302" y="117" type="curve"/>
+      <point x="322" y="497" type="line"/>
+      <point x="300" y="497"/>
+      <point x="298" y="497"/>
+      <point x="297" y="487" type="curve" smooth="yes"/>
+    </contour>
+    <contour>
+      <point x="118" y="107" type="line"/>
+      <point x="140" y="107"/>
+      <point x="142" y="107"/>
+      <point x="143" y="117" type="curve"/>
+      <point x="163" y="497" type="line"/>
+      <point x="141" y="497"/>
+      <point x="139" y="497"/>
+      <point x="138" y="487" type="curve" smooth="yes"/>
+    </contour>
+    <contour>
+      <point x="50" y="209" type="curve"/>
+      <point x="390" y="209" type="line"/>
+      <point x="400" y="209"/>
+      <point x="400" y="211"/>
+      <point x="400" y="233" type="curve"/>
+      <point x="60" y="233" type="line" smooth="yes"/>
+      <point x="50" y="233"/>
+      <point x="50" y="231"/>
+    </contour>
+    <contour>
+      <point x="50" y="379" type="curve"/>
+      <point x="390" y="379" type="line"/>
+      <point x="400" y="379"/>
+      <point x="400" y="381"/>
+      <point x="400" y="403" type="curve"/>
+      <point x="60" y="403" type="line" smooth="yes"/>
+      <point x="50" y="403"/>
+      <point x="50" y="401"/>
+    </contour>
+  </outline>
+  <lib>
+    <dict>
+      <key>com.schriftgestaltung.hints</key>
+      <array>
+        <dict>
+          <key>horizontal</key>
+          <true/>
+          <key>name</key>
+          <string></string>
+          <key>options</key>
+          <integer>0</integer>
+          <key>place</key>
+          <array>
+            <integer>0</integer>
+            <integer>0</integer>
+          </array>
+          <key>stem</key>
+          <integer>-2</integer>
+          <key>type</key>
+          <string>Stem</string>
+        </dict>
+        <dict>
+          <key>horizontal</key>
+          <true/>
+          <key>name</key>
+          <string></string>
+          <key>options</key>
+          <integer>0</integer>
+          <key>place</key>
+          <array>
+            <integer>0</integer>
+            <integer>0</integer>
+          </array>
+          <key>stem</key>
+          <integer>-2</integer>
+          <key>type</key>
+          <string>Stem</string>
+        </dict>
+      </array>
+      <key>public.markColor</key>
+      <string>0.97,1,0,1</string>
+    </dict>
+  </lib>
+</glyph>

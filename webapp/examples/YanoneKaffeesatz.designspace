@@ -1,0 +1,214 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<designspace format="5.0">
+  <axes>
+    <axis tag="wght" name="Weight" minimum="200" maximum="700" default="200">
+      <map input="200" output="24"/>
+      <map input="300" output="45"/>
+      <map input="400" output="81"/>
+      <map input="500" output="91"/>
+      <map input="600" output="102"/>
+      <map input="700" output="112"/>
+    </axis>
+  </axes>
+  <sources>
+    <source filename="YanoneKaffeesatz-ExtraLight.ufo" name="Yanone Kaffeesatz ExtraLight" familyname="Yanone Kaffeesatz" stylename="ExtraLight">
+      <lib copy="1"/>
+      <groups copy="1"/>
+      <features copy="1"/>
+      <info copy="1"/>
+      <location>
+        <dimension name="Weight" xvalue="24"/>
+      </location>
+    </source>
+    <source filename="YanoneKaffeesatz-Bold.ufo" name="Yanone Kaffeesatz Bold" familyname="Yanone Kaffeesatz" stylename="Bold">
+      <location>
+        <dimension name="Weight" xvalue="112"/>
+      </location>
+    </source>
+  </sources>
+  <instances>
+    <instance name="Yanone Kaffeesatz ExtraLight" familyname="Yanone Kaffeesatz" stylename="ExtraLight" filename="instance_ufos/YanoneKaffeesatz-ExtraLight.ufo">
+      <location>
+        <dimension name="Weight" xvalue="24"/>
+      </location>
+      <lib>
+        <dict>
+          <key>com.schriftgestaltung.export</key>
+          <true/>
+          <key>com.schriftgestaltung.intanceInterpolations</key>
+          <dict>
+            <key>B965DA2D-85AA-48ED-BC60-A8A438260572</key>
+            <integer>1</integer>
+          </dict>
+          <key>com.schriftgestaltung.manualInterpolation</key>
+          <false/>
+          <key>com.schriftgestaltung.weight</key>
+          <integer>200</integer>
+          <key>com.schriftgestaltung.width</key>
+          <string>Medium (normal)</string>
+        </dict>
+      </lib>
+    </instance>
+    <instance name="Yanone Kaffeesatz Light" familyname="Yanone Kaffeesatz" stylename="Light" filename="instance_ufos/YanoneKaffeesatz-Light.ufo">
+      <location>
+        <dimension name="Weight" xvalue="45"/>
+      </location>
+      <lib>
+        <dict>
+          <key>com.schriftgestaltung.export</key>
+          <true/>
+          <key>com.schriftgestaltung.intanceInterpolations</key>
+          <dict>
+            <key>113A2EC7-7A34-4A41-8395-62473D9E96C5</key>
+            <real>0.23864</real>
+            <key>B965DA2D-85AA-48ED-BC60-A8A438260572</key>
+            <real>0.76136</real>
+          </dict>
+          <key>com.schriftgestaltung.manualInterpolation</key>
+          <false/>
+          <key>com.schriftgestaltung.weight</key>
+          <integer>300</integer>
+          <key>com.schriftgestaltung.width</key>
+          <string>Medium (normal)</string>
+        </dict>
+      </lib>
+    </instance>
+    <instance name="Yanone Kaffeesatz Regular" familyname="Yanone Kaffeesatz" stylename="Regular" filename="instance_ufos/YanoneKaffeesatz-Regular.ufo">
+      <location>
+        <dimension name="Weight" xvalue="81"/>
+      </location>
+      <lib>
+        <dict>
+          <key>com.schriftgestaltung.export</key>
+          <true/>
+          <key>com.schriftgestaltung.intanceInterpolations</key>
+          <dict>
+            <key>113A2EC7-7A34-4A41-8395-62473D9E96C5</key>
+            <real>0.64773</real>
+            <key>B965DA2D-85AA-48ED-BC60-A8A438260572</key>
+            <real>0.35227</real>
+          </dict>
+          <key>com.schriftgestaltung.manualInterpolation</key>
+          <false/>
+          <key>com.schriftgestaltung.weight</key>
+          <string>Regular</string>
+          <key>com.schriftgestaltung.width</key>
+          <string>Medium (normal)</string>
+        </dict>
+      </lib>
+    </instance>
+    <instance name="Yanone Kaffeesatz Medium" familyname="Yanone Kaffeesatz" stylename="Medium" filename="instance_ufos/YanoneKaffeesatz-Medium.ufo">
+      <location>
+        <dimension name="Weight" xvalue="91"/>
+      </location>
+      <lib>
+        <dict>
+          <key>com.schriftgestaltung.export</key>
+          <true/>
+          <key>com.schriftgestaltung.intanceInterpolations</key>
+          <dict>
+            <key>113A2EC7-7A34-4A41-8395-62473D9E96C5</key>
+            <real>0.76136</real>
+            <key>B965DA2D-85AA-48ED-BC60-A8A438260572</key>
+            <real>0.23864</real>
+          </dict>
+          <key>com.schriftgestaltung.manualInterpolation</key>
+          <false/>
+          <key>com.schriftgestaltung.weight</key>
+          <integer>500</integer>
+          <key>com.schriftgestaltung.width</key>
+          <string>Medium (normal)</string>
+        </dict>
+      </lib>
+    </instance>
+    <instance name="Yanone Kaffeesatz SemiBold" familyname="Yanone Kaffeesatz" stylename="SemiBold" filename="instance_ufos/YanoneKaffeesatz-SemiBold.ufo">
+      <location>
+        <dimension name="Weight" xvalue="102"/>
+      </location>
+      <lib>
+        <dict>
+          <key>com.schriftgestaltung.export</key>
+          <true/>
+          <key>com.schriftgestaltung.intanceInterpolations</key>
+          <dict>
+            <key>113A2EC7-7A34-4A41-8395-62473D9E96C5</key>
+            <real>0.88636</real>
+            <key>B965DA2D-85AA-48ED-BC60-A8A438260572</key>
+            <real>0.11364</real>
+          </dict>
+          <key>com.schriftgestaltung.manualInterpolation</key>
+          <false/>
+          <key>com.schriftgestaltung.weight</key>
+          <integer>600</integer>
+          <key>com.schriftgestaltung.width</key>
+          <string>Medium (normal)</string>
+        </dict>
+      </lib>
+    </instance>
+    <instance name="Yanone Kaffeesatz Bold" familyname="Yanone Kaffeesatz" stylename="Bold" filename="instance_ufos/YanoneKaffeesatz-Bold.ufo">
+      <location>
+        <dimension name="Weight" xvalue="112"/>
+      </location>
+      <lib>
+        <dict>
+          <key>com.schriftgestaltung.export</key>
+          <true/>
+          <key>com.schriftgestaltung.intanceInterpolations</key>
+          <dict>
+            <key>113A2EC7-7A34-4A41-8395-62473D9E96C5</key>
+            <integer>1</integer>
+          </dict>
+          <key>com.schriftgestaltung.manualInterpolation</key>
+          <false/>
+          <key>com.schriftgestaltung.weight</key>
+          <integer>700</integer>
+          <key>com.schriftgestaltung.width</key>
+          <string>Medium (normal)</string>
+        </dict>
+      </lib>
+    </instance>
+  </instances>
+  <lib>
+    <dict>
+      <key>GSDimensionPlugin.Dimensions</key>
+      <dict>
+        <key>113A2EC7-7A34-4A41-8395-62473D9E96C5</key>
+        <dict/>
+        <key>B965DA2D-85AA-48ED-BC60-A8A438260572</key>
+        <dict/>
+        <key>UUID0</key>
+        <dict>
+          <key>HV</key>
+          <integer>114</integer>
+          <key>nV</key>
+          <integer>24</integer>
+          <key>nd</key>
+          <integer>23</integer>
+          <key>oH</key>
+          <integer>24</integer>
+          <key>oV</key>
+          <integer>24</integer>
+        </dict>
+        <key>UUID1</key>
+        <dict>
+          <key>HH</key>
+          <integer>105</integer>
+          <key>HV</key>
+          <integer>114</integer>
+          <key>OH</key>
+          <integer>115</integer>
+          <key>OV</key>
+          <integer>125</integer>
+          <key>nV</key>
+          <integer>112</integer>
+          <key>nd</key>
+          <integer>93</integer>
+          <key>oH</key>
+          <integer>93</integer>
+          <key>oV</key>
+          <integer>123</integer>
+        </dict>
+      </dict>
+    </dict>
+  </lib>
+</designspace>

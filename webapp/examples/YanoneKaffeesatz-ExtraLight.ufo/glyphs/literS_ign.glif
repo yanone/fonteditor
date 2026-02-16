@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="literSign" format="2">
+  <advance width="165"/>
+  <unicode hex="2113"/>
+  <anchor x="83" y="0" name="bottom"/>
+  <anchor x="83" y="735" name="top"/>
+  <anchor x="125" y="500" name="topright"/>
+  <outline>
+    <component base="l"/>
+  </outline>
+</glyph>

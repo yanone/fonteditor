@@ -1,0 +1,57 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="F" format="2">
+  <advance width="344"/>
+  <unicode hex="0046"/>
+  <outline>
+    <contour>
+      <point x="71" y="0" type="line"/>
+      <point x="85" y="0" type="line"/>
+      <point x="95" y="0"/>
+      <point x="95" y="10"/>
+      <point x="95" y="10" type="curve"/>
+      <point x="95" y="676" type="line"/>
+      <point x="314" y="676" type="line" smooth="yes"/>
+      <point x="320" y="676"/>
+      <point x="320" y="680"/>
+      <point x="320" y="700" type="curve"/>
+      <point x="81" y="700" type="line" smooth="yes"/>
+      <point x="71" y="700"/>
+      <point x="71" y="690"/>
+      <point x="71" y="690" type="curve"/>
+    </contour>
+    <contour>
+      <point x="87" y="373" type="line"/>
+      <point x="292" y="373" type="line" smooth="yes"/>
+      <point x="300" y="373"/>
+      <point x="300" y="377"/>
+      <point x="300" y="397" type="curve"/>
+      <point x="87" y="397" type="line"/>
+    </contour>
+  </outline>
+  <lib>
+    <dict>
+      <key>com.schriftgestaltung.hints</key>
+      <array>
+        <dict>
+          <key>horizontal</key>
+          <true/>
+          <key>name</key>
+          <string></string>
+          <key>options</key>
+          <integer>0</integer>
+          <key>place</key>
+          <array>
+            <integer>0</integer>
+            <integer>0</integer>
+          </array>
+          <key>stem</key>
+          <integer>-2</integer>
+          <key>type</key>
+          <string>Stem</string>
+        </dict>
+      </array>
+      <key>public.markColor</key>
+      <string>0.97,1,0,1</string>
+    </dict>
+  </lib>
+</glyph>

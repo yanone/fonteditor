@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="ihookabove" format="2">
+  <advance width="180"/>
+  <unicode hex="1EC9"/>
+  <anchor x="162" y="10" name="ogonek"/>
+  <anchor x="90" y="735" name="top"/>
+  <outline>
+    <component base="idotless"/>
+    <component base="hookabovecomb" xOffset="-41"/>
+  </outline>
+</glyph>

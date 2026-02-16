@@ -1,0 +1,54 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="Ef-cy.loclBGR" format="2">
+  <advance width="571"/>
+  <outline>
+    <contour>
+      <point x="342" y="745" type="line"/>
+      <point x="230" y="745"/>
+      <point x="229" y="745"/>
+      <point x="229" y="696" type="curve" smooth="yes"/>
+      <point x="229" y="657" type="line"/>
+      <point x="89" y="630"/>
+      <point x="30" y="518"/>
+      <point x="30" y="366" type="curve" smooth="yes"/>
+      <point x="30" y="193"/>
+      <point x="81" y="84"/>
+      <point x="230" y="65" type="curve"/>
+      <point x="230" y="-10" type="line"/>
+      <point x="343" y="-10"/>
+      <point x="342" y="-10"/>
+      <point x="342" y="29" type="curve"/>
+      <point x="342" y="69" type="line"/>
+      <point x="478" y="94"/>
+      <point x="541" y="205"/>
+      <point x="541" y="369" type="curve" smooth="yes"/>
+      <point x="541" y="530"/>
+      <point x="486" y="634"/>
+      <point x="342" y="659" type="curve"/>
+    </contour>
+    <contour>
+      <point x="230" y="554" type="curve"/>
+      <point x="230" y="169" type="line"/>
+      <point x="166" y="180"/>
+      <point x="147" y="261"/>
+      <point x="147" y="354" type="curve" smooth="yes"/>
+      <point x="147" y="453"/>
+      <point x="168" y="540"/>
+    </contour>
+    <contour>
+      <point x="341" y="556" type="line"/>
+      <point x="407" y="544"/>
+      <point x="420" y="464"/>
+      <point x="420" y="367" type="curve" smooth="yes"/>
+      <point x="420" y="273"/>
+      <point x="401" y="187"/>
+      <point x="341" y="173" type="curve"/>
+    </contour>
+  </outline>
+  <lib>
+    <dict>
+      <key>public.markColor</key>
+      <string>0.67,0.95,0.38,1</string>
+    </dict>
+  </lib>
+</glyph>

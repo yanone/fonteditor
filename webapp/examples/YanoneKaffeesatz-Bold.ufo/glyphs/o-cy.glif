@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="o-cy" format="2">
+  <advance width="362"/>
+  <unicode hex="043E"/>
+  <anchor x="181" y="0" name="bottom"/>
+  <anchor x="181" y="250" name="center"/>
+  <anchor x="326" y="10" name="ogonek"/>
+  <anchor x="181" y="500" name="top"/>
+  <anchor x="300" y="500" name="topright"/>
+  <outline>
+    <component base="o"/>
+  </outline>
+  <lib>
+    <dict>
+      <key>public.markColor</key>
+      <string>0.67,0.95,0.38,1</string>
+    </dict>
+  </lib>
+</glyph>

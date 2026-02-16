@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="Iegrave-cy" format="2">
+  <advance width="357"/>
+  <unicode hex="0400"/>
+  <anchor x="179" y="0" name="bottom"/>
+  <anchor x="321" y="10" name="ogonek"/>
+  <anchor x="167" y="912" name="top"/>
+  <anchor x="20" y="700" name="topleft"/>
+  <outline>
+    <component base="E"/>
+    <component base="gravecomb" xOffset="42" yOffset="200"/>
+  </outline>
+  <lib>
+    <dict>
+      <key>public.markColor</key>
+      <string>0.67,0.95,0.38,1</string>
+    </dict>
+  </lib>
+</glyph>

@@ -1,0 +1,95 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>ascender</key>
+    <integer>735</integer>
+    <key>capHeight</key>
+    <integer>700</integer>
+    <key>copyright</key>
+    <string>Copyright 2010 The Yanone Kaffeesatz Project Authors (https://github.com/yanone/kaffeesatz)</string>
+    <key>descender</key>
+    <integer>-200</integer>
+    <key>familyName</key>
+    <string>Yanone Kaffeesatz</string>
+    <key>italicAngle</key>
+    <integer>0</integer>
+    <key>openTypeHeadCreated</key>
+    <string>2023/12/13 13:58:25</string>
+    <key>openTypeHheaAscender</key>
+    <integer>735</integer>
+    <key>openTypeHheaDescender</key>
+    <integer>-200</integer>
+    <key>openTypeHheaLineGap</key>
+    <integer>57</integer>
+    <key>openTypeNameDesigner</key>
+    <string>Yanone (Cyrillic: Daniel Pouzeot, Huerta Tipografica, and Cyreal)</string>
+    <key>openTypeNameDesignerURL</key>
+    <string>https://yanone.de</string>
+    <key>openTypeNameLicense</key>
+    <string>This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL</string>
+    <key>openTypeNameLicenseURL</key>
+    <string>https://scripts.sil.org/OFL</string>
+    <key>openTypeNameManufacturer</key>
+    <string>Yanone</string>
+    <key>openTypeNameManufacturerURL</key>
+    <string>https://yanone.de</string>
+    <key>openTypeOS2Selection</key>
+    <array>
+      <integer>7</integer>
+    </array>
+    <key>openTypeOS2Type</key>
+    <array/>
+    <key>openTypeOS2TypoAscender</key>
+    <integer>735</integer>
+    <key>openTypeOS2TypoDescender</key>
+    <integer>-200</integer>
+    <key>openTypeOS2TypoLineGap</key>
+    <integer>57</integer>
+    <key>openTypeOS2WinAscent</key>
+    <integer>1063</integer>
+    <key>openTypeOS2WinDescent</key>
+    <integer>279</integer>
+    <key>postscriptBlueValues</key>
+    <array>
+      <integer>-10</integer>
+      <integer>0</integer>
+      <integer>500</integer>
+      <integer>520</integer>
+      <integer>700</integer>
+      <integer>710</integer>
+      <integer>735</integer>
+      <integer>745</integer>
+    </array>
+    <key>postscriptOtherBlues</key>
+    <array>
+      <integer>-200</integer>
+      <integer>-190</integer>
+    </array>
+    <key>postscriptStemSnapH</key>
+    <array>
+      <integer>105</integer>
+      <integer>93</integer>
+      <integer>115</integer>
+    </array>
+    <key>postscriptStemSnapV</key>
+    <array>
+      <integer>113</integer>
+      <integer>123</integer>
+    </array>
+    <key>postscriptUnderlinePosition</key>
+    <integer>-100</integer>
+    <key>postscriptUnderlineThickness</key>
+    <integer>50</integer>
+    <key>styleName</key>
+    <string>Bold</string>
+    <key>unitsPerEm</key>
+    <integer>1000</integer>
+    <key>versionMajor</key>
+    <integer>2</integer>
+    <key>versionMinor</key>
+    <integer>3</integer>
+    <key>xHeight</key>
+    <integer>500</integer>
+  </dict>
+</plist>

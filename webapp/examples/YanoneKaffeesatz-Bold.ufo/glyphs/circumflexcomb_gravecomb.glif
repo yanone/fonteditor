@@ -1,0 +1,122 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="circumflexcomb_gravecomb" format="2">
+  <outline>
+    <contour>
+      <point x="207.505" y="564.695" type="curve" smooth="yes"/>
+      <point x="238.851" y="564.695"/>
+      <point x="271.023" y="568.82"/>
+      <point x="271.023" y="586.967" type="curve"/>
+      <point x="271.023" y="608.415"/>
+      <point x="190.182" y="690.905"/>
+      <point x="190.182" y="690.905" type="curve"/>
+      <point x="182.758" y="699.154"/>
+      <point x="172.859" y="702.453"/>
+      <point x="164.611" y="702.453" type="curve" smooth="yes"/>
+      <point x="158.011" y="702.453"/>
+      <point x="152.237" y="701.628"/>
+      <point x="146.463" y="699.979" type="curve"/>
+      <point x="49.949" y="589.442" type="line"/>
+      <point x="63.973" y="572.119"/>
+      <point x="83.77" y="565.52"/>
+      <point x="112.642" y="565.52" type="curve" smooth="yes"/>
+      <point x="132.439" y="565.52"/>
+      <point x="163.786" y="620.788"/>
+      <point x="163.786" y="620.788" type="curve"/>
+      <point x="180.284" y="589.442"/>
+      <point x="207.505" y="564.695"/>
+    </contour>
+    <contour>
+      <point x="262.081" y="682.621" type="curve"/>
+      <point x="286.003" y="682.621"/>
+      <point x="297.552" y="732.94"/>
+      <point x="297.552" y="732.94" type="curve"/>
+      <point x="269.505" y="771.71"/>
+      <point x="199.389" y="830.278"/>
+      <point x="189.49" y="830.278" type="curve" smooth="yes"/>
+      <point x="168.868" y="830.278"/>
+      <point x="152.369" y="793.158"/>
+      <point x="147.42" y="762.636" type="curve"/>
+      <point x="168.043" y="738.714"/>
+      <point x="253.007" y="682.621"/>
+    </contour>
+  </outline>
+  <lib>
+    <dict>
+      <key>com.schriftgestaltung.Glyphs.originalWidth</key>
+      <integer>347</integer>
+      <key>com.schriftgestaltung.hints</key>
+      <array>
+        <dict>
+          <key>horizontal</key>
+          <true/>
+          <key>name</key>
+          <string></string>
+          <key>options</key>
+          <integer>0</integer>
+          <key>place</key>
+          <array>
+            <integer>111</integer>
+            <integer>0</integer>
+          </array>
+          <key>stem</key>
+          <integer>-2</integer>
+          <key>type</key>
+          <string>Stem</string>
+        </dict>
+        <dict>
+          <key>horizontal</key>
+          <true/>
+          <key>name</key>
+          <string></string>
+          <key>options</key>
+          <integer>0</integer>
+          <key>place</key>
+          <array>
+            <integer>111</integer>
+            <integer>0</integer>
+          </array>
+          <key>stem</key>
+          <integer>-2</integer>
+          <key>type</key>
+          <string>Stem</string>
+        </dict>
+        <dict>
+          <key>horizontal</key>
+          <true/>
+          <key>name</key>
+          <string></string>
+          <key>options</key>
+          <integer>0</integer>
+          <key>place</key>
+          <array>
+            <integer>238</integer>
+            <integer>0</integer>
+          </array>
+          <key>stem</key>
+          <integer>-2</integer>
+          <key>type</key>
+          <string>Stem</string>
+        </dict>
+        <dict>
+          <key>horizontal</key>
+          <true/>
+          <key>name</key>
+          <string></string>
+          <key>options</key>
+          <integer>0</integer>
+          <key>place</key>
+          <array>
+            <integer>238</integer>
+            <integer>0</integer>
+          </array>
+          <key>stem</key>
+          <integer>-2</integer>
+          <key>type</key>
+          <string>Stem</string>
+        </dict>
+      </array>
+      <key>public.markColor</key>
+      <string>0.98,0.36,0.67,1</string>
+    </dict>
+  </lib>
+</glyph>

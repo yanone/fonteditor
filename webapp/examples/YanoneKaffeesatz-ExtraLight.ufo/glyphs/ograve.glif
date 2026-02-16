@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="ograve" format="2">
+  <advance width="401"/>
+  <unicode hex="00F2"/>
+  <anchor x="201" y="0" name="bottom"/>
+  <anchor x="201" y="250" name="center"/>
+  <anchor x="361" y="10" name="ogonek"/>
+  <anchor x="176" y="712" name="top"/>
+  <anchor x="321" y="500" name="topright"/>
+  <outline>
+    <component base="o"/>
+    <component base="gravecomb" xOffset="51"/>
+  </outline>
+  <lib>
+    <dict>
+      <key>public.markColor</key>
+      <string>0.97,1,0,1</string>
+    </dict>
+  </lib>
+</glyph>

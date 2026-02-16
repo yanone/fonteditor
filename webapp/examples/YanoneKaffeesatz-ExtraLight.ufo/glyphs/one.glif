@@ -1,0 +1,63 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="one" format="2">
+  <advance width="450"/>
+  <unicode hex="0031"/>
+  <outline>
+    <contour>
+      <point x="45" y="0" type="curve"/>
+      <point x="405" y="0" type="line"/>
+      <point x="405" y="0"/>
+      <point x="405" y="26"/>
+      <point x="405" y="26" type="curve"/>
+      <point x="405" y="26"/>
+      <point x="384" y="24"/>
+      <point x="353" y="24" type="curve"/>
+      <point x="247" y="24" type="line"/>
+      <point x="260" y="598" type="line"/>
+      <point x="260" y="598"/>
+      <point x="255" y="601"/>
+      <point x="250" y="601" type="curve"/>
+      <point x="250" y="601"/>
+      <point x="84" y="567"/>
+      <point x="84" y="567" type="curve"/>
+      <point x="84" y="560"/>
+      <point x="87" y="543"/>
+      <point x="87" y="543" type="curve"/>
+      <point x="87" y="543"/>
+      <point x="236" y="573"/>
+      <point x="236" y="573" type="curve"/>
+      <point x="220" y="24" type="line"/>
+      <point x="220" y="24"/>
+      <point x="45" y="24"/>
+      <point x="45" y="24" type="curve" smooth="yes"/>
+      <point x="45" y="24"/>
+      <point x="45" y="0"/>
+    </contour>
+  </outline>
+  <lib>
+    <dict>
+      <key>com.schriftgestaltung.hints</key>
+      <array>
+        <dict>
+          <key>horizontal</key>
+          <true/>
+          <key>name</key>
+          <string></string>
+          <key>options</key>
+          <integer>0</integer>
+          <key>place</key>
+          <array>
+            <integer>0</integer>
+            <integer>0</integer>
+          </array>
+          <key>stem</key>
+          <integer>-2</integer>
+          <key>type</key>
+          <string>Stem</string>
+        </dict>
+      </array>
+      <key>public.markColor</key>
+      <string>0.97,1,0,1</string>
+    </dict>
+  </lib>
+</glyph>

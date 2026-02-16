@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<glyph name="pe-cy.loclBGR" format="2">
+  <advance width="361"/>
+  <anchor x="181" y="0" name="bottom"/>
+  <anchor x="181" y="500" name="top"/>
+  <outline>
+    <component base="n"/>
+  </outline>
+  <lib>
+    <dict>
+      <key>public.markColor</key>
+      <string>0.67,0.95,0.38,1</string>
+    </dict>
+  </lib>
+</glyph>
