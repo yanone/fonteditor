@@ -104,7 +104,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ✅ Hot-reloading fonts on external changes (Chrome/Chromium only)
 - ◻️ Fontspector integration (incl. glyph-level messages)
 - ◻️ Interactive demo
-- ◻️ Basic documentation
+- ✅ Basic documentation
 
 ### v0.3 (Due: Mar 10, 2026)
 
