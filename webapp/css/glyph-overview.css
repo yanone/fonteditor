@@ -38,6 +38,10 @@
     contain-intrinsic-size: var(--tile-width) var(--tile-height);
 }
 
+.glyph-tile:not(.selected) {
+    border-color: color-mix(in srgb, var(--border-primary) 40%, transparent);
+}
+
 /* Lighter background for unselected tiles when overview view is focused */
 .view-overview.focused .glyph-tile {
 //    background-color: color-mix(in srgb, var(--background-secondary) 70%, white);
