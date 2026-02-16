@@ -145,6 +145,28 @@
         <!-- Extract and display version from service worker -->
         <script>
             (function () {
+                if (window.isTestMode && window.isTestMode()) {
+                    const hideVersion = () => {
+                        const versionSpan =
+                            document.getElementById('app-version');
+                        if (versionSpan) {
+                            versionSpan.textContent = '';
+                            versionSpan.style.display = 'none';
+                        }
+                    };
+
+                    if (document.readyState === 'loading') {
+                        document.addEventListener(
+                            'DOMContentLoaded',
+                            hideVersion
+                        );
+                    } else {
+                        hideVersion();
+                    }
+
+                    return;
+                }
+
                 // Fetch the service worker file to extract version
                 fetch('coi-serviceworker.js')
                     .then((response) => response.text())
