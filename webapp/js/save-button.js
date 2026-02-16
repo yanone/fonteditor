@@ -60,11 +60,6 @@ class SaveButton {
                     window.fontManager.updateDirtyIndicator();
                 }
 
-                // Play done sound
-                if (window.playSound) {
-                    window.playSound('done');
-                }
-
                 // Update save button state
                 this.isSaving = false;
                 this.showSuccess();

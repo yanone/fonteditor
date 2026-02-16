@@ -288,12 +288,6 @@ declare global {
         // From settings.js
         APP_SETTINGS: Record<string, any>;
 
-        // From sound-preloader.js
-        preloadedSounds: Record<string, HTMLAudioElement>;
-        playSound: (name: string) => void;
-        setVolume: (volume: number) => void;
-        getVolume: () => number;
-
         // From tab-lifecycle.js
         tabLifecycleManager: TabLifecycleManager;
 

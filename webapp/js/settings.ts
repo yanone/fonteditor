@@ -11,9 +11,6 @@ const APP_SETTINGS = {
     // Axis animation settings
     AXIS_ANIMATION_WAVELENGTH: 5000, // ms - wavelength of sine wave for axis animation
 
-    // Sound settings
-    SOUND_ENABLED: false, // Set to true to enable sound effects
-
     // Font Manager settings
     FONT_MANAGER: {
         SAVE_DEBUG_FONTS: true // Set to true to save typing/editing fonts to file system for inspection

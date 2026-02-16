@@ -1158,11 +1158,6 @@ const console = new Logger('ScriptEditor');
                 await window.pyodide.runPythonAsync(code);
                 console.log('[ScriptEditor]', 'Script executed successfully');
             }
-
-            // Play done sound
-            if (window.playSound) {
-                window.playSound('done');
-            }
         } catch (error: any) {
             console.error('[ScriptEditor]', 'Script execution error:', error);
 

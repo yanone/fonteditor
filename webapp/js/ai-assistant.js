@@ -1113,11 +1113,6 @@ class AIAssistant {
                         if (window.focusView) {
                             window.focusView('view-assistant');
                         }
-
-                        // Play a subtle click sound if available
-                        if (window.playSound) {
-                            window.playSound('click');
-                        }
                     });
                 }
 
@@ -1137,11 +1132,6 @@ class AIAssistant {
                             setTimeout(() => {
                                 copyBtn.innerHTML = originalText;
                             }, 2000);
-
-                            // Play a subtle click sound if available
-                            if (window.playSound) {
-                                window.playSound('click');
-                            }
                         } catch (err) {
                             console.error(
                                 '[AIAssistant]',
@@ -1359,11 +1349,6 @@ class AIAssistant {
             try {
                 await window.pyodide.runPythonAsync(code);
                 console.log('[AIAssistant]', '✅ Code executed successfully');
-
-                // Play done sound
-                if (window.playSound) {
-                    window.playSound('done');
-                }
                 return; // Success
             } catch (error) {
                 console.error(
@@ -1386,11 +1371,6 @@ class AIAssistant {
             window.term.echo('🚀 Running assistant-generated code...');
             await window.pyodide.runPythonAsync(code);
             window.term.echo('✅ Code executed successfully');
-
-            // Play done sound
-            if (window.playSound) {
-                window.playSound('done');
-            }
         } catch (error) {
             // Clean the traceback before displaying
             const cleanedError =
@@ -1580,21 +1560,15 @@ class AIAssistant {
             // Update the existing message with new traceback and make it blink again
             this.currentErrorTraceback = cleanedTraceback;
 
-            // Delay to avoid overlap with error sound (same delay as first time)
             setTimeout(() => {
                 // Remove and re-add the animation class to restart it
                 lastMessage.classList.remove('ai-message-error-fix');
                 void lastMessage.offsetWidth; // Force reflow
                 lastMessage.classList.add('ai-message-error-fix');
 
-                // Play attention sound
-                if (window.playSound) {
-                    window.playSound('attention');
-                }
-
                 // Scroll to bottom
                 this.scrollToBottom();
-            }, 2500); // Same delay as first time to avoid sound overlap
+            }, 2500);
 
             return;
         }
@@ -1605,7 +1579,6 @@ class AIAssistant {
         // Store the current error traceback
         this.currentErrorTraceback = cleanedTraceback;
 
-        // Delay showing the message by 1.5 seconds + estimated sound duration (attention.wav ~1 second)
         setTimeout(() => {
             // Show messages container
             if (
@@ -1642,11 +1615,6 @@ class AIAssistant {
             // Clear the flag now that the message is actually shown
             this.isShowingErrorFix = false;
 
-            // Play attention sound
-            if (window.playSound) {
-                window.playSound('attention');
-            }
-
             // Scroll to bottom
             this.scrollToBottom();
 
@@ -1673,11 +1641,6 @@ class AIAssistant {
 
                     // Add a custom user message with traceback displayed as code block
                     this.addErrorTracebackMessage(latestTraceback);
-
-                    // Play message sent sound
-                    if (window.playSound) {
-                        window.playSound('message_sent');
-                    }
 
                     // Clear input and disable controls
                     this.promptInput.value = '';
@@ -1709,7 +1672,7 @@ class AIAssistant {
                     }, 100);
                 });
             }
-        }, 2500); // 1500ms delay + ~1000ms for attention sound
+        }, 2500);
     }
 
     addErrorTracebackMessage(errorTraceback) {
@@ -1870,11 +1833,6 @@ ${errorTraceback}
         // Add user message
         this.addMessage('user', prompt);
 
-        // Play message sent sound
-        if (window.playSound) {
-            window.playSound('message_sent');
-        }
-
         // Show typing indicator
         this.showTypingIndicator();
 
@@ -1923,11 +1881,6 @@ ${errorTraceback}
                 // Just a conversational response with no code
                 this.addMessage('assistant', markdownText);
 
-                // Play incoming message sound
-                if (window.playSound) {
-                    window.playSound('incoming_message');
-                }
-
                 // Add reuse buttons to previous user messages
                 this.addReuseButtonsToOldMessages();
                 return;
@@ -1947,30 +1900,15 @@ ${errorTraceback}
                 // Script/glyphfilter mode: Just show the code, no execution
                 // For glyphfilter context, don't show the "review" and "open in editor" buttons
                 this.addOutputWithCode('', pythonCode, markdownText, false);
-
-                // Play incoming message sound
-                if (window.playSound) {
-                    window.playSound('incoming_message');
-                }
             } else if (this.autoRun) {
                 // Font mode with auto-run: Execute the Python code and capture output
                 const output = await this.executePython(pythonCode);
 
                 // Show output with collapsible code and run button
                 this.addOutputWithCode(output, pythonCode, markdownText, true);
-
-                // Play incoming message sound
-                if (window.playSound) {
-                    window.playSound('incoming_message');
-                }
             } else {
                 // Font mode, manual: Just show the code with a run button
                 this.addOutputWithCode('', pythonCode, markdownText, true);
-
-                // Play incoming message sound
-                if (window.playSound) {
-                    window.playSound('incoming_message');
-                }
             }
 
             // Add reuse buttons to previous user messages now that we have a response

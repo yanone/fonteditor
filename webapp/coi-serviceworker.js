@@ -32,13 +32,6 @@ const PRECACHE_ASSETS = [
     './wasm-dist/babelfont_fontc_web_bg.wasm.d.ts',
     './wasm-dist/babelfont_fontc_web.d.ts',
 
-    // Sound assets
-    './assets/sounds/attention.wav',
-    './assets/sounds/done.wav',
-    './assets/sounds/error.wav',
-    './assets/sounds/incoming_message.wav',
-    './assets/sounds/message_sent.wav',
-
     // Icons
     './assets/icons/icon-72x72.png',
     './assets/icons/icon-96x96.png',

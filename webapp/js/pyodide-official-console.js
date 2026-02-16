@@ -137,11 +137,6 @@ async function initPyodideConsole() {
                         '[PyodideConsole]',
                         '✅ Console command completed successfully'
                     );
-
-                    // Play done sound after successful execution
-                    if (window.playSound) {
-                        window.playSound('done');
-                    }
                 } catch (e) {
                     // Log error to browser console
                     console.error(
@@ -290,25 +285,6 @@ async function initPyodideConsole() {
             }
         }, 500);
 
-        // Helper function to play error sound
-        const playErrorSound = () => {
-            if (window.playSound) {
-                window.playSound('error');
-            } else {
-                // Fallback if preloader not loaded yet
-                const errorSound = new Audio('assets/sounds/error.wav');
-                errorSound
-                    .play()
-                    .catch((e) =>
-                        console.warn(
-                            '[PyodideConsole]',
-                            'Could not play error sound:',
-                            e
-                        )
-                    );
-            }
-        };
-
         pyconsole.stdout_callback = (s) => {
             // Filter system messages from interactive console too
             if (isSystemMessage(s)) {
@@ -334,13 +310,6 @@ async function initPyodideConsole() {
             term.error(s.trimEnd());
         };
         term.ready = Promise.resolve();
-
-        // Wrap term.error to play error sound on ALL error calls
-        const originalTermError = term.error.bind(term);
-        term.error = function (...args) {
-            playErrorSound();
-            return originalTermError(...args);
-        };
 
         // Make console output functions globally available
         window.consoleEcho = echo;

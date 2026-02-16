@@ -165,7 +165,6 @@ import './resizer.js';
 import './save-button.js';
 import './script-editor';
 import './share-button';
-import './sound-preloader.js';
 import './theme-switcher.js';
 import './view-settings.js';
 import { initViewTitleButtons } from './view-title-buttons';

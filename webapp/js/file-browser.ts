@@ -914,11 +914,6 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
             });
         }
 
-        // Play done sound
-        if (window.playSound) {
-            window.playSound('done');
-        }
-
         // Restore focus to canvas if editor view is active
         const editorView = document.getElementById('view-editor');
         if (
@@ -1454,11 +1449,6 @@ async function uploadFiles(
 
         if (uploadedToCurrentPlugin) {
             await refreshFileSystem();
-        }
-
-        // Play done sound
-        if (uploadedToCurrentPlugin && window.playSound) {
-            window.playSound('done');
         }
     }
 }
