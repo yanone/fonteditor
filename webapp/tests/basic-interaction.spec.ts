@@ -240,6 +240,80 @@ test.describe('Font Editor Basic Workflow', () => {
             'cmd-0-on-meem-init',
             expect
         );
+
+        // Open plugins dropdown in editor title bar
+        console.log('[Test] Opening plugins dropdown');
+        await page.locator('#editor-plugins-dropdown-btn').click();
+        await expect(page.locator('#editor-plugins-dropdown')).toBeVisible();
+
+        // Activate curvature plugin
+        console.log('[Test] Activating curvature plugin');
+        await page
+            .locator('.editor-plugins-dropdown-item')
+            .filter({ hasText: 'Curvature Comb' })
+            .first()
+            .click();
+        await page.waitForTimeout(300);
+
+        // Close panel before snapshot
+        console.log('[Test] Closing plugins dropdown with Escape');
+        await page.keyboard.press('Escape');
+        await expect(page.locator('#editor-plugins-dropdown')).toBeHidden();
+        await page.waitForTimeout(200);
+
+        // SNAPSHOT POINT 10: Curvature plugin active
+        console.log('[Test] Taking snapshot 10: curvature plugin active');
+        await takeSnapshot(page, '10', 'curvature-plugin-active', expect);
+
+        // Re-open plugins dropdown for deactivation/activation
+        console.log('[Test] Re-opening plugins dropdown');
+        await page.locator('#editor-plugins-dropdown-btn').click();
+        await expect(page.locator('#editor-plugins-dropdown')).toBeVisible();
+
+        // Deactivate curvature plugin
+        console.log('[Test] Deactivating curvature plugin');
+        await page
+            .locator('.editor-plugins-dropdown-item')
+            .filter({ hasText: 'Curvature Comb' })
+            .first()
+            .click();
+        await page.waitForTimeout(200);
+
+        // Activate example plugin
+        console.log('[Test] Activating example plugin');
+        await page
+            .locator('.editor-plugins-dropdown-item')
+            .filter({ hasText: 'Example Canvas Plugin' })
+            .first()
+            .click();
+        await page.waitForTimeout(300);
+
+        // Close panel before snapshot
+        console.log('[Test] Closing plugins dropdown with Escape');
+        await page.keyboard.press('Escape');
+        await expect(page.locator('#editor-plugins-dropdown')).toBeHidden();
+        await page.waitForTimeout(200);
+
+        // SNAPSHOT POINT 11: Example plugin active
+        console.log('[Test] Taking snapshot 11: example plugin active');
+        await takeSnapshot(page, '11', 'example-plugin-active', expect);
+
+        // Re-open plugins dropdown for final deactivation
+        console.log('[Test] Re-opening plugins dropdown');
+        await page.locator('#editor-plugins-dropdown-btn').click();
+        await expect(page.locator('#editor-plugins-dropdown')).toBeVisible();
+
+        // Deactivate example plugin
+        console.log('[Test] Deactivating example plugin');
+        await page
+            .locator('.editor-plugins-dropdown-item')
+            .filter({ hasText: 'Example Canvas Plugin' })
+            .first()
+            .click();
+        await page.waitForTimeout(200);
+
+        // Close plugins dropdown
+        await page.keyboard.press('Escape');
         console.log('[Test] Test complete');
     });
 
