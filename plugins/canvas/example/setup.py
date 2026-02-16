@@ -21,7 +21,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="example-canvas-plugin",
-    version="0.1.0",
+    version="0.1.1",
     description="Example canvas plugin for Context Font Editor",
     author="Yanone",
     license="GPL-3.0-or-later",

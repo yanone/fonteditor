@@ -21,7 +21,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="curvature-comb-plugin",
-    version="0.1.0",
+    version="0.1.1",
     description="Curvature comb visualization for Context Font Editor",
     author="Yanone",
     license="GPL-3.0-or-later",
