@@ -123,6 +123,10 @@ function setupHooks() {
         if (window.autoCompileManager) {
             window.autoCompileManager.scheduleCompilation();
         }
+
+        if (window.fullCompileManager) {
+            window.fullCompileManager.scheduleCompilation();
+        }
     };
 
     console.log(

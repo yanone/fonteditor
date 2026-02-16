@@ -35,6 +35,12 @@ export type GlyphData = {
     axesOrder: string[];
 };
 
+export type FontQCSummary = {
+    fails: number;
+    warns: number;
+    infos: number;
+};
+
 type ReloadCurrentFontOptions = {
     preserveUiState?: boolean;
 };
@@ -191,6 +197,7 @@ class OpenedFont {
         this.needsRecompile = true;
         this.hasUnsavedChanges = true;
         this.changeVersion++;
+        window.fullCompileManager?.checkAndSchedule?.();
     }
 
     /**
@@ -301,6 +308,8 @@ class FontManager {
     currentFontId: string | null = null;
     typingFont: Uint8Array | null;
     editingFont: Uint8Array | null;
+    fullFont: Uint8Array | null;
+    fullFontQcSummary: FontQCSummary | null;
     currentText: string;
     selectedFeatures: string[];
     isCompiling: boolean;
@@ -322,6 +331,8 @@ class FontManager {
         this.openedFonts = new Map<string, OpenedFont>();
         this.typingFont = null; // Uint8Array of compiled typing font
         this.editingFont = null; // Uint8Array of compiled editing font
+        this.fullFont = null; // Uint8Array of compiled full font
+        this.fullFontQcSummary = null;
         this.currentText = '';
         this.selectedFeatures = [];
         this.isCompiling = false;
@@ -809,6 +820,8 @@ class FontManager {
 
         this.typingFont = null;
         this.editingFont = null;
+        this.fullFont = null;
+        this.fullFontQcSummary = null;
         this.glyphOrderCache = null; // Clear cache for new font
         this.closureCache = null;
 
@@ -1075,6 +1088,7 @@ class FontManager {
     saveFontsToFileSystem() {
         this.saveTypingFontToFileSystem();
         this.saveEditingFontToFileSystem();
+        this.saveFullFontToFileSystem();
     }
 
     /**
@@ -1121,6 +1135,33 @@ class FontManager {
                 new File(
                     [this.editingFont as Uint8Array<ArrayBuffer>],
                     '_debug_editing_font.ttf',
+                    { type: 'font/ttf' }
+                )
+            ],
+            {
+                directory: '/user',
+                pluginId: 'memory'
+            }
+        );
+    }
+
+    /**
+     * Save full font to file system
+     */
+    saveFullFontToFileSystem() {
+        if (!APP_SETTINGS.FONT_MANAGER?.SAVE_DEBUG_FONTS) {
+            return; // Feature disabled in settings
+        }
+
+        if (!this.fullFont) {
+            return;
+        }
+
+        window.uploadFiles(
+            [
+                new File(
+                    [this.fullFont as Uint8Array<ArrayBuffer>],
+                    '_debug_full_font.ttf',
                     { type: 'font/ttf' }
                 )
             ],
@@ -1728,6 +1769,9 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
         // Compile initial editing font
         await fontManager!.compileEditingFont();
+
+        // Trigger initial full-font compile + QC in background worker
+        window.fullCompileManager?.scheduleCompilation?.(0);
     } catch (error) {
         console.error('[FontManager]', 'Failed to initialize font manager:');
         console.error(

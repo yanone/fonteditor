@@ -2736,10 +2736,14 @@ function initCanvas() {
         rightSidebar.style.height = '100%';
         rightSidebar.style.borderLeft = '1px solid var(--border-primary)';
         rightSidebar.style.padding = '12px';
+        rightSidebar.style.paddingBottom = '0px';
         rightSidebar.style.overflowY = 'auto';
+        rightSidebar.style.overflowX = 'hidden';
         rightSidebar.style.display = 'flex';
         rightSidebar.style.flexDirection = 'column';
         rightSidebar.style.gap = '12px';
+        rightSidebar.style.transition =
+            'width 0.22s ease, min-width 0.22s ease';
 
         // Create canvas container
         const canvasContainer = document.createElement('div');
@@ -2773,6 +2777,346 @@ function initCanvas() {
         const featuresSection =
             window.glyphCanvas.featuresManager!.createFeaturesSection();
         rightSidebar.appendChild(featuresSection);
+
+        // Create font QC summary container (bottom of right sidebar)
+        const fontQcSection = document.createElement('div');
+        fontQcSection.id = 'font-qc-summary-section';
+        fontQcSection.className = 'font-qc-summary collapsed';
+        fontQcSection.style.marginTop = 'auto';
+
+        const fontQcHeader = document.createElement('div');
+        fontQcHeader.className = 'font-qc-header';
+
+        const fontQcTitleWrap = document.createElement('div');
+        fontQcTitleWrap.className = 'font-qc-title-wrap';
+
+        const fontQcTitle = document.createElement('div');
+        fontQcTitle.className = 'editor-section-title';
+        fontQcTitle.textContent = 'Fontspector';
+
+        const fontQcShortcut = document.createElement('span');
+        fontQcShortcut.className =
+            'font-qc-title-shortcut view-title-shortcut button-shortcut';
+        fontQcShortcut.innerHTML =
+            '<span class="material-symbols-outlined">keyboard_option_key</span>F';
+
+        const fontQcCloseBtn = document.createElement('button');
+        fontQcCloseBtn.className = 'font-qc-close-button';
+        fontQcCloseBtn.type = 'button';
+        fontQcCloseBtn.title = 'Close Fontspector';
+        fontQcCloseBtn.innerHTML =
+            '<span class="material-symbols-outlined">close</span>';
+
+        const fontQcCounts = document.createElement('div');
+        fontQcCounts.className = 'font-qc-counts';
+
+        const failCount = document.createElement('button');
+        failCount.className = 'font-qc-pill fail active';
+        failCount.type = 'button';
+        failCount.innerHTML =
+            '<span class="label">Fail</span><span class="value">0</span>';
+
+        const warnCount = document.createElement('button');
+        warnCount.className = 'font-qc-pill warn active';
+        warnCount.type = 'button';
+        warnCount.innerHTML =
+            '<span class="label">Warn</span><span class="value">0</span>';
+
+        const infoCount = document.createElement('button');
+        infoCount.className = 'font-qc-pill info active';
+        infoCount.type = 'button';
+        infoCount.innerHTML =
+            '<span class="label">Info</span><span class="value">0</span>';
+
+        const fontQcStatus = document.createElement('div');
+        fontQcStatus.className = 'font-qc-status';
+        fontQcStatus.textContent = 'Waiting';
+
+        const fontQcProfileRow = document.createElement('div');
+        fontQcProfileRow.className = 'font-qc-profile-row';
+
+        const fontQcProfileLabel = document.createElement('label');
+        fontQcProfileLabel.className = 'font-qc-profile-label';
+        fontQcProfileLabel.setAttribute('for', 'font-qc-profile-select');
+        fontQcProfileLabel.textContent = 'Profile';
+
+        const fontQcProfileSelect = document.createElement('select');
+        fontQcProfileSelect.id = 'font-qc-profile-select';
+        fontQcProfileSelect.className = 'font-qc-profile-select';
+
+        const fontQcBody = document.createElement('div');
+        fontQcBody.className = 'font-qc-body';
+
+        const fontQcList = document.createElement('div');
+        fontQcList.className = 'font-qc-list';
+        fontQcBody.appendChild(fontQcList);
+
+        fontQcTitleWrap.appendChild(fontQcTitle);
+        fontQcTitleWrap.appendChild(fontQcShortcut);
+        fontQcHeader.appendChild(fontQcTitleWrap);
+        fontQcHeader.appendChild(fontQcCloseBtn);
+        fontQcCounts.appendChild(failCount);
+        fontQcCounts.appendChild(warnCount);
+        fontQcCounts.appendChild(infoCount);
+
+        fontQcSection.appendChild(fontQcHeader);
+        fontQcSection.appendChild(fontQcCounts);
+        fontQcProfileRow.appendChild(fontQcProfileLabel);
+        fontQcProfileRow.appendChild(fontQcProfileSelect);
+        fontQcSection.appendChild(fontQcProfileRow);
+        fontQcSection.appendChild(fontQcStatus);
+        fontQcSection.appendChild(fontQcBody);
+        rightSidebar.appendChild(fontQcSection);
+
+        let qcExpanded = false;
+        let qcChecks: any[] = [];
+        let qcAvailableProfiles: string[] = [];
+        const sidebarCollapsedWidth =
+            Number.parseFloat(rightSidebar.style.width) || 200;
+        const sidebarExpandedWidth = sidebarCollapsedWidth * 2;
+        const qcFilters: Record<'fail' | 'warn' | 'info', boolean> = {
+            fail: true,
+            warn: true,
+            info: true
+        };
+
+        const renderQcList = () => {
+            if (!qcChecks.length) {
+                fontQcList.innerHTML =
+                    '<div class="font-qc-empty">No QC messages yet.</div>';
+                return;
+            }
+
+            const visible = qcChecks.filter((item) => {
+                const level = item?.level as 'fail' | 'warn' | 'info';
+                return qcFilters[level] !== false;
+            });
+
+            if (!visible.length) {
+                fontQcList.innerHTML =
+                    '<div class="font-qc-empty">No messages match current filters.</div>';
+                return;
+            }
+
+            const rows = visible
+                .map((item) => {
+                    const level = (item?.level || 'info').toLowerCase();
+                    const code = item?.code || 'uncoded';
+                    const message = item?.message || '';
+                    return `<div class="font-qc-item ${level}"><div class="font-qc-item-meta">${level.toUpperCase()} · ${code}</div><div class="font-qc-item-message">${message}</div></div>`;
+                })
+                .join('');
+
+            fontQcList.innerHTML = rows;
+        };
+
+        const setQcExpanded = (expanded: boolean) => {
+            qcExpanded = expanded;
+            fontQcSection.classList.toggle('expanded', expanded);
+            fontQcSection.classList.toggle('collapsed', !expanded);
+            axesSection.style.display = expanded ? 'none' : '';
+            featuresSection.style.display = expanded ? 'none' : '';
+            rightSidebar.style.overflowY = expanded ? 'hidden' : 'auto';
+            const sidebarTargetWidth = expanded
+                ? sidebarExpandedWidth
+                : sidebarCollapsedWidth;
+            rightSidebar.style.width = `${sidebarTargetWidth}px`;
+            rightSidebar.style.minWidth = `${sidebarTargetWidth}px`;
+
+            if (expanded) {
+                renderQcList();
+            }
+        };
+
+        const syncProfileOptions = (
+            profiles: string[],
+            selectedProfile: string | null
+        ) => {
+            const normalizedProfiles = profiles.length
+                ? profiles
+                : ['opentype'];
+            const needsRebuild =
+                normalizedProfiles.length !== qcAvailableProfiles.length ||
+                normalizedProfiles.some(
+                    (value, index) => qcAvailableProfiles[index] !== value
+                );
+
+            if (needsRebuild) {
+                qcAvailableProfiles = [...normalizedProfiles];
+                fontQcProfileSelect.innerHTML = '';
+                for (const profile of qcAvailableProfiles) {
+                    const option = document.createElement('option');
+                    option.value = profile;
+                    option.textContent = profile;
+                    fontQcProfileSelect.appendChild(option);
+                }
+            }
+
+            if (
+                selectedProfile &&
+                fontQcProfileSelect.value !== selectedProfile &&
+                qcAvailableProfiles.includes(selectedProfile)
+            ) {
+                fontQcProfileSelect.value = selectedProfile;
+            }
+        };
+
+        const updateQcSummary = (detail: any) => {
+            const summary = detail?.summary || { fails: 0, warns: 0, infos: 0 };
+            const status = detail?.status || 'idle';
+            const isCompiling = status === 'compiling';
+            qcChecks = Array.isArray(detail?.checks) ? detail.checks : qcChecks;
+            const availableProfiles = Array.isArray(detail?.availableProfiles)
+                ? detail.availableProfiles
+                : qcAvailableProfiles;
+            const selectedProfile =
+                typeof detail?.profile === 'string'
+                    ? detail.profile
+                    : window.fullCompileManager?.getProfile?.() || 'opentype';
+
+            syncProfileOptions(availableProfiles, selectedProfile);
+
+            const failValue = failCount.querySelector('.value');
+            const warnValue = warnCount.querySelector('.value');
+            const infoValue = infoCount.querySelector('.value');
+
+            if (failValue) {
+                failValue.textContent = String(summary.fails ?? 0);
+            }
+            if (warnValue) {
+                warnValue.textContent = String(summary.warns ?? 0);
+            }
+            if (infoValue) {
+                infoValue.textContent = String(summary.infos ?? 0);
+            }
+
+            fontQcSection.classList.toggle('is-compiling', isCompiling);
+
+            if (status === 'error') {
+                fontQcStatus.textContent = 'QC failed';
+            } else if (status === 'ready') {
+                fontQcStatus.textContent = 'Up to date';
+            } else {
+                fontQcStatus.textContent = 'Waiting';
+            }
+
+            if (qcExpanded) {
+                renderQcList();
+            }
+        };
+
+        const initialProfiles =
+            window.fullCompileManager?.getAvailableProfiles?.() || ['opentype'];
+        const initialProfile =
+            window.fullCompileManager?.getProfile?.() || 'opentype';
+        syncProfileOptions(initialProfiles, initialProfile);
+
+        fontQcProfileSelect.addEventListener('click', (event) => {
+            event.stopPropagation();
+        });
+
+        fontQcProfileSelect.addEventListener('mousedown', (event) => {
+            event.stopPropagation();
+        });
+
+        fontQcProfileSelect.addEventListener('pointerdown', (event) => {
+            event.stopPropagation();
+        });
+
+        fontQcProfileRow.addEventListener('click', (event) => {
+            event.stopPropagation();
+        });
+
+        fontQcProfileRow.addEventListener('mousedown', (event) => {
+            event.stopPropagation();
+        });
+
+        fontQcProfileSelect.addEventListener('change', (event) => {
+            event.stopPropagation();
+            const selected = fontQcProfileSelect.value;
+            window.fullCompileManager?.setProfile?.(selected);
+        });
+
+        const toggleFilter = (level: 'fail' | 'warn' | 'info') => {
+            if (!qcExpanded) {
+                setQcExpanded(true);
+                return;
+            }
+
+            qcFilters[level] = !qcFilters[level];
+            failCount.classList.toggle('active', qcFilters.fail);
+            warnCount.classList.toggle('active', qcFilters.warn);
+            infoCount.classList.toggle('active', qcFilters.info);
+            renderQcList();
+        };
+
+        failCount.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleFilter('fail');
+        });
+        warnCount.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleFilter('warn');
+        });
+        infoCount.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleFilter('info');
+        });
+
+        fontQcCloseBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            setQcExpanded(false);
+        });
+
+        document.addEventListener(
+            'keydown',
+            (event: KeyboardEvent) => {
+                if (qcExpanded && event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.stopImmediatePropagation();
+                    setQcExpanded(false);
+                }
+            },
+            true
+        );
+
+        document.addEventListener('keydown', (event: KeyboardEvent) => {
+            const isAltFShortcut =
+                event.altKey &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                event.code === 'KeyF';
+
+            if (!isAltFShortcut) {
+                return;
+            }
+
+            const editorView = document.querySelector('#view-editor');
+            const isEditorFocused = editorView?.classList.contains('focused');
+            if (!isEditorFocused || qcExpanded) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            setQcExpanded(true);
+        });
+
+        const expandQcPanel = (event: Event) => {
+            event.stopPropagation();
+            if (!qcExpanded) {
+                setQcExpanded(true);
+            }
+        };
+
+        fontQcHeader.addEventListener('click', expandQcPanel);
+        fontQcCounts.addEventListener('click', expandQcPanel);
+        fontQcStatus.addEventListener('click', expandQcPanel);
+
+        window.addEventListener('fullFontQcUpdated', (event: Event) => {
+            updateQcSummary((event as CustomEvent).detail);
+        });
 
         // Store reference to sidebars for later updates
         window.glyphCanvas.leftSidebar = leftSidebar;

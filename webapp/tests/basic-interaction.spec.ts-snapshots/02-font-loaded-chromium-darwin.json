@@ -10,12 +10,6 @@
     "editor_isInterpolating": false,
     "editor_isAnimating": false,
     "editor_opentype_features_in_subset": {
-      "ss03": false,
-      "ss04": false,
-      "ss06": false,
-      "kern": true
-    },
-    "editor_opentype_features_not_in_subset": {
       "locl": true,
       "liga": true,
       "subs": false,
@@ -30,8 +24,13 @@
       "zero": false,
       "ss01": false,
       "ss02": false,
-      "ss05": false
+      "ss03": false,
+      "ss04": false,
+      "ss05": false,
+      "ss06": false,
+      "kern": true
     },
+    "editor_opentype_features_not_in_subset": {},
     "editor_variation_location": {
       "wght": 200
     },

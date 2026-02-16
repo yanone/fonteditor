@@ -74,7 +74,19 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
         skip_metrics: false,
         skip_outlines: false,
         dont_use_production_names: true,
-        drop_incompatible_paths: false,
+        drop_incompatible_paths: true,
+        produce_varc_table: true
+    },
+
+    // Subset font for canvas display with layout closure.
+    // GSUB features included (via layout closure), GPOS retained for mark positioning.
+    full: {
+        skip_kerning: false,
+        skip_features: false,
+        skip_metrics: false,
+        skip_outlines: false,
+        dont_use_production_names: true,
+        drop_incompatible_paths: true,
         produce_varc_table: true
     }
 };
@@ -150,6 +162,7 @@ async function shapeTextWithFont(
 class FontCompilation {
     worker: Worker | null;
     isInitialized: boolean;
+    connectInterpolation: boolean;
     pendingCompilations: Map<
         number,
         {
@@ -160,9 +173,10 @@ class FontCompilation {
     >;
     compilationId: number;
 
-    constructor() {
+    constructor(options?: { connectInterpolation?: boolean }) {
         this.worker = null;
         this.isInitialized = false;
+        this.connectInterpolation = options?.connectInterpolation ?? true;
         this.pendingCompilations = new Map();
         this.compilationId = 0;
     }
@@ -280,8 +294,8 @@ class FontCompilation {
                 '✅ Ready for direct Python → Rust compilation'
             );
 
-            // Connect interpolation manager to this worker
-            if (fontInterpolation) {
+            // Connect interpolation manager to this worker (main pipeline only)
+            if (this.connectInterpolation && fontInterpolation) {
                 fontInterpolation.setWorker(this.worker);
                 console.log(
                     '[FontCompilation]',
@@ -355,7 +369,7 @@ class FontCompilation {
                 // For compilation messages, wrap in { result, time_taken, filename }
                 // For other message types, return the full data
                 if (result !== undefined) {
-                    resolve({ result, time_taken, filename });
+                    resolve({ ...e.data, result, time_taken, filename });
                 } else {
                     resolve(e.data);
                 }
@@ -586,7 +600,13 @@ json.dumps(font_dict)
 }
 
 // Create global instance
-const fontCompilation = new FontCompilation();
+const fontCompilation = new FontCompilation({
+    connectInterpolation: true
+});
+
+const fullFontCompilation = new FontCompilation({
+    connectInterpolation: false
+});
 
 // Initialize when DOM is ready
 async function initFontCompilation() {
@@ -629,6 +649,12 @@ if (typeof document !== 'undefined') {
 // Expose for manual initialization if needed
 (window as any).initFontCompilation = initFontCompilation;
 (window as any).fontCompilation = fontCompilation;
+(window as any).fullFontCompilation = fullFontCompilation;
 
 export type { CompilationOptions, FontCompilation };
-export { fontCompilation, COMPILATION_TARGETS, shapeTextWithFont };
+export {
+    fontCompilation,
+    fullFontCompilation,
+    COMPILATION_TARGETS,
+    shapeTextWithFont
+};

@@ -9,6 +9,7 @@ import init, {
     clear_font_cache,
     open_font_file,
     get_glyphs_outlines,
+    run_fontspector,
     version
 } from '../wasm-dist/babelfont_fontc_web.js';
 
@@ -472,6 +473,44 @@ self.onmessage = async (event) => {
                 stack: error.stack
             });
         }
+        return;
+    }
+
+    if (data.type === 'runFontspector') {
+        const { id, fontBytes, profile } = data;
+
+        if (!initialized) {
+            self.postMessage({
+                type: 'error',
+                id,
+                error: 'Worker not initialized'
+            });
+            return;
+        }
+
+        try {
+            const bytes =
+                fontBytes instanceof Uint8Array
+                    ? fontBytes
+                    : new Uint8Array(fontBytes);
+            const resultJson = run_fontspector(bytes, profile || 'opentype');
+            const parsed = JSON.parse(resultJson);
+            self.postMessage({
+                id,
+                type: 'runFontspector',
+                summary: parsed.summary || null,
+                checks: parsed.checks || [],
+                profile: parsed.profile || profile || 'opentype',
+                availableProfiles: parsed.availableProfiles || []
+            });
+        } catch (e: any) {
+            self.postMessage({
+                id,
+                type: 'runFontspector',
+                error: e?.toString?.() || 'Fontspector failed'
+            });
+        }
+
         return;
     }
 

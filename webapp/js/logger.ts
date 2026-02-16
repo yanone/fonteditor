@@ -32,6 +32,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     FileSystemAdapter: false,
     FilesystemPlugins: false,
     FontCompilation: true,
+    FullFontCompileManager: true,
     FontInterpolation: false,
     FontInfo: true,
     FontManager: true,

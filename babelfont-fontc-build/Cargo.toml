@@ -20,6 +20,12 @@ write-fonts = "0.45"
 read-fonts = "0.37"
 skrifa = "0.28"
 smol_str = "0.3"
+fontspector-checkapi = "1.4.0"
+fontspector-profile-opentype = "1.3.1"
+fontspector-profile-universal = "1.6.0"
+fontspector-profile-googlefonts = "1.6.1"
+fontspector-profile-iso15008 = "1.0.5"
+fontspector-profile-fontwerk = "1.2.3"
 
 [dependencies.web-sys]
 version = "0.3"

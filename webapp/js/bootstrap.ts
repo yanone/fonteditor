@@ -145,6 +145,7 @@ import './canvas-plugin-manager';
 import './editor-plugins-ui.js';
 import './example-loader.js';
 import './file-browser';
+import './full-font-compile-manager';
 import './font-info'; // Font info view manager (Names/Features tabs)
 import './font-interpolation';
 import './font-manager';
