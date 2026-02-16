@@ -294,9 +294,9 @@ test.describe('Font Editor Basic Workflow', () => {
         await expect(page.locator('#editor-plugins-dropdown')).toBeHidden();
         await page.waitForTimeout(200);
 
-        // SNAPSHOT POINT 11: Example plugin active
-        console.log('[Test] Taking snapshot 11: example plugin active');
-        await takeSnapshot(page, '11', 'example-plugin-active', expect);
+        // SNAPSHOT POINT 13: Example plugin active
+        console.log('[Test] Taking snapshot 13: example plugin active');
+        await takeSnapshot(page, '13', 'example-plugin-active', expect);
 
         // Re-open plugins dropdown for final deactivation
         console.log('[Test] Re-opening plugins dropdown');
@@ -314,6 +314,103 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // Close plugins dropdown
         await page.keyboard.press('Escape');
+
+        // Click through layers list dynamically: 2nd -> 3rd -> 1st
+        console.log('[Test] Cycling layers via layers list');
+        const layerItems = page.locator(
+            '.editor-layers-list .editor-layer-item[data-layer-id]'
+        );
+        const layerCount = await layerItems.count();
+        expect(layerCount).toBeGreaterThanOrEqual(3);
+
+        const clickLayerAndWait = async (
+            index: number,
+            snapshotNumber: string,
+            snapshotLabel: string
+        ) => {
+            const target = layerItems.nth(index);
+            const targetLayerId = await target.getAttribute('data-layer-id');
+            expect(targetLayerId).toBeTruthy();
+
+            await target.click();
+
+            // Wait until layer switch animation is complete and selection settled
+            await page.waitForFunction((expectedLayerId) => {
+                const selected = document.querySelector(
+                    '.editor-layers-list .editor-layer-item.selected[data-layer-id]'
+                );
+                const selectedLayerId = selected?.getAttribute('data-layer-id');
+                const glyphCanvas = (window as any).glyphCanvas;
+                const isAnimating =
+                    !!glyphCanvas?.outlineEditor?.isLayerSwitchAnimating;
+                return !isAnimating && selectedLayerId === expectedLayerId;
+            }, targetLayerId);
+
+            await page.waitForTimeout(300);
+
+            console.log(
+                `[Test] Taking snapshot ${snapshotNumber}: ${snapshotLabel}`
+            );
+            await takeSnapshot(page, snapshotNumber, snapshotLabel, expect);
+        };
+
+        // second layer
+        await clickLayerAndWait(1, '14', 'layer-second-selected');
+        // third layer
+        await clickLayerAndWait(2, '15', 'layer-third-selected');
+        // back to first layer
+        await clickLayerAndWait(0, '16', 'layer-first-reselected');
+
+        // Adjust variation setting via editor sidebar axis value input
+        console.log('[Test] Setting variation axis value to 300');
+        const axisValueInputs = page.locator(
+            '.editor-axis-value[data-axis-tag]'
+        );
+        const axisInputCount = await axisValueInputs.count();
+        expect(axisInputCount).toBeGreaterThan(0);
+
+        const firstAxisValueInput = axisValueInputs.first();
+        const firstAxisTag =
+            await firstAxisValueInput.getAttribute('data-axis-tag');
+        expect(firstAxisTag).toBeTruthy();
+
+        await firstAxisValueInput.fill('300');
+        await firstAxisValueInput.press('Enter');
+
+        await page.waitForFunction((axisTag) => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const axisInput = document.querySelector(
+                `.editor-axis-value[data-axis-tag="${axisTag}"]`
+            ) as HTMLInputElement | null;
+            const inputValue = axisInput?.value;
+            const isAnimating = !!glyphCanvas?.axesManager?.isAnimating;
+            return !isAnimating && inputValue === '300';
+        }, firstAxisTag);
+        await page.waitForTimeout(200);
+
+        // SNAPSHOT POINT 17: Variation set to 300
+        console.log('[Test] Taking snapshot 17: variation 300');
+        await takeSnapshot(page, '17', 'variation-300', expect);
+
+        console.log('[Test] Setting variation axis value to 400');
+        await firstAxisValueInput.fill('400');
+        await firstAxisValueInput.press('Enter');
+
+        await page.waitForFunction((axisTag) => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const axisInput = document.querySelector(
+                `.editor-axis-value[data-axis-tag="${axisTag}"]`
+            ) as HTMLInputElement | null;
+            const inputValue = axisInput?.value;
+            const isAnimating = !!glyphCanvas?.axesManager?.isAnimating;
+            return !isAnimating && inputValue === '400';
+        }, firstAxisTag);
+        await page.waitForTimeout(200);
+
+        // SNAPSHOT POINT 18: Variation set to 400
+        console.log('[Test] Taking snapshot 18: variation 400');
+        await takeSnapshot(page, '18', 'variation-400', expect);
+
         console.log('[Test] Test complete');
     });
 
