@@ -1014,6 +1014,7 @@ export class OutlineEditor {
         // Update worker font cache after dragging ends
         if (wasDragging) {
             fontManager.updateWorkerFontCache();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag();
         }
     }
 

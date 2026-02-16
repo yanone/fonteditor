@@ -312,6 +312,7 @@ class FontManager {
         closureSet: string[];
     } | null = null;
     isExternalReloading: boolean = false;
+    pendingDebugEditingFontSaveAfterDrag: boolean;
 
     constructor() {
         this.fontDisplay = null;
@@ -328,6 +329,7 @@ class FontManager {
         this.lastChangeSource = null;
         this.closureCache = null;
         this.isExternalReloading = false;
+        this.pendingDebugEditingFontSaveAfterDrag = false;
     }
     init() {
         this.fontDisplay = document.getElementById('current-font-display');
@@ -991,8 +993,17 @@ class FontManager {
             // Hide any error messages in sidebar
             sidebarErrorDisplay.hideError();
 
-            // Save to file system for review
-            this.saveEditingFontToFileSystem();
+            // Save debug editing font unless we're actively dragging points/anchors/components
+            const isOutlineDragActive =
+                this.lastChangeSource === 'mouse-drag' &&
+                !!window.glyphCanvas?.outlineEditor?.draggingSomething;
+
+            if (isOutlineDragActive) {
+                this.pendingDebugEditingFontSaveAfterDrag = true;
+            } else {
+                this.saveEditingFontToFileSystem();
+                this.pendingDebugEditingFontSaveAfterDrag = false;
+            }
 
             // Dispatch event to notify canvas that new font is ready
             window.dispatchEvent(
@@ -1118,6 +1129,27 @@ class FontManager {
                 pluginId: 'memory'
             }
         );
+    }
+
+    flushPendingDebugEditingFontSaveAfterDrag() {
+        if (!this.pendingDebugEditingFontSaveAfterDrag) {
+            return;
+        }
+
+        if (window.glyphCanvas?.outlineEditor?.draggingSomething) {
+            return;
+        }
+
+        if (this.currentFont?.needsRecompile) {
+            return;
+        }
+
+        if (!this.editingFont) {
+            return;
+        }
+
+        this.saveEditingFontToFileSystem();
+        this.pendingDebugEditingFontSaveAfterDrag = false;
     }
 
     /**
