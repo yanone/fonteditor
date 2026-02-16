@@ -316,12 +316,33 @@ export class NativeAdapter implements FileSystemAdapter {
     }
 
     async writeFile(path: string, content: string | Uint8Array): Promise<void> {
-        const handle = await this.getHandleAtPath(path);
-        if (!(handle instanceof FileSystemFileHandle)) {
-            throw new Error('Path is not a file');
+        if (!this.directoryHandle) {
+            throw new Error('No directory selected');
         }
 
-        const writable = await handle.createWritable();
+        const normalizedPath = path.replace(/^\/+/, '');
+        if (!normalizedPath) {
+            throw new Error('Invalid file path');
+        }
+
+        const parts = normalizedPath.split('/').filter(Boolean);
+        const fileName = parts.pop();
+        if (!fileName) {
+            throw new Error('Invalid file path');
+        }
+
+        let parentHandle: FileSystemDirectoryHandle = this.directoryHandle;
+        for (const part of parts) {
+            parentHandle = await parentHandle.getDirectoryHandle(part, {
+                create: true
+            });
+        }
+
+        const fileHandle = await parentHandle.getFileHandle(fileName, {
+            create: true
+        });
+
+        const writable = await fileHandle.createWritable();
         if (typeof content === 'string') {
             await writable.write(content);
         } else {

@@ -132,7 +132,16 @@ declare global {
         updateHomeButtonVisibility: () => void;
         selectFile: (filePath: string) => void;
         initFileBrowser: () => Promise<void>;
-        uploadFiles: (files: File[], targetPath?: string) => Promise<void>;
+        uploadFiles: (
+            files: File[] | FileList,
+            targetPathOrOptions?:
+                | string
+                | null
+                | {
+                      directory?: string | null;
+                      pluginId?: string;
+                  }
+        ) => Promise<void>;
         createFolder: () => Promise<void>;
         createFile: () => Promise<void>;
         deleteItem: (

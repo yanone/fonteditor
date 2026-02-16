@@ -60,8 +60,11 @@ async function loadExampleFonts() {
                     type: 'application/octet-stream'
                 });
 
-                // Write to destination in filesystem
-                await window.uploadFiles([file], '/'); // Manifest has full paths
+                // Write to destination in memory filesystem (manifest has full paths)
+                await window.uploadFiles([file], {
+                    directory: '/',
+                    pluginId: 'memory'
+                });
                 loadedCount++;
             } catch (error) {
                 console.error(

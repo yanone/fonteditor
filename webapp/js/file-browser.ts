@@ -1376,10 +1376,41 @@ async function renameItem(itemPath: string, itemName: string, isDir: boolean) {
 
 async function uploadFiles(
     files: File[] | FileList,
-    directory: string | null = null
+    directoryOrOptions:
+        | string
+        | null
+        | {
+              directory?: string | null;
+              pluginId?: string;
+          } = null
 ) {
     const startTime = performance.now();
-    const currentPath = directory || fileSystemCache.currentPath || '/';
+    const options =
+        typeof directoryOrOptions === 'string' || directoryOrOptions === null
+            ? { directory: directoryOrOptions, pluginId: undefined }
+            : directoryOrOptions;
+
+    const targetPlugin = options.pluginId
+        ? pluginRegistry.get(options.pluginId)
+        : null;
+
+    if (options.pluginId && !targetPlugin) {
+        throw new Error(`Upload target plugin '${options.pluginId}' not found`);
+    }
+
+    const targetAdapter = targetPlugin
+        ? targetPlugin.getAdapter()
+        : fileSystemCache.activeAdapter;
+
+    const basePath =
+        options.directory ||
+        (targetPlugin
+            ? targetPlugin.getDefaultPath() || '/'
+            : fileSystemCache.currentPath || '/');
+
+    const normalizedBasePath =
+        basePath === '/' ? '/' : basePath.replace(/\/+$/, '') || '/';
+
     let uploadedCount = 0;
 
     for (const file of files) {
@@ -1387,14 +1418,15 @@ async function uploadFiles(
             // Handle files with relative paths (from folder upload)
             // file.webkitRelativePath contains the full path including folder structure
             const relativePath = file.webkitRelativePath || file.name;
-            const fullpath = currentPath + '/' + relativePath;
+            const normalizedRelativePath = relativePath.replace(/^\/+/, '');
+            const fullpath =
+                normalizedBasePath === '/'
+                    ? `/${normalizedRelativePath}`
+                    : `${normalizedBasePath}/${normalizedRelativePath}`;
 
             // Write file using adapter
             const contents = await file.arrayBuffer();
-            await fileSystemCache.activeAdapter.writeFile(
-                fullpath,
-                new Uint8Array(contents)
-            );
+            await targetAdapter.writeFile(fullpath, new Uint8Array(contents));
             console.log('[FileBrowser]', `Uploading file: ${fullpath}`);
             uploadedCount++;
         } catch (error: any) {
@@ -1409,6 +1441,9 @@ async function uploadFiles(
     if (uploadedCount > 0) {
         const endTime = performance.now();
         const duration = ((endTime - startTime) / 1000).toFixed(2);
+        const uploadedToCurrentPlugin =
+            !targetPlugin ||
+            targetPlugin.getId() === fileSystemCache.currentPlugin.getId();
 
         const msg = `Uploaded ${uploadedCount} file(s) in ${duration} seconds`;
 
@@ -1417,10 +1452,12 @@ async function uploadFiles(
             window.term.echo(`[[;lime;]${msg}]`);
         }
 
-        await refreshFileSystem();
+        if (uploadedToCurrentPlugin) {
+            await refreshFileSystem();
+        }
 
         // Play done sound
-        if (window.playSound) {
+        if (uploadedToCurrentPlugin && window.playSound) {
             window.playSound('done');
         }
     }

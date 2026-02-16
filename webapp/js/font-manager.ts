@@ -1074,17 +1074,27 @@ class FontManager {
             return; // Feature disabled in settings
         }
 
-        if (!this.typingFont) {
+        const currentFont = this.currentFont;
+        if (!this.typingFont || !currentFont) {
             return;
         }
 
-        window.uploadFiles([
-            new File(
-                [this.typingFont as Uint8Array<ArrayBuffer>],
-                '_debug_typing_font.ttf',
-                { type: 'font/ttf' }
-            )
-        ]);
+        const targetDirectory = this.getParentPath(currentFont.path) || '/';
+        const targetPluginId = currentFont.sourcePlugin.getId();
+
+        window.uploadFiles(
+            [
+                new File(
+                    [this.typingFont as Uint8Array<ArrayBuffer>],
+                    '_debug_typing_font.ttf',
+                    { type: 'font/ttf' }
+                )
+            ],
+            {
+                directory: targetDirectory,
+                pluginId: targetPluginId
+            }
+        );
     }
 
     /**
@@ -1095,17 +1105,27 @@ class FontManager {
             return; // Feature disabled in settings
         }
 
-        if (!this.editingFont) {
+        const currentFont = this.currentFont;
+        if (!this.editingFont || !currentFont) {
             return;
         }
 
-        window.uploadFiles([
-            new File(
-                [this.editingFont as Uint8Array<ArrayBuffer>],
-                '_debug_editing_font.ttf',
-                { type: 'font/ttf' }
-            )
-        ]);
+        const targetDirectory = this.getParentPath(currentFont.path) || '/';
+        const targetPluginId = currentFont.sourcePlugin.getId();
+
+        window.uploadFiles(
+            [
+                new File(
+                    [this.editingFont as Uint8Array<ArrayBuffer>],
+                    '_debug_editing_font.ttf',
+                    { type: 'font/ttf' }
+                )
+            ],
+            {
+                directory: targetDirectory,
+                pluginId: targetPluginId
+            }
+        );
     }
 
     /**
