@@ -2674,15 +2674,14 @@ export class OutlineEditor {
 
         glyphNameElement.style.display = 'flex';
 
+        const parsedStack = this.parseGlyphStack();
+
         // Build breadcrumb trail from glyphStack
         const trail: string[] = [];
 
         if (this.glyphStack && this.glyphStack !== '') {
-            // Parse glyphStack to build trail
-            const parsed = this.parseGlyphStack();
-
             // Add each glyph name from the stack
-            for (const item of parsed) {
+            for (const item of parsedStack) {
                 trail.push(item.glyphName);
             }
         }
@@ -2710,12 +2709,6 @@ export class OutlineEditor {
                 if (index === trail.length - 1) {
                     item.style.fontWeight = '500';
                     item.style.color = 'var(--text-primary)';
-
-                    // Add pop animation to last item for user attention
-                    item.style.animation = 'none';
-                    // Force reflow to restart animation
-                    void item.offsetWidth;
-                    item.style.animation = 'breadcrumb-pop 0.3s ease-out';
                 } else {
                     item.style.opacity = '0.7';
                     item.style.color = 'var(--text-secondary)';
@@ -2757,12 +2750,6 @@ export class OutlineEditor {
                 color: var(--text-primary);
                 font-weight: 500;
             `;
-
-            // Add pop animation for user attention
-            mainNameSpan.style.animation = 'none';
-            // Force reflow to restart animation
-            void mainNameSpan.offsetWidth;
-            mainNameSpan.style.animation = 'breadcrumb-pop 0.3s ease-out';
 
             glyphNameElement.appendChild(mainNameSpan);
         }
