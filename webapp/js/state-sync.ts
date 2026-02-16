@@ -124,7 +124,9 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
     // Monitor axis/location changes
     if (glyphCanvas.axesManager) {
         const syncVariationLocation = (
-            eventType: 'variation_location_initialized' | 'variation_location_changed'
+            eventType:
+                | 'variation_location_initialized'
+                | 'variation_location_changed'
         ) => {
             const location = glyphCanvas.axesManager!.variationSettings || {};
             const roundedLocation: Record<string, number> = {};
