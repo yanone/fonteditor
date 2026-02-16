@@ -43,10 +43,31 @@ export class CanvasPluginManager {
             if (stored) {
                 const enabledArray = JSON.parse(stored);
                 this.enabledPlugins = new Set(enabledArray);
+                this.syncEnabledPluginsToStateManager();
             }
         } catch (error) {
             console.error('Failed to load plugin state:', error);
         }
+    }
+
+    /**
+     * Sync enabled canvas plugins to StateManager for snapshots/error reports.
+     */
+    private syncEnabledPluginsToStateManager(): void {
+        if (!window.stateManager) {
+            return;
+        }
+
+        let activePlugins = Array.from(this.enabledPlugins);
+
+        // Prefer only discovered-and-enabled plugins once discovery has completed.
+        if (this.loaded) {
+            activePlugins = this.plugins
+                .filter((plugin) => this.isPluginEnabled(plugin.entry_point))
+                .map((plugin) => plugin.entry_point);
+        }
+
+        window.stateManager.editor_active_canvas_plugins = activePlugins;
     }
 
     /**
@@ -77,6 +98,7 @@ export class CanvasPluginManager {
     enablePlugin(entryPoint: string): void {
         this.enabledPlugins.add(entryPoint);
         this.saveEnabledState();
+        this.syncEnabledPluginsToStateManager();
     }
 
     /**
@@ -85,6 +107,7 @@ export class CanvasPluginManager {
     disablePlugin(entryPoint: string): void {
         this.enabledPlugins.delete(entryPoint);
         this.saveEnabledState();
+        this.syncEnabledPluginsToStateManager();
     }
 
     /**
@@ -184,6 +207,7 @@ export class CanvasPluginManager {
                 this.plugins
             );
             this.loaded = true;
+            this.syncEnabledPluginsToStateManager();
 
             // Update the UI dropdown if it exists
             if (window.editorPluginsUI) {

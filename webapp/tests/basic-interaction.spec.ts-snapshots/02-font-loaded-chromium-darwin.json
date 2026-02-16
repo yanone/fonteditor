@@ -32,6 +32,7 @@
       "ss02": false,
       "ss05": false
     },
-    "editor_variation_location": {}
+    "editor_variation_location": {},
+    "editor_active_canvas_plugins": []
   }
 }

@@ -11,6 +11,7 @@
     "editor_isAnimating": false,
     "editor_opentype_features_in_subset": {},
     "editor_opentype_features_not_in_subset": {},
-    "editor_variation_location": {}
+    "editor_variation_location": {},
+    "editor_active_canvas_plugins": []
   }
 }

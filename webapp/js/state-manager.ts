@@ -51,6 +51,7 @@ export interface EditorState {
     opentype_features_in_subset: Record<string, boolean>;
     opentype_features_not_in_subset: Record<string, boolean>;
     variation_location: Record<string, number>;
+    active_canvas_plugins: string[];
 }
 
 const HISTORY_RETENTION_MS = 10000; // 10 seconds
@@ -147,6 +148,7 @@ export class StateManager {
         this._state.editor_opentype_features_in_subset = {};
         this._state.editor_opentype_features_not_in_subset = {};
         this._state.editor_variation_location = {};
+        this._state.editor_active_canvas_plugins = [];
 
         console.log('StateManager initialized');
 

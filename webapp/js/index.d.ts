@@ -193,6 +193,7 @@ declare global {
             editor_opentype_features_in_subset: Record<string, boolean>;
             editor_opentype_features_not_in_subset: Record<string, boolean>;
             editor_variation_location: Record<string, number>;
+            editor_active_canvas_plugins: string[];
             [key: string]: any;
         };
 
