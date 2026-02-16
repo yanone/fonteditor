@@ -633,13 +633,23 @@ export class GlyphCanvasRenderer {
         shapes.forEach((shape: any) => {
             // Handle direct node shapes (most common in components)
             if (shape.nodes) {
-                shape.nodes.forEach((node: any) => {
+                const normalizedNodes = Array.isArray(shape.nodes)
+                    ? shape.nodes
+                    : typeof shape.nodes === 'string'
+                      ? LayerDataNormalizer.parseNodes(shape.nodes)
+                      : [];
+                normalizedNodes.forEach((node: any) => {
                     expandBounds(node.x, node.y);
                 });
             }
             // Also handle Contour-wrapped shapes
             else if ('Contour' in shape && shape.Contour.nodes) {
-                shape.Contour.nodes.forEach((node: any) => {
+                const contourNodes = Array.isArray(shape.Contour.nodes)
+                    ? shape.Contour.nodes
+                    : typeof shape.Contour.nodes === 'string'
+                      ? LayerDataNormalizer.parseNodes(shape.Contour.nodes)
+                      : [];
+                contourNodes.forEach((node: any) => {
                     expandBounds(node.x, node.y);
                 });
             }
@@ -1423,127 +1433,123 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        (shape as any).nodes.forEach(
-            (node: Babelfont.Node, nodeIndex: number) => {
-                const { x, y, nodetype: type } = node;
-                const isInterpolated =
-                    this.glyphCanvas.outlineEditor.isInterpolating ||
-                    (this.glyphCanvas.outlineEditor.selectedLayerId === null &&
-                        this.glyphCanvas.outlineEditor.layerData
-                            ?.isInterpolated);
-                const isHovered =
-                    !isInterpolated &&
-                    this.glyphCanvas.outlineEditor.hoveredPointIndex &&
-                    this.glyphCanvas.outlineEditor.hoveredPointIndex
-                        .contourIndex === contourIndex &&
-                    this.glyphCanvas.outlineEditor.hoveredPointIndex
-                        .nodeIndex === nodeIndex;
-                const isSelected =
-                    !isInterpolated &&
-                    this.glyphCanvas.outlineEditor.selectedPoints.some(
-                        (p: any) =>
-                            p.contourIndex === contourIndex &&
-                            p.nodeIndex === nodeIndex
-                    );
+        nodes.forEach((node: Babelfont.Node, nodeIndex: number) => {
+            const { x, y, nodetype: type } = node;
+            const isInterpolated =
+                this.glyphCanvas.outlineEditor.isInterpolating ||
+                (this.glyphCanvas.outlineEditor.selectedLayerId === null &&
+                    this.glyphCanvas.outlineEditor.layerData?.isInterpolated);
+            const isHovered =
+                !isInterpolated &&
+                this.glyphCanvas.outlineEditor.hoveredPointIndex &&
+                this.glyphCanvas.outlineEditor.hoveredPointIndex
+                    .contourIndex === contourIndex &&
+                this.glyphCanvas.outlineEditor.hoveredPointIndex.nodeIndex ===
+                    nodeIndex;
+            const isSelected =
+                !isInterpolated &&
+                this.glyphCanvas.outlineEditor.selectedPoints.some(
+                    (p: any) =>
+                        p.contourIndex === contourIndex &&
+                        p.nodeIndex === nodeIndex
+                );
 
-                // Skip Move nodes - they don't get rendered
-                if (type === 'Move') {
-                    return;
-                }
-
-                // Calculate point size based on zoom level
-                const nodeSizeMax =
-                    APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM;
-                const nodeSizeMin =
-                    APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
-                const nodeInterpolationMin =
-                    APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MIN;
-                const nodeInterpolationMax =
-                    APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MAX;
-
-                let pointSize;
-                if (this.viewportManager.scale >= nodeInterpolationMax) {
-                    pointSize = nodeSizeMax * invScale;
-                } else {
-                    // Interpolate between min and max size
-                    const zoomFactor =
-                        (this.viewportManager.scale - nodeInterpolationMin) /
-                        (nodeInterpolationMax - nodeInterpolationMin);
-                    pointSize =
-                        (nodeSizeMin +
-                            (nodeSizeMax - nodeSizeMin) * zoomFactor) *
-                        invScale;
-                }
-                // Draw nodes with inverse transform to maintain normal aspect ratio
-                this.ctx.save();
-                this.ctx.translate(x, y);
-                this.applyInverseComponentTransform(); // Cancel out component transform
-
-                if (type === 'OffCurve') {
-                    // Off-curve point (cubic bezier control point) - draw as circle
-                    const colors = isDarkTheme
-                        ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
-                        : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
-                    this.ctx.beginPath();
-                    this.ctx.arc(0, 0, pointSize, 0, Math.PI * 2);
-                    let fillColor = isSelected
-                        ? colors.CONTROL_POINT_SELECTED
-                        : isHovered
-                          ? colors.CONTROL_POINT_HOVERED
-                          : colors.CONTROL_POINT_NORMAL;
-
-                    // Apply monochrome for interpolated data
-                    if (isInterpolated) {
-                        fillColor = desaturateColor(fillColor);
-                    }
-
-                    this.ctx.fillStyle = fillColor;
-                    this.ctx.fill();
-                    // Stroke permanently removed
-                } else {
-                    // On-curve point - draw as square
-                    const colors = isDarkTheme
-                        ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
-                        : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
-                    let fillColor = isSelected
-                        ? colors.NODE_SELECTED
-                        : isHovered
-                          ? colors.NODE_HOVERED
-                          : colors.NODE_NORMAL;
-
-                    // Apply monochrome for interpolated data
-                    if (isInterpolated) {
-                        fillColor = desaturateColor(fillColor);
-                    }
-
-                    this.ctx.fillStyle = fillColor;
-                    this.ctx.fillRect(
-                        -pointSize,
-                        -pointSize,
-                        pointSize * 2,
-                        pointSize * 2
-                    );
-                    // Stroke permanently removed
-                }
-
-                // Draw smooth indicator for smooth nodes (using smooth property)
-                if (node.smooth) {
-                    let smoothColor = isDarkTheme ? '#ffffff' : '#000000';
-
-                    // Apply monochrome for interpolated data
-                    if (isInterpolated) {
-                        smoothColor = desaturateColor(smoothColor);
-                    }
-
-                    this.ctx.beginPath();
-                    this.ctx.arc(0, 0, pointSize * 0.4, 0, Math.PI * 2);
-                    this.ctx.fillStyle = smoothColor;
-                    this.ctx.fill();
-                }
-
-                this.ctx.restore();
+            // Skip Move nodes - they don't get rendered
+            if (type === 'Move') {
+                return;
             }
-        );
+
+            // Calculate point size based on zoom level
+            const nodeSizeMax =
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM;
+            const nodeSizeMin =
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
+            const nodeInterpolationMin =
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MIN;
+            const nodeInterpolationMax =
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MAX;
+
+            let pointSize;
+            if (this.viewportManager.scale >= nodeInterpolationMax) {
+                pointSize = nodeSizeMax * invScale;
+            } else {
+                // Interpolate between min and max size
+                const zoomFactor =
+                    (this.viewportManager.scale - nodeInterpolationMin) /
+                    (nodeInterpolationMax - nodeInterpolationMin);
+                pointSize =
+                    (nodeSizeMin + (nodeSizeMax - nodeSizeMin) * zoomFactor) *
+                    invScale;
+            }
+            // Draw nodes with inverse transform to maintain normal aspect ratio
+            this.ctx.save();
+            this.ctx.translate(x, y);
+            this.applyInverseComponentTransform(); // Cancel out component transform
+
+            if (type === 'OffCurve') {
+                // Off-curve point (cubic bezier control point) - draw as circle
+                const colors = isDarkTheme
+                    ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
+                    : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, pointSize, 0, Math.PI * 2);
+                let fillColor = isSelected
+                    ? colors.CONTROL_POINT_SELECTED
+                    : isHovered
+                      ? colors.CONTROL_POINT_HOVERED
+                      : colors.CONTROL_POINT_NORMAL;
+
+                // Apply monochrome for interpolated data
+                if (isInterpolated) {
+                    fillColor = desaturateColor(fillColor);
+                }
+
+                this.ctx.fillStyle = fillColor;
+                this.ctx.fill();
+                // Stroke permanently removed
+            } else {
+                // On-curve point - draw as square
+                const colors = isDarkTheme
+                    ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
+                    : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+                let fillColor = isSelected
+                    ? colors.NODE_SELECTED
+                    : isHovered
+                      ? colors.NODE_HOVERED
+                      : colors.NODE_NORMAL;
+
+                // Apply monochrome for interpolated data
+                if (isInterpolated) {
+                    fillColor = desaturateColor(fillColor);
+                }
+
+                this.ctx.fillStyle = fillColor;
+                this.ctx.fillRect(
+                    -pointSize,
+                    -pointSize,
+                    pointSize * 2,
+                    pointSize * 2
+                );
+                // Stroke permanently removed
+            }
+
+            // Draw smooth indicator for smooth nodes (using smooth property)
+            if (node.smooth) {
+                let smoothColor = isDarkTheme ? '#ffffff' : '#000000';
+
+                // Apply monochrome for interpolated data
+                if (isInterpolated) {
+                    smoothColor = desaturateColor(smoothColor);
+                }
+
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, pointSize * 0.4, 0, Math.PI * 2);
+                this.ctx.fillStyle = smoothColor;
+                this.ctx.fill();
+            }
+
+            this.ctx.restore();
+        });
     }
 
     drawBoundingBox() {
