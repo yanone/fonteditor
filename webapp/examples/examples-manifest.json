@@ -5,6 +5,32 @@
         {
             "source": "examples/Fustat.glyphs",
             "destination": "/user/Fustat.glyphs"
+        },
+        {
+            "type": "directory",
+            "testOnly": true,
+            "source": "examples/YanoneKaffeesatz.glyphspackage",
+            "destination": "/user/YanoneKaffeesatz.glyphspackage",
+            "fileList": "examples/YanoneKaffeesatz.glyphspackage.filelist.json"
+        },
+        {
+            "testOnly": true,
+            "source": "examples/YanoneKaffeesatz.designspace",
+            "destination": "/user/YanoneKaffeesatz.designspace"
+        },
+        {
+            "type": "directory",
+            "testOnly": true,
+            "source": "examples/YanoneKaffeesatz-ExtraLight.ufo",
+            "destination": "/user/YanoneKaffeesatz-ExtraLight.ufo",
+            "fileList": "examples/YanoneKaffeesatz-ExtraLight.ufo.filelist.json"
+        },
+        {
+            "type": "directory",
+            "testOnly": true,
+            "source": "examples/YanoneKaffeesatz-Bold.ufo",
+            "destination": "/user/YanoneKaffeesatz-Bold.ufo",
+            "fileList": "examples/YanoneKaffeesatz-Bold.ufo.filelist.json"
         }
     ]
 }

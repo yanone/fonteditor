@@ -1,0 +1,36 @@
+{
+  "label": "yanone-glyphspackage-opened",
+  "state": {
+    "focused_view": "view-files",
+    "editor_file": "memory:///user/YanoneKaffeesatz.glyphspackage",
+    "editor_text_buffer": "Hamburgevons",
+    "editor_cursor_position": 0,
+    "editor_mode": "text",
+    "editor_glyph_stack": "",
+    "editor_isInterpolating": false,
+    "editor_isAnimating": false,
+    "editor_opentype_features_in_subset": {
+      "salt": false,
+      "ss01": false,
+      "cpsp": true,
+      "kern": true
+    },
+    "editor_opentype_features_not_in_subset": {
+      "locl": true,
+      "sups": false,
+      "frac": false,
+      "ordn": false,
+      "dlig": false,
+      "case": false,
+      "liga": true,
+      "ss02": false,
+      "ss03": false,
+      "ss04": false,
+      "ss05": false
+    },
+    "editor_variation_location": {
+      "wght": 200
+    },
+    "editor_active_canvas_plugins": []
+  }
+}

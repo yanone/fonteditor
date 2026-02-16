@@ -1,0 +1,36 @@
+{
+  "label": "yanone-designspace-opened",
+  "state": {
+    "focused_view": "view-files",
+    "editor_file": "memory:///user/YanoneKaffeesatz.designspace",
+    "editor_text_buffer": "Hamburgevons",
+    "editor_cursor_position": 0,
+    "editor_mode": "text",
+    "editor_glyph_stack": "",
+    "editor_isInterpolating": false,
+    "editor_isAnimating": false,
+    "editor_opentype_features_in_subset": {
+      "cpsp": true,
+      "salt": false,
+      "ss01": false,
+      "kern": true
+    },
+    "editor_opentype_features_not_in_subset": {
+      "case": false,
+      "dlig": false,
+      "frac": false,
+      "liga": true,
+      "locl": true,
+      "ordn": false,
+      "ss02": false,
+      "ss03": false,
+      "ss04": false,
+      "ss05": false,
+      "sups": false
+    },
+    "editor_variation_location": {
+      "wght": 200
+    },
+    "editor_active_canvas_plugins": []
+  }
+}

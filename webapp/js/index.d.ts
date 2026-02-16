@@ -140,6 +140,7 @@ declare global {
                 | {
                       directory?: string | null;
                       pluginId?: string;
+                      skipRefresh?: boolean;
                   }
         ) => Promise<void>;
         createFolder: () => Promise<void>;

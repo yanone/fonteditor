@@ -29,19 +29,81 @@ async function loadExampleFonts() {
         }
 
         const manifest = await manifestResponse.json();
+        const isTestMode = !!window.isTestMode?.();
+        const examplesToLoad = (manifest.examples || []).filter(
+            (example) => !example.testOnly || isTestMode
+        );
         console.log(
             '[ExampleLoader]',
-            `Found ${manifest.examples.length} example(s) in manifest`
+            `Found ${manifest.examples.length} example(s) in manifest, loading ${examplesToLoad.length}`
         );
 
         // Load each example
         let loadedCount = 0;
-        for (const example of manifest.examples) {
+        for (const example of examplesToLoad) {
             try {
                 console.log(
                     '[ExampleLoader]',
                     `  Loading: ${example.source} → ${example.destination}`
                 );
+
+                if (example.type === 'directory') {
+                    const fileListResponse = await fetch(
+                        `./${example.fileList}`
+                    );
+                    if (!fileListResponse.ok) {
+                        console.warn(
+                            '[ExampleLoader]',
+                            `  ⚠️ Failed to fetch file list ${example.fileList}`
+                        );
+                        continue;
+                    }
+
+                    const fileListManifest = await fileListResponse.json();
+                    const relativeFiles = fileListManifest.files || [];
+                    let uploadedFromDirectory = 0;
+
+                    for (const relativeFilePath of relativeFiles) {
+                        const sourcePath = `${example.source}/${relativeFilePath}`;
+                        const destinationPath = `${example.destination}/${relativeFilePath}`;
+
+                        const nestedFileResponse = await fetch(
+                            `./${sourcePath}`
+                        );
+                        if (!nestedFileResponse.ok) {
+                            console.warn(
+                                '[ExampleLoader]',
+                                `  ⚠️ Failed to fetch ${sourcePath}`
+                            );
+                            continue;
+                        }
+
+                        const nestedArrayBuffer =
+                            await nestedFileResponse.arrayBuffer();
+                        const nestedBytes = new Uint8Array(nestedArrayBuffer);
+                        const nestedFile = new File(
+                            [nestedBytes],
+                            destinationPath,
+                            {
+                                type: 'application/octet-stream'
+                            }
+                        );
+
+                        await window.uploadFiles([nestedFile], {
+                            directory: '/',
+                            pluginId: 'memory',
+                            skipRefresh: true
+                        });
+                        uploadedFromDirectory++;
+                    }
+
+                    loadedCount += uploadedFromDirectory;
+                    console.log(
+                        '[ExampleLoader]',
+                        `  ✅ Loaded ${uploadedFromDirectory} file(s) from directory ${example.source}`
+                    );
+                    continue;
+                }
 
                 // Fetch the example file
                 const fileResponse = await fetch(`./${example.source}`);
@@ -63,7 +125,8 @@ async function loadExampleFonts() {
                 // Write to destination in memory filesystem (manifest has full paths)
                 await window.uploadFiles([file], {
                     directory: '/',
-                    pluginId: 'memory'
+                    pluginId: 'memory',
+                    skipRefresh: true
                 });
                 loadedCount++;
             } catch (error) {
@@ -77,7 +140,7 @@ async function loadExampleFonts() {
 
         console.log(
             '[ExampleLoader]',
-            `✅ Loaded ${loadedCount}/${manifest.examples.length} example fonts`
+            `✅ Loaded ${loadedCount} file(s) from ${examplesToLoad.length} example entry/entries`
         );
 
         // Refresh file browser if available

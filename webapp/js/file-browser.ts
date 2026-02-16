@@ -1377,6 +1377,7 @@ async function uploadFiles(
         | {
               directory?: string | null;
               pluginId?: string;
+              skipRefresh?: boolean;
           } = null
 ) {
     const startTime = performance.now();
@@ -1447,7 +1448,7 @@ async function uploadFiles(
             window.term.echo(`[[;lime;]${msg}]`);
         }
 
-        if (uploadedToCurrentPlugin) {
+        if (uploadedToCurrentPlugin && !options.skipRefresh) {
             await refreshFileSystem();
         }
     }

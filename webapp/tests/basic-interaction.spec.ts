@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
+    captureSnapshot,
+    snapshotForComparison,
     takeSnapshot,
     waitForCanvasReady,
     waitForFontLoaded
@@ -63,6 +65,64 @@ test.describe('Font Editor Basic Workflow', () => {
         // Wait for rendering to complete
         await page.waitForTimeout(500);
         console.log('[Test] beforeEach complete');
+    });
+
+    const takeWindowSnapshot = async (
+        page: any,
+        snapshotNumber: string,
+        label: string
+    ) => {
+        await page.waitForTimeout(100);
+        const snapshot = await captureSnapshot(page, label);
+        expect(snapshotForComparison(snapshot)).toMatchSnapshot(
+            `${snapshotNumber}-${label}.json`
+        );
+        await expect(page).toHaveScreenshot(
+            `${snapshotNumber}-${label}-window.png`
+        );
+        return snapshot;
+    };
+
+    test('open YanoneKaffeesatz.glyphspackage and snapshot full window', async ({
+        page
+    }) => {
+        console.log('[Test] Opening YanoneKaffeesatz.glyphspackage');
+
+        await page.keyboard.press('Meta+Shift+F');
+        await page.waitForTimeout(200);
+
+        await page.getByText('YanoneKaffeesatz.glyphspackage').dblclick();
+        await page.waitForTimeout(200);
+
+        await waitForFontLoaded(page);
+        await page.waitForTimeout(300);
+
+        await takeWindowSnapshot(
+            page,
+            'yanone-01',
+            'yanone-glyphspackage-opened'
+        );
+    });
+
+    test('open YanoneKaffeesatz.designspace and snapshot full window', async ({
+        page
+    }) => {
+        console.log('[Test] Opening YanoneKaffeesatz.designspace');
+
+        await page.keyboard.press('Meta+Shift+F');
+        await page.waitForTimeout(200);
+
+        await page.getByText('YanoneKaffeesatz.designspace').dblclick();
+        await page.waitForTimeout(200);
+
+        await waitForFontLoaded(page);
+        await page.waitForTimeout(300);
+
+        await takeWindowSnapshot(
+            page,
+            'yanone-02',
+            'yanone-designspace-opened'
+        );
     });
 
     test('load font and navigate with keyboard', async ({ page }) => {
