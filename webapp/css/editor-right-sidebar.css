@@ -162,7 +162,7 @@
 }
 
 .font-qc-summary.collapsed .font-qc-pill {
-    gap: 1px;
+    gap: 0px !important;
 }
 
 .font-qc-pill:not(.active) {
