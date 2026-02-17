@@ -4,7 +4,8 @@ import {
     snapshotForComparison,
     takeSnapshot,
     waitForCanvasReady,
-    waitForFontLoaded
+    waitForFontLoaded,
+    waitForFontspectorReady
 } from './helpers/snapshot-helper';
 
 /**
@@ -131,6 +132,7 @@ test.describe('Font Editor Basic Workflow', () => {
             page,
             'YanoneKaffeesatz.glyphspackage'
         );
+        await waitForFontspectorReady(page, 'YanoneKaffeesatz.glyphspackage');
         await page.waitForTimeout(300);
 
         await takeWindowSnapshot(
@@ -156,6 +158,7 @@ test.describe('Font Editor Basic Workflow', () => {
             page,
             'YanoneKaffeesatz.designspace'
         );
+        await waitForFontspectorReady(page, 'YanoneKaffeesatz.designspace');
         await page.waitForTimeout(300);
 
         await takeWindowSnapshot(

@@ -164,6 +164,37 @@ export async function waitForFontLoaded(page: any) {
 }
 
 /**
+ * Wait for first Fontspector QC results to be ready for the currently opened file
+ */
+export async function waitForFontspectorReady(
+    page: any,
+    expectedFilename: string
+) {
+    await page.waitForFunction(
+        (filename) => {
+            const editorFile =
+                window.stateManager?.getStateSnapshot?.()?.state?.editor_file ||
+                '';
+            if (!editorFile.includes(filename)) {
+                return false;
+            }
+
+            const statusText =
+                document
+                    .querySelector('#font-qc-summary-section .font-qc-status')
+                    ?.textContent?.trim() || '';
+            if (statusText !== 'Up to date') {
+                return false;
+            }
+
+            return window.fontManager?.fullFontQcSummary !== null;
+        },
+        expectedFilename,
+        { timeout: 15000 }
+    );
+}
+
+/**
  * Take a complete snapshot (JSON + PNG) with a 100ms wait
  * This wrapper combines both snapshot types and adds a stabilization delay
  */
