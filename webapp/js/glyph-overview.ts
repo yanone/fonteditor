@@ -842,6 +842,20 @@ class GlyphOverview {
             this.handleTileClick(glyphId, e);
         });
 
+        // Double-click inserts explicit glyph token into text buffer
+        tileElement.addEventListener('dblclick', (e) => {
+            if (!this.isViewActive()) {
+                return;
+            }
+            if (this.hasDragged) {
+                return;
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+            this.insertExplicitGlyphToken(glyphName);
+        });
+
         return {
             element: tileElement,
             glyphId: glyphId,
@@ -871,6 +885,21 @@ class GlyphOverview {
             this.clearSelection();
             this.selectTile(glyphId);
         }
+    }
+
+    private insertExplicitGlyphToken(glyphName: string): void {
+        const textRunEditor = window.glyphCanvas?.textRunEditor;
+        if (!textRunEditor) {
+            console.warn(
+                '[GlyphOverview]',
+                'Cannot insert explicit glyph token: textRunEditor unavailable'
+            );
+            return;
+        }
+
+        const token = `/${glyphName} `;
+        textRunEditor.insertText(token);
+        console.log('[GlyphOverview]', 'Inserted explicit glyph token:', token);
     }
 
     private handleRangeSelection(glyphId: string): void {

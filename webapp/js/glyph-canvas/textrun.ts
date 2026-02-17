@@ -25,6 +25,27 @@ export interface ShapedGlyph {
     ay: number;
     cl: number; // Cluster
     g: number; // Glyph ID
+    explicitGlyphName?: string;
+    explicitTokenStart?: number;
+    explicitTokenEnd?: number;
+}
+
+interface ExplicitGlyphToken {
+    name: string;
+    start: number;
+    end: number;
+}
+
+interface ExplicitGlyphOutlineData {
+    name: string;
+    width?: number;
+    shapes?: any[];
+    bounds?: {
+        xMin: number;
+        yMin: number;
+        xMax: number;
+        yMax: number;
+    };
 }
 
 export class TextRunEditor {
@@ -47,6 +68,9 @@ export class TextRunEditor {
     glyphNameBufferClusters: number[];
     // GID→name map for the editing font (rebuilt when editing font changes)
     editingFontNameToGid: Map<string, number>;
+    explicitGlyphTokens: ExplicitGlyphToken[];
+    explicitGlyphOutlineCache: Map<string, ExplicitGlyphOutlineData>;
+    explicitGlyphOutlinePending: Set<string>;
     bidi: any;
     bidiRuns: any[];
     selectedGlyphIndex: number;
@@ -91,6 +115,9 @@ export class TextRunEditor {
         this.glyphNameBuffer = [];
         this.glyphNameBufferClusters = [];
         this.editingFontNameToGid = new Map();
+        this.explicitGlyphTokens = [];
+        this.explicitGlyphOutlineCache = new Map();
+        this.explicitGlyphOutlinePending = new Set();
 
         // Bidirectional text support
         this.bidi = bidiFactory();
@@ -479,6 +506,20 @@ export class TextRunEditor {
     }
 
     moveCursorLogicalBackward() {
+        const token = this.findExplicitGlyphTokenForBackspace(
+            this.cursorPosition
+        );
+        if (token) {
+            this.cursorPosition = token.start;
+            console.log(
+                '[TextRun]',
+                'Moved to start of explicit glyph token:',
+                token
+            );
+            this.updateCursorVisualPosition();
+            return;
+        }
+
         if (this.cursorPosition > 0) {
             this.cursorPosition--;
             console.log(
@@ -491,6 +532,18 @@ export class TextRunEditor {
     }
 
     moveCursorLogicalForward() {
+        const token = this.findExplicitGlyphTokenForDelete(this.cursorPosition);
+        if (token) {
+            this.cursorPosition = token.end;
+            console.log(
+                '[TextRun]',
+                'Moved to end of explicit glyph token:',
+                token
+            );
+            this.updateCursorVisualPosition();
+            return;
+        }
+
         if (this.cursorPosition < this.textBuffer.length) {
             this.cursorPosition++;
             console.log(
@@ -887,6 +940,22 @@ export class TextRunEditor {
 
             this.reshapeAndRender();
         } else if (this.cursorPosition > 0) {
+            const token = this.findExplicitGlyphTokenForBackspace(
+                this.cursorPosition
+            );
+            if (token) {
+                console.log(
+                    '[TextRun]',
+                    `Deleting explicit glyph token ${token.name} at [${token.start}-${token.end}]`
+                );
+                this.textBuffer =
+                    this.textBuffer.slice(0, token.start) +
+                    this.textBuffer.slice(token.end);
+                this.cursorPosition = token.start;
+                this.reshapeAndRender();
+                return;
+            }
+
             // Backspace always deletes the character BEFORE cursor (position - 1)
             console.log(
                 '[TextRun]',
@@ -924,6 +993,22 @@ export class TextRunEditor {
 
             this.reshapeAndRender();
         } else if (this.cursorPosition < this.textBuffer.length) {
+            const token = this.findExplicitGlyphTokenForDelete(
+                this.cursorPosition
+            );
+            if (token) {
+                console.log(
+                    '[TextRun]',
+                    `Deleting explicit glyph token ${token.name} at [${token.start}-${token.end}]`
+                );
+                this.textBuffer =
+                    this.textBuffer.slice(0, token.start) +
+                    this.textBuffer.slice(token.end);
+                this.cursorPosition = token.start;
+                this.reshapeAndRender();
+                return;
+            }
+
             // Delete key always deletes the character AT cursor (position)
             console.log(
                 '[TextRun]',
@@ -1580,11 +1665,14 @@ export class TextRunEditor {
         if (!this.hb || !this.textBuffer) {
             this.shapedGlyphs = [];
             this.bidiRuns = [];
+            this.explicitGlyphTokens = [];
             this.call('render');
             return;
         }
 
         try {
+            this.explicitGlyphTokens = this.parseExplicitGlyphTokens();
+
             // Two-stage processing:
             // Stage 1: Get base glyph names from Unicode via font model (for closure/subsetting)
             // Stage 2: Shape text with editing font using BiDi-aware run processing (for rendering)
@@ -1624,6 +1712,10 @@ export class TextRunEditor {
             if (!skipRender) {
                 this.call('render');
             }
+
+            // Prefetch explicit glyph outlines/advances in background for tokens
+            // that are missing in the current editing font subset.
+            this.prefetchExplicitGlyphOutlinesForCurrentState();
         } catch (error) {
             console.error('Error shaping text:', error);
             this.shapedGlyphs = [];
@@ -1783,8 +1875,22 @@ export class TextRunEditor {
         const clusterValues: number[] = [];
         const seenGlyphs = new Set<string>();
 
+        for (const token of this.explicitGlyphTokens) {
+            if (!seenGlyphs.has(token.name)) {
+                baseGlyphNames.push(token.name);
+                seenGlyphs.add(token.name);
+            }
+            clusterValues.push(token.start);
+        }
+
         // Iterate through each character in the text buffer
         for (let i = 0; i < this.textBuffer.length; i++) {
+            const explicitToken = this.findExplicitGlyphTokenStartingAt(i);
+            if (explicitToken) {
+                i = explicitToken.end - 1;
+                continue;
+            }
+
             const char = this.textBuffer[i];
             const codepoint = char.codePointAt(0);
 
@@ -2033,6 +2139,9 @@ export class TextRunEditor {
         }
 
         this.shapedGlyphs = allGlyphs;
+        this.shapedGlyphs = this.mergeExplicitGlyphTokensIntoShapedGlyphs(
+            this.shapedGlyphs
+        );
         this.bidiRuns = shapedRuns;
 
         // Build cluster map for cursor positioning
@@ -2040,6 +2149,399 @@ export class TextRunEditor {
         this.updateCursorVisualPosition();
 
         console.log('Stage 2 shaped glyphs:', this.shapedGlyphs.length);
+    }
+
+    isWhitespaceCharacter(char: string): boolean {
+        return /\s/.test(char);
+    }
+
+    parseExplicitGlyphTokens(): ExplicitGlyphToken[] {
+        const tokens: ExplicitGlyphToken[] = [];
+        const text = this.textBuffer || '';
+        const fontModel = window.currentFontModel;
+
+        if (!text || !fontModel) {
+            return tokens;
+        }
+
+        let i = 0;
+        while (i < text.length) {
+            if (text[i] !== '/') {
+                i++;
+                continue;
+            }
+
+            const start = i;
+            const nameStart = i + 1;
+            let cursor = nameStart;
+
+            while (
+                cursor < text.length &&
+                text[cursor] !== '/' &&
+                !this.isWhitespaceCharacter(text[cursor])
+            ) {
+                cursor++;
+            }
+
+            const name = text.slice(nameStart, cursor);
+            if (!name) {
+                i = start + 1;
+                continue;
+            }
+
+            const terminator = cursor < text.length ? text[cursor] : '';
+            const hasSlashTerminator = terminator === '/';
+            const hasWhitespaceTerminator =
+                terminator !== '' && this.isWhitespaceCharacter(terminator);
+
+            // Explicit names are only valid when terminated by slash (next explicit token)
+            // or by whitespace (which ends the explicit-token sequence and is not rendered).
+            if (!hasSlashTerminator && !hasWhitespaceTerminator) {
+                i = start + 1;
+                continue;
+            }
+
+            const glyph = fontModel.findGlyph(name);
+            if (!glyph) {
+                i = start + 1;
+                continue;
+            }
+
+            const end = hasWhitespaceTerminator ? cursor + 1 : cursor;
+            tokens.push({ name, start, end });
+
+            if (hasWhitespaceTerminator) {
+                i = end;
+            } else {
+                i = cursor;
+            }
+        }
+
+        return tokens;
+    }
+
+    findExplicitGlyphTokenStartingAt(
+        position: number
+    ): ExplicitGlyphToken | null {
+        for (const token of this.explicitGlyphTokens) {
+            if (token.start === position) {
+                return token;
+            }
+        }
+        return null;
+    }
+
+    findExplicitGlyphTokenForBackspace(
+        cursorPosition: number
+    ): ExplicitGlyphToken | null {
+        for (const token of this.explicitGlyphTokens) {
+            if (cursorPosition > token.start && cursorPosition <= token.end) {
+                return token;
+            }
+        }
+        return null;
+    }
+
+    findExplicitGlyphTokenForDelete(
+        cursorPosition: number
+    ): ExplicitGlyphToken | null {
+        for (const token of this.explicitGlyphTokens) {
+            if (cursorPosition >= token.start && cursorPosition < token.end) {
+                return token;
+            }
+        }
+        return null;
+    }
+
+    findExplicitGlyphTokenByCluster(
+        cluster: number
+    ): ExplicitGlyphToken | null {
+        for (const token of this.explicitGlyphTokens) {
+            if (cluster >= token.start && cluster < token.end) {
+                return token;
+            }
+        }
+        return null;
+    }
+
+    getCurrentVariationLocationSnapshot(): Record<string, number> {
+        const location: Record<string, number> = {};
+        const settings = this.axesManager?.variationSettings || {};
+        const keys = Object.keys(settings).sort();
+
+        for (const key of keys) {
+            location[key] = settings[key];
+        }
+
+        return location;
+    }
+
+    serializeVariationLocation(location: Record<string, number>): string {
+        const keys = Object.keys(location).sort();
+        const normalized: Record<string, number> = {};
+        for (const key of keys) {
+            normalized[key] = location[key];
+        }
+        return JSON.stringify(normalized);
+    }
+
+    getCurrentVariationLocationKey(): string {
+        return this.serializeVariationLocation(
+            this.getCurrentVariationLocationSnapshot()
+        );
+    }
+
+    makeExplicitGlyphCacheKey(glyphName: string, locationKey: string): string {
+        return `${glyphName}|${locationKey}`;
+    }
+
+    getCachedExplicitGlyphOutline(
+        glyphName: string
+    ): ExplicitGlyphOutlineData | null {
+        const key = this.makeExplicitGlyphCacheKey(
+            glyphName,
+            this.getCurrentVariationLocationKey()
+        );
+        return this.explicitGlyphOutlineCache.get(key) || null;
+    }
+
+    getCachedExplicitGlyphAdvance(glyphName: string): number | null {
+        const outline = this.getCachedExplicitGlyphOutline(glyphName);
+        if (outline && typeof outline.width === 'number') {
+            return outline.width;
+        }
+        return null;
+    }
+
+    async prefetchExplicitGlyphOutlinesForCurrentState() {
+        if (!this.shapedGlyphs || this.shapedGlyphs.length === 0) {
+            return;
+        }
+
+        const fontComp = (window as any).fontCompilation;
+        if (!fontComp || typeof fontComp.sendMessage !== 'function') {
+            return;
+        }
+
+        const locationSnapshot = this.getCurrentVariationLocationSnapshot();
+        const locationKey = this.serializeVariationLocation(locationSnapshot);
+
+        const glyphNamesToFetch = new Set<string>();
+        for (const glyph of this.shapedGlyphs) {
+            if (!glyph.explicitGlyphName) {
+                continue;
+            }
+
+            // Only prefetch when explicit token isn't available in the current editing font subset.
+            if (glyph.g !== 0) {
+                continue;
+            }
+
+            const cacheKey = this.makeExplicitGlyphCacheKey(
+                glyph.explicitGlyphName,
+                locationKey
+            );
+            if (this.explicitGlyphOutlineCache.has(cacheKey)) {
+                continue;
+            }
+            if (this.explicitGlyphOutlinePending.has(cacheKey)) {
+                continue;
+            }
+
+            glyphNamesToFetch.add(glyph.explicitGlyphName);
+        }
+
+        if (!glyphNamesToFetch.size) {
+            return;
+        }
+
+        const requestedNames = Array.from(glyphNamesToFetch);
+        for (const glyphName of requestedNames) {
+            this.explicitGlyphOutlinePending.add(
+                this.makeExplicitGlyphCacheKey(glyphName, locationKey)
+            );
+        }
+
+        try {
+            const response = await fontComp.sendMessage({
+                type: 'getGlyphOutlines',
+                glyphNames: requestedNames,
+                location: locationSnapshot,
+                flattenComponents: true
+            });
+
+            if (response?.error) {
+                console.warn(
+                    '[TextRun]',
+                    'Explicit glyph outline prefetch failed:',
+                    response.error
+                );
+                return;
+            }
+
+            const outlines: ExplicitGlyphOutlineData[] = JSON.parse(
+                response.outlinesJson || '[]'
+            );
+
+            for (const outline of outlines) {
+                if (!outline?.name) {
+                    continue;
+                }
+                const cacheKey = this.makeExplicitGlyphCacheKey(
+                    outline.name,
+                    locationKey
+                );
+                this.explicitGlyphOutlineCache.set(cacheKey, outline);
+            }
+
+            const isSameLocation =
+                this.getCurrentVariationLocationKey() === locationKey;
+            if (!isSameLocation) {
+                return;
+            }
+
+            const requestedSet = new Set(requestedNames);
+            let metricsChanged = false;
+            let visibleTokenFound = false;
+
+            for (const glyph of this.shapedGlyphs) {
+                const explicitName = glyph.explicitGlyphName;
+                if (!explicitName || !requestedSet.has(explicitName)) {
+                    continue;
+                }
+
+                visibleTokenFound = true;
+
+                if (glyph.g !== 0) {
+                    continue;
+                }
+
+                const cached = this.explicitGlyphOutlineCache.get(
+                    this.makeExplicitGlyphCacheKey(explicitName, locationKey)
+                );
+                if (!cached || typeof cached.width !== 'number') {
+                    continue;
+                }
+
+                const previousAdvance = glyph.ax || 0;
+                if (Math.abs(previousAdvance - cached.width) > 0.01) {
+                    glyph.ax = cached.width;
+                    metricsChanged = true;
+                }
+            }
+
+            if (metricsChanged) {
+                this.buildClusterMap();
+                this.updateCursorVisualPosition();
+            }
+
+            if (visibleTokenFound) {
+                this.call('render');
+            }
+        } catch (error) {
+            console.warn(
+                '[TextRun]',
+                'Error during explicit glyph outline prefetch:',
+                error
+            );
+        } finally {
+            for (const glyphName of requestedNames) {
+                this.explicitGlyphOutlinePending.delete(
+                    this.makeExplicitGlyphCacheKey(glyphName, locationKey)
+                );
+            }
+        }
+    }
+
+    estimateExplicitGlyphAdvance(glyphName: string): number {
+        const cachedAdvance = this.getCachedExplicitGlyphAdvance(glyphName);
+        if (cachedAdvance !== null) {
+            return cachedAdvance;
+        }
+
+        const fontModel = window.currentFontModel;
+        if (!fontModel) {
+            return 250;
+        }
+
+        const glyph = fontModel.findGlyph(glyphName);
+        if (!glyph) {
+            return 250;
+        }
+
+        let layer =
+            this.selectedMasterId && glyph.findLayerByMasterId
+                ? glyph.findLayerByMasterId(this.selectedMasterId)
+                : undefined;
+
+        if (!layer && glyph.layers && glyph.layers.length > 0) {
+            layer = glyph.layers[0];
+        }
+
+        if (layer && typeof layer.width === 'number') {
+            return layer.width;
+        }
+
+        return 250;
+    }
+
+    buildExplicitTokenGlyph(token: ExplicitGlyphToken): ShapedGlyph {
+        const gid = this.editingFontNameToGid.get(token.name);
+        return {
+            dx: 0,
+            dy: 0,
+            ax: this.estimateExplicitGlyphAdvance(token.name),
+            ay: 0,
+            cl: token.start,
+            g: gid ?? 0,
+            explicitGlyphName: token.name,
+            explicitTokenStart: token.start,
+            explicitTokenEnd: token.end
+        };
+    }
+
+    mergeExplicitGlyphTokensIntoShapedGlyphs(
+        shapedGlyphs: ShapedGlyph[]
+    ): ShapedGlyph[] {
+        if (!this.explicitGlyphTokens.length) {
+            return shapedGlyphs;
+        }
+
+        const merged: ShapedGlyph[] = [];
+        const emittedTokenStarts = new Set<number>();
+
+        for (const glyph of shapedGlyphs) {
+            const cluster = glyph.cl || 0;
+            const token = this.findExplicitGlyphTokenByCluster(cluster);
+
+            if (!token) {
+                merged.push(glyph);
+                continue;
+            }
+
+            if (!emittedTokenStarts.has(token.start)) {
+                merged.push(this.buildExplicitTokenGlyph(token));
+                emittedTokenStarts.add(token.start);
+            }
+        }
+
+        // Handle tokens that produced no clusters in the shaped stream
+        for (const token of this.explicitGlyphTokens) {
+            if (emittedTokenStarts.has(token.start)) {
+                continue;
+            }
+
+            const tokenGlyph = this.buildExplicitTokenGlyph(token);
+            let insertionIndex = merged.findIndex(
+                (glyph) => (glyph.cl || 0) > token.start
+            );
+            if (insertionIndex < 0) {
+                insertionIndex = merged.length;
+            }
+            merged.splice(insertionIndex, 0, tokenGlyph);
+        }
+
+        return merged;
     }
 
     shapeTextSimple() {

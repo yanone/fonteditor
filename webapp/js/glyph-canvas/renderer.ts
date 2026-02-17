@@ -28,6 +28,32 @@ function getNodesFromShape(
     return undefined;
 }
 
+function getNodesFromOutlineShape(shape: any): Babelfont.Node[] | undefined {
+    if (!shape) {
+        return undefined;
+    }
+
+    if (shape.nodes) {
+        return typeof shape.nodes === 'string'
+            ? LayerDataNormalizer.parseNodes(shape.nodes)
+            : shape.nodes;
+    }
+
+    if (shape.Path?.nodes) {
+        return typeof shape.Path.nodes === 'string'
+            ? LayerDataNormalizer.parseNodes(shape.Path.nodes)
+            : shape.Path.nodes;
+    }
+
+    if (shape.Contour?.nodes) {
+        return typeof shape.Contour.nodes === 'string'
+            ? LayerDataNormalizer.parseNodes(shape.Contour.nodes)
+            : shape.Contour.nodes;
+    }
+
+    return undefined;
+}
+
 /**
  * Calculate bounding box from SVG path data
  * Parses M, L, C, Q, Z commands to find min/max x and y coordinates
@@ -315,16 +341,32 @@ export class GlyphCanvasRenderer {
                 const xOffset = glyph.dx || 0;
                 const yOffset = glyph.dy || 0;
                 const xAdvance = glyph.ax || 0;
+                const explicitGlyphName = glyph.explicitGlyphName;
 
                 const x = xPosition + xOffset;
                 const y = yOffset;
 
-                // Get glyph outline from HarfBuzz to calculate actual bounds
                 const glyphData =
                     this.textRunEditor.hbFont.glyphToPath(glyphId);
+                const explicitOutline = explicitGlyphName
+                    ? this.textRunEditor.getCachedExplicitGlyphOutline(
+                          explicitGlyphName
+                      )
+                    : null;
+                const useExplicitOutline =
+                    !!explicitOutline && !!explicitGlyphName && glyphId === 0;
+
+                // Get bounds for hit testing
                 const pathBounds = glyphData
                     ? calculatePathBounds(glyphData)
-                    : null;
+                    : useExplicitOutline && explicitOutline?.bounds
+                      ? {
+                            minX: explicitOutline.bounds.xMin,
+                            minY: explicitOutline.bounds.yMin,
+                            maxX: explicitOutline.bounds.xMax,
+                            maxY: explicitOutline.bounds.yMax
+                        }
+                      : null;
 
                 // Store bounds for hit testing and tooltip positioning
                 this.glyphCanvas.glyphBounds.push({
@@ -355,8 +397,8 @@ export class GlyphCanvasRenderer {
                     !this.glyphCanvas.outlineEditor.isPreviewMode;
 
                 if (!skipHarfBuzz) {
-                    // Check if this is .notdef (GID 0) - use faded color during font compilation lag
-                    const isNotdef = glyphId === 0;
+                    // Check if this is .notdef (GID 0) with no explicit fallback.
+                    const isNotdef = glyphId === 0 && !useExplicitOutline;
 
                     // Set color based on mode and state
                     if (
@@ -400,11 +442,13 @@ export class GlyphCanvasRenderer {
                         }
                     }
 
-                    // Get glyph outline from HarfBuzz (supports variations)
-                    const glyphData =
-                        this.textRunEditor.hbFont.glyphToPath(glyphId);
-
-                    if (glyphData) {
+                    if (useExplicitOutline && explicitOutline?.shapes) {
+                        this.drawCachedExplicitGlyphOutline(
+                            explicitOutline,
+                            x,
+                            y
+                        );
+                    } else if (glyphData) {
                         this.ctx.save();
                         this.ctx.translate(x, y);
 
@@ -421,6 +465,28 @@ export class GlyphCanvasRenderer {
                 xPosition += xAdvance;
             }
         );
+    }
+
+    drawCachedExplicitGlyphOutline(outlineData: any, x: number, y: number) {
+        if (!outlineData?.shapes || !Array.isArray(outlineData.shapes)) {
+            return;
+        }
+
+        this.ctx.save();
+        this.ctx.translate(x, y);
+
+        this.ctx.beginPath();
+        for (const shape of outlineData.shapes) {
+            const nodes = getNodesFromOutlineShape(shape);
+            if (!nodes || nodes.length === 0) {
+                continue;
+            }
+            this.buildPathFromNodes(nodes);
+            this.ctx.closePath();
+        }
+
+        this.ctx.fill();
+        this.ctx.restore();
     }
 
     /**
