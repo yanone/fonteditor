@@ -4441,7 +4441,7 @@ flex-direction: row;
 }
 
 .editor-section-title:first-child {
-    margin-top: 0px;
+    /* margin-top: 0px; */
 }
 
 /* Masters/Layers list container (unified widget for both modes) */
