@@ -71,6 +71,9 @@ export class TextRunEditor {
     explicitGlyphTokens: ExplicitGlyphToken[];
     explicitGlyphOutlineCache: Map<string, ExplicitGlyphOutlineData>;
     explicitGlyphOutlinePending: Set<string>;
+    displayTextBuffer: string;
+    displayIndexToRawStart: number[];
+    displayIndexToRawEnd: number[];
     bidi: any;
     bidiRuns: any[];
     selectedGlyphIndex: number;
@@ -118,6 +121,9 @@ export class TextRunEditor {
         this.explicitGlyphTokens = [];
         this.explicitGlyphOutlineCache = new Map();
         this.explicitGlyphOutlinePending = new Set();
+        this.displayTextBuffer = this.textBuffer;
+        this.displayIndexToRawStart = [];
+        this.displayIndexToRawEnd = [];
 
         // Bidirectional text support
         this.bidi = bidiFactory();
@@ -436,7 +442,7 @@ export class TextRunEditor {
 
                 // Intermediate positions if multi-character cluster
                 if (
-                    !cluster.isExplicitToken &&
+                    !cluster.isAtomicCluster &&
                     cluster.end - cluster.start > 1
                 ) {
                     for (let i = cluster.start + 1; i < cluster.end; i++) {
@@ -475,7 +481,7 @@ export class TextRunEditor {
 
                 // Intermediate positions if multi-character cluster
                 if (
-                    !cluster.isExplicitToken &&
+                    !cluster.isAtomicCluster &&
                     cluster.end - cluster.start > 1
                 ) {
                     for (let i = cluster.start + 1; i < cluster.end; i++) {
@@ -526,6 +532,15 @@ export class TextRunEditor {
             return;
         }
 
+        const escapedSlash = this.findEscapedSlashForBackspace(
+            this.cursorPosition
+        );
+        if (escapedSlash) {
+            this.cursorPosition = escapedSlash.start;
+            this.updateCursorVisualPosition();
+            return;
+        }
+
         if (this.cursorPosition > 0) {
             this.cursorPosition--;
             console.log(
@@ -546,6 +561,15 @@ export class TextRunEditor {
                 'Moved to end of explicit glyph token:',
                 token
             );
+            this.updateCursorVisualPosition();
+            return;
+        }
+
+        const escapedSlash = this.findEscapedSlashForDelete(
+            this.cursorPosition
+        );
+        if (escapedSlash) {
+            this.cursorPosition = escapedSlash.end;
             this.updateCursorVisualPosition();
             return;
         }
@@ -962,6 +986,18 @@ export class TextRunEditor {
                 return;
             }
 
+            const escapedSlash = this.findEscapedSlashForBackspace(
+                this.cursorPosition
+            );
+            if (escapedSlash) {
+                this.textBuffer =
+                    this.textBuffer.slice(0, escapedSlash.start) +
+                    this.textBuffer.slice(escapedSlash.end);
+                this.cursorPosition = escapedSlash.start;
+                this.reshapeAndRender();
+                return;
+            }
+
             // Backspace always deletes the character BEFORE cursor (position - 1)
             console.log(
                 '[TextRun]',
@@ -1011,6 +1047,18 @@ export class TextRunEditor {
                     this.textBuffer.slice(0, token.start) +
                     this.textBuffer.slice(token.end);
                 this.cursorPosition = token.start;
+                this.reshapeAndRender();
+                return;
+            }
+
+            const escapedSlash = this.findEscapedSlashForDelete(
+                this.cursorPosition
+            );
+            if (escapedSlash) {
+                this.textBuffer =
+                    this.textBuffer.slice(0, escapedSlash.start) +
+                    this.textBuffer.slice(escapedSlash.end);
+                this.cursorPosition = escapedSlash.start;
                 this.reshapeAndRender();
                 return;
             }
@@ -1157,7 +1205,10 @@ export class TextRunEditor {
                 x: xPosition,
                 width: clusterWidth,
                 isRTL: isRTL,
-                isExplicitToken: isExplicitToken
+                isExplicitToken: isExplicitToken,
+                isAtomicCluster:
+                    isExplicitToken ||
+                    this.isEscapedSlashRange(clusterStart, clusterEnd)
             });
 
             xPosition += clusterWidth;
@@ -1442,7 +1493,13 @@ export class TextRunEditor {
         // Regular character input (only if not a modifier key combo)
         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
-            this.insertText(e.key);
+            if (e.key === '/') {
+                // Escape literal slash typing in the raw text buffer.
+                // Token parser will resolve "//" back to a single Unicode slash.
+                this.insertText('//');
+            } else {
+                this.insertText(e.key);
+            }
             return;
         }
 
@@ -1687,6 +1744,7 @@ export class TextRunEditor {
         }
 
         try {
+            this.buildDisplayTextMapping();
             this.explicitGlyphTokens = this.parseExplicitGlyphTokens();
 
             // Two-stage processing:
@@ -1740,6 +1798,51 @@ export class TextRunEditor {
         }
     }
 
+    buildDisplayTextMapping() {
+        const rawText = this.textBuffer || '';
+        const displayChars: string[] = [];
+        const startMap: number[] = [];
+        const endMap: number[] = [];
+
+        let rawIndex = 0;
+        while (rawIndex < rawText.length) {
+            if (
+                rawText[rawIndex] === '/' &&
+                rawIndex + 1 < rawText.length &&
+                rawText[rawIndex + 1] === '/'
+            ) {
+                displayChars.push('/');
+                startMap.push(rawIndex);
+                endMap.push(rawIndex + 2);
+                rawIndex += 2;
+                continue;
+            }
+
+            displayChars.push(rawText[rawIndex]);
+            startMap.push(rawIndex);
+            endMap.push(rawIndex + 1);
+            rawIndex += 1;
+        }
+
+        this.displayTextBuffer = displayChars.join('');
+        this.displayIndexToRawStart = startMap;
+        this.displayIndexToRawEnd = endMap;
+    }
+
+    mapDisplayStartToRaw(displayIndex: number): number {
+        if (displayIndex >= this.displayIndexToRawStart.length) {
+            return this.textBuffer.length;
+        }
+        return this.displayIndexToRawStart[displayIndex];
+    }
+
+    mapDisplayEndToRaw(displayIndex: number): number {
+        if (displayIndex >= this.displayIndexToRawEnd.length) {
+            return this.textBuffer.length;
+        }
+        return this.displayIndexToRawEnd[displayIndex];
+    }
+
     /**
      * BiDi shaping WITHOUT features - used in Stage 1 for subsetting.
      * Gets base glyphs only; layout closure will find all substitutions.
@@ -1750,7 +1853,8 @@ export class TextRunEditor {
             return;
         }
 
-        const embedLevels = this.bidi.getEmbeddingLevels(this.textBuffer);
+        const displayText = this.displayTextBuffer;
+        const embedLevels = this.bidi.getEmbeddingLevels(displayText);
         this.embeddingLevels = embedLevels;
 
         // Split into runs by embedding level
@@ -1758,12 +1862,12 @@ export class TextRunEditor {
         let currentLevel = embedLevels.levels[0];
         let runStart = 0;
 
-        for (let i = 1; i <= this.textBuffer.length; i++) {
+        for (let i = 1; i <= displayText.length; i++) {
             if (
-                i === this.textBuffer.length ||
+                i === displayText.length ||
                 embedLevels.levels[i] !== currentLevel
             ) {
-                const runText = this.textBuffer.substring(runStart, i);
+                const runText = displayText.substring(runStart, i);
                 const direction = currentLevel % 2 === 0 ? 'ltr' : 'rtl';
                 runs.push({
                     text: runText,
@@ -1772,7 +1876,7 @@ export class TextRunEditor {
                     start: runStart,
                     end: i
                 });
-                if (i < this.textBuffer.length) {
+                if (i < displayText.length) {
                     currentLevel = embedLevels.levels[i];
                     runStart = i;
                 }
@@ -1811,7 +1915,7 @@ export class TextRunEditor {
 
         // Reorder using bidi-js
         const reorderedIndices = this.bidi.getReorderedIndices(
-            this.textBuffer,
+            displayText,
             embedLevels
         );
 
@@ -1835,7 +1939,7 @@ export class TextRunEditor {
 
             for (const [clusterPos, glyphs] of logicalPosToGlyphs) {
                 if (clusterPos <= charIdx) {
-                    let nextClusterPos = this.textBuffer.length;
+                    let nextClusterPos = displayText.length;
                     for (const [otherPos, _] of logicalPosToGlyphs) {
                         if (
                             otherPos > clusterPos &&
@@ -1859,6 +1963,11 @@ export class TextRunEditor {
                     addedClusters.add(clusterStart);
                 }
             }
+        }
+
+        for (const glyph of allGlyphs) {
+            const displayCluster = glyph.cl || 0;
+            glyph.cl = this.mapDisplayStartToRaw(displayCluster);
         }
 
         this.shapedGlyphs = allGlyphs;
@@ -1899,20 +2008,29 @@ export class TextRunEditor {
             clusterValues.push(token.start);
         }
 
-        // Iterate through each character in the text buffer
-        for (let i = 0; i < this.textBuffer.length; i++) {
-            const explicitToken = this.findExplicitGlyphTokenStartingAt(i);
+        const displayText = this.displayTextBuffer;
+
+        // Iterate through each character in display text (where // is resolved to /)
+        for (let i = 0; i < displayText.length; i++) {
+            const rawPos = this.mapDisplayStartToRaw(i);
+            const explicitToken = this.findExplicitGlyphTokenStartingAt(rawPos);
             if (explicitToken) {
-                i = explicitToken.end - 1;
+                while (
+                    i < displayText.length &&
+                    this.mapDisplayStartToRaw(i) < explicitToken.end
+                ) {
+                    i++;
+                }
+                i--;
                 continue;
             }
 
-            const char = this.textBuffer[i];
+            const char = displayText[i];
             const codepoint = char.codePointAt(0);
 
             if (codepoint === undefined) {
                 console.warn(`Stage 1: Invalid codepoint at position ${i}`);
-                clusterValues.push(i);
+                clusterValues.push(rawPos);
                 continue;
             }
 
@@ -1926,12 +2044,12 @@ export class TextRunEditor {
                     seenGlyphs.add(glyph.name);
                 }
                 // Still track cluster position for each character
-                clusterValues.push(i);
+                clusterValues.push(rawPos);
             } else {
                 console.warn(
                     `Stage 1: No glyph found for codepoint U+${codepoint.toString(16).toUpperCase().padStart(4, '0')} ("${char}")`
                 );
-                clusterValues.push(i);
+                clusterValues.push(rawPos);
             }
         }
 
@@ -1948,14 +2066,19 @@ export class TextRunEditor {
      * Simple shaping WITHOUT features - used in Stage 1 to get base glyphs.
      */
     shapeTextSimpleNoFeatures(hbFont: any) {
+        const displayText = this.displayTextBuffer;
         const buffer = this.hb.createBuffer();
-        buffer.addText(this.textBuffer);
+        buffer.addText(displayText);
         buffer.guessSegmentProperties();
 
         // Shape without features to get base glyphs
         this.hb.shape(hbFont, buffer);
 
         this.shapedGlyphs = buffer.json();
+        for (const glyph of this.shapedGlyphs) {
+            const displayCluster = glyph.cl || 0;
+            glyph.cl = this.mapDisplayStartToRaw(displayCluster);
+        }
         this.bidiRuns = [];
         buffer.destroy();
 
@@ -1968,8 +2091,9 @@ export class TextRunEditor {
      * Used as fallback in Stage 1 when bidi is not available.
      */
     shapeTextSimpleWithFont(hbFont: any) {
+        const displayText = this.displayTextBuffer;
         const buffer = this.hb.createBuffer();
-        buffer.addText(this.textBuffer);
+        buffer.addText(displayText);
         buffer.guessSegmentProperties();
 
         const features = this.featuresManager.getHarfBuzzFeatures();
@@ -1980,6 +2104,10 @@ export class TextRunEditor {
         }
 
         this.shapedGlyphs = buffer.json();
+        for (const glyph of this.shapedGlyphs) {
+            const displayCluster = glyph.cl || 0;
+            glyph.cl = this.mapDisplayStartToRaw(displayCluster);
+        }
         this.bidiRuns = [];
         buffer.destroy();
 
@@ -2034,8 +2162,10 @@ export class TextRunEditor {
             'Stage 2: BiDi-aware shaping with editing font (GSUB+GPOS)'
         );
 
+        const displayText = this.displayTextBuffer;
+
         // Get embedding levels from bidi-js
-        const embedLevels = this.bidi.getEmbeddingLevels(this.textBuffer);
+        const embedLevels = this.bidi.getEmbeddingLevels(displayText);
         this.embeddingLevels = embedLevels;
 
         // Split into runs by embedding level
@@ -2043,21 +2173,23 @@ export class TextRunEditor {
         let currentLevel = embedLevels.levels[0];
         let runStart = 0;
 
-        for (let i = 1; i <= this.textBuffer.length; i++) {
+        for (let i = 1; i <= displayText.length; i++) {
             if (
-                i === this.textBuffer.length ||
+                i === displayText.length ||
                 embedLevels.levels[i] !== currentLevel
             ) {
-                const runText = this.textBuffer.substring(runStart, i);
+                const runText = displayText.substring(runStart, i);
                 const direction = currentLevel % 2 === 0 ? 'ltr' : 'rtl';
                 runs.push({
                     text: runText,
                     level: currentLevel,
                     direction: direction,
-                    start: runStart,
-                    end: i
+                    displayStart: runStart,
+                    displayEnd: i,
+                    start: this.mapDisplayStartToRaw(runStart),
+                    end: this.mapDisplayStartToRaw(i)
                 });
-                if (i < this.textBuffer.length) {
+                if (i < displayText.length) {
                     currentLevel = embedLevels.levels[i];
                     runStart = i;
                 }
@@ -2089,9 +2221,9 @@ export class TextRunEditor {
             const glyphs = buffer.json();
             buffer.destroy();
 
-            // Adjust cluster values to be relative to the full string
+            // Adjust cluster values to be relative to the full display string
             for (const glyph of glyphs) {
-                glyph.cl = (glyph.cl || 0) + run.start;
+                glyph.cl = (glyph.cl || 0) + run.displayStart;
             }
 
             shapedRuns.push({
@@ -2102,7 +2234,7 @@ export class TextRunEditor {
 
         // Reorder runs using bidi-js
         const reorderedIndices = this.bidi.getReorderedIndices(
-            this.textBuffer,
+            displayText,
             embedLevels
         );
 
@@ -2127,7 +2259,7 @@ export class TextRunEditor {
             // Find the cluster that contains this character
             for (const [clusterPos, glyphs] of logicalPosToGlyphs) {
                 if (clusterPos <= charIdx) {
-                    let nextClusterPos = this.textBuffer.length;
+                    let nextClusterPos = displayText.length;
                     for (const [otherPos, _] of logicalPosToGlyphs) {
                         if (
                             otherPos > clusterPos &&
@@ -2154,6 +2286,11 @@ export class TextRunEditor {
             }
         }
 
+        for (const glyph of allGlyphs) {
+            const displayCluster = glyph.cl || 0;
+            glyph.cl = this.mapDisplayStartToRaw(displayCluster);
+        }
+
         this.shapedGlyphs = allGlyphs;
         this.shapedGlyphs = this.mergeExplicitGlyphTokensIntoShapedGlyphs(
             this.shapedGlyphs
@@ -2171,9 +2308,79 @@ export class TextRunEditor {
         return /\s/.test(char);
     }
 
+    isEscapedSlashAt(text: string, index: number): boolean {
+        return (
+            index >= 0 &&
+            index < text.length - 1 &&
+            text[index] === '/' &&
+            text[index + 1] === '/'
+        );
+    }
+
+    isEscapedDisplaySlashAt(displayIndex: number): boolean {
+        if (
+            displayIndex < 0 ||
+            displayIndex >= this.displayIndexToRawStart.length
+        ) {
+            return false;
+        }
+
+        const rawStart = this.displayIndexToRawStart[displayIndex];
+        const rawEnd = this.displayIndexToRawEnd[displayIndex];
+
+        if (rawEnd - rawStart < 2) {
+            return false;
+        }
+
+        return this.isEscapedSlashAt(this.textBuffer || '', rawStart);
+    }
+
+    isEscapedSlashRange(start: number, end: number): boolean {
+        if (!this.textBuffer) {
+            return false;
+        }
+        return (
+            end - start === 2 && this.isEscapedSlashAt(this.textBuffer, start)
+        );
+    }
+
+    findEscapedSlashForBackspace(
+        cursorPosition: number
+    ): { start: number; end: number } | null {
+        const text = this.textBuffer || '';
+        for (let i = 0; i < text.length - 1; i++) {
+            if (!this.isEscapedSlashAt(text, i)) {
+                continue;
+            }
+            const start = i;
+            const end = i + 2;
+            if (cursorPosition > start && cursorPosition <= end) {
+                return { start, end };
+            }
+        }
+        return null;
+    }
+
+    findEscapedSlashForDelete(
+        cursorPosition: number
+    ): { start: number; end: number } | null {
+        const text = this.textBuffer || '';
+        for (let i = 0; i < text.length - 1; i++) {
+            if (!this.isEscapedSlashAt(text, i)) {
+                continue;
+            }
+            const start = i;
+            const end = i + 2;
+            if (cursorPosition >= start && cursorPosition < end) {
+                return { start, end };
+            }
+        }
+        return null;
+    }
+
     parseExplicitGlyphTokens(): ExplicitGlyphToken[] {
         const tokens: ExplicitGlyphToken[] = [];
-        const text = this.textBuffer || '';
+        const text = this.displayTextBuffer || '';
         const fontModel = window.currentFontModel;
 
         if (!text || !fontModel) {
@@ -2182,12 +2389,19 @@ export class TextRunEditor {
 
         let i = 0;
         while (i < text.length) {
+            // A display slash generated from raw "//" is always literal and must
+            // never start explicit glyph token parsing.
+            if (this.isEscapedDisplaySlashAt(i)) {
+                i++;
+                continue;
+            }
+
             if (text[i] !== '/') {
                 i++;
                 continue;
             }
 
-            const start = i;
+            const start = this.mapDisplayStartToRaw(i);
             const nameStart = i + 1;
             let cursor = nameStart;
 
@@ -2209,10 +2423,16 @@ export class TextRunEditor {
             const hasSlashTerminator = terminator === '/';
             const hasWhitespaceTerminator =
                 terminator !== '' && this.isWhitespaceCharacter(terminator);
+            const hasEolTerminator = terminator === '';
 
             // Explicit names are only valid when terminated by slash (next explicit token)
-            // or by whitespace (which ends the explicit-token sequence and is not rendered).
-            if (!hasSlashTerminator && !hasWhitespaceTerminator) {
+            // or by whitespace (which ends the explicit-token sequence and is not rendered),
+            // or by end-of-line.
+            if (
+                !hasSlashTerminator &&
+                !hasWhitespaceTerminator &&
+                !hasEolTerminator
+            ) {
                 i = start + 1;
                 continue;
             }
@@ -2223,7 +2443,12 @@ export class TextRunEditor {
                 continue;
             }
 
-            const end = hasWhitespaceTerminator ? cursor + 1 : cursor;
+            let end = this.mapDisplayStartToRaw(cursor);
+            if (hasWhitespaceTerminator) {
+                end = this.mapDisplayEndToRaw(cursor);
+            } else if (hasEolTerminator) {
+                end = this.textBuffer.length;
+            }
             tokens.push({ name, start, end });
 
             if (hasWhitespaceTerminator) {
@@ -2562,8 +2787,9 @@ export class TextRunEditor {
 
     shapeTextSimple() {
         // Simple shaping without BiDi support (old behavior, uses editing font)
+        const displayText = this.displayTextBuffer;
         const buffer = this.hb.createBuffer();
-        buffer.addText(this.textBuffer);
+        buffer.addText(displayText);
         buffer.guessSegmentProperties();
 
         // Shape the text with features
@@ -2579,6 +2805,10 @@ export class TextRunEditor {
 
         // Get glyph information
         this.shapedGlyphs = buffer.json();
+        for (const glyph of this.shapedGlyphs) {
+            const displayCluster = glyph.cl || 0;
+            glyph.cl = this.mapDisplayStartToRaw(displayCluster);
+        }
         this.bidiRuns = [];
 
         // Clean up
@@ -2590,8 +2820,9 @@ export class TextRunEditor {
     }
 
     shapeTextWithBidi(hbFont: any) {
+        const displayText = this.displayTextBuffer;
         // Get embedding levels from bidi-js
-        const embedLevels = this.bidi.getEmbeddingLevels(this.textBuffer);
+        const embedLevels = this.bidi.getEmbeddingLevels(displayText);
         this.embeddingLevels = embedLevels; // Store for cursor logic
         console.log('Embedding levels:', embedLevels);
 
@@ -2601,21 +2832,23 @@ export class TextRunEditor {
         let currentLevel = embedLevels.levels[0];
         let runStart = 0;
 
-        for (let i = 1; i <= this.textBuffer.length; i++) {
+        for (let i = 1; i <= displayText.length; i++) {
             if (
-                i === this.textBuffer.length ||
+                i === displayText.length ||
                 embedLevels.levels[i] !== currentLevel
             ) {
-                const runText = this.textBuffer.substring(runStart, i);
+                const runText = displayText.substring(runStart, i);
                 const direction = currentLevel % 2 === 0 ? 'ltr' : 'rtl';
                 runs.push({
                     text: runText,
                     level: currentLevel,
                     direction: direction,
-                    start: runStart,
-                    end: i
+                    displayStart: runStart,
+                    displayEnd: i,
+                    start: this.mapDisplayStartToRaw(runStart),
+                    end: this.mapDisplayStartToRaw(i)
                 });
-                if (i < this.textBuffer.length) {
+                if (i < displayText.length) {
                     currentLevel = embedLevels.levels[i];
                     runStart = i;
                 }
@@ -2652,7 +2885,7 @@ export class TextRunEditor {
 
             // Adjust cluster values to be relative to the full string, not the run
             for (const glyph of glyphs) {
-                glyph.cl = (glyph.cl || 0) + run.start;
+                glyph.cl = (glyph.cl || 0) + run.displayStart;
             }
 
             shapedRuns.push({
@@ -2663,7 +2896,7 @@ export class TextRunEditor {
 
         // Now reorder the runs using bidi-js
         const reorderedIndices = this.bidi.getReorderedIndices(
-            this.textBuffer,
+            displayText,
             embedLevels
         );
 
@@ -2695,7 +2928,7 @@ export class TextRunEditor {
                 if (clusterPos <= charIdx) {
                     // Check if this cluster might contain our character
                     // by finding the next cluster position
-                    let nextClusterPos = this.textBuffer.length;
+                    let nextClusterPos = displayText.length;
                     for (const [otherPos, _] of logicalPosToGlyphs) {
                         if (
                             otherPos > clusterPos &&
@@ -2721,6 +2954,11 @@ export class TextRunEditor {
                 allGlyphs.push(...glyphs);
                 addedClusters.add(clusterStart);
             }
+        }
+
+        for (const glyph of allGlyphs) {
+            const displayCluster = glyph.cl || 0;
+            glyph.cl = this.mapDisplayStartToRaw(displayCluster);
         }
 
         this.shapedGlyphs = allGlyphs;
