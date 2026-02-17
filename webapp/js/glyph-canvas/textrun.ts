@@ -435,7 +435,10 @@ export class TextRunEditor {
                 }
 
                 // Intermediate positions if multi-character cluster
-                if (cluster.end - cluster.start > 1) {
+                if (
+                    !cluster.isExplicitToken &&
+                    cluster.end - cluster.start > 1
+                ) {
                     for (let i = cluster.start + 1; i < cluster.end; i++) {
                         const progress =
                             (i - cluster.start) / (cluster.end - cluster.start);
@@ -471,7 +474,10 @@ export class TextRunEditor {
                 }
 
                 // Intermediate positions if multi-character cluster
-                if (cluster.end - cluster.start > 1) {
+                if (
+                    !cluster.isExplicitToken &&
+                    cluster.end - cluster.start > 1
+                ) {
                     for (let i = cluster.start + 1; i < cluster.end; i++) {
                         const progress =
                             (i - cluster.start) / (cluster.end - cluster.start);
@@ -1110,6 +1116,7 @@ export class TextRunEditor {
         while (i < this.shapedGlyphs.length) {
             const glyph = this.shapedGlyphs[i];
             const clusterStart = glyph.cl || 0;
+            const isExplicitToken = !!glyph.explicitGlyphName;
 
             // Find all glyphs that belong to this cluster
             let clusterWidth = 0;
@@ -1123,8 +1130,16 @@ export class TextRunEditor {
             }
 
             // Get the proper cluster end from our bounds map
-            const clusterEnd =
+            let clusterEnd =
                 clusterBounds.get(clusterStart) || clusterStart + 1;
+
+            if (
+                isExplicitToken &&
+                typeof glyph.explicitTokenEnd === 'number' &&
+                glyph.explicitTokenEnd > clusterStart
+            ) {
+                clusterEnd = glyph.explicitTokenEnd;
+            }
 
             // Determine the RTL status based on the cluster start position
             const isRTL = this.isPositionRTL(clusterStart);
@@ -1141,7 +1156,8 @@ export class TextRunEditor {
                 end: clusterEnd,
                 x: xPosition,
                 width: clusterWidth,
-                isRTL: isRTL
+                isRTL: isRTL,
+                isExplicitToken: isExplicitToken
             });
 
             xPosition += clusterWidth;

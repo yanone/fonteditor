@@ -102,6 +102,62 @@ function calculatePathBounds(pathData: string): {
     return { minX, minY, maxX, maxY };
 }
 
+function parseRgbaColor(color: string): {
+    r: number;
+    g: number;
+    b: number;
+    a: number;
+} | null {
+    const rgba = toRgba(color);
+    const match = rgba.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
+
+    if (!match) {
+        return null;
+    }
+
+    return {
+        r: Number.parseInt(match[1], 10),
+        g: Number.parseInt(match[2], 10),
+        b: Number.parseInt(match[3], 10),
+        a: Number.parseFloat(match[4])
+    };
+}
+
+function adjustGlyphRestingColor(color: string, deltaPercent: number): string {
+    const rgba = parseRgbaColor(color);
+    if (!rgba) {
+        return color;
+    }
+
+    const ratio = Math.min(1, Math.max(0, Math.abs(deltaPercent) / 100));
+    const isLighten = deltaPercent > 0;
+
+    const adjustChannel = (value: number): number => {
+        if (isLighten) {
+            return Math.round(value + (255 - value) * ratio);
+        }
+        return Math.round(value * (1 - ratio));
+    };
+
+    let r = adjustChannel(rgba.r);
+    let g = adjustChannel(rgba.g);
+    let b = adjustChannel(rgba.b);
+    let a = rgba.a;
+
+    const isSaturatedWhite = rgba.r === 255 && rgba.g === 255 && rgba.b === 255;
+    const isSaturatedBlack = rgba.r === 0 && rgba.g === 0 && rgba.b === 0;
+
+    // If channels are saturated and cannot move further, adjust alpha to keep change visible.
+    if ((isLighten && isSaturatedWhite) || (!isLighten && isSaturatedBlack)) {
+        a = Math.min(1, rgba.a + (1 - rgba.a) * ratio);
+        r = rgba.r;
+        g = rgba.g;
+        b = rgba.b;
+    }
+
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
 export class GlyphCanvasRenderer {
     canvas: HTMLCanvasElement;
     ctx: CanvasRenderingContext2D;
@@ -387,6 +443,7 @@ export class GlyphCanvasRenderer {
                     this.glyphCanvas.outlineEditor.hoveredGlyphIndex;
                 const isSelected =
                     glyphIndex === this.textRunEditor.selectedGlyphIndex;
+                const isExplicitToken = !!explicitGlyphName;
 
                 // Check if we should skip HarfBuzz rendering for selected glyph
                 // Skip HarfBuzz only in edit mode when NOT in preview mode
@@ -399,48 +456,69 @@ export class GlyphCanvasRenderer {
                 if (!skipHarfBuzz) {
                     // Check if this is .notdef (GID 0) with no explicit fallback.
                     const isNotdef = glyphId === 0 && !useExplicitOutline;
+                    let fillColor: string;
+                    let inEditingMode = false;
+                    let inTextMode = false;
 
                     // Set color based on mode and state
                     if (
                         this.glyphCanvas.outlineEditor.active &&
                         !this.glyphCanvas.outlineEditor.isPreviewMode
                     ) {
+                        inEditingMode = true;
                         // Glyph edit mode (not preview): active glyph in solid color, others dimmed
                         if (isSelected) {
-                            this.ctx.fillStyle = colors.GLYPH_ACTIVE_IN_EDITOR;
+                            fillColor = colors.GLYPH_ACTIVE_IN_EDITOR;
                         } else if (isHovered) {
                             // Hovered inactive glyph - darker than normal inactive
-                            this.ctx.fillStyle = colors.GLYPH_HOVERED_IN_EDITOR;
+                            fillColor = colors.GLYPH_HOVERED_IN_EDITOR;
                         } else {
                             // Dim other glyphs
-                            this.ctx.fillStyle =
-                                colors.GLYPH_INACTIVE_IN_EDITOR;
+                            fillColor = colors.GLYPH_INACTIVE_IN_EDITOR;
                         }
                     } else if (
                         this.glyphCanvas.outlineEditor.active &&
                         this.glyphCanvas.outlineEditor.isPreviewMode
                     ) {
                         // Preview mode: all glyphs in normal color (or faded for .notdef)
-                        this.ctx.fillStyle = isNotdef
+                        fillColor = isNotdef
                             ? colors.GLYPH_NOTDEF
                             : colors.GLYPH_NORMAL;
                     } else {
+                        inTextMode = true;
                         // Text edit mode: normal coloring
                         // Don't show hover effects in preview mode
                         if (
                             isHovered &&
                             !this.glyphCanvas.outlineEditor.isPreviewMode
                         ) {
-                            this.ctx.fillStyle = colors.GLYPH_HOVERED;
+                            fillColor = colors.GLYPH_HOVERED;
                         } else if (isSelected) {
-                            this.ctx.fillStyle = colors.GLYPH_SELECTED;
+                            fillColor = colors.GLYPH_SELECTED;
                         } else {
                             // Use faded color for .notdef glyphs
-                            this.ctx.fillStyle = isNotdef
+                            fillColor = isNotdef
                                 ? colors.GLYPH_NOTDEF
                                 : colors.GLYPH_NORMAL;
                         }
                     }
+
+                    // Resting means not hovered. Apply only to Unicode glyphs.
+                    if (isExplicitToken) {
+                        if (inTextMode) {
+                            fillColor = adjustGlyphRestingColor(
+                                fillColor,
+                                isDarkTheme ? -40 : 40
+                            );
+                        } else if (inEditingMode) {
+                            fillColor = adjustGlyphRestingColor(
+                                fillColor,
+                                isDarkTheme ? -40 : 40
+                            );
+                        }
+                    }
+
+                    this.ctx.fillStyle = fillColor;
 
                     if (useExplicitOutline && explicitOutline?.shapes) {
                         this.drawCachedExplicitGlyphOutline(
