@@ -14,6 +14,16 @@ Run the app locally with `cd webapp && npm run dev`
 - Load assistant test conversation with `?assistant_style_test`
 - Trigger end-to-end error reporting tests from DevTools: `window.triggerRuntimeErrorForTesting()` and `window.triggerUnhandledRejectionForTesting()`
 
+### Rebuild wasm component
+
+Currently the wasm component is based on the babelfont fork https://github.com/yanone/babelfont-rs because of changes that we sometimes PR. To build a new wasm binary, do the following:
+
+1. Sync fork with upstream
+2. Note down pinned commit hash from fork into `.babelfont-rs-ref`
+3. Run `./update-rust-deps.sh`
+4. Run `./build-fontc-wasm.sh`
+5. Either later or immediately run `./check-type-drift.sh`, see below
+
 ### Type Drift Detection
 
 TypeScript types are auto-generated from `babelfont-rs` and must stay in sync. The type drift check runs automatically in `npm test`:
@@ -25,7 +35,6 @@ TypeScript types are auto-generated from `babelfont-rs` and must stay in sync. T
 ./regenerate-types.sh
 
 # Verify sync (runs in CI)
-./check-babelfont-pin-latest.sh
 ./check-type-drift.sh
 ```
 

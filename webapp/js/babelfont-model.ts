@@ -2253,6 +2253,34 @@ export class Layer extends ArrayElementBase {
 export class Glyph extends ArrayElementBase {
     private _layerWrappers: Layer[] | null = null;
 
+    private static readonly BUILTIN_CATEGORIES = new Set([
+        'Base',
+        'Mark',
+        'Unknown',
+        'Ligature'
+    ]);
+
+    static normalizeCategory(
+        value: Babelfont.GlyphCategory | string | undefined
+    ): Babelfont.GlyphCategory {
+        if (
+            typeof value === 'object' &&
+            value !== null &&
+            'Custom' in value &&
+            typeof (value as { Custom?: unknown }).Custom === 'string'
+        ) {
+            return value as Babelfont.GlyphCategory;
+        }
+
+        if (typeof value === 'string') {
+            return Glyph.BUILTIN_CATEGORIES.has(value)
+                ? (value as Babelfont.GlyphCategory)
+                : { Custom: value };
+        }
+
+        return 'Unknown';
+    }
+
     private static normalizeNodeType(nodeType: string | undefined): string {
         switch (nodeType) {
             case 'Move':
@@ -2316,11 +2344,11 @@ export class Glyph extends ArrayElementBase {
     }
 
     get category(): Babelfont.GlyphCategory {
-        return this.data.category;
+        return Glyph.normalizeCategory(this.data.category);
     }
 
-    set category(value: Babelfont.GlyphCategory) {
-        this.data.category = value;
+    set category(value: Babelfont.GlyphCategory | string) {
+        this.data.category = Glyph.normalizeCategory(value);
     }
 
     get codepoints(): number[] | undefined {
@@ -3197,10 +3225,13 @@ export class Font extends ModelBase {
      * @example
      * glyph = font.addGlyph("myGlyph", "Base")
      */
-    addGlyph(name: string, category: Babelfont.GlyphCategory = 'Base'): Glyph {
+    addGlyph(
+        name: string,
+        category: Babelfont.GlyphCategory | string = 'Base'
+    ): Glyph {
         const glyphData: Babelfont.Glyph = {
             name,
-            category,
+            category: Glyph.normalizeCategory(category),
             layers: [],
             exported: true
         };

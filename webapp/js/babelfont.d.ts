@@ -1,6 +1,6 @@
 // Type definitions for babelfont
 // Project: https://github.com/simoncozens/babelfont-rs
-// Definitions extracted from babelfont-ts@0e14ff0
+// Definitions extracted from babelfont-ts@017a375
 
 export namespace Babelfont {
     /** A dictionary for internationalized strings. */
@@ -358,7 +358,7 @@ export namespace Babelfont {
         /** A ligature glyph */
         | 'Ligature'
         /** Custom */
-        | string;
+        | { Custom: string };
     /** The type of a layer in relation to masters */
     export type LayerType =
         /** A default layer for a master */
