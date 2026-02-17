@@ -102,9 +102,10 @@ Users will see an orange update notification button in the title bar within 10 m
 - ◻️ Insert glyphs into editor text
 - ✅ OpenType feature code editor
 - ✅ Hot-reloading fonts on external changes (Chrome/Chromium only)
-- ◻️ Fontspector integration (incl. glyph-level messages)
+- ✅ Fontspector integration (glyph-level messages later)
 - ◻️ Interactive demo
 - ✅ Basic documentation
+- ◻️ First video
 
 ### v0.3 (Due: Mar 10, 2026)
 

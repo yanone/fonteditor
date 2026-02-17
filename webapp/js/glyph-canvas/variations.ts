@@ -96,9 +96,6 @@ export class AxesManager {
     createAxesSection() {
         const axesSection = document.createElement('div');
         axesSection.id = 'glyph-axes-section';
-        axesSection.style.display = 'flex';
-        axesSection.style.flexDirection = 'column';
-        axesSection.style.gap = '10px';
         this.axesSection = axesSection;
         return axesSection;
     }

@@ -1,0 +1,17 @@
+#glyph-properties-sidebar {
+    width: 200px;
+    min-width: 200px;
+    height: 100%;
+    border-right: 1px solid var(--border-primary);
+    padding: 12px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+#glyph-properties-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}

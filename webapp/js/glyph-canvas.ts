@@ -2717,33 +2717,11 @@ function initCanvas() {
         const leftSidebar = document.createElement('div');
         leftSidebar.id = 'glyph-properties-sidebar';
         leftSidebar.className = 'view-sidebar view-sidebar-left';
-        leftSidebar.style.width = '200px';
-        leftSidebar.style.minWidth = '200px';
-        leftSidebar.style.height = '100%';
-        leftSidebar.style.borderRight = '1px solid var(--border-primary)';
-        leftSidebar.style.padding = '12px';
-        leftSidebar.style.overflowY = 'auto';
-        leftSidebar.style.display = 'flex';
-        leftSidebar.style.flexDirection = 'column';
-        leftSidebar.style.gap = '12px';
 
         // Create right sidebar for axes
         const rightSidebar = document.createElement('div');
         rightSidebar.id = 'glyph-editor-sidebar';
         rightSidebar.className = 'view-sidebar view-sidebar-right';
-        rightSidebar.style.width = '200px';
-        rightSidebar.style.minWidth = '200px';
-        rightSidebar.style.height = '100%';
-        rightSidebar.style.borderLeft = '1px solid var(--border-primary)';
-        rightSidebar.style.padding = '12px';
-        rightSidebar.style.paddingBottom = '0px';
-        rightSidebar.style.overflowY = 'auto';
-        rightSidebar.style.overflowX = 'hidden';
-        rightSidebar.style.display = 'flex';
-        rightSidebar.style.flexDirection = 'column';
-        rightSidebar.style.gap = '12px';
-        rightSidebar.style.transition =
-            'width 0.22s ease, min-width 0.22s ease';
 
         // Create canvas container
         const canvasContainer = document.createElement('div');
@@ -2764,9 +2742,6 @@ function initCanvas() {
         // Create glyph properties container (initially empty)
         const propertiesSection = document.createElement('div');
         propertiesSection.id = 'glyph-properties-section';
-        propertiesSection.style.display = 'flex';
-        propertiesSection.style.flexDirection = 'column';
-        propertiesSection.style.gap = '10px';
         leftSidebar.appendChild(propertiesSection);
 
         // Create variable axes container (initially empty)
@@ -2782,7 +2757,6 @@ function initCanvas() {
         const fontQcSection = document.createElement('div');
         fontQcSection.id = 'font-qc-summary-section';
         fontQcSection.className = 'font-qc-summary collapsed';
-        fontQcSection.style.marginTop = 'auto';
 
         const fontQcHeader = document.createElement('div');
         fontQcHeader.className = 'font-qc-header';
@@ -2798,7 +2772,7 @@ function initCanvas() {
         fontQcShortcut.className =
             'font-qc-title-shortcut view-title-shortcut button-shortcut';
         fontQcShortcut.innerHTML =
-            '<span class="material-symbols-outlined">keyboard_option_key</span>F';
+            '<span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>F';
 
         const fontQcCloseBtn = document.createElement('button');
         fontQcCloseBtn.className = 'font-qc-close-button';
@@ -2990,6 +2964,10 @@ function initCanvas() {
                 infoValue.textContent = String(summary.infos ?? 0);
             }
 
+            failCount.style.display = (summary.fails ?? 0) > 0 ? '' : 'none';
+            warnCount.style.display = (summary.warns ?? 0) > 0 ? '' : 'none';
+            infoCount.style.display = (summary.infos ?? 0) > 0 ? '' : 'none';
+
             fontQcSection.classList.toggle('is-compiling', isCompiling);
 
             if (status === 'error') {
@@ -3010,6 +2988,10 @@ function initCanvas() {
         const initialProfile =
             window.fullCompileManager?.getProfile?.() || 'opentype';
         syncProfileOptions(initialProfiles, initialProfile);
+
+        failCount.style.display = 'none';
+        warnCount.style.display = 'none';
+        infoCount.style.display = 'none';
 
         fontQcProfileSelect.addEventListener('click', (event) => {
             event.stopPropagation();
@@ -3081,27 +3063,32 @@ function initCanvas() {
             true
         );
 
-        document.addEventListener('keydown', (event: KeyboardEvent) => {
-            const isAltFShortcut =
-                event.altKey &&
-                !event.metaKey &&
-                !event.ctrlKey &&
-                event.code === 'KeyF';
+        document.addEventListener(
+            'keydown',
+            (event: KeyboardEvent) => {
+                const isCmdAltFShortcut =
+                    (event.metaKey || event.ctrlKey) &&
+                    event.altKey &&
+                    event.code === 'KeyF';
 
-            if (!isAltFShortcut) {
-                return;
-            }
+                if (!isCmdAltFShortcut) {
+                    return;
+                }
 
-            const editorView = document.querySelector('#view-editor');
-            const isEditorFocused = editorView?.classList.contains('focused');
-            if (!isEditorFocused || qcExpanded) {
-                return;
-            }
+                const editorView = document.querySelector('#view-editor');
+                const isEditorFocused =
+                    editorView?.classList.contains('focused');
+                if (!isEditorFocused || qcExpanded) {
+                    return;
+                }
 
-            event.preventDefault();
-            event.stopPropagation();
-            setQcExpanded(true);
-        });
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+                setQcExpanded(true);
+            },
+            true
+        );
 
         const expandQcPanel = (event: Event) => {
             event.stopPropagation();

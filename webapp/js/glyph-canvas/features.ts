@@ -48,10 +48,6 @@ export class FeaturesManager {
     createFeaturesSection() {
         const featuresSection = document.createElement('div');
         featuresSection.id = 'glyph-features-section';
-        featuresSection.style.display = 'flex';
-        featuresSection.style.flexDirection = 'column';
-        featuresSection.style.gap = '2px';
-        featuresSection.style.marginTop = '10px';
         this.featuresSection = featuresSection;
         return featuresSection;
     }
