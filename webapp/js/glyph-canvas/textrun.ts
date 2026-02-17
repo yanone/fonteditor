@@ -1744,8 +1744,11 @@ export class TextRunEditor {
         }
 
         try {
+            const previousExplicitGlyphTokens = [...this.explicitGlyphTokens];
             this.buildDisplayTextMapping();
-            this.explicitGlyphTokens = this.parseExplicitGlyphTokens();
+            this.explicitGlyphTokens = this.parseExplicitGlyphTokens(
+                previousExplicitGlyphTokens
+            );
 
             // Two-stage processing:
             // Stage 1: Get base glyph names from Unicode via font model (for closure/subsetting)
@@ -2378,13 +2381,20 @@ export class TextRunEditor {
         return null;
     }
 
-    parseExplicitGlyphTokens(): ExplicitGlyphToken[] {
+    parseExplicitGlyphTokens(
+        previousTokens: ExplicitGlyphToken[] = []
+    ): ExplicitGlyphToken[] {
         const tokens: ExplicitGlyphToken[] = [];
         const text = this.displayTextBuffer || '';
         const fontModel = window.currentFontModel;
 
         if (!text || !fontModel) {
             return tokens;
+        }
+
+        const previousTokenByStart = new Map<number, ExplicitGlyphToken>();
+        for (const token of previousTokens) {
+            previousTokenByStart.set(token.start, token);
         }
 
         let i = 0;
@@ -2402,6 +2412,25 @@ export class TextRunEditor {
             }
 
             const start = this.mapDisplayStartToRaw(i);
+
+            const previousToken = previousTokenByStart.get(start);
+            if (
+                previousToken &&
+                this.shouldPreserveAppendedTokenBoundary(
+                    previousToken,
+                    fontModel
+                )
+            ) {
+                tokens.push(previousToken);
+                while (
+                    i < text.length &&
+                    this.mapDisplayStartToRaw(i) < previousToken.end
+                ) {
+                    i++;
+                }
+                continue;
+            }
+
             const nameStart = i + 1;
             let cursor = nameStart;
 
@@ -2459,6 +2488,36 @@ export class TextRunEditor {
         }
 
         return tokens;
+    }
+
+    shouldPreserveAppendedTokenBoundary(
+        token: ExplicitGlyphToken,
+        fontModel: any
+    ): boolean {
+        const text = this.textBuffer || '';
+
+        if (token.end <= token.start || token.end >= text.length) {
+            return false;
+        }
+
+        const expectedTokenText = `/${token.name}`;
+        if (text.slice(token.start, token.end) !== expectedTokenText) {
+            return false;
+        }
+
+        // The token itself must still resolve to a glyph.
+        if (!fontModel.findGlyph(token.name)) {
+            return false;
+        }
+
+        const nextChar = text[token.end];
+        if (!nextChar) {
+            return false;
+        }
+
+        // Preserve boundaries when a previously valid EOL token gets text appended.
+        // This keeps the token stable and treats appended text as regular text.
+        return nextChar !== '/';
     }
 
     findExplicitGlyphTokenStartingAt(
