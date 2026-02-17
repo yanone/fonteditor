@@ -74,6 +74,10 @@ class GlyphOverview {
     private lastClickedGlyphId: string | null = null;
     // Track anchor point for shift+keyboard selection
     private keyboardAnchorGlyphId: string | null = null;
+    // Snapshot of selection before last plain single-click (used to restore on double-click)
+    private preDoubleClickSelectionGlyphIds: string[] = [];
+    private preDoubleClickGlyphId: string | null = null;
+    private preDoubleClickTimestamp = 0;
 
     constructor(parentElement: HTMLElement) {
         this.init(parentElement);
@@ -212,6 +216,13 @@ class GlyphOverview {
                 if (window.glyphOverviewFilterManager) {
                     window.glyphOverviewFilterManager.clearGroupSelection();
                 }
+            } else if (
+                (e.metaKey || e.ctrlKey) &&
+                e.key === 'Enter' &&
+                this.isViewActive()
+            ) {
+                e.preventDefault();
+                this.insertSelectedGlyphTokens();
             } else if (
                 ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(
                     e.key
@@ -839,6 +850,15 @@ class GlyphOverview {
             if (this.hasDragged) {
                 return;
             }
+
+            // Keep click immediate (no lag). For plain clicks, capture selection snapshot
+            // so a following double-click can restore it.
+            if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
+                this.preDoubleClickSelectionGlyphIds = this.getSelectedGlyphs();
+                this.preDoubleClickGlyphId = glyphId;
+                this.preDoubleClickTimestamp = Date.now();
+            }
+
             this.handleTileClick(glyphId, e);
         });
 
@@ -853,7 +873,14 @@ class GlyphOverview {
 
             e.preventDefault();
             e.stopPropagation();
-            this.insertExplicitGlyphToken(glyphName);
+
+            if (this.shouldRestoreSelectionForDoubleClick(glyphId)) {
+                this.applySelectionByGlyphIds(
+                    this.preDoubleClickSelectionGlyphIds
+                );
+            }
+
+            this.insertSelectedGlyphTokens(glyphName);
         });
 
         return {
@@ -887,7 +914,54 @@ class GlyphOverview {
         }
     }
 
-    private insertExplicitGlyphToken(glyphName: string): void {
+    private shouldRestoreSelectionForDoubleClick(glyphId: string): boolean {
+        const maxDelayMs = 500;
+        return (
+            this.preDoubleClickGlyphId === glyphId &&
+            Date.now() - this.preDoubleClickTimestamp <= maxDelayMs
+        );
+    }
+
+    private applySelectionByGlyphIds(glyphIds: string[]): void {
+        const selectedSet = new Set(glyphIds);
+        this.tiles.forEach((tile) => {
+            const shouldBeSelected = selectedSet.has(tile.glyphId);
+            if (tile.selected === shouldBeSelected) {
+                return;
+            }
+
+            tile.selected = shouldBeSelected;
+            tile.element.classList.toggle('selected', shouldBeSelected);
+        });
+        this.updateSelectedGlyphGroups();
+    }
+
+    private getSelectedGlyphNames(): string[] {
+        return Array.from(this.tiles.values())
+            .filter((tile) => tile.selected)
+            .map((tile) => tile.glyphName);
+    }
+
+    private insertSelectedGlyphTokens(fallbackGlyphName?: string): void {
+        const selectedGlyphNames = this.getSelectedGlyphNames();
+        const glyphNamesToInsert =
+            selectedGlyphNames.length > 0
+                ? selectedGlyphNames
+                : fallbackGlyphName
+                  ? [fallbackGlyphName]
+                  : [];
+
+        if (!glyphNamesToInsert.length) {
+            return;
+        }
+
+        const tokenText = glyphNamesToInsert
+            .map((glyphName) => `/${glyphName}`)
+            .join(' ');
+        this.insertExplicitGlyphTokenText(`${tokenText} `);
+    }
+
+    private insertExplicitGlyphTokenText(tokenText: string): void {
         const textRunEditor = window.glyphCanvas?.textRunEditor;
         if (!textRunEditor) {
             console.warn(
@@ -897,9 +971,12 @@ class GlyphOverview {
             return;
         }
 
-        const token = `/${glyphName} `;
-        textRunEditor.insertText(token);
-        console.log('[GlyphOverview]', 'Inserted explicit glyph token:', token);
+        textRunEditor.insertText(tokenText);
+        console.log(
+            '[GlyphOverview]',
+            'Inserted explicit glyph token text:',
+            tokenText
+        );
     }
 
     private handleRangeSelection(glyphId: string): void {
