@@ -205,9 +205,7 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
 
         "vfj" => {
             // Load FontLab VFJ format
-            let _font_json: serde_json::Value = serde_json::from_str(contents)
-                .map_err(|e| JsValue::from_str(&format!("Failed to parse VFJ JSON: {}", e)))?;
-            babelfont::convertors::fontlab::load(path.clone())
+            babelfont::convertors::fontlab::load_str(contents)
                 .map_err(|e| JsValue::from_str(&format!("Failed to load .vfj file: {:?}", e)))?
         }
 
