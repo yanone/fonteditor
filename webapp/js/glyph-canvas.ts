@@ -1653,8 +1653,8 @@ class GlyphCanvas {
 
         this.propertiesSection!.appendChild(mastersList);
 
-        // In edit mode, add glyph_stack debug label (development mode only)
-        if (isEditMode && window.isDevelopment?.()) {
+        // In edit mode, add glyph_stack debug label (development mode only, not in test mode)
+        if (isEditMode && window.isDevelopment?.() && !window.isTestMode?.()) {
             const stackLabel = document.createElement('div');
             stackLabel.className = 'glyph-stack-debug';
             stackLabel.style.cssText = `
@@ -2436,8 +2436,8 @@ class GlyphCanvas {
             return;
         }
 
-        // Update glyph_stack label if it exists (development mode only)
-        if (window.isDevelopment?.()) {
+        // Update glyph_stack label if it exists (development mode only, not in test mode)
+        if (window.isDevelopment?.() && !window.isTestMode?.()) {
             // If we don't have a reference, try to find it in the DOM (in case it was created asynchronously)
             if (!this.glyphStackLabel) {
                 this.glyphStackLabel = this.propertiesSection?.querySelector(

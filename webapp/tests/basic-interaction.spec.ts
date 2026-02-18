@@ -541,17 +541,20 @@ test.describe('Font Editor Basic Workflow', () => {
         // synchronous once selectItem runs; confirm via the .selected class on
         // the list item and a non-empty editor value)
         console.log('[Test] Waiting for ace editor to be ready');
-        await page.waitForFunction(() => {
-            const mgr = (window as any).fontInfoManager;
-            const hasSelected = !!document.querySelector(
-                '.feature-list-item.selected .feature-tag'
-            );
-            return (
-                mgr?.featuresEditor &&
-                hasSelected &&
-                mgr.featuresEditor.getValue().length > 0
-            );
-        }, { timeout: 10000 });
+        await page.waitForFunction(
+            () => {
+                const mgr = (window as any).fontInfoManager;
+                const hasSelected = !!document.querySelector(
+                    '.feature-list-item.selected .feature-tag'
+                );
+                return (
+                    mgr?.featuresEditor &&
+                    hasSelected &&
+                    mgr.featuresEditor.getValue().length > 0
+                );
+            },
+            { timeout: 10000 }
+        );
 
         // Delete the first character of the feature content via ace API,
         // then wait for the typing compilation to fail and show the error.
@@ -572,15 +575,25 @@ test.describe('Font Editor Basic Workflow', () => {
                     return;
                 }
                 const observer = new MutationObserver(() => {
-                    if ((target as HTMLElement).style.display !== 'none' &&
-                        target.textContent && target.textContent.trim().length > 0) {
+                    if (
+                        (target as HTMLElement).style.display !== 'none' &&
+                        target.textContent &&
+                        target.textContent.trim().length > 0
+                    ) {
                         observer.disconnect();
                         resolve();
                     }
                 });
-                observer.observe(target, { attributes: true, childList: true, subtree: true });
+                observer.observe(target, {
+                    attributes: true,
+                    childList: true,
+                    subtree: true
+                });
                 // Safety: resolve after 10 s regardless
-                setTimeout(() => { observer.disconnect(); resolve(); }, 10000);
+                setTimeout(() => {
+                    observer.disconnect();
+                    resolve();
+                }, 10000);
             });
         });
 
