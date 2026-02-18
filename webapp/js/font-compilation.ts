@@ -356,15 +356,35 @@ class FontCompilation {
         }
 
         // Handle compilation messages
-        const { id, result, error, time_taken } = e.data;
+        const { id, result, error, errorPayload, time_taken } = e.data;
 
         if (id !== undefined && this.pendingCompilations.has(id)) {
             const { resolve, reject, filename } =
                 this.pendingCompilations.get(id)!;
             this.pendingCompilations.delete(id);
 
-            if (error) {
-                reject(new Error(error));
+            if (error !== undefined || errorPayload !== undefined) {
+                const payloadText = (() => {
+                    if (errorPayload === undefined) {
+                        return '';
+                    }
+                    try {
+                        return JSON.stringify(errorPayload);
+                    } catch {
+                        return String(errorPayload);
+                    }
+                })();
+                const message =
+                    typeof error === 'string' && error.trim().length > 0
+                        ? error
+                        : errorPayload !== undefined
+                          ? payloadText
+                          : 'Compilation failed';
+                const compilationError = new Error(message) as Error & {
+                    compilationErrorPayload?: unknown;
+                };
+                compilationError.compilationErrorPayload = errorPayload;
+                reject(compilationError);
             } else {
                 // For compilation messages, wrap in { result, time_taken, filename }
                 // For other message types, return the full data

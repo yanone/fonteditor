@@ -170,28 +170,44 @@ export async function waitForFontspectorReady(
     page: any,
     expectedFilename: string
 ) {
+    // First, wait until the expected file is the active one
     await page.waitForFunction(
         (filename) => {
             const editorFile =
                 window.stateManager?.getStateSnapshot?.()?.state?.editor_file ||
                 '';
-            if (!editorFile.includes(filename)) {
-                return false;
-            }
-
-            const statusText =
-                document
-                    .querySelector('#font-qc-summary-section .font-qc-status')
-                    ?.textContent?.trim() || '';
-            if (statusText !== 'Up to date') {
-                return false;
-            }
-
-            return window.fontManager?.fullFontQcSummary !== null;
+            return editorFile.includes(filename);
         },
         expectedFilename,
         { timeout: 15000 }
     );
+
+    // Then wait for the fullFontQcUpdated event with status 'ready'
+    await page.evaluate(() => {
+        return new Promise<void>((resolve) => {
+            const handler = (event: Event) => {
+                const detail = (event as CustomEvent).detail;
+                if (detail?.status === 'ready') {
+                    window.removeEventListener('fullFontQcUpdated', handler);
+                    resolve();
+                }
+            };
+            // Check if already ready
+            if (window.fontManager?.fullFontQcSummary !== null) {
+                const statusText =
+                    document
+                        .querySelector(
+                            '#font-qc-summary-section .font-qc-status'
+                        )
+                        ?.textContent?.trim() || '';
+                if (statusText === 'Up to date') {
+                    resolve();
+                    return;
+                }
+            }
+            window.addEventListener('fullFontQcUpdated', handler);
+        });
+    });
 }
 
 /**

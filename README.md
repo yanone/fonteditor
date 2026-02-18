@@ -108,9 +108,10 @@ Users will see an orange update notification button in the title bar within 10 m
 - ✅ Glyph overview
 - ✅ Glyph search and filtering
 - ✅ Glyph filtering plugins
-- ◻️ Insert glyphs into editor text
+- ✅ Insert glyphs into editor text
 - ◻️ Show intermediate masters
 - ✅ OpenType feature code editor
+- ◻️ OpenType feature code error display inline
 - ✅ Hot-reloading fonts on external changes (Chrome/Chromium only)
 - ✅ Fontspector integration (glyph-level messages later)
 - ◻️ Interactive demo

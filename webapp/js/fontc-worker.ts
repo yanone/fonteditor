@@ -133,6 +133,46 @@ function inspectInvalidShapes(fontData: any, maxIssues: number = 8): string[] {
     return issues;
 }
 
+function normalizeWorkerError(error: unknown): {
+    message: string;
+    payload?: unknown;
+    stack?: string;
+} {
+    if (error instanceof Error) {
+        return {
+            message: error.message || error.toString(),
+            stack: error.stack
+        };
+    }
+
+    if (typeof error === 'string') {
+        return { message: error };
+    }
+
+    if (error && typeof error === 'object') {
+        const errObject = error as Record<string, unknown>;
+        const objectMessage =
+            typeof errObject.message === 'string' ? errObject.message : null;
+
+        return {
+            message:
+                objectMessage ||
+                (() => {
+                    try {
+                        return JSON.stringify(errObject);
+                    } catch {
+                        return String(error);
+                    }
+                })(),
+            payload: error
+        };
+    }
+
+    return {
+        message: String(error)
+    };
+}
+
 /**
  * Strip layerData fields from components in the font JSON,
  * ensure all layers have a shapes array,
@@ -368,11 +408,13 @@ self.onmessage = async (event) => {
         try {
             const ver: string = await initializeWasm();
             self.postMessage({ type: 'ready', version: ver });
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const normalizedError = normalizeWorkerError(error);
             self.postMessage({
                 type: 'error',
-                error: error.message,
-                stack: error.stack
+                error: normalizedError.message,
+                errorPayload: normalizedError.payload,
+                stack: normalizedError.stack
             });
         }
         return;
@@ -431,9 +473,10 @@ self.onmessage = async (event) => {
                 result: ttfBytes,
                 time_taken: endTime - startTime
             });
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('[Fontc Worker] Error:', error);
-            const errorText = error?.message || error?.toString?.() || '';
+            const normalizedError = normalizeWorkerError(error);
+            const errorText = normalizedError.message;
             const { line, column } = parseErrorLineColumn(errorText);
             if (line && column) {
                 try {
@@ -469,8 +512,9 @@ self.onmessage = async (event) => {
             self.postMessage({
                 type: 'error',
                 id: data.id,
-                error: error.message,
-                stack: error.stack
+                error: normalizedError.message,
+                errorPayload: normalizedError.payload,
+                stack: normalizedError.stack
             });
         }
         return;

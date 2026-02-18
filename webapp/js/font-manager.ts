@@ -884,9 +884,7 @@ class FontManager {
             this.saveTypingFontToFileSystem();
         } catch (error) {
             console.error('❌ Failed to compile typing font:', error);
-            const errorMessage =
-                error instanceof Error ? error.message : String(error);
-            sidebarErrorDisplay.showError(errorMessage);
+            sidebarErrorDisplay.showError(error, 'typing');
             throw error;
         }
     }
@@ -1034,9 +1032,7 @@ class FontManager {
             return this.editingFont;
         } catch (error) {
             console.error('❌ Failed to compile editing font:', error);
-            const errorMessage =
-                error instanceof Error ? error.message : String(error);
-            sidebarErrorDisplay.showError(errorMessage);
+            sidebarErrorDisplay.showError(error, 'editing');
             // Reset cursor on error
             document.body.classList.remove('loading');
             throw error;

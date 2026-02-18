@@ -227,6 +227,18 @@ declare global {
         // From font-info.ts
         fontInfoManager: {
             updateEditorTheme: (theme: 'light' | 'dark') => void;
+            showFeatureCompilationError: (errorInput: unknown) => void;
+            clearFeatureErrorHighlight: () => void;
+            getFeatureCompilationErrorLocation: (errorInput: unknown) => {
+                type: 'prefix' | 'class' | 'feature';
+                label: string;
+            } | null;
+            getFeatureCompilationErrorDetails: (errorInput: unknown) => {
+                type: 'prefix' | 'class' | 'feature' | null;
+                label: string;
+                message: string;
+            } | null;
+            openFeatureCompilationError: (errorInput: unknown) => void;
         };
 
         // From glyph-canvas.js

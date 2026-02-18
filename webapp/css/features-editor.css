@@ -171,3 +171,38 @@
 :root[data-theme='light'] .ace_search_highlight {
     background: rgba(255, 220, 0, 0.4);
 }
+
+.ace_feature_error_line {
+    position: absolute;
+    background: color-mix(in srgb, var(--accent-red) 22%, transparent);
+    border-left: 2px solid var(--accent-red);
+    z-index: 19;
+}
+
+.ace_feature_error_text {
+    position: absolute;
+    background: color-mix(in srgb, var(--accent-red) 14%, transparent);
+    text-decoration-line: underline;
+    text-decoration-style: wavy;
+    text-decoration-color: var(--accent-red);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 2px;
+    z-index: 21;
+}
+
+.feature-error-line-widget {
+    display: block;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 2px 18px 6px 8px;
+    background: color-mix(in srgb, var(--accent-red) 10%, transparent);
+    border-left: 2px solid var(--accent-red);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+    line-height: 1.35;
+    font-weight: 700;
+    color: color-mix(in srgb, var(--accent-red) 72%, var(--text-primary));
+}

@@ -5636,6 +5636,13 @@ flex-direction: row;
     flex-shrink: 0;
 }
 
+.feature-error-icon {
+    font-size: 14px !important;
+    color: var(--accent-orange);
+    opacity: 0.85;
+    flex-shrink: 0;
+}
+
 /* Drag handle for sortable features */
 .feature-drag-handle {
     width: 11px;

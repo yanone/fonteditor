@@ -25,6 +25,33 @@ interface SelectedItem {
     key: string | number; // string for prefix/class, number (index) for feature
 }
 
+interface FeatureErrorSpanIssue {
+    start: number;
+    end: number;
+    message: string;
+    category: string;
+}
+
+interface SidebarFeatureErrorTarget {
+    type: 'prefix' | 'class' | 'feature';
+    key: string | number;
+    message: string;
+}
+
+interface FeatureErrorLocation {
+    type: 'prefix' | 'class' | 'feature';
+    label: string;
+}
+
+interface FeatureSourceBlock {
+    type: 'prefix' | 'class' | 'feature';
+    key: string | number;
+    code: string;
+    globalByteStart: number;
+    globalByteEnd: number;
+    codeByteStart: number;
+}
+
 class FontInfoManager {
     private currentTab: FontInfoTab = 'names';
     private namesTab: HTMLElement | null = null;
@@ -58,6 +85,12 @@ class FontInfoManager {
     private searchMarkers: number[] = [];
     private classGlyphMembers: Map<string, Set<string>> = new Map();
     private resizeObserver: ResizeObserver | null = null;
+    private featureErrorMarkerId: number | null = null;
+    private featureErrorTextMarkerId: number | null = null;
+    private featureErrorLineWidget: any = null;
+    private aceLineWidgetsCtor: any = null;
+    private featureErrorTarget: SidebarFeatureErrorTarget | null = null;
+    private featureErrorIssue: FeatureErrorSpanIssue | null = null;
 
     init() {
         const viewContent = document.querySelector(
@@ -107,6 +140,7 @@ class FontInfoManager {
         this.resizeObserver = new ResizeObserver(() => {
             if (this.featuresEditor) {
                 this.featuresEditor.resize();
+                this.refreshFeatureErrorLineWidgetLayout();
             }
         });
 
@@ -652,6 +686,754 @@ class FontInfoManager {
         }
     }
 
+    private clearFeatureErrorMarker() {
+        if (
+            !this.featuresEditor ||
+            (this.featureErrorMarkerId === null &&
+                this.featureErrorTextMarkerId === null)
+        ) {
+            return;
+        }
+
+        if (this.featureErrorMarkerId !== null) {
+            try {
+                this.featuresEditor.session.removeMarker(
+                    this.featureErrorMarkerId
+                );
+            } catch (e) {
+                console.warn(
+                    '[FontInfo] Failed to remove feature error line marker:',
+                    e
+                );
+            }
+        }
+
+        if (this.featureErrorTextMarkerId !== null) {
+            try {
+                this.featuresEditor.session.removeMarker(
+                    this.featureErrorTextMarkerId
+                );
+            } catch (e) {
+                console.warn(
+                    '[FontInfo] Failed to remove feature error text marker:',
+                    e
+                );
+            }
+        }
+
+        this.featureErrorMarkerId = null;
+        this.featureErrorTextMarkerId = null;
+        this.clearFeatureErrorLineWidget();
+    }
+
+    private isFeatureErrorTarget(
+        type: FeatureItemType,
+        key: string | number
+    ): boolean {
+        return (
+            !!this.featureErrorTarget &&
+            this.featureErrorTarget.type === type &&
+            this.featureErrorTarget.key === key
+        );
+    }
+
+    private utf8ByteLength(text: string): number {
+        return new TextEncoder().encode(text).length;
+    }
+
+    private utf8ByteOffsetToCodeUnitIndex(
+        text: string,
+        byteOffset: number
+    ): number {
+        if (byteOffset <= 0) {
+            return 0;
+        }
+
+        let byteCount = 0;
+        let codeUnitIndex = 0;
+
+        for (const char of text) {
+            const charByteLen = this.utf8ByteLength(char);
+            if (byteCount + charByteLen > byteOffset) {
+                break;
+            }
+            byteCount += charByteLen;
+            codeUnitIndex += char.length;
+        }
+
+        return codeUnitIndex;
+    }
+
+    private buildFeatureSourceBlocks(): FeatureSourceBlock[] {
+        const font = window.currentFontModel;
+        if (!font?.features) {
+            return [];
+        }
+
+        const blocks: FeatureSourceBlock[] = [];
+        let cursor = 0;
+
+        const classes = font.features.classes || {};
+        Object.entries(classes).forEach(([className, codeData]) => {
+            const code = codeData?.code || '';
+            const prefix = `@${className} = [`;
+            const suffix = `];\n`;
+            const blockText = `${prefix}${code}${suffix}`;
+            const blockByteLen = this.utf8ByteLength(blockText);
+
+            blocks.push({
+                type: 'class',
+                key: className,
+                code,
+                globalByteStart: cursor,
+                globalByteEnd: cursor + blockByteLen,
+                codeByteStart: this.utf8ByteLength(prefix)
+            });
+
+            cursor += blockByteLen;
+        });
+
+        const prefixes = font.features.prefixes || {};
+        Object.entries(prefixes).forEach(([prefixName, codeData]) => {
+            const code = codeData?.code || '';
+            const header =
+                prefixName !== 'anonymous' ? `# Prefix: ${prefixName}\n` : '';
+            const suffix = `\n`;
+            const blockText = `${header}${code}${suffix}`;
+            const blockByteLen = this.utf8ByteLength(blockText);
+
+            blocks.push({
+                type: 'prefix',
+                key: prefixName,
+                code,
+                globalByteStart: cursor,
+                globalByteEnd: cursor + blockByteLen,
+                codeByteStart: this.utf8ByteLength(header)
+            });
+
+            cursor += blockByteLen;
+        });
+
+        const features = font.features.features || [];
+        features.forEach(([featureTag, codeData], featureIndex) => {
+            const code = codeData?.code || '';
+            const head = `feature ${featureTag} {\n`;
+            const tail = `\n} ${featureTag};\n`;
+            const blockText = `${head}${code}${tail}`;
+            const blockByteLen = this.utf8ByteLength(blockText);
+
+            blocks.push({
+                type: 'feature',
+                key: featureIndex,
+                code,
+                globalByteStart: cursor,
+                globalByteEnd: cursor + blockByteLen,
+                codeByteStart: this.utf8ByteLength(head)
+            });
+
+            cursor += blockByteLen;
+        });
+
+        return blocks;
+    }
+
+    private addFeatureErrorIcon(item: HTMLElement, message: string) {
+        const existingIcon = item.querySelector('.feature-error-icon');
+        if (existingIcon) {
+            existingIcon.remove();
+        }
+
+        const errorIcon = document.createElement('span');
+        errorIcon.className = 'material-symbols-outlined feature-error-icon';
+        errorIcon.textContent = 'warning';
+        errorIcon.title = message || 'Feature compilation error';
+        item.appendChild(errorIcon);
+    }
+
+    private refreshFeatureErrorIconInSidebar() {
+        const allItems = [
+            ...this.prefixListItems.values(),
+            ...this.featureListItems.values(),
+            ...this.classListItems.values()
+        ];
+
+        allItems.forEach((item) => {
+            const icon = item.querySelector('.feature-error-icon');
+            if (icon) {
+                icon.remove();
+            }
+        });
+
+        if (!this.featureErrorTarget) {
+            return;
+        }
+
+        const targetElement =
+            this.featureErrorTarget.type === 'prefix'
+                ? this.prefixListItems.get(
+                      this.featureErrorTarget.key as string
+                  )
+                : this.featureErrorTarget.type === 'class'
+                  ? this.classListItems.get(
+                        this.featureErrorTarget.key as string
+                    )
+                  : this.featureListItems.get(
+                        this.featureErrorTarget.key as number
+                    );
+
+        if (targetElement) {
+            this.addFeatureErrorIcon(
+                targetElement,
+                this.featureErrorTarget.message
+            );
+        }
+    }
+
+    private setFeatureErrorLineWidget(row: number, text: string) {
+        if (!this.featuresEditor) {
+            return;
+        }
+
+        const LineWidgets = this.getAceLineWidgetsCtor();
+        if (!LineWidgets) {
+            console.warn('[FontInfo] Ace ext/line_widgets not available');
+            return;
+        }
+
+        const session = this.featuresEditor.session;
+        if (!session.widgetManager) {
+            session.widgetManager = new LineWidgets(session);
+            session.widgetManager.attach(this.featuresEditor);
+        }
+
+        this.clearFeatureErrorLineWidget();
+
+        const node = document.createElement('div');
+        node.className = 'feature-error-line-widget';
+        node.textContent = text;
+
+        this.featureErrorLineWidget = {
+            row,
+            el: node,
+            fixedWidth: true,
+            coverGutter: false
+        };
+
+        session.widgetManager.addLineWidget(this.featureErrorLineWidget);
+        this.refreshFeatureErrorLineWidgetLayout();
+    }
+
+    private refreshFeatureErrorLineWidgetLayout() {
+        if (!this.featuresEditor || !this.featureErrorLineWidget?.el) {
+            return;
+        }
+
+        const scroller = this.featuresEditor.renderer?.scroller as
+            | HTMLElement
+            | undefined;
+        const manager = this.featuresEditor.session?.widgetManager;
+        if (!scroller || !manager) {
+            return;
+        }
+
+        const horizontalPadding = 36;
+        const maxWidth = Math.max(
+            120,
+            scroller.clientWidth - horizontalPadding
+        );
+        const widgetEl = this.featureErrorLineWidget.el as HTMLElement;
+        widgetEl.style.width = `${maxWidth}px`;
+
+        if (typeof manager.onWidgetChanged === 'function') {
+            manager.onWidgetChanged(this.featureErrorLineWidget);
+        }
+    }
+
+    private getAceLineWidgetsCtor(): any {
+        if (this.aceLineWidgetsCtor) {
+            return this.aceLineWidgetsCtor;
+        }
+
+        const moduleIds = ['ace/ext/line_widgets', 'ace/line_widgets'];
+        for (const moduleId of moduleIds) {
+            try {
+                const module = window.ace?.require?.(moduleId);
+                if (module?.LineWidgets) {
+                    this.aceLineWidgetsCtor = module.LineWidgets;
+                    return this.aceLineWidgetsCtor;
+                }
+            } catch {
+                // Try next module id
+            }
+        }
+
+        return null;
+    }
+
+    private clearFeatureErrorLineWidget() {
+        if (!this.featuresEditor || !this.featureErrorLineWidget) {
+            this.featureErrorLineWidget = null;
+            return;
+        }
+
+        const session = this.featuresEditor.session;
+        if (!session?.widgetManager) {
+            this.featureErrorLineWidget = null;
+            return;
+        }
+
+        try {
+            session.widgetManager.removeLineWidget(this.featureErrorLineWidget);
+        } catch (e) {
+            console.warn(
+                '[FontInfo] Failed to remove feature error widget:',
+                e
+            );
+        }
+
+        this.featureErrorLineWidget = null;
+    }
+
+    clearFeatureErrorHighlight() {
+        this.clearFeatureErrorMarker();
+        this.featureErrorTarget = null;
+        this.featureErrorIssue = null;
+        this.refreshFeatureErrorIconInSidebar();
+    }
+
+    getFeatureCompilationErrorLocation(
+        errorInput: unknown
+    ): FeatureErrorLocation | null {
+        const details = this.getFeatureCompilationErrorDetails(errorInput);
+        if (!details || !details.type) {
+            return null;
+        }
+
+        return {
+            type: details.type,
+            label: details.label
+        };
+    }
+
+    getFeatureCompilationErrorDetails(errorInput: unknown): {
+        type: 'prefix' | 'class' | 'feature' | null;
+        label: string;
+        message: string;
+    } | null {
+        const issue = this.extractFeatureSpanIssue(errorInput);
+        if (!issue) {
+            return null;
+        }
+
+        const target = this.findFeatureItemFromGlobalSpan(
+            issue.start,
+            issue.end
+        );
+
+        if (!target) {
+            return {
+                type: null,
+                label: 'feature code',
+                message: issue.message
+            };
+        }
+
+        return {
+            type: target.type,
+            label: this.getFeatureTargetLabel(target.type, target.key),
+            message: issue.message
+        };
+    }
+
+    showFeatureCompilationError(errorInput: unknown) {
+        const issue = this.extractFeatureSpanIssue(errorInput);
+        if (!issue) {
+            this.clearFeatureErrorHighlight();
+            return;
+        }
+
+        const target = this.findFeatureItemFromGlobalSpan(
+            issue.start,
+            issue.end
+        );
+        if (!target) {
+            return;
+        }
+
+        this.featureErrorTarget = {
+            type: target.type,
+            key: target.key,
+            message: `${issue.category}: ${issue.message}`
+        };
+        this.featureErrorIssue = issue;
+        this.refreshFeatureErrorIconInSidebar();
+
+        if (!this.featuresEditorInitialized) {
+            this.initializeFeaturesEditor();
+            this.featuresEditorInitialized = true;
+        }
+
+        if (window.currentFontModel && !this.fontDataLoaded) {
+            this.loadAllLists();
+            this.fontDataLoaded = true;
+        }
+
+        this.updateFeatureErrorDisplayForSelection();
+
+        console.log(
+            '[FontInfo] Feature compilation span resolved:',
+            issue,
+            '->',
+            target
+        );
+    }
+
+    openFeatureCompilationError(errorInput: unknown) {
+        this.showFeatureCompilationError(errorInput);
+
+        if (!this.featureErrorIssue || !this.featureErrorTarget) {
+            return;
+        }
+
+        if (typeof window.focusView === 'function') {
+            window.focusView('view-fontinfo');
+        }
+
+        this.switchTab('features');
+        this.selectItem(
+            this.featureErrorTarget.type,
+            this.featureErrorTarget.key,
+            true
+        );
+
+        const target = this.findFeatureItemFromGlobalSpan(
+            this.featureErrorIssue.start,
+            this.featureErrorIssue.end
+        );
+        if (!target || !this.featuresEditor) {
+            return;
+        }
+
+        const clampedLocalStart = Math.max(
+            0,
+            Math.min(
+                this.utf8ByteLength(target.code),
+                this.featureErrorIssue.start -
+                    (target.globalByteStart + target.codeByteStart)
+            )
+        );
+        const localCodeUnitStartIndex = this.utf8ByteOffsetToCodeUnitIndex(
+            target.code,
+            clampedLocalStart
+        );
+        const row = this.featuresEditor.session.doc.indexToPosition(
+            localCodeUnitStartIndex
+        ).row;
+
+        if (typeof this.featuresEditor.scrollToLine === 'function') {
+            this.featuresEditor.scrollToLine(row, true, true);
+        }
+    }
+
+    private updateFeatureErrorDisplayForSelection() {
+        if (!this.featuresEditor || !this.selectedItem) {
+            this.clearFeatureErrorMarker();
+            return;
+        }
+
+        if (!this.featureErrorIssue || !this.featureErrorTarget) {
+            this.clearFeatureErrorMarker();
+            return;
+        }
+
+        if (
+            this.selectedItem.type !== this.featureErrorTarget.type ||
+            this.selectedItem.key !== this.featureErrorTarget.key
+        ) {
+            this.clearFeatureErrorMarker();
+            return;
+        }
+
+        const target = this.findFeatureItemFromGlobalSpan(
+            this.featureErrorIssue.start,
+            this.featureErrorIssue.end
+        );
+        if (!target) {
+            this.clearFeatureErrorMarker();
+            return;
+        }
+
+        this.renderFeatureErrorInEditor(this.featureErrorIssue, target);
+    }
+
+    private renderFeatureErrorInEditor(
+        issue: FeatureErrorSpanIssue,
+        target: {
+            type: 'prefix' | 'class' | 'feature';
+            key: string | number;
+            globalByteStart: number;
+            codeByteStart: number;
+            code: string;
+        }
+    ) {
+        if (!this.featuresEditor) {
+            return;
+        }
+
+        const clampedLocalStart = Math.max(
+            0,
+            Math.min(
+                this.utf8ByteLength(target.code),
+                issue.start - (target.globalByteStart + target.codeByteStart)
+            )
+        );
+
+        const clampedLocalEnd = Math.max(
+            0,
+            Math.min(
+                this.utf8ByteLength(target.code),
+                issue.end - (target.globalByteStart + target.codeByteStart)
+            )
+        );
+
+        const localCodeUnitStartIndex = this.utf8ByteOffsetToCodeUnitIndex(
+            target.code,
+            clampedLocalStart
+        );
+
+        let localCodeUnitEndIndex = this.utf8ByteOffsetToCodeUnitIndex(
+            target.code,
+            clampedLocalEnd
+        );
+
+        if (localCodeUnitEndIndex <= localCodeUnitStartIndex) {
+            localCodeUnitEndIndex = Math.min(
+                target.code.length,
+                localCodeUnitStartIndex + 1
+            );
+        }
+
+        const startPos = this.featuresEditor.session.doc.indexToPosition(
+            localCodeUnitStartIndex
+        );
+        const endPos = this.featuresEditor.session.doc.indexToPosition(
+            localCodeUnitEndIndex
+        );
+
+        const row = startPos.row;
+
+        const Range = window.ace.require('ace/range').Range;
+        this.clearFeatureErrorMarker();
+        this.featureErrorMarkerId = this.featuresEditor.session.addMarker(
+            new Range(row, 0, row, 1),
+            'ace_feature_error_line',
+            'fullLine'
+        );
+        this.featureErrorTextMarkerId = this.featuresEditor.session.addMarker(
+            new Range(startPos.row, startPos.column, endPos.row, endPos.column),
+            'ace_feature_error_text',
+            'text'
+        );
+        this.setFeatureErrorLineWidget(
+            row,
+            `${issue.category}: ${issue.message}`
+        );
+    }
+
+    private extractFeatureSpanIssue(
+        errorInput: unknown
+    ): FeatureErrorSpanIssue | null {
+        const sources: unknown[] = [errorInput];
+
+        if (errorInput instanceof Error) {
+            sources.push(errorInput.message);
+            const withPayload = errorInput as Error & {
+                compilationErrorPayload?: unknown;
+            };
+            if (withPayload.compilationErrorPayload !== undefined) {
+                sources.push(withPayload.compilationErrorPayload);
+            }
+        }
+
+        for (const source of sources) {
+            const rustStyleIssue =
+                this.extractRustStyleFeatureSpanIssue(source);
+            if (rustStyleIssue) {
+                return rustStyleIssue;
+            }
+
+            const parsed = this.tryParseJsonLike(source);
+            if (
+                !parsed ||
+                typeof parsed !== 'object' ||
+                Array.isArray(parsed)
+            ) {
+                continue;
+            }
+
+            for (const [category, issues] of Object.entries(
+                parsed as Record<string, unknown>
+            )) {
+                if (!category.toLowerCase().includes('feature')) {
+                    continue;
+                }
+                if (!Array.isArray(issues)) {
+                    continue;
+                }
+
+                for (const issue of issues) {
+                    if (!issue || typeof issue !== 'object') {
+                        continue;
+                    }
+
+                    const issueRecord = issue as Record<string, unknown>;
+                    const span = issueRecord.span as
+                        | { start?: number; end?: number }
+                        | undefined;
+                    const start = span?.start;
+                    const end = span?.end;
+
+                    if (
+                        typeof start === 'number' &&
+                        Number.isFinite(start) &&
+                        typeof end === 'number' &&
+                        Number.isFinite(end)
+                    ) {
+                        return {
+                            start,
+                            end,
+                            message:
+                                typeof issueRecord.message === 'string'
+                                    ? issueRecord.message
+                                    : 'Feature compilation error',
+                            category
+                        };
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private extractRustStyleFeatureSpanIssue(
+        source: unknown
+    ): FeatureErrorSpanIssue | null {
+        if (typeof source !== 'string') {
+            return null;
+        }
+
+        if (!/featureparsing|featureerror/i.test(source)) {
+            return null;
+        }
+
+        const spanMatch = source.match(/span:\s*(\d+)\.\.(\d+)/i);
+        if (!spanMatch) {
+            return null;
+        }
+
+        const start = Number(spanMatch[1]);
+        const end = Number(spanMatch[2]);
+        if (!Number.isFinite(start) || !Number.isFinite(end)) {
+            return null;
+        }
+
+        const messageMatch = source.match(/message:\s*"((?:[^"\\]|\\.)*)"/i);
+        const message = messageMatch?.[1]
+            ? messageMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+            : 'Feature compilation error';
+
+        return {
+            start,
+            end,
+            message,
+            category: 'FeatureParsing'
+        };
+    }
+
+    private tryParseJsonLike(source: unknown): unknown {
+        if (typeof source === 'string') {
+            const trimmed = source.trim();
+            if (
+                !(
+                    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+                )
+            ) {
+                return null;
+            }
+            try {
+                return JSON.parse(trimmed);
+            } catch {
+                return null;
+            }
+        }
+
+        if (source && typeof source === 'object') {
+            return source;
+        }
+
+        return null;
+    }
+
+    private findFeatureItemFromGlobalSpan(
+        start: number,
+        end: number
+    ): {
+        type: 'prefix' | 'class' | 'feature';
+        key: string | number;
+        globalByteStart: number;
+        codeByteStart: number;
+        code: string;
+    } | null {
+        const blocks = this.buildFeatureSourceBlocks();
+        if (!blocks.length) {
+            return null;
+        }
+
+        const endInclusive = Math.max(start, end - 1);
+
+        const matching =
+            blocks.find(
+                (block) =>
+                    start >= block.globalByteStart &&
+                    start < block.globalByteEnd
+            ) ||
+            blocks.find(
+                (block) =>
+                    endInclusive >= block.globalByteStart &&
+                    endInclusive < block.globalByteEnd
+            );
+
+        if (!matching) {
+            return null;
+        }
+
+        return {
+            type: matching.type,
+            key: matching.key,
+            globalByteStart: matching.globalByteStart,
+            codeByteStart: matching.codeByteStart,
+            code: matching.code
+        };
+    }
+
+    private getFeatureTargetLabel(
+        type: 'prefix' | 'class' | 'feature',
+        key: string | number
+    ): string {
+        if (type === 'feature') {
+            const font = window.currentFontModel;
+            const features = font?.features?.features || [];
+            const featureEntry =
+                typeof key === 'number' ? features[key] : undefined;
+            const featureTag = featureEntry?.[0];
+            return featureTag || `#${String(key)}`;
+        }
+
+        return String(key);
+    }
+
     private createContentContainers(viewContent: HTMLElement) {
         // Store existing content as Names tab
         this.namesTab = document.createElement('div');
@@ -764,6 +1546,9 @@ class FontInfoManager {
 
         // Set up change handler
         this.featuresEditor.on('change', () => this.onFeatureCodeChanged());
+        this.featuresEditor.renderer.on('afterRender', () => {
+            this.refreshFeatureErrorLineWidgetLayout();
+        });
 
         console.log('[FontInfo] Features editor initialized');
     }
@@ -1646,6 +2431,10 @@ class FontInfoManager {
             item.appendChild(autoIcon);
         }
 
+        if (this.isFeatureErrorTarget(type, key)) {
+            this.addFeatureErrorIcon(item, this.featureErrorTarget!.message);
+        }
+
         item.addEventListener('click', () => this.selectItem(type, key));
 
         return item;
@@ -1734,11 +2523,15 @@ class FontInfoManager {
             autoCheckbox.checked = codeData.automatic || false;
         }
 
+        this.updateFeatureErrorDisplayForSelection();
+
         console.log(`[FontInfo] Selected ${label}`);
     }
 
     private clearEditor() {
         this.selectedItem = null;
+        this.clearFeatureErrorMarker();
+        this.featureErrorTarget = null;
         if (this.featuresEditor) {
             this.suppressFeatureEditorChange = true;
             this.featuresEditor.setValue('', -1);
@@ -1784,6 +2577,10 @@ class FontInfoManager {
 
         const newCode = this.featuresEditor.getValue();
         codeData.code = newCode;
+        this.clearFeatureErrorMarker();
+        this.featureErrorTarget = null;
+        this.featureErrorIssue = null;
+        this.refreshFeatureErrorIconInSidebar();
 
         // Mark font as dirty
         if (window.fontManager?.currentFont) {
@@ -1812,16 +2609,16 @@ class FontInfoManager {
             if (window.fontManager?.isReady()) {
                 // Sync feature code changes to JSON before compilation
                 // The compiler uses babelfontJson, so we must serialize the model changes
-                if (window.fontManager.currentFont?.fontModel) {
-                    window.fontManager.currentFont.babelfontJson =
-                        window.fontManager.currentFont.fontModel.toJSONString();
+                if (window.fontManager.currentFont) {
+                    window.fontManager.currentFont.syncJsonFromModel();
                 }
 
                 window.fontManager
-                    .recompileEditingFont()
+                    .compileTypingFont()
+                    .then(() => window.fontManager.recompileEditingFont())
                     .catch((error: any) => {
                         console.error(
-                            'Failed to recompile font after feature code change:',
+                            'Failed to compile font after feature code change:',
                             error
                         );
                     });
