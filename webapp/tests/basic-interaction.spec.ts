@@ -518,6 +518,85 @@ test.describe('Font Editor Basic Workflow', () => {
         console.log('[Test] Taking snapshot 18: variation 400');
         await takeSnapshot(page, '18', 'variation-400', expect);
 
+        // Navigate to font info / features view
+        console.log('[Test] Navigating to features view');
+        await page.keyboard.press('Meta+Shift+I');
+        await page.waitForTimeout(200);
+
+        // Click the Features tab
+        console.log('[Test] Clicking Features tab');
+        await page.locator('[data-tab="features"]').click();
+        await page.waitForTimeout(200);
+
+        // Click the locl feature list item (first user-editable feature in Fustat)
+        console.log('[Test] Selecting locl feature');
+        await page
+            .locator('.feature-list-item')
+            .filter({ has: page.locator('.feature-tag', { hasText: 'locl' }) })
+            .first()
+            .click();
+        await page.waitForTimeout(300);
+
+        // Wait for the ace editor to have the locl content loaded (setValue is
+        // synchronous once selectItem runs; confirm via the .selected class on
+        // the list item and a non-empty editor value)
+        console.log('[Test] Waiting for ace editor to be ready');
+        await page.waitForFunction(() => {
+            const mgr = (window as any).fontInfoManager;
+            const hasSelected = !!document.querySelector(
+                '.feature-list-item.selected .feature-tag'
+            );
+            return (
+                mgr?.featuresEditor &&
+                hasSelected &&
+                mgr.featuresEditor.getValue().length > 0
+            );
+        }, { timeout: 10000 });
+
+        // Delete the first character of the feature content via ace API,
+        // then wait for the typing compilation to fail and show the error.
+        console.log('[Test] Deleting first character to trigger compile error');
+        await page.evaluate(() => {
+            return new Promise<void>((resolve) => {
+                const editor = (window as any).fontInfoManager?.featuresEditor;
+                // Move cursor to very beginning and delete one character
+                editor.moveCursorTo(0, 0);
+                editor.remove('right');
+
+                // The compilation error shows in #sidebar-error-display;
+                // observe its visibility rather than listening to a compiled
+                // event which won't fire on error.
+                const target = document.getElementById('sidebar-error-display');
+                if (!target) {
+                    resolve();
+                    return;
+                }
+                const observer = new MutationObserver(() => {
+                    if ((target as HTMLElement).style.display !== 'none' &&
+                        target.textContent && target.textContent.trim().length > 0) {
+                        observer.disconnect();
+                        resolve();
+                    }
+                });
+                observer.observe(target, { attributes: true, childList: true, subtree: true });
+                // Safety: resolve after 10 s regardless
+                setTimeout(() => { observer.disconnect(); resolve(); }, 10000);
+            });
+        });
+
+        await page.waitForTimeout(300);
+
+        // SNAPSHOT POINT 19: Feature compilation error shown
+        console.log('[Test] Taking snapshot 19: feature compile error');
+        const snapshot19 = await captureSnapshot(page, 'feature-compile-error');
+        expect(snapshotForComparison(snapshot19)).toMatchSnapshot(
+            '19-feature-compile-error.json'
+        );
+        await expect(page).toHaveScreenshot(
+            '19-feature-compile-error-window.png',
+            { mask: [page.locator('#console-container')] }
+        );
+
         console.log('[Test] Test complete');
     });
 
