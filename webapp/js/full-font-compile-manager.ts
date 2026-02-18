@@ -85,7 +85,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
         checks?: QCCheck[]
     ): void {
         window.dispatchEvent(
-            new CustomEvent('fullFontQcUpdated', {
+            new CustomEvent('fontspectorUpdated', {
                 detail: {
                     summary,
                     status,

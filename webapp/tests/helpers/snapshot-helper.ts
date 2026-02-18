@@ -134,7 +134,10 @@ export async function waitForFontLoaded(page: any) {
     console.log(
         '[Test] Wait for features and axes to be populated with actual data'
     );
-    // Wait for features and axes to be populated with actual data
+    // Wait for features and axes to be populated with actual data — check both
+    // the internal managers AND the stateManager snapshot, since the state
+    // manager is updated asynchronously after the managers are ready and
+    // snapshots read from stateManager.
     await page.waitForFunction(
         () => {
             const featuresManager = window.glyphCanvas?.featuresManager;
@@ -149,14 +152,39 @@ export async function waitForFontLoaded(page: any) {
             // Both should be objects (not null/undefined)
             if (!featureSettings || !variationSettings) return false;
 
-            // For features: should have at least some feature keys defined
-            // For axes: should have actual axis values (or be empty if font has no axes)
-            const hasFeatureKeys = Object.keys(featureSettings).length > 0;
-            const hasAxesKeys = Object.keys(variationSettings).length >= 0; // Can be 0 if no variable font
+            // Internal managers must have feature keys
+            if (Object.keys(featureSettings).length === 0) return false;
 
-            return hasFeatureKeys;
+            // stateManager must also have the subset features propagated
+            const state =
+                window.stateManager?.getStateSnapshot?.()?.state || {};
+            const featuresInSubset =
+                state.editor_opentype_features_in_subset || {};
+            const featuresNotInSubset =
+                state.editor_opentype_features_not_in_subset || {};
+            const variationLocation = state.editor_variation_location || {};
+
+            // Features must be reflected in state; variation location must be
+            // present too (it will be {} for non-variable fonts, which is fine,
+            // but for variable fonts it should match variationSettings).
+            const hasStateFeaturesInSubset =
+                Object.keys(featuresInSubset).length > 0;
+            const hasStateFeaturesNotInSubset =
+                Object.keys(featuresNotInSubset).length > 0;
+
+            // For variable fonts, stateManager variation location should match
+            // the manager's variationSettings; for non-variable fonts both are {}.
+            const variationMatch =
+                Object.keys(variationSettings).length === 0 ||
+                Object.keys(variationLocation).length > 0;
+
+            return (
+                hasStateFeaturesInSubset &&
+                hasStateFeaturesNotInSubset &&
+                variationMatch
+            );
         },
-        { timeout: 5000 }
+        { timeout: 10000 }
     );
 
     // Extra stabilization time for async initialization
@@ -182,13 +210,13 @@ export async function waitForFontspectorReady(
         { timeout: 15000 }
     );
 
-    // Then wait for the fullFontQcUpdated event with status 'ready'
+    // Then wait for the fontspectorUpdated event with status 'ready'
     await page.evaluate(() => {
         return new Promise<void>((resolve) => {
             const handler = (event: Event) => {
                 const detail = (event as CustomEvent).detail;
                 if (detail?.status === 'ready') {
-                    window.removeEventListener('fullFontQcUpdated', handler);
+                    window.removeEventListener('fontspectorUpdated', handler);
                     resolve();
                 }
             };
@@ -205,7 +233,7 @@ export async function waitForFontspectorReady(
                     return;
                 }
             }
-            window.addEventListener('fullFontQcUpdated', handler);
+            window.addEventListener('fontspectorUpdated', handler);
         });
     });
 }

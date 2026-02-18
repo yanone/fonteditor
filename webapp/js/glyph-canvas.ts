@@ -3101,7 +3101,7 @@ function initCanvas() {
         fontQcCounts.addEventListener('click', expandQcPanel);
         fontQcStatus.addEventListener('click', expandQcPanel);
 
-        window.addEventListener('fullFontQcUpdated', (event: Event) => {
+        window.addEventListener('fontspectorUpdated', (event: Event) => {
             updateQcSummary((event as CustomEvent).detail);
         });
 
