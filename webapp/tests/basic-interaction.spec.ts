@@ -78,8 +78,12 @@ test.describe('Font Editor Basic Workflow', () => {
         expect(snapshotForComparison(snapshot)).toMatchSnapshot(
             `${snapshotNumber}-${label}.json`
         );
+        // Mask the terminal emulator inside the Konsole view: it computes
+        // column widths programmatically, so sub-pixel font metric differences
+        // across macOS versions produce different line breaks.
         await expect(page).toHaveScreenshot(
-            `${snapshotNumber}-${label}-window.png`
+            `${snapshotNumber}-${label}-window.png`,
+            { mask: [page.locator('#console-container')] }
         );
         return snapshot;
     };
