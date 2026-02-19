@@ -9,7 +9,7 @@
         "client_mode": "focus-existing"
     },
     "background_color": "#ffffff",
-    "theme_color": "#000000",
+    "theme_color": "#181818",
     "orientation": "any",
     "icons": [
         {

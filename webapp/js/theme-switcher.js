@@ -153,6 +153,8 @@
                 root.removeAttribute('data-theme');
             }
 
+            this.updateThemeColorMeta(theme);
+
             // Update Ace editor theme if it exists
             this.updateAceTheme(theme);
 
@@ -160,6 +162,28 @@
             if (window.glyphCanvas) {
                 window.glyphCanvas.render();
             }
+        }
+
+        updateThemeColorMeta(theme) {
+            const themeColorMeta = document.querySelector(
+                'meta[name="theme-color"]'
+            );
+            if (!themeColorMeta) {
+                return;
+            }
+
+            const fallbackColor =
+                theme === THEMES.LIGHT ? '#ffffff' : '#181818';
+            const computedColor = getComputedStyle(
+                document.documentElement
+            )
+                .getPropertyValue('--background-primary')
+                .trim();
+
+            themeColorMeta.setAttribute(
+                'content',
+                computedColor || fallbackColor
+            );
         }
 
         updateAceTheme(theme) {
