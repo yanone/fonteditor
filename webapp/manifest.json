@@ -1,10 +1,13 @@
 {
-    "name": "counterpunch - Font Editor",
+    "name": "Counterpunch",
     "short_name": "counterpunch",
     "description": "Modern font editor for creating and editing fonts",
     "start_url": "./index.html",
     "scope": "./",
     "display": "standalone",
+    "launch_handler": {
+        "client_mode": "focus-existing"
+    },
     "background_color": "#ffffff",
     "theme_color": "#000000",
     "orientation": "any",
@@ -65,10 +68,26 @@
         }
     ],
     "categories": ["productivity", "utilities", "design"],
+    "file_handlers": [
+        {
+            "action": "./index.html",
+            "accept": {
+                "application/json": [".babelfont"],
+                "application/octet-stream": [
+                    ".glyphs",
+                    ".vfj",
+                    ".sfd",
+                    ".designspace",
+                    ".glyphspackage",
+                    ".ufo"
+                ]
+            }
+        }
+    ],
     "screenshots": [
         {
-            "src": "assets/icons/icon-512x512.png",
-            "sizes": "512x512",
+            "src": "assets/screenshots/browser.png",
+            "sizes": "3840x2301",
             "type": "image/png",
             "form_factor": "wide"
         }

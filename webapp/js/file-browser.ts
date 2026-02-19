@@ -46,6 +46,13 @@ let fileSystemCache: FileSystemState = {
     activeAdapter: pluginRegistry.getDefault()!.getAdapter()
 };
 
+type OpenFontOptions = {
+    sourcePluginOverride?: FilesystemPlugin;
+};
+
+let detachedLaunchFilename: string | null = null;
+let detachedLaunchFileHandle: FileSystemFileHandle | null = null;
+
 let diskFontReloadDebounceTimer: number | null = null;
 const pendingDiskChangePaths = new Set<string>();
 
@@ -750,7 +757,11 @@ function getParentPath(path: string): string {
     return idx >= 0 ? path.slice(0, idx) : '';
 }
 
-async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
+async function openFont(
+    path: string,
+    fileHandle?: FileSystemFileHandle,
+    options: OpenFontOptions = {}
+) {
     if (!window.pyodide) {
         alert('Python not ready yet. Please wait a moment and try again.');
         return;
@@ -763,17 +774,49 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
         const startTime = performance.now();
         console.log('[FileBrowser]', `Opening font: ${path}`);
 
+        const sourcePlugin =
+            options.sourcePluginOverride || fileSystemCache.currentPlugin;
+        const sourceAdapter = sourcePlugin.getAdapter() as any;
+
+        const directoryHandleForSource: FileSystemDirectoryHandle | undefined =
+            sourcePlugin.getId() === 'disk'
+                ? sourceAdapter.directoryHandle
+                : undefined;
+
+        const isDetachedDiskLaunch =
+            sourcePlugin.getId() === 'disk' &&
+            !!fileHandle &&
+            !directoryHandleForSource;
+
         // Determine file extension
         const extension = path.split('.').pop()?.toLowerCase() || '';
         const isGlyphsPackage = extension === 'glyphspackage';
         const isUfoDirectory = extension === 'ufo';
         const isDesignspace = extension === 'designspace';
 
+        if (
+            isDetachedDiskLaunch &&
+            (isGlyphsPackage || isUfoDirectory || isDesignspace)
+        ) {
+            throw new Error(
+                'This source format requires folder context. Please attach the containing folder in Disk context and open it from there.'
+            );
+        }
+
         let contents: string | Uint8Array | undefined;
         let packageEntries: Record<string, Uint8Array> | undefined;
         let projectEntries: Record<string, Uint8Array> | undefined;
 
-        if (isGlyphsPackage) {
+        if (isDetachedDiskLaunch) {
+            const launchedFile = await fileHandle!.getFile();
+            const launchedBytes = new Uint8Array(
+                await launchedFile.arrayBuffer()
+            );
+            contents =
+                extension === 'babelfont'
+                    ? new TextDecoder('utf-8').decode(launchedBytes)
+                    : launchedBytes;
+        } else if (isGlyphsPackage) {
             packageEntries = await collectDirectoryEntries(path);
 
             if (
@@ -790,7 +833,7 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
             const projectRoot = getParentPath(path);
             projectEntries = await collectAllDirectoryEntries(projectRoot);
         } else {
-            contents = await fileSystemCache.activeAdapter.readFile(path);
+            contents = await sourceAdapter.readFile(path);
 
             // For text-based formats (.babelfont is JSON), decode from UTF-8
             // For binary formats (.glyphs, .ufo, etc.), keep as Uint8Array - Python/Rust handles format detection
@@ -874,22 +917,17 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
         let actualFileHandle = fileHandle;
         if (
             !actualFileHandle &&
-            fileSystemCache.currentPlugin.getId() === 'disk'
+            sourcePlugin.getId() === 'disk' &&
+            directoryHandleForSource
         ) {
-            const diskPlugin = fileSystemCache.currentPlugin as DiskPlugin;
+            const diskPlugin = sourcePlugin as DiskPlugin;
             const adapter = diskPlugin.getAdapter() as any;
             if (adapter.getFileHandle) {
                 actualFileHandle = await adapter.getFileHandle(path);
             }
         }
 
-        // Get directory handle for disk plugin
-        let directoryHandle: FileSystemDirectoryHandle | undefined;
-        if (fileSystemCache.currentPlugin.getId() === 'disk') {
-            const diskPlugin = fileSystemCache.currentPlugin as DiskPlugin;
-            const adapter = diskPlugin.getAdapter() as any;
-            directoryHandle = adapter.directoryHandle;
-        }
+        const directoryHandle = directoryHandleForSource;
 
         // Dispatch fontLoaded event to font manager
         window.dispatchEvent(
@@ -897,7 +935,7 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
                 detail: {
                     path: path,
                     babelfontJson: babelfontJson,
-                    sourcePlugin: fileSystemCache.currentPlugin,
+                    sourcePlugin,
                     fileHandle: actualFileHandle,
                     directoryHandle: directoryHandle
                 }
@@ -905,7 +943,7 @@ async function openFont(path: string, fileHandle?: FileSystemFileHandle) {
         );
 
         // Update URL to reflect current file
-        const pluginId = fileSystemCache.currentPlugin.getId();
+        const pluginId = sourcePlugin.getId();
         const fileUri = createFileUri(pluginId, path);
         if (window.stateManager) {
             window.stateManager.editor_file = fileUri;
@@ -1021,6 +1059,37 @@ async function switchContext(pluginId: string) {
     await navigateToPath(targetPath);
 }
 
+function updateOpenFolderPromptForDetachedLaunch() {
+    const openFolderContainer = document.getElementById(
+        'open-folder-container'
+    );
+    if (!openFolderContainer) {
+        return;
+    }
+
+    const titleElement = openFolderContainer.querySelector('h2');
+    const bodyElement = openFolderContainer.querySelector('p');
+    const buttonLabelElement = openFolderContainer.querySelector(
+        '.open-folder-button .open-folder-button-label'
+    );
+
+    if (!titleElement || !bodyElement || !buttonLabelElement) {
+        return;
+    }
+
+    if (detachedLaunchFilename) {
+        titleElement.textContent = 'Attach Containing Folder';
+        bodyElement.textContent = `Opened ${detachedLaunchFilename}. Attach its folder to enable full disk browsing and external reload.`;
+        buttonLabelElement.textContent = 'Attach Folder';
+        return;
+    }
+
+    titleElement.textContent = 'Open Folder';
+    bodyElement.textContent =
+        'Select a folder from your computer to browse and edit fonts directly.';
+    buttonLabelElement.textContent = 'Select Folder';
+}
+
 async function selectDiskFolder() {
     try {
         const plugin = fileSystemCache.currentPlugin;
@@ -1029,11 +1098,68 @@ async function selectDiskFolder() {
             return;
         }
 
-        const success = await plugin.showSetupUI();
+        const success = await plugin.showSetupUI({
+            startIn: detachedLaunchFileHandle || undefined
+        });
         if (success) {
+            let targetPath = '/';
+            const currentFont = window.fontManager?.currentFont;
+            const currentFontHandle = currentFont?.fileHandle;
+
+            if (
+                currentFont &&
+                currentFont.sourcePlugin.getId() === 'disk' &&
+                currentFontHandle
+            ) {
+                const resolvedPath =
+                    await resolveDiskPathForLaunchedFileHandle(
+                        currentFontHandle
+                    );
+
+                if (resolvedPath) {
+                    currentFont.path = resolvedPath;
+                    const adapter = plugin.getAdapter() as any;
+                    currentFont.directoryHandle = adapter.directoryHandle;
+
+                    targetPath =
+                        resolvedPath.substring(
+                            0,
+                            resolvedPath.lastIndexOf('/')
+                        ) || '/';
+
+                    const fileUri = createFileUri('disk', resolvedPath);
+                    if (window.stateManager) {
+                        window.stateManager.editor_file = fileUri;
+                        window.stateManager.recordEvent(
+                            'file_opened',
+                            'FileBrowser',
+                            {
+                                fileUri
+                            }
+                        );
+                    }
+                }
+            }
+
+            detachedLaunchFilename = null;
+            detachedLaunchFileHandle = null;
+            updateOpenFolderPromptForDetachedLaunch();
             hideOpenFolderUI();
-            fileSystemCache.currentPath = '/';
-            await navigateToPath('/');
+            fileSystemCache.currentPath = targetPath;
+            await navigateToPath(targetPath);
+
+            setTimeout(() => {
+                const fileTree = document.getElementById('file-tree');
+                const currentFontItem = fileTree?.querySelector(
+                    '.file-item.current-font'
+                );
+                if (currentFontItem) {
+                    (currentFontItem as HTMLElement).scrollIntoView({
+                        block: 'center',
+                        behavior: 'auto'
+                    });
+                }
+            }, 100);
         }
     } catch (error: any) {
         console.error('[FileBrowser]', 'Error selecting folder:', error);
@@ -1114,6 +1240,8 @@ function showOpenFolderUI() {
     const openFolderContainer = document.getElementById(
         'open-folder-container'
     );
+
+    updateOpenFolderPromptForDetachedLaunch();
 
     if (openFolderContainer) {
         openFolderContainer.classList.add('visible');
@@ -1887,6 +2015,120 @@ function updateHomeButtonVisibility() {
     homeBtn.style.display = currentFont ? 'flex' : 'none';
 }
 
+function consumePendingLaunchFileHandles(): FileSystemFileHandle[] {
+    const pending = (window as any).__pendingLaunchFileHandles;
+    if (!Array.isArray(pending) || pending.length === 0) {
+        return [];
+    }
+
+    (window as any).__pendingLaunchFileHandles = [];
+    return pending.filter((handle) => handle?.kind === 'file');
+}
+
+async function resolveDiskPathForLaunchedFileHandle(
+    fileHandle: FileSystemFileHandle
+): Promise<string | null> {
+    const diskPlugin = pluginRegistry.get('disk') as DiskPlugin | undefined;
+    if (!diskPlugin) {
+        return null;
+    }
+
+    const isReady = await diskPlugin.isReady();
+    if (!isReady) {
+        return null;
+    }
+
+    const adapter = diskPlugin.getAdapter() as any;
+    if (!adapter.listFilesRecursive || !adapter.checkPermission) {
+        return null;
+    }
+
+    const permission = await adapter.checkPermission();
+    if (permission !== 'granted') {
+        return null;
+    }
+
+    const files = await adapter.listFilesRecursive('/', 20);
+    for (const file of files) {
+        const candidateHandle = file.handle;
+        if (
+            !candidateHandle ||
+            typeof candidateHandle.isSameEntry !== 'function'
+        ) {
+            continue;
+        }
+
+        try {
+            const isSame = await candidateHandle.isSameEntry(fileHandle);
+            if (isSame) {
+                return file.path;
+            }
+        } catch (error) {
+            console.warn('[FileBrowser]', 'Failed handle comparison:', error);
+        }
+    }
+
+    return null;
+}
+
+function createDetachedLaunchPath(fileHandle: FileSystemFileHandle): string {
+    const sanitizedName = fileHandle.name.replace(/[\\/]/g, '_');
+    return `/__launched__/${sanitizedName}`;
+}
+
+async function openLaunchedFileHandle(
+    fileHandle: FileSystemFileHandle
+): Promise<void> {
+    const diskPlugin = pluginRegistry.get('disk') as DiskPlugin | undefined;
+    if (!diskPlugin) {
+        throw new Error('Disk plugin is not available');
+    }
+
+    const resolvedPath = await resolveDiskPathForLaunchedFileHandle(fileHandle);
+    if (resolvedPath) {
+        detachedLaunchFilename = null;
+        detachedLaunchFileHandle = null;
+        await switchContext('disk');
+        const dirPath =
+            resolvedPath.substring(0, resolvedPath.lastIndexOf('/')) || '/';
+        await navigateToPath(dirPath);
+        await openFont(resolvedPath, fileHandle, {
+            sourcePluginOverride: diskPlugin
+        });
+        return;
+    }
+
+    detachedLaunchFilename = fileHandle.name;
+    detachedLaunchFileHandle = fileHandle;
+    await switchContext('disk');
+    await openFont(createDetachedLaunchPath(fileHandle), fileHandle, {
+        sourcePluginOverride: diskPlugin
+    });
+}
+
+async function processPendingPwaLaunchFiles() {
+    const launchHandles = consumePendingLaunchFileHandles();
+    if (!launchHandles.length) {
+        return;
+    }
+
+    for (const fileHandle of launchHandles) {
+        try {
+            await openLaunchedFileHandle(fileHandle);
+            updateHomeButtonVisibility();
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
+            alert(`Error opening launched file ${fileHandle.name}: ${message}`);
+            console.error(
+                '[FileBrowser]',
+                `Failed opening launched file ${fileHandle.name}:`,
+                error
+            );
+        }
+    }
+}
+
 // Initialize file browser when Pyodide is ready
 async function initFileBrowser() {
     try {
@@ -2159,6 +2401,9 @@ async function initFileBrowser() {
 // Auto-initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(initFileBrowser, 1500); // Wait a bit longer for Pyodide to be ready
+    setTimeout(() => {
+        processPendingPwaLaunchFiles();
+    }, 3200);
 
     // Handle URL parameters for opening fonts in new tabs
     const urlParams = new URLSearchParams(window.location.search);
@@ -2275,6 +2520,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, 3000); // Wait for plugins and Pyodide to be ready
     }
+});
+
+window.addEventListener('pwaLaunchFilesPending', () => {
+    setTimeout(() => {
+        processPendingPwaLaunchFiles();
+    }, 250);
 });
 
 // Close any open Tippy menu on Escape key

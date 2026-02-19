@@ -281,7 +281,7 @@ class OpenedFont {
             } catch (error) {
                 if (error instanceof Error && error.name === 'SecurityError') {
                     throw new Error(
-                        'Permission denied. Please re-enable folder access.'
+                        'Permission denied. Please re-enable disk access and try again.'
                     );
                 }
                 throw error;
@@ -518,6 +518,20 @@ class FontManager {
         return entries;
     }
 
+    private async readFromFileHandle(
+        fileHandle: FileSystemFileHandle,
+        extension: string
+    ): Promise<string | Uint8Array> {
+        const file = await fileHandle.getFile();
+        const bytes = new Uint8Array(await file.arrayBuffer());
+
+        if (extension === 'babelfont') {
+            return new TextDecoder('utf-8').decode(bytes);
+        }
+
+        return bytes;
+    }
+
     private async loadBabelfontJsonFromSource(
         font: OpenedFont
     ): Promise<string> {
@@ -526,12 +540,27 @@ class FontManager {
             extension === 'glyphspackage' || extension === 'glyphpackage';
         const isUfoDirectory = extension === 'ufo';
         const isDesignspace = extension === 'designspace';
+        const isDetachedDiskSource =
+            font.sourcePlugin.getId() === 'disk' &&
+            !font.directoryHandle &&
+            !!font.fileHandle;
 
         let contents: string | Uint8Array | undefined;
         let packageEntries: Record<string, Uint8Array> | undefined;
         let projectEntries: Record<string, Uint8Array> | undefined;
 
-        if (isGlyphsPackage) {
+        if (isDetachedDiskSource) {
+            if (isGlyphsPackage || isUfoDirectory || isDesignspace) {
+                throw new Error(
+                    'This source format requires folder context. Attach the containing folder in Disk context and reopen the source from there.'
+                );
+            }
+
+            contents = await this.readFromFileHandle(
+                font.fileHandle!,
+                extension
+            );
+        } else if (isGlyphsPackage) {
             packageEntries = await this.collectGlyphsPackageEntries(
                 font.path,
                 font.sourcePlugin

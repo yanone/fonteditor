@@ -170,7 +170,11 @@ declare global {
             isDir: boolean
         ) => Promise<void>;
         handleFileUpload: (e: Event) => void;
-        openFont: (path: string) => Promise<void>;
+        openFont: (
+            path: string,
+            fileHandle?: FileSystemFileHandle,
+            options?: { sourcePluginOverride?: any }
+        ) => Promise<void>;
         downloadFile: (filePath: string, fileName: string) => Promise<void>;
         selectDiskFolder: () => Promise<void>;
         reEnableAccess: () => Promise<void>;

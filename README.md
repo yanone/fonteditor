@@ -114,6 +114,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ◻️ OpenType feature code error display inline
 - ✅ Hot-reloading fonts on external changes (Chrome/Chromium only)
 - ✅ Fontspector integration (glyph-level messages later)
+- ✅ Open fonts in PWA directly
 - ◻️ Interactive demo
 - ✅ Basic documentation
 - ◻️ First video

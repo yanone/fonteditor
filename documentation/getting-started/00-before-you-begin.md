@@ -41,7 +41,11 @@ Counterpunch can be installed as a Progressive Web App, which provides several b
 - **Desktop integration**: Launch from your applications menu or dock like a native app
 - **Dedicated window**: Run Counterpunch in its own window without browser tabs and address bar
 - **Faster startup**: The application shell loads from cache rather than downloading
-- **Direct file opening**: Drag and drop font files on the app icon like any normal app
+- **Direct file opening**: Open supported font sources directly with the installed app (for example from Finder/Explorer or via app-icon file open)
+
+When you open a font directly via the installed app and Counterpunch does not yet have folder access, the font opens immediately in detached mode. To enable full folder browsing and external hot-reload, attach the containing folder in the Disk context.
+
+For folder-based sources such as `.glyphspackage`, `.ufo`, and `.designspace` projects, open the containing folder first and then open the source from there.
 
 ### How to Install
 

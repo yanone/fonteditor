@@ -11,6 +11,40 @@ window.EDITOR_VERSION = process.env.EDITOR_VERSION || null;
 window.BUILD_HASH_FULL = process.env.BUILD_HASH_FULL || null;
 window.BUILD_HASH_SHORT = process.env.BUILD_HASH_SHORT || null;
 
+function registerPwaLaunchFileConsumer() {
+    const launchQueue = (window as any).launchQueue;
+    if (!launchQueue || typeof launchQueue.setConsumer !== 'function') {
+        return;
+    }
+
+    launchQueue.setConsumer((launchParams: any) => {
+        const launchedHandles = Array.isArray(launchParams?.files)
+            ? launchParams.files.filter(
+                  (handle: any) => handle?.kind === 'file'
+              )
+            : [];
+
+        if (!launchedHandles.length) {
+            return;
+        }
+
+        const pendingHandles = Array.isArray(
+            (window as any).__pendingLaunchFileHandles
+        )
+            ? (window as any).__pendingLaunchFileHandles
+            : [];
+
+        (window as any).__pendingLaunchFileHandles = [
+            ...pendingHandles,
+            ...launchedHandles
+        ];
+
+        window.dispatchEvent(new CustomEvent('pwaLaunchFilesPending'));
+    });
+}
+
+registerPwaLaunchFileConsumer();
+
 // Utility function to update loading status (extracted from loading-animation.js)
 window.updateLoadingStatus = function (
     message: string,

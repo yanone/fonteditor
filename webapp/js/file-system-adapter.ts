@@ -144,11 +144,21 @@ export class NativeAdapter implements FileSystemAdapter {
         return false;
     }
 
-    async selectDirectory(): Promise<void> {
+    async selectDirectory(options?: {
+        startIn?: FileSystemHandle;
+    }): Promise<boolean> {
         try {
-            const handle = await (window as any).showDirectoryPicker({
+            const pickerOptions: any = {
                 mode: 'readwrite'
-            });
+            };
+
+            if (options?.startIn) {
+                pickerOptions.startIn = options.startIn;
+            }
+
+            const handle = await (window as any).showDirectoryPicker(
+                pickerOptions
+            );
             this.directoryHandle = handle;
             this.rootPath = '/';
 
@@ -159,9 +169,11 @@ export class NativeAdapter implements FileSystemAdapter {
             await this.requestPermission();
 
             console.log('[NativeAdapter]', 'Selected directory:', handle.name);
+            return true;
         } catch (error: any) {
             if (error.name === 'AbortError') {
                 console.log('[NativeAdapter]', 'Directory selection cancelled');
+                return false;
             } else {
                 console.error(
                     '[NativeAdapter]',

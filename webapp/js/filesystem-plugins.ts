@@ -77,7 +77,9 @@ export abstract class FilesystemPlugin {
      * Show plugin-specific setup UI (e.g., folder picker, login dialog)
      * @returns true if setup completed, false if cancelled
      */
-    async showSetupUI(): Promise<boolean> {
+    async showSetupUI(options?: {
+        startIn?: FileSystemHandle;
+    }): Promise<boolean> {
         return true; // Default: no setup needed
     }
 
@@ -343,10 +345,15 @@ export class DiskPlugin extends FilesystemPlugin {
         }
     }
 
-    async showSetupUI(): Promise<boolean> {
+    async showSetupUI(options?: {
+        startIn?: FileSystemHandle;
+    }): Promise<boolean> {
         // Show directory picker
         try {
-            await this.nativeAdapter.selectDirectory();
+            const selected = await this.nativeAdapter.selectDirectory(options);
+            if (!selected) {
+                return false;
+            }
             // Trigger title bar redraw to show dropdown button
             this.redrawTitleBarButtons();
             // Set up file system observer for new directory
