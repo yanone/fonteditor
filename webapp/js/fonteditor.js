@@ -164,6 +164,13 @@ async function initFontEditor() {
             window.focusView(lastActiveView);
         }
 
+        const shouldWaitForUnsupportedBrowserContinue = () => {
+            return (
+                window.__unsupportedBrowserWarningRequired === true &&
+                window.__unsupportedBrowserWarningAcknowledged !== true
+            );
+        };
+
         // Hide loading overlay with animation
         const hideLoadingOverlay = () => {
             const loadingOverlay = document.getElementById('loading-overlay');
@@ -179,6 +186,21 @@ async function initFontEditor() {
             }
         };
 
+        const hideLoadingOverlayWhenAllowed = () => {
+            if (!shouldWaitForUnsupportedBrowserContinue()) {
+                hideLoadingOverlay();
+                return;
+            }
+
+            window.addEventListener(
+                'unsupportedBrowserContinue',
+                () => {
+                    hideLoadingOverlay();
+                },
+                { once: true }
+            );
+        };
+
         // Wait briefly after "Ready" appears before starting fadeout
         setTimeout(() => {
             // Request animation to stop (it will drain particles first, then trigger fade)
@@ -188,7 +210,7 @@ async function initFontEditor() {
                 window.WarpSpeedAnimation.requestStop(() => {
                     if (!callbackFired) {
                         callbackFired = true;
-                        hideLoadingOverlay();
+                        hideLoadingOverlayWhenAllowed();
                     }
                 });
 
@@ -200,12 +222,12 @@ async function initFontEditor() {
                             'Animation drain timeout, forcing overlay hide'
                         );
                         callbackFired = true;
-                        hideLoadingOverlay();
+                        hideLoadingOverlayWhenAllowed();
                     }
                 }, 5000); // 5 second timeout
             } else {
                 // Fallback if animation not available
-                hideLoadingOverlay();
+                hideLoadingOverlayWhenAllowed();
             }
         }, 200); // Wait 200ms after "Ready" appears
 
@@ -218,10 +240,15 @@ async function initFontEditor() {
             );
         }
 
-        // Hide loading overlay even on error
-        const loadingOverlay = document.getElementById('loading-overlay');
-        if (loadingOverlay) {
-            loadingOverlay.classList.add('hidden');
+        // Hide loading overlay even on error (unless waiting for unsupported-browser acknowledgment)
+        if (
+            window.__unsupportedBrowserWarningRequired !== true ||
+            window.__unsupportedBrowserWarningAcknowledged === true
+        ) {
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                loadingOverlay.classList.add('hidden');
+            }
         }
 
         return false;
@@ -232,6 +259,13 @@ async function initFontEditor() {
 document.addEventListener('DOMContentLoaded', () => {
     // Safety timeout - hide loading screen after 30 seconds no matter what
     setTimeout(() => {
+        if (
+            window.__unsupportedBrowserWarningRequired === true &&
+            window.__unsupportedBrowserWarningAcknowledged !== true
+        ) {
+            return;
+        }
+
         const loadingOverlay = document.getElementById('loading-overlay');
         if (loadingOverlay && !loadingOverlay.classList.contains('hidden')) {
             console.error(

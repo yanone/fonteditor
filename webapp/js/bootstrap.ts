@@ -45,6 +45,217 @@ function registerPwaLaunchFileConsumer() {
 
 registerPwaLaunchFileConsumer();
 
+function isSupportedBrowser(): boolean {
+    const ua = navigator.userAgent;
+    const navWithUAData = navigator as Navigator & {
+        userAgentData?: {
+            brands?: { brand: string; version: string }[];
+        };
+    };
+    const brands = navWithUAData.userAgentData?.brands || [];
+
+    const hasEdgeBrand = brands.some((entry) =>
+        entry.brand.toLowerCase().includes('edge')
+    );
+    const hasChromiumBrand = brands.some((entry) => {
+        const brand = entry.brand.toLowerCase();
+        return brand.includes('chromium') || brand.includes('chrome');
+    });
+
+    const isEdgeUA = /Edg\//.test(ua);
+    const isChromiumUA = /Chrome\//.test(ua) || /Chromium\//.test(ua);
+    const isSafariUA =
+        /Safari\//.test(ua) &&
+        !/Chrome\//.test(ua) &&
+        !/Chromium\//.test(ua) &&
+        !/CriOS\//.test(ua) &&
+        !/Edg\//.test(ua) &&
+        !/OPR\//.test(ua) &&
+        !/FxiOS\//.test(ua) &&
+        !/Firefox\//.test(ua) &&
+        !/Android/.test(ua);
+
+    return (
+        hasEdgeBrand ||
+        hasChromiumBrand ||
+        isEdgeUA ||
+        isChromiumUA ||
+        isSafariUA
+    );
+}
+
+function getBrowserMatrixKey():
+    | 'chrome'
+    | 'edge'
+    | 'safari'
+    | 'firefox'
+    | 'brave'
+    | null {
+    const ua = navigator.userAgent;
+    const navWithUAData = navigator as Navigator & {
+        userAgentData?: {
+            brands?: { brand: string; version: string }[];
+        };
+        brave?: unknown;
+    };
+    const brands = navWithUAData.userAgentData?.brands || [];
+
+    const hasBrand = (needle: string) =>
+        brands.some((entry) => entry.brand.toLowerCase().includes(needle));
+
+    const isBrave =
+        hasBrand('brave') ||
+        /Brave\//.test(ua) ||
+        typeof navWithUAData.brave !== 'undefined';
+    if (isBrave) {
+        return 'brave';
+    }
+
+    if (hasBrand('edge') || /Edg\//.test(ua)) {
+        return 'edge';
+    }
+
+    const isSafari =
+        /Safari\//.test(ua) &&
+        !/Chrome\//.test(ua) &&
+        !/Chromium\//.test(ua) &&
+        !/CriOS\//.test(ua) &&
+        !/Edg\//.test(ua) &&
+        !/OPR\//.test(ua) &&
+        !/FxiOS\//.test(ua) &&
+        !/Firefox\//.test(ua) &&
+        !/Android/.test(ua);
+    if (isSafari) {
+        return 'safari';
+    }
+
+    if (hasBrand('firefox') || /Firefox\//.test(ua) || /FxiOS\//.test(ua)) {
+        return 'firefox';
+    }
+
+    if (
+        hasBrand('chromium') ||
+        hasBrand('chrome') ||
+        /Chrome\//.test(ua) ||
+        /Chromium\//.test(ua) ||
+        /CriOS\//.test(ua)
+    ) {
+        return 'chrome';
+    }
+
+    return null;
+}
+
+function showUnsupportedBrowserOverlay() {
+    if (isSupportedBrowser()) {
+        (window as any).__unsupportedBrowserWarningRequired = false;
+        (window as any).__unsupportedBrowserWarningAcknowledged = true;
+        return;
+    }
+
+    (window as any).__unsupportedBrowserWarningRequired = true;
+    (window as any).__unsupportedBrowserWarningAcknowledged = false;
+
+    const loadingOverlay = document.getElementById('loading-overlay');
+    if (!loadingOverlay) {
+        return;
+    }
+
+    if (document.getElementById('unsupported-browser-overlay')) {
+        return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'unsupported-browser-overlay';
+    overlay.className = 'unsupported-browser-overlay';
+    const currentBrowser = getBrowserMatrixKey();
+    const highlightClass = (key: string) =>
+        currentBrowser === key ? ' current-browser' : '';
+    const supportIcon = (supported: boolean) =>
+        `<span class="material-symbols-outlined matrix-support-icon ${
+            supported ? 'matrix-support-icon-yes' : 'matrix-support-icon-no'
+        }" aria-label="${supported ? 'Supported' : 'Not supported'}">${supported ? 'check' : 'close'}</span>`;
+    const noteForBrowser = (key: string) => {
+        const notes: string[] = [];
+        if (key === 'chrome') {
+            notes.push(
+                '<span class="browser-note-recommended">Recommended</span>'
+            );
+        }
+        if (currentBrowser === key) {
+            notes.push(
+                '<span class="browser-note-current">← Your browser</span>'
+            );
+        }
+        return notes.join(' ');
+    };
+    overlay.innerHTML = `
+        <div class="unsupported-browser-panel" role="alert" aria-live="polite">
+            <h2 class="unsupported-browser-title">Browser Compatibility Warning</h2>
+            <p class="unsupported-browser-text">Counterpunch officially supports <strong>Chrome/Chromium</strong>, <strong>Edge</strong>, and <strong>Safari</strong>.</p>
+            <p class="unsupported-browser-text"><strong>Chrome/Chromium</strong> is recommended because it is currently the only browser that supports hot-reloading of external files.</p>
+            <div class="browser-feature-matrix-wrapper">
+                <table class="browser-feature-matrix" aria-label="Browser feature support matrix">
+                    <thead>
+                        <tr>
+                            <th>Browser</th>
+                            <th>Native disk access</th>
+                            <th>Hot reloading</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="${highlightClass('chrome')}">
+                            <td>Chrome/Chromium</td>
+                            <td class="matrix-support-cell">${supportIcon(true)}</td>
+                            <td class="matrix-support-cell">${supportIcon(true)}</td>
+                            <td class="matrix-note-cell">${noteForBrowser('chrome')}</td>
+                        </tr>
+                        <tr class="${highlightClass('edge')}">
+                            <td>Edge</td>
+                            <td class="matrix-support-cell">${supportIcon(true)}</td>
+                            <td class="matrix-support-cell">${supportIcon(false)}</td>
+                            <td class="matrix-note-cell">${noteForBrowser('edge')}</td>
+                        </tr>
+                        <tr class="${highlightClass('safari')}">
+                            <td>Safari</td>
+                            <td class="matrix-support-cell">${supportIcon(true)}</td>
+                            <td class="matrix-support-cell">${supportIcon(false)}</td>
+                            <td class="matrix-note-cell">${noteForBrowser('safari')}</td>
+                        </tr>
+                        <tr class="${highlightClass('firefox')}">
+                            <td>Firefox</td>
+                            <td class="matrix-support-cell">${supportIcon(false)}</td>
+                            <td class="matrix-support-cell">${supportIcon(false)}</td>
+                            <td class="matrix-note-cell">${noteForBrowser('firefox')}</td>
+                        </tr>
+                        <tr class="${highlightClass('brave')}">
+                            <td>Brave</td>
+                            <td class="matrix-support-cell">${supportIcon(false)}</td>
+                            <td class="matrix-support-cell">${supportIcon(false)}</td>
+                            <td class="matrix-note-cell">${noteForBrowser('brave')}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="unsupported-browser-text"><strong>Firefox</strong> and <strong>Brave</strong> generally run, but they do not support native disk access and are not recommended. In these browsers, only Memory file access is available.</p>
+            <button type="button" class="unsupported-browser-continue">Continue</button>
+        </div>
+    `;
+
+    const continueButton = overlay.querySelector(
+        '.unsupported-browser-continue'
+    ) as HTMLButtonElement | null;
+    continueButton?.addEventListener('click', () => {
+        (window as any).__unsupportedBrowserWarningAcknowledged = true;
+        overlay.remove();
+        window.dispatchEvent(new CustomEvent('unsupportedBrowserContinue'));
+    });
+
+    loadingOverlay.appendChild(overlay);
+    console.warn('Unsupported browser detected; warning overlay shown.');
+}
+
 // Utility function to update loading status (extracted from loading-animation.js)
 window.updateLoadingStatus = function (
     message: string,
@@ -123,6 +334,15 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', handleURLFontOpen);
 } else {
     handleURLFontOpen();
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener(
+        'DOMContentLoaded',
+        showUnsupportedBrowserOverlay
+    );
+} else {
+    showUnsupportedBrowserOverlay();
 }
 
 // Disable default browser context menu in production

@@ -251,6 +251,132 @@ kbd + kbd {
     font-weight: bold;
 }
 
+.unsupported-browser-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background-color: var(--background-loading);
+}
+
+.unsupported-browser-panel {
+    max-width: 720px;
+    width: 100%;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    padding: 24px;
+}
+
+.unsupported-browser-title {
+    font-family: 'Inter', sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+}
+
+.unsupported-browser-text {
+    font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+
+.browser-feature-matrix-wrapper {
+    margin: 14px 0;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.browser-feature-matrix {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: var(--background-secondary);
+}
+
+.browser-feature-matrix th,
+.browser-feature-matrix td {
+    padding: 9px 12px;
+    text-align: left;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border-primary);
+    color: var(--text-primary);
+}
+
+.browser-feature-matrix thead th {
+    font-weight: 600;
+    background-color: var(--background-tertiary);
+}
+
+.matrix-support-cell {
+    text-align: center;
+}
+
+.matrix-support-icon {
+    font-size: 18px;
+    vertical-align: middle;
+}
+
+.matrix-support-icon-yes {
+    color: var(--accent-green);
+}
+
+.matrix-support-icon-no {
+    color: var(--accent-red);
+}
+
+.matrix-note-cell {
+    white-space: nowrap;
+}
+
+.browser-note-recommended {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--accent-green);
+    color: var(--accent-green);
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 8px;
+}
+
+.browser-note-current {
+    font-weight: 700;
+}
+
+.browser-feature-matrix tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.browser-feature-matrix tbody tr.current-browser td {
+    background-color: var(--background-selected);
+    font-weight: 600;
+}
+
+.unsupported-browser-continue {
+    margin-top: 8px;
+    padding: 10px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--button-border);
+    background-color: var(--button-bg);
+    color: var(--button-text);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.unsupported-browser-continue:hover {
+    background-color: var(--button-hover-bg);
+}
+
 .loading-logo {
     font-family: 'Funnel Display', serif;
     font-size: 90px;
