@@ -151,6 +151,7 @@ declare global {
         updateHomeButtonVisibility: () => void;
         selectFile: (filePath: string) => void;
         initFileBrowser: () => Promise<void>;
+        waitForFileBrowserReady: (timeoutMs?: number) => Promise<void>;
         uploadFiles: (
             files: File[] | FileList,
             targetPathOrOptions?:

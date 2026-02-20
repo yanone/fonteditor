@@ -26,6 +26,7 @@ import { Logger } from './logger';
 const console = new Logger('FileBrowser');
 
 const LAST_CONTEXT_KEY = 'last-filesystem-context';
+const FILE_BROWSER_READY_EVENT = 'fileBrowserReady';
 
 // Files/folders to hide from the file browser (applies to all plugins)
 const HIDDEN_FILES: string[] = ['.DS_Store'];
@@ -55,6 +56,41 @@ let detachedLaunchFileHandle: FileSystemFileHandle | null = null;
 
 let diskFontReloadDebounceTimer: number | null = null;
 const pendingDiskChangePaths = new Set<string>();
+let fileBrowserReady = false;
+let resolveFileBrowserReady: (() => void) | null = null;
+const fileBrowserReadyPromise = new Promise<void>((resolve) => {
+    resolveFileBrowserReady = resolve;
+});
+
+function markFileBrowserReady(): void {
+    if (fileBrowserReady) {
+        return;
+    }
+
+    fileBrowserReady = true;
+    resolveFileBrowserReady?.();
+    resolveFileBrowserReady = null;
+    window.dispatchEvent(new CustomEvent(FILE_BROWSER_READY_EVENT));
+}
+
+async function waitForFileBrowserReady(timeoutMs = 30000): Promise<void> {
+    if (fileBrowserReady) {
+        return;
+    }
+
+    await Promise.race([
+        fileBrowserReadyPromise,
+        new Promise<void>((_, reject) => {
+            window.setTimeout(() => {
+                reject(
+                    new Error(
+                        `Timed out waiting for ${FILE_BROWSER_READY_EVENT}`
+                    )
+                );
+            }, timeoutMs);
+        })
+    ]);
+}
 
 function normalizeObservedPath(path: string): string {
     const cleaned = path.replace(/\\/g, '/').replace(/^\/+/, '');
@@ -2131,6 +2167,10 @@ async function processPendingPwaLaunchFiles() {
 
 // Initialize file browser when Pyodide is ready
 async function initFileBrowser() {
+    if (fileBrowserReady) {
+        return;
+    }
+
     try {
         console.log('[FileBrowser]', 'Initializing file browser...');
 
@@ -2389,6 +2429,7 @@ async function initFileBrowser() {
         }
 
         console.log('[FileBrowser]', 'File browser initialized');
+        markFileBrowserReady();
     } catch (error: any) {
         console.error(
             '[FileBrowser]',
@@ -2401,9 +2442,18 @@ async function initFileBrowser() {
 // Auto-initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(initFileBrowser, 1500); // Wait a bit longer for Pyodide to be ready
-    setTimeout(() => {
-        processPendingPwaLaunchFiles();
-    }, 3200);
+    (async () => {
+        try {
+            await waitForFileBrowserReady();
+            await processPendingPwaLaunchFiles();
+        } catch (error) {
+            console.error(
+                '[FileBrowser]',
+                'Cannot process launch files before file browser readiness:',
+                error
+            );
+        }
+    })();
 
     // Handle URL parameters for opening fonts in new tabs
     const urlParams = new URLSearchParams(window.location.search);
@@ -2438,9 +2488,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (pluginId && fontPath) {
-        // Wait for everything to initialize before switching and opening
-        setTimeout(async () => {
+        (async () => {
             try {
+                await waitForFileBrowserReady();
+
                 // Check if plugin exists
                 const plugin = pluginRegistry.get(pluginId);
                 if (!plugin) {
@@ -2518,14 +2569,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     error
                 );
             }
-        }, 3000); // Wait for plugins and Pyodide to be ready
+        })();
     }
 });
 
 window.addEventListener('pwaLaunchFilesPending', () => {
-    setTimeout(() => {
-        processPendingPwaLaunchFiles();
-    }, 250);
+    (async () => {
+        try {
+            await waitForFileBrowserReady();
+            await processPendingPwaLaunchFiles();
+        } catch (error) {
+            console.error(
+                '[FileBrowser]',
+                'Cannot process PWA launch files before file browser readiness:',
+                error
+            );
+        }
+    })();
 });
 
 // Close any open Tippy menu on Escape key
@@ -2710,6 +2770,7 @@ window.navigateToPath = navigateToPath;
 window.navigateToParent = navigateToParent;
 window.selectFile = selectFile;
 window.initFileBrowser = initFileBrowser;
+window.waitForFileBrowserReady = waitForFileBrowserReady;
 window.createFolder = createFolder;
 window.createFile = createFile;
 window.navigateToCurrentFont = navigateToCurrentFont;
