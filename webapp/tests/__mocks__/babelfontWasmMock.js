@@ -22,6 +22,64 @@ const initBabelfontWasm = jest.fn(() => {
 const { execSync } = require('child_process');
 const os = require('os');
 
+function normalizeLayerMaster(master, isBackground) {
+    if (!master || typeof master !== 'object') {
+        return master;
+    }
+
+    if (
+        master.type === 'DefaultForMaster' ||
+        master.type === 'AssociatedWithMaster' ||
+        master.type === 'FreeFloating'
+    ) {
+        return master;
+    }
+
+    if (typeof master.DefaultForMaster === 'string') {
+        if (master.DefaultForMaster || !isBackground) {
+            return {
+                type: 'DefaultForMaster',
+                master: master.DefaultForMaster
+            };
+        }
+        return { type: 'FreeFloating' };
+    }
+
+    if (typeof master.AssociatedWithMaster === 'string') {
+        return {
+            type: 'AssociatedWithMaster',
+            master: master.AssociatedWithMaster
+        };
+    }
+
+    if ('FreeFloating' in master) {
+        return { type: 'FreeFloating' };
+    }
+
+    return master;
+}
+
+function normalizeBabelfontFixture(data) {
+    if (!data || !Array.isArray(data.glyphs)) {
+        return data;
+    }
+
+    for (const glyph of data.glyphs) {
+        if (!glyph || !Array.isArray(glyph.layers)) {
+            continue;
+        }
+
+        for (const layer of glyph.layers) {
+            layer.master = normalizeLayerMaster(
+                layer.master,
+                Boolean(layer.is_background)
+            );
+        }
+    }
+
+    return data;
+}
+
 // Named export functions that are available after init
 initBabelfontWasm.get_glyph_name = jest.fn(
     (fontBytes, glyphId) => `glyph${String(glyphId).padStart(5, '0')}`
@@ -78,7 +136,9 @@ initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
             encoding: 'utf-8'
         });
         const result = fs.readFileSync(outputPath, 'utf-8');
-        return result;
+        const parsed = JSON.parse(result);
+        const normalized = normalizeBabelfontFixture(parsed);
+        return JSON.stringify(normalized);
     } finally {
         // Clean up temp files
         try {

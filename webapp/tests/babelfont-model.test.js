@@ -572,7 +572,10 @@ describe('Babelfont Object Model', () => {
             // Create a test glyph with a single layer but different master
             const testGlyph = font.addGlyph('TestGlyph', 'Base');
             const testLayer = testGlyph.addLayer(500);
-            testLayer.master = { DefaultForMaster: 'non-existent-master-id' };
+            testLayer.master = {
+                type: 'DefaultForMaster',
+                master: 'non-existent-master-id'
+            };
 
             const layer = glyphA.layers[0];
             const matchingLayer = layer.getMatchingLayerOnGlyph('TestGlyph');
@@ -638,10 +641,10 @@ describe('Babelfont Object Model', () => {
 
             // Expected bbox values (computed from actual flattened components)
             const expectedBbox1 = {
-                minX: 60,
-                minY: -8,
-                maxX: 448,
-                maxY: 693
+                minX: 50,
+                minY: -12,
+                maxX: 477,
+                maxY: 708
             };
 
             expect(layer1Bbox.minX).toBeCloseTo(expectedBbox1.minX, 5);
@@ -655,10 +658,10 @@ describe('Babelfont Object Model', () => {
 
             // Expected bbox values (computed from actual flattened components)
             const expectedBbox2 = {
-                minX: 60,
-                minY: -8,
-                maxX: 448,
-                maxY: 635.2296
+                minX: 35,
+                minY: -16,
+                maxX: 503,
+                maxY: 664.092
             };
 
             expect(layer2Bbox.minX).toBeCloseTo(expectedBbox2.minX, 4);
@@ -756,7 +759,7 @@ describe('Babelfont Object Model', () => {
             });
 
             // Expected x coordinates (updated after fixing component master lookup)
-            const expectedX = [414.9136, 444.792];
+            const expectedX = [369.6547, 500.0508];
             horizontalIntersections.forEach((int, i) => {
                 if (i < expectedX.length) {
                     expect(int.x).toBeCloseTo(expectedX[i], 1);
@@ -787,7 +790,7 @@ describe('Babelfont Object Model', () => {
 
             // Expected y coordinates (updated after fixing component master lookup)
             const expectedY = [
-                28.0037, 68.5573, 203.1172, 242.776, 392.0999, 442.1742
+                0.6415, 8.1505, 162.3589, 278.9654, 348.6316, 477.1882
             ];
             verticalIntersections.forEach((int, i) => {
                 if (i < expectedY.length) {

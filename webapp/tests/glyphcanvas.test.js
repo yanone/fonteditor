@@ -742,9 +742,16 @@ describe('GlyphCanvas cursor management', () => {
     });
 
     test('should hide cursor when canvas loses focus', () => {
+        jest.useFakeTimers();
         canvas.isFocused = true;
         canvas.onBlur();
+
+        // Blur is intentionally delayed to avoid flicker
+        expect(canvas.isFocused).toBe(true);
+        jest.advanceTimersByTime(100);
+
         expect(canvas.isFocused).toBe(false);
+        jest.useRealTimers();
     });
 });
 
