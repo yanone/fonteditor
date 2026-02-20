@@ -1747,12 +1747,86 @@ async function fontCompilationReady() {
     }
 }
 
+function createOpenSessionId(): string {
+    return `open-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function emitOpenLifecycle(
+    openSessionId: string,
+    phase: string,
+    extra: Record<string, unknown> = {}
+): void {
+    window.dispatchEvent(
+        new CustomEvent('fontOpenLifecycle', {
+            detail: {
+                openSessionId,
+                phase,
+                timestamp: performance.now(),
+                ...extra
+            }
+        })
+    );
+}
+
 // Listen for font loaded events from file browser
 window.addEventListener('fontLoaded', async (event: Event) => {
     await fontCompilationReady();
+
+    let fullCompileDeferredTimer: number | null = null;
+    let overviewReadyListener: ((event: Event) => void) | null = null;
+    let startupReleased = false;
+
+    const releaseStartupGates = (
+        openSessionId: string,
+        reason: string,
+        scheduleFullCompile: boolean
+    ) => {
+        if (startupReleased) {
+            return;
+        }
+
+        startupReleased = true;
+
+        if (overviewReadyListener) {
+            window.removeEventListener(
+                'overviewInitialRenderComplete',
+                overviewReadyListener
+            );
+            overviewReadyListener = null;
+        }
+
+        if (fullCompileDeferredTimer !== null) {
+            clearTimeout(fullCompileDeferredTimer);
+            fullCompileDeferredTimer = null;
+        }
+
+        window.autoCompileManager?.setStartupBlocked?.(false);
+        window.fullCompileManager?.setEnabled?.(true);
+
+        if (scheduleFullCompile) {
+            window.fullCompileManager?.scheduleCompilation?.(0);
+        }
+
+        emitOpenLifecycle(openSessionId, 'startupReleased', {
+            reason,
+            scheduleFullCompile
+        });
+    };
+
     try {
         // Get the babelfont JSON from the event
         const detail = (event as CustomEvent).detail;
+        const openSessionId = createOpenSessionId();
+        const openedAt = performance.now();
+
+        emitOpenLifecycle(openSessionId, 'fontLoaded', {
+            path: detail.path,
+            sourcePluginId: detail.sourcePlugin?.id || null
+        });
+
+        // Prioritize first-open UX over continuous background recompiles/QC.
+        window.autoCompileManager?.setStartupBlocked?.(true);
+        window.fullCompileManager?.setEnabled?.(false);
 
         // Store font in worker's Rust instance for glyph operations
         // This ensures the font is cached BEFORE fontReady fires
@@ -1766,6 +1840,8 @@ window.addEventListener('fontLoaded', async (event: Event) => {
                     `Failed to cache font in worker: ${storeResult.error}`
                 );
             }
+
+            emitOpenLifecycle(openSessionId, 'storeFontJsonComplete');
         } catch (error) {
             console.error(
                 '[FontManager]',
@@ -1784,20 +1860,72 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             detail.directoryHandle
         );
 
+        emitOpenLifecycle(openSessionId, 'loadFontComplete');
+
+        overviewReadyListener = (overviewEvent: Event) => {
+            const overviewDetail = (overviewEvent as CustomEvent).detail;
+            if (
+                !overviewDetail ||
+                overviewDetail.openSessionId !== openSessionId
+            ) {
+                return;
+            }
+
+            releaseStartupGates(
+                openSessionId,
+                'overview-initial-render-complete',
+                true
+            );
+        };
+
+        window.addEventListener(
+            'overviewInitialRenderComplete',
+            overviewReadyListener
+        );
+
         // Dispatch fontReady event (font is loaded, currentFont is set)
         window.dispatchEvent(
-            new CustomEvent('fontReady', { detail: { path: detail.path } })
+            new CustomEvent('fontReady', {
+                detail: { path: detail.path, openSessionId, openedAt }
+            })
         );
+
+        emitOpenLifecycle(openSessionId, 'fontReadyDispatched');
 
         // Update display
         await fontManager!.onOpened();
 
+        emitOpenLifecycle(openSessionId, 'onOpenedComplete');
+
         // Compile initial editing font
+        emitOpenLifecycle(openSessionId, 'editingCompileStart');
         await fontManager!.compileEditingFont();
 
-        // Trigger initial full-font compile + QC in background worker
-        window.fullCompileManager?.scheduleCompilation?.(0);
+        const editingCompileElapsedMs = performance.now() - openedAt;
+        emitOpenLifecycle(openSessionId, 'editingCompileComplete', {
+            elapsedMs: editingCompileElapsedMs
+        });
+
+        window.dispatchEvent(
+            new CustomEvent('fontOpenEditingCompiled', {
+                detail: {
+                    path: detail.path,
+                    openSessionId,
+                    openedAt,
+                    elapsedMs: editingCompileElapsedMs
+                }
+            })
+        );
+
+        fullCompileDeferredTimer = window.setTimeout(() => {
+            releaseStartupGates(openSessionId, 'overview-timeout', true);
+        }, 8000);
+
+        // Full compile + QC is intentionally deferred until overview first render
+        // (or timeout fallback above) to prioritize interactive open speed.
     } catch (error) {
+        releaseStartupGates('open-unknown', 'error', false);
+
         console.error('[FontManager]', 'Failed to initialize font manager:');
         console.error(
             '[FontManager]',

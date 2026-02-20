@@ -10,6 +10,7 @@ import fontManager from './font-manager';
     let isCompiling = false; // Prevent overlapping compilations
     let loopRunning = false;
     let animationFrameId: number | null = null;
+    let isStartupBlocked = false;
 
     /**
      * Continuous check loop using requestAnimationFrame
@@ -18,6 +19,11 @@ import fontManager from './font-manager';
     function checkLoop() {
         if (!isEnabled) {
             loopRunning = false;
+            return;
+        }
+
+        if (isStartupBlocked) {
+            animationFrameId = requestAnimationFrame(checkLoop);
             return;
         }
 
@@ -69,6 +75,10 @@ import fontManager from './font-manager';
      */
     async function triggerCompilation() {
         if (isCompiling) {
+            return;
+        }
+
+        if (isStartupBlocked) {
             return;
         }
 
@@ -151,6 +161,13 @@ import fontManager from './font-manager';
         }
     }
 
+    function setStartupBlocked(blocked: boolean) {
+        isStartupBlocked = blocked;
+        if (!blocked && isEnabled && !loopRunning) {
+            startLoop();
+        }
+    }
+
     /**
      * Manual test function to check compile-pending state without waiting.
      */
@@ -169,13 +186,15 @@ import fontManager from './font-manager';
     window.autoCompileManager = {
         checkAndSchedule,
         setEnabled,
+        setStartupBlocked,
         scheduleCompilation: checkAndSchedule, // Alias for compatibility
         testDirtyCheck,
         forceTrigger,
         getStatus: () => ({
             isEnabled,
             isCompiling,
-            loopRunning
+            loopRunning,
+            isStartupBlocked
         })
     };
 

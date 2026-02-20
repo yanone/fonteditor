@@ -43,6 +43,7 @@ declare global {
         autoCompileManager: {
             checkAndSchedule: () => void;
             setEnabled: (enabled: boolean) => void;
+            setStartupBlocked: (blocked: boolean) => void;
             scheduleCompilation: () => void;
             testDirtyCheck: () => void;
             forceTrigger: () => void;
@@ -50,6 +51,7 @@ declare global {
                 isEnabled: boolean;
                 isCompiling: boolean;
                 loopRunning: boolean;
+                isStartupBlocked: boolean;
             };
         };
 

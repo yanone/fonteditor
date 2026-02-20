@@ -6,6 +6,85 @@
 console.log('[OverviewView]', 'overview-view.js loaded');
 
 let glyphOverviewInstance = null;
+let pendingInitialOpenSession = null;
+let pendingInitialOpenStartedAt = null;
+let initialRenderInProgress = false;
+
+function buildGlyphData() {
+    if (!window.currentFontModel?.glyphs) {
+        return [];
+    }
+
+    return window.currentFontModel.glyphs.map((glyph, index) => ({
+        id: String(index),
+        name: glyph.name
+    }));
+}
+
+function updateOverviewTiles() {
+    if (!glyphOverviewInstance) {
+        return [];
+    }
+
+    const glyphData = buildGlyphData();
+    glyphOverviewInstance.updateGlyphs(glyphData);
+    return glyphData;
+}
+
+async function refreshFilterPlugins() {
+    if (window.glyphOverviewFilterManager?.isLoaded()) {
+        await window.glyphOverviewFilterManager.refreshPlugins();
+    }
+}
+
+async function renderOverviewAndEmit(reason, openSessionId = null) {
+    if (!glyphOverviewInstance) {
+        return;
+    }
+
+    if (initialRenderInProgress) {
+        return;
+    }
+
+    initialRenderInProgress = true;
+    const renderStart = performance.now();
+
+    try {
+        await glyphOverviewInstance.renderGlyphOutlines();
+
+        const renderDurationMs = performance.now() - renderStart;
+        const totalElapsedMs =
+            pendingInitialOpenStartedAt !== null
+                ? performance.now() - pendingInitialOpenStartedAt
+                : null;
+        const glyphCount = window.currentFontModel?.glyphs?.length || 0;
+
+        console.log(
+            '[OverviewView]',
+            `Overview rendered (${glyphCount} glyphs, reason: ${reason}, render: ${renderDurationMs.toFixed(2)}ms)`
+        );
+
+        await refreshFilterPlugins();
+
+        if (openSessionId) {
+            window.dispatchEvent(
+                new CustomEvent('overviewInitialRenderComplete', {
+                    detail: {
+                        openSessionId,
+                        reason,
+                        glyphCount,
+                        renderDurationMs,
+                        totalElapsedMs
+                    }
+                })
+            );
+        }
+    } catch (error) {
+        console.error('[OverviewView]', 'Failed to render glyphs:', error);
+    } finally {
+        initialRenderInProgress = false;
+    }
+}
 
 function initOverviewView() {
     const overviewContent = document.querySelector(
@@ -69,30 +148,16 @@ function initOverviewView() {
 
             // Populate with current font glyphs if available
             if (window.currentFontModel?.glyphs) {
-                const glyphData = window.currentFontModel.glyphs.map(
-                    (glyph, index) => ({
-                        id: String(index),
-                        name: glyph.name
-                    })
-                );
-                glyphOverviewInstance.updateGlyphs(glyphData);
+                const glyphData = updateOverviewTiles();
 
                 // Render glyphs if font is already compiled
                 // (font needs to be cached in Rust via store_font before rendering)
                 setTimeout(async () => {
-                    try {
-                        await glyphOverviewInstance.renderGlyphOutlines();
-                        console.log(
-                            '[OverviewView]',
-                            `Initial render: ${glyphData.length} glyph tiles`
-                        );
-                    } catch (error) {
-                        console.error(
-                            '[OverviewView]',
-                            'Failed to render glyphs on init:',
-                            error
-                        );
-                    }
+                    await renderOverviewAndEmit('init');
+                    console.log(
+                        '[OverviewView]',
+                        `Initial render: ${glyphData.length} glyph tiles`
+                    );
                 }, 500);
             }
         } else {
@@ -153,42 +218,50 @@ function initOverviewView() {
 }
 
 // Update glyph overview when font is loaded
-window.addEventListener('fontReady', async () => {
+window.addEventListener('fontReady', async (event) => {
     console.log('[OverviewView]', 'Font ready, updating glyph overview');
+
+    const detail = event?.detail || {};
+    pendingInitialOpenSession = detail.openSessionId || null;
+    pendingInitialOpenStartedAt =
+        typeof detail.openedAt === 'number' ? detail.openedAt : null;
 
     // Wait a bit for currentFontModel to be set
     setTimeout(async () => {
         if (glyphOverviewInstance && window.currentFontModel?.glyphs) {
-            const glyphData = window.currentFontModel.glyphs.map(
-                (glyph, index) => ({
-                    id: String(index),
-                    name: glyph.name
-                })
-            );
-            glyphOverviewInstance.updateGlyphs(glyphData);
+            const glyphData = updateOverviewTiles();
 
-            // Render glyph outlines at default location
-            // Font is now cached in worker, safe to render
-            try {
-                await glyphOverviewInstance.renderGlyphOutlines();
-                console.log(
-                    '[OverviewView]',
-                    `Rendered ${glyphData.length} glyph tiles`
-                );
-
-                // Refresh filter plugins after font load
-                if (window.glyphOverviewFilterManager?.isLoaded()) {
-                    await window.glyphOverviewFilterManager.refreshPlugins();
-                }
-            } catch (error) {
-                console.error(
-                    '[OverviewView]',
-                    'Failed to render glyphs:',
-                    error
-                );
+            if (!pendingInitialOpenSession) {
+                await renderOverviewAndEmit('fontReady-no-session');
             }
+
+            console.log(
+                '[OverviewView]',
+                `Updated glyph overview tiles (${glyphData.length})`
+            );
         }
     }, 100);
+});
+
+window.addEventListener('fontOpenEditingCompiled', async (event) => {
+    const detail = event?.detail || {};
+    const openSessionId = detail.openSessionId;
+
+    if (!openSessionId || !pendingInitialOpenSession) {
+        return;
+    }
+
+    if (openSessionId !== pendingInitialOpenSession) {
+        return;
+    }
+
+    if (!glyphOverviewInstance || !window.currentFontModel?.glyphs) {
+        return;
+    }
+
+    await renderOverviewAndEmit('editing-compile-ready', openSessionId);
+    pendingInitialOpenSession = null;
+    pendingInitialOpenStartedAt = null;
 });
 
 // Initialize when DOM is ready

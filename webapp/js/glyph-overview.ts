@@ -65,6 +65,10 @@ class GlyphOverview {
     private pendingGlyphIds: Set<string> = new Set();
     private batchDebounceTimer: number | null = null;
     private isBatchRendering: boolean = false;
+    private tileBuildRunId = 0;
+    private lazyBatchSize = 240;
+    private readonly minLazyBatchSize = 80;
+    private readonly maxLazyBatchSize = 500;
     // Cached metrics for tile rendering
     private renderMetrics: {
         ascender: number;
@@ -556,19 +560,67 @@ class GlyphOverview {
     public updateGlyphs(glyphs: Array<{ id: string; name: string }>): void {
         if (!this.container) return;
 
+        this.tileBuildRunId += 1;
+        const currentBuildRunId = this.tileBuildRunId;
+
         // Clear existing tiles
         this.container.innerHTML = '';
         this.tiles.clear();
+        this.pendingGlyphIds.clear();
 
-        // Create tile for each glyph
-        glyphs.forEach((glyph) => {
-            const tile = this.createGlyphTile(glyph.id, glyph.name);
-            this.tiles.set(glyph.id, tile);
-            this.container!.appendChild(tile.element);
-        });
+        if (this.intersectionObserver) {
+            this.intersectionObserver.disconnect();
+            this.intersectionObserver = null;
+        }
 
-        // Apply search filter to new glyphs
-        this.applySearchFilter();
+        const totalGlyphs = glyphs.length;
+        if (totalGlyphs === 0) {
+            this.applySearchFilter();
+            return;
+        }
+
+        // Small fonts: build synchronously for immediate interaction.
+        if (totalGlyphs <= 1000) {
+            const fragment = document.createDocumentFragment();
+            glyphs.forEach((glyph) => {
+                const tile = this.createGlyphTile(glyph.id, glyph.name);
+                this.tiles.set(glyph.id, tile);
+                fragment.appendChild(tile.element);
+            });
+            this.container.appendChild(fragment);
+            this.applySearchFilter();
+            return;
+        }
+
+        // Large fonts: create tile DOM in chunks to avoid long main-thread stalls.
+        const buildChunk = (startIndex: number) => {
+            if (!this.container || currentBuildRunId !== this.tileBuildRunId) {
+                return;
+            }
+
+            const chunkSize =
+                totalGlyphs > 5000 ? 320 : totalGlyphs > 2500 ? 260 : 220;
+            const endIndex = Math.min(startIndex + chunkSize, totalGlyphs);
+            const fragment = document.createDocumentFragment();
+
+            for (let index = startIndex; index < endIndex; index += 1) {
+                const glyph = glyphs[index];
+                const tile = this.createGlyphTile(glyph.id, glyph.name);
+                this.tiles.set(glyph.id, tile);
+                fragment.appendChild(tile.element);
+            }
+
+            this.container.appendChild(fragment);
+
+            if (endIndex < totalGlyphs) {
+                requestAnimationFrame(() => buildChunk(endIndex));
+                return;
+            }
+
+            this.applySearchFilter();
+        };
+
+        requestAnimationFrame(() => buildChunk(0));
     }
 
     /**
@@ -986,21 +1038,19 @@ class GlyphOverview {
 
         this.isBatchRendering = true;
 
-        // Large batch size - Rust processes efficiently and layer cache persists
-        // Larger batches reduce worker message passing overhead
-        const batchSize = 500;
+        const batchSize = this.lazyBatchSize;
         const glyphIds = Array.from(this.pendingGlyphIds).slice(0, batchSize);
         glyphIds.forEach((id) => this.pendingGlyphIds.delete(id));
 
         // Build glyph name list
         const glyphNames: string[] = [];
-        const glyphIdToName: Map<string, string> = new Map();
+        const glyphNameToTile: Map<string, GlyphTile> = new Map();
         for (const glyphId of glyphIds) {
             const tile = this.tiles.get(glyphId);
             // Check cachedData instead of canvas presence (canvas is now pre-created)
             if (tile && !tile.cachedData) {
                 glyphNames.push(tile.glyphName);
-                glyphIdToName.set(glyphId, tile.glyphName);
+                glyphNameToTile.set(tile.glyphName, tile);
             }
         }
 
@@ -1032,26 +1082,41 @@ class GlyphOverview {
 
             // Batch all renders in a single animation frame
             const dims = this.getTileDimensions();
-            requestAnimationFrame(() => {
-                outlines.forEach((glyphData: any) => {
-                    // Find tile by glyph name
-                    for (const [glyphId, name] of glyphIdToName) {
-                        if (name === glyphData.name) {
-                            const tile = this.tiles.get(glyphId);
-                            if (tile) {
-                                tile.cachedData = glyphData; // Cache for resizing
-                                this.renderTileCanvas(
-                                    tile,
-                                    glyphData,
-                                    dims.width,
-                                    dims.height
-                                );
-                            }
-                            break;
+            let renderDurationMs = 0;
+            await new Promise<void>((resolve) => {
+                requestAnimationFrame(() => {
+                    const renderStart = performance.now();
+                    outlines.forEach((glyphData: any) => {
+                        const tile = glyphNameToTile.get(glyphData.name);
+                        if (!tile) {
+                            return;
                         }
-                    }
+
+                        tile.cachedData = glyphData; // Cache for resizing
+                        this.renderTileCanvas(
+                            tile,
+                            glyphData,
+                            dims.width,
+                            dims.height
+                        );
+                    });
+
+                    renderDurationMs = performance.now() - renderStart;
+                    resolve();
                 });
             });
+
+            if (renderDurationMs > 18) {
+                this.lazyBatchSize = Math.max(
+                    this.minLazyBatchSize,
+                    Math.floor(this.lazyBatchSize * 0.8)
+                );
+            } else if (renderDurationMs < 8) {
+                this.lazyBatchSize = Math.min(
+                    this.maxLazyBatchSize,
+                    Math.ceil(this.lazyBatchSize * 1.15)
+                );
+            }
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             console.error('[GlyphOverview]', `Batch render failed: ${msg}`);
