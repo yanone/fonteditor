@@ -134,14 +134,14 @@ const APP_SETTINGS = {
 
         // Colors - Glyph Overview (Light Theme)
         GLYPH_OVERVIEW_COLORS_LIGHT: {
-            COMPONENT: '#75b5c6',
-            PATH: '#aaaaaa'
+            COMPONENT: '#4f8ea0',
+            PATH: '#808080'
         },
 
         // Colors - Glyph Overview (Dark Theme)
         GLYPH_OVERVIEW_COLORS_DARK: {
-            COMPONENT: '#75b5c6',
-            PATH: '#777777'
+            COMPONENT: '#93cfde',
+            PATH: '#9a9a9a'
         },
 
         // Colors - Dark Theme
