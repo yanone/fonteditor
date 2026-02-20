@@ -37,6 +37,19 @@ export interface FilterResult {
     colors?: string[]; // All colors for multi-group
 }
 
+type OverviewViewMode = 'lines' | 'grid';
+
+interface GridNameParts {
+    baseName: string;
+    variantSuffix: string;
+}
+
+interface GridLayoutData {
+    columns: string[];
+    rows: Array<Array<string | null>>;
+    visibleIds: string[];
+}
+
 class GlyphOverview {
     private container: HTMLDivElement | null = null;
     private tiles: Map<string, GlyphTile> = new Map();
@@ -66,6 +79,14 @@ class GlyphOverview {
     // Search control
     private searchInput: HTMLInputElement | null = null;
     private searchTerms: string[] = [];
+    // View mode control
+    private viewMode: OverviewViewMode = 'lines';
+    private linesModeButton: HTMLButtonElement | null = null;
+    private gridModeButton: HTMLButtonElement | null = null;
+    private visibleGlyphIds: string[] = [];
+    private gridRowsForNavigation: Array<Array<string | null>> = [];
+    private gridColumnCount = 0;
+    private readonly viewModeStorageKey = 'glyphOverviewViewMode';
     // Active filter
     private activeFilterResults: Map<string, FilterResult> | null = null;
     // Error overlay for filter errors
@@ -83,6 +104,7 @@ class GlyphOverview {
         this.init(parentElement);
         this.initSizeControl();
         this.initSearchControl();
+        this.initViewModeControl();
     }
 
     private init(parentElement: HTMLElement): void {
@@ -237,16 +259,82 @@ class GlyphOverview {
         });
     }
 
-    private applySearchFilter(): void {
-        if (!this.container) return;
+    private initViewModeControl(): void {
+        const savedMode = localStorage.getItem(this.viewModeStorageKey);
+        if (savedMode === 'grid') {
+            this.viewMode = 'grid';
+        }
 
-        this.tiles.forEach((tile) => {
-            // Check filter first
+        this.linesModeButton = document.getElementById(
+            'overview-mode-lines'
+        ) as HTMLButtonElement;
+        this.gridModeButton = document.getElementById(
+            'overview-mode-grid'
+        ) as HTMLButtonElement;
+
+        if (this.linesModeButton) {
+            this.linesModeButton.addEventListener('click', () => {
+                this.setViewMode('lines');
+            });
+        }
+
+        if (this.gridModeButton) {
+            this.gridModeButton.addEventListener('click', () => {
+                this.setViewMode('grid');
+            });
+        }
+
+        this.setViewMode(this.viewMode, false, true);
+    }
+
+    private setViewMode(
+        mode: OverviewViewMode,
+        persist: boolean = true,
+        force: boolean = false
+    ): void {
+        if (!force && this.viewMode === mode) return;
+
+        this.viewMode = mode;
+        if (persist) {
+            localStorage.setItem(this.viewModeStorageKey, mode);
+        }
+        this.updateViewModeButtonState();
+        this.renderByViewMode();
+    }
+
+    private updateViewModeButtonState(): void {
+        const isLines = this.viewMode === 'lines';
+
+        if (this.linesModeButton) {
+            this.linesModeButton.classList.toggle('active', isLines);
+            this.linesModeButton.setAttribute(
+                'aria-pressed',
+                isLines ? 'true' : 'false'
+            );
+        }
+
+        if (this.gridModeButton) {
+            this.gridModeButton.classList.toggle('active', !isLines);
+            this.gridModeButton.setAttribute(
+                'aria-pressed',
+                isLines ? 'false' : 'true'
+            );
+        }
+    }
+
+    private applySearchFilter(): void {
+        this.visibleGlyphIds = this.computeVisibleGlyphIds();
+        this.renderByViewMode();
+    }
+
+    private computeVisibleGlyphIds(): string[] {
+        const visibleIds: string[] = [];
+
+        this.tiles.forEach((tile, glyphId) => {
             const passesFilter =
                 this.activeFilterResults === null ||
                 this.activeFilterResults.has(tile.glyphName);
 
-            // Check search terms
             let passesSearch = true;
             if (this.searchTerms.length > 0) {
                 const glyphNameLower = tile.glyphName.toLowerCase();
@@ -255,10 +343,166 @@ class GlyphOverview {
                 );
             }
 
-            // Must pass both filter AND search
-            tile.element.style.display =
-                passesFilter && passesSearch ? '' : 'none';
+            if (passesFilter && passesSearch) {
+                visibleIds.push(glyphId);
+            }
         });
+
+        return visibleIds;
+    }
+
+    private renderByViewMode(): void {
+        if (!this.container) return;
+
+        if (this.viewMode === 'grid') {
+            this.renderGridMode();
+            return;
+        }
+
+        this.renderLinesMode();
+    }
+
+    private renderLinesMode(): void {
+        if (!this.container) return;
+
+        const visibleSet = new Set(this.visibleGlyphIds);
+        this.container.classList.remove('glyph-overview-grid-mode');
+        this.container.classList.add('glyph-overview-lines-mode');
+        this.gridRowsForNavigation = [];
+        this.gridColumnCount = 0;
+
+        const fragment = document.createDocumentFragment();
+        this.tiles.forEach((tile, glyphId) => {
+            tile.element.style.display = visibleSet.has(glyphId) ? '' : 'none';
+            fragment.appendChild(tile.element);
+        });
+
+        this.container.innerHTML = '';
+        this.container.appendChild(fragment);
+    }
+
+    private renderGridMode(): void {
+        if (!this.container) return;
+
+        const layout = this.buildGridLayoutData(this.visibleGlyphIds);
+        this.container.classList.remove('glyph-overview-lines-mode');
+        this.container.classList.add('glyph-overview-grid-mode');
+        this.gridRowsForNavigation = layout.rows;
+        this.gridColumnCount = layout.columns.length;
+
+        const visibleSet = new Set(layout.visibleIds);
+        this.tiles.forEach((tile, glyphId) => {
+            tile.element.style.display = visibleSet.has(glyphId) ? '' : 'none';
+        });
+
+        const fragment = document.createDocumentFragment();
+
+        const headerRowElement = document.createElement('div');
+        headerRowElement.className = 'glyph-grid-row glyph-grid-header-row';
+        headerRowElement.style.gridTemplateColumns = `repeat(${layout.columns.length}, var(--tile-width))`;
+
+        layout.columns.forEach((columnSuffix) => {
+            const headerCellElement = document.createElement('div');
+            headerCellElement.className = 'glyph-grid-header-cell';
+            headerCellElement.textContent = columnSuffix;
+            headerCellElement.title = columnSuffix;
+            headerRowElement.appendChild(headerCellElement);
+        });
+
+        fragment.appendChild(headerRowElement);
+
+        layout.rows.forEach((row) => {
+            const rowElement = document.createElement('div');
+            rowElement.className = 'glyph-grid-row';
+            rowElement.style.gridTemplateColumns = `repeat(${layout.columns.length}, var(--tile-width))`;
+
+            row.forEach((glyphId) => {
+                const cellElement = document.createElement('div');
+                cellElement.className = 'glyph-grid-cell';
+
+                if (glyphId) {
+                    const tile = this.tiles.get(glyphId);
+                    if (tile) {
+                        cellElement.appendChild(tile.element);
+                    }
+                } else {
+                    cellElement.classList.add('empty');
+                }
+
+                rowElement.appendChild(cellElement);
+            });
+
+            fragment.appendChild(rowElement);
+        });
+
+        this.container.innerHTML = '';
+        this.container.appendChild(fragment);
+    }
+
+    private buildGridLayoutData(visibleIds: string[]): GridLayoutData {
+        const rowByBase = new Map<string, Map<string, string>>();
+        const baseOrder: string[] = [];
+        const variantSuffixes = new Set<string>();
+
+        visibleIds.forEach((glyphId) => {
+            const tile = this.tiles.get(glyphId);
+            if (!tile) return;
+
+            const { baseName, variantSuffix } = this.parseGridName(
+                tile.glyphName
+            );
+
+            if (!rowByBase.has(baseName)) {
+                rowByBase.set(baseName, new Map());
+                baseOrder.push(baseName);
+            }
+
+            rowByBase.get(baseName)!.set(variantSuffix, glyphId);
+
+            if (variantSuffix) {
+                variantSuffixes.add(variantSuffix);
+            }
+        });
+
+        const sortedVariantSuffixes = Array.from(variantSuffixes).sort((a, b) =>
+            a.localeCompare(b, undefined, { sensitivity: 'base' })
+        );
+        const columns = ['', ...sortedVariantSuffixes];
+
+        const rows: Array<Array<string | null>> = baseOrder.map((baseName) => {
+            const rowMap = rowByBase.get(baseName)!;
+            return columns.map(
+                (columnSuffix) => rowMap.get(columnSuffix) ?? null
+            );
+        });
+
+        return {
+            columns,
+            rows,
+            visibleIds
+        };
+    }
+
+    private parseGridName(glyphName: string): GridNameParts {
+        if (glyphName.startsWith('.')) {
+            return {
+                baseName: glyphName,
+                variantSuffix: ''
+            };
+        }
+
+        const dotIndex = glyphName.indexOf('.');
+        if (dotIndex <= 0) {
+            return {
+                baseName: glyphName,
+                variantSuffix: ''
+            };
+        }
+
+        return {
+            baseName: glyphName.slice(0, dotIndex),
+            variantSuffix: glyphName.slice(dotIndex)
+        };
     }
 
     private getTileDimensions(): { width: number; height: number } {
@@ -988,8 +1232,11 @@ class GlyphOverview {
         }
 
         // Find range between last selected and current
-        const glyphArray = Array.from(this.tiles.keys());
-        const lastSelected = selectedGlyphs[selectedGlyphs.length - 1];
+        const glyphArray = this.getVisibleGlyphIds();
+        const lastSelected = [...selectedGlyphs]
+            .reverse()
+            .find((id) => glyphArray.includes(id));
+        if (!lastSelected) return;
         const startIdx = glyphArray.indexOf(lastSelected);
         const endIdx = glyphArray.indexOf(glyphId);
 
@@ -1105,61 +1352,118 @@ class GlyphOverview {
 
         if (!currentGlyphId) return;
 
-        // Calculate the number of columns based on container width
-        const columns = this.getGridColumns();
-        if (columns === 0) return;
-
         // Get all visible glyph IDs in order
         const visibleGlyphIds = this.getVisibleGlyphIds();
         if (visibleGlyphIds.length === 0) return;
 
-        // Find current position in the visible glyphs array
-        const currentIndex = visibleGlyphIds.indexOf(currentGlyphId);
-        if (currentIndex === -1) return;
+        let targetGlyphId: string | null = null;
 
-        // Calculate target index based on arrow key
-        let targetIndex = -1;
+        if (this.viewMode === 'grid') {
+            targetGlyphId = this.getGridNavigationTarget(currentGlyphId, key);
+        } else {
+            const columns = this.getGridColumns();
+            if (columns === 0) return;
 
-        switch (key) {
-            case 'ArrowRight':
-                targetIndex = currentIndex + 1;
-                break;
-            case 'ArrowLeft':
-                targetIndex = currentIndex - 1;
-                break;
-            case 'ArrowDown':
-                targetIndex = currentIndex + columns;
-                break;
-            case 'ArrowUp':
-                targetIndex = currentIndex - columns;
-                break;
-        }
+            const currentIndex = visibleGlyphIds.indexOf(currentGlyphId);
+            if (currentIndex === -1) return;
 
-        // Ensure target index is within bounds
-        if (targetIndex >= 0 && targetIndex < visibleGlyphIds.length) {
-            const targetGlyphId = visibleGlyphIds[targetIndex];
-            const targetTile = this.tiles.get(targetGlyphId);
+            let targetIndex = -1;
+            switch (key) {
+                case 'ArrowRight':
+                    targetIndex = currentIndex + 1;
+                    break;
+                case 'ArrowLeft':
+                    targetIndex = currentIndex - 1;
+                    break;
+                case 'ArrowDown':
+                    targetIndex = currentIndex + columns;
+                    break;
+                case 'ArrowUp':
+                    targetIndex = currentIndex - columns;
+                    break;
+            }
 
-            if (targetTile) {
-                if (shiftKey) {
-                    // Shift+arrow: range selection
-                    this.handleKeyboardRangeSelection(
-                        targetGlyphId,
-                        columns,
-                        visibleGlyphIds
-                    );
-                } else {
-                    // Regular arrow: clear selection and select single glyph
-                    this.clearSelection();
-                    this.selectTile(targetGlyphId);
-                    // Set keyboard anchor for future shift selections
-                    this.keyboardAnchorGlyphId = targetGlyphId;
-                }
-                // Update the last clicked glyph to the new selection
-                this.lastClickedGlyphId = targetGlyphId;
-                this.scrollToTile(targetTile.element);
+            if (targetIndex >= 0 && targetIndex < visibleGlyphIds.length) {
+                targetGlyphId = visibleGlyphIds[targetIndex];
             }
         }
+
+        if (targetGlyphId) {
+            const targetTile = this.tiles.get(targetGlyphId);
+            if (!targetTile) return;
+
+            if (shiftKey) {
+                this.handleKeyboardRangeSelection(
+                    targetGlyphId,
+                    visibleGlyphIds
+                );
+            } else {
+                this.clearSelection();
+                this.selectTile(targetGlyphId);
+                this.keyboardAnchorGlyphId = targetGlyphId;
+            }
+
+            this.lastClickedGlyphId = targetGlyphId;
+            this.scrollToTile(targetTile.element);
+        }
+    }
+
+    private getGridNavigationTarget(
+        currentGlyphId: string,
+        key: string
+    ): string | null {
+        const position = this.findGridPosition(currentGlyphId);
+        if (!position) return null;
+
+        const { row, column } = position;
+
+        if (key === 'ArrowRight' || key === 'ArrowLeft') {
+            const step = key === 'ArrowRight' ? 1 : -1;
+            for (
+                let col = column + step;
+                col >= 0 && col < this.gridColumnCount;
+                col += step
+            ) {
+                const glyphId = this.gridRowsForNavigation[row]?.[col] ?? null;
+                if (glyphId) {
+                    return glyphId;
+                }
+            }
+
+            const visibleGlyphIds = this.getVisibleGlyphIds();
+            const currentIndex = visibleGlyphIds.indexOf(currentGlyphId);
+            if (currentIndex === -1) return null;
+            const fallbackIndex =
+                key === 'ArrowRight' ? currentIndex + 1 : currentIndex - 1;
+            return visibleGlyphIds[fallbackIndex] ?? null;
+        }
+
+        const rowStep = key === 'ArrowDown' ? 1 : -1;
+        for (
+            let targetRow = row + rowStep;
+            targetRow >= 0 && targetRow < this.gridRowsForNavigation.length;
+            targetRow += rowStep
+        ) {
+            const glyphId =
+                this.gridRowsForNavigation[targetRow]?.[column] ?? null;
+            if (glyphId) {
+                return glyphId;
+            }
+        }
+
+        return null;
+    }
+
+    private findGridPosition(
+        glyphId: string
+    ): { row: number; column: number } | null {
+        for (let row = 0; row < this.gridRowsForNavigation.length; row++) {
+            const column = this.gridRowsForNavigation[row].indexOf(glyphId);
+            if (column !== -1) {
+                return { row, column };
+            }
+        }
+        return null;
     }
 
     /**
@@ -1169,7 +1473,6 @@ class GlyphOverview {
      */
     private handleKeyboardRangeSelection(
         targetGlyphId: string,
-        columns: number,
         visibleGlyphIds: string[]
     ): void {
         // If no anchor is set, use the last clicked glyph or first selected
@@ -1208,6 +1511,10 @@ class GlyphOverview {
      * Get the number of columns in the grid based on container width
      */
     private getGridColumns(): number {
+        if (this.viewMode === 'grid' && this.gridColumnCount > 0) {
+            return this.gridColumnCount;
+        }
+
         if (!this.container) return 0;
 
         const containerWidth = this.container.clientWidth;
@@ -1231,28 +1538,17 @@ class GlyphOverview {
      * Get an array of all visible (not hidden) glyph IDs in order
      */
     private getVisibleGlyphIds(): string[] {
-        const visibleIds: string[] = [];
-
-        this.tiles.forEach((tile, glyphId) => {
-            // Check if the tile is visible (not hidden by filter/search)
-            if (tile.element.style.display !== 'none') {
-                visibleIds.push(glyphId);
-            }
-        });
-
-        return visibleIds;
+        return [...this.visibleGlyphIds];
     }
 
     /**
      * Find the first visible tile in the grid
      */
     private findFirstVisibleTile(): GlyphTile | null {
-        for (const [glyphId, tile] of this.tiles) {
-            if (tile.element.style.display !== 'none') {
-                return tile;
-            }
+        if (this.visibleGlyphIds.length === 0) {
+            return null;
         }
-        return null;
+        return this.tiles.get(this.visibleGlyphIds[0]) ?? null;
     }
 
     /**

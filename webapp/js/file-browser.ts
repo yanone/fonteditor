@@ -1034,7 +1034,7 @@ async function switchContext(pluginId: string) {
     }
 
     // Update tab UI
-    document.querySelectorAll('.context-tab').forEach((tab) => {
+    document.querySelectorAll('.context-tab[data-plugin-id]').forEach((tab) => {
         tab.classList.remove('active');
         if (tab.getAttribute('data-plugin-id') === pluginId) {
             tab.classList.add('active');
@@ -2379,14 +2379,17 @@ async function initFileBrowser() {
             fileSystemCache.activeAdapter = defaultPlugin.getAdapter();
 
             // Update tab UI to reflect the active plugin
-            document.querySelectorAll('.context-tab').forEach((tab) => {
-                tab.classList.remove('active');
-                if (
-                    tab.getAttribute('data-plugin-id') === defaultPlugin.getId()
-                ) {
-                    tab.classList.add('active');
-                }
-            });
+            document
+                .querySelectorAll('.context-tab[data-plugin-id]')
+                .forEach((tab) => {
+                    tab.classList.remove('active');
+                    if (
+                        tab.getAttribute('data-plugin-id') ===
+                        defaultPlugin.getId()
+                    ) {
+                        tab.classList.add('active');
+                    }
+                });
 
             // Let plugin update its UI state
             await defaultPlugin.updateUI({

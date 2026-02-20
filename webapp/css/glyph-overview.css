@@ -16,6 +16,60 @@
     user-select: none;
 }
 
+#glyph-overview-container.glyph-overview-grid-mode {
+    display: block;
+}
+
+#glyph-overview-container.glyph-overview-lines-mode {
+    display: flex;
+}
+
+.glyph-grid-row {
+    display: grid;
+    gap: 2px;
+    margin-bottom: 2px;
+}
+
+.glyph-grid-header-row {
+ position: sticky;
+    top: -2px;
+    z-index: 3;
+    padding-top: 5px;
+    padding-bottom: 0px;
+    background-color: var(--background-primary);
+}
+
+.glyph-grid-header-cell {
+    width: var(--tile-width);
+    height: 18px;
+    display: block;
+    box-sizing: border-box;
+    min-width: 0;
+    font-size: max(8px, calc(var(--tile-height) * 0.08));
+    font-family: Inter, sans-serif;
+    color: var(--text-primary);
+    text-align: center;
+    line-height: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 1px;
+    background-color: transparent;
+    /* border: 1px solid color-mix(in srgb, var(--border-primary) 35%, transparent);
+    border-radius: 3px; */
+}
+
+.glyph-grid-cell {
+    width: var(--tile-width);
+    height: var(--tile-height);
+}
+
+.glyph-grid-cell.empty {
+    border: 1px solid color-mix(in srgb, var(--border-primary) 35%, transparent);
+    border-radius: 3px;
+    background-color: color-mix(in srgb, var(--background-secondary) 25%, transparent);
+}
+
 /* Glyph tile base styles */
 .glyph-tile {
     --filter-color: transparent;
@@ -43,9 +97,9 @@
 }
 
 /* Lighter background for unselected tiles when overview view is focused */
-.view-overview.focused .glyph-tile {
-//    background-color: color-mix(in srgb, var(--background-secondary) 70%, white);
-}
+/* .view-overview.focused .glyph-tile {
+    background-color: color-mix(in srgb, var(--background-secondary) 70%, white);
+} */
 
 /* Selected state (inactive view) */
 .glyph-tile.selected {
@@ -71,7 +125,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     line-height: 1;
-//    background-color: color-mix(in srgb, var(--background-secondary) 80%, transparent);
+    /* background-color: color-mix(in srgb, var(--background-secondary) 80%, transparent); */
     border-radius: 0px;
     position: relative;
     z-index: 1;
@@ -96,12 +150,30 @@
     margin-right: 8px;
 }
 
+.overview-mode-toggle {
+    display: flex;
+    align-items: stretch;
+    height: 100%;
+}
+
+.overview-mode-btn {
+    height: 100%;
+    min-width: 0;
+    padding: 0 8px;
+    justify-content: center;
+}
+
+.overview-mode-btn .material-symbols-outlined {
+    font-size: 18px;
+}
+
 .overview-size-slider {
     width: 60px;
     height: 3px;
     background: var(--border-primary);
     border-radius: 2px;
     outline: none;
+    appearance: none;
     -webkit-appearance: none;
     cursor: pointer;
 }
