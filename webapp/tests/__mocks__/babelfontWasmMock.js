@@ -18,8 +18,8 @@ const initBabelfontWasm = jest.fn(() => {
     return Promise.resolve();
 });
 
-// Use real conversion via Node child_process for .glyphs files
-const { execSync } = require('child_process');
+// Use real conversion via Node child_process + wasm helper for .glyphs files
+const { execFileSync } = require('child_process');
 const os = require('os');
 
 function normalizeLayerMaster(master, isBackground) {
@@ -120,21 +120,30 @@ initBabelfontWasm.interpolate_glyph = jest.fn((glyphName, locationJson) =>
 );
 initBabelfontWasm.version = jest.fn(() => '0.1.0');
 
-// Real implementation using babelfont CLI to convert .glyphs files
+// Real implementation using wasm module to convert .glyphs files
 initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
-    // Write to temp file, convert with CLI, read result, delete temp files
+    // Write to temp file, convert with wasm helper, read result, delete temp files
     const tmpDir = os.tmpdir();
     const inputPath = path.join(tmpDir, filename);
     const outputPath = path.join(
         tmpDir,
-        filename.replace(/\.glyphs$/, '.babelfont')
+        filename.replace(/\.glyphs$/, '.jest-converted.babelfont')
     );
 
     try {
         fs.writeFileSync(inputPath, contents, 'utf-8');
-        execSync(`babelfont "${inputPath}" "${outputPath}"`, {
-            encoding: 'utf-8'
-        });
+        const converterScript = path.join(
+            __dirname,
+            '../helpers/convert-glyphs-to-babelfont.mjs'
+        );
+        execFileSync(
+            process.execPath,
+            [converterScript, inputPath, outputPath],
+            {
+                stdio: 'ignore',
+                maxBuffer: 20 * 1024 * 1024
+            }
+        );
         const result = fs.readFileSync(outputPath, 'utf-8');
         const parsed = JSON.parse(result);
         const normalized = normalizeBabelfontFixture(parsed);
