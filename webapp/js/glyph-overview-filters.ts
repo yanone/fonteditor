@@ -85,6 +85,12 @@ interface FilterExecutionResult {
     contextPatch?: Record<string, any>;
 }
 
+interface RefreshPluginsOptions {
+    deferCounts?: boolean;
+}
+
+const ALL_GLYPHS_FILTER_KEYWORD = 'com.context.allglyphs';
+
 export class GlyphOverviewFilterManager {
     private plugins: GlyphFilterPlugin[] = [];
     private userFilters: GlyphFilterPlugin[] = [];
@@ -106,6 +112,7 @@ export class GlyphOverviewFilterManager {
     private tippyInstances: TippyInstance[] = []; // Context menu instances
     private workerClient: GlyphFilterWorkerClient = new GlyphFilterWorkerClient();
     private refreshRetryTimer: number | null = null;
+    private deferredCountRefreshScheduled: boolean = false;
     private sharedPluginContext: Record<string, any> = {};
     private sharedPluginContextVersion: number = 1;
 
@@ -1311,6 +1318,28 @@ export class GlyphOverviewFilterManager {
             return;
         }
 
+        if (!plugin.isUserFilter && plugin.keyword === ALL_GLYPHS_FILTER_KEYWORD) {
+            const glyphCount = window.currentFontModel?.glyphs?.length || 0;
+
+            plugin.glyphCount = glyphCount;
+            plugin.hasError = false;
+            plugin.hasNoFilterFunction = false;
+            plugin.lastResults = [];
+            plugin.groups = {};
+            plugin.cachedDataVersion = this.getCurrentDataVersion() ?? undefined;
+            plugin.cachedContextVersion = this.sharedPluginContextVersion;
+
+            this.updatePluginCount(plugin);
+            this.updateGroupLegend(plugin, new Set());
+
+            if (this.glyphOverview) {
+                this.glyphOverview.setActiveFilter(null);
+                this.glyphOverview.updateSelectedGlyphGroups();
+            }
+
+            return;
+        }
+
         try {
             console.log(`Running filter: ${plugin.display_name}`);
 
@@ -1914,7 +1943,7 @@ export class GlyphOverviewFilterManager {
     /**
      * Refresh all plugins (re-run active filter and update counts)
      */
-    async refreshPlugins(): Promise<void> {
+    async refreshPlugins(options: RefreshPluginsOptions = {}): Promise<void> {
         const fontSnapshotJson = this.getCurrentFontSnapshotJson();
         if (!fontSnapshotJson) {
             this.scheduleRefreshRetry();
@@ -1927,12 +1956,29 @@ export class GlyphOverviewFilterManager {
             await this.runFilter(this.activeFilter);
         }
 
+        if (options.deferCounts) {
+            this.scheduleDeferredCountRefresh();
+            return;
+        }
+
+        await this.refreshNonActivePluginCounts(fontSnapshotJson);
+    }
+
+    private async refreshNonActivePluginCounts(
+        fontSnapshotJson: string | null = null
+    ): Promise<void> {
+        const snapshotJson = fontSnapshotJson || this.getCurrentFontSnapshotJson();
+        if (!snapshotJson) {
+            this.scheduleRefreshRetry();
+            return;
+        }
+
         // Run all built-in plugins to update counts
         for (const plugin of this.plugins) {
             if (plugin === this.activeFilter) {
                 continue;
             }
-            await this.runPluginForCount(plugin, fontSnapshotJson);
+            await this.runPluginForCount(plugin, snapshotJson);
         }
 
         // Run all user filters to update counts
@@ -1940,8 +1986,23 @@ export class GlyphOverviewFilterManager {
             if (filter === this.activeFilter) {
                 continue;
             }
-            await this.runPluginForCount(filter, fontSnapshotJson);
+            await this.runPluginForCount(filter, snapshotJson);
         }
+    }
+
+    private scheduleDeferredCountRefresh(): void {
+        if (this.deferredCountRefreshScheduled) {
+            return;
+        }
+
+        this.deferredCountRefreshScheduled = true;
+        window.setTimeout(async () => {
+            try {
+                await this.refreshNonActivePluginCounts();
+            } finally {
+                this.deferredCountRefreshScheduled = false;
+            }
+        }, 0);
     }
 
     /**

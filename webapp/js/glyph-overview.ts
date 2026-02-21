@@ -69,9 +69,17 @@ class GlyphOverview {
     private tileBuildRunId = 0;
     private tileBuildPromise: Promise<void> = Promise.resolve();
     private tileBuildResolve: (() => void) | null = null;
+    private deferredTileBuildTimer: number | null = null;
+    private linesVirtualizationActive = false;
+    private virtualizedRenderRafPending = false;
+    private virtualizedRenderRange: { start: number; end: number } | null = null;
+    private readonly linesVirtualizationThreshold = 1200;
+    private readonly linesVirtualizationBufferRows = 6;
+    private onContainerScrollBound = this.onContainerScroll.bind(this);
     private lazyBatchSize = 240;
     private readonly minLazyBatchSize = 80;
     private readonly maxLazyBatchSize = 500;
+    private updateGlyphsSpanId: string | null = null;
     // Cached metrics for tile rendering
     private renderMetrics: {
         ascender: number;
@@ -91,6 +99,8 @@ class GlyphOverview {
     private linesModeButton: HTMLButtonElement | null = null;
     private gridModeButton: HTMLButtonElement | null = null;
     private visibleGlyphIds: string[] = [];
+    private glyphOrderIds: string[] = [];
+    private totalGlyphDatasetCount = 0;
     private gridRowsForNavigation: Array<Array<string | null>> = [];
     private gridColumnCount = 0;
     private readonly viewModeStorageKey = 'glyphOverviewViewMode';
@@ -330,8 +340,43 @@ class GlyphOverview {
     }
 
     private applySearchFilter(): void {
+        if (
+            this.viewMode === 'lines' &&
+            this.searchTerms.length === 0 &&
+            this.activeFilterResults === null &&
+            this.totalGlyphDatasetCount < this.linesVirtualizationThreshold
+        ) {
+            this.visibleGlyphIds = [...this.glyphOrderIds];
+            this.renderLinesModeNoRelayout();
+            return;
+        }
+
+        if (
+            this.searchTerms.length === 0 &&
+            this.activeFilterResults === null
+        ) {
+            this.visibleGlyphIds = [...this.glyphOrderIds];
+            this.renderByViewMode();
+            return;
+        }
+
         this.visibleGlyphIds = this.computeVisibleGlyphIds();
         this.renderByViewMode();
+    }
+
+    private renderLinesModeNoRelayout(): void {
+        if (!this.container) return;
+
+        this.detachLinesVirtualization();
+
+        this.container.classList.remove('glyph-overview-grid-mode');
+        this.container.classList.add('glyph-overview-lines-mode');
+        this.gridRowsForNavigation = [];
+        this.gridColumnCount = 0;
+
+        this.tiles.forEach((tile) => {
+            tile.element.style.display = '';
+        });
     }
 
     private computeVisibleGlyphIds(): string[] {
@@ -372,6 +417,14 @@ class GlyphOverview {
     private renderLinesMode(): void {
         if (!this.container) return;
 
+        if (this.shouldVirtualizeLinesMode()) {
+            this.enableLinesVirtualization();
+            this.renderVirtualizedLinesWindow(true);
+            return;
+        }
+
+        this.detachLinesVirtualization();
+
         const visibleSet = new Set(this.visibleGlyphIds);
         this.container.classList.remove('glyph-overview-grid-mode');
         this.container.classList.add('glyph-overview-lines-mode');
@@ -390,6 +443,8 @@ class GlyphOverview {
 
     private renderGridMode(): void {
         if (!this.container) return;
+
+        this.detachLinesVirtualization();
 
         const layout = this.buildGridLayoutData(this.visibleGlyphIds);
         this.container.classList.remove('glyph-overview-lines-mode');
@@ -441,6 +496,132 @@ class GlyphOverview {
 
             fragment.appendChild(rowElement);
         });
+
+        this.container.innerHTML = '';
+        this.container.appendChild(fragment);
+    }
+
+    private shouldVirtualizeLinesMode(): boolean {
+        return (
+            this.viewMode === 'lines' &&
+            this.visibleGlyphIds.length >= this.linesVirtualizationThreshold
+        );
+    }
+
+    private enableLinesVirtualization(): void {
+        if (!this.container) return;
+
+        if (!this.linesVirtualizationActive) {
+            this.linesVirtualizationActive = true;
+            this.container.addEventListener('scroll', this.onContainerScrollBound, {
+                passive: true
+            });
+        }
+
+        this.container.classList.remove('glyph-overview-grid-mode');
+        this.container.classList.add('glyph-overview-lines-mode');
+    }
+
+    private detachLinesVirtualization(): void {
+        if (!this.container || !this.linesVirtualizationActive) {
+            return;
+        }
+
+        this.linesVirtualizationActive = false;
+        this.virtualizedRenderRafPending = false;
+        this.virtualizedRenderRange = null;
+        this.container.removeEventListener('scroll', this.onContainerScrollBound);
+    }
+
+    private onContainerScroll(): void {
+        if (!this.linesVirtualizationActive || !this.container) {
+            return;
+        }
+
+        if (this.virtualizedRenderRafPending) {
+            return;
+        }
+
+        this.virtualizedRenderRafPending = true;
+        requestAnimationFrame(() => {
+            this.virtualizedRenderRafPending = false;
+            this.renderVirtualizedLinesWindow();
+        });
+    }
+
+    private renderVirtualizedLinesWindow(force: boolean = false): void {
+        if (!this.container) return;
+
+        const total = this.visibleGlyphIds.length;
+        if (total === 0) {
+            this.virtualizedRenderRange = { start: 0, end: 0 };
+            this.container.innerHTML = '';
+            return;
+        }
+
+        const dims = this.getTileDimensions();
+        const columns = Math.max(1, this.getGridColumns());
+        const rowHeight = dims.height + 2;
+        const totalRows = Math.ceil(total / columns);
+        const viewportTop = this.container.scrollTop;
+        const viewportBottom = viewportTop + this.container.clientHeight;
+
+        const startRow = Math.max(
+            0,
+            Math.floor(viewportTop / rowHeight) - this.linesVirtualizationBufferRows
+        );
+        const endRow = Math.min(
+            totalRows - 1,
+            Math.ceil(viewportBottom / rowHeight) + this.linesVirtualizationBufferRows
+        );
+
+        const start = Math.min(total, startRow * columns);
+        const end = Math.min(total, (endRow + 1) * columns);
+
+        if (
+            !force &&
+            this.virtualizedRenderRange &&
+            this.virtualizedRenderRange.start === start &&
+            this.virtualizedRenderRange.end === end
+        ) {
+            return;
+        }
+
+        this.virtualizedRenderRange = { start, end };
+
+        const topSpacerHeight = startRow * rowHeight;
+        const bottomSpacerHeight = Math.max(0, (totalRows - endRow - 1) * rowHeight);
+
+        const fragment = document.createDocumentFragment();
+
+        if (topSpacerHeight > 0) {
+            const topSpacer = document.createElement('div');
+            topSpacer.style.width = '100%';
+            topSpacer.style.height = `${topSpacerHeight}px`;
+            topSpacer.style.flex = '0 0 100%';
+            topSpacer.dataset.role = 'virtual-spacer-top';
+            fragment.appendChild(topSpacer);
+        }
+
+        for (let index = start; index < end; index += 1) {
+            const glyphId = this.visibleGlyphIds[index];
+            const tile = this.tiles.get(glyphId);
+            if (!tile) continue;
+            tile.element.style.display = '';
+            fragment.appendChild(tile.element);
+            if (this.intersectionObserver) {
+                this.intersectionObserver.observe(tile.element);
+            }
+        }
+
+        if (bottomSpacerHeight > 0) {
+            const bottomSpacer = document.createElement('div');
+            bottomSpacer.style.width = '100%';
+            bottomSpacer.style.height = `${bottomSpacerHeight}px`;
+            bottomSpacer.style.flex = '0 0 100%';
+            bottomSpacer.dataset.role = 'virtual-spacer-bottom';
+            fragment.appendChild(bottomSpacer);
+        }
 
         this.container.innerHTML = '';
         this.container.appendChild(fragment);
@@ -552,6 +733,10 @@ class GlyphOverview {
                     );
                 }
             });
+
+            if (this.linesVirtualizationActive) {
+                this.renderVirtualizedLinesWindow(true);
+            }
         });
     }
 
@@ -563,6 +748,18 @@ class GlyphOverview {
     public updateGlyphs(glyphs: Array<{ id: string; name: string }>): Promise<void> {
         if (!this.container) return Promise.resolve();
 
+        this.totalGlyphDatasetCount = glyphs.length;
+        this.glyphOrderIds = glyphs.map((glyph) => glyph.id);
+
+        if (this.updateGlyphsSpanId) {
+            timelineSpanEnd(this.updateGlyphsSpanId);
+            this.updateGlyphsSpanId = null;
+        }
+
+        this.updateGlyphsSpanId = timelineSpanStart('overview.updateGlyphs', {
+            glyphCount: glyphs.length
+        });
+
         if (this.tileBuildResolve) {
             this.tileBuildResolve();
             this.tileBuildResolve = null;
@@ -571,6 +768,11 @@ class GlyphOverview {
         this.tileBuildPromise = new Promise<void>((resolve) => {
             this.tileBuildResolve = resolve;
         });
+
+        if (this.deferredTileBuildTimer !== null) {
+            clearTimeout(this.deferredTileBuildTimer);
+            this.deferredTileBuildTimer = null;
+        }
 
         this.tileBuildRunId += 1;
         const currentBuildRunId = this.tileBuildRunId;
@@ -581,6 +783,11 @@ class GlyphOverview {
             }
 
             this.applySearchFilter();
+
+            if (this.updateGlyphsSpanId) {
+                timelineSpanEnd(this.updateGlyphsSpanId);
+                this.updateGlyphsSpanId = null;
+            }
 
             if (this.tileBuildResolve) {
                 this.tileBuildResolve();
@@ -617,32 +824,69 @@ class GlyphOverview {
             return this.tileBuildPromise;
         }
 
-        // Large fonts: create tile DOM in chunks to avoid long main-thread stalls.
+        const buildVirtualizedOnly =
+            totalGlyphs >= this.linesVirtualizationThreshold;
+
+        // Large fonts: create tile objects in chunks. When virtualization is
+        // active, do not attach all tiles to DOM (windowed mount handles that).
+        const initialVisibleTarget = Math.min(totalGlyphs, 720);
+        let initialChunkReady = false;
+
         const buildChunk = (startIndex: number) => {
             if (!this.container || currentBuildRunId !== this.tileBuildRunId) {
                 return;
             }
 
             const chunkSize =
-                totalGlyphs > 5000 ? 320 : totalGlyphs > 2500 ? 260 : 220;
+                totalGlyphs > 5000 ? 80 : totalGlyphs > 2500 ? 100 : 120;
             const endIndex = Math.min(startIndex + chunkSize, totalGlyphs);
-            const fragment = document.createDocumentFragment();
+            const shouldAttachChunk = !buildVirtualizedOnly || !initialChunkReady;
+            const fragment = shouldAttachChunk
+                ? document.createDocumentFragment()
+                : null;
+            const newTiles: GlyphTile[] = [];
 
             for (let index = startIndex; index < endIndex; index += 1) {
                 const glyph = glyphs[index];
                 const tile = this.createGlyphTile(glyph.id, glyph.name);
                 this.tiles.set(glyph.id, tile);
-                fragment.appendChild(tile.element);
+                if (fragment) {
+                    fragment.appendChild(tile.element);
+                }
+                newTiles.push(tile);
             }
 
-            this.container.appendChild(fragment);
+            if (fragment) {
+                this.container.appendChild(fragment);
+            }
+
+            if (this.intersectionObserver && shouldAttachChunk) {
+                newTiles.forEach((tile) => {
+                    this.intersectionObserver!.observe(tile.element);
+                });
+            }
+
+            if (!initialChunkReady && endIndex >= initialVisibleTarget) {
+                initialChunkReady = true;
+                finishBuild();
+            }
+
+            if (buildVirtualizedOnly && this.linesVirtualizationActive) {
+                this.renderVirtualizedLinesWindow(true);
+            }
 
             if (endIndex < totalGlyphs) {
-                requestAnimationFrame(() => buildChunk(endIndex));
+                this.deferredTileBuildTimer = window.setTimeout(() => {
+                    this.deferredTileBuildTimer = null;
+                    requestAnimationFrame(() => buildChunk(endIndex));
+                }, 0);
                 return;
             }
 
-            finishBuild();
+            if (!initialChunkReady) {
+                initialChunkReady = true;
+                finishBuild();
+            }
         };
 
         requestAnimationFrame(() => buildChunk(0));
@@ -1105,6 +1349,14 @@ class GlyphOverview {
     private scrollToTile(element: HTMLElement): void {
         if (!this.container) return;
 
+        if (this.linesVirtualizationActive) {
+            const glyphId = element.dataset.glyphId;
+            if (glyphId) {
+                this.scrollToGlyphId(glyphId);
+                return;
+            }
+        }
+
         const containerRect = this.container.getBoundingClientRect();
         const elementRect = element.getBoundingClientRect();
 
@@ -1140,6 +1392,33 @@ class GlyphOverview {
         };
 
         requestAnimationFrame(animateScroll);
+    }
+
+    private scrollToGlyphId(glyphId: string): void {
+        if (!this.container) return;
+
+        const index = this.visibleGlyphIds.indexOf(glyphId);
+        if (index === -1) return;
+
+        const dims = this.getTileDimensions();
+        const columns = Math.max(1, this.getGridColumns());
+        const row = Math.floor(index / columns);
+        const rowHeight = dims.height + 2;
+        const tileTop = row * rowHeight;
+        const tileBottom = tileTop + dims.height;
+        const viewportTop = this.container.scrollTop;
+        const viewportBottom = viewportTop + this.container.clientHeight;
+
+        if (tileTop >= viewportTop && tileBottom <= viewportBottom) {
+            return;
+        }
+
+        const targetScroll = Math.max(
+            0,
+            tileTop - this.container.clientHeight / 2 + dims.height / 2
+        );
+        this.container.scrollTop = targetScroll;
+        this.renderVirtualizedLinesWindow(true);
     }
 
     private setupLazyLoading(): void {
@@ -1941,6 +2220,10 @@ class GlyphOverview {
         const boxBottom = boxTop + boxHeight;
 
         this.tiles.forEach((tile) => {
+            if (!tile.element.isConnected) {
+                return;
+            }
+
             const rect = tile.element.getBoundingClientRect();
             const containerRect = this.container!.getBoundingClientRect();
 
@@ -2217,10 +2500,20 @@ class GlyphOverview {
      * @param results - Array of filter results or null to clear filter
      */
     public setActiveFilter(results: FilterResult[] | null): void {
+        const filterSpanId = timelineSpanStart('overview.setActiveFilter', {
+            resultCount: results?.length ?? 0,
+            tileCount: this.tiles.size
+        });
+
         // Clear any previous error
         this.clearFilterError();
 
         if (results === null) {
+            if (this.activeFilterResults === null) {
+                timelineSpanEnd(filterSpanId);
+                return;
+            }
+
             // Clear filter
             this.activeFilterResults = null;
             this.clearFilterColors();
@@ -2242,6 +2535,8 @@ class GlyphOverview {
         if (this.tiles.size > 0 && !hasRenderedTiles) {
             void this.renderGlyphOutlines(this.currentLocation);
         }
+
+        timelineSpanEnd(filterSpanId);
     }
 
     /**

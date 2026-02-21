@@ -59,3 +59,9 @@ export function timelineWrap<T>(stage: string, fn: () => Promise<T>): Promise<T>
         timelineSpanEnd(spanId);
     });
 }
+
+if (typeof window !== 'undefined') {
+    window.timelineMark = timelineMark;
+    window.timelineSpanStart = timelineSpanStart;
+    window.timelineSpanEnd = timelineSpanEnd;
+}

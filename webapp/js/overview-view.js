@@ -3,6 +3,33 @@
 // Note: glyphOverviewFilterManager is loaded via glyph-overview.ts bundle
 // and available on window.glyphOverviewFilterManager
 
+function timelineSpanStartSafe(stage, detail) {
+    if (window.timelineSpanStart) {
+        return window.timelineSpanStart(stage, detail);
+    }
+
+    const startMark = `cp:${stage}:${Date.now()}:start`;
+    performance.mark(startMark);
+    return startMark;
+}
+
+function timelineSpanEndSafe(spanId) {
+    if (window.timelineSpanEnd) {
+        window.timelineSpanEnd(spanId);
+        return;
+    }
+
+    const endMark = `${spanId.replace(':start', ':end')}`;
+    performance.mark(endMark);
+    performance.measure('cp:overview.fallback', spanId, endMark);
+}
+
+function waitForNextAnimationFrame() {
+    return new Promise((resolve) => {
+        requestAnimationFrame(() => resolve(undefined));
+    });
+}
+
 console.log('[OverviewView]', 'overview-view.js loaded');
 
 let glyphOverviewInstance = null;
@@ -29,14 +56,30 @@ async function updateOverviewTiles() {
         return [];
     }
 
+    const updateTilesSpanId = timelineSpanStartSafe('overview.updateTiles', {
+        glyphCount: window.currentFontModel?.glyphs?.length || 0
+    });
     const glyphData = buildGlyphData();
-    await glyphOverviewInstance.updateGlyphs(glyphData);
+    try {
+        await glyphOverviewInstance.updateGlyphs(glyphData);
+    } finally {
+        timelineSpanEndSafe(updateTilesSpanId);
+    }
     return glyphData;
 }
 
 async function refreshFilterPlugins() {
     if (window.glyphOverviewFilterManager?.isLoaded()) {
-        await window.glyphOverviewFilterManager.refreshPlugins();
+        const refreshFiltersSpanId = timelineSpanStartSafe(
+            'overview.refreshFilterPlugins'
+        );
+        try {
+            await window.glyphOverviewFilterManager.refreshPlugins({
+                deferCounts: true
+            });
+        } finally {
+            timelineSpanEndSafe(refreshFiltersSpanId);
+        }
     }
 }
 
@@ -87,6 +130,14 @@ async function renderOverviewAndEmit(reason, openSessionId = null) {
     }
 
     initialRenderInProgress = true;
+    const renderOverviewSpanId = timelineSpanStartSafe(
+        'overview.renderAndEmit',
+        {
+        reason,
+        openSessionId,
+        glyphCount: window.currentFontModel?.glyphs?.length || 0
+        }
+    );
     const renderStart = performance.now();
     let success = false;
 
@@ -106,7 +157,17 @@ async function renderOverviewAndEmit(reason, openSessionId = null) {
             `Overview rendered (${glyphCount} glyphs, reason: ${reason}, render: ${renderDurationMs.toFixed(2)}ms)`
         );
 
-        await refreshFilterPlugins();
+        void refreshFilterPlugins();
+
+        // Capture deferred style/layout/paint work that lands after JS handlers
+        // (common with very large tile counts).
+        const settleSpanId = timelineSpanStartSafe('overview.postMutationSettle', {
+            reason,
+            glyphCount
+        });
+        await waitForNextAnimationFrame();
+        await waitForNextAnimationFrame();
+        timelineSpanEndSafe(settleSpanId);
 
         if (openSessionId) {
             window.dispatchEvent(
@@ -124,6 +185,7 @@ async function renderOverviewAndEmit(reason, openSessionId = null) {
     } catch (error) {
         console.error('[OverviewView]', 'Failed to render glyphs:', error);
     } finally {
+        timelineSpanEndSafe(renderOverviewSpanId);
         initialRenderInProgress = false;
 
         if (queuedRenderRequest) {
@@ -273,6 +335,10 @@ async function initOverviewView() {
 window.addEventListener('fontReady', async (event) => {
     console.log('[OverviewView]', 'Font ready, updating glyph overview');
 
+    const fontReadyOverviewSpanId = timelineSpanStartSafe(
+        'overview.fontReadyHandler'
+    );
+
     const detail = event?.detail || {};
     pendingInitialOpenSession = detail.openSessionId || null;
     pendingInitialOpenStartedAt =
@@ -281,19 +347,23 @@ window.addEventListener('fontReady', async (event) => {
 
     // Wait a bit for currentFontModel to be set
     setTimeout(async () => {
-        if (glyphOverviewInstance && window.currentFontModel?.glyphs) {
-            const glyphData = await updateOverviewTiles();
+        try {
+            if (glyphOverviewInstance && window.currentFontModel?.glyphs) {
+                const glyphData = await updateOverviewTiles();
 
-            if (!pendingInitialOpenSession) {
-                await renderOverviewAndEmit('fontReady-no-session');
-            } else {
-                scheduleFallbackRender(pendingInitialOpenSession, 1200);
+                if (!pendingInitialOpenSession) {
+                    await renderOverviewAndEmit('fontReady-no-session');
+                } else {
+                    scheduleFallbackRender(pendingInitialOpenSession, 1200);
+                }
+
+                console.log(
+                    '[OverviewView]',
+                    `Updated glyph overview tiles (${glyphData.length})`
+                );
             }
-
-            console.log(
-                '[OverviewView]',
-                `Updated glyph overview tiles (${glyphData.length})`
-            );
+        } finally {
+            timelineSpanEndSafe(fontReadyOverviewSpanId);
         }
     }, 100);
 });

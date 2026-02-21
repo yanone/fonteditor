@@ -28,6 +28,14 @@ declare global {
         isTestMode: () => boolean;
         isTest: () => boolean;
 
+        // From perf-timeline.ts
+        timelineMark: (stage: string) => void;
+        timelineSpanStart: (
+            stage: string,
+            detail?: Record<string, unknown>
+        ) => string;
+        timelineSpanEnd: (spanId: string) => void;
+
         // Build metadata
         EDITOR_VERSION: string | null;
         BUILD_HASH_FULL: string | null;
@@ -134,7 +142,7 @@ declare global {
                 glyphOverview: any
             ) => void;
             discoverPlugins: () => Promise<void>;
-            refreshPlugins: () => Promise<void>;
+            refreshPlugins: (options?: { deferCounts?: boolean }) => Promise<void>;
             getPlugins: () => any[];
             isLoaded: () => boolean;
             getActiveFilter: () => any | null;

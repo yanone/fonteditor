@@ -2708,10 +2708,45 @@ window.addEventListener('diskFilesChanged', async (event: Event) => {
 
 // Listen for font ready event to refresh file browser highlighting
 // (fontReady fires after fontManager.loadFont completes and currentFont is set)
+function updateCurrentFontHighlightInFileTree(): void {
+    const fileTree = document.getElementById('file-tree');
+    if (!fileTree) {
+        return;
+    }
+
+    const currentFontPath = window.fontManager?.currentFont?.path || null;
+    const fileItems = fileTree.querySelectorAll('.file-item');
+
+    fileItems.forEach((item) => {
+        const element = item as HTMLElement;
+        const itemPath = element.dataset.path || '';
+        const isDir = element.dataset.isDir === 'true';
+        const isFontFile = element.dataset.isFont === 'true';
+
+        const isCurrentFont =
+            !!currentFontPath &&
+            isFontFile &&
+            !isDir &&
+            itemPath === currentFontPath;
+        element.classList.toggle('current-font', isCurrentFont);
+
+        const isInFontPath =
+            !!currentFontPath &&
+            isDir &&
+            currentFontPath.startsWith(itemPath + '/');
+        element.classList.toggle('in-font-path', isInFontPath);
+    });
+}
+
 window.addEventListener('fontReady', async () => {
-    // Refresh current directory to update highlighting
-    const currentPath = fileSystemCache.currentPath || '/';
-    await navigateToPath(currentPath);
+    const fontReadyFileRefreshSpanId = timelineSpanStart(
+        'fileBrowser.fontReadyRefresh'
+    );
+    try {
+        updateCurrentFontHighlightInFileTree();
+    } finally {
+        timelineSpanEnd(fontReadyFileRefreshSpanId);
+    }
 });
 
 // Listen for fontReady event (fires after FontManager.loadFont completes)
