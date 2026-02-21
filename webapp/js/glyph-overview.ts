@@ -745,7 +745,7 @@ class GlyphOverview {
                 }
             );
             try {
-                await this.renderOutlinesInChunks(outlines, glyphIds, dims);
+                await this.renderOutlinesInChunks(outlines, glyphNames, dims);
             } finally {
                 timelineSpanEnd(renderSpanId);
             }
@@ -762,10 +762,15 @@ class GlyphOverview {
 
     private async renderOutlinesInChunks(
         outlines: any[],
-        glyphIds: string[],
+        glyphNames: string[],
         dims: { width: number; height: number }
     ): Promise<void> {
         const chunkSize = 48;
+
+        const glyphNameToTile = new Map<string, GlyphTile>();
+        this.tiles.forEach((tile) => {
+            glyphNameToTile.set(tile.glyphName, tile);
+        });
 
         await new Promise<void>((resolve) => {
             let index = 0;
@@ -786,8 +791,11 @@ class GlyphOverview {
 
                 for (let i = index; i < end; i += 1) {
                     const glyphData = outlines[i];
-                    const glyphId = glyphIds[i];
-                    const tile = this.tiles.get(glyphId);
+                    const glyphName = glyphData?.name;
+                    let tile = glyphName ? glyphNameToTile.get(glyphName) : undefined;
+                    if (!tile && glyphNames[i]) {
+                        tile = glyphNameToTile.get(glyphNames[i]);
+                    }
                     if (!tile) {
                         continue;
                     }
@@ -827,25 +835,68 @@ class GlyphOverview {
         }
 
         const upm = font.upm || 1000;
-        // Default ascender/descender: 75%/25% of upm
-        let ascender = upm * 0.75;
-        let descender = -(upm * 0.25);
+        // Default ascender/descender fallback from UPM
+        let fallbackAscender = upm * 0.8;
+        let fallbackDescender = -(upm * 0.2);
+
+        const customParams = font.custom_opentype_values || [];
+        if (Array.isArray(customParams)) {
+            const hheaAsc = customParams.find(
+                (entry: any) => entry?.name === 'hheaAscender'
+            )?.value;
+            const hheaDesc = customParams.find(
+                (entry: any) => entry?.name === 'hheaDescender'
+            )?.value;
+            if (typeof hheaAsc === 'number' && Number.isFinite(hheaAsc)) {
+                fallbackAscender = hheaAsc;
+            }
+            if (typeof hheaDesc === 'number' && Number.isFinite(hheaDesc)) {
+                fallbackDescender = hheaDesc;
+            }
+        }
+
+        let ascender = fallbackAscender;
+        let descender = fallbackDescender;
 
         // Try to get metrics from first master
         const master = font.masters?.[0];
         if (master?.metrics) {
             // Look for Ascender/Descender in metrics (case may vary)
             const metrics = master.metrics;
-            if (metrics.Ascender !== undefined) {
+            if (
+                metrics.Ascender !== undefined &&
+                Number.isFinite(metrics.Ascender)
+            ) {
                 ascender = metrics.Ascender;
-            } else if (metrics.ascender !== undefined) {
+            } else if (
+                metrics.ascender !== undefined &&
+                Number.isFinite(metrics.ascender)
+            ) {
                 ascender = metrics.ascender;
             }
-            if (metrics.Descender !== undefined) {
+            if (
+                metrics.Descender !== undefined &&
+                Number.isFinite(metrics.Descender)
+            ) {
                 descender = metrics.Descender;
-            } else if (metrics.descender !== undefined) {
+            } else if (
+                metrics.descender !== undefined &&
+                Number.isFinite(metrics.descender)
+            ) {
                 descender = metrics.descender;
             }
+        }
+
+        const metricsHeight = ascender - descender;
+        const minExpectedHeight = upm * 0.5;
+        const maxExpectedHeight = upm * 2.0;
+        if (
+            !Number.isFinite(metricsHeight) ||
+            metricsHeight < minExpectedHeight ||
+            metricsHeight > maxExpectedHeight
+        ) {
+            ascender = fallbackAscender;
+            descender = fallbackDescender;
         }
 
         this.renderMetrics = { ascender, descender, upm };

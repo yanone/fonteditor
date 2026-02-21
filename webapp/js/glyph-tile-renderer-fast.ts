@@ -36,6 +36,37 @@ class FastGlyphTileRenderer {
         // Colors will be initialized lazily on first render
     }
 
+    private normalizeShape(shape: any):
+        | { kind: 'path'; data: any }
+        | { kind: 'component'; data: any }
+        | null {
+        if (!shape || typeof shape !== 'object') {
+            return null;
+        }
+
+        if ('nodes' in shape) {
+            return { kind: 'path', data: shape };
+        }
+
+        if ('reference' in shape) {
+            return { kind: 'component', data: shape };
+        }
+
+        if ('Path' in shape && shape.Path && typeof shape.Path === 'object') {
+            return { kind: 'path', data: shape.Path };
+        }
+
+        if (
+            'Component' in shape &&
+            shape.Component &&
+            typeof shape.Component === 'object'
+        ) {
+            return { kind: 'component', data: shape.Component };
+        }
+
+        return null;
+    }
+
     /**
      * Update cached theme colors from settings
      */
@@ -168,12 +199,15 @@ class FastGlyphTileRenderer {
         ctx.fill();
 
         // Second pass: combine ALL component paths, then fill once
-        const hasComponents = shapes.some((s) => 'reference' in s);
+        const hasComponents = shapes.some(
+            (shape) => this.normalizeShape(shape)?.kind === 'component'
+        );
         if (hasComponents) {
             ctx.beginPath();
             for (const shape of shapes) {
-                if ('reference' in shape) {
-                    const component = shape;
+                const normalized = this.normalizeShape(shape);
+                if (normalized?.kind === 'component') {
+                    const component = normalized.data;
                     const transformRaw = component.transform;
                     const transform = !transformRaw
                         ? [1, 0, 0, 1, 0, 0]
@@ -216,8 +250,9 @@ class FastGlyphTileRenderer {
         shapes: any[]
     ): void {
         for (const shape of shapes) {
-            if ('nodes' in shape) {
-                let nodes = shape.nodes;
+            const normalized = this.normalizeShape(shape);
+            if (normalized?.kind === 'path') {
+                let nodes = normalized.data.nodes;
                 if (typeof nodes === 'string') {
                     nodes = LayerDataNormalizer.parseNodes(nodes);
                 }
@@ -225,8 +260,8 @@ class FastGlyphTileRenderer {
                     LayerDataNormalizer.buildPathFromNodes(nodes, ctx);
                     ctx.closePath();
                 }
-            } else if ('reference' in shape) {
-                const component = shape;
+            } else if (normalized?.kind === 'component') {
+                const component = normalized.data;
                 const transformRaw = component.transform;
                 const transform = !transformRaw
                     ? [1, 0, 0, 1, 0, 0]
@@ -255,8 +290,9 @@ class FastGlyphTileRenderer {
      */
     private buildPathsOnly(ctx: CanvasRenderingContext2D, shapes: any[]): void {
         for (const shape of shapes) {
-            if ('nodes' in shape) {
-                let nodes = shape.nodes;
+            const normalized = this.normalizeShape(shape);
+            if (normalized?.kind === 'path') {
+                let nodes = normalized.data.nodes;
                 if (typeof nodes === 'string') {
                     nodes = LayerDataNormalizer.parseNodes(nodes);
                 }
