@@ -866,7 +866,11 @@ class GlyphOverview {
                 });
             }
 
-            if (!initialChunkReady && endIndex >= initialVisibleTarget) {
+            if (
+                buildVirtualizedOnly &&
+                !initialChunkReady &&
+                endIndex >= initialVisibleTarget
+            ) {
                 initialChunkReady = true;
                 finishBuild();
             }
@@ -913,95 +917,16 @@ class GlyphOverview {
         // Cache metrics from font model for consistent tile sizing
         this.updateRenderMetrics();
 
-        const glyphIds = Array.from(this.tiles.keys());
-        const glyphNames = Array.from(this.tiles.values()).map(
-            (t) => t.glyphName
-        );
+        const glyphCount = this.tiles.size;
 
         const totalSpanId = timelineSpanStart('overview.renderGlyphOutlines', {
-            glyphCount: glyphNames.length
+            glyphCount
         });
 
-        // Enable lazy loading for large fonts
-        if (glyphNames.length > 1000) {
-            this.lazyLoadEnabled = true;
-            this.setupLazyLoading();
-            timelineSpanEnd(totalSpanId);
-            return;
-        }
-
-        try {
-            // Use worker to get glyph outlines (font is already cached in worker)
-            const fontComp = window.fontCompilation;
-            if (!fontComp) {
-                throw new Error('fontCompilation not available on window');
-            }
-            const fetchSpanId = timelineSpanStart(
-                'overview.outlines.fetchAll',
-                {
-                    glyphCount: glyphNames.length
-                }
-            );
-            let response;
-            try {
-                response = await fontComp.sendMessage({
-                    type: 'getGlyphOutlines',
-                    glyphNames: glyphNames,
-                    location: location,
-                    flattenComponents: false // Don't flatten - preserve component structure with layerData
-                });
-            } finally {
-                timelineSpanEnd(fetchSpanId);
-            }
-
-            if (response.error) {
-                throw new Error(response.error);
-            }
-
-            console.log(
-                '[GlyphOverview]',
-                `Received outlines JSON from worker, length: ${response.outlinesJson.length} bytes`
-            );
-            const parseSpanId = timelineSpanStart('overview.outlines.parseAll', {
-                jsonBytes: response.outlinesJson.length
-            });
-            let outlines;
-            try {
-                outlines = JSON.parse(response.outlinesJson);
-            } finally {
-                timelineSpanEnd(parseSpanId);
-            }
-            console.log(
-                '[GlyphOverview]',
-                `Parsed ${outlines.length} glyph outlines`
-            );
-            console.log(
-                '[GlyphOverview]',
-                'First glyph data sample:',
-                JSON.stringify(outlines[0], null, 2)
-            );
-
-            const dims = this.getTileDimensions();
-            const renderSpanId = timelineSpanStart(
-                'overview.outlines.renderAllChunks',
-                {
-                    glyphCount: outlines.length
-                }
-            );
-            try {
-                await this.renderOutlinesInChunks(outlines, glyphNames, dims);
-            } finally {
-                timelineSpanEnd(renderSpanId);
-            }
-        } catch (error) {
-            console.error(
-                '[GlyphOverview]',
-                'Failed to render glyph outlines:',
-                error
-            );
-        } finally {
-            timelineSpanEnd(totalSpanId);
-        }
+        // Use lazy loading for all fonts for consistent behavior.
+        this.lazyLoadEnabled = true;
+        this.setupLazyLoading();
+        timelineSpanEnd(totalSpanId);
     }
 
     private async renderOutlinesInChunks(
