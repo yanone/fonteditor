@@ -17,8 +17,10 @@ import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import { Glyph, Layer } from './babelfont-model';
 import { updateUrlState, encodeLocation } from './url-state';
 import { isSyncEnabled } from './state-sync';
+import { timelineMark } from './perf-timeline';
 
 let console: Logger = new Logger('GlyphCanvas');
+let latestOpenSessionId: string | null = null;
 
 class GlyphCanvas {
     container: HTMLElement;
@@ -1324,7 +1326,19 @@ class GlyphCanvas {
                     this.viewportManager!.zoomToFitText(
                         this.textRunEditor!.shapedGlyphs,
                         rect,
-                        this.render.bind(this)
+                        this.render.bind(this),
+                        null,
+                        () => {
+                            timelineMark('canvas.initialZoomComplete');
+                            window.dispatchEvent(
+                                new CustomEvent('canvasInitialReady', {
+                                    detail: {
+                                        openSessionId: latestOpenSessionId,
+                                        source: 'initial-zoom-complete'
+                                    }
+                                })
+                            );
+                        }
                     );
                     this.initialFontLoaded = true;
                 }
@@ -3157,6 +3171,11 @@ if (typeof document !== 'undefined' && document.addEventListener) {
         initCanvas();
     });
 }
+
+window.addEventListener('fontReady', (event: Event) => {
+    const detail = (event as CustomEvent).detail;
+    latestOpenSessionId = detail?.openSessionId || null;
+});
 
 // Event handlers stored to prevent duplicate listeners
 let editingFontCompiledHandler: ((e: Event) => void) | null = null;

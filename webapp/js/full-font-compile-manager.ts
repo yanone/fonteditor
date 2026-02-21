@@ -28,12 +28,16 @@ const AVAILABLE_QC_PROFILES = [
     'fontwerk'
 ] as const;
 
+// Temporary global kill-switch for startup/performance debugging.
+// Keep code paths intact, but prevent any full compile / Fontspector work.
+const TEMP_DISABLE_FULL_COMPILE = false;
+
 type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
 
 (function () {
     'use strict';
 
-    let isEnabled = true;
+    let isEnabled = !TEMP_DISABLE_FULL_COMPILE;
     let isCompiling = false;
     let debounceTimer: number | null = null;
     let monitorTimer: number | null = null;
@@ -121,7 +125,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     function scheduleCompilation(delayMs: number = DEBOUNCE_MS): void {
-        if (!isEnabled) {
+        if (!isEnabled || TEMP_DISABLE_FULL_COMPILE) {
             return;
         }
 
@@ -137,7 +141,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     function checkAndSchedule(): void {
-        if (!isEnabled) {
+        if (!isEnabled || TEMP_DISABLE_FULL_COMPILE) {
             return;
         }
 
@@ -159,7 +163,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     async function runCompilationLoop(): Promise<void> {
-        if (!isEnabled || isCompiling) {
+        if (!isEnabled || isCompiling || TEMP_DISABLE_FULL_COMPILE) {
             return;
         }
 
@@ -310,6 +314,12 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     function setEnabled(enabled: boolean): void {
+        if (TEMP_DISABLE_FULL_COMPILE) {
+            isEnabled = false;
+            dispatchQcUpdate(fontManager.fullFontQcSummary, 'idle', -1, undefined, lastChecks);
+            return;
+        }
+
         isEnabled = enabled;
 
         if (!isEnabled && debounceTimer !== null) {
@@ -348,7 +358,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
 
     function getStatus() {
         return {
-            isEnabled,
+            isEnabled: isEnabled && !TEMP_DISABLE_FULL_COMPILE,
             isCompiling,
             lastObservedVersion,
             lastCompiledVersion,
@@ -370,7 +380,11 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
         getStatus
     };
 
-    monitorTimer = window.setInterval(checkAndSchedule, MONITOR_MS);
+    if (!TEMP_DISABLE_FULL_COMPILE) {
+        monitorTimer = window.setInterval(checkAndSchedule, MONITOR_MS);
+    } else {
+        dispatchQcUpdate(fontManager.fullFontQcSummary, 'idle', -1, undefined, lastChecks);
+    }
 
     if (!monitorTimer) {
         console.warn('Failed to start full compile monitor timer');

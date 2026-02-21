@@ -7,6 +7,7 @@ import { fastGlyphTileRenderer } from './glyph-tile-renderer-fast';
 // It self-registers on window.glyphOverviewFilterManager
 import './glyph-overview-filters';
 import { Logger } from './logger';
+import { timelineSpanStart, timelineSpanEnd } from './perf-timeline';
 
 const console = new Logger('GlyphOverview');
 
@@ -645,10 +646,15 @@ class GlyphOverview {
             (t) => t.glyphName
         );
 
+        const totalSpanId = timelineSpanStart('overview.renderGlyphOutlines', {
+            glyphCount: glyphNames.length
+        });
+
         // Enable lazy loading for large fonts
         if (glyphNames.length > 1000) {
             this.lazyLoadEnabled = true;
             this.setupLazyLoading();
+            timelineSpanEnd(totalSpanId);
             return;
         }
 
@@ -658,12 +664,23 @@ class GlyphOverview {
             if (!fontComp) {
                 throw new Error('fontCompilation not available on window');
             }
-            const response = await fontComp.sendMessage({
-                type: 'getGlyphOutlines',
-                glyphNames: glyphNames,
-                location: location,
-                flattenComponents: false // Don't flatten - preserve component structure with layerData
-            });
+            const fetchSpanId = timelineSpanStart(
+                'overview.outlines.fetchAll',
+                {
+                    glyphCount: glyphNames.length
+                }
+            );
+            let response;
+            try {
+                response = await fontComp.sendMessage({
+                    type: 'getGlyphOutlines',
+                    glyphNames: glyphNames,
+                    location: location,
+                    flattenComponents: false // Don't flatten - preserve component structure with layerData
+                });
+            } finally {
+                timelineSpanEnd(fetchSpanId);
+            }
 
             if (response.error) {
                 throw new Error(response.error);
@@ -673,7 +690,15 @@ class GlyphOverview {
                 '[GlyphOverview]',
                 `Received outlines JSON from worker, length: ${response.outlinesJson.length} bytes`
             );
-            const outlines = JSON.parse(response.outlinesJson);
+            const parseSpanId = timelineSpanStart('overview.outlines.parseAll', {
+                jsonBytes: response.outlinesJson.length
+            });
+            let outlines;
+            try {
+                outlines = JSON.parse(response.outlinesJson);
+            } finally {
+                timelineSpanEnd(parseSpanId);
+            }
             console.log(
                 '[GlyphOverview]',
                 `Parsed ${outlines.length} glyph outlines`
@@ -685,13 +710,25 @@ class GlyphOverview {
             );
 
             const dims = this.getTileDimensions();
-            await this.renderOutlinesInChunks(outlines, glyphIds, dims);
+            const renderSpanId = timelineSpanStart(
+                'overview.outlines.renderAllChunks',
+                {
+                    glyphCount: outlines.length
+                }
+            );
+            try {
+                await this.renderOutlinesInChunks(outlines, glyphIds, dims);
+            } finally {
+                timelineSpanEnd(renderSpanId);
+            }
         } catch (error) {
             console.error(
                 '[GlyphOverview]',
                 'Failed to render glyph outlines:',
                 error
             );
+        } finally {
+            timelineSpanEnd(totalSpanId);
         }
     }
 
@@ -704,9 +741,20 @@ class GlyphOverview {
 
         await new Promise<void>((resolve) => {
             let index = 0;
+            let chunkIndex = 0;
 
             const renderChunk = () => {
                 const end = Math.min(index + chunkSize, outlines.length);
+                const frameSpanId = timelineSpanStart(
+                    'overview.outlines.renderChunkFrame',
+                    {
+                        chunkIndex,
+                        startIndex: index,
+                        endIndex: end,
+                        count: end - index,
+                        mode: 'initial'
+                    }
+                );
 
                 for (let i = index; i < end; i += 1) {
                     const glyphData = outlines[i];
@@ -726,6 +774,8 @@ class GlyphOverview {
                 }
 
                 index = end;
+                chunkIndex += 1;
+                timelineSpanEnd(frameSpanId);
 
                 if (index < outlines.length) {
                     requestAnimationFrame(renderChunk);
@@ -1064,6 +1114,14 @@ class GlyphOverview {
             return;
         }
 
+        const batchSpanId = timelineSpanStart(
+            'overview.outlines.processBatchRender',
+            {
+                pendingCount: this.pendingGlyphIds.size,
+                batchSize: this.lazyBatchSize
+            }
+        );
+
         this.isBatchRendering = true;
 
         const batchSize = this.lazyBatchSize;
@@ -1087,6 +1145,7 @@ class GlyphOverview {
             if (this.pendingGlyphIds.size > 0) {
                 this.scheduleBatchRender();
             }
+            timelineSpanEnd(batchSpanId);
             return;
         }
 
@@ -1095,24 +1154,59 @@ class GlyphOverview {
             if (!fontComp) {
                 throw new Error('fontCompilation not available on window');
             }
-            const response = await fontComp.sendMessage({
-                type: 'getGlyphOutlines',
-                glyphNames: glyphNames,
-                location: this.currentLocation,
-                flattenComponents: false // Don't flatten - preserve component structure with layerData
-            });
+            const fetchBatchSpanId = timelineSpanStart(
+                'overview.outlines.fetchBatch',
+                {
+                    glyphCount: glyphNames.length
+                }
+            );
+            let response;
+            try {
+                response = await fontComp.sendMessage({
+                    type: 'getGlyphOutlines',
+                    glyphNames: glyphNames,
+                    location: this.currentLocation,
+                    flattenComponents: false // Don't flatten - preserve component structure with layerData
+                });
+            } finally {
+                timelineSpanEnd(fetchBatchSpanId);
+            }
 
             if (response.error) {
                 throw new Error(response.error);
             }
 
-            const outlines = JSON.parse(response.outlinesJson);
+            const parseBatchSpanId = timelineSpanStart(
+                'overview.outlines.parseBatch',
+                {
+                    jsonBytes: response.outlinesJson.length,
+                    glyphCount: glyphNames.length
+                }
+            );
+            let outlines;
+            try {
+                outlines = JSON.parse(response.outlinesJson);
+            } finally {
+                timelineSpanEnd(parseBatchSpanId);
+            }
 
             // Batch all renders in a single animation frame
             const dims = this.getTileDimensions();
             let renderDurationMs = 0;
+            const renderBatchSpanId = timelineSpanStart(
+                'overview.outlines.renderBatch',
+                {
+                    glyphCount: outlines.length
+                }
+            );
             await new Promise<void>((resolve) => {
                 requestAnimationFrame(() => {
+                    const renderBatchFrameSpanId = timelineSpanStart(
+                        'overview.outlines.renderBatchFrame',
+                        {
+                            glyphCount: outlines.length
+                        }
+                    );
                     const renderStart = performance.now();
                     outlines.forEach((glyphData: any) => {
                         const tile = glyphNameToTile.get(glyphData.name);
@@ -1130,9 +1224,11 @@ class GlyphOverview {
                     });
 
                     renderDurationMs = performance.now() - renderStart;
+                    timelineSpanEnd(renderBatchFrameSpanId);
                     resolve();
                 });
             });
+            timelineSpanEnd(renderBatchSpanId);
 
             if (renderDurationMs > 18) {
                 this.lazyBatchSize = Math.max(
@@ -1156,6 +1252,8 @@ class GlyphOverview {
         if (this.pendingGlyphIds.size > 0) {
             this.scheduleBatchRender();
         }
+
+        timelineSpanEnd(batchSpanId);
     }
 
     private createGlyphTile(glyphId: string, glyphName: string): GlyphTile {

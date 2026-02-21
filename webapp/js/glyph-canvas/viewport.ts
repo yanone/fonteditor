@@ -153,7 +153,8 @@ export class ViewportManager {
         targetScale: number,
         targetPanX: number,
         targetPanY: number,
-        renderCallback: Function
+        renderCallback: Function,
+        onComplete?: () => void
     ) {
         // Animate zoom and pan together
         const startScale = this.scale;
@@ -185,6 +186,9 @@ export class ViewportManager {
                 this.panX = targetPanX;
                 this.panY = targetPanY;
                 renderCallback();
+                if (onComplete) {
+                    onComplete();
+                }
             }
         };
 
@@ -666,7 +670,8 @@ export class ViewportManager {
         shapedGlyphs: ShapedGlyph[] | null,
         canvasRect: DOMRect,
         renderCallback: Function,
-        margin: number | null = null
+        margin: number | null = null,
+        onComplete?: () => void
     ) {
         if (!shapedGlyphs || shapedGlyphs.length === 0) {
             return;
@@ -727,7 +732,8 @@ export class ViewportManager {
             clampedScale,
             targetPanX,
             targetPanY,
-            renderCallback
+            renderCallback,
+            onComplete
         );
 
         // Return the calculated zoom level so it can be stored
