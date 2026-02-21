@@ -861,6 +861,25 @@ export class Layer extends ArrayElementBase {
         return this.master?.master;
     }
 
+    /**
+     * Get the resolved master object for this layer.
+     * Returns a Master only when this layer is a DefaultForMaster layer.
+     */
+    getMaster(): Master | undefined {
+        const layerMaster = this.master;
+        if (!layerMaster || layerMaster.type !== 'DefaultForMaster') {
+            return undefined;
+        }
+
+        const glyph = this.parent() as Glyph;
+        if (!glyph) return undefined;
+
+        const font = glyph.parent() as Font;
+        if (!font) return undefined;
+
+        return font.findMaster(layerMaster.master);
+    }
+
     get width(): number {
         return this.data.width;
     }

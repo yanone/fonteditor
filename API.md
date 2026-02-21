@@ -146,7 +146,7 @@ weight_axis = font.findAxisByTag("wght")
 #### `findMaster(id: str) -> [Master](#master) | None`
 Find a master by ID
 
-#### `addGlyph(name: str, category: Babelfont.GlyphCategory) -> [Glyph](#glyph)`
+#### `addGlyph(name: str, category: Babelfont.GlyphCategory | str) -> [Glyph](#glyph)`
 Add a new glyph to the font
 
 **Example:**
@@ -228,10 +228,12 @@ glyph = font.findGlyph("A")
 
 #### Read-Only Properties
 
+- **`BUILTIN_CATEGORIES`** (Any)
 - **`layers`** (list[[Layer](#layer)] | None)
 
 ### Methods
 
+#### `normalizeCategory(value: Babelfont.GlyphCategory | str | None) -> Babelfont.GlyphCategory`
 #### `addLayer(width: float | int, master: Babelfont.LayerType | None = None) -> [Layer](#layer)`
 Add a new layer to the glyph
 
@@ -293,6 +295,10 @@ layer = glyph.layers[0]
 - **`anchors`** (list[[Anchor](#anchor)] | None)
 
 ### Methods
+
+#### `getMaster() -> [Master](#master) | None`
+Get the resolved master object for this layer.
+Returns a Master only when this layer is a DefaultForMaster layer.
 
 #### `addShape(shape: Babelfont.Shape) -> [Shape](#shape)`
 Add a new shape to the layer
