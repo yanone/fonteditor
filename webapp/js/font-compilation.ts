@@ -174,6 +174,9 @@ class FontCompilation {
         }
     >;
     compilationId: number;
+    lastStoredFontJson: string | null;
+    pendingStoreFontJsonPromise: Promise<any> | null;
+    pendingStoreFontJsonPayload: string | null;
 
     constructor(options?: { connectInterpolation?: boolean }) {
         this.worker = null;
@@ -181,6 +184,9 @@ class FontCompilation {
         this.connectInterpolation = options?.connectInterpolation ?? true;
         this.pendingCompilations = new Map();
         this.compilationId = 0;
+        this.lastStoredFontJson = null;
+        this.pendingStoreFontJsonPromise = null;
+        this.pendingStoreFontJsonPayload = null;
     }
 
     async initialize() {
@@ -431,16 +437,64 @@ class FontCompilation {
         }
 
         const messageType = data.type || 'unknown';
+
+        if (messageType === 'storeFontJson') {
+            const payload =
+                typeof data.babelfontJson === 'string' ? data.babelfontJson : '';
+
+            if (payload && payload === this.lastStoredFontJson) {
+                timelineMark('fontCompilation.workerMessage.storeFontJson.skippedCached');
+                return {
+                    type: 'storeFontJson',
+                    success: true,
+                    skipped: 'cached',
+                    cachedSize: payload.length
+                };
+            }
+
+            if (
+                payload &&
+                this.pendingStoreFontJsonPromise &&
+                payload === this.pendingStoreFontJsonPayload
+            ) {
+                timelineMark('fontCompilation.workerMessage.storeFontJson.joinedInFlight');
+                return this.pendingStoreFontJsonPromise;
+            }
+        }
+
         const spanId = timelineSpanStart(
             `fontCompilation.workerMessage.${messageType}`
         );
 
-        return new Promise((resolve, reject) => {
+        const requestPromise = new Promise((resolve, reject) => {
             const id = this.compilationId++;
 
+            const wrappedResolve = (value: any) => {
+                if (messageType === 'storeFontJson') {
+                    const payload =
+                        typeof data.babelfontJson === 'string'
+                            ? data.babelfontJson
+                            : null;
+                    if (payload) {
+                        this.lastStoredFontJson = payload;
+                    }
+                    this.pendingStoreFontJsonPromise = null;
+                    this.pendingStoreFontJsonPayload = null;
+                }
+                resolve(value);
+            };
+
+            const wrappedReject = (reason?: any) => {
+                if (messageType === 'storeFontJson') {
+                    this.pendingStoreFontJsonPromise = null;
+                    this.pendingStoreFontJsonPayload = null;
+                }
+                reject(reason);
+            };
+
             this.pendingCompilations.set(id, {
-                resolve,
-                reject,
+                resolve: wrappedResolve,
+                reject: wrappedReject,
                 filename: data.filename || 'unknown',
                 spanId
             });
@@ -455,6 +509,15 @@ class FontCompilation {
                 reject(error);
             }
         });
+
+        if (messageType === 'storeFontJson') {
+            const payload =
+                typeof data.babelfontJson === 'string' ? data.babelfontJson : '';
+            this.pendingStoreFontJsonPromise = requestPromise;
+            this.pendingStoreFontJsonPayload = payload;
+        }
+
+        return requestPromise;
     }
 
     /**

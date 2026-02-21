@@ -2296,18 +2296,24 @@ class GlyphCanvas {
         this.textChangeDebounceTimer = setTimeout(() => {
             if (fontManager && fontManager.isReady()) {
                 const subsetGlyphs = this.textRunEditor!.glyphNameBuffer || [];
-                fontManager
-                    .compileEditingFont(
-                        this.textRunEditor!.textBuffer,
-                        [],
-                        subsetGlyphs.length > 0 ? subsetGlyphs : undefined
-                    )
-                    .catch((error: any) => {
-                        console.error(
-                            'Failed to recompile editing font:',
-                            error
-                        );
-                    });
+                // Only compile if we have subset info. An empty glyphNameBuffer
+                // means Stage 1 hasn't run yet or found no matching glyphs —
+                // triggering a full compile in that case would be wrong and
+                // wasteful; the subset compile will arrive via typingFontCompiledHandler.
+                if (subsetGlyphs.length > 0) {
+                    fontManager
+                        .compileEditingFont(
+                            this.textRunEditor!.textBuffer,
+                            [],
+                            subsetGlyphs
+                        )
+                        .catch((error: any) => {
+                            console.error(
+                                'Failed to recompile editing font:',
+                                error
+                            );
+                        });
+                }
             }
         }, debounceDelay);
     }
@@ -3216,25 +3222,22 @@ function setupFontLoadingListener() {
 
             // Re-run Stage 1 shaping to populate glyphNameBuffer with the typing font
             // This is necessary because the initial shapeText() may have run before
-            // the typing font was ready
-            // Only proceed if the editing font is already loaded (hbFont is set)
-            if (gc.textRunEditor!.textBuffer && gc.textRunEditor!.hbFont) {
+            // the typing font was ready.
+            // Trigger editing font compile with subset regardless of whether editing
+            // font is already loaded — this covers the initial open case too.
+            if (gc.textRunEditor!.textBuffer) {
                 console.log(
                     '[GlyphCanvas]',
                     'Re-shaping text with typing font to populate glyphNameBuffer'
                 );
                 gc.textRunEditor!.shapeText();
 
-                // Now recompile editing font with subset
+                // Compile editing font with subset
                 const subsetGlyphs = gc.textRunEditor!.glyphNameBuffer || [];
-                if (
-                    subsetGlyphs.length > 0 &&
-                    fontManager &&
-                    fontManager.isReady()
-                ) {
+                if (subsetGlyphs.length > 0 && fontManager) {
                     console.log(
                         '[GlyphCanvas]',
-                        'Recompiling editing font with subset after typing font ready:',
+                        'Compiling editing font with subset after typing font ready:',
                         subsetGlyphs.length,
                         'glyphs'
                     );
@@ -3246,16 +3249,11 @@ function setupFontLoadingListener() {
                         )
                         .catch((error: any) => {
                             console.error(
-                                'Failed to recompile editing font with subset:',
+                                'Failed to compile editing font with subset:',
                                 error
                             );
                         });
                 }
-            } else if (gc.textRunEditor!.textBuffer) {
-                console.log(
-                    '[GlyphCanvas]',
-                    'Editing font not ready yet, skipping subset recompile (will happen after editing font loads)'
-                );
             }
         } else {
             console.log(

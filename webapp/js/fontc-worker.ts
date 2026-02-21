@@ -605,6 +605,19 @@ self.onmessage = async (event) => {
                 await initializeWasm();
             }
 
+            if (cachedBabelfontJson === babelfontJson) {
+                self.postMessage({
+                    id,
+                    type: 'storeFontJson',
+                    success: true,
+                    skipped: 'cached',
+                    cachedSize: cachedBabelfontJson?.length || 0,
+                    message: `Font already cached: ${cachedBabelfontJson?.length || 0} bytes`
+                });
+                timelineMark('font.worker.storeFontJson.skippedCached');
+                return;
+            }
+
             // Store in cache (both in WASM and in worker)
             store_font(babelfontJson);
             cachedBabelfontJson = babelfontJson;

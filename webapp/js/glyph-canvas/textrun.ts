@@ -1761,6 +1761,13 @@ export class TextRunEditor {
                 // Stage 2: Shape text with editing font using BiDi-aware run processing
                 // Splits text into BiDi runs, shapes each separately, then reorders into visual order
                 this.shapeStage2WithBiDiRuns();
+            } else if (this.hbTypingFont) {
+                // Typing font available but no editing font yet (initial open).
+                // Run Stage 1 only to populate glyphNameBuffer so the first subset
+                // compile can be triggered. No visual output yet.
+                this.shapeStage1ForGlyphNames();
+                this.shapedGlyphs = [];
+                this.bidiRuns = [];
             } else if (this.hbFont) {
                 // Fallback: single-font shaping (no typing font yet)
                 if (

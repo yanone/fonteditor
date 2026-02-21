@@ -684,23 +684,8 @@ class GlyphOverview {
                 JSON.stringify(outlines[0], null, 2)
             );
 
-            // Batch all renders in a single animation frame for smooth painting
             const dims = this.getTileDimensions();
-            requestAnimationFrame(() => {
-                outlines.forEach((glyphData: any, index: number) => {
-                    const glyphId = glyphIds[index];
-                    const tile = this.tiles.get(glyphId);
-                    if (tile) {
-                        tile.cachedData = glyphData;
-                        this.renderTileCanvas(
-                            tile,
-                            glyphData,
-                            dims.width,
-                            dims.height
-                        );
-                    }
-                });
-            });
+            await this.renderOutlinesInChunks(outlines, glyphIds, dims);
         } catch (error) {
             console.error(
                 '[GlyphOverview]',
@@ -708,6 +693,49 @@ class GlyphOverview {
                 error
             );
         }
+    }
+
+    private async renderOutlinesInChunks(
+        outlines: any[],
+        glyphIds: string[],
+        dims: { width: number; height: number }
+    ): Promise<void> {
+        const chunkSize = 48;
+
+        await new Promise<void>((resolve) => {
+            let index = 0;
+
+            const renderChunk = () => {
+                const end = Math.min(index + chunkSize, outlines.length);
+
+                for (let i = index; i < end; i += 1) {
+                    const glyphData = outlines[i];
+                    const glyphId = glyphIds[i];
+                    const tile = this.tiles.get(glyphId);
+                    if (!tile) {
+                        continue;
+                    }
+
+                    tile.cachedData = glyphData;
+                    this.renderTileCanvas(
+                        tile,
+                        glyphData,
+                        dims.width,
+                        dims.height
+                    );
+                }
+
+                index = end;
+
+                if (index < outlines.length) {
+                    requestAnimationFrame(renderChunk);
+                } else {
+                    resolve();
+                }
+            };
+
+            requestAnimationFrame(renderChunk);
+        });
     }
 
     /**

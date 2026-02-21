@@ -125,27 +125,8 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
 
         // Update UI
         glyphCanvas.featuresManager.updateFeaturesUI?.();
-
-        // Trigger recompilation (non-fatal during restore)
-        if (window.fontManager && window.fontManager.isReady()) {
-            const activeFeatures = Object.entries(
-                glyphCanvas.featuresManager.featureSettings
-            )
-                .filter(([tag, enabled]) => enabled)
-                .map(([tag, _]) => tag);
-
-            try {
-                await window.fontManager.compileEditingFont(
-                    window.stateManager.editor_text_buffer,
-                    activeFeatures
-                );
-            } catch (error) {
-                console.warn(
-                    'compileEditingFont failed during restore; continuing with URL state application:',
-                    error
-                );
-            }
-        }
+        // Note: no explicit recompile here — the text buffer restore in step 3
+        // calls setTextBuffer() which triggers a debounced subset compile.
     }
 
     // 2. Apply designspace location

@@ -20,6 +20,9 @@ import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timelin
 
 const console = new Logger('FontManager');
 
+let startupOpenSessionActive = false;
+let startupOpenSessionEditingCompileCount = 0;
+
 export type GlyphData = {
     glyphName: string;
     layers: {
@@ -963,11 +966,40 @@ class FontManager {
         this.selectedFeatures = features;
 
         const startTime = performance.now();
-        const compileEditingSpanId = timelineSpanStart('font.compileEditing');
+        const compileEditingSpanId = timelineSpanStart('font.compileEditing', {
+            textBuffer: text,
+            features,
+            subsetGlyphs: subsetGlyphs || []
+        });
+
+        let consumedStartupCompileSlot = false;
 
         try {
             // Compute layout closure if subset glyphs provided
             let glyphsToInclude = subsetGlyphs;
+            if (!glyphsToInclude || glyphsToInclude.length === 0) {
+                const fallbackSubsetGlyphs =
+                    window.glyphCanvas?.textRunEditor?.glyphNameBuffer || [];
+                if (fallbackSubsetGlyphs.length > 0) {
+                    glyphsToInclude = fallbackSubsetGlyphs;
+                } else {
+                    console.log(
+                        '[FontManager] Skipping editing font compile without subset glyphs'
+                    );
+                    return this.editingFont;
+                }
+            }
+
+            if (startupOpenSessionActive) {
+                if (startupOpenSessionEditingCompileCount >= 1) {
+                    console.log(
+                        '[FontManager] Skipping extra editing compile during font.openSession'
+                    );
+                    return this.editingFont;
+                }
+                startupOpenSessionEditingCompileCount += 1;
+                consumedStartupCompileSlot = true;
+            }
 
             if (subsetGlyphs && subsetGlyphs.length > 0) {
                 // Check cache - closure only depends on base glyphs, not active features
@@ -1065,6 +1097,9 @@ class FontManager {
 
             return this.editingFont;
         } catch (error) {
+            if (consumedStartupCompileSlot && startupOpenSessionEditingCompileCount > 0) {
+                startupOpenSessionEditingCompileCount -= 1;
+            }
             console.error('❌ Failed to compile editing font:', error);
             sidebarErrorDisplay.showError(error, 'editing');
             // Reset cursor on error
@@ -1797,6 +1832,9 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
         startupReleased = true;
 
+        startupOpenSessionActive = false;
+        startupOpenSessionEditingCompileCount = 0;
+
         if (overviewReadyListener) {
             window.removeEventListener(
                 'overviewInitialRenderComplete',
@@ -1830,6 +1868,9 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         const detail = (event as CustomEvent).detail;
         const openSessionId = createOpenSessionId();
         const openedAt = performance.now();
+
+        startupOpenSessionActive = true;
+        startupOpenSessionEditingCompileCount = 0;
 
         emitOpenLifecycle(openSessionId, 'fontLoaded', {
             path: detail.path,
@@ -1909,24 +1950,29 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
         emitOpenLifecycle(openSessionId, 'onOpenedComplete');
 
-        // Compile initial editing font
+        // Initial editing font compile (with subset) is triggered by
+        // typingFontCompiledHandler. Listen for the first editingFontCompiled
+        // event instead of awaiting an explicit full compile here.
         emitOpenLifecycle(openSessionId, 'editingCompileStart');
-        await fontManager!.compileEditingFont();
-
-        const editingCompileElapsedMs = performance.now() - openedAt;
-        emitOpenLifecycle(openSessionId, 'editingCompileComplete', {
-            elapsedMs: editingCompileElapsedMs
-        });
-
-        window.dispatchEvent(
-            new CustomEvent('fontOpenEditingCompiled', {
-                detail: {
-                    path: detail.path,
-                    openSessionId,
-                    openedAt,
+        window.addEventListener(
+            'editingFontCompiled',
+            () => {
+                const editingCompileElapsedMs = performance.now() - openedAt;
+                emitOpenLifecycle(openSessionId, 'editingCompileComplete', {
                     elapsedMs: editingCompileElapsedMs
-                }
-            })
+                });
+                window.dispatchEvent(
+                    new CustomEvent('fontOpenEditingCompiled', {
+                        detail: {
+                            path: detail.path,
+                            openSessionId,
+                            openedAt,
+                            elapsedMs: editingCompileElapsedMs
+                        }
+                    })
+                );
+            },
+            { once: true }
         );
 
         fullCompileDeferredTimer = window.setTimeout(() => {
