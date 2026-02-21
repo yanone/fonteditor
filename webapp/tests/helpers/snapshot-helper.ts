@@ -292,12 +292,135 @@ export async function waitForOverviewTilesRendered(page: any) {
             const lifecycleCount = performance.getEntriesByName(
                 'cp:font.lifecycle.overviewInitialRenderComplete'
             ).length;
-            return lifecycleCount > 0;
+
+            if (lifecycleCount === 0) {
+                return false;
+            }
+
+            const glyphModelCount =
+                window.currentFontModel?.glyphs?.length || 0;
+            if (glyphModelCount === 0) {
+                return false;
+            }
+
+            const tileCount = document.querySelectorAll(
+                '#glyph-overview-container .glyph-tile'
+            ).length;
+            if (tileCount === 0) {
+                return false;
+            }
+
+            const tileCanvases = Array.from(
+                document.querySelectorAll(
+                    '#glyph-overview-container .glyph-tile canvas'
+                )
+            ) as HTMLCanvasElement[];
+
+            if (tileCanvases.length === 0) {
+                return false;
+            }
+
+            const sampleSize = Math.min(tileCanvases.length, 80);
+            let renderedCanvasCount = 0;
+
+            for (let index = 0; index < sampleSize; index += 1) {
+                const canvas = tileCanvases[index];
+                const width = canvas.width;
+                const height = canvas.height;
+
+                if (!width || !height) {
+                    continue;
+                }
+
+                try {
+                    const ctx = canvas.getContext('2d', {
+                        willReadFrequently: true
+                    });
+                    if (!ctx) {
+                        continue;
+                    }
+
+                    const imageData = ctx.getImageData(
+                        0,
+                        0,
+                        width,
+                        height
+                    ).data;
+                    let hasNonTransparentPixel = false;
+
+                    for (
+                        let pixelIndex = 3;
+                        pixelIndex < imageData.length;
+                        pixelIndex += 4
+                    ) {
+                        if (imageData[pixelIndex] !== 0) {
+                            hasNonTransparentPixel = true;
+                            break;
+                        }
+                    }
+
+                    if (hasNonTransparentPixel) {
+                        renderedCanvasCount += 1;
+                        if (renderedCanvasCount >= 3) {
+                            break;
+                        }
+                    }
+                } catch {
+                    return false;
+                }
+            }
+
+            if (renderedCanvasCount < 3) {
+                return false;
+            }
+
+            const countElements = Array.from(
+                document.querySelectorAll(
+                    '#overview-filters .glyph-filter-item-count'
+                )
+            ) as HTMLElement[];
+
+            if (countElements.length === 0) {
+                return false;
+            }
+
+            const activeCountElement = document.querySelector(
+                '#overview-filters .glyph-filter-item.active .glyph-filter-item-count'
+            ) as HTMLElement | null;
+
+            if (!activeCountElement) {
+                return false;
+            }
+
+            const activeCountText = (
+                activeCountElement.textContent || ''
+            ).trim();
+
+            if (activeCountText === '—') {
+                return false;
+            }
+
+            if (/^\d+$/.test(activeCountText)) {
+                return true;
+            }
+
+            return !!activeCountElement.querySelector(
+                '.glyph-filter-error-icon'
+            );
         },
-        { timeout: 15000 }
+        { timeout: 30000 }
     );
 
-    await page.waitForTimeout(100);
+    await page.evaluate(async () => {
+        await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+        );
+        await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+        );
+    });
+
+    await page.waitForTimeout(150);
 }
 
 /**

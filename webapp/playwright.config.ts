@@ -14,8 +14,8 @@ export default defineConfig({
     // Maximum time one test can run (5 minutes for complex interactions)
     timeout: 300000,
 
-    // Run tests in parallel
-    fullyParallel: true,
+    // Keep tests in-order for deterministic snapshot timing
+    fullyParallel: false,
 
     // Fail the build on CI if you accidentally left test.only
     forbidOnly: !!process.env.CI,
