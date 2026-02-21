@@ -23,6 +23,7 @@ import {
 } from './tippy-utils';
 import { Logger } from './logger';
 import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
+import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 
 const console = new Logger('FileBrowser');
 
@@ -805,7 +806,7 @@ async function openFont(
     }
 
     // Set loading cursor
-    document.body.classList.add('loading');
+    beginLoadingCursor();
     const openSpan = timelineSpanStart('font.open');
     timelineMark('font.open.requested');
 
@@ -1022,7 +1023,7 @@ async function openFont(
         console.error('[FileBrowser]', 'Error opening font:', error);
         alert(`Error opening font: ${error.message}`);
         // Reset cursor on error
-        document.body.classList.remove('loading');
+        endLoadingCursor();
     }
 }
 

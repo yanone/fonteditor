@@ -17,6 +17,7 @@ import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
 import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
+import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 
 const console = new Logger('FontManager');
 
@@ -743,7 +744,7 @@ class FontManager {
         const previousClosureCache = this.closureCache;
 
         this.isExternalReloading = true;
-        document.body.classList.add('loading');
+        beginLoadingCursor();
 
         try {
             const babelfontJson =
@@ -819,7 +820,7 @@ class FontManager {
             throw error;
         } finally {
             this.isExternalReloading = false;
-            document.body.classList.remove('loading');
+            endLoadingCursor();
         }
     }
 
@@ -1092,9 +1093,6 @@ class FontManager {
                 })
             );
 
-            // Reset loading cursor
-            document.body.classList.remove('loading');
-
             return this.editingFont;
         } catch (error) {
             if (consumedStartupCompileSlot && startupOpenSessionEditingCompileCount > 0) {
@@ -1102,8 +1100,6 @@ class FontManager {
             }
             console.error('❌ Failed to compile editing font:', error);
             sidebarErrorDisplay.showError(error, 'editing');
-            // Reset cursor on error
-            document.body.classList.remove('loading');
             throw error;
         } finally {
             timelineSpanEnd(compileEditingSpanId);
@@ -1859,6 +1855,8 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             reason,
             scheduleFullCompile
         });
+
+        endLoadingCursor();
 
         timelineSpanEnd(openSessionSpanId);
     };
