@@ -20,6 +20,7 @@
 import { get_glyph_name } from '../wasm-dist/babelfont_fontc_web';
 import { fontInterpolation } from './font-interpolation';
 import { Logger } from './logger';
+import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
 
 const console = new Logger('FontCompilation');
 
@@ -169,6 +170,7 @@ class FontCompilation {
             resolve: (value: any) => void;
             reject: (reason?: any) => void;
             filename: string;
+            spanId?: string;
         }
     >;
     compilationId: number;
@@ -182,7 +184,12 @@ class FontCompilation {
     }
 
     async initialize() {
-        if (this.isInitialized) return true;
+        if (this.isInitialized) {
+            timelineMark('fontCompilation.initialize.alreadyInitialized');
+            return true;
+        }
+
+        const initializeSpanId = timelineSpanStart('fontCompilation.initialize');
 
         console.log(
             '[FontCompilation]',
@@ -245,6 +252,7 @@ class FontCompilation {
 
         try {
             // Create a Web Worker for fontc
+            timelineMark('fontCompilation.initialize.createWorker');
             this.worker = new Worker('js/fontc-worker.js', { type: 'module' });
 
             // Set up message handler
@@ -252,6 +260,7 @@ class FontCompilation {
             this.worker.onerror = (e) => this.handleWorkerError(e);
 
             // Wait for worker to be ready
+            timelineMark('fontCompilation.initialize.waitWorkerReady');
             const ready = await new Promise<boolean>((resolve, reject) => {
                 const timeout = setTimeout(() => {
                     reject(
@@ -285,6 +294,7 @@ class FontCompilation {
             });
 
             this.isInitialized = ready;
+            timelineMark('fontCompilation.initialize.ready');
             console.log(
                 '[FontCompilation]',
                 '✅ babelfont-fontc WASM worker initialized'
@@ -305,6 +315,7 @@ class FontCompilation {
 
             return true;
         } catch (error: any) {
+            timelineMark('fontCompilation.initialize.failed');
             console.error(
                 '[FontCompilation]',
                 '❌ Failed to initialize babelfont-fontc WASM:',
@@ -339,6 +350,8 @@ class FontCompilation {
                 }
             }
             return false;
+        } finally {
+            timelineSpanEnd(initializeSpanId);
         }
     }
 
@@ -359,11 +372,15 @@ class FontCompilation {
         const { id, result, error, errorPayload, time_taken } = e.data;
 
         if (id !== undefined && this.pendingCompilations.has(id)) {
-            const { resolve, reject, filename } =
+            const { resolve, reject, filename, spanId } =
                 this.pendingCompilations.get(id)!;
             this.pendingCompilations.delete(id);
+            if (spanId) {
+                timelineSpanEnd(spanId);
+            }
 
             if (error !== undefined || errorPayload !== undefined) {
+                timelineMark('fontCompilation.workerResponse.error');
                 const payloadText = (() => {
                     if (errorPayload === undefined) {
                         return '';
@@ -386,6 +403,7 @@ class FontCompilation {
                 compilationError.compilationErrorPayload = errorPayload;
                 reject(compilationError);
             } else {
+                timelineMark('fontCompilation.workerResponse.success');
                 // For compilation messages, wrap in { result, time_taken, filename }
                 // For other message types, return the full data
                 if (result !== undefined) {
@@ -412,16 +430,30 @@ class FontCompilation {
             throw new Error('Worker not initialized');
         }
 
+        const messageType = data.type || 'unknown';
+        const spanId = timelineSpanStart(
+            `fontCompilation.workerMessage.${messageType}`
+        );
+
         return new Promise((resolve, reject) => {
             const id = this.compilationId++;
 
             this.pendingCompilations.set(id, {
                 resolve,
                 reject,
-                filename: data.filename || 'unknown'
+                filename: data.filename || 'unknown',
+                spanId
             });
 
-            this.worker!.postMessage({ ...data, id });
+            timelineMark(`fontCompilation.workerMessage.${messageType}.sent`);
+            try {
+                this.worker!.postMessage({ ...data, id });
+            } catch (error) {
+                this.pendingCompilations.delete(id);
+                timelineMark(`fontCompilation.workerMessage.${messageType}.failed`);
+                timelineSpanEnd(spanId);
+                reject(error);
+            }
         });
     }
 
@@ -442,9 +474,13 @@ class FontCompilation {
         target: string | CompilationOptions = 'user',
         subsetGlyphs?: Array<string>
     ): Promise<{ result: Uint8Array; filename: string; time_taken: number }> {
+        const compileSpanId = timelineSpanStart('fontCompilation.compileFromJson');
+
         if (!this.isInitialized) {
             const initialized = await this.initialize();
             if (!initialized) {
+                timelineMark('fontCompilation.compileFromJson.notInitialized');
+                timelineSpanEnd(compileSpanId);
                 throw new Error(
                     'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
                 );
@@ -491,7 +527,21 @@ class FontCompilation {
         const id = this.compilationId++;
 
         return new Promise((resolve, reject) => {
-            this.pendingCompilations.set(id, { resolve, reject, filename });
+            const wrappedResolve = (value: any) => {
+                timelineSpanEnd(compileSpanId);
+                resolve(value);
+            };
+            const wrappedReject = (reason?: any) => {
+                timelineMark('fontCompilation.compileFromJson.failed');
+                timelineSpanEnd(compileSpanId);
+                reject(reason);
+            };
+
+            this.pendingCompilations.set(id, {
+                resolve: wrappedResolve,
+                reject: wrappedReject,
+                filename
+            });
 
             // Validate JSON before sending to worker
             try {
@@ -511,18 +561,25 @@ class FontCompilation {
                         babelfontJson.substring(pos - 100, pos + 100)
                     );
                 }
-                reject(error);
+                this.pendingCompilations.delete(id);
+                wrappedReject(error);
                 return;
             }
 
             // Send JSON string directly to worker
-            this.worker!.postMessage({
-                type: 'compile',
-                id,
-                babelfontJson,
-                filename,
-                options
-            });
+            timelineMark('fontCompilation.compileFromJson.posted');
+            try {
+                this.worker!.postMessage({
+                    type: 'compile',
+                    id,
+                    babelfontJson,
+                    filename,
+                    options
+                });
+            } catch (error) {
+                this.pendingCompilations.delete(id);
+                wrappedReject(error);
+            }
         });
     }
 
@@ -637,6 +694,7 @@ async function initFontCompilation() {
 // Only run in browser environment
 if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', async () => {
+        timelineMark('fontCompilation.domContentLoaded');
         console.log(
             '[FontCompilation] DOMContentLoaded - starting initialization'
         );
@@ -662,6 +720,7 @@ if (typeof document !== 'undefined') {
         }
         console.log('[FontCompilation] Calling initFontCompilation...');
         await initFontCompilation();
+        timelineMark('fontCompilation.domInitComplete');
         console.log('[FontCompilation] Initialization complete');
     });
 }

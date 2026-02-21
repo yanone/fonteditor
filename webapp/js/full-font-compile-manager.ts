@@ -2,6 +2,7 @@ import APP_SETTINGS from './settings';
 import { fullFontCompilation } from './font-compilation';
 import fontManager from './font-manager';
 import { Logger } from './logger';
+import { timelineSpanEnd, timelineSpanStart } from './perf-timeline';
 
 const console = new Logger('FullFontCompileManager');
 
@@ -204,6 +205,9 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                 );
 
                 const startedAt = performance.now();
+                const fullCompileSpanId = timelineSpanStart(
+                    'font.compileFull'
+                );
                 try {
                     const compileResult =
                         await fullFontCompilation.compileFromJson(
@@ -218,11 +222,19 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                     let summary: QCSummary | null = null;
                     let checks: QCCheck[] = [];
                     try {
-                        const qaResult = await fullFontCompilation.sendMessage({
-                            type: 'runFontspector',
-                            fontBytes: fullFontBytes,
-                            profile: selectedProfile
-                        });
+                        const fontspectorSpanId = timelineSpanStart(
+                            'font.fontspectorInference'
+                        );
+                        let qaResult;
+                        try {
+                            qaResult = await fullFontCompilation.sendMessage({
+                                type: 'runFontspector',
+                                fontBytes: fullFontBytes,
+                                profile: selectedProfile
+                            });
+                        } finally {
+                            timelineSpanEnd(fontspectorSpanId);
+                        }
                         if (qaResult?.summary) {
                             summary = qaResult.summary as QCSummary;
                         }
@@ -288,6 +300,8 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                         lastChecks
                     );
                     break;
+                } finally {
+                    timelineSpanEnd(fullCompileSpanId);
                 }
             }
         } finally {

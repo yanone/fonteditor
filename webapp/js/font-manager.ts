@@ -16,6 +16,7 @@ import { ensureWasmInitialized } from './wasm-init';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
+import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
 
 const console = new Logger('FontManager');
 
@@ -884,6 +885,7 @@ class FontManager {
         }
 
         const startTime = performance.now();
+        const compileTypingSpanId = timelineSpanStart('font.compileTyping');
 
         try {
             const result = await fontCompilation.compileFromJson(
@@ -915,6 +917,8 @@ class FontManager {
             console.error('❌ Failed to compile typing font:', error);
             sidebarErrorDisplay.showError(error, 'typing');
             throw error;
+        } finally {
+            timelineSpanEnd(compileTypingSpanId);
         }
     }
 
@@ -959,6 +963,7 @@ class FontManager {
         this.selectedFeatures = features;
 
         const startTime = performance.now();
+        const compileEditingSpanId = timelineSpanStart('font.compileEditing');
 
         try {
             // Compute layout closure if subset glyphs provided
@@ -1065,6 +1070,8 @@ class FontManager {
             // Reset cursor on error
             document.body.classList.remove('loading');
             throw error;
+        } finally {
+            timelineSpanEnd(compileEditingSpanId);
         }
     }
 
@@ -1756,6 +1763,7 @@ function emitOpenLifecycle(
     phase: string,
     extra: Record<string, unknown> = {}
 ): void {
+    timelineMark(`font.lifecycle.${phase}`);
     window.dispatchEvent(
         new CustomEvent('fontOpenLifecycle', {
             detail: {
@@ -1771,6 +1779,8 @@ function emitOpenLifecycle(
 // Listen for font loaded events from file browser
 window.addEventListener('fontLoaded', async (event: Event) => {
     await fontCompilationReady();
+
+    const openSessionSpanId = timelineSpanStart('font.openSession');
 
     let fullCompileDeferredTimer: number | null = null;
     let overviewReadyListener: ((event: Event) => void) | null = null;
@@ -1811,6 +1821,8 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             reason,
             scheduleFullCompile
         });
+
+        timelineSpanEnd(openSessionSpanId);
     };
 
     try {
@@ -1925,6 +1937,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         // (or timeout fallback above) to prioritize interactive open speed.
     } catch (error) {
         releaseStartupGates('open-unknown', 'error', false);
+        timelineMark('font.openSession.error');
 
         console.error('[FontManager]', 'Failed to initialize font manager:');
         console.error(

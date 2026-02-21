@@ -47,6 +47,33 @@ repo=https://github.com/<owner>/babelfont-rs.git
 commit=<full-40-char-sha>
 ```
 
+### Performance Timeline (Developer)
+
+Timeline instrumentation uses User Timing entries with the `cp:` prefix.
+
+#### Naming Map (high-level)
+
+- `cp:app.*` → app/bootstrap milestones (module load, URL-open path, DOM ready)
+- `cp:font.open*` → file read/convert/open dispatch flow
+- `cp:font.openSession` and `cp:font.lifecycle.*` → post-open initialization phases
+- `cp:font.compileEditing`, `cp:font.compileTyping`, `cp:font.compileFull` → compile stages
+- `cp:font.fontspectorInference` → QA check timing
+- `cp:fontCompilation.*` → main-thread worker bridge and compile request lifecycle
+- `cp:font.worker.*` → worker-side phases (init, compile, open, outlines, interpolation, cache ops)
+
+#### Where to Monitor in Browser
+
+Use Chrome or Edge DevTools:
+
+1. Open **DevTools → Performance**
+2. Start recording, perform an action (open font / compile), stop recording
+3. Inspect **Timings** track for `cp:*` marks/measures
+
+Optional live console queries:
+
+- Marks: `performance.getEntriesByType('mark').filter(e => e.name.startsWith('cp:'))`
+- Measures: `performance.getEntriesByType('measure').filter(e => e.name.startsWith('cp:'))`
+
 ## Releasing a New Version
 
 To create and deploy a new release, run the release script from the repository root:
@@ -106,12 +133,13 @@ Users will see an orange update notification button in the title bar within 10 m
 - ◻️ .vfb input
 - ◻️ Python scripts I/O
 - ✅ Glyph overview
+- ◻️ Grid glyph overview
 - ✅ Glyph search and filtering
 - ✅ Glyph filtering plugins
 - ✅ Insert glyphs into editor text
 - ◻️ Show intermediate masters
 - ✅ OpenType feature code editor
-- ◻️ OpenType feature code error display inline
+- ✅ OpenType feature code error display inline
 - ✅ Hot-reloading fonts on external changes (Chrome/Chromium only)
 - ✅ Fontspector integration (glyph-level messages later)
 - ✅ Open fonts in PWA directly

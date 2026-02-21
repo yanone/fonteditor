@@ -12,6 +12,7 @@ import init, {
     run_fontspector,
     version
 } from '../wasm-dist/babelfont_fontc_web.js';
+import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
 
 // Note: This is a Web Worker, cannot import Logger from main thread
 // Using standard console.log with facility prefix
@@ -373,7 +374,9 @@ function validateFontData(fontData: any): void {
 }
 
 async function initializeWasm() {
+    const initSpanId = timelineSpanStart('font.worker.initializeWasm');
     try {
+        timelineMark('font.worker.initializeWasm.started');
         // Check if SharedArrayBuffer is available
         if (typeof SharedArrayBuffer === 'undefined') {
             throw new Error(
@@ -391,24 +394,35 @@ async function initializeWasm() {
 
         initialized = true;
         const ver = version();
+        timelineMark('font.worker.initializeWasm.ready');
 
         return ver;
     } catch (error: any) {
+        timelineMark('font.worker.initializeWasm.failed');
         console.error('[Fontc Worker] Initialization error:', error);
         throw error;
+    } finally {
+        timelineSpanEnd(initSpanId);
     }
 }
 
 // Handle compilation requests - supports both message protocols
 self.onmessage = async (event) => {
     const data = event.data;
+    const messageType = data?.type || 'legacy';
+    const messageSpanId = timelineSpanStart(`font.worker.message.${messageType}`);
+    timelineMark(`font.worker.message.${messageType}.received`);
 
-    // Protocol 1: Type-based messages
-    if (data.type === 'init') {
+    try {
+
+        // Protocol 1: Type-based messages
+        if (data.type === 'init') {
         try {
             const ver: string = await initializeWasm();
+            timelineMark('font.worker.init.success');
             self.postMessage({ type: 'ready', version: ver });
         } catch (error: unknown) {
+            timelineMark('font.worker.init.failed');
             const normalizedError = normalizeWorkerError(error);
             self.postMessage({
                 type: 'error',
@@ -421,6 +435,7 @@ self.onmessage = async (event) => {
     }
 
     if (data.type === 'compile') {
+        const compileSpanId = timelineSpanStart('font.worker.compile');
         self.postMessage({
             type: 'debug',
             message: `[Worker] Entered type=compile handler, initialized=${initialized}`
@@ -436,6 +451,7 @@ self.onmessage = async (event) => {
         }
 
         try {
+            timelineMark('font.worker.compile.started');
             const startTime = performance.now();
 
             // Clean font data before compilation
@@ -473,7 +489,9 @@ self.onmessage = async (event) => {
                 result: ttfBytes,
                 time_taken: endTime - startTime
             });
+            timelineMark('font.worker.compile.success');
         } catch (error: unknown) {
+            timelineMark('font.worker.compile.failed');
             console.error('[Fontc Worker] Error:', error);
             const normalizedError = normalizeWorkerError(error);
             const errorText = normalizedError.message;
@@ -516,11 +534,14 @@ self.onmessage = async (event) => {
                 errorPayload: normalizedError.payload,
                 stack: normalizedError.stack
             });
+        } finally {
+            timelineSpanEnd(compileSpanId);
         }
         return;
     }
 
     if (data.type === 'runFontspector') {
+        const fontspectorSpanId = timelineSpanStart('font.worker.runFontspector');
         const { id, fontBytes, profile } = data;
 
         if (!initialized) {
@@ -533,6 +554,7 @@ self.onmessage = async (event) => {
         }
 
         try {
+            timelineMark('font.worker.runFontspector.started');
             const bytes =
                 fontBytes instanceof Uint8Array
                     ? fontBytes
@@ -547,12 +569,16 @@ self.onmessage = async (event) => {
                 profile: parsed.profile || profile || 'opentype',
                 availableProfiles: parsed.availableProfiles || []
             });
+            timelineMark('font.worker.runFontspector.success');
         } catch (e: any) {
+            timelineMark('font.worker.runFontspector.failed');
             self.postMessage({
                 id,
                 type: 'runFontspector',
                 error: e?.toString?.() || 'Fontspector failed'
             });
+        } finally {
+            timelineSpanEnd(fontspectorSpanId);
         }
 
         return;
@@ -560,6 +586,7 @@ self.onmessage = async (event) => {
 
     // Handle store font JSON request (before auto-init to ensure it's cached early)
     if (data.type === 'storeFontJson') {
+        const storeSpanId = timelineSpanStart('font.worker.storeFontJson');
         const { id, babelfontJson } = data;
 
         if (!babelfontJson) {
@@ -572,6 +599,7 @@ self.onmessage = async (event) => {
         }
 
         try {
+            timelineMark('font.worker.storeFontJson.started');
             // Ensure WASM is initialized before calling store_font
             if (!initialized) {
                 await initializeWasm();
@@ -588,7 +616,9 @@ self.onmessage = async (event) => {
                 cachedSize: cachedBabelfontJson?.length || 0,
                 message: `Font cached: ${cachedBabelfontJson?.length || 0} bytes`
             });
+            timelineMark('font.worker.storeFontJson.success');
         } catch (e: any) {
+            timelineMark('font.worker.storeFontJson.failed');
             console.error(`[Fontc Worker] Error storing font JSON:`, e);
             const errorText = e?.message || e?.toString?.() || '';
             const { line, column } = parseErrorLineColumn(errorText);
@@ -629,6 +659,8 @@ self.onmessage = async (event) => {
                 type: 'storeFontJson',
                 error: e.toString()
             });
+        } finally {
+            timelineSpanEnd(storeSpanId);
         }
         return;
     }
@@ -649,9 +681,11 @@ self.onmessage = async (event) => {
 
     // Handle interpolation request (check BEFORE compilation)
     if (data.type === 'interpolate') {
+        const interpolateSpanId = timelineSpanStart('font.worker.interpolate');
         const { id, glyphName, location } = data;
 
         try {
+            timelineMark('font.worker.interpolate.started');
             const locationJson = JSON.stringify(location);
             const layerJson = interpolate_glyph(glyphName, locationJson);
 
@@ -661,7 +695,9 @@ self.onmessage = async (event) => {
                 result: layerJson,
                 glyphName
             });
+            timelineMark('font.worker.interpolate.success');
         } catch (e: any) {
+            timelineMark('font.worker.interpolate.failed');
             console.error('[Fontc Worker] Interpolation error:', e);
             self.postMessage({
                 id,
@@ -669,30 +705,39 @@ self.onmessage = async (event) => {
                 error: e.toString(),
                 glyphName
             });
+        } finally {
+            timelineSpanEnd(interpolateSpanId);
         }
         return;
     }
 
     // Handle cache clear request (check BEFORE compilation)
     if (data.type === 'clearCache') {
+        const clearCacheSpanId = timelineSpanStart('font.worker.clearCache');
         try {
+            timelineMark('font.worker.clearCache.started');
             clear_font_cache();
             self.postMessage({
                 type: 'clearCache',
                 success: true
             });
+            timelineMark('font.worker.clearCache.success');
         } catch (e: any) {
+            timelineMark('font.worker.clearCache.failed');
             console.error('[Fontc Worker] Error clearing cache:', e);
             self.postMessage({
                 type: 'clearCache',
                 error: e.toString()
             });
+        } finally {
+            timelineSpanEnd(clearCacheSpanId);
         }
         return;
     }
 
     // Handle open font file request
     if (data.type === 'openFont') {
+        const openFontSpanId = timelineSpanStart('font.worker.openFont');
         const { id, filename, contents, packageEntries, projectEntries } = data;
         const entryMap = packageEntries || projectEntries;
 
@@ -706,6 +751,7 @@ self.onmessage = async (event) => {
         }
 
         try {
+            timelineMark('font.worker.openFont.started');
             let payload: string;
 
             if (entryMap && typeof entryMap === 'object') {
@@ -762,22 +808,28 @@ self.onmessage = async (event) => {
                 babelfontJson,
                 filename
             });
+            timelineMark('font.worker.openFont.success');
         } catch (e: any) {
+            timelineMark('font.worker.openFont.failed');
             console.error(`[Fontc Worker] Error opening font:`, e);
             self.postMessage({
                 id,
                 type: 'openFont',
                 error: e.toString()
             });
+        } finally {
+            timelineSpanEnd(openFontSpanId);
         }
         return;
     }
 
     // Handle get glyph outlines request
     if (data.type === 'getGlyphOutlines') {
+        const outlinesSpanId = timelineSpanStart('font.worker.getGlyphOutlines');
         const { id, glyphNames, location, flattenComponents } = data;
 
         try {
+            timelineMark('font.worker.getGlyphOutlines.started');
             // Ensure font is cached before getting outlines
             if (!cachedBabelfontJson) {
                 const errorMsg = 'No font loaded in worker. Open a font first.';
@@ -814,13 +866,17 @@ self.onmessage = async (event) => {
                 type: 'getGlyphOutlines',
                 outlinesJson
             });
+            timelineMark('font.worker.getGlyphOutlines.success');
         } catch (e: any) {
+            timelineMark('font.worker.getGlyphOutlines.failed');
             console.error(`[Fontc Worker] Error getting glyph outlines:`, e);
             self.postMessage({
                 id,
                 type: 'getGlyphOutlines',
                 error: e.toString()
             });
+        } finally {
+            timelineSpanEnd(outlinesSpanId);
         }
         return;
     }
@@ -833,6 +889,7 @@ self.onmessage = async (event) => {
         !data.type &&
         data.babelfontJson
     ) {
+        const legacyCompileSpanId = timelineSpanStart('font.worker.legacyCompile');
         const start = Date.now();
         const { id, babelfontJson, filename, options } = data;
 
@@ -850,6 +907,7 @@ self.onmessage = async (event) => {
         }
 
         try {
+            timelineMark('font.worker.legacyCompile.started');
             // STEP 1: Store font in WASM cache for interpolation
             try {
                 store_font(babelfontJson);
@@ -887,7 +945,9 @@ self.onmessage = async (event) => {
                 time_taken,
                 filename: filename.replace(/\.babelfont$/, '.ttf')
             });
+            timelineMark('font.worker.legacyCompile.success');
         } catch (e: any) {
+            timelineMark('font.worker.legacyCompile.failed');
             console.error('[Fontc Worker] Compilation error:', e);
             const errorMessage = e.toString();
 
@@ -896,9 +956,14 @@ self.onmessage = async (event) => {
                 error: errorMessage,
                 userMessage: `Font compilation failed: ${errorMessage}`
             });
+        } finally {
+            timelineSpanEnd(legacyCompileSpanId);
         }
         return;
     }
 
     console.error('[Fontc Worker] Unknown message type:', data);
+    } finally {
+        timelineSpanEnd(messageSpanId);
+    }
 };

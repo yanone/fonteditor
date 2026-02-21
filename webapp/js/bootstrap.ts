@@ -4,8 +4,11 @@ import './mcp-transport';
 import './critical-error-handler';
 import './state-manager'; // Initialize state manager early
 import { Logger } from './logger';
+import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
 
 const console = new Logger('Bootstrap');
+
+timelineMark('app.bootstrap.moduleLoaded');
 
 window.EDITOR_VERSION = process.env.EDITOR_VERSION || null;
 window.BUILD_HASH_FULL = process.env.BUILD_HASH_FULL || null;
@@ -274,6 +277,7 @@ window.updateLoadingStatus = function (
 
 // Handle URL-based font opening special case
 const handleURLFontOpen = () => {
+    const urlOpenSpan = timelineSpanStart('app.urlFontOpen');
     const urlParams = new URLSearchParams(window.location.search);
     const fileParam = urlParams.get('file');
     const legacyPath = urlParams.get('path');
@@ -294,6 +298,7 @@ const handleURLFontOpen = () => {
     }
 
     if (fontPath) {
+        timelineMark('app.urlFontOpen.fontPathDetected');
         const loadingContent = document.querySelector(
             '.loading-content'
         ) as HTMLElement;
@@ -327,6 +332,8 @@ const handleURLFontOpen = () => {
             loadingOverlay.appendChild(fontLoadingLabel);
         }
     }
+
+    timelineSpanEnd(urlOpenSpan);
 };
 
 // Initialize on DOM ready
@@ -334,6 +341,14 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', handleURLFontOpen);
 } else {
     handleURLFontOpen();
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        timelineMark('app.domContentLoaded');
+    });
+} else {
+    timelineMark('app.domContentLoaded.alreadyReady');
 }
 
 if (document.readyState === 'loading') {

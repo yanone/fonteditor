@@ -22,6 +22,7 @@ import {
     setupMenuKeyboardNav
 } from './tippy-utils';
 import { Logger } from './logger';
+import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
 
 const console = new Logger('FileBrowser');
 
@@ -805,6 +806,8 @@ async function openFont(
 
     // Set loading cursor
     document.body.classList.add('loading');
+    const openSpan = timelineSpanStart('font.open');
+    timelineMark('font.open.requested');
 
     try {
         const startTime = performance.now();
@@ -843,94 +846,107 @@ async function openFont(
         let packageEntries: Record<string, Uint8Array> | undefined;
         let projectEntries: Record<string, Uint8Array> | undefined;
 
-        if (isDetachedDiskLaunch) {
-            const launchedFile = await fileHandle!.getFile();
-            const launchedBytes = new Uint8Array(
-                await launchedFile.arrayBuffer()
-            );
-            contents =
-                extension === 'babelfont'
-                    ? new TextDecoder('utf-8').decode(launchedBytes)
-                    : launchedBytes;
-        } else if (isGlyphsPackage) {
-            packageEntries = await collectDirectoryEntries(path);
-
-            if (
-                !packageEntries['fontinfo.plist'] ||
-                !packageEntries['order.plist']
-            ) {
-                throw new Error(
-                    'Invalid .glyphspackage: missing fontinfo.plist or order.plist'
+        const readSpan = timelineSpanStart('font.open.readSource');
+        try {
+            if (isDetachedDiskLaunch) {
+                const launchedFile = await fileHandle!.getFile();
+                const launchedBytes = new Uint8Array(
+                    await launchedFile.arrayBuffer()
                 );
-            }
-        } else if (isUfoDirectory) {
-            projectEntries = await collectAllDirectoryEntries(path);
-        } else if (isDesignspace) {
-            const projectRoot = getParentPath(path);
-            projectEntries = await collectAllDirectoryEntries(projectRoot);
-        } else {
-            contents = await sourceAdapter.readFile(path);
+                contents =
+                    extension === 'babelfont'
+                        ? new TextDecoder('utf-8').decode(launchedBytes)
+                        : launchedBytes;
+            } else if (isGlyphsPackage) {
+                packageEntries = await collectDirectoryEntries(path);
 
-            // For text-based formats (.babelfont is JSON), decode from UTF-8
-            // For binary formats (.glyphs, .ufo, etc.), keep as Uint8Array - Python/Rust handles format detection
-            if (extension === 'babelfont' && contents instanceof Uint8Array) {
-                contents = new TextDecoder('utf-8').decode(contents);
+                if (
+                    !packageEntries['fontinfo.plist'] ||
+                    !packageEntries['order.plist']
+                ) {
+                    throw new Error(
+                        'Invalid .glyphspackage: missing fontinfo.plist or order.plist'
+                    );
+                }
+            } else if (isUfoDirectory) {
+                projectEntries = await collectAllDirectoryEntries(path);
+            } else if (isDesignspace) {
+                const projectRoot = getParentPath(path);
+                projectEntries = await collectAllDirectoryEntries(projectRoot);
+            } else {
+                contents = await sourceAdapter.readFile(path);
+
+                // For text-based formats (.babelfont is JSON), decode from UTF-8
+                // For binary formats (.glyphs, .ufo, etc.), keep as Uint8Array - Python/Rust handles format detection
+                if (
+                    extension === 'babelfont' &&
+                    contents instanceof Uint8Array
+                ) {
+                    contents = new TextDecoder('utf-8').decode(contents);
+                }
+                // All other formats: keep as Uint8Array for worker to handle
             }
-            // All other formats: keep as Uint8Array for worker to handle
+        } finally {
+            timelineSpanEnd(readSpan);
         }
 
         let babelfontJson: string;
 
         // For non-.babelfont files, use Rust loader to convert
         if (extension !== 'babelfont') {
-            console.log(
-                '[FileBrowser]',
-                `Detected ${extension} format, converting via Rust...`
-            );
-
-            if (!window.fontCompilation?.worker) {
-                throw new Error('Font compilation worker not initialized');
-            }
-
-            // Send to worker for conversion
-            babelfontJson = await new Promise<string>((resolve, reject) => {
-                const id = Math.random().toString(36);
-                const timeout = setTimeout(() => {
-                    reject(
-                        new Error('Font conversion timeout after 30 seconds')
-                    );
-                }, 30000);
-
-                const handleMessage = (e: MessageEvent) => {
-                    if (e.data.id === id && e.data.type === 'openFont') {
-                        clearTimeout(timeout);
-                        window.fontCompilation!.worker!.removeEventListener(
-                            'message',
-                            handleMessage
-                        );
-
-                        if (e.data.error) {
-                            reject(new Error(e.data.error));
-                        } else {
-                            resolve(e.data.babelfontJson);
-                        }
-                    }
-                };
-
-                window.fontCompilation!.worker!.addEventListener(
-                    'message',
-                    handleMessage
+            const convertSpan = timelineSpanStart('font.open.convertToBabelfont');
+            try {
+                console.log(
+                    '[FileBrowser]',
+                    `Detected ${extension} format, converting via Rust...`
                 );
 
-                window.fontCompilation!.worker!.postMessage({
-                    type: 'openFont',
-                    id,
-                    filename: path.split('/').pop() || path,
-                    contents,
-                    packageEntries,
-                    projectEntries
+                if (!window.fontCompilation?.worker) {
+                    throw new Error('Font compilation worker not initialized');
+                }
+
+                // Send to worker for conversion
+                babelfontJson = await new Promise<string>((resolve, reject) => {
+                    const id = Math.random().toString(36);
+                    const timeout = setTimeout(() => {
+                        reject(
+                            new Error('Font conversion timeout after 30 seconds')
+                        );
+                    }, 30000);
+
+                    const handleMessage = (e: MessageEvent) => {
+                        if (e.data.id === id && e.data.type === 'openFont') {
+                            clearTimeout(timeout);
+                            window.fontCompilation!.worker!.removeEventListener(
+                                'message',
+                                handleMessage
+                            );
+
+                            if (e.data.error) {
+                                reject(new Error(e.data.error));
+                            } else {
+                                resolve(e.data.babelfontJson);
+                            }
+                        }
+                    };
+
+                    window.fontCompilation!.worker!.addEventListener(
+                        'message',
+                        handleMessage
+                    );
+
+                    window.fontCompilation!.worker!.postMessage({
+                        type: 'openFont',
+                        id,
+                        filename: path.split('/').pop() || path,
+                        contents,
+                        packageEntries,
+                        projectEntries
+                    });
                 });
-            });
+            } finally {
+                timelineSpanEnd(convertSpan);
+            }
 
             console.log(
                 '[FileBrowser]',
@@ -950,6 +966,7 @@ async function openFont(
         );
 
         // Get file handle for disk plugin
+        timelineMark('font.open.fontLoadedDispatch');
         let actualFileHandle = fileHandle;
         if (
             !actualFileHandle &&
@@ -998,7 +1015,10 @@ async function openFont(
         ) {
             setTimeout(() => window.glyphCanvas.canvas!.focus(), 0);
         }
+        timelineSpanEnd(openSpan);
     } catch (error: any) {
+        timelineMark('font.open.failed');
+        timelineSpanEnd(openSpan);
         console.error('[FileBrowser]', 'Error opening font:', error);
         alert(`Error opening font: ${error.message}`);
         // Reset cursor on error
