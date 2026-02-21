@@ -942,7 +942,43 @@ class GlyphOverview {
         // Use lazy loading for all fonts for consistent behavior.
         this.lazyLoadEnabled = true;
         this.setupLazyLoading();
+
+        // Prime initial visible tiles immediately so first render is not empty
+        // when screenshots/tests run right after open.
+        const primedCount = this.primeInitialVisibleTileBatch();
+        if (primedCount > 0) {
+            await this.processBatchRender();
+        }
+
         timelineSpanEnd(totalSpanId);
+    }
+
+    private primeInitialVisibleTileBatch(): number {
+        if (!this.container) {
+            return 0;
+        }
+
+        const maxInitialTiles = 480;
+        let queued = 0;
+
+        this.tiles.forEach((tile, glyphId) => {
+            if (queued >= maxInitialTiles) {
+                return;
+            }
+
+            if (!tile.element.isConnected) {
+                return;
+            }
+
+            if (tile.cachedData) {
+                return;
+            }
+
+            this.pendingGlyphIds.add(glyphId);
+            queued += 1;
+        });
+
+        return queued;
     }
 
     private async renderOutlinesInChunks(

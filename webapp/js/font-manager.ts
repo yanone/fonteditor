@@ -1822,7 +1822,18 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
     let fullCompileDeferredTimer: number | null = null;
     let canvasReadyListener: ((event: Event) => void) | null = null;
+    let overviewReadyListener: ((event: Event) => void) | null = null;
     let startupReleased = false;
+    let canvasReady = false;
+    let overviewReady = false;
+
+    const tryReleaseStartupGates = (openSessionId: string) => {
+        if (!canvasReady || !overviewReady) {
+            return;
+        }
+
+        releaseStartupGates(openSessionId, 'canvas+overview-ready', true);
+    };
 
     const releaseStartupGates = (
         openSessionId: string,
@@ -1844,6 +1855,14 @@ window.addEventListener('fontLoaded', async (event: Event) => {
                 canvasReadyListener
             );
             canvasReadyListener = null;
+        }
+
+        if (overviewReadyListener) {
+            window.removeEventListener(
+                'overviewInitialRenderComplete',
+                overviewReadyListener
+            );
+            overviewReadyListener = null;
         }
 
         if (fullCompileDeferredTimer !== null) {
@@ -1929,17 +1948,36 @@ window.addEventListener('fontLoaded', async (event: Event) => {
                 return;
             }
 
-            if (!startupReleased) {
-                releaseStartupGates(
-                    openSessionId,
-                    'canvas-initial-ready',
-                    true
-                );
-                return;
-            }
+            canvasReady = true;
+            emitOpenLifecycle(openSessionId, 'canvasInitialReady');
+            tryReleaseStartupGates(openSessionId);
         };
 
         window.addEventListener('canvasInitialReady', canvasReadyListener);
+
+        overviewReadyListener = (overviewEvent: Event) => {
+            const overviewDetail = (overviewEvent as CustomEvent).detail;
+            if (
+                overviewDetail?.openSessionId &&
+                overviewDetail.openSessionId !== openSessionId
+            ) {
+                return;
+            }
+
+            overviewReady = true;
+            emitOpenLifecycle(openSessionId, 'overviewInitialRenderComplete', {
+                reason: overviewDetail?.reason,
+                glyphCount: overviewDetail?.glyphCount,
+                renderDurationMs: overviewDetail?.renderDurationMs,
+                totalElapsedMs: overviewDetail?.totalElapsedMs
+            });
+            tryReleaseStartupGates(openSessionId);
+        };
+
+        window.addEventListener(
+            'overviewInitialRenderComplete',
+            overviewReadyListener
+        );
 
         // Dispatch fontReady event (font is loaded, currentFont is set)
         window.dispatchEvent(
@@ -1981,7 +2019,11 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         );
 
         fullCompileDeferredTimer = window.setTimeout(() => {
-            emitOpenLifecycle(openSessionId, 'canvas-ready-timeout-waiting');
+            emitOpenLifecycle(openSessionId, 'startup-ready-timeout-waiting', {
+                canvasReady,
+                overviewReady
+            });
+            releaseStartupGates(openSessionId, 'startup-ready-timeout', true);
         }, 8000);
 
         // Full compile + QC is intentionally deferred until canvas reports

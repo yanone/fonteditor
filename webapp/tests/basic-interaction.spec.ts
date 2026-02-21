@@ -5,7 +5,9 @@ import {
     takeSnapshot,
     waitForCanvasReady,
     waitForFontLoaded,
-    waitForFontspectorReady
+    waitForFontspectorReady,
+    waitForOpenSessionReady,
+    waitForOverviewTilesRendered
 } from './helpers/snapshot-helper';
 
 /**
@@ -136,6 +138,8 @@ test.describe('Font Editor Basic Workflow', () => {
             page,
             'YanoneKaffeesatz.glyphspackage'
         );
+        await waitForOpenSessionReady(page, 'YanoneKaffeesatz.glyphspackage');
+        await waitForOverviewTilesRendered(page);
         await waitForFontspectorReady(page, 'YanoneKaffeesatz.glyphspackage');
         await page.waitForTimeout(300);
 
@@ -162,6 +166,8 @@ test.describe('Font Editor Basic Workflow', () => {
             page,
             'YanoneKaffeesatz.designspace'
         );
+        await waitForOpenSessionReady(page, 'YanoneKaffeesatz.designspace');
+        await waitForOverviewTilesRendered(page);
         await waitForFontspectorReady(page, 'YanoneKaffeesatz.designspace');
         await page.waitForTimeout(300);
 
@@ -198,6 +204,7 @@ test.describe('Font Editor Basic Workflow', () => {
 
         console.log('[Test] Waiting for font to load');
         await waitForFontLoaded(page);
+        await waitForOpenSessionReady(page, 'Fustat.glyphs');
 
         // Re-activate editor view by clicking canvas
         console.log('[Test] Re-activating editor view');

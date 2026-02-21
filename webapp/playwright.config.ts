@@ -98,6 +98,10 @@ export default defineConfig({
             ? 'http://localhost:9000'
             : 'https://localhost:8000',
         reuseExistingServer: !process.env.CI,
+        gracefulShutdown: {
+            signal: 'SIGTERM',
+            timeout: 5000
+        },
         timeout: 120000, // 2 minutes to start dev server
         ignoreHTTPSErrors: true, // Self-signed cert for dev server
         env: {

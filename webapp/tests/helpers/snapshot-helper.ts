@@ -239,6 +239,68 @@ export async function waitForFontspectorReady(
 }
 
 /**
+ * Wait until startup gates are released for the current open session.
+ * This corresponds to font.openSession ending after both canvas and
+ * overview initial readiness are complete.
+ */
+export async function waitForOpenSessionReady(
+    page: any,
+    expectedFilename?: string
+) {
+    if (expectedFilename) {
+        await page.waitForFunction(
+            (filename) => {
+                const editorFile =
+                    window.stateManager?.getStateSnapshot?.()?.state
+                        ?.editor_file || '';
+                return editorFile.includes(filename);
+            },
+            expectedFilename,
+            { timeout: 15000 }
+        );
+    }
+
+    await page.waitForFunction(
+        () => {
+            const startupReleasedMarkCount = performance.getEntriesByName(
+                'cp:font.lifecycle.startupReleased'
+            ).length;
+
+            const startupBlocked =
+                window.autoCompileManager?.getStatus?.()?.isStartupBlocked;
+            const fullCompileEnabled =
+                window.fullCompileManager?.getStatus?.()?.isEnabled;
+
+            return (
+                startupReleasedMarkCount > 0 &&
+                startupBlocked === false &&
+                fullCompileEnabled === true
+            );
+        },
+        { timeout: 20000 }
+    );
+
+    await page.waitForTimeout(100);
+}
+
+/**
+ * Wait until overview tiles have actual rendered canvas content.
+ */
+export async function waitForOverviewTilesRendered(page: any) {
+    await page.waitForFunction(
+        () => {
+            const lifecycleCount = performance.getEntriesByName(
+                'cp:font.lifecycle.overviewInitialRenderComplete'
+            ).length;
+            return lifecycleCount > 0;
+        },
+        { timeout: 15000 }
+    );
+
+    await page.waitForTimeout(100);
+}
+
+/**
  * Take a complete snapshot (JSON + PNG) with a 100ms wait
  * This wrapper combines both snapshot types and adds a stabilization delay
  */
