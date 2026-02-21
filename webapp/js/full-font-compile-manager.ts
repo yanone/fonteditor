@@ -209,9 +209,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                 );
 
                 const startedAt = performance.now();
-                const fullCompileSpanId = timelineSpanStart(
-                    'font.compileFull'
-                );
+                const fullCompileSpanId = timelineSpanStart('font.compileFull');
                 try {
                     const compileResult =
                         await fullFontCompilation.compileFromJson(
@@ -316,7 +314,13 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     function setEnabled(enabled: boolean): void {
         if (TEMP_DISABLE_FULL_COMPILE) {
             isEnabled = false;
-            dispatchQcUpdate(fontManager.fullFontQcSummary, 'idle', -1, undefined, lastChecks);
+            dispatchQcUpdate(
+                fontManager.fullFontQcSummary,
+                'idle',
+                -1,
+                undefined,
+                lastChecks
+            );
             return;
         }
 
@@ -383,7 +387,13 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     if (!TEMP_DISABLE_FULL_COMPILE) {
         monitorTimer = window.setInterval(checkAndSchedule, MONITOR_MS);
     } else {
-        dispatchQcUpdate(fontManager.fullFontQcSummary, 'idle', -1, undefined, lastChecks);
+        dispatchQcUpdate(
+            fontManager.fullFontQcSummary,
+            'idle',
+            -1,
+            undefined,
+            lastChecks
+        );
     }
 
     if (!monitorTimer) {

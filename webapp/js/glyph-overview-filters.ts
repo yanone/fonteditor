@@ -110,7 +110,8 @@ export class GlyphOverviewFilterManager {
     private fileSystemObserver: any = null; // FileSystemObserver instance
     private observerSupported: boolean = 'FileSystemObserver' in window;
     private tippyInstances: TippyInstance[] = []; // Context menu instances
-    private workerClient: GlyphFilterWorkerClient = new GlyphFilterWorkerClient();
+    private workerClient: GlyphFilterWorkerClient =
+        new GlyphFilterWorkerClient();
     private refreshRetryTimer: number | null = null;
     private deferredCountRefreshScheduled: boolean = false;
     private sharedPluginContext: Record<string, any> = {};
@@ -1318,7 +1319,10 @@ export class GlyphOverviewFilterManager {
             return;
         }
 
-        if (!plugin.isUserFilter && plugin.keyword === ALL_GLYPHS_FILTER_KEYWORD) {
+        if (
+            !plugin.isUserFilter &&
+            plugin.keyword === ALL_GLYPHS_FILTER_KEYWORD
+        ) {
             const glyphCount = window.currentFontModel?.glyphs?.length || 0;
 
             plugin.glyphCount = glyphCount;
@@ -1326,7 +1330,8 @@ export class GlyphOverviewFilterManager {
             plugin.hasNoFilterFunction = false;
             plugin.lastResults = [];
             plugin.groups = {};
-            plugin.cachedDataVersion = this.getCurrentDataVersion() ?? undefined;
+            plugin.cachedDataVersion =
+                this.getCurrentDataVersion() ?? undefined;
             plugin.cachedContextVersion = this.sharedPluginContextVersion;
 
             this.updatePluginCount(plugin);
@@ -1358,7 +1363,10 @@ export class GlyphOverviewFilterManager {
                 return;
             }
 
-            const execResult = await this.executeFilter(plugin, fontSnapshotJson);
+            const execResult = await this.executeFilter(
+                plugin,
+                fontSnapshotJson
+            );
             let results = execResult.results;
             const groups = execResult.groups;
             const status = execResult.status || 'ok';
@@ -1396,7 +1404,8 @@ export class GlyphOverviewFilterManager {
             plugin.glyphCount = results.length;
             plugin.hasError = false;
             plugin.hasNoFilterFunction = false;
-            plugin.cachedDataVersion = dataVersion === null ? undefined : dataVersion;
+            plugin.cachedDataVersion =
+                dataVersion === null ? undefined : dataVersion;
             plugin.cachedContextVersion = this.sharedPluginContextVersion;
 
             // Update count in sidebar
@@ -1480,7 +1489,10 @@ export class GlyphOverviewFilterManager {
             try {
                 return JSON.stringify(font.toJSON());
             } catch (error) {
-                console.warn('Failed to stringify currentFontModel.toJSON():', error);
+                console.warn(
+                    'Failed to stringify currentFontModel.toJSON():',
+                    error
+                );
             }
         }
 
@@ -1967,7 +1979,8 @@ export class GlyphOverviewFilterManager {
     private async refreshNonActivePluginCounts(
         fontSnapshotJson: string | null = null
     ): Promise<void> {
-        const snapshotJson = fontSnapshotJson || this.getCurrentFontSnapshotJson();
+        const snapshotJson =
+            fontSnapshotJson || this.getCurrentFontSnapshotJson();
         if (!snapshotJson) {
             this.scheduleRefreshRetry();
             return;
@@ -2022,17 +2035,15 @@ export class GlyphOverviewFilterManager {
             return;
         }
 
-        const snapshotJson = fontSnapshotJson || this.getCurrentFontSnapshotJson();
+        const snapshotJson =
+            fontSnapshotJson || this.getCurrentFontSnapshotJson();
         if (!snapshotJson) {
             this.scheduleRefreshRetry();
             return;
         }
 
         try {
-            const execResult = await this.executeFilter(
-                plugin,
-                snapshotJson
-            );
+            const execResult = await this.executeFilter(plugin, snapshotJson);
             const results = execResult.results;
             plugin.groups = execResult.groups;
 

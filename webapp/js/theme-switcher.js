@@ -174,9 +174,7 @@
 
             const fallbackColor =
                 theme === THEMES.LIGHT ? '#ffffff' : '#181818';
-            const computedColor = getComputedStyle(
-                document.documentElement
-            )
+            const computedColor = getComputedStyle(document.documentElement)
                 .getPropertyValue('--background-primary')
                 .trim();
 

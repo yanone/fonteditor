@@ -12,7 +12,11 @@ import init, {
     run_fontspector,
     version
 } from '../wasm-dist/babelfont_fontc_web.js';
-import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
+import {
+    timelineMark,
+    timelineSpanEnd,
+    timelineSpanStart
+} from './perf-timeline';
 
 // Note: This is a Web Worker, cannot import Logger from main thread
 // Using standard console.log with facility prefix
@@ -410,572 +414,594 @@ async function initializeWasm() {
 self.onmessage = async (event) => {
     const data = event.data;
     const messageType = data?.type || 'legacy';
-    const messageSpanId = timelineSpanStart(`font.worker.message.${messageType}`);
+    const messageSpanId = timelineSpanStart(
+        `font.worker.message.${messageType}`
+    );
     timelineMark(`font.worker.message.${messageType}.received`);
 
     try {
-
         // Protocol 1: Type-based messages
         if (data.type === 'init') {
-        try {
-            const ver: string = await initializeWasm();
-            timelineMark('font.worker.init.success');
-            self.postMessage({ type: 'ready', version: ver });
-        } catch (error: unknown) {
-            timelineMark('font.worker.init.failed');
-            const normalizedError = normalizeWorkerError(error);
-            self.postMessage({
-                type: 'error',
-                error: normalizedError.message,
-                errorPayload: normalizedError.payload,
-                stack: normalizedError.stack
-            });
-        }
-        return;
-    }
-
-    if (data.type === 'compile') {
-        const compileSpanId = timelineSpanStart('font.worker.compile');
-        self.postMessage({
-            type: 'debug',
-            message: `[Worker] Entered type=compile handler, initialized=${initialized}`
-        });
-
-        if (!initialized) {
-            self.postMessage({
-                type: 'error',
-                id: data.id,
-                error: 'Worker not initialized'
-            });
+            try {
+                const ver: string = await initializeWasm();
+                timelineMark('font.worker.init.success');
+                self.postMessage({ type: 'ready', version: ver });
+            } catch (error: unknown) {
+                timelineMark('font.worker.init.failed');
+                const normalizedError = normalizeWorkerError(error);
+                self.postMessage({
+                    type: 'error',
+                    error: normalizedError.message,
+                    errorPayload: normalizedError.payload,
+                    stack: normalizedError.stack
+                });
+            }
             return;
         }
 
-        try {
-            timelineMark('font.worker.compile.started');
-            const startTime = performance.now();
-
-            // Clean font data before compilation
-            const fontData = JSON.parse(data.babelfontJson);
-            // TEMPORARY: Bypass stripLayerData to isolate issue
-            const cleanedFontData = fontData;
-            // const cleanedFontData = stripLayerData(fontData);
-
-            // Validate font data
-            // validateFontData(cleanedFontData);
-
-            const cleanedJson = JSON.stringify(cleanedFontData);
-
-            // Send debug info to main thread
+        if (data.type === 'compile') {
+            const compileSpanId = timelineSpanStart('font.worker.compile');
             self.postMessage({
                 type: 'debug',
-                message: `Before compile: ${cleanedFontData.glyphs.length} glyphs, JSON ${cleanedJson.length} bytes, options: ${JSON.stringify(data.options)}`
+                message: `[Worker] Entered type=compile handler, initialized=${initialized}`
             });
 
-            const ttfBytes = compile_babelfont(cleanedJson, data.options || {});
-            const endTime = performance.now();
-
-            self.postMessage({
-                type: 'debug',
-                message: `After compile: ttfBytes type=${typeof ttfBytes}, length=${ttfBytes?.length || 0}, constructor=${ttfBytes?.constructor?.name || 'unknown'}`
-            });
-
-            console.log(
-                `[Fontc Worker] Compiled in ${(endTime - startTime).toFixed(0)}ms`
-            );
-
-            self.postMessage({
-                type: 'compiled',
-                id: data.id,
-                result: ttfBytes,
-                time_taken: endTime - startTime
-            });
-            timelineMark('font.worker.compile.success');
-        } catch (error: unknown) {
-            timelineMark('font.worker.compile.failed');
-            console.error('[Fontc Worker] Error:', error);
-            const normalizedError = normalizeWorkerError(error);
-            const errorText = normalizedError.message;
-            const { line, column } = parseErrorLineColumn(errorText);
-            if (line && column) {
-                try {
-                    const snippet = getJsonSnippetAtLineColumn(
-                        data.babelfontJson || '',
-                        line,
-                        column
-                    );
-                    if (snippet) {
-                        self.postMessage({
-                            type: 'debug',
-                            message: `[Worker] JSON parse context (line ${line}, col ${column}):\n${snippet}`
-                        });
-                    }
-                } catch (_snippetError) {
-                    // Best-effort diagnostics only
-                }
+            if (!initialized) {
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: 'Worker not initialized'
+                });
+                return;
             }
 
             try {
-                const parsed = JSON.parse(data.babelfontJson || '{}');
-                const shapeIssues = inspectInvalidShapes(parsed);
-                if (shapeIssues.length > 0) {
-                    self.postMessage({
-                        type: 'debug',
-                        message: `[Worker] Potential invalid shapes for untagged enum Shape:\n${shapeIssues.join('\n')}`
-                    });
+                timelineMark('font.worker.compile.started');
+                const startTime = performance.now();
+
+                // Clean font data before compilation
+                const fontData = JSON.parse(data.babelfontJson);
+                // TEMPORARY: Bypass stripLayerData to isolate issue
+                const cleanedFontData = fontData;
+                // const cleanedFontData = stripLayerData(fontData);
+
+                // Validate font data
+                // validateFontData(cleanedFontData);
+
+                const cleanedJson = JSON.stringify(cleanedFontData);
+
+                // Send debug info to main thread
+                self.postMessage({
+                    type: 'debug',
+                    message: `Before compile: ${cleanedFontData.glyphs.length} glyphs, JSON ${cleanedJson.length} bytes, options: ${JSON.stringify(data.options)}`
+                });
+
+                const ttfBytes = compile_babelfont(
+                    cleanedJson,
+                    data.options || {}
+                );
+                const endTime = performance.now();
+
+                self.postMessage({
+                    type: 'debug',
+                    message: `After compile: ttfBytes type=${typeof ttfBytes}, length=${ttfBytes?.length || 0}, constructor=${ttfBytes?.constructor?.name || 'unknown'}`
+                });
+
+                console.log(
+                    `[Fontc Worker] Compiled in ${(endTime - startTime).toFixed(0)}ms`
+                );
+
+                self.postMessage({
+                    type: 'compiled',
+                    id: data.id,
+                    result: ttfBytes,
+                    time_taken: endTime - startTime
+                });
+                timelineMark('font.worker.compile.success');
+            } catch (error: unknown) {
+                timelineMark('font.worker.compile.failed');
+                console.error('[Fontc Worker] Error:', error);
+                const normalizedError = normalizeWorkerError(error);
+                const errorText = normalizedError.message;
+                const { line, column } = parseErrorLineColumn(errorText);
+                if (line && column) {
+                    try {
+                        const snippet = getJsonSnippetAtLineColumn(
+                            data.babelfontJson || '',
+                            line,
+                            column
+                        );
+                        if (snippet) {
+                            self.postMessage({
+                                type: 'debug',
+                                message: `[Worker] JSON parse context (line ${line}, col ${column}):\n${snippet}`
+                            });
+                        }
+                    } catch (_snippetError) {
+                        // Best-effort diagnostics only
+                    }
                 }
-            } catch (_inspectError) {
-                // Best-effort diagnostics only
+
+                try {
+                    const parsed = JSON.parse(data.babelfontJson || '{}');
+                    const shapeIssues = inspectInvalidShapes(parsed);
+                    if (shapeIssues.length > 0) {
+                        self.postMessage({
+                            type: 'debug',
+                            message: `[Worker] Potential invalid shapes for untagged enum Shape:\n${shapeIssues.join('\n')}`
+                        });
+                    }
+                } catch (_inspectError) {
+                    // Best-effort diagnostics only
+                }
+
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: normalizedError.message,
+                    errorPayload: normalizedError.payload,
+                    stack: normalizedError.stack
+                });
+            } finally {
+                timelineSpanEnd(compileSpanId);
             }
-
-            self.postMessage({
-                type: 'error',
-                id: data.id,
-                error: normalizedError.message,
-                errorPayload: normalizedError.payload,
-                stack: normalizedError.stack
-            });
-        } finally {
-            timelineSpanEnd(compileSpanId);
-        }
-        return;
-    }
-
-    if (data.type === 'runFontspector') {
-        const fontspectorSpanId = timelineSpanStart('font.worker.runFontspector');
-        const { id, fontBytes, profile } = data;
-
-        if (!initialized) {
-            self.postMessage({
-                type: 'error',
-                id,
-                error: 'Worker not initialized'
-            });
             return;
         }
 
-        try {
-            timelineMark('font.worker.runFontspector.started');
-            const bytes =
-                fontBytes instanceof Uint8Array
-                    ? fontBytes
-                    : new Uint8Array(fontBytes);
-            const resultJson = run_fontspector(bytes, profile || 'opentype');
-            const parsed = JSON.parse(resultJson);
-            self.postMessage({
-                id,
-                type: 'runFontspector',
-                summary: parsed.summary || null,
-                checks: parsed.checks || [],
-                profile: parsed.profile || profile || 'opentype',
-                availableProfiles: parsed.availableProfiles || []
-            });
-            timelineMark('font.worker.runFontspector.success');
-        } catch (e: any) {
-            timelineMark('font.worker.runFontspector.failed');
-            self.postMessage({
-                id,
-                type: 'runFontspector',
-                error: e?.toString?.() || 'Fontspector failed'
-            });
-        } finally {
-            timelineSpanEnd(fontspectorSpanId);
-        }
+        if (data.type === 'runFontspector') {
+            const fontspectorSpanId = timelineSpanStart(
+                'font.worker.runFontspector'
+            );
+            const { id, fontBytes, profile } = data;
 
-        return;
-    }
-
-    // Handle store font JSON request (before auto-init to ensure it's cached early)
-    if (data.type === 'storeFontJson') {
-        const storeSpanId = timelineSpanStart('font.worker.storeFontJson');
-        const { id, babelfontJson } = data;
-
-        if (!babelfontJson) {
-            self.postMessage({
-                id,
-                type: 'storeFontJson',
-                error: 'Missing babelfontJson'
-            });
-            return;
-        }
-
-        try {
-            timelineMark('font.worker.storeFontJson.started');
-            // Ensure WASM is initialized before calling store_font
             if (!initialized) {
-                await initializeWasm();
+                self.postMessage({
+                    type: 'error',
+                    id,
+                    error: 'Worker not initialized'
+                });
+                return;
             }
 
-            if (cachedBabelfontJson === babelfontJson) {
+            try {
+                timelineMark('font.worker.runFontspector.started');
+                const bytes =
+                    fontBytes instanceof Uint8Array
+                        ? fontBytes
+                        : new Uint8Array(fontBytes);
+                const resultJson = run_fontspector(
+                    bytes,
+                    profile || 'opentype'
+                );
+                const parsed = JSON.parse(resultJson);
+                self.postMessage({
+                    id,
+                    type: 'runFontspector',
+                    summary: parsed.summary || null,
+                    checks: parsed.checks || [],
+                    profile: parsed.profile || profile || 'opentype',
+                    availableProfiles: parsed.availableProfiles || []
+                });
+                timelineMark('font.worker.runFontspector.success');
+            } catch (e: any) {
+                timelineMark('font.worker.runFontspector.failed');
+                self.postMessage({
+                    id,
+                    type: 'runFontspector',
+                    error: e?.toString?.() || 'Fontspector failed'
+                });
+            } finally {
+                timelineSpanEnd(fontspectorSpanId);
+            }
+
+            return;
+        }
+
+        // Handle store font JSON request (before auto-init to ensure it's cached early)
+        if (data.type === 'storeFontJson') {
+            const storeSpanId = timelineSpanStart('font.worker.storeFontJson');
+            const { id, babelfontJson } = data;
+
+            if (!babelfontJson) {
+                self.postMessage({
+                    id,
+                    type: 'storeFontJson',
+                    error: 'Missing babelfontJson'
+                });
+                return;
+            }
+
+            try {
+                timelineMark('font.worker.storeFontJson.started');
+                // Ensure WASM is initialized before calling store_font
+                if (!initialized) {
+                    await initializeWasm();
+                }
+
+                if (cachedBabelfontJson === babelfontJson) {
+                    self.postMessage({
+                        id,
+                        type: 'storeFontJson',
+                        success: true,
+                        skipped: 'cached',
+                        cachedSize: cachedBabelfontJson?.length || 0,
+                        message: `Font already cached: ${cachedBabelfontJson?.length || 0} bytes`
+                    });
+                    timelineMark('font.worker.storeFontJson.skippedCached');
+                    return;
+                }
+
+                // Store in cache (both in WASM and in worker)
+                store_font(babelfontJson);
+                cachedBabelfontJson = babelfontJson;
+
                 self.postMessage({
                     id,
                     type: 'storeFontJson',
                     success: true,
-                    skipped: 'cached',
                     cachedSize: cachedBabelfontJson?.length || 0,
-                    message: `Font already cached: ${cachedBabelfontJson?.length || 0} bytes`
+                    message: `Font cached: ${cachedBabelfontJson?.length || 0} bytes`
                 });
-                timelineMark('font.worker.storeFontJson.skippedCached');
-                return;
-            }
+                timelineMark('font.worker.storeFontJson.success');
+            } catch (e: any) {
+                timelineMark('font.worker.storeFontJson.failed');
+                console.error(`[Fontc Worker] Error storing font JSON:`, e);
+                const errorText = e?.message || e?.toString?.() || '';
+                const { line, column } = parseErrorLineColumn(errorText);
 
-            // Store in cache (both in WASM and in worker)
-            store_font(babelfontJson);
-            cachedBabelfontJson = babelfontJson;
+                if (line && column) {
+                    try {
+                        const snippet = getJsonSnippetAtLineColumn(
+                            babelfontJson,
+                            line,
+                            column
+                        );
+                        if (snippet) {
+                            self.postMessage({
+                                type: 'debug',
+                                message: `[Worker] storeFontJson parse context (line ${line}, col ${column}):\n${snippet}`
+                            });
+                        }
+                    } catch (_snippetError) {
+                        // Best-effort diagnostics only
+                    }
+                }
 
-            self.postMessage({
-                id,
-                type: 'storeFontJson',
-                success: true,
-                cachedSize: cachedBabelfontJson?.length || 0,
-                message: `Font cached: ${cachedBabelfontJson?.length || 0} bytes`
-            });
-            timelineMark('font.worker.storeFontJson.success');
-        } catch (e: any) {
-            timelineMark('font.worker.storeFontJson.failed');
-            console.error(`[Fontc Worker] Error storing font JSON:`, e);
-            const errorText = e?.message || e?.toString?.() || '';
-            const { line, column } = parseErrorLineColumn(errorText);
-
-            if (line && column) {
                 try {
-                    const snippet = getJsonSnippetAtLineColumn(
-                        babelfontJson,
-                        line,
-                        column
-                    );
-                    if (snippet) {
+                    const parsed = JSON.parse(babelfontJson);
+                    const shapeIssues = inspectInvalidShapes(parsed);
+                    if (shapeIssues.length > 0) {
                         self.postMessage({
                             type: 'debug',
-                            message: `[Worker] storeFontJson parse context (line ${line}, col ${column}):\n${snippet}`
+                            message: `[Worker] storeFontJson potential invalid shapes:\n${shapeIssues.join('\n')}`
                         });
                     }
-                } catch (_snippetError) {
+                } catch (_inspectError) {
                     // Best-effort diagnostics only
                 }
+
+                self.postMessage({
+                    id,
+                    type: 'storeFontJson',
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(storeSpanId);
             }
-
-            try {
-                const parsed = JSON.parse(babelfontJson);
-                const shapeIssues = inspectInvalidShapes(parsed);
-                if (shapeIssues.length > 0) {
-                    self.postMessage({
-                        type: 'debug',
-                        message: `[Worker] storeFontJson potential invalid shapes:\n${shapeIssues.join('\n')}`
-                    });
-                }
-            } catch (_inspectError) {
-                // Best-effort diagnostics only
-            }
-
-            self.postMessage({
-                id,
-                type: 'storeFontJson',
-                error: e.toString()
-            });
-        } finally {
-            timelineSpanEnd(storeSpanId);
-        }
-        return;
-    }
-
-    // Protocol 2: Direct messages (from font-compilation.js)
-    // Auto-initialize if not already done
-    if (!initialized) {
-        try {
-            await initializeWasm();
-            self.postMessage({ ready: true });
-        } catch (error: any) {
-            self.postMessage({
-                error: `Failed to initialize babelfont-fontc WASM: ${error.message}`
-            });
-        }
-        return; // Don't process as compilation request
-    }
-
-    // Handle interpolation request (check BEFORE compilation)
-    if (data.type === 'interpolate') {
-        const interpolateSpanId = timelineSpanStart('font.worker.interpolate');
-        const { id, glyphName, location } = data;
-
-        try {
-            timelineMark('font.worker.interpolate.started');
-            const locationJson = JSON.stringify(location);
-            const layerJson = interpolate_glyph(glyphName, locationJson);
-
-            self.postMessage({
-                id,
-                type: 'interpolate',
-                result: layerJson,
-                glyphName
-            });
-            timelineMark('font.worker.interpolate.success');
-        } catch (e: any) {
-            timelineMark('font.worker.interpolate.failed');
-            console.error('[Fontc Worker] Interpolation error:', e);
-            self.postMessage({
-                id,
-                type: 'interpolate',
-                error: e.toString(),
-                glyphName
-            });
-        } finally {
-            timelineSpanEnd(interpolateSpanId);
-        }
-        return;
-    }
-
-    // Handle cache clear request (check BEFORE compilation)
-    if (data.type === 'clearCache') {
-        const clearCacheSpanId = timelineSpanStart('font.worker.clearCache');
-        try {
-            timelineMark('font.worker.clearCache.started');
-            clear_font_cache();
-            self.postMessage({
-                type: 'clearCache',
-                success: true
-            });
-            timelineMark('font.worker.clearCache.success');
-        } catch (e: any) {
-            timelineMark('font.worker.clearCache.failed');
-            console.error('[Fontc Worker] Error clearing cache:', e);
-            self.postMessage({
-                type: 'clearCache',
-                error: e.toString()
-            });
-        } finally {
-            timelineSpanEnd(clearCacheSpanId);
-        }
-        return;
-    }
-
-    // Handle open font file request
-    if (data.type === 'openFont') {
-        const openFontSpanId = timelineSpanStart('font.worker.openFont');
-        const { id, filename, contents, packageEntries, projectEntries } = data;
-        const entryMap = packageEntries || projectEntries;
-
-        if (!filename || (!contents && !entryMap)) {
-            self.postMessage({
-                id,
-                type: 'openFont',
-                error: 'Missing filename or input contents'
-            });
             return;
         }
 
-        try {
-            timelineMark('font.worker.openFont.started');
-            let payload: string;
+        // Protocol 2: Direct messages (from font-compilation.js)
+        // Auto-initialize if not already done
+        if (!initialized) {
+            try {
+                await initializeWasm();
+                self.postMessage({ ready: true });
+            } catch (error: any) {
+                self.postMessage({
+                    error: `Failed to initialize babelfont-fontc WASM: ${error.message}`
+                });
+            }
+            return; // Don't process as compilation request
+        }
 
-            if (entryMap && typeof entryMap === 'object') {
-                const utf8Decoder = new TextDecoder('utf-8');
-                const stringEntries: Record<string, string> = {};
+        // Handle interpolation request (check BEFORE compilation)
+        if (data.type === 'interpolate') {
+            const interpolateSpanId = timelineSpanStart(
+                'font.worker.interpolate'
+            );
+            const { id, glyphName, location } = data;
 
-                for (const [relativePath, fileContents] of Object.entries(
-                    entryMap
-                )) {
-                    if (fileContents instanceof Uint8Array) {
-                        stringEntries[relativePath] =
-                            utf8Decoder.decode(fileContents);
-                    } else if (typeof fileContents === 'string') {
-                        stringEntries[relativePath] = fileContents;
+            try {
+                timelineMark('font.worker.interpolate.started');
+                const locationJson = JSON.stringify(location);
+                const layerJson = interpolate_glyph(glyphName, locationJson);
+
+                self.postMessage({
+                    id,
+                    type: 'interpolate',
+                    result: layerJson,
+                    glyphName
+                });
+                timelineMark('font.worker.interpolate.success');
+            } catch (e: any) {
+                timelineMark('font.worker.interpolate.failed');
+                console.error('[Fontc Worker] Interpolation error:', e);
+                self.postMessage({
+                    id,
+                    type: 'interpolate',
+                    error: e.toString(),
+                    glyphName
+                });
+            } finally {
+                timelineSpanEnd(interpolateSpanId);
+            }
+            return;
+        }
+
+        // Handle cache clear request (check BEFORE compilation)
+        if (data.type === 'clearCache') {
+            const clearCacheSpanId = timelineSpanStart(
+                'font.worker.clearCache'
+            );
+            try {
+                timelineMark('font.worker.clearCache.started');
+                clear_font_cache();
+                self.postMessage({
+                    type: 'clearCache',
+                    success: true
+                });
+                timelineMark('font.worker.clearCache.success');
+            } catch (e: any) {
+                timelineMark('font.worker.clearCache.failed');
+                console.error('[Fontc Worker] Error clearing cache:', e);
+                self.postMessage({
+                    type: 'clearCache',
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(clearCacheSpanId);
+            }
+            return;
+        }
+
+        // Handle open font file request
+        if (data.type === 'openFont') {
+            const openFontSpanId = timelineSpanStart('font.worker.openFont');
+            const { id, filename, contents, packageEntries, projectEntries } =
+                data;
+            const entryMap = packageEntries || projectEntries;
+
+            if (!filename || (!contents && !entryMap)) {
+                self.postMessage({
+                    id,
+                    type: 'openFont',
+                    error: 'Missing filename or input contents'
+                });
+                return;
+            }
+
+            try {
+                timelineMark('font.worker.openFont.started');
+                let payload: string;
+
+                if (entryMap && typeof entryMap === 'object') {
+                    const utf8Decoder = new TextDecoder('utf-8');
+                    const stringEntries: Record<string, string> = {};
+
+                    for (const [relativePath, fileContents] of Object.entries(
+                        entryMap
+                    )) {
+                        if (fileContents instanceof Uint8Array) {
+                            stringEntries[relativePath] =
+                                utf8Decoder.decode(fileContents);
+                        } else if (typeof fileContents === 'string') {
+                            stringEntries[relativePath] = fileContents;
+                        } else {
+                            throw new Error(
+                                `Invalid project entry type at ${relativePath}`
+                            );
+                        }
+                    }
+
+                    payload = JSON.stringify(stringEntries);
+                } else {
+                    // Convert Uint8Array to string for WASM
+                    // Both OPFS and disk now return Uint8Array consistently
+                    // Use Latin-1 encoding (1:1 byte mapping) to preserve exact bytes
+                    // Rust will detect format and decode properly (handles both UTF-8 text and binary plist)
+                    if (typeof contents === 'string') {
+                        payload = contents;
+                    } else if (contents instanceof Uint8Array) {
+                        payload = Array.from(contents, (byte) =>
+                            String.fromCharCode(byte)
+                        ).join('');
                     } else {
+                        console.error(
+                            `[Fontc Worker] Expected Uint8Array|string, got:`,
+                            typeof contents
+                        );
                         throw new Error(
-                            `Invalid project entry type at ${relativePath}`
+                            `Expected Uint8Array|string, got ${typeof contents}`
                         );
                     }
                 }
 
-                payload = JSON.stringify(stringEntries);
-            } else {
-                // Convert Uint8Array to string for WASM
-                // Both OPFS and disk now return Uint8Array consistently
-                // Use Latin-1 encoding (1:1 byte mapping) to preserve exact bytes
-                // Rust will detect format and decode properly (handles both UTF-8 text and binary plist)
-                if (typeof contents === 'string') {
-                    payload = contents;
-                } else if (contents instanceof Uint8Array) {
-                    payload = Array.from(contents, (byte) =>
-                        String.fromCharCode(byte)
-                    ).join('');
-                } else {
-                    console.error(
-                        `[Fontc Worker] Expected Uint8Array|string, got:`,
-                        typeof contents
-                    );
-                    throw new Error(
-                        `Expected Uint8Array|string, got ${typeof contents}`
-                    );
-                }
+                const babelfontJson = open_font_file(filename, payload);
+
+                // Store in cache (both in WASM and in worker)
+                store_font(babelfontJson);
+                cachedBabelfontJson = babelfontJson;
+
+                self.postMessage({
+                    id,
+                    type: 'openFont',
+                    babelfontJson,
+                    filename
+                });
+                timelineMark('font.worker.openFont.success');
+            } catch (e: any) {
+                timelineMark('font.worker.openFont.failed');
+                console.error(`[Fontc Worker] Error opening font:`, e);
+                self.postMessage({
+                    id,
+                    type: 'openFont',
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(openFontSpanId);
             }
-
-            const babelfontJson = open_font_file(filename, payload);
-
-            // Store in cache (both in WASM and in worker)
-            store_font(babelfontJson);
-            cachedBabelfontJson = babelfontJson;
-
-            self.postMessage({
-                id,
-                type: 'openFont',
-                babelfontJson,
-                filename
-            });
-            timelineMark('font.worker.openFont.success');
-        } catch (e: any) {
-            timelineMark('font.worker.openFont.failed');
-            console.error(`[Fontc Worker] Error opening font:`, e);
-            self.postMessage({
-                id,
-                type: 'openFont',
-                error: e.toString()
-            });
-        } finally {
-            timelineSpanEnd(openFontSpanId);
+            return;
         }
-        return;
-    }
 
-    // Handle get glyph outlines request
-    if (data.type === 'getGlyphOutlines') {
-        const outlinesSpanId = timelineSpanStart('font.worker.getGlyphOutlines');
-        const { id, glyphNames, location, flattenComponents } = data;
+        // Handle get glyph outlines request
+        if (data.type === 'getGlyphOutlines') {
+            const outlinesSpanId = timelineSpanStart(
+                'font.worker.getGlyphOutlines'
+            );
+            const { id, glyphNames, location, flattenComponents } = data;
 
-        try {
-            timelineMark('font.worker.getGlyphOutlines.started');
-            // Ensure font is cached before getting outlines
-            if (!cachedBabelfontJson) {
-                const errorMsg = 'No font loaded in worker. Open a font first.';
-                console.error(`[Fontc Worker] ERROR: ${errorMsg}`);
+            try {
+                timelineMark('font.worker.getGlyphOutlines.started');
+                // Ensure font is cached before getting outlines
+                if (!cachedBabelfontJson) {
+                    const errorMsg =
+                        'No font loaded in worker. Open a font first.';
+                    console.error(`[Fontc Worker] ERROR: ${errorMsg}`);
+                    self.postMessage({
+                        id,
+                        type: 'getGlyphOutlines',
+                        error: errorMsg,
+                        debugInfo: {
+                            cacheState: 'null',
+                            initialized: initialized,
+                            timestamp: Date.now()
+                        }
+                    });
+                    return;
+                }
+
+                // Note: Don't call store_font here - it clears the outline cache!
+                // The font is already stored when opened.
+
+                const locationJson =
+                    Object.keys(location).length > 0
+                        ? JSON.stringify(location)
+                        : '{}';
+                const glyphNamesJson = JSON.stringify(glyphNames);
+                const outlinesJson = get_glyphs_outlines(
+                    glyphNamesJson,
+                    locationJson,
+                    flattenComponents
+                );
+
                 self.postMessage({
                     id,
                     type: 'getGlyphOutlines',
-                    error: errorMsg,
-                    debugInfo: {
-                        cacheState: 'null',
-                        initialized: initialized,
-                        timestamp: Date.now()
-                    }
+                    outlinesJson
+                });
+                timelineMark('font.worker.getGlyphOutlines.success');
+            } catch (e: any) {
+                timelineMark('font.worker.getGlyphOutlines.failed');
+                console.error(
+                    `[Fontc Worker] Error getting glyph outlines:`,
+                    e
+                );
+                self.postMessage({
+                    id,
+                    type: 'getGlyphOutlines',
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(outlinesSpanId);
+            }
+            return;
+        }
+
+        // Handle compilation request (LEGACY PATH - fallback for messages without explicit type)
+        if (
+            data.type !== 'compile' &&
+            data.type !== 'interpolate' &&
+            data.type !== 'clearCache' &&
+            !data.type &&
+            data.babelfontJson
+        ) {
+            const legacyCompileSpanId = timelineSpanStart(
+                'font.worker.legacyCompile'
+            );
+            const start = Date.now();
+            const { id, babelfontJson, filename, options } = data;
+
+            // Validate babelfontJson exists
+            if (!babelfontJson) {
+                console.error(
+                    '[Fontc Worker] No babelfontJson provided in compilation request, data.type:',
+                    data.type
+                );
+                self.postMessage({
+                    id,
+                    error: 'No babelfontJson provided in compilation request'
                 });
                 return;
             }
 
-            // Note: Don't call store_font here - it clears the outline cache!
-            // The font is already stored when opened.
+            try {
+                timelineMark('font.worker.legacyCompile.started');
+                // STEP 1: Store font in WASM cache for interpolation
+                try {
+                    store_font(babelfontJson);
+                    cachedBabelfontJson = babelfontJson; // Also cache in worker memory
+                } catch (cacheError) {
+                    console.warn(
+                        '[Fontc Worker] ⚠️ Failed to cache font:',
+                        cacheError
+                    );
+                    // Continue with compilation anyway
+                }
 
-            const locationJson =
-                Object.keys(location).length > 0
-                    ? JSON.stringify(location)
-                    : '{}';
-            const glyphNamesJson = JSON.stringify(glyphNames);
-            const outlinesJson = get_glyphs_outlines(
-                glyphNamesJson,
-                locationJson,
-                flattenComponents
-            );
+                // STEP 2: Clean font data (remove runtime-only layerData fields)
+                const fontData = JSON.parse(babelfontJson);
+                const cleanedFontData = stripLayerData(fontData);
 
-            self.postMessage({
-                id,
-                type: 'getGlyphOutlines',
-                outlinesJson
-            });
-            timelineMark('font.worker.getGlyphOutlines.success');
-        } catch (e: any) {
-            timelineMark('font.worker.getGlyphOutlines.failed');
-            console.error(`[Fontc Worker] Error getting glyph outlines:`, e);
-            self.postMessage({
-                id,
-                type: 'getGlyphOutlines',
-                error: e.toString()
-            });
-        } finally {
-            timelineSpanEnd(outlinesSpanId);
-        }
-        return;
-    }
+                // Validate font data before compilation
+                validateFontData(cleanedFontData);
 
-    // Handle compilation request (LEGACY PATH - fallback for messages without explicit type)
-    if (
-        data.type !== 'compile' &&
-        data.type !== 'interpolate' &&
-        data.type !== 'clearCache' &&
-        !data.type &&
-        data.babelfontJson
-    ) {
-        const legacyCompileSpanId = timelineSpanStart('font.worker.legacyCompile');
-        const start = Date.now();
-        const { id, babelfontJson, filename, options } = data;
+                const cleanedJson = JSON.stringify(cleanedFontData);
 
-        // Validate babelfontJson exists
-        if (!babelfontJson) {
-            console.error(
-                '[Fontc Worker] No babelfontJson provided in compilation request, data.type:',
-                data.type
-            );
-            self.postMessage({
-                id,
-                error: 'No babelfontJson provided in compilation request'
-            });
+                // STEP 3: Compile to TTF
+                const result = compile_babelfont(cleanedJson, {
+                    drop_incompatible_paths: true // Tolerate incompatible masters
+                });
+
+                const time_taken = Date.now() - start;
+                console.log(
+                    `[Fontc Worker] Compiled ${filename} in ${time_taken}ms`
+                );
+
+                self.postMessage({
+                    id,
+                    result: Array.from(result),
+                    time_taken,
+                    filename: filename.replace(/\.babelfont$/, '.ttf')
+                });
+                timelineMark('font.worker.legacyCompile.success');
+            } catch (e: any) {
+                timelineMark('font.worker.legacyCompile.failed');
+                console.error('[Fontc Worker] Compilation error:', e);
+                const errorMessage = e.toString();
+
+                self.postMessage({
+                    id,
+                    error: errorMessage,
+                    userMessage: `Font compilation failed: ${errorMessage}`
+                });
+            } finally {
+                timelineSpanEnd(legacyCompileSpanId);
+            }
             return;
         }
 
-        try {
-            timelineMark('font.worker.legacyCompile.started');
-            // STEP 1: Store font in WASM cache for interpolation
-            try {
-                store_font(babelfontJson);
-                cachedBabelfontJson = babelfontJson; // Also cache in worker memory
-            } catch (cacheError) {
-                console.warn(
-                    '[Fontc Worker] ⚠️ Failed to cache font:',
-                    cacheError
-                );
-                // Continue with compilation anyway
-            }
-
-            // STEP 2: Clean font data (remove runtime-only layerData fields)
-            const fontData = JSON.parse(babelfontJson);
-            const cleanedFontData = stripLayerData(fontData);
-
-            // Validate font data before compilation
-            validateFontData(cleanedFontData);
-
-            const cleanedJson = JSON.stringify(cleanedFontData);
-
-            // STEP 3: Compile to TTF
-            const result = compile_babelfont(cleanedJson, {
-                drop_incompatible_paths: true // Tolerate incompatible masters
-            });
-
-            const time_taken = Date.now() - start;
-            console.log(
-                `[Fontc Worker] Compiled ${filename} in ${time_taken}ms`
-            );
-
-            self.postMessage({
-                id,
-                result: Array.from(result),
-                time_taken,
-                filename: filename.replace(/\.babelfont$/, '.ttf')
-            });
-            timelineMark('font.worker.legacyCompile.success');
-        } catch (e: any) {
-            timelineMark('font.worker.legacyCompile.failed');
-            console.error('[Fontc Worker] Compilation error:', e);
-            const errorMessage = e.toString();
-
-            self.postMessage({
-                id,
-                error: errorMessage,
-                userMessage: `Font compilation failed: ${errorMessage}`
-            });
-        } finally {
-            timelineSpanEnd(legacyCompileSpanId);
-        }
-        return;
-    }
-
-    console.error('[Fontc Worker] Unknown message type:', data);
+        console.error('[Fontc Worker] Unknown message type:', data);
     } finally {
         timelineSpanEnd(messageSpanId);
     }

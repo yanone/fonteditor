@@ -4,7 +4,11 @@ import './mcp-transport';
 import './critical-error-handler';
 import './state-manager'; // Initialize state manager early
 import { Logger } from './logger';
-import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
+import {
+    timelineMark,
+    timelineSpanEnd,
+    timelineSpanStart
+} from './perf-timeline';
 
 const console = new Logger('Bootstrap');
 

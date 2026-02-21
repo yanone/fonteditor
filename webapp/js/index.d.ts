@@ -142,7 +142,9 @@ declare global {
                 glyphOverview: any
             ) => void;
             discoverPlugins: () => Promise<void>;
-            refreshPlugins: (options?: { deferCounts?: boolean }) => Promise<void>;
+            refreshPlugins: (options?: {
+                deferCounts?: boolean;
+            }) => Promise<void>;
             getPlugins: () => any[];
             isLoaded: () => boolean;
             getActiveFilter: () => any | null;

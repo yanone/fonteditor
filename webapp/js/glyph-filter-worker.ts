@@ -19,29 +19,29 @@ type WorkerRequest =
           code: string;
           fontJson: string;
           timeoutMs: number;
-        }
-        | {
-            type: 'installPackages';
-            id: number;
-            packages: string[];
-        }
-        | {
-            type: 'syncSharedContext';
-            id: number;
-            context: Record<string, any>;
-            version: number;
+      }
+    | {
+          type: 'installPackages';
+          id: number;
+          packages: string[];
+      }
+    | {
+          type: 'syncSharedContext';
+          id: number;
+          context: Record<string, any>;
+          version: number;
       };
 
 type FilterExecutionRequest =
-        | Extract<WorkerRequest, { type: 'runBuiltinFilter' }>
-        | Extract<WorkerRequest, { type: 'runUserFilter' }>;
+    | Extract<WorkerRequest, { type: 'runBuiltinFilter' }>
+    | Extract<WorkerRequest, { type: 'runUserFilter' }>;
 
 let pyodide: any = null;
 let initPromise: Promise<void> | null = null;
-    const installedDynamicPackages = new Set<string>();
-    let sharedContextVersion = 0;
-    let sharedPluginContext: Record<string, any> = {};
-    let pendingContextPatch: Record<string, any> | null = null;
+const installedDynamicPackages = new Set<string>();
+let sharedContextVersion = 0;
+let sharedPluginContext: Record<string, any> = {};
+let pendingContextPatch: Record<string, any> | null = null;
 
 async function installWheels(py: any): Promise<void> {
     const manifestResponse = await fetch('/wheels/wheels.json');
@@ -53,7 +53,9 @@ async function installWheels(py: any): Promise<void> {
 
     for (const wheelFile of wheelFiles) {
         const wheelUrl = `/wheels/${wheelFile}`;
-        await py.runPythonAsync(`await micropip.install(${JSON.stringify(wheelUrl)})`);
+        await py.runPythonAsync(
+            `await micropip.install(${JSON.stringify(wheelUrl)})`
+        );
     }
 }
 
@@ -205,14 +207,20 @@ def _run_user_filter(code: str):
     }
 }
 
-async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function runWithTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number
+): Promise<T> {
     if (!timeoutMs || timeoutMs <= 0) {
         return promise;
     }
 
     const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(
-            () => reject(new Error(`Filter execution timed out (${timeoutMs}ms)`)),
+            () =>
+                reject(
+                    new Error(`Filter execution timed out (${timeoutMs}ms)`)
+                ),
             timeoutMs
         );
     });
@@ -271,7 +279,9 @@ async function executeFilter(request: FilterExecutionRequest) {
     }
 }
 
-async function installPackages(request: Extract<WorkerRequest, { type: 'installPackages' }>) {
+async function installPackages(
+    request: Extract<WorkerRequest, { type: 'installPackages' }>
+) {
     await ensureWorkerRuntime();
 
     const requestedPackages = Array.isArray(request.packages)

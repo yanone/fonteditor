@@ -16,7 +16,11 @@ import { ensureWasmInitialized } from './wasm-init';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
-import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
+import {
+    timelineMark,
+    timelineSpanEnd,
+    timelineSpanStart
+} from './perf-timeline';
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 
 const console = new Logger('FontManager');
@@ -1095,7 +1099,10 @@ class FontManager {
 
             return this.editingFont;
         } catch (error) {
-            if (consumedStartupCompileSlot && startupOpenSessionEditingCompileCount > 0) {
+            if (
+                consumedStartupCompileSlot &&
+                startupOpenSessionEditingCompileCount > 0
+            ) {
                 startupOpenSessionEditingCompileCount -= 1;
             }
             console.error('❌ Failed to compile editing font:', error);
@@ -1923,15 +1930,16 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             }
 
             if (!startupReleased) {
-                releaseStartupGates(openSessionId, 'canvas-initial-ready', true);
+                releaseStartupGates(
+                    openSessionId,
+                    'canvas-initial-ready',
+                    true
+                );
                 return;
             }
         };
 
-        window.addEventListener(
-            'canvasInitialReady',
-            canvasReadyListener
-        );
+        window.addEventListener('canvasInitialReady', canvasReadyListener);
 
         // Dispatch fontReady event (font is loaded, currentFont is set)
         window.dispatchEvent(

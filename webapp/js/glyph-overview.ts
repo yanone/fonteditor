@@ -72,7 +72,8 @@ class GlyphOverview {
     private deferredTileBuildTimer: number | null = null;
     private linesVirtualizationActive = false;
     private virtualizedRenderRafPending = false;
-    private virtualizedRenderRange: { start: number; end: number } | null = null;
+    private virtualizedRenderRange: { start: number; end: number } | null =
+        null;
     private readonly linesVirtualizationThreshold = 1200;
     private readonly linesVirtualizationBufferRows = 6;
     private onContainerScrollBound = this.onContainerScroll.bind(this);
@@ -513,9 +514,13 @@ class GlyphOverview {
 
         if (!this.linesVirtualizationActive) {
             this.linesVirtualizationActive = true;
-            this.container.addEventListener('scroll', this.onContainerScrollBound, {
-                passive: true
-            });
+            this.container.addEventListener(
+                'scroll',
+                this.onContainerScrollBound,
+                {
+                    passive: true
+                }
+            );
         }
 
         this.container.classList.remove('glyph-overview-grid-mode');
@@ -530,7 +535,10 @@ class GlyphOverview {
         this.linesVirtualizationActive = false;
         this.virtualizedRenderRafPending = false;
         this.virtualizedRenderRange = null;
-        this.container.removeEventListener('scroll', this.onContainerScrollBound);
+        this.container.removeEventListener(
+            'scroll',
+            this.onContainerScrollBound
+        );
     }
 
     private onContainerScroll(): void {
@@ -568,11 +576,13 @@ class GlyphOverview {
 
         const startRow = Math.max(
             0,
-            Math.floor(viewportTop / rowHeight) - this.linesVirtualizationBufferRows
+            Math.floor(viewportTop / rowHeight) -
+                this.linesVirtualizationBufferRows
         );
         const endRow = Math.min(
             totalRows - 1,
-            Math.ceil(viewportBottom / rowHeight) + this.linesVirtualizationBufferRows
+            Math.ceil(viewportBottom / rowHeight) +
+                this.linesVirtualizationBufferRows
         );
 
         const start = Math.min(total, startRow * columns);
@@ -590,7 +600,10 @@ class GlyphOverview {
         this.virtualizedRenderRange = { start, end };
 
         const topSpacerHeight = startRow * rowHeight;
-        const bottomSpacerHeight = Math.max(0, (totalRows - endRow - 1) * rowHeight);
+        const bottomSpacerHeight = Math.max(
+            0,
+            (totalRows - endRow - 1) * rowHeight
+        );
 
         const fragment = document.createDocumentFragment();
 
@@ -745,7 +758,9 @@ class GlyphOverview {
         return overviewView?.classList.contains('focused') ?? false;
     }
 
-    public updateGlyphs(glyphs: Array<{ id: string; name: string }>): Promise<void> {
+    public updateGlyphs(
+        glyphs: Array<{ id: string; name: string }>
+    ): Promise<void> {
         if (!this.container) return Promise.resolve();
 
         this.totalGlyphDatasetCount = glyphs.length;
@@ -840,7 +855,8 @@ class GlyphOverview {
             const chunkSize =
                 totalGlyphs > 5000 ? 80 : totalGlyphs > 2500 ? 100 : 120;
             const endIndex = Math.min(startIndex + chunkSize, totalGlyphs);
-            const shouldAttachChunk = !buildVirtualizedOnly || !initialChunkReady;
+            const shouldAttachChunk =
+                !buildVirtualizedOnly || !initialChunkReady;
             const fragment = shouldAttachChunk
                 ? document.createDocumentFragment()
                 : null;
@@ -961,7 +977,9 @@ class GlyphOverview {
                 for (let i = index; i < end; i += 1) {
                     const glyphData = outlines[i];
                     const glyphName = glyphData?.name;
-                    let tile = glyphName ? glyphNameToTile.get(glyphName) : undefined;
+                    let tile = glyphName
+                        ? glyphNameToTile.get(glyphName)
+                        : undefined;
                     if (!tile && glyphNames[i]) {
                         tile = glyphNameToTile.get(glyphNames[i]);
                     }

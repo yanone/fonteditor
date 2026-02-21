@@ -36,10 +36,9 @@ class FastGlyphTileRenderer {
         // Colors will be initialized lazily on first render
     }
 
-    private normalizeShape(shape: any):
-        | { kind: 'path'; data: any }
-        | { kind: 'component'; data: any }
-        | null {
+    private normalizeShape(
+        shape: any
+    ): { kind: 'path'; data: any } | { kind: 'component'; data: any } | null {
         if (!shape || typeof shape !== 'object') {
             return null;
         }
@@ -290,7 +289,7 @@ class FastGlyphTileRenderer {
                 const normalized = this.normalizeShape(shape);
                 if (normalized?.kind === 'component') {
                     const component = normalized.data;
-                                        const transform = this.parseTransform(component.transform);
+                    const transform = this.parseTransform(component.transform);
 
                     const finalTransform = parentTransform
                         ? this.multiplyTransforms(parentTransform, transform)

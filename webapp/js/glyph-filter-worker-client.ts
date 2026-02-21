@@ -60,15 +60,15 @@ type WorkerRequestPayload =
           code: string;
           fontJson: string;
           timeoutMs: number;
-        }
-        | {
-            type: 'installPackages';
-            packages: string[];
-        }
-        | {
-            type: 'syncSharedContext';
-            context: Record<string, any>;
-            version: number;
+      }
+    | {
+          type: 'installPackages';
+          packages: string[];
+      }
+    | {
+          type: 'syncSharedContext';
+          context: Record<string, any>;
+          version: number;
       };
 
 export class GlyphFilterWorkerClient {
@@ -98,7 +98,9 @@ export class GlyphFilterWorkerClient {
                 }
 
                 if (data?.type === 'error' && data?.during === 'init') {
-                    reject(new Error(data.error || 'Worker initialization failed'));
+                    reject(
+                        new Error(data.error || 'Worker initialization failed')
+                    );
                     return;
                 }
 
@@ -107,9 +109,7 @@ export class GlyphFilterWorkerClient {
 
             worker.addEventListener('message', onMessage);
             worker.onerror = (error) => {
-                reject(
-                    new Error(error.message || 'Glyph filter worker error')
-                );
+                reject(new Error(error.message || 'Glyph filter worker error'));
             };
 
             worker.postMessage({ type: 'init' });
@@ -157,7 +157,9 @@ export class GlyphFilterWorkerClient {
         }
 
         const failure = data as WorkerErrorResponse;
-        pending.reject(new Error(failure.error || 'Glyph filter worker failed'));
+        pending.reject(
+            new Error(failure.error || 'Glyph filter worker failed')
+        );
     }
 
     private async sendRequest(

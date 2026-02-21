@@ -22,7 +22,11 @@ import {
     setupMenuKeyboardNav
 } from './tippy-utils';
 import { Logger } from './logger';
-import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
+import {
+    timelineMark,
+    timelineSpanEnd,
+    timelineSpanStart
+} from './perf-timeline';
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 
 const console = new Logger('FileBrowser');
@@ -895,7 +899,9 @@ async function openFont(
 
         // For non-.babelfont files, use Rust loader to convert
         if (extension !== 'babelfont') {
-            const convertSpan = timelineSpanStart('font.open.convertToBabelfont');
+            const convertSpan = timelineSpanStart(
+                'font.open.convertToBabelfont'
+            );
             try {
                 console.log(
                     '[FileBrowser]',
@@ -911,7 +917,9 @@ async function openFont(
                     const id = Math.random().toString(36);
                     const timeout = setTimeout(() => {
                         reject(
-                            new Error('Font conversion timeout after 30 seconds')
+                            new Error(
+                                'Font conversion timeout after 30 seconds'
+                            )
                         );
                     }, 30000);
 

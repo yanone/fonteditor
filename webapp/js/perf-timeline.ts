@@ -1,6 +1,7 @@
 const MARK_PREFIX = 'cp';
 
-const activeSpans: Map<string, { stage: string; startMark: string }> = new Map();
+const activeSpans: Map<string, { stage: string; startMark: string }> =
+    new Map();
 let spanCounter = 0;
 
 type TimelineDetail = Record<string, unknown>;
@@ -23,7 +24,10 @@ export function timelineMark(stage: string): void {
     safeTimeStamp(label);
 }
 
-export function timelineSpanStart(stage: string, detail?: TimelineDetail): string {
+export function timelineSpanStart(
+    stage: string,
+    detail?: TimelineDetail
+): string {
     spanCounter += 1;
     const spanId = `${stage}#${spanCounter}`;
     const startMark = toLabel(`${spanId}:start`);
@@ -47,13 +51,20 @@ export function timelineSpanEnd(spanId: string): void {
 
     const endMark = toLabel(`${spanId}:end`);
     performance.mark(endMark);
-    performance.measure(toLabel(activeSpan.stage), activeSpan.startMark, endMark);
+    performance.measure(
+        toLabel(activeSpan.stage),
+        activeSpan.startMark,
+        endMark
+    );
     safeTimeStamp(endMark);
 
     activeSpans.delete(spanId);
 }
 
-export function timelineWrap<T>(stage: string, fn: () => Promise<T>): Promise<T> {
+export function timelineWrap<T>(
+    stage: string,
+    fn: () => Promise<T>
+): Promise<T> {
     const spanId = timelineSpanStart(stage);
     return fn().finally(() => {
         timelineSpanEnd(spanId);

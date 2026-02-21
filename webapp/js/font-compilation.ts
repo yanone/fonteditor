@@ -20,7 +20,11 @@
 import { get_glyph_name } from '../wasm-dist/babelfont_fontc_web';
 import { fontInterpolation } from './font-interpolation';
 import { Logger } from './logger';
-import { timelineMark, timelineSpanEnd, timelineSpanStart } from './perf-timeline';
+import {
+    timelineMark,
+    timelineSpanEnd,
+    timelineSpanStart
+} from './perf-timeline';
 
 const console = new Logger('FontCompilation');
 
@@ -195,7 +199,9 @@ class FontCompilation {
             return true;
         }
 
-        const initializeSpanId = timelineSpanStart('fontCompilation.initialize');
+        const initializeSpanId = timelineSpanStart(
+            'fontCompilation.initialize'
+        );
 
         console.log(
             '[FontCompilation]',
@@ -440,10 +446,14 @@ class FontCompilation {
 
         if (messageType === 'storeFontJson') {
             const payload =
-                typeof data.babelfontJson === 'string' ? data.babelfontJson : '';
+                typeof data.babelfontJson === 'string'
+                    ? data.babelfontJson
+                    : '';
 
             if (payload && payload === this.lastStoredFontJson) {
-                timelineMark('fontCompilation.workerMessage.storeFontJson.skippedCached');
+                timelineMark(
+                    'fontCompilation.workerMessage.storeFontJson.skippedCached'
+                );
                 return {
                     type: 'storeFontJson',
                     success: true,
@@ -457,7 +467,9 @@ class FontCompilation {
                 this.pendingStoreFontJsonPromise &&
                 payload === this.pendingStoreFontJsonPayload
             ) {
-                timelineMark('fontCompilation.workerMessage.storeFontJson.joinedInFlight');
+                timelineMark(
+                    'fontCompilation.workerMessage.storeFontJson.joinedInFlight'
+                );
                 return this.pendingStoreFontJsonPromise;
             }
         }
@@ -504,7 +516,9 @@ class FontCompilation {
                 this.worker!.postMessage({ ...data, id });
             } catch (error) {
                 this.pendingCompilations.delete(id);
-                timelineMark(`fontCompilation.workerMessage.${messageType}.failed`);
+                timelineMark(
+                    `fontCompilation.workerMessage.${messageType}.failed`
+                );
                 timelineSpanEnd(spanId);
                 reject(error);
             }
@@ -512,7 +526,9 @@ class FontCompilation {
 
         if (messageType === 'storeFontJson') {
             const payload =
-                typeof data.babelfontJson === 'string' ? data.babelfontJson : '';
+                typeof data.babelfontJson === 'string'
+                    ? data.babelfontJson
+                    : '';
             this.pendingStoreFontJsonPromise = requestPromise;
             this.pendingStoreFontJsonPayload = payload;
         }
@@ -537,7 +553,9 @@ class FontCompilation {
         target: string | CompilationOptions = 'user',
         subsetGlyphs?: Array<string>
     ): Promise<{ result: Uint8Array; filename: string; time_taken: number }> {
-        const compileSpanId = timelineSpanStart('fontCompilation.compileFromJson');
+        const compileSpanId = timelineSpanStart(
+            'fontCompilation.compileFromJson'
+        );
 
         if (!this.isInitialized) {
             const initialized = await this.initialize();

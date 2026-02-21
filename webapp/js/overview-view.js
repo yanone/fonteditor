@@ -133,9 +133,9 @@ async function renderOverviewAndEmit(reason, openSessionId = null) {
     const renderOverviewSpanId = timelineSpanStartSafe(
         'overview.renderAndEmit',
         {
-        reason,
-        openSessionId,
-        glyphCount: window.currentFontModel?.glyphs?.length || 0
+            reason,
+            openSessionId,
+            glyphCount: window.currentFontModel?.glyphs?.length || 0
         }
     );
     const renderStart = performance.now();
@@ -161,10 +161,13 @@ async function renderOverviewAndEmit(reason, openSessionId = null) {
 
         // Capture deferred style/layout/paint work that lands after JS handlers
         // (common with very large tile counts).
-        const settleSpanId = timelineSpanStartSafe('overview.postMutationSettle', {
-            reason,
-            glyphCount
-        });
+        const settleSpanId = timelineSpanStartSafe(
+            'overview.postMutationSettle',
+            {
+                reason,
+                glyphCount
+            }
+        );
         await waitForNextAnimationFrame();
         await waitForNextAnimationFrame();
         timelineSpanEndSafe(settleSpanId);
@@ -192,7 +195,10 @@ async function renderOverviewAndEmit(reason, openSessionId = null) {
             const request = queuedRenderRequest;
             queuedRenderRequest = null;
             setTimeout(() => {
-                void renderOverviewAndEmit(request.reason, request.openSessionId);
+                void renderOverviewAndEmit(
+                    request.reason,
+                    request.openSessionId
+                );
             }, 0);
         }
     }
