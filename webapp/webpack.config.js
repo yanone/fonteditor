@@ -36,6 +36,7 @@ module.exports = {
     entry: {
         'bootstrap': './js/bootstrap.ts',
         'fontc-worker': './js/fontc-worker.ts',
+        'glyph-filter-worker': './js/glyph-filter-worker.ts',
         'glyph-overview': './js/glyph-overview.ts'
     },
     output: {

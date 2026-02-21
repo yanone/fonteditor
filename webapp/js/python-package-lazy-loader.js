@@ -85,6 +85,25 @@
                 console.log('[LazyLoader]', `✅ ${pkg} installed successfully`);
             }
 
+            // Mirror installs into glyph filter worker runtime (if available)
+            if (window.glyphOverviewFilterManager?.syncWorkerPackages) {
+                try {
+                    await window.glyphOverviewFilterManager.syncWorkerPackages(
+                        packages
+                    );
+                    console.log(
+                        '[LazyLoader]',
+                        `✅ Synced packages to glyph filter worker: ${packages.join(', ')}`
+                    );
+                } catch (syncError) {
+                    console.warn(
+                        '[LazyLoader]',
+                        'Failed to sync packages to glyph filter worker:',
+                        syncError
+                    );
+                }
+            }
+
             // Apply matplotlib patch if matplotlib was installed
             if (packages.includes('matplotlib')) {
                 console.log(

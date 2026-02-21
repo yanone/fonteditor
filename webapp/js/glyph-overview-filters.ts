@@ -12,6 +12,7 @@ import {
     getTheme,
     setupMenuKeyboardNav
 } from './tippy-utils';
+import { GlyphFilterWorkerClient } from './glyph-filter-worker-client';
 
 const console = new Logger('GlyphOverviewFilters');
 
@@ -61,6 +62,8 @@ interface GlyphFilterPlugin {
     isUserFilter?: boolean; // True if this is a user-defined filter from disk
     filePath?: string; // Path to .py file for user filters
     pythonCode?: string; // Source code for user filters
+    cachedDataVersion?: number;
+    cachedContextVersion?: number;
 }
 
 /**
@@ -73,6 +76,13 @@ interface TreeNode {
     plugins: GlyphFilterPlugin[];
     element?: HTMLElement;
     expanded: boolean;
+}
+
+interface FilterExecutionResult {
+    results: FilterResult[];
+    groups: Record<string, GroupDefinition>;
+    status: string;
+    contextPatch?: Record<string, any>;
 }
 
 export class GlyphOverviewFilterManager {
@@ -90,9 +100,14 @@ export class GlyphOverviewFilterManager {
     private userFiltersNode: TreeNode;
     private readonly STORAGE_KEY = 'glyphFilterActive';
     private readonly USER_FILTERS_PATH = '/Counterpunch/Filters';
+    private readonly FILTER_TIMEOUT_MS = 5000;
     private fileSystemObserver: any = null; // FileSystemObserver instance
     private observerSupported: boolean = 'FileSystemObserver' in window;
     private tippyInstances: TippyInstance[] = []; // Context menu instances
+    private workerClient: GlyphFilterWorkerClient = new GlyphFilterWorkerClient();
+    private refreshRetryTimer: number | null = null;
+    private sharedPluginContext: Record<string, any> = {};
+    private sharedPluginContextVersion: number = 1;
 
     constructor() {
         this.rootNode = this.buildEmptyTree();
@@ -195,6 +210,49 @@ export class GlyphOverviewFilterManager {
 
         // Render initial sidebar structure
         this.renderSidebar();
+    }
+
+    /**
+     * Install packages in the glyph filter worker runtime.
+     * Used to keep worker Pyodide in sync with main-thread lazy installs.
+     */
+    async syncWorkerPackages(packages: string[]): Promise<void> {
+        if (!packages || packages.length === 0) {
+            return;
+        }
+
+        await this.workerClient.installPackages(packages);
+    }
+
+    /**
+     * Replace shared plugin context snapshot and bump version.
+     */
+    setSharedPluginContext(context: Record<string, any>): void {
+        this.sharedPluginContext =
+            context && typeof context === 'object' ? { ...context } : {};
+        this.sharedPluginContextVersion += 1;
+    }
+
+    /**
+     * Apply a shallow patch to shared plugin context and bump version.
+     */
+    updateSharedPluginContext(patch: Record<string, any>): void {
+        if (!patch || typeof patch !== 'object') {
+            return;
+        }
+
+        this.sharedPluginContext = {
+            ...this.sharedPluginContext,
+            ...patch
+        };
+        this.sharedPluginContextVersion += 1;
+    }
+
+    /**
+     * Return a copy of the currently shared plugin context.
+     */
+    getSharedPluginContext(): Record<string, any> {
+        return { ...this.sharedPluginContext };
     }
 
     /**
@@ -1248,85 +1306,51 @@ export class GlyphOverviewFilterManager {
      * Run a filter plugin and apply results
      */
     async runFilter(plugin: GlyphFilterPlugin): Promise<void> {
-        if (!window.pyodide || !window.currentFontModel) {
-            console.error('Pyodide or font not available');
+        if (!window.currentFontModel) {
+            console.error('Font not available');
             return;
         }
 
         try {
             console.log(`Running filter: ${plugin.display_name}`);
 
-            let results: FilterResult[] = [];
-            let groups: Record<string, GroupDefinition> = {};
-            let status: string = 'ok';
-
-            if (plugin.isUserFilter && plugin.pythonCode) {
-                // Execute user filter with timeout
-                const execResult = await this.executeUserFilter(plugin);
-                results = execResult.results;
-                groups = execResult.groups;
-                status = execResult.status || 'ok';
-                plugin.groups = groups;
-
-                // Check for no filter_glyphs function
-                if (status === 'no_filter_function') {
-                    plugin.glyphCount = 0;
-                    plugin.hasError = false;
-                    plugin.hasNoFilterFunction = true;
-                    this.updatePluginCount(plugin);
-                    if (this.glyphOverview) {
-                        this.glyphOverview.showFilterNotice(
-                            plugin.display_name,
-                            'No filter_glyphs() function found in the filter file.\n\nDefine a function like:\n\ndef filter_glyphs(font):\n    for glyph in font.glyphs:\n        yield {"glyph_name": glyph.name}',
-                            'warning'
-                        );
-                    }
-                    return;
-                }
-            } else {
-                // Call the plugin's filter_glyphs method
-                const instance = plugin.instance;
-                if (!instance || !instance.filter_glyphs) {
-                    plugin.glyphCount = 0;
-                    plugin.hasError = false;
-                    plugin.hasNoFilterFunction = true;
-                    this.updatePluginCount(plugin);
-                    if (this.glyphOverview) {
-                        this.glyphOverview.showFilterNotice(
-                            plugin.display_name,
-                            'Plugin has no filter_glyphs() method.',
-                            'warning'
-                        );
-                    }
-                    return;
-                }
-
-                // Store instance in Python global for wrapper to access
-                (window as any).pyodide.globals.set(
-                    '_plugin_instance',
-                    instance
+            const dataVersion = this.getCurrentDataVersion();
+            if (this.canUseCachedFilterResults(plugin, dataVersion)) {
+                console.log(
+                    `Using cached results for filter: ${plugin.display_name}`
                 );
+                this.applyCachedFilterResults(plugin);
+                return;
+            }
 
-                // Execute filter and handle generator/list result
-                const resultsProxy = await window.pyodide.runPythonAsync(`
-import types
-_font = CurrentFont()
-_result = _plugin_instance.filter_glyphs(_font)
-# Convert generator to list if needed
-list(_result) if isinstance(_result, types.GeneratorType) else _result
-`);
+            const fontSnapshotJson = this.getCurrentFontSnapshotJson();
+            if (!fontSnapshotJson) {
+                this.scheduleRefreshRetry();
+                return;
+            }
 
-                // Clean up global
-                (window as any).pyodide.globals.delete('_plugin_instance');
+            const execResult = await this.executeFilter(plugin, fontSnapshotJson);
+            let results = execResult.results;
+            const groups = execResult.groups;
+            const status = execResult.status || 'ok';
+            plugin.groups = groups;
 
-                // Convert results to JS
-                if (resultsProxy && resultsProxy.toJs) {
-                    results = resultsProxy.toJs({
-                        dict_converter: Object.fromEntries
-                    });
-                    resultsProxy.destroy();
+            if (status === 'no_filter_function') {
+                plugin.glyphCount = 0;
+                plugin.hasError = false;
+                plugin.hasNoFilterFunction = true;
+                this.updatePluginCount(plugin);
+                if (this.glyphOverview) {
+                    const message = plugin.isUserFilter
+                        ? 'No filter_glyphs() function found in the filter file.\n\nDefine a function like:\n\ndef filter_glyphs(font):\n    for glyph in font.glyphs:\n        yield {"glyph_name": glyph.name}'
+                        : 'Plugin has no filter_glyphs() method.';
+                    this.glyphOverview.showFilterNotice(
+                        plugin.display_name,
+                        message,
+                        'warning'
+                    );
                 }
-                groups = plugin.groups || {};
+                return;
             }
 
             // Process results (consolidate duplicates, normalize groups, resolve colors)
@@ -1343,6 +1367,8 @@ list(_result) if isinstance(_result, types.GeneratorType) else _result
             plugin.glyphCount = results.length;
             plugin.hasError = false;
             plugin.hasNoFilterFunction = false;
+            plugin.cachedDataVersion = dataVersion === null ? undefined : dataVersion;
+            plugin.cachedContextVersion = this.sharedPluginContextVersion;
 
             // Update count in sidebar
             this.updatePluginCount(plugin);
@@ -1403,82 +1429,146 @@ list(_result) if isinstance(_result, types.GeneratorType) else _result
     /**
      * Execute a user-defined filter with sandboxing and timeout
      */
-    private async executeUserFilter(plugin: GlyphFilterPlugin): Promise<{
-        results: FilterResult[];
-        groups: Record<string, GroupDefinition>;
-        status: string;
-    }> {
-        const TIMEOUT_MS = 5000;
-        const code = plugin.pythonCode!;
+    private getCurrentFontSnapshotJson(): string | null {
+        const fontManagerFont = window.fontManager?.currentFont;
+        if (
+            fontManagerFont?.babelfontJson &&
+            typeof fontManagerFont.babelfontJson === 'string'
+        ) {
+            return fontManagerFont.babelfontJson;
+        }
 
-        // Create a promise that rejects on timeout
-        const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(
-                () => reject(new Error('Filter execution timed out (5s)')),
-                TIMEOUT_MS
-            );
-        });
-
-        // Execute the filter
-        const execPromise = (async () => {
-            // Execute the user filter code and call filter_glyphs
-            const result = await window.pyodide.runPythonAsync(`
-import sys
-from io import StringIO
-import types
-
-# Capture any print output
-_captured_output = StringIO()
-_old_stdout = sys.stdout
-sys.stdout = _captured_output
-
-_filter_result = {"results": [], "groups": {}, "status": "ok"}
-try:
-    # Compile and execute user filter code with custom filename for correct line numbers
-    _user_code = ${JSON.stringify(code)}
-    _compiled_code = compile(_user_code, '<filter>', 'exec')
-    _user_globals = {}
-    exec(_compiled_code, _user_globals)
-    
-    # Get GROUPS if defined
-    _groups = _user_globals.get('GROUPS', {})
-    
-    # Get and call filter_glyphs
-    _filter_func = _user_globals.get('filter_glyphs')
-    if _filter_func is None:
-        _filter_result = {"results": [], "groups": {}, "status": "no_filter_function"}
-    else:
-        _font = CurrentFont()
-        _results = _filter_func(_font)
-        
-        # Handle generator (yield) or list (return)
-        if isinstance(_results, types.GeneratorType):
-            _results = list(_results)
-        
-        # Store results and groups
-        _filter_result = {"results": _results, "groups": _groups, "status": "ok"}
-finally:
-    sys.stdout = _old_stdout
-
-_filter_result
-`);
-
-            if (result && result.toJs) {
-                const jsResult = result.toJs({
-                    dict_converter: Object.fromEntries
-                });
-                result.destroy();
-                return {
-                    results: jsResult.results || [],
-                    groups: jsResult.groups || {},
-                    status: jsResult.status || 'ok'
-                };
+        const font = window.currentFontModel as any;
+        if (font?.toJSONString && typeof font.toJSONString === 'function') {
+            try {
+                return font.toJSONString();
+            } catch (error) {
+                console.warn('Failed to serialize currentFontModel:', error);
             }
-            return { results: [], groups: {}, status: 'ok' };
-        })();
+        }
 
-        // Race between execution and timeout
-        return Promise.race([execPromise, timeoutPromise]);
+        if (font?.toJSON && typeof font.toJSON === 'function') {
+            try {
+                return JSON.stringify(font.toJSON());
+            } catch (error) {
+                console.warn('Failed to stringify currentFontModel.toJSON():', error);
+            }
+        }
+
+        return null;
+    }
+
+    private getCurrentDataVersion(): number | null {
+        const version = window.fontManager?.currentFont?.changeVersion;
+        return typeof version === 'number' ? version : null;
+    }
+
+    private canUseCachedFilterResults(
+        plugin: GlyphFilterPlugin,
+        dataVersion: number | null
+    ): boolean {
+        return (
+            dataVersion !== null &&
+            plugin.cachedDataVersion === dataVersion &&
+            plugin.cachedContextVersion === this.sharedPluginContextVersion &&
+            Array.isArray(plugin.lastResults) &&
+            !plugin.hasError &&
+            !plugin.hasNoFilterFunction
+        );
+    }
+
+    private applyCachedFilterResults(plugin: GlyphFilterPlugin): void {
+        const results = plugin.lastResults || [];
+        const groups = plugin.groups || {};
+
+        const usedGroupKeywords = new Set<string>();
+        for (const result of results) {
+            if (!result.groups) continue;
+            for (const groupKeyword of result.groups) {
+                if (groupKeyword) {
+                    usedGroupKeywords.add(groupKeyword);
+                }
+            }
+        }
+
+        plugin.glyphCount = results.length;
+        plugin.hasError = false;
+        this.updatePluginCount(plugin);
+        this.updateGroupLegend(plugin, usedGroupKeywords);
+
+        if (this.glyphOverview) {
+            if (results.length === 0) {
+                this.glyphOverview.showFilterNotice(
+                    plugin.display_name,
+                    'Filter executed successfully but returned no results.',
+                    'info'
+                );
+            } else {
+                this.glyphOverview.setActiveFilter(results);
+                this.glyphOverview.updateSelectedGlyphGroups();
+            }
+        }
+    }
+
+    private scheduleRefreshRetry(delayMs: number = 200): void {
+        if (this.refreshRetryTimer !== null) {
+            return;
+        }
+
+        this.refreshRetryTimer = window.setTimeout(async () => {
+            this.refreshRetryTimer = null;
+
+            if (!window.currentFontModel || !this.loaded) {
+                return;
+            }
+
+            await this.refreshPlugins();
+        }, delayMs);
+    }
+
+    private async executeFilter(
+        plugin: GlyphFilterPlugin,
+        fontSnapshotJson: string | null
+    ): Promise<FilterExecutionResult> {
+        if (!fontSnapshotJson) {
+            throw new Error('No font snapshot available for worker execution');
+        }
+
+        const runtimeContext = {
+            ...this.sharedPluginContext,
+            __meta: {
+                activeFilterKeyword: plugin.keyword,
+                activeFilterName: plugin.display_name,
+                timestamp: Date.now()
+            }
+        };
+
+        await this.workerClient.syncSharedContext(
+            runtimeContext,
+            this.sharedPluginContextVersion
+        );
+
+        let result: FilterExecutionResult;
+
+        if (plugin.isUserFilter && plugin.pythonCode) {
+            result = await this.workerClient.runUserFilter(
+                plugin.pythonCode,
+                fontSnapshotJson,
+                this.FILTER_TIMEOUT_MS
+            );
+        } else {
+            result = await this.workerClient.runBuiltinFilter(
+                plugin.keyword,
+                fontSnapshotJson,
+                this.FILTER_TIMEOUT_MS
+            );
+        }
+
+        if (result.contextPatch && typeof result.contextPatch === 'object') {
+            this.updateSharedPluginContext(result.contextPatch);
+        }
+
+        return result;
     }
 
     /**
@@ -1825,65 +1915,65 @@ _filter_result
      * Refresh all plugins (re-run active filter and update counts)
      */
     async refreshPlugins(): Promise<void> {
+        const fontSnapshotJson = this.getCurrentFontSnapshotJson();
+        if (!fontSnapshotJson) {
+            this.scheduleRefreshRetry();
+            return;
+        }
+
+        // Refresh active filter first so visible glyphs and count update immediately.
+        // runFilter() already updates count and cache metadata.
+        if (this.activeFilter) {
+            await this.runFilter(this.activeFilter);
+        }
+
         // Run all built-in plugins to update counts
         for (const plugin of this.plugins) {
-            await this.runPluginForCount(plugin);
+            if (plugin === this.activeFilter) {
+                continue;
+            }
+            await this.runPluginForCount(plugin, fontSnapshotJson);
         }
 
         // Run all user filters to update counts
         for (const filter of this.userFilters) {
-            await this.runPluginForCount(filter);
-        }
-
-        // Re-run active filter
-        if (this.activeFilter) {
-            await this.runFilter(this.activeFilter);
+            if (filter === this.activeFilter) {
+                continue;
+            }
+            await this.runPluginForCount(filter, fontSnapshotJson);
         }
     }
 
     /**
      * Run a plugin just to get the count (without applying to overview)
      */
-    private async runPluginForCount(plugin: GlyphFilterPlugin): Promise<void> {
-        if (!window.pyodide || !window.currentFontModel) return;
+    private async runPluginForCount(
+        plugin: GlyphFilterPlugin,
+        fontSnapshotJson: string | null = null
+    ): Promise<void> {
+        if (!window.currentFontModel) return;
+
+        const dataVersion = this.getCurrentDataVersion();
+        if (this.canUseCachedFilterResults(plugin, dataVersion)) {
+            plugin.glyphCount = plugin.lastResults?.length || 0;
+            plugin.hasError = false;
+            this.updatePluginCount(plugin);
+            return;
+        }
+
+        const snapshotJson = fontSnapshotJson || this.getCurrentFontSnapshotJson();
+        if (!snapshotJson) {
+            this.scheduleRefreshRetry();
+            return;
+        }
 
         try {
-            let results: FilterResult[] = [];
-
-            if (plugin.isUserFilter && plugin.pythonCode) {
-                // Execute user filter
-                const execResult = await this.executeUserFilter(plugin);
-                results = execResult.results;
-                plugin.groups = execResult.groups;
-            } else {
-                const instance = plugin.instance;
-                if (!instance || !instance.filter_glyphs) return;
-
-                // Store instance in Python global for wrapper to access
-                (window as any).pyodide.globals.set(
-                    '_plugin_instance',
-                    instance
-                );
-
-                // Execute filter and handle generator/list result
-                const resultsProxy = await window.pyodide.runPythonAsync(`
-import types
-_font = CurrentFont()
-_result = _plugin_instance.filter_glyphs(_font)
-# Convert generator to list if needed
-list(_result) if isinstance(_result, types.GeneratorType) else _result
-`);
-
-                // Clean up global
-                (window as any).pyodide.globals.delete('_plugin_instance');
-
-                if (resultsProxy && resultsProxy.toJs) {
-                    results = resultsProxy.toJs({
-                        dict_converter: Object.fromEntries
-                    });
-                    resultsProxy.destroy();
-                }
-            }
+            const execResult = await this.executeFilter(
+                plugin,
+                snapshotJson
+            );
+            const results = execResult.results;
+            plugin.groups = execResult.groups;
 
             // Process results (consolidate duplicates, normalize groups)
             const groups = plugin.groups || {};
@@ -1894,6 +1984,10 @@ list(_result) if isinstance(_result, types.GeneratorType) else _result
 
             plugin.glyphCount = processedResults.length;
             plugin.hasError = false;
+            plugin.lastResults = processedResults;
+            plugin.cachedDataVersion =
+                dataVersion === null ? undefined : dataVersion;
+            plugin.cachedContextVersion = this.sharedPluginContextVersion;
             this.updatePluginCount(plugin);
         } catch (error) {
             console.error(

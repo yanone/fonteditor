@@ -14,6 +14,93 @@ Run the app locally with `cd webapp && npm run dev`
 - Load assistant test conversation with `?assistant_style_test`
 - Trigger end-to-end error reporting tests from DevTools: `window.triggerRuntimeErrorForTesting()` and `window.triggerUnhandledRejectionForTesting()`
 
+### Python Runtime Model (Main Thread + Worker)
+
+Counterpunch now runs Python in two separate Pyodide environments:
+
+- **Main thread Pyodide**: console, script editor, regular Python execution.
+- **Glyph filter worker Pyodide**: glyph filter plugins, off the UI thread.
+
+These environments are isolated. Python objects and module state are not shared directly.
+
+### Sharing JSON-like Data Between Threads
+
+Use the shared plugin context channel (JSON-like data only):
+
+- Main thread sets context via `window.glyphOverviewFilterManager`.
+- Worker-side filter Python reads it via `CurrentContext()`.
+- Worker-side filter Python can send updates back via `SetContextPatch({...})`.
+
+Main-thread API:
+
+```javascript
+// Replace full snapshot
+window.glyphOverviewFilterManager.setSharedPluginContext({
+	project: "MyFont",
+	ui: { mode: "review" },
+	thresholds: { maxNodes: 1200 }
+});
+
+// Shallow patch
+window.glyphOverviewFilterManager.updateSharedPluginContext({
+	ui: { mode: "edit" }
+});
+
+// Read current snapshot
+const ctx = window.glyphOverviewFilterManager.getSharedPluginContext();
+```
+
+Worker-side Python plugin example:
+
+```python
+def filter_glyphs(font):
+		ctx = CurrentContext()  # JsProxy of shared JSON-like context
+		thresholds = ctx.get("thresholds", {})
+		max_nodes = thresholds.get("maxNodes", 1000)
+
+		flagged = 0
+		for glyph in font.glyphs:
+				node_count = 0
+				for layer in glyph.layers:
+						for shape in layer.shapes:
+								if hasattr(shape, "nodes") and shape.nodes:
+										node_count += len(shape.nodes)
+
+				if node_count > max_nodes:
+						flagged += 1
+						yield {"glyph_name": glyph.name, "group": "complex"}
+
+		# Send patch back to main thread context
+		SetContextPatch({"lastRun": {"flagged": flagged}})
+```
+
+Notes:
+
+- Keep shared context **JSON-like** (objects/arrays/primitives); avoid functions/class instances.
+- Worker uses versioned snapshots and drops stale context updates.
+- `SetContextPatch` is a shallow patch merge on the main-thread context.
+
+Quick DevTools verification (context round-trip):
+
+```javascript
+// 1) Seed shared context from main thread
+window.glyphOverviewFilterManager.setSharedPluginContext({
+	debugRunId: Date.now(),
+	note: "hello-from-main"
+});
+
+// 2) Run any glyph filter that calls SetContextPatch({ ... })
+// 3) Inspect merged context after filter run
+console.log(window.glyphOverviewFilterManager.getSharedPluginContext());
+```
+
+### Micropip Packages Across Both Runtimes
+
+Because runtimes are separate, a package needed in both must be installed in both.
+
+- Startup wheel installs are done in both runtimes.
+- Lazy `micropip.install(...)` in main thread is mirrored automatically into the glyph filter worker.
+
 ### Rebuild wasm component
 
 Currently the wasm component is based on the babelfont fork https://github.com/yanone/babelfont-rs because of changes that we sometimes PR. To build a new wasm binary, do the following:

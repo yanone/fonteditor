@@ -141,6 +141,10 @@ declare global {
             clearActiveFilter: () => void;
             updateSelectedGlyphGroups: (groups: Set<string>) => void;
             clearGroupSelection: () => void;
+            syncWorkerPackages: (packages: string[]) => Promise<void>;
+            setSharedPluginContext: (context: Record<string, any>) => void;
+            updateSharedPluginContext: (patch: Record<string, any>) => void;
+            getSharedPluginContext: () => Record<string, any>;
         };
 
         // From file-browser.js
