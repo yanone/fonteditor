@@ -9,6 +9,9 @@ let glyphOverviewInstance = null;
 let pendingInitialOpenSession = null;
 let pendingInitialOpenStartedAt = null;
 let initialRenderInProgress = false;
+let queuedRenderRequest = null;
+let pendingFallbackAttempts = 0;
+const maxFallbackAttempts = 4;
 
 function buildGlyphData() {
     if (!window.currentFontModel?.glyphs) {
@@ -21,13 +24,13 @@ function buildGlyphData() {
     }));
 }
 
-function updateOverviewTiles() {
+async function updateOverviewTiles() {
     if (!glyphOverviewInstance) {
         return [];
     }
 
     const glyphData = buildGlyphData();
-    glyphOverviewInstance.updateGlyphs(glyphData);
+    await glyphOverviewInstance.updateGlyphs(glyphData);
     return glyphData;
 }
 
@@ -37,20 +40,59 @@ async function refreshFilterPlugins() {
     }
 }
 
-async function renderOverviewAndEmit(reason, openSessionId = null) {
-    if (!glyphOverviewInstance) {
+function scheduleFallbackRender(sessionId, delayMs = 1200) {
+    if (!sessionId) {
         return;
     }
 
+    setTimeout(async () => {
+        if (
+            pendingInitialOpenSession !== sessionId ||
+            !glyphOverviewInstance ||
+            initialRenderInProgress
+        ) {
+            return;
+        }
+
+        if (pendingFallbackAttempts >= maxFallbackAttempts) {
+            return;
+        }
+
+        pendingFallbackAttempts += 1;
+        const success = await renderOverviewAndEmit(
+            `fontReady-fallback-${pendingFallbackAttempts}`,
+            sessionId
+        );
+
+        if (success && pendingInitialOpenSession === sessionId) {
+            pendingInitialOpenSession = null;
+            pendingInitialOpenStartedAt = null;
+            return;
+        }
+
+        if (pendingInitialOpenSession === sessionId) {
+            scheduleFallbackRender(sessionId, 1500);
+        }
+    }, delayMs);
+}
+
+async function renderOverviewAndEmit(reason, openSessionId = null) {
+    if (!glyphOverviewInstance) {
+        return false;
+    }
+
     if (initialRenderInProgress) {
-        return;
+        queuedRenderRequest = { reason, openSessionId };
+        return false;
     }
 
     initialRenderInProgress = true;
     const renderStart = performance.now();
+    let success = false;
 
     try {
         await glyphOverviewInstance.renderGlyphOutlines();
+        success = true;
 
         const renderDurationMs = performance.now() - renderStart;
         const totalElapsedMs =
@@ -83,10 +125,20 @@ async function renderOverviewAndEmit(reason, openSessionId = null) {
         console.error('[OverviewView]', 'Failed to render glyphs:', error);
     } finally {
         initialRenderInProgress = false;
+
+        if (queuedRenderRequest) {
+            const request = queuedRenderRequest;
+            queuedRenderRequest = null;
+            setTimeout(() => {
+                void renderOverviewAndEmit(request.reason, request.openSessionId);
+            }, 0);
+        }
     }
+
+    return success;
 }
 
-function initOverviewView() {
+async function initOverviewView() {
     const overviewContent = document.querySelector(
         '#view-overview .view-content'
     );
@@ -148,7 +200,7 @@ function initOverviewView() {
 
             // Populate with current font glyphs if available
             if (window.currentFontModel?.glyphs) {
-                const glyphData = updateOverviewTiles();
+                const glyphData = await updateOverviewTiles();
 
                 // Render glyphs if font is already compiled
                 // (font needs to be cached in Rust via store_font before rendering)
@@ -225,14 +277,17 @@ window.addEventListener('fontReady', async (event) => {
     pendingInitialOpenSession = detail.openSessionId || null;
     pendingInitialOpenStartedAt =
         typeof detail.openedAt === 'number' ? detail.openedAt : null;
+    pendingFallbackAttempts = 0;
 
     // Wait a bit for currentFontModel to be set
     setTimeout(async () => {
         if (glyphOverviewInstance && window.currentFontModel?.glyphs) {
-            const glyphData = updateOverviewTiles();
+            const glyphData = await updateOverviewTiles();
 
             if (!pendingInitialOpenSession) {
                 await renderOverviewAndEmit('fontReady-no-session');
+            } else {
+                scheduleFallbackRender(pendingInitialOpenSession, 1200);
             }
 
             console.log(
@@ -259,9 +314,14 @@ window.addEventListener('fontOpenEditingCompiled', async (event) => {
         return;
     }
 
-    await renderOverviewAndEmit('editing-compile-ready', openSessionId);
-    pendingInitialOpenSession = null;
-    pendingInitialOpenStartedAt = null;
+    const success = await renderOverviewAndEmit(
+        'editing-compile-ready',
+        openSessionId
+    );
+    if (success && pendingInitialOpenSession === openSessionId) {
+        pendingInitialOpenSession = null;
+        pendingInitialOpenStartedAt = null;
+    }
 });
 
 // Initialize when DOM is ready

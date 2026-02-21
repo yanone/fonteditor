@@ -67,6 +67,8 @@ class GlyphOverview {
     private batchDebounceTimer: number | null = null;
     private isBatchRendering: boolean = false;
     private tileBuildRunId = 0;
+    private tileBuildPromise: Promise<void> = Promise.resolve();
+    private tileBuildResolve: (() => void) | null = null;
     private lazyBatchSize = 240;
     private readonly minLazyBatchSize = 80;
     private readonly maxLazyBatchSize = 500;
@@ -558,11 +560,33 @@ class GlyphOverview {
         return overviewView?.classList.contains('focused') ?? false;
     }
 
-    public updateGlyphs(glyphs: Array<{ id: string; name: string }>): void {
-        if (!this.container) return;
+    public updateGlyphs(glyphs: Array<{ id: string; name: string }>): Promise<void> {
+        if (!this.container) return Promise.resolve();
+
+        if (this.tileBuildResolve) {
+            this.tileBuildResolve();
+            this.tileBuildResolve = null;
+        }
+
+        this.tileBuildPromise = new Promise<void>((resolve) => {
+            this.tileBuildResolve = resolve;
+        });
 
         this.tileBuildRunId += 1;
         const currentBuildRunId = this.tileBuildRunId;
+
+        const finishBuild = () => {
+            if (currentBuildRunId !== this.tileBuildRunId) {
+                return;
+            }
+
+            this.applySearchFilter();
+
+            if (this.tileBuildResolve) {
+                this.tileBuildResolve();
+                this.tileBuildResolve = null;
+            }
+        };
 
         // Clear existing tiles
         this.container.innerHTML = '';
@@ -576,8 +600,8 @@ class GlyphOverview {
 
         const totalGlyphs = glyphs.length;
         if (totalGlyphs === 0) {
-            this.applySearchFilter();
-            return;
+            finishBuild();
+            return this.tileBuildPromise;
         }
 
         // Small fonts: build synchronously for immediate interaction.
@@ -589,8 +613,8 @@ class GlyphOverview {
                 fragment.appendChild(tile.element);
             });
             this.container.appendChild(fragment);
-            this.applySearchFilter();
-            return;
+            finishBuild();
+            return this.tileBuildPromise;
         }
 
         // Large fonts: create tile DOM in chunks to avoid long main-thread stalls.
@@ -618,10 +642,12 @@ class GlyphOverview {
                 return;
             }
 
-            this.applySearchFilter();
+            finishBuild();
         };
 
         requestAnimationFrame(() => buildChunk(0));
+
+        return this.tileBuildPromise;
     }
 
     /**
@@ -635,6 +661,8 @@ class GlyphOverview {
             console.warn('[GlyphOverview]', 'No container, cannot render');
             return;
         }
+
+        await this.tileBuildPromise;
 
         this.currentLocation = location;
 
@@ -2156,6 +2184,13 @@ class GlyphOverview {
 
         // Re-apply combined filter + search
         this.applySearchFilter();
+
+        const hasRenderedTiles = Array.from(this.tiles.values()).some(
+            (tile) => !!tile.cachedData
+        );
+        if (this.tiles.size > 0 && !hasRenderedTiles) {
+            void this.renderGlyphOutlines(this.currentLocation);
+        }
     }
 
     /**
