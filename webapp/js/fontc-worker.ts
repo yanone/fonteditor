@@ -6,6 +6,7 @@ import init, {
     compile_babelfont,
     compile_cached_font_from_last_layout_closure,
     store_font,
+    update_cached_glyph,
     prime_layout_closure_cache,
     interpolate_glyph,
     clear_font_cache,
@@ -638,7 +639,10 @@ self.onmessage = async (event) => {
                     subsetKey,
                     fontRevisionKey,
                     dragActive,
-                    compileSource
+                    compileSource,
+                    dirtyGlyphNames,
+                    dirtyGlyphName,
+                    dirtyGlyphData
                 } = data;
 
                 if (!babelfontJson || typeof babelfontJson !== 'string') {
@@ -666,13 +670,43 @@ self.onmessage = async (event) => {
                 // Always refresh cached font data for editing compiles.
                 // This guarantees each compile reflects latest drag edits.
                 if (needsStore) {
-                    store_font(babelfontJson);
+                    const canApplyIncrementalGlyphUpdate =
+                        isDragMode &&
+                        typeof dirtyGlyphName === 'string' &&
+                        dirtyGlyphName.length > 0 &&
+                        dirtyGlyphData !== undefined &&
+                        cachedBabelfontJson !== null;
+
+                    let storedViaFullFont = false;
+                    if (canApplyIncrementalGlyphUpdate) {
+                        try {
+                            update_cached_glyph(
+                                dirtyGlyphName,
+                                JSON.stringify(dirtyGlyphData)
+                            );
+                            timelineMark(
+                                'font.worker.compileEditingCached.ensureFontCached.updatedGlyph'
+                            );
+                        } catch (_incrementalError) {
+                            store_font(babelfontJson);
+                            storedViaFullFont = true;
+                            timelineMark(
+                                'font.worker.compileEditingCached.ensureFontCached.fallbackStore'
+                            );
+                        }
+                    } else {
+                        store_font(babelfontJson);
+                        storedViaFullFont = true;
+                    }
+
                     cachedBabelfontJson = babelfontJson;
                     cachedFontRevisionKey = revisionKey;
                     lastStoreFontAtMs = performance.now();
                     dragCompilesSinceStore = 0;
                     timelineMark(
-                        'font.worker.compileEditingCached.ensureFontCached.stored'
+                        storedViaFullFont
+                            ? 'font.worker.compileEditingCached.ensureFontCached.stored'
+                            : 'font.worker.compileEditingCached.ensureFontCached.reusedWithGlyphUpdate'
                     );
                 } else {
                     if (!isDragMode) {
@@ -715,8 +749,16 @@ self.onmessage = async (event) => {
                 const compileCachedSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.compileCachedFont'
                 );
+                const optionsWithDirtyGlyphs = {
+                    ...(options || {}),
+                    dirty_glyphs: Array.isArray(dirtyGlyphNames)
+                        ? dirtyGlyphNames
+                        : []
+                };
                 const compiledBytes =
-                    compile_cached_font_from_last_layout_closure(options || {});
+                    compile_cached_font_from_last_layout_closure(
+                        optionsWithDirtyGlyphs
+                    );
                 timelineSpanEnd(compileCachedSpanId);
                 const endTime = performance.now();
 

@@ -1042,6 +1042,36 @@ class FontManager {
                 );
                 const dragActiveAtRequest =
                     !!window.glyphCanvas?.outlineEditor?.draggingSomething;
+                let dirtyGlyphName: string | undefined;
+                let dirtyGlyphData: unknown;
+                const dirtyGlyphNames =
+                    this.lastChangeSource === 'mouse-drag'
+                        ? [
+                              window.glyphCanvas?.outlineEditor
+                                  ?.currentGlyphName ||
+                                  window.glyphCanvas?.getCurrentGlyphName?.()
+                          ].filter(
+                              (glyphName): glyphName is string =>
+                                  typeof glyphName === 'string' &&
+                                  glyphName.length > 0
+                          )
+                        : [];
+
+                if (dirtyGlyphNames.length === 1) {
+                    dirtyGlyphName = dirtyGlyphNames[0];
+                    const dirtyGlyph = this.currentFont.fontModel?.glyphs?.find(
+                        (glyph: any) => glyph?.name === dirtyGlyphName
+                    );
+                    if (dirtyGlyph) {
+                        const rawDirtyGlyph =
+                            typeof dirtyGlyph.toJSON === 'function'
+                                ? dirtyGlyph.toJSON()
+                                : dirtyGlyph;
+                        dirtyGlyphData = JSON.parse(
+                            JSON.stringify(rawDirtyGlyph)
+                        );
+                    }
+                }
 
                 result = await fontCompilation.compileEditingFromJsonCached(
                     this.currentFont.babelfontJson,
@@ -1049,7 +1079,10 @@ class FontManager {
                     subsetForCompile,
                     {
                         dragActive: dragActiveAtRequest,
-                        compileSource: this.lastChangeSource || undefined
+                        compileSource: this.lastChangeSource || undefined,
+                        dirtyGlyphNames,
+                        dirtyGlyphName,
+                        dirtyGlyphData
                     }
                 );
 

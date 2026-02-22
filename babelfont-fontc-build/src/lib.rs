@@ -129,6 +129,64 @@ fn get_option(options: &JsValue, key: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
+fn get_string_array_option(options: &JsValue, key: &str) -> Vec<String> {
+    if options.is_undefined() || options.is_null() {
+        return Vec::new();
+    }
+
+    let value = match js_sys::Reflect::get(options, &JsValue::from_str(key)) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+
+    if value.is_undefined() || value.is_null() {
+        return Vec::new();
+    }
+
+    let array = match value.dyn_into::<js_sys::Array>() {
+        Ok(array) => array,
+        Err(_) => return Vec::new(),
+    };
+
+    array
+        .iter()
+        .filter_map(|entry| entry.as_string())
+        .filter(|entry| !entry.is_empty())
+        .collect()
+}
+
+fn patch_subset_glyphs_from_base_font(
+    subset_font: &mut babelfont::Font,
+    base_font: &babelfont::Font,
+    dirty_glyph_names: &[String],
+) -> usize {
+    if dirty_glyph_names.is_empty() {
+        return 0;
+    }
+
+    let dirty_set: HashSet<String> = dirty_glyph_names.iter().cloned().collect();
+    let base_glyph_by_name: HashMap<String, babelfont::Glyph> = base_font
+        .glyphs
+        .iter()
+        .map(|glyph| (glyph.name.to_string(), glyph.clone()))
+        .collect();
+
+    let mut patched_count = 0;
+    for subset_glyph in subset_font.glyphs.iter_mut() {
+        let subset_glyph_name = subset_glyph.name.to_string();
+        if !dirty_set.contains(&subset_glyph_name) {
+            continue;
+        }
+
+        if let Some(latest_glyph) = base_glyph_by_name.get(&subset_glyph_name) {
+            *subset_glyph = latest_glyph.clone();
+            patched_count += 1;
+        }
+    }
+
+    patched_count
+}
+
 fn canonical_subset_key(mut glyph_names: Vec<String>) -> String {
     glyph_names.sort();
     glyph_names.dedup();
@@ -136,7 +194,7 @@ fn canonical_subset_key(mut glyph_names: Vec<String>) -> String {
 }
 
 fn compute_layout_closure_cached_internal(
-    font_revision: &str,
+    _font_revision: &str,
     glyph_names_json: &str,
 ) -> Result<(String, Vec<String>), JsValue> {
     let _cache_read_span = PerfSpan::start("layout_closure_cached.cache_read_font");
@@ -153,7 +211,7 @@ fn compute_layout_closure_cached_internal(
 
     let _key_span = PerfSpan::start("layout_closure_cached.compute_key");
     let subset_key = canonical_subset_key(glyph_names.clone());
-    let cache_key = format!("{}::{}", font_revision, subset_key);
+    let cache_key = subset_key;
     drop(_key_span);
 
     let _lookup_span = PerfSpan::start("layout_closure_cached.lookup");
@@ -294,13 +352,47 @@ pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
     drop(_cache_span);
 
     FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
-    *PREPARED_SUBSET_FONT_CACHE.lock().unwrap() = None;
 
     // Keep layout-closure cache across store_font to avoid recomputing closure
     // for outline-only edits. The cache key should be provided by caller.
 
     // Clear the outline cache since font changed
     let _outline_clear_span = PerfSpan::start("store_font.clear_outline_cache");
+    glyph_outlines::clear_outline_cache();
+    drop(_outline_clear_span);
+
+    Ok(())
+}
+
+#[wasm_bindgen]
+pub fn update_cached_glyph(glyph_name: &str, glyph_json: &str) -> Result<(), JsValue> {
+    let _update_span = PerfSpan::start("update_cached_glyph.total");
+
+    let _parse_span = PerfSpan::start("update_cached_glyph.parse_glyph_json");
+    let parsed_glyph: babelfont::Glyph = serde_json::from_str(glyph_json)
+        .map_err(|e| JsValue::from_str(&format!("Glyph JSON parse error: {}", e)))?;
+    drop(_parse_span);
+
+    let _cache_span = PerfSpan::start("update_cached_glyph.cache_write");
+    let mut cache = FONT_CACHE.lock().unwrap();
+    let font = cache
+        .as_mut()
+        .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
+
+    if let Some(existing_glyph) = font
+        .glyphs
+        .iter_mut()
+        .find(|glyph| glyph.name.as_str() == glyph_name)
+    {
+        *existing_glyph = parsed_glyph;
+    } else {
+        font.glyphs.push(parsed_glyph);
+    }
+    drop(_cache_span);
+
+    FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
+
+    let _outline_clear_span = PerfSpan::start("update_cached_glyph.clear_outline_cache");
     glyph_outlines::clear_outline_cache();
     drop(_outline_clear_span);
 
@@ -609,6 +701,8 @@ pub fn compile_cached_font_from_last_layout_closure(
         .ok_or_else(|| JsValue::from_str("Primed layout closure key not found in cache."))?;
     drop(_subset_fetch_span);
 
+    let prepared_subset_key = canonical_subset_key(closure_subset.clone());
+
     let _cache_read_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.cache_read");
     let base_font = {
         let cache = FONT_CACHE.lock().unwrap();
@@ -620,13 +714,15 @@ pub fn compile_cached_font_from_last_layout_closure(
     let font_cache_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
     drop(_cache_read_span);
 
+    let dirty_glyph_names = get_string_array_option(options, "dirty_glyphs");
+
     let _prepared_lookup_span =
         PerfSpan::start("compile_cached_font_from_last_layout_closure.prepared_subset_lookup");
     let prepared_hit = {
         let prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
         if let Some((prepared_key, prepared_epoch, prepared_font)) = prepared_cache.as_ref() {
-            if prepared_key == &cache_key && *prepared_epoch == font_cache_epoch {
-                Some(prepared_font.clone())
+            if prepared_key == &prepared_subset_key {
+                Some((*prepared_epoch, prepared_font.clone()))
             } else {
                 None
             }
@@ -635,8 +731,62 @@ pub fn compile_cached_font_from_last_layout_closure(
         }
     };
 
-    let font_clone = if let Some(prepared_font) = prepared_hit {
-        prepared_font
+    let font_clone = if let Some((prepared_epoch, mut prepared_font)) = prepared_hit {
+        if prepared_epoch != font_cache_epoch && dirty_glyph_names.is_empty() {
+            let _clone_span =
+                PerfSpan::start("compile_cached_font_from_last_layout_closure.clone_cached_font");
+            let mut subset_font = base_font;
+            drop(_clone_span);
+
+            let _retain_span =
+                PerfSpan::start("compile_cached_font_from_last_layout_closure.retain_glyphs");
+            if !closure_subset.is_empty() {
+                let subsetter = babelfont::filters::RetainGlyphs::new(closure_subset.clone());
+                subsetter
+                    .apply(&mut subset_font)
+                    .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
+            }
+            drop(_retain_span);
+
+            let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
+            prepared_cache.replace((
+                prepared_subset_key.clone(),
+                font_cache_epoch,
+                subset_font.clone(),
+            ));
+
+            subset_font
+        } else {
+            let _patch_span = PerfSpan::start(
+                "compile_cached_font_from_last_layout_closure.patch_dirty_glyphs",
+            );
+            let patched_count = patch_subset_glyphs_from_base_font(
+                &mut prepared_font,
+                &base_font,
+                &dirty_glyph_names,
+            );
+
+            if patched_count > 0 || prepared_epoch != font_cache_epoch {
+                perf_mark(&format!(
+                    "{}:compile_cached_font_from_last_layout_closure.patch_dirty_glyphs.applied",
+                    PERF_PREFIX
+                ));
+                let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
+                prepared_cache.replace((
+                    prepared_subset_key.clone(),
+                    font_cache_epoch,
+                    prepared_font.clone(),
+                ));
+            } else {
+                perf_mark(&format!(
+                    "{}:compile_cached_font_from_last_layout_closure.patch_dirty_glyphs.noop",
+                    PERF_PREFIX
+                ));
+            }
+            drop(_patch_span);
+
+            prepared_font
+        }
     } else {
         let _clone_span =
             PerfSpan::start("compile_cached_font_from_last_layout_closure.clone_cached_font");
@@ -656,7 +806,7 @@ pub fn compile_cached_font_from_last_layout_closure(
         {
             let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
             prepared_cache.replace((
-                cache_key.clone(),
+                prepared_subset_key,
                 font_cache_epoch,
                 subset_font.clone(),
             ));

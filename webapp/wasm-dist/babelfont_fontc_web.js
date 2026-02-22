@@ -584,6 +584,21 @@ export function store_font(babelfont_json) {
 }
 
 /**
+ * @param {string} glyph_name
+ * @param {string} glyph_json
+ */
+export function update_cached_glyph(glyph_name, glyph_json) {
+    const ptr0 = passStringToWasm0(glyph_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(glyph_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.update_cached_glyph(ptr0, len0, ptr1, len1);
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
  * Get version information
  * @returns {string}
  */

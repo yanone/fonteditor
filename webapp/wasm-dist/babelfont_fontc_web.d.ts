@@ -252,6 +252,8 @@ export function run_fontspector(font_bytes: Uint8Array, profile: string): string
  */
 export function store_font(babelfont_json: string): void;
 
+export function update_cached_glyph(glyph_name: string, glyph_json: string): void;
+
 /**
  * Get version information
  */
@@ -274,6 +276,7 @@ export interface InitOutput {
     readonly open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly prime_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly store_font: (a: number, b: number) => [number, number];
+    readonly update_cached_glyph: (a: number, b: number, c: number, d: number) => [number, number];
     readonly version: () => [number, number];
     readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
