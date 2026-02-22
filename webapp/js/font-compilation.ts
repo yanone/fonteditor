@@ -181,6 +181,7 @@ class FontCompilation {
     lastStoredFontJson: string | null;
     pendingStoreFontJsonPromise: Promise<any> | null;
     pendingStoreFontJsonPayload: string | null;
+    lastEditingSubsetKey: string | null;
 
     constructor(options?: { connectInterpolation?: boolean }) {
         this.worker = null;
@@ -191,6 +192,7 @@ class FontCompilation {
         this.lastStoredFontJson = null;
         this.pendingStoreFontJsonPromise = null;
         this.pendingStoreFontJsonPayload = null;
+        this.lastEditingSubsetKey = null;
     }
 
     async initialize() {
@@ -266,6 +268,7 @@ class FontCompilation {
             // Create a Web Worker for fontc
             timelineMark('fontCompilation.initialize.createWorker');
             this.worker = new Worker('js/fontc-worker.js', { type: 'module' });
+            this.lastEditingSubsetKey = null;
 
             // Set up message handler
             this.worker.onmessage = (e) => this.handleWorkerMessage(e);
@@ -383,6 +386,24 @@ class FontCompilation {
         // Handle compilation messages
         const { id, result, error, errorPayload, time_taken } = e.data;
 
+        const normalizeCompiledResult = (
+            value: unknown
+        ): Uint8Array | undefined => {
+            if (value === undefined || value === null) {
+                return undefined;
+            }
+            if (value instanceof Uint8Array) {
+                return value;
+            }
+            if (value instanceof ArrayBuffer) {
+                return new Uint8Array(value);
+            }
+            if (Array.isArray(value)) {
+                return new Uint8Array(value);
+            }
+            return undefined;
+        };
+
         if (id !== undefined && this.pendingCompilations.has(id)) {
             const { resolve, reject, filename, spanId } =
                 this.pendingCompilations.get(id)!;
@@ -419,7 +440,21 @@ class FontCompilation {
                 // For compilation messages, wrap in { result, time_taken, filename }
                 // For other message types, return the full data
                 if (result !== undefined) {
-                    resolve({ ...e.data, result, time_taken, filename });
+                    const normalizedResult = normalizeCompiledResult(result);
+                    if (!normalizedResult) {
+                        reject(
+                            new Error(
+                                'Worker returned unsupported compiled result type'
+                            )
+                        );
+                        return;
+                    }
+                    resolve({
+                        ...e.data,
+                        result: normalizedResult,
+                        time_taken,
+                        filename
+                    });
                 } else {
                     resolve(e.data);
                 }
@@ -679,6 +714,71 @@ class FontCompilation {
                 wrappedReject(error);
             }
         });
+    }
+
+    async compileEditingFromJsonCached(
+        babelfontJson: string,
+        fontRevisionKey: string,
+        subsetGlyphs: Array<string>,
+        requestMeta?: {
+            dragActive?: boolean;
+        }
+    ): Promise<{
+        result: Uint8Array;
+        filename: string;
+        time_taken: number;
+        fontRevisionKey?: string;
+        closureGlyphCount?: number;
+    }> {
+        const spanId = timelineSpanStart(
+            'fontCompilation.compileEditingFromJsonCached'
+        );
+
+        try {
+            if (!this.isInitialized) {
+                const initialized = await this.initialize();
+                if (!initialized) {
+                    timelineMark(
+                        'fontCompilation.compileEditingFromJsonCached.notInitialized'
+                    );
+                    throw new Error(
+                        'babelfont-fontc WASM not available. Run ./build-fontc-wasm.sh and serve with CORS headers.'
+                    );
+                }
+            }
+
+            const options: CompilationOptions = {
+                ...COMPILATION_TARGETS.editing
+            };
+
+            const normalizedSubsetGlyphs = Array.from(
+                new Set((subsetGlyphs || []).filter((glyph) => !!glyph))
+            ).sort();
+            const subsetKey = normalizedSubsetGlyphs.join('\u001f');
+
+            const compileResult = await this.sendMessage({
+                type: 'compileEditingCached',
+                babelfontJson,
+                options,
+                subsetKey,
+                subsetGlyphs: normalizedSubsetGlyphs,
+                fontRevisionKey,
+                dragActive: !!requestMeta?.dragActive,
+                filename: 'editing-font.ttf'
+            });
+
+            this.lastEditingSubsetKey = subsetKey;
+
+            return {
+                result: compileResult.result,
+                filename: compileResult.filename || 'editing-font.ttf',
+                time_taken: compileResult.time_taken || 0,
+                fontRevisionKey: compileResult.fontRevisionKey,
+                closureGlyphCount: compileResult.closureGlyphCount
+            };
+        } finally {
+            timelineSpanEnd(spanId);
+        }
     }
 
     /**

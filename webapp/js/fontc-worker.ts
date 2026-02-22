@@ -4,7 +4,9 @@
 
 import init, {
     compile_babelfont,
+    compile_cached_font_from_last_layout_closure,
     store_font,
+    prime_layout_closure_cache,
     interpolate_glyph,
     clear_font_cache,
     open_font_file,
@@ -23,6 +25,11 @@ import {
 
 let initialized = false;
 let cachedBabelfontJson: string | null = null; // Cache babelfont JSON for re-use
+let cachedFontRevisionKey: string | null = null;
+let cachedBaseSubsetKey: string | null = null;
+let cachedClosureGlyphCount: number | null = null;
+let lastStoreFontAtMs = 0;
+const DRAG_STORE_THROTTLE_MS = 450;
 
 function parseErrorLineColumn(message: string): {
     line?: number;
@@ -176,6 +183,45 @@ function normalizeWorkerError(error: unknown): {
     return {
         message: String(error)
     };
+}
+
+function toTransferableBuffer(bytes: Uint8Array): ArrayBuffer {
+    // Ensure we return a true ArrayBuffer (not ArrayBufferLike/SharedArrayBuffer)
+    return bytes.slice().buffer;
+}
+
+function postCompiledResult(
+    payload: {
+        id: number;
+        time_taken: number;
+        filename?: string;
+        fontRevisionKey?: string;
+        closureGlyphCount?: number;
+    },
+    bytes: Uint8Array
+) {
+    const transferSpanId = timelineSpanStart(
+        'font.worker.compiledResult.transfer'
+    );
+    const prepareSpanId = timelineSpanStart(
+        'font.worker.compiledResult.prepareTransferBuffer'
+    );
+    const resultBuffer = toTransferableBuffer(bytes);
+    timelineSpanEnd(prepareSpanId);
+
+    const postMessageSpanId = timelineSpanStart(
+        'font.worker.compiledResult.postMessage'
+    );
+    self.postMessage(
+        {
+            type: 'compiled',
+            ...payload,
+            result: resultBuffer
+        },
+        [resultBuffer]
+    );
+    timelineSpanEnd(postMessageSpanId);
+    timelineSpanEnd(transferSpanId);
 }
 
 /**
@@ -508,12 +554,13 @@ self.onmessage = async (event) => {
                     `[Fontc Worker] Compiled in ${(endTime - startTime).toFixed(0)}ms`
                 );
 
-                self.postMessage({
-                    type: 'compiled',
-                    id: data.id,
-                    result: ttfBytes,
-                    time_taken: endTime - startTime
-                });
+                postCompiledResult(
+                    {
+                        id: data.id,
+                        time_taken: endTime - startTime
+                    },
+                    ttfBytes
+                );
                 timelineMark('font.worker.compile.success');
             } catch (error: unknown) {
                 timelineMark('font.worker.compile.failed');
@@ -561,6 +608,139 @@ self.onmessage = async (event) => {
                 });
             } finally {
                 timelineSpanEnd(compileSpanId);
+            }
+            return;
+        }
+
+        if (data.type === 'compileEditingCached') {
+            const compileEditingSpanId = timelineSpanStart(
+                'font.worker.compileEditingCached'
+            );
+
+            if (!initialized) {
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: 'Worker not initialized'
+                });
+                return;
+            }
+
+            try {
+                timelineMark('font.worker.compileEditingCached.started');
+                const startTime = performance.now();
+                const {
+                    id,
+                    babelfontJson,
+                    options,
+                    subsetGlyphs,
+                    subsetKey,
+                    fontRevisionKey,
+                    dragActive
+                } = data;
+
+                if (!babelfontJson || typeof babelfontJson !== 'string') {
+                    throw new Error('Missing babelfontJson');
+                }
+
+                const revisionKey = String(fontRevisionKey ?? 'unknown');
+                const incomingSubsetKey =
+                    typeof subsetKey === 'string' ? subsetKey : '';
+                const baseSubsetGlyphs = Array.isArray(subsetGlyphs)
+                    ? subsetGlyphs
+                    : null;
+
+                const ensureFontCachedSpanId = timelineSpanStart(
+                    'font.worker.compileEditingCached.ensureFontCached'
+                );
+                const needsStore =
+                    cachedFontRevisionKey !== revisionKey ||
+                    cachedBabelfontJson !== babelfontJson;
+                const isDragActive = !!dragActive;
+                const shouldThrottleStoreDuringDrag =
+                    isDragActive &&
+                    needsStore &&
+                    cachedBabelfontJson !== null &&
+                    performance.now() - lastStoreFontAtMs <
+                        DRAG_STORE_THROTTLE_MS;
+
+                if (needsStore && !shouldThrottleStoreDuringDrag) {
+                    store_font(babelfontJson);
+                    cachedBabelfontJson = babelfontJson;
+                    cachedFontRevisionKey = revisionKey;
+                    lastStoreFontAtMs = performance.now();
+                    timelineMark(
+                        'font.worker.compileEditingCached.ensureFontCached.stored'
+                    );
+                } else if (needsStore && shouldThrottleStoreDuringDrag) {
+                    timelineMark(
+                        'font.worker.compileEditingCached.ensureFontCached.skippedDuringDrag'
+                    );
+                } else {
+                    timelineMark(
+                        'font.worker.compileEditingCached.ensureFontCached.reused'
+                    );
+                }
+                timelineSpanEnd(ensureFontCachedSpanId);
+
+                const primeClosureSpanId = timelineSpanStart(
+                    'font.worker.compileEditingCached.primeLayoutClosure'
+                );
+                const needsPrimeClosure =
+                    cachedBaseSubsetKey !== incomingSubsetKey;
+
+                if (needsPrimeClosure) {
+                    if (!baseSubsetGlyphs) {
+                        throw new Error(
+                            'Missing subsetGlyphs for changed subsetKey.'
+                        );
+                    }
+
+                    cachedClosureGlyphCount = prime_layout_closure_cache(
+                        incomingSubsetKey,
+                        JSON.stringify(baseSubsetGlyphs)
+                    );
+                    cachedBaseSubsetKey = incomingSubsetKey;
+                    timelineMark(
+                        'font.worker.compileEditingCached.primeLayoutClosure.primed'
+                    );
+                } else {
+                    timelineMark(
+                        'font.worker.compileEditingCached.primeLayoutClosure.reused'
+                    );
+                }
+                timelineSpanEnd(primeClosureSpanId);
+
+                const compileCachedSpanId = timelineSpanStart(
+                    'font.worker.compileEditingCached.compileCachedFont'
+                );
+                const compiledBytes =
+                    compile_cached_font_from_last_layout_closure(options || {});
+                timelineSpanEnd(compileCachedSpanId);
+                const endTime = performance.now();
+
+                postCompiledResult(
+                    {
+                        id,
+                        time_taken: endTime - startTime,
+                        fontRevisionKey: revisionKey,
+                        closureGlyphCount: cachedClosureGlyphCount || 0
+                    },
+                    compiledBytes
+                );
+                timelineMark('font.worker.compileEditingCached.success');
+            } catch (error: unknown) {
+                timelineMark('font.worker.compileEditingCached.failed');
+                const normalizedError = normalizeWorkerError(error);
+                self.postMessage({
+                    type: 'error',
+                    id: data.id,
+                    error: normalizedError.message,
+                    errorPayload: normalizedError.payload,
+                    stack: normalizedError.stack
+                });
+            } finally {
+                timelineSpanEnd(compileEditingSpanId);
             }
             return;
         }
@@ -764,6 +944,10 @@ self.onmessage = async (event) => {
             try {
                 timelineMark('font.worker.clearCache.started');
                 clear_font_cache();
+                cachedBabelfontJson = null;
+                cachedFontRevisionKey = null;
+                cachedBaseSubsetKey = null;
+                cachedClosureGlyphCount = null;
                 self.postMessage({
                     type: 'clearCache',
                     success: true
@@ -995,12 +1179,14 @@ self.onmessage = async (event) => {
                     `[Fontc Worker] Compiled ${filename} in ${time_taken}ms`
                 );
 
-                self.postMessage({
-                    id,
-                    result: Array.from(result),
-                    time_taken,
-                    filename: filename.replace(/\.babelfont$/, '.ttf')
-                });
+                postCompiledResult(
+                    {
+                        id,
+                        time_taken,
+                        filename: filename.replace(/\.babelfont$/, '.ttf')
+                    },
+                    result
+                );
                 timelineMark('font.worker.legacyCompile.success');
             } catch (e: any) {
                 timelineMark('font.worker.legacyCompile.failed');

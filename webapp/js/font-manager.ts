@@ -1006,50 +1006,7 @@ class FontManager {
                 consumedStartupCompileSlot = true;
             }
 
-            if (subsetGlyphs && subsetGlyphs.length > 0) {
-                // Check cache - closure only depends on base glyphs, not active features
-                // (close_layout returns ALL glyphs reachable via ANY feature)
-                const cacheValid =
-                    this.closureCache &&
-                    this.closureCache.subsetGlyphs.length ===
-                        subsetGlyphs.length &&
-                    this.closureCache.subsetGlyphs.every(
-                        (g: string, i: number) => g === subsetGlyphs[i]
-                    );
-
-                if (cacheValid) {
-                    console.log(
-                        `📦 Using cached layout closure (${this.closureCache!.closureSet.length} glyphs)`
-                    );
-                    glyphsToInclude = this.closureCache!.closureSet;
-                } else {
-                    // Compute layout closure via WASM
-                    console.log(
-                        `🔍 Computing layout closure from ${subsetGlyphs.length} base glyphs...`
-                    );
-
-                    // Ensure font is cached in WASM before computing closure
-                    const { store_font, get_layout_closure } =
-                        await import('../wasm-dist/babelfont_fontc_web');
-                    store_font(this.currentFont.babelfontJson);
-
-                    const closureJson = get_layout_closure(
-                        JSON.stringify(subsetGlyphs)
-                    );
-                    const closureSet = JSON.parse(closureJson);
-                    console.log(
-                        `✨ Layout closure expanded to ${closureSet.length} glyphs (${closureSet.length - subsetGlyphs.length} added)`
-                    );
-
-                    // Cache the result (only depends on base glyphs)
-                    this.closureCache = {
-                        subsetGlyphs: [...subsetGlyphs],
-                        activeFeatures: '', // Not used, kept for type compatibility
-                        closureSet
-                    };
-                    glyphsToInclude = closureSet;
-                }
-            }
+            const baseSubsetGlyphs = glyphsToInclude;
 
             const closureToCompileBridgeSpanId = timelineSpanStart(
                 'font.compileEditing.closureToCompileBridge',
@@ -1071,20 +1028,56 @@ class FontManager {
                 const normalizeSubsetSpanId = timelineSpanStart(
                     'font.compileEditing.normalizeSubsetForCompile',
                     {
-                        subsetGlyphCount: glyphsToInclude?.length || 0
+                        subsetGlyphCount: baseSubsetGlyphs?.length || 0
                     }
                 );
-                const subsetForCompile = glyphsToInclude
-                    ? [...glyphsToInclude]
-                    : glyphsToInclude;
+                const subsetForCompile = baseSubsetGlyphs
+                    ? [...baseSubsetGlyphs]
+                    : baseSubsetGlyphs;
                 timelineSpanEnd(normalizeSubsetSpanId);
 
-                result = await fontCompilation.compileFromJson(
-                    this.currentFont.babelfontJson,
-                    'editing-font.ttf',
-                    'editing',
-                    subsetForCompile
+                const requestedRevisionKey = String(
+                    this.currentFont.changeVersion
                 );
+                const dragActiveAtRequest =
+                    !!window.glyphCanvas?.outlineEditor?.draggingSomething;
+
+                result = await fontCompilation.compileEditingFromJsonCached(
+                    this.currentFont.babelfontJson,
+                    requestedRevisionKey,
+                    subsetForCompile,
+                    {
+                        dragActive: dragActiveAtRequest
+                    }
+                );
+
+                const currentRevisionKey = String(
+                    this.currentFont.changeVersion
+                );
+                const responseRevisionKey = String(
+                    result.fontRevisionKey || requestedRevisionKey
+                );
+                const isOutlineDragActiveNow =
+                    this.lastChangeSource === 'mouse-drag' &&
+                    !!window.glyphCanvas?.outlineEditor?.draggingSomething;
+
+                if (
+                    responseRevisionKey !== currentRevisionKey &&
+                    !isOutlineDragActiveNow
+                ) {
+                    timelineMark('font.compileEditing.staleResultIgnored');
+                    console.log(
+                        `[FontManager] Ignoring stale editing compile result (response revision ${responseRevisionKey}, current revision ${currentRevisionKey})`
+                    );
+                    return this.editingFont;
+                }
+                if (
+                    responseRevisionKey !== currentRevisionKey &&
+                    isOutlineDragActiveNow
+                ) {
+                    timelineMark('font.compileEditing.staleResultAppliedDuringDrag');
+                }
+
                 timelineMark(
                     'font.compileEditing.closureToCompileBridge.afterCompileFromJson'
                 );
@@ -1122,7 +1115,11 @@ class FontManager {
                 new CustomEvent('editingFontCompiled', {
                     detail: {
                         fontBytes: this.editingFont,
-                        duration: duration
+                        duration: duration,
+                        dragActive:
+                            this.lastChangeSource === 'mouse-drag' &&
+                            !!window.glyphCanvas?.outlineEditor
+                                ?.draggingSomething
                     }
                 })
             );

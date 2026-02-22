@@ -68,6 +68,21 @@ export function compile_cached_font(options) {
 }
 
 /**
+ * Compile cached font using the last primed layout closure subset.
+ * @param {any} options
+ * @returns {Uint8Array}
+ */
+export function compile_cached_font_from_last_layout_closure(options) {
+    const ret = wasm.compile_cached_font_from_last_layout_closure(options);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v1;
+}
+
+/**
  * Legacy function for compatibility
  * @param {string} _glyphs_json
  * @returns {Uint8Array}
@@ -346,6 +361,38 @@ export function get_layout_closure(glyph_names_json) {
 }
 
 /**
+ * Compute layout closure with Rust-side caching keyed by font revision + subset key.
+ *
+ * Cache key format: `<font_revision>::<canonical_subset_key>`
+ * where canonical subset key is sorted+deduplicated input glyph names.
+ * @param {string} font_revision
+ * @param {string} glyph_names_json
+ * @returns {string}
+ */
+export function get_layout_closure_cached(font_revision, glyph_names_json) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(font_revision, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(glyph_names_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.get_layout_closure_cached(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
  * Get stylistic set names from compiled font bytes
  *
  * Returns a JSON string with structure:
@@ -465,6 +512,25 @@ export function open_font_file(filename, contents) {
     } finally {
         wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
     }
+}
+
+/**
+ * Prime Rust layout-closure cache and mark it as the current closure subset.
+ * Returns number of glyphs in the resolved closure subset.
+ * @param {string} font_revision
+ * @param {string} glyph_names_json
+ * @returns {number}
+ */
+export function prime_layout_closure_cache(font_revision, glyph_names_json) {
+    const ptr0 = passStringToWasm0(font_revision, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(glyph_names_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.prime_layout_closure_cache(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] >>> 0;
 }
 
 /**

@@ -1,18 +1,21 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const clear_font_cache: () => void;
 export const compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
 export const compile_cached_font: (a: any) => [number, number, number, number];
+export const compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
 export const compile_glyphs: (a: number, b: number) => [number, number, number, number];
 export const get_glyphs_outlines: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
 export const get_layout_closure: (a: number, b: number) => [number, number, number, number];
+export const get_layout_closure_cached: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const init: () => void;
 export const interpolate_glyph: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const prime_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const store_font: (a: number, b: number) => [number, number];
 export const version: () => [number, number];
+export const run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const get_font_axes: (a: number, b: number) => [number, number, number, number];
 export const get_font_features: (a: number, b: number) => [number, number, number, number];
 export const get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];

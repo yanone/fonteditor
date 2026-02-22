@@ -44,6 +44,11 @@ export function compile_babelfont(babelfont_json: string, options: any): Uint8Ar
 export function compile_cached_font(options: any): Uint8Array;
 
 /**
+ * Compile cached font using the last primed layout closure subset.
+ */
+export function compile_cached_font_from_last_layout_closure(options: any): Uint8Array;
+
+/**
  * Legacy function for compatibility
  */
 export function compile_glyphs(_glyphs_json: string): Uint8Array;
@@ -167,6 +172,14 @@ export function get_glyphs_outlines(glyph_names_json: string, location_json: str
 export function get_layout_closure(glyph_names_json: string): string;
 
 /**
+ * Compute layout closure with Rust-side caching keyed by font revision + subset key.
+ *
+ * Cache key format: `<font_revision>::<canonical_subset_key>`
+ * where canonical subset key is sorted+deduplicated input glyph names.
+ */
+export function get_layout_closure_cached(font_revision: string, glyph_names_json: string): string;
+
+/**
  * Get stylistic set names from compiled font bytes
  *
  * Returns a JSON string with structure:
@@ -217,6 +230,12 @@ export function interpolate_glyph(glyph_name: string, location_json: string): st
  */
 export function open_font_file(filename: string, contents: string): string;
 
+/**
+ * Prime Rust layout-closure cache and mark it as the current closure subset.
+ * Returns number of glyphs in the resolved closure subset.
+ */
+export function prime_layout_closure_cache(font_revision: string, glyph_names_json: string): number;
+
 export function run_fontspector(font_bytes: Uint8Array, profile: string): string;
 
 /**
@@ -242,18 +261,21 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly clear_font_cache: () => void;
     readonly compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
     readonly compile_cached_font: (a: any) => [number, number, number, number];
+    readonly compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
     readonly compile_glyphs: (a: number, b: number) => [number, number, number, number];
     readonly get_glyphs_outlines: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly get_layout_closure: (a: number, b: number) => [number, number, number, number];
+    readonly get_layout_closure_cached: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly init: () => void;
     readonly interpolate_glyph: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly prime_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly store_font: (a: number, b: number) => [number, number];
     readonly version: () => [number, number];
+    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];

@@ -1,5 +1,6 @@
 # Build directories
 fontc-web-build/
+temp/
 
 # WASM distribution files (optional - uncomment if you don't want to commit these)
 # webapp/wasm-dist/

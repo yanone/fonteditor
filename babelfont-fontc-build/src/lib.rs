@@ -5,7 +5,7 @@ use babelfont::{
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -29,6 +29,11 @@ pub use fontspector::run_fontspector;
 // Global storage for cached fonts
 // Use a Mutex to allow safe mutable access from multiple calls
 static FONT_CACHE: Mutex<Option<babelfont::Font>> = Mutex::new(None);
+static LAYOUT_CLOSURE_CACHE: LazyLock<Mutex<HashMap<String, Vec<String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static LAST_LAYOUT_CLOSURE_CACHE_KEY: Mutex<Option<String>> = Mutex::new(None);
+static PREPARED_SUBSET_FONT_CACHE: Mutex<Option<(String, u64, babelfont::Font)>> = Mutex::new(None);
+static FONT_CACHE_EPOCH: AtomicU64 = AtomicU64::new(0);
 static PERF_SPAN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const PERF_PREFIX: &str = "cp:wasm";
@@ -122,6 +127,66 @@ fn get_option(options: &JsValue, key: &str, default: bool) -> bool {
         .unwrap_or(JsValue::from_bool(default))
         .as_bool()
         .unwrap_or(default)
+}
+
+fn canonical_subset_key(mut glyph_names: Vec<String>) -> String {
+    glyph_names.sort();
+    glyph_names.dedup();
+    glyph_names.join("\u{1F}")
+}
+
+fn compute_layout_closure_cached_internal(
+    font_revision: &str,
+    glyph_names_json: &str,
+) -> Result<(String, Vec<String>), JsValue> {
+    let _cache_read_span = PerfSpan::start("layout_closure_cached.cache_read_font");
+    let cache = FONT_CACHE.lock().unwrap();
+    let font = cache
+        .as_ref()
+        .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
+    drop(_cache_read_span);
+
+    let _parse_span = PerfSpan::start("layout_closure_cached.parse_input");
+    let glyph_names: Vec<String> = serde_json::from_str(glyph_names_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse glyph names JSON: {}", e)))?;
+    drop(_parse_span);
+
+    let _key_span = PerfSpan::start("layout_closure_cached.compute_key");
+    let subset_key = canonical_subset_key(glyph_names.clone());
+    let cache_key = format!("{}::{}", font_revision, subset_key);
+    drop(_key_span);
+
+    let _lookup_span = PerfSpan::start("layout_closure_cached.lookup");
+    if let Some(cached) = LAYOUT_CLOSURE_CACHE.lock().unwrap().get(&cache_key) {
+        let output = cached.clone();
+        drop(_lookup_span);
+        return Ok((cache_key, output));
+    }
+    drop(_lookup_span);
+
+    let _to_set_span = PerfSpan::start("layout_closure_cached.to_set");
+    let glyph_set: HashSet<SmolStr> = glyph_names.into_iter().map(SmolStr::from).collect();
+    drop(_to_set_span);
+
+    let _compute_span = PerfSpan::start("layout_closure_cached.compute");
+    let closure_set = babelfont::close_layout(font, glyph_set)
+        .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?;
+    drop(_compute_span);
+
+    let _normalize_span = PerfSpan::start("layout_closure_cached.normalize");
+    let mut result: Vec<String> = closure_set.into_iter().map(|s| s.to_string()).collect();
+    result.sort();
+    result.dedup();
+    drop(_normalize_span);
+
+    let _store_span = PerfSpan::start("layout_closure_cached.store");
+    LAYOUT_CLOSURE_CACHE
+        .lock()
+        .unwrap()
+        .insert(cache_key.clone(), result.clone());
+    drop(_store_span);
+
+    Ok((cache_key, result))
 }
 
 /// Compile a font from babelfont JSON directly to TTF
@@ -228,6 +293,12 @@ pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
     *cache = Some(font);
     drop(_cache_span);
 
+    FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
+    *PREPARED_SUBSET_FONT_CACHE.lock().unwrap() = None;
+
+    // Keep layout-closure cache across store_font to avoid recomputing closure
+    // for outline-only edits. The cache key should be provided by caller.
+
     // Clear the outline cache since font changed
     let _outline_clear_span = PerfSpan::start("store_font.clear_outline_cache");
     glyph_outlines::clear_outline_cache();
@@ -241,6 +312,11 @@ pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
 pub fn clear_font_cache() {
     let mut cache = FONT_CACHE.lock().unwrap();
     *cache = None;
+
+    LAYOUT_CLOSURE_CACHE.lock().unwrap().clear();
+    *LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
+    *PREPARED_SUBSET_FONT_CACHE.lock().unwrap() = None;
+    FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
 
     // Also clear the outline cache
     glyph_outlines::clear_outline_cache();
@@ -470,6 +546,142 @@ pub fn get_layout_closure(glyph_names_json: &str) -> Result<String, JsValue> {
     drop(_result_span);
 
     Ok(output)
+}
+
+/// Compute layout closure with Rust-side caching keyed by font revision + subset key.
+///
+/// Cache key format: `<font_revision>::<canonical_subset_key>`
+/// where canonical subset key is sorted+deduplicated input glyph names.
+#[wasm_bindgen]
+pub fn get_layout_closure_cached(
+    font_revision: &str,
+    glyph_names_json: &str,
+) -> Result<String, JsValue> {
+    let _closure_total_span = PerfSpan::start("get_layout_closure_cached.total");
+
+    let (_cache_key, result) = compute_layout_closure_cached_internal(font_revision, glyph_names_json)?;
+
+    let _serialize_span = PerfSpan::start("get_layout_closure_cached.serialize");
+    let output = serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize closure result: {}", e)))?;
+    drop(_serialize_span);
+
+    Ok(output)
+}
+
+/// Prime Rust layout-closure cache and mark it as the current closure subset.
+/// Returns number of glyphs in the resolved closure subset.
+#[wasm_bindgen]
+pub fn prime_layout_closure_cache(
+    font_revision: &str,
+    glyph_names_json: &str,
+) -> Result<u32, JsValue> {
+    let _prime_span = PerfSpan::start("prime_layout_closure_cache.total");
+    let (cache_key, result) =
+        compute_layout_closure_cached_internal(font_revision, glyph_names_json)?;
+    *LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = Some(cache_key.clone());
+
+    Ok(result.len() as u32)
+}
+
+/// Compile cached font using the last primed layout closure subset.
+#[wasm_bindgen]
+pub fn compile_cached_font_from_last_layout_closure(
+    options: &JsValue,
+) -> Result<Vec<u8>, JsValue> {
+    let _compile_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.total");
+
+    let _closure_fetch_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.fetch_last_closure");
+    let cache_key = LAST_LAYOUT_CLOSURE_CACHE_KEY
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| JsValue::from_str("No primed layout closure. Call prime_layout_closure_cache() first."))?;
+    drop(_closure_fetch_span);
+
+    let _subset_fetch_span =
+        PerfSpan::start("compile_cached_font_from_last_layout_closure.fetch_closure_subset");
+    let closure_subset = LAYOUT_CLOSURE_CACHE
+        .lock()
+        .unwrap()
+        .get(&cache_key)
+        .cloned()
+        .ok_or_else(|| JsValue::from_str("Primed layout closure key not found in cache."))?;
+    drop(_subset_fetch_span);
+
+    let _cache_read_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.cache_read");
+    let base_font = {
+        let cache = FONT_CACHE.lock().unwrap();
+        cache
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?
+    };
+    let font_cache_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
+    drop(_cache_read_span);
+
+    let _prepared_lookup_span =
+        PerfSpan::start("compile_cached_font_from_last_layout_closure.prepared_subset_lookup");
+    let prepared_hit = {
+        let prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
+        if let Some((prepared_key, prepared_epoch, prepared_font)) = prepared_cache.as_ref() {
+            if prepared_key == &cache_key && *prepared_epoch == font_cache_epoch {
+                Some(prepared_font.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    let font_clone = if let Some(prepared_font) = prepared_hit {
+        prepared_font
+    } else {
+        let _clone_span =
+            PerfSpan::start("compile_cached_font_from_last_layout_closure.clone_cached_font");
+        let mut subset_font = base_font;
+        drop(_clone_span);
+
+        let _retain_span =
+            PerfSpan::start("compile_cached_font_from_last_layout_closure.retain_glyphs");
+        if !closure_subset.is_empty() {
+            let subsetter = babelfont::filters::RetainGlyphs::new(closure_subset.clone());
+            subsetter
+                .apply(&mut subset_font)
+                .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
+        }
+        drop(_retain_span);
+
+        {
+            let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
+            prepared_cache.replace((
+                cache_key.clone(),
+                font_cache_epoch,
+                subset_font.clone(),
+            ));
+        }
+        subset_font
+    };
+    drop(_prepared_lookup_span);
+
+    let compilation_options = CompilationOptions {
+        skip_kerning: get_option(options, "skip_kerning", false),
+        skip_features: get_option(options, "skip_features", false),
+        skip_metrics: get_option(options, "skip_metrics", false),
+        skip_outlines: get_option(options, "skip_outlines", false),
+        dont_use_production_names: get_option(options, "dont_use_production_names", false),
+        drop_incompatible_paths: get_option(options, "drop_incompatible_paths", false),
+        produce_varc_table: get_option(options, "produce_varc_table", false),
+        debug_feature_file: None,
+    };
+
+    let _ir_compile_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.ir_compile");
+    let compiled_font = BabelfontIrSource::compile(font_clone, compilation_options)
+        .map_err(|e| JsValue::from_str(&format!("Compilation failed: {:?}", e)))?;
+    drop(_ir_compile_span);
+
+    Ok(compiled_font)
 }
 
 /// Compile the cached font to TTF

@@ -36,14 +36,14 @@ Main-thread API:
 ```javascript
 // Replace full snapshot
 window.glyphOverviewFilterManager.setSharedPluginContext({
-	project: "MyFont",
-	ui: { mode: "review" },
-	thresholds: { maxNodes: 1200 }
+    project: "MyFont",
+    ui: { mode: "review" },
+    thresholds: { maxNodes: 1200 },
 });
 
 // Shallow patch
 window.glyphOverviewFilterManager.updateSharedPluginContext({
-	ui: { mode: "edit" }
+    ui: { mode: "edit" },
 });
 
 // Read current snapshot
@@ -85,8 +85,8 @@ Quick DevTools verification (context round-trip):
 ```javascript
 // 1) Seed shared context from main thread
 window.glyphOverviewFilterManager.setSharedPluginContext({
-	debugRunId: Date.now(),
-	note: "hello-from-main"
+    debugRunId: Date.now(),
+    note: "hello-from-main",
 });
 
 // 2) Run any glyph filter that calls SetContextPatch({ ... })
@@ -160,6 +160,11 @@ Optional live console queries:
 
 - Marks: `performance.getEntriesByType('mark').filter(e => e.name.startsWith('cp:'))`
 - Measures: `performance.getEntriesByType('measure').filter(e => e.name.startsWith('cp:'))`
+
+#### Shrink exported traces for LLM analysis
+
+- Script: `node shrink-trace-to-timings.mjs [--llm|--summary] temp/<trace>.json [output.json]`
+- Modes: default = filtered `traceEvents`, `--llm` = minimal event fields, `--summary` = compact aggregates only.
 
 ## Releasing a New Version
 

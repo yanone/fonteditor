@@ -3298,6 +3298,7 @@ function setupFontLoadingListener() {
                 '[GlyphCanvas]',
                 '   Loading editing font into canvas...'
             );
+            const isDragActive = !!detail.dragActive;
             const arrayBuffer = detail.fontBytes.buffer.slice(
                 detail.fontBytes.byteOffset,
                 detail.fontBytes.byteOffset + detail.fontBytes.byteLength
@@ -3307,8 +3308,11 @@ function setupFontLoadingListener() {
             const gc = window.glyphCanvas;
             if (gc.featuresManager) {
                 gc.featuresManager.editingFontBytes = detail.fontBytes;
-                // Update features UI to reflect availability in editing font
-                await gc.featuresManager.updateFeaturesUI();
+                // Update features UI to reflect availability in editing font.
+                // Skip while dragging for better interactive throughput.
+                if (!isDragActive) {
+                    await gc.featuresManager.updateFeaturesUI();
+                }
             }
 
             // Check if we have a pending anchor from feature changes
