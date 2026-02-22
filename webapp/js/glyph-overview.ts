@@ -2650,7 +2650,9 @@ class GlyphOverview {
         };
     }
 
-    public async ensureTilesRendered(minRenderedTiles: number = 3): Promise<void> {
+    public async ensureTilesRendered(
+        minRenderedTiles: number = 3
+    ): Promise<void> {
         if (!this.container || this.tiles.size === 0) {
             return;
         }

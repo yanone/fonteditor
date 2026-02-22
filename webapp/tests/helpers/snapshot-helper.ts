@@ -393,7 +393,9 @@ export async function waitForOverviewTilesRendered(page: any) {
 
         const manager = window.glyphOverviewFilterManager;
         const status = manager?.getPluginCountResolutionStatus?.();
-        const renderStatus = (window as any).glyphOverviewInstance?.getRenderStatus?.();
+        const renderStatus = (
+            window as any
+        ).glyphOverviewInstance?.getRenderStatus?.();
         const domCounts = Array.from(
             document.querySelectorAll(
                 '#overview-filters .glyph-filter-item[data-plugin-keyword] .glyph-filter-item-count'
