@@ -1051,16 +1051,46 @@ class FontManager {
                 }
             }
 
+            const closureToCompileBridgeSpanId = timelineSpanStart(
+                'font.compileEditing.closureToCompileBridge',
+                {
+                    subsetGlyphCount: glyphsToInclude?.length || 0
+                }
+            );
+
             // Compile editing font with layout closure subset
             console.log(
                 `🔨 Compiling editing font, subset_glyphs: ${glyphsToInclude ? glyphsToInclude.length + ' glyphs' : 'none (full font)'}`
             );
-            const result = await fontCompilation.compileFromJson(
-                this.currentFont.babelfontJson,
-                'editing-font.ttf',
-                'editing',
-                glyphsToInclude
-            );
+            let result;
+            try {
+                timelineMark(
+                    'font.compileEditing.closureToCompileBridge.beforeCompileFromJson'
+                );
+
+                const normalizeSubsetSpanId = timelineSpanStart(
+                    'font.compileEditing.normalizeSubsetForCompile',
+                    {
+                        subsetGlyphCount: glyphsToInclude?.length || 0
+                    }
+                );
+                const subsetForCompile = glyphsToInclude
+                    ? [...glyphsToInclude]
+                    : glyphsToInclude;
+                timelineSpanEnd(normalizeSubsetSpanId);
+
+                result = await fontCompilation.compileFromJson(
+                    this.currentFont.babelfontJson,
+                    'editing-font.ttf',
+                    'editing',
+                    subsetForCompile
+                );
+                timelineMark(
+                    'font.compileEditing.closureToCompileBridge.afterCompileFromJson'
+                );
+            } finally {
+                timelineSpanEnd(closureToCompileBridgeSpanId);
+            }
 
             this.editingFont = new Uint8Array(result.result);
             const duration = (performance.now() - startTime).toFixed(2);

@@ -4,8 +4,10 @@ use babelfont::{
 };
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 // Font reading module (using read-fonts/skrifa)
 mod font_reader;
@@ -27,6 +29,84 @@ pub use fontspector::run_fontspector;
 // Global storage for cached fonts
 // Use a Mutex to allow safe mutable access from multiple calls
 static FONT_CACHE: Mutex<Option<babelfont::Font>> = Mutex::new(None);
+static PERF_SPAN_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+const PERF_PREFIX: &str = "cp:wasm";
+
+fn perf_mark(label: &str) {
+    let global = js_sys::global();
+    let performance = match js_sys::Reflect::get(&global, &JsValue::from_str("performance")) {
+        Ok(value) if !value.is_null() && !value.is_undefined() => value,
+        _ => return,
+    };
+
+    let mark_fn = match js_sys::Reflect::get(&performance, &JsValue::from_str("mark")) {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+
+    let Some(mark_fn) = mark_fn.dyn_ref::<js_sys::Function>() else {
+        return;
+    };
+
+    let _ = mark_fn.call1(&performance, &JsValue::from_str(label));
+}
+
+fn perf_measure(name: &str, start: &str, end: &str) {
+    let global = js_sys::global();
+    let performance = match js_sys::Reflect::get(&global, &JsValue::from_str("performance")) {
+        Ok(value) if !value.is_null() && !value.is_undefined() => value,
+        _ => return,
+    };
+
+    let measure_fn = match js_sys::Reflect::get(&performance, &JsValue::from_str("measure")) {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+
+    let Some(measure_fn) = measure_fn.dyn_ref::<js_sys::Function>() else {
+        return;
+    };
+
+    let _ = measure_fn.call3(
+        &performance,
+        &JsValue::from_str(name),
+        &JsValue::from_str(start),
+        &JsValue::from_str(end),
+    );
+}
+
+struct PerfSpan {
+    stage: String,
+    start_mark: String,
+    end_mark: String,
+}
+
+impl PerfSpan {
+    fn start(stage: &str) -> Self {
+        let span_id = PERF_SPAN_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+        let start_mark = format!("{}:{}#{}:start", PERF_PREFIX, stage, span_id);
+        let end_mark = format!("{}:{}#{}:end", PERF_PREFIX, stage, span_id);
+        perf_mark(&start_mark);
+
+        Self {
+            stage: stage.to_string(),
+            start_mark,
+            end_mark,
+        }
+    }
+}
+
+impl Drop for PerfSpan {
+    fn drop(&mut self) {
+        perf_mark(&self.end_mark);
+        perf_measure(
+            &format!("{}:{}", PERF_PREFIX, self.stage),
+            &self.start_mark,
+            &self.end_mark,
+        );
+    }
+}
 
 // Set up panic hook for better error messages
 #[wasm_bindgen(start)]
@@ -65,10 +145,14 @@ fn get_option(options: &JsValue, key: &str, default: bool) -> bool {
 /// * `Vec<u8>` - Compiled TTF font bytes
 #[wasm_bindgen]
 pub fn compile_babelfont(babelfont_json: &str, options: &JsValue) -> Result<Vec<u8>, JsValue> {
+    let _compile_span = PerfSpan::start("compile_babelfont.total");
+    let _parse_span = PerfSpan::start("compile_babelfont.parse_json");
     let mut font: babelfont::Font = serde_json::from_str(babelfont_json)
         .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    drop(_parse_span);
 
     // Handle subset_glyphs option if present
+    let _subset_span = PerfSpan::start("compile_babelfont.extract_subset_options");
     if !options.is_undefined() && !options.is_null() {
         if let Ok(subset_val) = js_sys::Reflect::get(options, &JsValue::from_str("subset_glyphs")) {
             if !subset_val.is_undefined() && !subset_val.is_null() {
@@ -77,15 +161,18 @@ pub fn compile_babelfont(babelfont_json: &str, options: &JsValue) -> Result<Vec<
                         array.iter().filter_map(|v| v.as_string()).collect();
 
                     if !subset_glyphs.is_empty() {
+                        let _retain_span = PerfSpan::start("compile_babelfont.retain_glyphs");
                         let subsetter = babelfont::filters::RetainGlyphs::new(subset_glyphs);
                         subsetter.apply(&mut font).map_err(|e| {
                             JsValue::from_str(&format!("Subsetting failed: {:?}", e))
                         })?;
+                        drop(_retain_span);
                     }
                 }
             }
         }
     }
+    drop(_subset_span);
 
     let options = CompilationOptions {
         skip_kerning: get_option(options, "skip_kerning", false),
@@ -98,8 +185,10 @@ pub fn compile_babelfont(babelfont_json: &str, options: &JsValue) -> Result<Vec<
         debug_feature_file: None,
     };
 
+    let _ir_compile_span = PerfSpan::start("compile_babelfont.ir_compile");
     let compiled_font = BabelfontIrSource::compile(font, options)
         .map_err(|e| JsValue::from_str(&format!("Compilation failed: {:?}", e)))?;
+    drop(_ir_compile_span);
 
     Ok(compiled_font)
 }
@@ -128,14 +217,21 @@ pub fn version() -> String {
 /// * `Result<(), JsValue>` - Success or error
 #[wasm_bindgen]
 pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
+    let _store_span = PerfSpan::start("store_font.total");
+    let _parse_span = PerfSpan::start("store_font.parse_json");
     let font: babelfont::Font = serde_json::from_str(babelfont_json)
         .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+    drop(_parse_span);
 
+    let _cache_span = PerfSpan::start("store_font.cache_write");
     let mut cache = FONT_CACHE.lock().unwrap();
     *cache = Some(font);
+    drop(_cache_span);
 
     // Clear the outline cache since font changed
+    let _outline_clear_span = PerfSpan::start("store_font.clear_outline_cache");
     glyph_outlines::clear_outline_cache();
+    drop(_outline_clear_span);
 
     Ok(())
 }
@@ -336,29 +432,44 @@ pub fn get_glyphs_outlines(
 /// ```
 #[wasm_bindgen]
 pub fn get_layout_closure(glyph_names_json: &str) -> Result<String, JsValue> {
+    let _closure_total_span = PerfSpan::start("get_layout_closure.total");
+
+    let _cache_read_span = PerfSpan::start("get_layout_closure.cache_read");
     let cache = FONT_CACHE.lock().unwrap();
     let font = cache
         .as_ref()
         .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
+    drop(_cache_read_span);
 
     // Parse input glyph names from JSON array
+    let _parse_span = PerfSpan::start("get_layout_closure.parse_input");
     let glyph_names: Vec<String> = serde_json::from_str(glyph_names_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse glyph names JSON: {}", e)))?;
+    drop(_parse_span);
 
     // Convert Vec<String> to HashSet<SmolStr> for close_layout
+    let _to_set_span = PerfSpan::start("get_layout_closure.to_set");
     let glyph_set: HashSet<SmolStr> = glyph_names.into_iter().map(SmolStr::from).collect();
+    drop(_to_set_span);
 
     // Compute the layout closure
+    let _compute_span = PerfSpan::start("get_layout_closure.compute");
     let closure_set = babelfont::close_layout(font, glyph_set)
         .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?;
+    drop(_compute_span);
 
     // Convert HashSet<SmolStr> back to sorted Vec<String> for consistent output
+    let _result_span = PerfSpan::start("get_layout_closure.result_serialize");
     let mut result: Vec<String> = closure_set.into_iter().map(|s| s.to_string()).collect();
     result.sort();
 
     // Serialize to JSON array
-    serde_json::to_string(&result)
+    let output = serde_json::to_string(&result)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize closure result: {}", e)))
+        ?;
+    drop(_result_span);
+
+    Ok(output)
 }
 
 /// Compile the cached font to TTF
@@ -373,15 +484,22 @@ pub fn get_layout_closure(glyph_names_json: &str) -> Result<String, JsValue> {
 /// * `Vec<u8>` - Compiled TTF font bytes
 #[wasm_bindgen]
 pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
+    let _compile_span = PerfSpan::start("compile_cached_font.total");
+
+    let _cache_read_span = PerfSpan::start("compile_cached_font.cache_read");
     let cache = FONT_CACHE.lock().unwrap();
     let font = cache
         .as_ref()
         .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
+    drop(_cache_read_span);
 
     // Clone the font for compilation (in case we need to apply filters)
+    let _clone_span = PerfSpan::start("compile_cached_font.clone_cached_font");
     let mut font_clone = font.clone();
+    drop(_clone_span);
 
     // Handle subset_glyphs option if present
+    let _subset_span = PerfSpan::start("compile_cached_font.extract_subset_options");
     if !options.is_undefined() && !options.is_null() {
         if let Ok(subset_val) = js_sys::Reflect::get(options, &JsValue::from_str("subset_glyphs")) {
             if !subset_val.is_undefined() && !subset_val.is_null() {
@@ -390,15 +508,18 @@ pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
                         array.iter().filter_map(|v| v.as_string()).collect();
 
                     if !subset_glyphs.is_empty() {
+                        let _retain_span = PerfSpan::start("compile_cached_font.retain_glyphs");
                         let subsetter = babelfont::filters::RetainGlyphs::new(subset_glyphs);
                         subsetter.apply(&mut font_clone).map_err(|e| {
                             JsValue::from_str(&format!("Subsetting failed: {:?}", e))
                         })?;
+                        drop(_retain_span);
                     }
                 }
             }
         }
     }
+    drop(_subset_span);
 
     let compilation_options = CompilationOptions {
         skip_kerning: get_option(options, "skip_kerning", false),
@@ -411,8 +532,10 @@ pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
         debug_feature_file: None,
     };
 
+    let _ir_compile_span = PerfSpan::start("compile_cached_font.ir_compile");
     let compiled_font = BabelfontIrSource::compile(font_clone, compilation_options)
         .map_err(|e| JsValue::from_str(&format!("Compilation failed: {:?}", e)))?;
+    drop(_ir_compile_span);
 
     Ok(compiled_font)
 }

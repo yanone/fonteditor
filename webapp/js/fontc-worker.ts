@@ -460,15 +460,28 @@ self.onmessage = async (event) => {
                 const startTime = performance.now();
 
                 // Clean font data before compilation
+                const parseJsonSpanId = timelineSpanStart(
+                    'font.worker.compile.parseInputJson'
+                );
                 const fontData = JSON.parse(data.babelfontJson);
+                timelineSpanEnd(parseJsonSpanId);
+
                 // TEMPORARY: Bypass stripLayerData to isolate issue
+                const cleanFontDataSpanId = timelineSpanStart(
+                    'font.worker.compile.cleanFontData'
+                );
                 const cleanedFontData = fontData;
                 // const cleanedFontData = stripLayerData(fontData);
+                timelineSpanEnd(cleanFontDataSpanId);
 
                 // Validate font data
                 // validateFontData(cleanedFontData);
 
+                const stringifyJsonSpanId = timelineSpanStart(
+                    'font.worker.compile.stringifyInputJson'
+                );
                 const cleanedJson = JSON.stringify(cleanedFontData);
+                timelineSpanEnd(stringifyJsonSpanId);
 
                 // Send debug info to main thread
                 self.postMessage({
@@ -476,10 +489,14 @@ self.onmessage = async (event) => {
                     message: `Before compile: ${cleanedFontData.glyphs.length} glyphs, JSON ${cleanedJson.length} bytes, options: ${JSON.stringify(data.options)}`
                 });
 
+                const wasmCompileBridgeSpanId = timelineSpanStart(
+                    'font.worker.compile.invokeWasm'
+                );
                 const ttfBytes = compile_babelfont(
                     cleanedJson,
                     data.options || {}
                 );
+                timelineSpanEnd(wasmCompileBridgeSpanId);
                 const endTime = performance.now();
 
                 self.postMessage({

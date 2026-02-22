@@ -569,10 +569,14 @@ class FontCompilation {
         }
 
         // Resolve compilation options
+        const resolveOptionsSpanId = timelineSpanStart(
+            'fontCompilation.compileFromJson.resolveOptions'
+        );
         let options: CompilationOptions;
         if (typeof target === 'string') {
             options = { ...COMPILATION_TARGETS[target] };
             if (!options) {
+                timelineSpanEnd(resolveOptionsSpanId);
                 throw new Error(
                     `Unknown compilation target: ${target}. Available: ${Object.keys(COMPILATION_TARGETS).join(', ')}`
                 );
@@ -580,8 +584,12 @@ class FontCompilation {
         } else {
             options = target;
         }
+        timelineSpanEnd(resolveOptionsSpanId);
 
         // Add subset glyphs if provided
+        const subsetOptionsSpanId = timelineSpanStart(
+            'fontCompilation.compileFromJson.applySubsetOptions'
+        );
         if (subsetGlyphs && subsetGlyphs.length > 0) {
             options.subset_glyphs = subsetGlyphs;
             console.log(
@@ -595,6 +603,7 @@ class FontCompilation {
                 'No subset_glyphs specified, compiling full font'
             );
         }
+        timelineSpanEnd(subsetOptionsSpanId);
 
         console.log(
             '[FontCompilation]',
@@ -626,7 +635,11 @@ class FontCompilation {
 
             // Validate JSON before sending to worker
             try {
+                const validateJsonSpanId = timelineSpanStart(
+                    'fontCompilation.compileFromJson.validateJson'
+                );
                 JSON.parse(babelfontJson);
+                timelineSpanEnd(validateJsonSpanId);
             } catch (error: any) {
                 console.error(
                     '[FontCompilation]',
@@ -650,6 +663,9 @@ class FontCompilation {
             // Send JSON string directly to worker
             timelineMark('fontCompilation.compileFromJson.posted');
             try {
+                const postMessageSpanId = timelineSpanStart(
+                    'fontCompilation.compileFromJson.postMessage'
+                );
                 this.worker!.postMessage({
                     type: 'compile',
                     id,
@@ -657,6 +673,7 @@ class FontCompilation {
                     filename,
                     options
                 });
+                timelineSpanEnd(postMessageSpanId);
             } catch (error) {
                 this.pendingCompilations.delete(id);
                 wrappedReject(error);
