@@ -331,6 +331,7 @@ class FontManager {
     } | null = null;
     isExternalReloading: boolean = false;
     pendingDebugEditingFontSaveAfterDrag: boolean;
+    pendingBabelfontJsonSyncAfterDrag: boolean;
 
     constructor() {
         this.fontDisplay = null;
@@ -350,6 +351,7 @@ class FontManager {
         this.closureCache = null;
         this.isExternalReloading = false;
         this.pendingDebugEditingFontSaveAfterDrag = false;
+        this.pendingBabelfontJsonSyncAfterDrag = false;
     }
     init() {
         this.fontDisplay = document.getElementById('current-font-display');
@@ -1315,6 +1317,27 @@ class FontManager {
         this.pendingDebugEditingFontSaveAfterDrag = false;
     }
 
+    private syncBabelfontJsonFromCurrentModel(): boolean {
+        const currentFont = this.currentFont;
+        if (!currentFont) {
+            return false;
+        }
+
+        try {
+            const fontData = currentFont.fontModel.toJSON();
+            currentFont.babelfontData = fontData;
+            currentFont.babelfontJson = JSON.stringify(fontData);
+            window.currentFontModel = currentFont.fontModel;
+            return true;
+        } catch (error) {
+            console.error(
+                '[FontManager] Error syncing babelfont JSON from model:',
+                error
+            );
+            return false;
+        }
+    }
+
     /**
      * Get the current editing font bytes
      */
@@ -1669,38 +1692,13 @@ class FontManager {
         // Directly assign the cleaned layer data (no need for JSON.parse/stringify)
         glyph.layers[layerIndex] = layerDataCopy;
 
-        // Update the babelfontJson string
-        // We need to parse the JSON, update the specific layer, and stringify again
-        // to avoid circular references from other layers that were rendered
-        try {
-            const fontData = JSON.parse(this.currentFont!.babelfontJson);
-            // Find the glyph in the parsed data
-            const glyphInJson = fontData.glyphs.find(
-                (g: any) =>
-                    g.name === glyphName ||
-                    (glyphName.startsWith('GID ') && g.name === undefined)
-            );
-            if (glyphInJson && glyphInJson.layers) {
-                const layerIndexInJson = glyphInJson.layers.findIndex(
-                    (l: any) => l.id === layerId
-                );
-                if (layerIndexInJson !== -1) {
-                    glyphInJson.layers[layerIndexInJson] = layerDataCopy;
-                }
+        if (changeSource === 'mouse-drag') {
+            this.pendingBabelfontJsonSyncAfterDrag = true;
+        } else {
+            if (!this.syncBabelfontJsonFromCurrentModel()) {
+                return;
             }
-            this.currentFont!.babelfontJson = JSON.stringify(fontData);
-            // Also update the babelfontData reference
-            this.currentFont!.babelfontData = fontData;
-            // Recreate the font model to reflect changes
-            this.currentFont!.fontModel = Font.fromData(fontData);
-            // Update global reference
-            window.currentFontModel = this.currentFont!.fontModel;
-        } catch (error) {
-            console.error(
-                '[FontManager] Error updating babelfont JSON:',
-                error
-            );
-            return;
+            this.pendingBabelfontJsonSyncAfterDrag = false;
         }
 
         // Mark font as dirty and track the change source
@@ -1742,6 +1740,13 @@ class FontManager {
         if (!this.currentFont) {
             console.warn('[FontManager] No current font to update cache');
             return;
+        }
+
+        if (this.pendingBabelfontJsonSyncAfterDrag) {
+            if (!this.syncBabelfontJsonFromCurrentModel()) {
+                return;
+            }
+            this.pendingBabelfontJsonSyncAfterDrag = false;
         }
 
         try {
