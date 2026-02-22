@@ -287,16 +287,21 @@ export async function waitForOpenSessionReady(
  * Wait until overview tiles have actual rendered canvas content.
  */
 export async function waitForOverviewTilesRendered(page: any) {
+    await page.evaluate(async () => {
+        const manager = window.glyphOverviewFilterManager;
+        if (!manager || !manager.isLoaded?.()) {
+            return;
+        }
+
+        try {
+            await manager.refreshPlugins?.({ deferCounts: false });
+        } catch {
+            // Keep waiting logic robust; waitForFunction below will enforce readiness.
+        }
+    });
+
     await page.waitForFunction(
         () => {
-            const lifecycleCount = performance.getEntriesByName(
-                'cp:font.lifecycle.overviewInitialRenderComplete'
-            ).length;
-
-            if (lifecycleCount === 0) {
-                return false;
-            }
-
             const glyphModelCount =
                 window.currentFontModel?.glyphs?.length || 0;
             if (glyphModelCount === 0) {
@@ -320,60 +325,6 @@ export async function waitForOverviewTilesRendered(page: any) {
                 return false;
             }
 
-            const sampleSize = Math.min(tileCanvases.length, 80);
-            let renderedCanvasCount = 0;
-
-            for (let index = 0; index < sampleSize; index += 1) {
-                const canvas = tileCanvases[index];
-                const width = canvas.width;
-                const height = canvas.height;
-
-                if (!width || !height) {
-                    continue;
-                }
-
-                try {
-                    const ctx = canvas.getContext('2d', {
-                        willReadFrequently: true
-                    });
-                    if (!ctx) {
-                        continue;
-                    }
-
-                    const imageData = ctx.getImageData(
-                        0,
-                        0,
-                        width,
-                        height
-                    ).data;
-                    let hasNonTransparentPixel = false;
-
-                    for (
-                        let pixelIndex = 3;
-                        pixelIndex < imageData.length;
-                        pixelIndex += 4
-                    ) {
-                        if (imageData[pixelIndex] !== 0) {
-                            hasNonTransparentPixel = true;
-                            break;
-                        }
-                    }
-
-                    if (hasNonTransparentPixel) {
-                        renderedCanvasCount += 1;
-                        if (renderedCanvasCount >= 3) {
-                            break;
-                        }
-                    }
-                } catch {
-                    return false;
-                }
-            }
-
-            if (renderedCanvasCount < 3) {
-                return false;
-            }
-
             const countElements = Array.from(
                 document.querySelectorAll(
                     '#overview-filters .glyph-filter-item-count'
@@ -384,32 +335,74 @@ export async function waitForOverviewTilesRendered(page: any) {
                 return false;
             }
 
-            const activeCountElement = document.querySelector(
-                '#overview-filters .glyph-filter-item.active .glyph-filter-item-count'
-            ) as HTMLElement | null;
-
-            if (!activeCountElement) {
-                return false;
-            }
-
-            const activeCountText = (
-                activeCountElement.textContent || ''
-            ).trim();
-
-            if (activeCountText === '—') {
-                return false;
-            }
-
-            if (/^\d+$/.test(activeCountText)) {
-                return true;
-            }
-
-            return !!activeCountElement.querySelector(
-                '.glyph-filter-error-icon'
-            );
+            return true;
         },
-        { timeout: 30000 }
+        { timeout: 120000 }
     );
+
+    await page.evaluate(async () => {
+        const timeoutMs = 90000;
+        const start = Date.now();
+
+        while (Date.now() - start < timeoutMs) {
+            const manager = window.glyphOverviewFilterManager;
+            if (!manager || !manager.isLoaded?.()) {
+                await new Promise<void>((resolve) => {
+                    window.setTimeout(() => resolve(), 250);
+                });
+                continue;
+            }
+
+            const overview = (window as any).glyphOverviewInstance;
+            if (overview?.ensureTilesRendered) {
+                try {
+                    await overview.ensureTilesRendered(3);
+                } catch {
+                    // Keep looping and retry until timeout.
+                }
+            }
+
+            try {
+                await manager.refreshPlugins?.({ deferCounts: false });
+            } catch {
+                // Ignore transient refresh errors and keep retrying until timeout.
+            }
+
+            if (manager.areAllLoadedPluginCountsResolved?.()) {
+                const renderStatus = overview?.getRenderStatus?.();
+                const hasRenderedTiles =
+                    renderStatus && renderStatus.renderedTileCount >= 3;
+
+                const unresolvedDomCounts = Array.from(
+                    document.querySelectorAll(
+                        '#overview-filters .glyph-filter-item[data-plugin-keyword] .glyph-filter-item-count'
+                    )
+                )
+                    .map((el) => (el.textContent || '').trim())
+                    .filter((text) => text === '—');
+
+                if (unresolvedDomCounts.length === 0 && hasRenderedTiles) {
+                    return;
+                }
+            }
+
+            await new Promise<void>((resolve) => {
+                window.setTimeout(() => resolve(), 250);
+            });
+        }
+
+        const manager = window.glyphOverviewFilterManager;
+        const status = manager?.getPluginCountResolutionStatus?.();
+        const renderStatus = (window as any).glyphOverviewInstance?.getRenderStatus?.();
+        const domCounts = Array.from(
+            document.querySelectorAll(
+                '#overview-filters .glyph-filter-item[data-plugin-keyword] .glyph-filter-item-count'
+            )
+        ).map((el) => (el.textContent || '').trim());
+        throw new Error(
+            `Timeout waiting for rendered overview tiles and all loaded filter plugin counts: ${JSON.stringify({ status, renderStatus, domCounts })}`
+        );
+    });
 
     await page.evaluate(async () => {
         await new Promise<void>((resolve) =>

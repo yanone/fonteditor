@@ -265,6 +265,7 @@ async function initOverviewView() {
         // Initialize glyph overview in the glyph container
         if (window.GlyphOverview) {
             glyphOverviewInstance = new window.GlyphOverview(glyphContainer);
+            window.glyphOverviewInstance = glyphOverviewInstance;
 
             // Populate with current font glyphs if available
             if (window.currentFontModel?.glyphs) {

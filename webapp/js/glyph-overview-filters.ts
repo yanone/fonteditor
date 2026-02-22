@@ -114,6 +114,7 @@ export class GlyphOverviewFilterManager {
         new GlyphFilterWorkerClient();
     private refreshRetryTimer: number | null = null;
     private deferredCountRefreshScheduled: boolean = false;
+    private inFlightCountRequests: number = 0;
     private sharedPluginContext: Record<string, any> = {};
     private sharedPluginContextVersion: number = 1;
 
@@ -2042,8 +2043,21 @@ export class GlyphOverviewFilterManager {
             return;
         }
 
+        this.inFlightCountRequests += 1;
         try {
-            const execResult = await this.executeFilter(plugin, snapshotJson);
+            const countTimeoutMs = this.FILTER_TIMEOUT_MS + 2000;
+            const execResult = (await Promise.race([
+                this.executeFilter(plugin, snapshotJson),
+                new Promise<never>((_, reject) => {
+                    window.setTimeout(() => {
+                        reject(
+                            new Error(
+                                `Count refresh timeout after ${countTimeoutMs}ms`
+                            )
+                        );
+                    }, countTimeoutMs);
+                })
+            ])) as FilterExecutionResult;
             const results = execResult.results;
             plugin.groups = execResult.groups;
 
@@ -2068,7 +2082,110 @@ export class GlyphOverviewFilterManager {
             );
             plugin.hasError = true;
             this.updatePluginCount(plugin);
+        } finally {
+            this.inFlightCountRequests = Math.max(
+                0,
+                this.inFlightCountRequests - 1
+            );
         }
+    }
+
+    private isPluginCountResolved(plugin: GlyphFilterPlugin): boolean {
+        if (plugin.hasError || plugin.hasNoFilterFunction) {
+            return true;
+        }
+
+        return (
+            typeof plugin.glyphCount === 'number' &&
+            Number.isFinite(plugin.glyphCount)
+        );
+    }
+
+    getPluginCountResolutionStatus(): {
+        loaded: boolean;
+        inFlightCountRequests: number;
+        deferredCountRefreshScheduled: boolean;
+        refreshRetryPending: boolean;
+        renderedPluginCount: number;
+        unresolvedPlugins: Array<{
+            keyword: string;
+            displayName: string;
+            hasError: boolean;
+            hasNoFilterFunction: boolean;
+            glyphCount: number | null;
+        }>;
+    } {
+        const allLoadedPlugins = [...this.plugins, ...this.userFilters];
+        const renderedKeywords = this.sidebarContainer
+            ? Array.from(
+                  this.sidebarContainer.querySelectorAll(
+                      '.glyph-filter-item[data-plugin-keyword]'
+                  )
+              )
+                  .map((item) =>
+                      (item as HTMLElement).dataset.pluginKeyword?.trim()
+                  )
+                  .filter((keyword): keyword is string => Boolean(keyword))
+            : [];
+
+        const pluginsToValidate =
+            renderedKeywords.length > 0
+                ? allLoadedPlugins.filter((plugin) =>
+                      renderedKeywords.includes(plugin.keyword)
+                  )
+                : allLoadedPlugins;
+
+        const unresolvedPlugins = pluginsToValidate
+            .filter((plugin) => !this.isPluginCountResolved(plugin))
+            .map((plugin) => ({
+                keyword: plugin.keyword,
+                displayName: plugin.display_name,
+                hasError: Boolean(plugin.hasError),
+                hasNoFilterFunction: Boolean(plugin.hasNoFilterFunction),
+                glyphCount:
+                    typeof plugin.glyphCount === 'number'
+                        ? plugin.glyphCount
+                        : null
+            }));
+
+        return {
+            loaded: this.loaded,
+            inFlightCountRequests: this.inFlightCountRequests,
+            deferredCountRefreshScheduled: this.deferredCountRefreshScheduled,
+            refreshRetryPending: this.refreshRetryTimer !== null,
+            renderedPluginCount: pluginsToValidate.length,
+            unresolvedPlugins
+        };
+    }
+
+    /**
+     * Returns true once every currently loaded plugin has produced a stable count
+     * (number, error state, or explicit no-filter-function state).
+     */
+    areAllLoadedPluginCountsResolved(): boolean {
+        const status = this.getPluginCountResolutionStatus();
+
+        if (!status.loaded) {
+            return false;
+        }
+
+        if (status.refreshRetryPending) {
+            return false;
+        }
+
+        if (status.deferredCountRefreshScheduled) {
+            return false;
+        }
+
+        if (status.inFlightCountRequests > 0) {
+            return false;
+        }
+
+        if (status.renderedPluginCount === 0) {
+            return false;
+        }
+
+        return status.unresolvedPlugins.length === 0;
     }
 
     /**

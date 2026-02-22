@@ -2632,6 +2632,47 @@ class GlyphOverview {
         return 'transparent';
     }
 
+    public getRenderStatus(): {
+        tileCount: number;
+        renderedTileCount: number;
+        pendingGlyphCount: number;
+        isBatchRendering: boolean;
+    } {
+        const renderedTileCount = Array.from(this.tiles.values()).filter(
+            (tile) => !!tile.cachedData
+        ).length;
+
+        return {
+            tileCount: this.tiles.size,
+            renderedTileCount,
+            pendingGlyphCount: this.pendingGlyphIds.size,
+            isBatchRendering: this.isBatchRendering
+        };
+    }
+
+    public async ensureTilesRendered(minRenderedTiles: number = 3): Promise<void> {
+        if (!this.container || this.tiles.size === 0) {
+            return;
+        }
+
+        const target = Math.max(1, minRenderedTiles);
+        const timeoutMs = 10000;
+        const start = performance.now();
+
+        while (performance.now() - start < timeoutMs) {
+            const status = this.getRenderStatus();
+            if (status.renderedTileCount >= target) {
+                return;
+            }
+
+            await this.processBatchRender();
+
+            await new Promise<void>((resolve) => {
+                requestAnimationFrame(() => resolve());
+            });
+        }
+    }
+
     public destroy(): void {
         if (this.intersectionObserver) {
             this.intersectionObserver.disconnect();
