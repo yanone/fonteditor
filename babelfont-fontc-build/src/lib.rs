@@ -365,34 +365,70 @@ pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
 }
 
 #[wasm_bindgen]
-pub fn update_cached_glyph(glyph_name: &str, glyph_json: &str) -> Result<(), JsValue> {
-    let _update_span = PerfSpan::start("update_cached_glyph.total");
+pub fn update_cached_layer(
+    glyph_name: &str,
+    layer_id: &str,
+    layer_json: &str,
+) -> Result<(), JsValue> {
+    let _update_span = PerfSpan::start("update_cached_layer.total");
 
-    let _parse_span = PerfSpan::start("update_cached_glyph.parse_glyph_json");
-    let parsed_glyph: babelfont::Glyph = serde_json::from_str(glyph_json)
-        .map_err(|e| JsValue::from_str(&format!("Glyph JSON parse error: {}", e)))?;
+    let _parse_span = PerfSpan::start("update_cached_layer.parse_layer_json");
+    let parsed_layer: babelfont::Layer = serde_json::from_str(layer_json)
+        .map_err(|e| JsValue::from_str(&format!("Layer JSON parse error: {}", e)))?;
     drop(_parse_span);
 
-    let _cache_span = PerfSpan::start("update_cached_glyph.cache_write");
+    let _cache_span = PerfSpan::start("update_cached_layer.cache_write");
     let mut cache = FONT_CACHE.lock().unwrap();
     let font = cache
         .as_mut()
         .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
 
-    if let Some(existing_glyph) = font
+    let target_glyph = font
         .glyphs
         .iter_mut()
         .find(|glyph| glyph.name.as_str() == glyph_name)
+        .ok_or_else(|| JsValue::from_str("Glyph not found in cached font."))?;
+
+    if let Some(existing_layer) = target_glyph
+        .layers
+        .iter_mut()
+        .find(|layer| layer.id.as_deref() == Some(layer_id))
     {
-        *existing_glyph = parsed_glyph;
+        *existing_layer = parsed_layer.clone();
     } else {
-        font.glyphs.push(parsed_glyph);
+        target_glyph.layers.push(parsed_layer.clone());
     }
     drop(_cache_span);
 
-    FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
+    let next_epoch = FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed) + 1;
 
-    let _outline_clear_span = PerfSpan::start("update_cached_glyph.clear_outline_cache");
+    let _prepared_span = PerfSpan::start("update_cached_layer.patch_prepared_subset");
+    let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
+    if let Some((_subset_key, prepared_epoch, prepared_font)) = prepared_cache.as_mut() {
+        if let Some(prepared_glyph) = prepared_font
+            .glyphs
+            .iter_mut()
+            .find(|glyph| glyph.name.as_str() == glyph_name)
+        {
+            if let Some(prepared_layer) = prepared_glyph
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id.as_deref() == Some(layer_id))
+            {
+                *prepared_layer = parsed_layer;
+            } else {
+                prepared_glyph.layers.push(parsed_layer);
+            }
+            *prepared_epoch = next_epoch;
+            perf_mark(&format!(
+                "{}:update_cached_layer.patch_prepared_subset.applied",
+                PERF_PREFIX
+            ));
+        }
+    }
+    drop(_prepared_span);
+
+    let _outline_clear_span = PerfSpan::start("update_cached_layer.clear_outline_cache");
     glyph_outlines::clear_outline_cache();
     drop(_outline_clear_span);
 

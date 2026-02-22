@@ -723,9 +723,9 @@ class FontCompilation {
         requestMeta?: {
             dragActive?: boolean;
             compileSource?: string;
-            dirtyGlyphNames?: string[];
             dirtyGlyphName?: string;
-            dirtyGlyphData?: unknown;
+            dirtyLayerId?: string;
+            dirtyLayerData?: unknown;
         }
     ): Promise<{
         result: Uint8Array;
@@ -770,13 +770,9 @@ class FontCompilation {
                 fontRevisionKey,
                 dragActive: !!requestMeta?.dragActive,
                 compileSource: requestMeta?.compileSource,
-                dirtyGlyphNames:
-                    requestMeta?.dirtyGlyphNames &&
-                    requestMeta.dirtyGlyphNames.length > 0
-                        ? requestMeta.dirtyGlyphNames
-                        : undefined,
                 dirtyGlyphName: requestMeta?.dirtyGlyphName,
-                dirtyGlyphData: requestMeta?.dirtyGlyphData,
+                dirtyLayerId: requestMeta?.dirtyLayerId,
+                dirtyLayerData: requestMeta?.dirtyLayerData,
                 filename: 'editing-font.ttf'
             });
 

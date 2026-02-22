@@ -6,7 +6,7 @@ import init, {
     compile_babelfont,
     compile_cached_font_from_last_layout_closure,
     store_font,
-    update_cached_glyph,
+    update_cached_layer,
     prime_layout_closure_cache,
     interpolate_glyph,
     clear_font_cache,
@@ -640,9 +640,9 @@ self.onmessage = async (event) => {
                     fontRevisionKey,
                     dragActive,
                     compileSource,
-                    dirtyGlyphNames,
                     dirtyGlyphName,
-                    dirtyGlyphData
+                    dirtyLayerId,
+                    dirtyLayerData
                 } = data;
 
                 if (!babelfontJson || typeof babelfontJson !== 'string') {
@@ -666,26 +666,31 @@ self.onmessage = async (event) => {
                 const isDragMode =
                     isDragActive ||
                     String(compileSource || '') === 'mouse-drag';
+                const isIncrementalLayerMode =
+                    isDragMode || String(compileSource || '') === 'keyboard';
 
                 // Always refresh cached font data for editing compiles.
                 // This guarantees each compile reflects latest drag edits.
                 if (needsStore) {
-                    const canApplyIncrementalGlyphUpdate =
-                        isDragMode &&
+                    const canApplyIncrementalLayerUpdate =
+                        isIncrementalLayerMode &&
                         typeof dirtyGlyphName === 'string' &&
                         dirtyGlyphName.length > 0 &&
-                        dirtyGlyphData !== undefined &&
+                        typeof dirtyLayerId === 'string' &&
+                        dirtyLayerId.length > 0 &&
+                        dirtyLayerData !== undefined &&
                         cachedBabelfontJson !== null;
 
                     let storedViaFullFont = false;
-                    if (canApplyIncrementalGlyphUpdate) {
+                    if (canApplyIncrementalLayerUpdate) {
                         try {
-                            update_cached_glyph(
+                            update_cached_layer(
                                 dirtyGlyphName,
-                                JSON.stringify(dirtyGlyphData)
+                                dirtyLayerId,
+                                JSON.stringify(dirtyLayerData)
                             );
                             timelineMark(
-                                'font.worker.compileEditingCached.ensureFontCached.updatedGlyph'
+                                'font.worker.compileEditingCached.ensureFontCached.updatedLayer'
                             );
                         } catch (_incrementalError) {
                             store_font(babelfontJson);
@@ -706,7 +711,7 @@ self.onmessage = async (event) => {
                     timelineMark(
                         storedViaFullFont
                             ? 'font.worker.compileEditingCached.ensureFontCached.stored'
-                            : 'font.worker.compileEditingCached.ensureFontCached.reusedWithGlyphUpdate'
+                            : 'font.worker.compileEditingCached.ensureFontCached.reusedWithLayerUpdate'
                     );
                 } else {
                     if (!isDragMode) {
@@ -750,10 +755,7 @@ self.onmessage = async (event) => {
                     'font.worker.compileEditingCached.compileCachedFont'
                 );
                 const optionsWithDirtyGlyphs = {
-                    ...(options || {}),
-                    dirty_glyphs: Array.isArray(dirtyGlyphNames)
-                        ? dirtyGlyphNames
-                        : []
+                    ...(options || {})
                 };
                 const compiledBytes =
                     compile_cached_font_from_last_layout_closure(
@@ -929,6 +931,58 @@ self.onmessage = async (event) => {
             } finally {
                 timelineSpanEnd(storeSpanId);
             }
+            return;
+        }
+
+        if (data.type === 'storeLayerData') {
+            const storeLayerSpanId = timelineSpanStart(
+                'font.worker.storeLayerData'
+            );
+            const { id, glyphName, layerId, layerData } = data;
+
+            try {
+                timelineMark('font.worker.storeLayerData.started');
+
+                if (!initialized) {
+                    await initializeWasm();
+                }
+
+                if (
+                    typeof glyphName !== 'string' ||
+                    glyphName.length === 0 ||
+                    typeof layerId !== 'string' ||
+                    layerId.length === 0 ||
+                    layerData === undefined
+                ) {
+                    throw new Error(
+                        'Missing glyphName/layerId/layerData for storeLayerData'
+                    );
+                }
+
+                update_cached_layer(
+                    glyphName,
+                    layerId,
+                    JSON.stringify(layerData)
+                );
+
+                self.postMessage({
+                    id,
+                    type: 'storeLayerData',
+                    success: true
+                });
+                timelineMark('font.worker.storeLayerData.success');
+            } catch (e: any) {
+                timelineMark('font.worker.storeLayerData.failed');
+                self.postMessage({
+                    id,
+                    type: 'storeLayerData',
+                    success: false,
+                    error: e.toString()
+                });
+            } finally {
+                timelineSpanEnd(storeLayerSpanId);
+            }
+
             return;
         }
 

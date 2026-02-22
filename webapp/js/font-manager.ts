@@ -1045,33 +1045,44 @@ class FontManager {
                 const dragActiveAtRequest =
                     !!window.glyphCanvas?.outlineEditor?.draggingSomething;
                 let dirtyGlyphName: string | undefined;
-                let dirtyGlyphData: unknown;
-                const dirtyGlyphNames =
-                    this.lastChangeSource === 'mouse-drag'
-                        ? [
-                              window.glyphCanvas?.outlineEditor
-                                  ?.currentGlyphName ||
-                                  window.glyphCanvas?.getCurrentGlyphName?.()
-                          ].filter(
-                              (glyphName): glyphName is string =>
-                                  typeof glyphName === 'string' &&
-                                  glyphName.length > 0
-                          )
-                        : [];
+                let dirtyLayerId: string | undefined;
+                let dirtyLayerData: unknown;
+                const incrementalChangeSource = this.lastChangeSource;
+                const shouldSendIncrementalLayer =
+                    incrementalChangeSource === 'mouse-drag' ||
+                    incrementalChangeSource === 'keyboard';
+                const dragGlyphNames = shouldSendIncrementalLayer
+                    ? [
+                          window.glyphCanvas?.outlineEditor?.currentGlyphName ||
+                              window.glyphCanvas?.getCurrentGlyphName?.()
+                      ].filter(
+                          (glyphName): glyphName is string =>
+                              typeof glyphName === 'string' &&
+                              glyphName.length > 0
+                      )
+                    : [];
 
-                if (dirtyGlyphNames.length === 1) {
-                    dirtyGlyphName = dirtyGlyphNames[0];
+                if (dragGlyphNames.length === 1) {
+                    dirtyGlyphName = dragGlyphNames[0];
+                    dirtyLayerId =
+                        window.glyphCanvas?.outlineEditor?.selectedLayerId ||
+                        undefined;
                     const dirtyGlyph = this.currentFont.fontModel?.glyphs?.find(
                         (glyph: any) => glyph?.name === dirtyGlyphName
                     );
-                    if (dirtyGlyph) {
-                        const rawDirtyGlyph =
-                            typeof dirtyGlyph.toJSON === 'function'
-                                ? dirtyGlyph.toJSON()
-                                : dirtyGlyph;
-                        dirtyGlyphData = JSON.parse(
-                            JSON.stringify(rawDirtyGlyph)
+                    if (dirtyGlyph && dirtyLayerId) {
+                        const dirtyLayer = dirtyGlyph.layers?.find(
+                            (layer: any) => layer?.id === dirtyLayerId
                         );
+                        if (dirtyLayer) {
+                            const rawDirtyLayer =
+                                typeof dirtyLayer.toJSON === 'function'
+                                    ? dirtyLayer.toJSON()
+                                    : dirtyLayer;
+                            dirtyLayerData = JSON.parse(
+                                JSON.stringify(rawDirtyLayer)
+                            );
+                        }
                     }
                 }
 
@@ -1082,9 +1093,9 @@ class FontManager {
                     {
                         dragActive: dragActiveAtRequest,
                         compileSource: this.lastChangeSource || undefined,
-                        dirtyGlyphNames,
                         dirtyGlyphName,
-                        dirtyGlyphData
+                        dirtyLayerId,
+                        dirtyLayerData
                     }
                 );
 
@@ -1324,9 +1335,9 @@ class FontManager {
         }
 
         try {
-            const fontData = currentFont.fontModel.toJSON();
-            currentFont.babelfontData = fontData;
-            currentFont.babelfontJson = JSON.stringify(fontData);
+            currentFont.babelfontJson = JSON.stringify(
+                currentFont.babelfontData
+            );
             window.currentFontModel = currentFont.fontModel;
             return true;
         } catch (error) {
@@ -1709,7 +1720,7 @@ class FontManager {
 
         // Update worker's font cache so glyph overview renders correctly
         // Skip during dragging to prevent clearing caches repeatedly - will update on drag end
-        if (changeSource !== 'mouse-drag') {
+        if (changeSource !== 'mouse-drag' && changeSource !== 'keyboard') {
             try {
                 await fontCompilation.sendMessage({
                     type: 'storeFontJson',
@@ -1742,26 +1753,70 @@ class FontManager {
             return;
         }
 
-        if (this.pendingBabelfontJsonSyncAfterDrag) {
-            if (!this.syncBabelfontJsonFromCurrentModel()) {
-                return;
+        const currentGlyphName =
+            window.glyphCanvas?.outlineEditor?.currentGlyphName;
+        const currentLayerId =
+            window.glyphCanvas?.outlineEditor?.selectedLayerId;
+
+        let updatedViaIncrementalLayer = false;
+        if (
+            this.pendingBabelfontJsonSyncAfterDrag &&
+            currentGlyphName &&
+            currentLayerId
+        ) {
+            const currentGlyph = this.currentFont.fontModel?.glyphs?.find(
+                (glyph: any) => glyph?.name === currentGlyphName
+            );
+            const currentLayer = currentGlyph?.layers?.find(
+                (layer: any) => layer?.id === currentLayerId
+            );
+
+            if (currentLayer) {
+                try {
+                    const rawLayerData =
+                        typeof currentLayer.toJSON === 'function'
+                            ? currentLayer.toJSON()
+                            : currentLayer;
+                    const layerDataCopy = JSON.parse(
+                        JSON.stringify(rawLayerData)
+                    );
+                    await fontCompilation.sendMessage({
+                        type: 'storeLayerData',
+                        glyphName: currentGlyphName,
+                        layerId: currentLayerId,
+                        layerData: layerDataCopy
+                    });
+                    updatedViaIncrementalLayer = true;
+                    this.pendingBabelfontJsonSyncAfterDrag = false;
+                } catch (error) {
+                    console.warn(
+                        '[FontManager] Incremental post-drag worker layer update failed, falling back to full store:',
+                        error
+                    );
+                }
             }
-            this.pendingBabelfontJsonSyncAfterDrag = false;
         }
 
         try {
-            await fontCompilation.sendMessage({
-                type: 'storeFontJson',
-                babelfontJson: this.currentFont.babelfontJson
-            });
-            console.log('[FontManager] Worker font cache updated after drag');
+            if (!updatedViaIncrementalLayer) {
+                if (this.pendingBabelfontJsonSyncAfterDrag) {
+                    if (!this.syncBabelfontJsonFromCurrentModel()) {
+                        return;
+                    }
+                    this.pendingBabelfontJsonSyncAfterDrag = false;
+                }
+
+                await fontCompilation.sendMessage({
+                    type: 'storeFontJson',
+                    babelfontJson: this.currentFont.babelfontJson
+                });
+                console.log(
+                    '[FontManager] Worker font cache updated after drag'
+                );
+            }
 
             // After updating the cache, dispatch glyphChanged event for all affected glyphs
             // This ensures the glyph overview refreshes with the updated outline data
-            const currentGlyphName =
-                window.glyphCanvas?.outlineEditor?.currentGlyphName;
-            const currentLayerId =
-                window.glyphCanvas?.outlineEditor?.selectedLayerId;
             const rootGlyphName = window.glyphCanvas?.getCurrentGlyphName();
 
             // Collect all glyphs that need to be refreshed
