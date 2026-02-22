@@ -120,6 +120,7 @@ class GlyphCanvas {
 
     // Flag to suppress rendering during critical operations (e.g., layer data swap)
     renderSuppressed: boolean = false;
+    hasDeferredRenderRequest: boolean = false;
 
     // Flag to prevent overlapping updatePropertiesUI calls
     isUpdatingPropertiesUI: boolean = false;
@@ -2453,8 +2454,12 @@ class GlyphCanvas {
     render(): void {
         // Skip rendering if suppressed (during critical operations)
         if (this.renderSuppressed) {
+            this.hasDeferredRenderRequest = true;
+            timelineMark('canvas.render.deferredSuppressed');
             return;
         }
+
+        this.hasDeferredRenderRequest = false;
 
         // Update glyph_stack label if it exists (development mode only, not in test mode)
         if (window.isDevelopment?.() && !window.isTestMode?.()) {
@@ -2471,6 +2476,38 @@ class GlyphCanvas {
         }
 
         this.renderer!.render();
+        timelineMark('canvas.render.completed');
+    }
+
+    requestRepaintAfterCompile(): void {
+        this.hasDeferredRenderRequest = true;
+        timelineMark('canvas.compileRepaint.requested');
+
+        let attempts = 0;
+        const maxAttempts = 180;
+
+        const tryRepaint = () => {
+            if (!this.hasDeferredRenderRequest) {
+                return;
+            }
+
+            if (this.renderSuppressed) {
+                attempts += 1;
+                timelineMark('canvas.compileRepaint.waitingForUnsuppress');
+                if (attempts >= maxAttempts) {
+                    timelineMark('canvas.compileRepaint.timeout');
+                    return;
+                }
+
+                requestAnimationFrame(tryRepaint);
+                return;
+            }
+
+            this.render();
+            timelineMark('canvas.compileRepaint.completed');
+        };
+
+        requestAnimationFrame(tryRepaint);
     }
 
     destroy(): void {
@@ -3181,6 +3218,8 @@ window.addEventListener('fontReady', (event: Event) => {
 let editingFontCompiledHandler: ((e: Event) => void) | null = null;
 let fontCompiledHandler: ((e: Event) => void) | null = null;
 let typingFontCompiledHandler: ((e: Event) => void) | null = null;
+let editingFontApplyQueue: Promise<void> = Promise.resolve();
+let latestAppliedEditingRevision: number = -1;
 
 // Set up listener for compiled fonts
 function setupFontLoadingListener() {
@@ -3290,95 +3329,135 @@ function setupFontLoadingListener() {
     // Listen for editing font compiled by font manager (primary)
     editingFontCompiledHandler = async (e: Event) => {
         const detail = (e as CustomEvent).detail;
-        console.log('[GlyphCanvas]', 'Editing font compiled event received');
-        console.log('[GlyphCanvas]', '   Event detail:', detail);
-        console.log('[GlyphCanvas]', '   Canvas exists:', !!window.glyphCanvas);
-        if (window.glyphCanvas && detail && detail.fontBytes) {
-            console.log(
-                '[GlyphCanvas]',
-                '   Loading editing font into canvas...'
-            );
-            const isDragActive = !!detail.dragActive;
-            const arrayBuffer = detail.fontBytes.buffer.slice(
-                detail.fontBytes.byteOffset,
-                detail.fontBytes.byteOffset + detail.fontBytes.byteLength
-            );
-
-            // Update features manager with editing font bytes for availability checking
-            const gc = window.glyphCanvas;
-            if (gc.featuresManager) {
-                gc.featuresManager.editingFontBytes = detail.fontBytes;
-                // Update features UI to reflect availability in editing font.
-                // Skip while dragging for better interactive throughput.
-                if (!isDragActive) {
-                    await gc.featuresManager.updateFeaturesUI();
+        timelineMark('canvas.editingFontCompiled.received');
+        editingFontApplyQueue = editingFontApplyQueue
+            .then(async () => {
+                const incomingRevision = Number(detail?.fontRevisionKey);
+                if (
+                    Number.isFinite(incomingRevision) &&
+                    incomingRevision < latestAppliedEditingRevision
+                ) {
+                    timelineMark(
+                        'canvas.editingFontCompiled.skippedOutOfOrderRevision'
+                    );
+                    return;
                 }
-            }
 
-            // Check if we have a pending anchor from feature changes
-            const hasPendingAnchor =
-                gc.pendingFeatureChangeAnchor.editing ||
-                gc.pendingFeatureChangeAnchor.text;
-
-            // Await setFont() to ensure font is fully loaded and text is shaped
-            // before applying anchor adjustments
-            await window.glyphCanvas.setFont(arrayBuffer);
-            console.log(
-                '[GlyphCanvas]',
-                '   ✅ Editing font loaded and text shaped'
-            );
-
-            // Clear skip rendering flag now that new font is loaded
-            if (gc.textRunEditor) {
-                gc.textRunEditor.skipRenderingDuringFeatureChange = false;
-            }
-
-            // Apply pending anchors from feature changes to prevent glyph jumping
-            // This must happen AFTER setFont() completes (which includes shapeText and render)
-            if (gc.pendingFeatureChangeAnchor.editing) {
                 console.log(
                     '[GlyphCanvas]',
-                    '   Applying pending editing mode anchor after font reload'
+                    'Editing font compiled event received'
                 );
-                gc.outlineEditor.autoPanAnchorScreen =
-                    gc.pendingFeatureChangeAnchor.editing;
-                gc.outlineEditor.applyAutoPanAdjustment();
-                gc.outlineEditor.autoPanAnchorScreen = null;
-                gc.pendingFeatureChangeAnchor.editing = null;
-                gc.render();
-            } else if (gc.pendingFeatureChangeAnchor.text) {
+                console.log('[GlyphCanvas]', '   Event detail:', detail);
                 console.log(
                     '[GlyphCanvas]',
-                    '   Applying pending text mode anchor after font reload'
+                    '   Canvas exists:',
+                    !!window.glyphCanvas
                 );
-                gc.textModeAutoPanAnchorScreen =
-                    gc.pendingFeatureChangeAnchor.text;
-                gc.applyTextModeAutoPanAdjustment();
-                gc.textModeAutoPanAnchorScreen = null;
-                gc.pendingFeatureChangeAnchor.text = null;
-                gc.render();
-            } else if (hasPendingAnchor) {
-                // Anchor was cleared but we still need a render
-                gc.render();
-            }
-        } else {
-            console.warn(
-                '[GlyphCanvas]',
-                '   ⚠️ Cannot load font - missing canvas or fontBytes'
-            );
-        }
+                if (window.glyphCanvas && detail && detail.fontBytes) {
+                    console.log(
+                        '[GlyphCanvas]',
+                        '   Loading editing font into canvas...'
+                    );
+                    const isDragActive = !!detail.dragActive;
+                    const arrayBuffer = detail.fontBytes.buffer.slice(
+                        detail.fontBytes.byteOffset,
+                        detail.fontBytes.byteOffset +
+                            detail.fontBytes.byteLength
+                    );
+
+                    const gc = window.glyphCanvas;
+                    if (gc.featuresManager) {
+                        gc.featuresManager.editingFontBytes = detail.fontBytes;
+                        if (!isDragActive) {
+                            await gc.featuresManager.updateFeaturesUI();
+                        }
+                    }
+
+                    const hasPendingAnchor =
+                        gc.pendingFeatureChangeAnchor.editing ||
+                        gc.pendingFeatureChangeAnchor.text;
+
+                    await window.glyphCanvas.setFont(arrayBuffer);
+                    timelineMark('canvas.editingFontCompiled.fontApplied');
+                    console.log(
+                        '[GlyphCanvas]',
+                        '   ✅ Editing font loaded and text shaped'
+                    );
+
+                    if (gc.textRunEditor) {
+                        gc.textRunEditor.skipRenderingDuringFeatureChange = false;
+                    }
+
+                    if (gc.pendingFeatureChangeAnchor.editing) {
+                        console.log(
+                            '[GlyphCanvas]',
+                            '   Applying pending editing mode anchor after font reload'
+                        );
+                        gc.outlineEditor.autoPanAnchorScreen =
+                            gc.pendingFeatureChangeAnchor.editing;
+                        gc.outlineEditor.applyAutoPanAdjustment();
+                        gc.outlineEditor.autoPanAnchorScreen = null;
+                        gc.pendingFeatureChangeAnchor.editing = null;
+                    } else if (gc.pendingFeatureChangeAnchor.text) {
+                        console.log(
+                            '[GlyphCanvas]',
+                            '   Applying pending text mode anchor after font reload'
+                        );
+                        gc.textModeAutoPanAnchorScreen =
+                            gc.pendingFeatureChangeAnchor.text;
+                        gc.applyTextModeAutoPanAdjustment();
+                        gc.textModeAutoPanAnchorScreen = null;
+                        gc.pendingFeatureChangeAnchor.text = null;
+                    }
+
+                    if (hasPendingAnchor) {
+                        timelineMark(
+                            'canvas.editingFontCompiled.pendingAnchorApplied'
+                        );
+                    }
+
+                    gc.textRunEditor!.shapeText(true);
+                    timelineMark('canvas.editingFontCompiled.shapeTextForced');
+
+                    if (Number.isFinite(incomingRevision)) {
+                        latestAppliedEditingRevision = incomingRevision;
+                    }
+
+                    gc.requestRepaintAfterCompile();
+                } else {
+                    console.warn(
+                        '[GlyphCanvas]',
+                        '   ⚠️ Cannot load font - missing canvas or fontBytes'
+                    );
+                    timelineMark(
+                        'canvas.editingFontCompiled.skippedMissingData'
+                    );
+                }
+            })
+            .catch((error) => {
+                console.error(
+                    '[GlyphCanvas] Failed to apply editing font update:',
+                    error
+                );
+                timelineMark('canvas.editingFontCompiled.applyFailed');
+            });
     };
 
     // Legacy: Custom event when font is compiled via compile button
     fontCompiledHandler = async (e: Event) => {
         const detail = (e as CustomEvent).detail;
         console.log('[GlyphCanvas]', 'Font compiled event received (legacy)');
+        timelineMark('canvas.fontCompiledLegacy.received');
         if (window.glyphCanvas && detail && detail.ttfBytes) {
             const arrayBuffer = detail.ttfBytes.buffer.slice(
                 detail.ttfBytes.byteOffset,
                 detail.ttfBytes.byteOffset + detail.ttfBytes.byteLength
             );
             await window.glyphCanvas.setFont(arrayBuffer);
+            window.glyphCanvas.requestRepaintAfterCompile();
+            timelineMark('canvas.fontCompiledLegacy.fontApplied');
+        } else {
+            timelineMark('canvas.fontCompiledLegacy.skippedMissingData');
         }
     };
 

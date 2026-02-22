@@ -1020,6 +1020,7 @@ class FontManager {
                 `🔨 Compiling editing font, subset_glyphs: ${glyphsToInclude ? glyphsToInclude.length + ' glyphs' : 'none (full font)'}`
             );
             let result;
+            let responseRevisionKey = String(this.currentFont.changeVersion);
             try {
                 timelineMark(
                     'font.compileEditing.closureToCompileBridge.beforeCompileFromJson'
@@ -1047,35 +1048,19 @@ class FontManager {
                     requestedRevisionKey,
                     subsetForCompile,
                     {
-                        dragActive: dragActiveAtRequest
+                        dragActive: dragActiveAtRequest,
+                        compileSource: this.lastChangeSource || undefined
                     }
                 );
 
                 const currentRevisionKey = String(
                     this.currentFont.changeVersion
                 );
-                const responseRevisionKey = String(
+                responseRevisionKey = String(
                     result.fontRevisionKey || requestedRevisionKey
                 );
-                const isOutlineDragActiveNow =
-                    this.lastChangeSource === 'mouse-drag' &&
-                    !!window.glyphCanvas?.outlineEditor?.draggingSomething;
-
-                if (
-                    responseRevisionKey !== currentRevisionKey &&
-                    !isOutlineDragActiveNow
-                ) {
-                    timelineMark('font.compileEditing.staleResultIgnored');
-                    console.log(
-                        `[FontManager] Ignoring stale editing compile result (response revision ${responseRevisionKey}, current revision ${currentRevisionKey})`
-                    );
-                    return this.editingFont;
-                }
-                if (
-                    responseRevisionKey !== currentRevisionKey &&
-                    isOutlineDragActiveNow
-                ) {
-                    timelineMark('font.compileEditing.staleResultAppliedDuringDrag');
+                if (responseRevisionKey !== currentRevisionKey) {
+                    timelineMark('font.compileEditing.staleResultObserved');
                 }
 
                 timelineMark(
@@ -1111,17 +1096,24 @@ class FontManager {
             }
 
             // Dispatch event to notify canvas that new font is ready
+            timelineMark(
+                'font.compileEditing.dispatchEvent.editingFontCompiled'
+            );
             window.dispatchEvent(
                 new CustomEvent('editingFontCompiled', {
                     detail: {
                         fontBytes: this.editingFont,
                         duration: duration,
+                        fontRevisionKey: responseRevisionKey,
                         dragActive:
                             this.lastChangeSource === 'mouse-drag' &&
                             !!window.glyphCanvas?.outlineEditor
                                 ?.draggingSomething
                     }
                 })
+            );
+            timelineMark(
+                'font.compileEditing.dispatchEvent.editingFontCompiled.done'
             );
 
             return this.editingFont;

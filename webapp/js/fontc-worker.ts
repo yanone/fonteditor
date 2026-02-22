@@ -29,7 +29,7 @@ let cachedFontRevisionKey: string | null = null;
 let cachedBaseSubsetKey: string | null = null;
 let cachedClosureGlyphCount: number | null = null;
 let lastStoreFontAtMs = 0;
-const DRAG_STORE_THROTTLE_MS = 450;
+let dragCompilesSinceStore = 0;
 
 function parseErrorLineColumn(message: string): {
     line?: number;
@@ -197,6 +197,7 @@ function postCompiledResult(
         filename?: string;
         fontRevisionKey?: string;
         closureGlyphCount?: number;
+        compileSource?: string;
     },
     bytes: Uint8Array
 ) {
@@ -636,7 +637,8 @@ self.onmessage = async (event) => {
                     subsetGlyphs,
                     subsetKey,
                     fontRevisionKey,
-                    dragActive
+                    dragActive,
+                    compileSource
                 } = data;
 
                 if (!babelfontJson || typeof babelfontJson !== 'string') {
@@ -657,26 +659,25 @@ self.onmessage = async (event) => {
                     cachedFontRevisionKey !== revisionKey ||
                     cachedBabelfontJson !== babelfontJson;
                 const isDragActive = !!dragActive;
-                const shouldThrottleStoreDuringDrag =
-                    isDragActive &&
-                    needsStore &&
-                    cachedBabelfontJson !== null &&
-                    performance.now() - lastStoreFontAtMs <
-                        DRAG_STORE_THROTTLE_MS;
+                const isDragMode =
+                    isDragActive ||
+                    String(compileSource || '') === 'mouse-drag';
 
-                if (needsStore && !shouldThrottleStoreDuringDrag) {
+                // Always refresh cached font data for editing compiles.
+                // This guarantees each compile reflects latest drag edits.
+                if (needsStore) {
                     store_font(babelfontJson);
                     cachedBabelfontJson = babelfontJson;
                     cachedFontRevisionKey = revisionKey;
                     lastStoreFontAtMs = performance.now();
+                    dragCompilesSinceStore = 0;
                     timelineMark(
                         'font.worker.compileEditingCached.ensureFontCached.stored'
                     );
-                } else if (needsStore && shouldThrottleStoreDuringDrag) {
-                    timelineMark(
-                        'font.worker.compileEditingCached.ensureFontCached.skippedDuringDrag'
-                    );
                 } else {
+                    if (!isDragMode) {
+                        dragCompilesSinceStore = 0;
+                    }
                     timelineMark(
                         'font.worker.compileEditingCached.ensureFontCached.reused'
                     );
@@ -724,7 +725,8 @@ self.onmessage = async (event) => {
                         id,
                         time_taken: endTime - startTime,
                         fontRevisionKey: revisionKey,
-                        closureGlyphCount: cachedClosureGlyphCount || 0
+                        closureGlyphCount: cachedClosureGlyphCount || 0,
+                        compileSource
                     },
                     compiledBytes
                 );
@@ -948,6 +950,7 @@ self.onmessage = async (event) => {
                 cachedFontRevisionKey = null;
                 cachedBaseSubsetKey = null;
                 cachedClosureGlyphCount = null;
+                dragCompilesSinceStore = 0;
                 self.postMessage({
                     type: 'clearCache',
                     success: true

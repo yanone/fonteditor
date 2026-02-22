@@ -722,6 +722,7 @@ class FontCompilation {
         subsetGlyphs: Array<string>,
         requestMeta?: {
             dragActive?: boolean;
+            compileSource?: string;
         }
     ): Promise<{
         result: Uint8Array;
@@ -729,6 +730,7 @@ class FontCompilation {
         time_taken: number;
         fontRevisionKey?: string;
         closureGlyphCount?: number;
+        compileSource?: string;
     }> {
         const spanId = timelineSpanStart(
             'fontCompilation.compileEditingFromJsonCached'
@@ -764,6 +766,7 @@ class FontCompilation {
                 subsetGlyphs: normalizedSubsetGlyphs,
                 fontRevisionKey,
                 dragActive: !!requestMeta?.dragActive,
+                compileSource: requestMeta?.compileSource,
                 filename: 'editing-font.ttf'
             });
 
@@ -774,7 +777,8 @@ class FontCompilation {
                 filename: compileResult.filename || 'editing-font.ttf',
                 time_taken: compileResult.time_taken || 0,
                 fontRevisionKey: compileResult.fontRevisionKey,
-                closureGlyphCount: compileResult.closureGlyphCount
+                closureGlyphCount: compileResult.closureGlyphCount,
+                compileSource: compileResult.compileSource
             };
         } finally {
             timelineSpanEnd(spanId);
