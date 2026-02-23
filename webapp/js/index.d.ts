@@ -29,10 +29,37 @@ declare global {
         isTest: () => boolean;
 
         // From perf-timeline.ts
-        timelineMark: (stage: string) => void;
+        timelineMark: (
+            stage: string,
+            context?: {
+                process?: string;
+                traceId?: string;
+                parentSpanId?: string;
+                requestId?: string;
+                fontRevisionKey?: string;
+            }
+        ) => void;
         timelineSpanStart: (
             stage: string,
-            detail?: Record<string, unknown>
+            detail?:
+                | Record<string, unknown>
+                | {
+                      detail?: Record<string, unknown>;
+                      context?: {
+                          process?: string;
+                          traceId?: string;
+                          parentSpanId?: string;
+                          requestId?: string;
+                          fontRevisionKey?: string;
+                      };
+                  },
+            context?: {
+                process?: string;
+                traceId?: string;
+                parentSpanId?: string;
+                requestId?: string;
+                fontRevisionKey?: string;
+            }
         ) => string;
         timelineSpanEnd: (spanId: string) => void;
 

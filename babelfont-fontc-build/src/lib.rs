@@ -37,6 +37,60 @@ static FONT_CACHE_EPOCH: AtomicU64 = AtomicU64::new(0);
 static PERF_SPAN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const PERF_PREFIX: &str = "cp:wasm";
+const PERF_TRACE_CONTEXT_GLOBAL_KEY: &str = "__cpPerfTraceContext";
+
+fn sanitize_trace_part(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .map(|ch| match ch {
+            '|' | '=' | ':' | '#' | ' ' | '\t' | '\n' | '\r' => '_',
+            _ => ch,
+        })
+        .collect()
+}
+
+fn get_trace_context_value(context: &JsValue, key: &str) -> Option<String> {
+    let value = js_sys::Reflect::get(context, &JsValue::from_str(key)).ok()?;
+    let value = value.as_string()?;
+    let sanitized = sanitize_trace_part(&value);
+    if sanitized.is_empty() {
+        None
+    } else {
+        Some(sanitized)
+    }
+}
+
+fn current_perf_trace_suffix() -> String {
+    let global = js_sys::global();
+    let context = match js_sys::Reflect::get(&global, &JsValue::from_str(PERF_TRACE_CONTEXT_GLOBAL_KEY)) {
+        Ok(value) if !value.is_null() && !value.is_undefined() => value,
+        _ => return String::new(),
+    };
+
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(process) = get_trace_context_value(&context, "process") {
+        parts.push(format!("proc={}", process));
+    }
+    if let Some(trace_id) = get_trace_context_value(&context, "traceId") {
+        parts.push(format!("trace={}", trace_id));
+    }
+    if let Some(parent) = get_trace_context_value(&context, "parentSpanId") {
+        parts.push(format!("parent={}", parent));
+    }
+    if let Some(request_id) = get_trace_context_value(&context, "requestId") {
+        parts.push(format!("req={}", request_id));
+    }
+    if let Some(revision) = get_trace_context_value(&context, "fontRevisionKey") {
+        parts.push(format!("rev={}", revision));
+    }
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("|{}", parts.join("|"))
+    }
+}
 
 fn perf_mark(label: &str) {
     let global = js_sys::global();
@@ -82,7 +136,7 @@ fn perf_measure(name: &str, start: &str, end: &str) {
 }
 
 struct PerfSpan {
-    stage: String,
+    measure_name: String,
     start_mark: String,
     end_mark: String,
 }
@@ -90,12 +144,14 @@ struct PerfSpan {
 impl PerfSpan {
     fn start(stage: &str) -> Self {
         let span_id = PERF_SPAN_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
-        let start_mark = format!("{}:{}#{}:start", PERF_PREFIX, stage, span_id);
-        let end_mark = format!("{}:{}#{}:end", PERF_PREFIX, stage, span_id);
+        let trace_suffix = current_perf_trace_suffix();
+        let start_mark = format!("{}:{}#{}:start{}", PERF_PREFIX, stage, span_id, trace_suffix);
+        let end_mark = format!("{}:{}#{}:end{}", PERF_PREFIX, stage, span_id, trace_suffix);
+        let measure_name = format!("{}:{}{}", PERF_PREFIX, stage, trace_suffix);
         perf_mark(&start_mark);
 
         Self {
-            stage: stage.to_string(),
+            measure_name,
             start_mark,
             end_mark,
         }
@@ -105,11 +161,7 @@ impl PerfSpan {
 impl Drop for PerfSpan {
     fn drop(&mut self) {
         perf_mark(&self.end_mark);
-        perf_measure(
-            &format!("{}:{}", PERF_PREFIX, self.stage),
-            &self.start_mark,
-            &self.end_mark,
-        );
+        perf_measure(&self.measure_name, &self.start_mark, &self.end_mark);
     }
 }
 
@@ -421,8 +473,9 @@ pub fn update_cached_layer(
             }
             *prepared_epoch = next_epoch;
             perf_mark(&format!(
-                "{}:update_cached_layer.patch_prepared_subset.applied",
-                PERF_PREFIX
+                "{}:update_cached_layer.patch_prepared_subset.applied{}",
+                PERF_PREFIX,
+                current_perf_trace_suffix()
             ));
         }
     }
@@ -804,8 +857,9 @@ pub fn compile_cached_font_from_last_layout_closure(
 
             if patched_count > 0 || prepared_epoch != font_cache_epoch {
                 perf_mark(&format!(
-                    "{}:compile_cached_font_from_last_layout_closure.patch_dirty_glyphs.applied",
-                    PERF_PREFIX
+                    "{}:compile_cached_font_from_last_layout_closure.patch_dirty_glyphs.applied{}",
+                    PERF_PREFIX,
+                    current_perf_trace_suffix()
                 ));
                 let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
                 prepared_cache.replace((
@@ -815,8 +869,9 @@ pub fn compile_cached_font_from_last_layout_closure(
                 ));
             } else {
                 perf_mark(&format!(
-                    "{}:compile_cached_font_from_last_layout_closure.patch_dirty_glyphs.noop",
-                    PERF_PREFIX
+                    "{}:compile_cached_font_from_last_layout_closure.patch_dirty_glyphs.noop{}",
+                    PERF_PREFIX,
+                    current_perf_trace_suffix()
                 ));
             }
             drop(_patch_span);

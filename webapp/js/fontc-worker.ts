@@ -31,6 +31,81 @@ let cachedBaseSubsetKey: string | null = null;
 let cachedClosureGlyphCount: number | null = null;
 let lastStoreFontAtMs = 0;
 let dragCompilesSinceStore = 0;
+const PERF_TRACE_CONTEXT_GLOBAL_KEY = '__cpPerfTraceContext';
+
+type TimelineTraceContext = {
+    process?: string;
+    traceId?: string;
+    parentSpanId?: string;
+    requestId?: string;
+    fontRevisionKey?: string;
+};
+
+function normalizeTraceContext(
+    rawContext: unknown,
+    messageType: string,
+    requestId: unknown
+): TimelineTraceContext {
+    const candidate =
+        rawContext && typeof rawContext === 'object'
+            ? (rawContext as Record<string, unknown>)
+            : {};
+    const fallbackRequestId =
+        requestId === undefined || requestId === null
+            ? 'no-id'
+            : String(requestId);
+
+    return {
+        process:
+            typeof candidate.process === 'string'
+                ? candidate.process
+                : undefined,
+        traceId:
+            typeof candidate.traceId === 'string' && candidate.traceId.length
+                ? candidate.traceId
+                : `${messageType}-${fallbackRequestId}`,
+        parentSpanId:
+            typeof candidate.parentSpanId === 'string'
+                ? candidate.parentSpanId
+                : undefined,
+        requestId:
+            typeof candidate.requestId === 'string'
+                ? candidate.requestId
+                : fallbackRequestId,
+        fontRevisionKey:
+            typeof candidate.fontRevisionKey === 'string'
+                ? candidate.fontRevisionKey
+                : undefined
+    };
+}
+
+function withProcess(
+    context: TimelineTraceContext,
+    processName: string,
+    parentSpanId?: string
+): TimelineTraceContext {
+    return {
+        ...context,
+        process: processName,
+        parentSpanId: parentSpanId ?? context.parentSpanId
+    };
+}
+
+function setWasmPerfTraceContext(context: TimelineTraceContext | null): void {
+    try {
+        if (context) {
+            (globalThis as Record<string, unknown>)[
+                PERF_TRACE_CONTEXT_GLOBAL_KEY
+            ] = context;
+            return;
+        }
+        delete (globalThis as Record<string, unknown>)[
+            PERF_TRACE_CONTEXT_GLOBAL_KEY
+        ];
+    } catch {
+        // Best-effort tracing only
+    }
+}
 
 function parseErrorLineColumn(message: string): {
     line?: number;
@@ -425,10 +500,17 @@ function validateFontData(fontData: any): void {
     }
 }
 
-async function initializeWasm() {
-    const initSpanId = timelineSpanStart('font.worker.initializeWasm');
+async function initializeWasm(traceContext?: TimelineTraceContext) {
+    const initSpanId = timelineSpanStart(
+        'font.worker.initializeWasm',
+        undefined,
+        traceContext
+    );
     try {
-        timelineMark('font.worker.initializeWasm.started');
+        timelineMark(
+            'font.worker.initializeWasm.started',
+            withProcess(traceContext || {}, 'worker', initSpanId)
+        );
         // Check if SharedArrayBuffer is available
         if (typeof SharedArrayBuffer === 'undefined') {
             throw new Error(
@@ -446,11 +528,17 @@ async function initializeWasm() {
 
         initialized = true;
         const ver = version();
-        timelineMark('font.worker.initializeWasm.ready');
+        timelineMark(
+            'font.worker.initializeWasm.ready',
+            withProcess(traceContext || {}, 'worker', initSpanId)
+        );
 
         return ver;
     } catch (error: any) {
-        timelineMark('font.worker.initializeWasm.failed');
+        timelineMark(
+            'font.worker.initializeWasm.failed',
+            withProcess(traceContext || {}, 'worker', initSpanId)
+        );
         console.error('[Fontc Worker] Initialization error:', error);
         throw error;
     } finally {
@@ -462,20 +550,45 @@ async function initializeWasm() {
 self.onmessage = async (event) => {
     const data = event.data;
     const messageType = data?.type || 'legacy';
-    const messageSpanId = timelineSpanStart(
-        `font.worker.message.${messageType}`
+    const rawTraceContext = normalizeTraceContext(
+        data?.traceContext,
+        messageType,
+        data?.id
     );
-    timelineMark(`font.worker.message.${messageType}.received`);
+    const messageTraceContext = withProcess(rawTraceContext, 'worker');
+    const messageSpanId = timelineSpanStart(
+        `font.worker.message.${messageType}`,
+        undefined,
+        messageTraceContext
+    );
+    setWasmPerfTraceContext(
+        withProcess(messageTraceContext, 'worker', messageSpanId)
+    );
+    timelineMark(`font.worker.message.${messageType}.received`, {
+        ...messageTraceContext,
+        process: 'worker',
+        parentSpanId: messageSpanId
+    });
 
     try {
         // Protocol 1: Type-based messages
         if (data.type === 'init') {
             try {
-                const ver: string = await initializeWasm();
-                timelineMark('font.worker.init.success');
+                const ver: string = await initializeWasm(
+                    withProcess(messageTraceContext, 'worker', messageSpanId)
+                );
+                timelineMark('font.worker.init.success', {
+                    ...messageTraceContext,
+                    process: 'worker',
+                    parentSpanId: messageSpanId
+                });
                 self.postMessage({ type: 'ready', version: ver });
             } catch (error: unknown) {
-                timelineMark('font.worker.init.failed');
+                timelineMark('font.worker.init.failed', {
+                    ...messageTraceContext,
+                    process: 'worker',
+                    parentSpanId: messageSpanId
+                });
                 const normalizedError = normalizeWorkerError(error);
                 self.postMessage({
                     type: 'error',
@@ -488,7 +601,11 @@ self.onmessage = async (event) => {
         }
 
         if (data.type === 'compile') {
-            const compileSpanId = timelineSpanStart('font.worker.compile');
+            const compileSpanId = timelineSpanStart(
+                'font.worker.compile',
+                undefined,
+                withProcess(messageTraceContext, 'worker', messageSpanId)
+            );
             self.postMessage({
                 type: 'debug',
                 message: `[Worker] Entered type=compile handler, initialized=${initialized}`
@@ -504,7 +621,10 @@ self.onmessage = async (event) => {
             }
 
             try {
-                timelineMark('font.worker.compile.started');
+                timelineMark(
+                    'font.worker.compile.started',
+                    withProcess(messageTraceContext, 'worker', compileSpanId)
+                );
                 const startTime = performance.now();
 
                 // Clean font data before compilation
@@ -563,9 +683,15 @@ self.onmessage = async (event) => {
                     },
                     ttfBytes
                 );
-                timelineMark('font.worker.compile.success');
+                timelineMark(
+                    'font.worker.compile.success',
+                    withProcess(messageTraceContext, 'worker', compileSpanId)
+                );
             } catch (error: unknown) {
-                timelineMark('font.worker.compile.failed');
+                timelineMark(
+                    'font.worker.compile.failed',
+                    withProcess(messageTraceContext, 'worker', compileSpanId)
+                );
                 console.error('[Fontc Worker] Error:', error);
                 const normalizedError = normalizeWorkerError(error);
                 const errorText = normalizedError.message;
@@ -616,7 +742,9 @@ self.onmessage = async (event) => {
 
         if (data.type === 'compileEditingCached') {
             const compileEditingSpanId = timelineSpanStart(
-                'font.worker.compileEditingCached'
+                'font.worker.compileEditingCached',
+                undefined,
+                withProcess(messageTraceContext, 'worker', messageSpanId)
             );
 
             if (!initialized) {
@@ -629,7 +757,14 @@ self.onmessage = async (event) => {
             }
 
             try {
-                timelineMark('font.worker.compileEditingCached.started');
+                timelineMark(
+                    'font.worker.compileEditingCached.started',
+                    withProcess(
+                        messageTraceContext,
+                        'worker',
+                        compileEditingSpanId
+                    )
+                );
                 const startTime = performance.now();
                 const {
                     id,
@@ -774,9 +909,23 @@ self.onmessage = async (event) => {
                     },
                     compiledBytes
                 );
-                timelineMark('font.worker.compileEditingCached.success');
+                timelineMark(
+                    'font.worker.compileEditingCached.success',
+                    withProcess(
+                        messageTraceContext,
+                        'worker',
+                        compileEditingSpanId
+                    )
+                );
             } catch (error: unknown) {
-                timelineMark('font.worker.compileEditingCached.failed');
+                timelineMark(
+                    'font.worker.compileEditingCached.failed',
+                    withProcess(
+                        messageTraceContext,
+                        'worker',
+                        compileEditingSpanId
+                    )
+                );
                 const normalizedError = normalizeWorkerError(error);
                 self.postMessage({
                     type: 'error',

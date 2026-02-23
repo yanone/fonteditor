@@ -128,9 +128,10 @@ function pickMinimalArgs(args) {
 }
 
 function projectEventForLlm(event) {
+    const { baseName, context } = parseMarkerNameContext(event.name);
     const projected = {
         ts: event.ts,
-        name: event.name,
+        name: baseName,
         ph: event.ph,
         cat: event.cat,
     };
@@ -152,7 +153,79 @@ function projectEventForLlm(event) {
         projected.args = minimalArgs;
     }
 
+    if (context.process) {
+        projected.process = context.process;
+    }
+    if (context.traceId) {
+        projected.traceId = context.traceId;
+    }
+    if (context.parentSpanId) {
+        projected.parentSpanId = context.parentSpanId;
+    }
+    if (context.requestId) {
+        projected.requestId = context.requestId;
+    }
+    if (context.fontRevisionKey) {
+        projected.fontRevisionKey = context.fontRevisionKey;
+    }
+
     return projected;
+}
+
+function parseMarkerNameContext(rawName) {
+    const text = String(rawName || "");
+    const [baseName, ...parts] = text.split("|");
+    const context = {};
+
+    for (const part of parts) {
+        const separatorIndex = part.indexOf("=");
+        if (separatorIndex <= 0) {
+            continue;
+        }
+
+        const key = part.slice(0, separatorIndex).trim();
+        const value = part.slice(separatorIndex + 1).trim();
+        if (!value) {
+            continue;
+        }
+
+        if (key === "proc") {
+            context.process = value;
+        } else if (key === "trace") {
+            context.traceId = value;
+        } else if (key === "parent") {
+            context.parentSpanId = value;
+        } else if (key === "req") {
+            context.requestId = value;
+        } else if (key === "rev") {
+            context.fontRevisionKey = value;
+        }
+    }
+
+    return {
+        baseName,
+        context,
+    };
+}
+
+function getEventContext(event) {
+    const { context } = parseMarkerNameContext(event.name);
+    const process =
+        context.process ||
+        (event.pid !== undefined ? `pid:${String(event.pid)}` : "unknown");
+    const traceId =
+        context.traceId ||
+        (event.pid !== undefined || event.tid !== undefined
+            ? `pid:${String(event.pid ?? "na")}:tid:${String(event.tid ?? "na")}`
+            : "unscoped");
+
+    return {
+        process,
+        traceId,
+        parentSpanId: context.parentSpanId,
+        requestId: context.requestId,
+        fontRevisionKey: context.fontRevisionKey,
+    };
 }
 
 function round(value, digits = 2) {
@@ -169,6 +242,71 @@ function topEntries(map, limit, mapper) {
         .sort((a, b) => b[1] - a[1])
         .slice(0, limit)
         .map(([key, value]) => mapper(key, value));
+}
+
+function buildTraceGroups(events, startTs) {
+    const grouped = new Map();
+
+    for (const event of events) {
+        const { process, traceId } = getEventContext(event);
+        let processEntry = grouped.get(process);
+        if (!processEntry) {
+            processEntry = new Map();
+            grouped.set(process, processEntry);
+        }
+
+        let traceEntry = processEntry.get(traceId);
+        if (!traceEntry) {
+            traceEntry = {
+                eventCount: 0,
+                firstTs: Number.POSITIVE_INFINITY,
+                lastTs: Number.NEGATIVE_INFINITY,
+                names: new Map(),
+            };
+            processEntry.set(traceId, traceEntry);
+        }
+
+        traceEntry.eventCount += 1;
+        if (typeof event.ts === "number") {
+            traceEntry.firstTs = Math.min(traceEntry.firstTs, event.ts);
+            traceEntry.lastTs = Math.max(
+                traceEntry.lastTs,
+                event.ts + (event.dur || 0),
+            );
+        }
+
+        const { baseName } = parseMarkerNameContext(event.name);
+        addCount(traceEntry.names, baseName || String(event.name || ""));
+    }
+
+    return [...grouped.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([process, traces]) => ({
+            process,
+            traces: [...traces.entries()]
+                .map(([traceId, entry]) => ({
+                    traceId,
+                    eventCount: entry.eventCount,
+                    firstTsUs:
+                        Number.isFinite(entry.firstTs) ? entry.firstTs : null,
+                    lastTsUs:
+                        Number.isFinite(entry.lastTs) ? entry.lastTs : null,
+                    durationMs:
+                        Number.isFinite(entry.firstTs) &&
+                        Number.isFinite(entry.lastTs)
+                            ? round((entry.lastTs - entry.firstTs) / 1000, 3)
+                            : null,
+                    firstMsFromStart:
+                        Number.isFinite(entry.firstTs)
+                            ? round((entry.firstTs - startTs) / 1000, 3)
+                            : null,
+                    topNames: topEntries(entry.names, 8, (name, count) => ({
+                        name,
+                        count,
+                    })),
+                }))
+                .sort((a, b) => b.eventCount - a.eventCount),
+        }));
 }
 
 function isMilestoneEvent(event) {
@@ -294,6 +432,7 @@ function buildSummary(filteredEvents, inputPath, metadata) {
         categoryCounts,
         nameCounts,
         timeline,
+        traceGroups: buildTraceGroups(filteredEvents, startTs),
     };
 }
 
@@ -301,8 +440,22 @@ function toMsFromStart(ts, startTs) {
     return round((ts - startTs) / 1000, 3);
 }
 
+function percentile(values, ratio) {
+    if (!values.length) {
+        return null;
+    }
+
+    const sorted = [...values].sort((a, b) => a - b);
+    const index = Math.min(
+        sorted.length - 1,
+        Math.max(0, Math.floor(ratio * (sorted.length - 1))),
+    );
+    return sorted[index];
+}
+
 function canonicalTimingName(rawName) {
     let normalized = String(rawName || "").trim();
+    normalized = normalized.split("|")[0];
     if (normalized.startsWith("cp:")) {
         normalized = normalized.slice(3);
     }
@@ -392,6 +545,182 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
         shapeAndRepaintNames,
     );
     const lifecyclePhases = collectNamedEvents(events, lifecyclePhaseNames);
+
+    const wasmClosurePhasePattern =
+        /^cp:wasm:compile_cached_font_from_last_layout_closure\.([^#]+)#(\d+):(start|end)$/;
+    const wasmClosurePhaseEvents = events
+        .map((event) => {
+            const match = String(event.name || "").match(wasmClosurePhasePattern);
+            if (!match) {
+                return null;
+            }
+
+            return {
+                tsUs: event.ts,
+                phaseName: match[1],
+                phaseId: Number(match[2]),
+                side: match[3],
+            };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.tsUs - b.tsUs);
+
+    const openTotalStack = [];
+    const rawWasmClosureRuns = [];
+
+    for (const phaseEvent of wasmClosurePhaseEvents) {
+        if (phaseEvent.phaseName === "total" && phaseEvent.side === "start") {
+            openTotalStack.push({
+                totalPhaseId: phaseEvent.phaseId,
+                startUs: phaseEvent.tsUs,
+                endUs: null,
+                phaseEvents: [],
+            });
+            continue;
+        }
+
+        if (phaseEvent.phaseName === "total" && phaseEvent.side === "end") {
+            const openRun = openTotalStack.pop();
+            if (openRun) {
+                openRun.endUs = phaseEvent.tsUs;
+                rawWasmClosureRuns.push(openRun);
+            }
+            continue;
+        }
+
+        if (openTotalStack.length > 0) {
+            openTotalStack[openTotalStack.length - 1].phaseEvents.push(
+                phaseEvent,
+            );
+        }
+    }
+
+    const wasmClosureRuns = rawWasmClosureRuns
+        .map((run, index) => {
+            if (!run.startUs || !run.endUs) {
+                return null;
+            }
+
+            const phases = new Map();
+            for (const phaseEvent of run.phaseEvents) {
+                let phaseEntry = phases.get(phaseEvent.phaseName);
+                if (!phaseEntry) {
+                    phaseEntry = { startUs: null, endUs: null, phaseId: null };
+                    phases.set(phaseEvent.phaseName, phaseEntry);
+                }
+
+                if (phaseEntry.phaseId === null) {
+                    phaseEntry.phaseId = phaseEvent.phaseId;
+                }
+
+                if (phaseEvent.side === "start") {
+                    phaseEntry.startUs = phaseEvent.tsUs;
+                } else if (phaseEntry.phaseId === phaseEvent.phaseId) {
+                    phaseEntry.endUs = phaseEvent.tsUs;
+                }
+            }
+
+            const irCompile = phases.get("ir_compile");
+            if (!irCompile?.startUs || !irCompile?.endUs) {
+                return null;
+            }
+
+            const buildPhase = (phaseName) => {
+                const phase = phases.get(phaseName);
+                if (!phase?.startUs || !phase?.endUs) {
+                    return null;
+                }
+
+                return {
+                    phaseId: phase.phaseId,
+                    startUs: phase.startUs,
+                    endUs: phase.endUs,
+                    durationMs: round((phase.endUs - phase.startUs) / 1000, 3),
+                    startMsFromStart: toMsFromStart(phase.startUs, startTs),
+                    endMsFromStart: toMsFromStart(phase.endUs, startTs),
+                };
+            };
+
+            const totalPhase = {
+                phaseId: run.totalPhaseId,
+                startUs: run.startUs,
+                endUs: run.endUs,
+                durationMs: round((run.endUs - run.startUs) / 1000, 3),
+                startMsFromStart: toMsFromStart(run.startUs, startTs),
+                endMsFromStart: toMsFromStart(run.endUs, startTs),
+            };
+            const irCompilePhase = buildPhase("ir_compile");
+            const cacheReadPhase = buildPhase("cache_read");
+            const preparedSubsetLookupPhase = buildPhase(
+                "prepared_subset_lookup",
+            );
+            const patchDirtyGlyphsPhase = buildPhase("patch_dirty_glyphs");
+            const fetchLastClosurePhase = buildPhase("fetch_last_closure");
+            const fetchClosureSubsetPhase = buildPhase("fetch_closure_subset");
+
+            const preIrCompileMs = round(
+                (irCompile.startUs - run.startUs) / 1000,
+                3,
+            );
+            const postIrCompileTailMs = round(
+                (run.endUs - irCompile.endUs) / 1000,
+                3,
+            );
+
+            return {
+                runIndex: index + 1,
+                total: totalPhase,
+                irCompile: irCompilePhase,
+                cacheRead: cacheReadPhase,
+                preparedSubsetLookup: preparedSubsetLookupPhase,
+                patchDirtyGlyphs: patchDirtyGlyphsPhase,
+                fetchLastClosure: fetchLastClosurePhase,
+                fetchClosureSubset: fetchClosureSubsetPhase,
+                preIrCompileMs,
+                postIrCompileTailMs,
+                irCompileShareOfTotalPct: round(
+                    (irCompilePhase.durationMs / totalPhase.durationMs) * 100,
+                    2,
+                ),
+            };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.runIndex - b.runIndex);
+
+    const wasmTailValues = wasmClosureRuns.map((run) => run.postIrCompileTailMs);
+    const wasmPreValues = wasmClosureRuns.map((run) => run.preIrCompileMs);
+    const wasmIrValues = wasmClosureRuns.map((run) => run.irCompile.durationMs);
+    const wasmTotalValues = wasmClosureRuns.map((run) => run.total.durationMs);
+
+    const wasmClosureTailSummary = wasmClosureRuns.length
+        ? {
+              runCount: wasmClosureRuns.length,
+              avgTailMs: round(
+                  wasmTailValues.reduce((sum, value) => sum + value, 0) /
+                      wasmTailValues.length,
+                  3,
+              ),
+              p50TailMs: percentile(wasmTailValues, 0.5),
+              p90TailMs: percentile(wasmTailValues, 0.9),
+              minTailMs: Math.min(...wasmTailValues),
+              maxTailMs: Math.max(...wasmTailValues),
+              avgPreIrCompileMs: round(
+                  wasmPreValues.reduce((sum, value) => sum + value, 0) /
+                      wasmPreValues.length,
+                  3,
+              ),
+              avgIrCompileMs: round(
+                  wasmIrValues.reduce((sum, value) => sum + value, 0) /
+                      wasmIrValues.length,
+                  3,
+              ),
+              avgTotalMs: round(
+                  wasmTotalValues.reduce((sum, value) => sum + value, 0) /
+                      wasmTotalValues.length,
+                  3,
+              ),
+          }
+        : null;
 
     const handoffWindows = compileSuccesses.map((compileEvent) => {
         const nextRender = renderMilestones.find(
@@ -567,7 +896,9 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
             completedCompileToCanvasChains: compileToCanvasChains.filter(
                 (chain) => chain.completed,
             ).length,
+            wasmClosureRunCount: wasmClosureRuns.length,
         },
+        traceGroups: buildTraceGroups(events, startTs),
         inferredBreakReason,
         keyLifecycle: lifecyclePhases.map((event) => ({
             name: canonicalTimingName(String(event.name || "")),
@@ -587,6 +918,8 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
             tsUs: event.ts,
             tMsFromStart: toMsFromStart(event.ts, startTs),
         })),
+        wasmClosureTailSummary,
+        wasmClosureRuns,
         compileToCanvasChains,
         handoffWindows,
     };

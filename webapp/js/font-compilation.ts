@@ -39,6 +39,14 @@ interface CompilationOptions {
     produce_varc_table?: boolean;
 }
 
+type TimelineTraceContext = {
+    process?: string;
+    traceId?: string;
+    parentSpanId?: string;
+    requestId?: string;
+    fontRevisionKey?: string;
+};
+
 // Compilation target definitions
 // All targets use production glyph names by default
 const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
@@ -175,6 +183,7 @@ class FontCompilation {
             reject: (reason?: any) => void;
             filename: string;
             spanId?: string;
+            traceContext?: TimelineTraceContext;
         }
     >;
     compilationId: number;
@@ -405,7 +414,7 @@ class FontCompilation {
         };
 
         if (id !== undefined && this.pendingCompilations.has(id)) {
-            const { resolve, reject, filename, spanId } =
+            const { resolve, reject, filename, spanId, traceContext } =
                 this.pendingCompilations.get(id)!;
             this.pendingCompilations.delete(id);
             if (spanId) {
@@ -413,7 +422,10 @@ class FontCompilation {
             }
 
             if (error !== undefined || errorPayload !== undefined) {
-                timelineMark('fontCompilation.workerResponse.error');
+                timelineMark('fontCompilation.workerResponse.error', {
+                    ...traceContext,
+                    process: 'main'
+                });
                 const payloadText = (() => {
                     if (errorPayload === undefined) {
                         return '';
@@ -436,7 +448,10 @@ class FontCompilation {
                 compilationError.compilationErrorPayload = errorPayload;
                 reject(compilationError);
             } else {
-                timelineMark('fontCompilation.workerResponse.success');
+                timelineMark('fontCompilation.workerResponse.success', {
+                    ...traceContext,
+                    process: 'main'
+                });
                 // For compilation messages, wrap in { result, time_taken, filename }
                 // For other message types, return the full data
                 if (result !== undefined) {
@@ -478,6 +493,16 @@ class FontCompilation {
         }
 
         const messageType = data.type || 'unknown';
+        const requestId = this.compilationId++;
+        const traceContext: TimelineTraceContext = {
+            process: 'main',
+            traceId: `${messageType}-${requestId}`,
+            requestId: String(requestId),
+            fontRevisionKey:
+                data && typeof data.fontRevisionKey === 'string'
+                    ? data.fontRevisionKey
+                    : undefined
+        };
 
         if (messageType === 'storeFontJson') {
             const payload =
@@ -510,11 +535,13 @@ class FontCompilation {
         }
 
         const spanId = timelineSpanStart(
-            `fontCompilation.workerMessage.${messageType}`
+            `fontCompilation.workerMessage.${messageType}`,
+            undefined,
+            traceContext
         );
 
         const requestPromise = new Promise((resolve, reject) => {
-            const id = this.compilationId++;
+            const id = requestId;
 
             const wrappedResolve = (value: any) => {
                 if (messageType === 'storeFontJson') {
@@ -543,16 +570,33 @@ class FontCompilation {
                 resolve: wrappedResolve,
                 reject: wrappedReject,
                 filename: data.filename || 'unknown',
-                spanId
+                spanId,
+                traceContext
             });
 
-            timelineMark(`fontCompilation.workerMessage.${messageType}.sent`);
+            timelineMark(`fontCompilation.workerMessage.${messageType}.sent`, {
+                ...traceContext,
+                process: 'main',
+                parentSpanId: spanId
+            });
             try {
-                this.worker!.postMessage({ ...data, id });
+                this.worker!.postMessage({
+                    ...data,
+                    id,
+                    traceContext: {
+                        ...traceContext,
+                        parentSpanId: spanId
+                    }
+                });
             } catch (error) {
                 this.pendingCompilations.delete(id);
                 timelineMark(
-                    `fontCompilation.workerMessage.${messageType}.failed`
+                    `fontCompilation.workerMessage.${messageType}.failed`,
+                    {
+                        ...traceContext,
+                        process: 'main',
+                        parentSpanId: spanId
+                    }
                 );
                 timelineSpanEnd(spanId);
                 reject(error);
