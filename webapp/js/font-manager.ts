@@ -1166,9 +1166,8 @@ class FontManager {
                                 typeof dirtyLayer.toJSON === 'function'
                                     ? dirtyLayer.toJSON()
                                     : dirtyLayer;
-                            dirtyLayerData = this.normalizeLayerForRust(
-                                rawDirtyLayer
-                            );
+                            dirtyLayerData =
+                                this.normalizeLayerForRust(rawDirtyLayer);
                         }
                     }
                 }
@@ -1889,7 +1888,7 @@ class FontManager {
         // Directly assign the cleaned layer data (no need for JSON.parse/stringify)
         glyph.layers[layerIndex] = layerDataCopy;
 
-        if (changeSource === 'mouse-drag') {
+        if (changeSource === 'mouse-drag' || changeSource === 'keyboard') {
             this.pendingBabelfontJsonSyncAfterDrag = true;
         } else {
             if (!this.syncBabelfontJsonFromCurrentModel()) {
@@ -1963,9 +1962,8 @@ class FontManager {
                         typeof currentLayer.toJSON === 'function'
                             ? currentLayer.toJSON()
                             : currentLayer;
-                    const layerDataCopy = this.normalizeLayerForRust(
-                        rawLayerData
-                    );
+                    const layerDataCopy =
+                        this.normalizeLayerForRust(rawLayerData);
                     await fontCompilation.sendMessage({
                         type: 'storeLayerData',
                         glyphName: currentGlyphName,

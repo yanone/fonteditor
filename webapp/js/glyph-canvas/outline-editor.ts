@@ -34,24 +34,44 @@ function identityDecomposed(): Babelfont.DecomposedAffine {
     return DecomposedAffineTransform.identity();
 }
 
+const getPathShapeData = (shape: any): any => {
+    if (shape && typeof shape === 'object' && 'Path' in shape) {
+        return shape.Path;
+    }
+    return shape;
+};
+
+const getComponentShapeData = (shape: any): any => {
+    if (shape && typeof shape === 'object' && 'Component' in shape) {
+        return shape.Component;
+    }
+    return shape;
+};
+
 // Recursively parse nodes in component layer data (including nested components)
 const parseComponentNodes = (shapes: Babelfont.Shape[]) => {
     if (!shapes) return;
 
     shapes.forEach((shape) => {
+        const pathData = getPathShapeData(shape);
         // Parse nodes in Path shapes
-        if ('nodes' in shape && shape.nodes) {
+        if (pathData && typeof pathData === 'object' && pathData.nodes) {
             // Parse if string, replace in place so object model and renderer share same reference
-            if (typeof shape.nodes === 'string') {
-                (shape.nodes as any) = LayerDataNormalizer.parseNodes(
-                    shape.nodes
-                );
+            if (typeof pathData.nodes === 'string') {
+                pathData.nodes = LayerDataNormalizer.parseNodes(pathData.nodes);
             }
         }
 
+        const componentData = getComponentShapeData(shape);
         // Recursively parse nested component data
-        if ('reference' in shape && shape.layerData && shape.layerData.shapes) {
-            parseComponentNodes(shape.layerData.shapes);
+        if (
+            componentData &&
+            typeof componentData === 'object' &&
+            'reference' in componentData &&
+            componentData.layerData &&
+            componentData.layerData.shapes
+        ) {
+            parseComponentNodes(componentData.layerData.shapes);
         }
     });
 };
@@ -1455,8 +1475,15 @@ export class OutlineEditor {
         for (const point of this.selectedPoints) {
             const { contourIndex, nodeIndex } = point;
             const shape = currentLayerData.shapes[contourIndex];
-            if (shape && 'nodes' in shape && shape.nodes) {
-                const nodes = shape.nodes as Babelfont.Node[];
+            const pathData = getPathShapeData(shape);
+            if (pathData && typeof pathData === 'object' && pathData.nodes) {
+                if (typeof pathData.nodes === 'string') {
+                    pathData.nodes = LayerDataNormalizer.parseNodes(
+                        pathData.nodes
+                    );
+                }
+
+                const nodes = pathData.nodes as Babelfont.Node[];
                 if (nodes[nodeIndex]) {
                     nodes[nodeIndex].x += deltaX;
                     nodes[nodeIndex].y += deltaY;
@@ -1536,12 +1563,17 @@ export class OutlineEditor {
 
         const { contourIndex, nodeIndex } = pointIndex;
         const shape = currentLayerData.shapes[contourIndex];
+        const pathData = getPathShapeData(shape);
 
-        if (!shape || !('nodes' in shape) || !shape.nodes) {
+        if (!pathData || !('nodes' in pathData) || !pathData.nodes) {
             return;
         }
 
-        const nodes = shape.nodes as Babelfont.Node[];
+        if (typeof pathData.nodes === 'string') {
+            pathData.nodes = LayerDataNormalizer.parseNodes(pathData.nodes);
+        }
+
+        const nodes = pathData.nodes as Babelfont.Node[];
         if (!nodes[nodeIndex]) return;
 
         const node = nodes[nodeIndex];
