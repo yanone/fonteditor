@@ -464,8 +464,10 @@ function computePearsonCorrelation(valuesA, valuesB) {
         return null;
     }
 
-    const meanA = valuesA.reduce((sum, value) => sum + value, 0) / valuesA.length;
-    const meanB = valuesB.reduce((sum, value) => sum + value, 0) / valuesB.length;
+    const meanA =
+        valuesA.reduce((sum, value) => sum + value, 0) / valuesA.length;
+    const meanB =
+        valuesB.reduce((sum, value) => sum + value, 0) / valuesB.length;
     const deviationsA = valuesA.map((value) => value - meanA);
     const deviationsB = valuesB.map((value) => value - meanB);
     const numerator = deviationsA.reduce(
@@ -491,7 +493,10 @@ function summarizeNumericValues(values) {
 
     return {
         count: values.length,
-        avg: round(values.reduce((sum, value) => sum + value, 0) / values.length, 3),
+        avg: round(
+            values.reduce((sum, value) => sum + value, 0) / values.length,
+            3,
+        ),
         min: round(Math.min(...values), 3),
         max: round(Math.max(...values), 3),
     };
