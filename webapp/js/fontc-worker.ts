@@ -869,6 +869,24 @@ self.onmessage = async (event) => {
                 );
                 const needsPrimeClosure =
                     cachedBaseSubsetKey !== incomingSubsetKey;
+                const isOutlineIncrementalCompile =
+                    String(compileSource || '') === 'mouse-drag' ||
+                    String(compileSource || '') === 'keyboard';
+
+                if (needsPrimeClosure && isOutlineIncrementalCompile) {
+                    timelineMark(
+                        'font.worker.compileEditingCached.primeLayoutClosure.outlineSubsetChanged'
+                    );
+                    console.warn(
+                        '[FontWorker] Subset key changed during outline incremental compile',
+                        {
+                            compileSource,
+                            previousSubsetKey: cachedBaseSubsetKey,
+                            incomingSubsetKey,
+                            hasSubsetGlyphs: !!baseSubsetGlyphs?.length
+                        }
+                    );
+                }
 
                 if (needsPrimeClosure) {
                     if (!baseSubsetGlyphs) {

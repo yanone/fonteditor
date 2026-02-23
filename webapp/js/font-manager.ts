@@ -326,6 +326,8 @@ class FontManager {
         activeFeatures: string;
         closureSet: string[];
     } | null = null;
+    editingSubsetSnapshotGlyphs: string[];
+    editingSubsetSnapshotKey: string;
     isExternalReloading: boolean = false;
     pendingDebugEditingFontSaveAfterDrag: boolean;
     pendingBabelfontJsonSyncAfterDrag: boolean;
@@ -345,6 +347,8 @@ class FontManager {
         this.glyphOrderCache = null; // Cache for glyph order to avoid re-parsing
         this.lastChangeSource = null;
         this.closureCache = null;
+        this.editingSubsetSnapshotGlyphs = [];
+        this.editingSubsetSnapshotKey = '';
         this.isExternalReloading = false;
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
@@ -775,6 +779,8 @@ class FontManager {
             this.editingFont = null;
             this.glyphOrderCache = null;
             this.closureCache = null;
+            this.editingSubsetSnapshotGlyphs = [];
+            this.editingSubsetSnapshotKey = '';
             this.lastChangeSource = 'external-reload';
 
             const subsetGlyphs =
@@ -854,6 +860,8 @@ class FontManager {
         this.fullFontQcSummary = null;
         this.glyphOrderCache = null; // Clear cache for new font
         this.closureCache = null;
+        this.editingSubsetSnapshotGlyphs = [];
+        this.editingSubsetSnapshotKey = '';
 
         // Reset initialFontLoaded flag in glyphCanvas when new font is loaded
         if (window.glyphCanvas) {
@@ -878,6 +886,130 @@ class FontManager {
 
         // Use the shapeTextWithFont function from font-compilation.js
         return await window.shapeTextWithFont(this.editingFont, text);
+    }
+
+    private createSubsetKey(glyphNames: string[]): string {
+        return [...new Set(glyphNames)].sort().join('\u0000');
+    }
+
+    private normalizeSubsetGlyphs(glyphNames: string[]): string[] {
+        const normalized: string[] = [];
+        const seen = new Set<string>();
+        for (const glyphName of glyphNames) {
+            if (
+                typeof glyphName !== 'string' ||
+                !glyphName.length ||
+                seen.has(glyphName)
+            ) {
+                continue;
+            }
+            normalized.push(glyphName);
+            seen.add(glyphName);
+        }
+        return normalized;
+    }
+
+    updateEditingSubsetSnapshot(subsetGlyphs: string[]): boolean {
+        const normalized = this.normalizeSubsetGlyphs(subsetGlyphs || []);
+        const subsetKey = this.createSubsetKey(normalized);
+        if (subsetKey === this.editingSubsetSnapshotKey) {
+            return false;
+        }
+
+        this.editingSubsetSnapshotGlyphs = normalized;
+        this.editingSubsetSnapshotKey = subsetKey;
+        return true;
+    }
+
+    getEditingSubsetSnapshot(): string[] {
+        return [...this.editingSubsetSnapshotGlyphs];
+    }
+
+    private normalizeShapeForRust(shape: any): any {
+        if (!shape || typeof shape !== 'object' || Array.isArray(shape)) {
+            return shape;
+        }
+
+        const pathCandidate =
+            'Path' in shape && shape.Path && typeof shape.Path === 'object'
+                ? shape.Path
+                : shape;
+
+        if ('nodes' in pathCandidate) {
+            let nodesValue = pathCandidate.nodes;
+            if (Array.isArray(nodesValue)) {
+                nodesValue = Path.nodesToString(nodesValue);
+            }
+
+            return {
+                nodes: nodesValue,
+                closed: pathCandidate.closed,
+                ...(pathCandidate.format_specific && {
+                    format_specific: pathCandidate.format_specific
+                })
+            };
+        }
+
+        const componentCandidate =
+            'Component' in shape &&
+            shape.Component &&
+            typeof shape.Component === 'object'
+                ? shape.Component
+                : shape;
+
+        if ('reference' in componentCandidate) {
+            return {
+                reference: componentCandidate.reference,
+                transform: componentCandidate.transform,
+                ...(componentCandidate.location && {
+                    location: componentCandidate.location
+                }),
+                ...(componentCandidate.format_specific && {
+                    format_specific: componentCandidate.format_specific
+                })
+            };
+        }
+
+        return { ...shape };
+    }
+
+    private normalizeLayerForRust(layerData: any): any {
+        if (!layerData || typeof layerData !== 'object') {
+            return layerData;
+        }
+
+        const shapes = Array.isArray(layerData.shapes)
+            ? layerData.shapes.map((shape: any) =>
+                  this.normalizeShapeForRust(shape)
+              )
+            : [];
+
+        return {
+            ...layerData,
+            shapes,
+            ...(Array.isArray(layerData.anchors)
+                ? {
+                      anchors: layerData.anchors.map((anchor: any) => ({
+                          name: anchor?.name,
+                          x: anchor?.x,
+                          y: anchor?.y
+                      }))
+                  }
+                : {}),
+            ...(Array.isArray(layerData.guides)
+                ? {
+                      guides: layerData.guides.map((guide: any) => ({
+                          pos: {
+                              x: guide?.pos?.x,
+                              y: guide?.pos?.y,
+                              angle: guide?.pos?.angle
+                          },
+                          name: guide?.name,
+                          ...(guide?.color && { color: guide.color })
+                      }))
+                  }
+                : {})
+        };
     }
 
     /**
@@ -915,29 +1047,41 @@ class FontManager {
         let consumedStartupCompileSlot = false;
 
         try {
-            // Compute layout closure if subset glyphs provided
+            // Compute layout closure subset
             let glyphsToInclude = subsetGlyphs;
             if (!glyphsToInclude || glyphsToInclude.length === 0) {
-                const fallbackSubsetGlyphs =
-                    window.glyphCanvas?.textRunEditor?.glyphNameBuffer || [];
-                if (fallbackSubsetGlyphs.length > 0) {
-                    glyphsToInclude = fallbackSubsetGlyphs;
-                } else {
-                    const fallbackText =
-                        text ||
-                        window.glyphCanvas?.textRunEditor?.textBuffer ||
-                        this.currentText ||
-                        localStorage.getItem('glyphCanvasTextBuffer') ||
-                        'Hamburgevons';
-                    glyphsToInclude =
-                        this.deriveSubsetGlyphsFromText(fallbackText);
-                    if (!glyphsToInclude.length) {
-                        console.log(
-                            '[FontManager] Skipping editing font compile without subset glyphs'
-                        );
-                        return this.editingFont;
+                const fallbackText =
+                    text ||
+                    window.glyphCanvas?.textRunEditor?.textBuffer ||
+                    this.currentText ||
+                    localStorage.getItem('glyphCanvasTextBuffer') ||
+                    'Hamburgevons';
+                glyphsToInclude = this.deriveSubsetGlyphsFromText(fallbackText);
+                if (glyphsToInclude.length > 0) {
+                    this.updateEditingSubsetSnapshot(glyphsToInclude);
+                }
+
+                if (!glyphsToInclude.length) {
+                    const snapshotSubsetGlyphs =
+                        this.getEditingSubsetSnapshot();
+                    if (snapshotSubsetGlyphs.length > 0) {
+                        glyphsToInclude = snapshotSubsetGlyphs;
+                    } else {
+                        const fallbackSubsetGlyphs =
+                            window.glyphCanvas?.textRunEditor
+                                ?.glyphNameBuffer || [];
+                        if (fallbackSubsetGlyphs.length > 0) {
+                            glyphsToInclude = fallbackSubsetGlyphs;
+                        } else {
+                            console.log(
+                                '[FontManager] Skipping editing font compile without subset glyphs'
+                            );
+                            return this.editingFont;
+                        }
                     }
                 }
+            } else {
+                this.updateEditingSubsetSnapshot(glyphsToInclude);
             }
 
             if (startupOpenSessionActive) {
@@ -1022,8 +1166,8 @@ class FontManager {
                                 typeof dirtyLayer.toJSON === 'function'
                                     ? dirtyLayer.toJSON()
                                     : dirtyLayer;
-                            dirtyLayerData = JSON.parse(
-                                JSON.stringify(rawDirtyLayer)
+                            dirtyLayerData = this.normalizeLayerForRust(
+                                rawDirtyLayer
                             );
                         }
                     }
@@ -1121,7 +1265,7 @@ class FontManager {
         }
     }
 
-    private deriveSubsetGlyphsFromText(text: string): string[] {
+    deriveSubsetGlyphsFromText(text: string): string[] {
         const fontModel = this.currentFont?.fontModel;
         if (!fontModel || !text) {
             return [];
@@ -1213,14 +1357,34 @@ class FontManager {
         // Capture change version at start of compilation
         const startVersion = this.currentFont.changeVersion;
 
-        // Get subset glyph names from current shaped text output.
-        const subsetGlyphs = window.glyphCanvas?.textRunEditor?.glyphNameBuffer;
+        const changeSource = this.lastChangeSource || 'unknown';
+        const isOutlineIncrementalChange =
+            changeSource === 'mouse-drag' || changeSource === 'keyboard';
+
+        let subsetGlyphs = this.getEditingSubsetSnapshot();
+
+        if (subsetGlyphs.length === 0) {
+            const fallbackText =
+                this.currentText ||
+                window.glyphCanvas?.textRunEditor?.textBuffer ||
+                localStorage.getItem('glyphCanvasTextBuffer') ||
+                'Hamburgevons';
+            subsetGlyphs = this.deriveSubsetGlyphsFromText(fallbackText);
+            if (subsetGlyphs.length > 0) {
+                this.updateEditingSubsetSnapshot(subsetGlyphs);
+            }
+        }
+
+        if (subsetGlyphs.length === 0 && !isOutlineIncrementalChange) {
+            subsetGlyphs =
+                window.glyphCanvas?.textRunEditor?.glyphNameBuffer || [];
+        }
 
         // Compile with current data
         await this.compileEditingFont(
             this.currentText,
             this.selectedFeatures,
-            subsetGlyphs
+            subsetGlyphs.length > 0 ? subsetGlyphs : undefined
         );
 
         // After compilation, check if data changed during the compilation
@@ -1329,9 +1493,7 @@ class FontManager {
         }
 
         try {
-            currentFont.babelfontJson = JSON.stringify(
-                currentFont.babelfontData
-            );
+            currentFont.syncJsonFromModel();
             window.currentFontModel = currentFont.fontModel;
             return true;
         } catch (error) {
@@ -1573,11 +1735,30 @@ class FontManager {
         layerData: Babelfont.Layer,
         changeSource: string = 'unknown'
     ) {
+        const extractPathShape = (shape: any): any => {
+            if (shape && typeof shape === 'object' && 'Path' in shape) {
+                return (shape as any).Path;
+            }
+            return shape;
+        };
+
+        const extractComponentShape = (shape: any): any => {
+            if (shape && typeof shape === 'object' && 'Component' in shape) {
+                return (shape as any).Component;
+            }
+            return shape;
+        };
+
         // Helper function to recursively clean shapes for saving
         const cleanShapeForSaving = (shape: Babelfont.Shape): any => {
-            if ('nodes' in shape) {
+            const pathCandidate = extractPathShape(shape as any);
+            if (
+                pathCandidate &&
+                typeof pathCandidate === 'object' &&
+                'nodes' in pathCandidate
+            ) {
                 // For Path shapes, convert nodes to string format and strip runtime properties
-                let nodesValue: string | Babelfont.Node[] = shape.nodes;
+                let nodesValue: string | Babelfont.Node[] = pathCandidate.nodes;
 
                 // Convert array to string if needed
                 if (Array.isArray(nodesValue)) {
@@ -1586,34 +1767,43 @@ class FontManager {
 
                 return {
                     nodes: nodesValue as string,
-                    closed: shape.closed,
-                    ...(shape.format_specific && {
-                        format_specific: shape.format_specific
+                    closed: pathCandidate.closed,
+                    ...(pathCandidate.format_specific && {
+                        format_specific: pathCandidate.format_specific
                     })
                     // Omit isInterpolated and other runtime properties
                 };
-            } else if ('reference' in shape) {
+            }
+
+            const componentCandidate = extractComponentShape(shape as any);
+            if (
+                componentCandidate &&
+                typeof componentCandidate === 'object' &&
+                'reference' in componentCandidate
+            ) {
                 // Strip the layerData property from components before saving
                 // layerData is only for internal rendering, not part of the font format
                 return {
-                    reference: shape.reference,
-                    transform: shape.transform,
-                    ...(shape.location && { location: shape.location }),
-                    ...(shape.format_specific && {
-                        format_specific: shape.format_specific
+                    reference: componentCandidate.reference,
+                    transform: componentCandidate.transform,
+                    ...(componentCandidate.location && {
+                        location: componentCandidate.location
+                    }),
+                    ...(componentCandidate.format_specific && {
+                        format_specific: componentCandidate.format_specific
                     })
                     // Note: layerData and isInterpolated are intentionally omitted
                 };
-            } else {
-                // For other shape types (Anchor, etc.), create a clean copy
-                // Avoid JSON.parse(JSON.stringify()) which can fail on circular refs
-                const isObject =
-                    shape && typeof shape === 'object' && !Array.isArray(shape);
-                if (isObject) {
-                    return { ...(shape as object) } as Babelfont.Shape;
-                }
-                return shape;
             }
+
+            // For other shape types (Anchor, etc.), create a clean copy
+            // Avoid JSON.parse(JSON.stringify()) which can fail on circular refs
+            const isObject =
+                shape && typeof shape === 'object' && !Array.isArray(shape);
+            if (isObject) {
+                return { ...(shape as object) } as Babelfont.Shape;
+            }
+            return shape;
         };
 
         // Convert nodes array back to string format and strip internal properties
@@ -1773,8 +1963,8 @@ class FontManager {
                         typeof currentLayer.toJSON === 'function'
                             ? currentLayer.toJSON()
                             : currentLayer;
-                    const layerDataCopy = JSON.parse(
-                        JSON.stringify(rawLayerData)
+                    const layerDataCopy = this.normalizeLayerForRust(
+                        rawLayerData
                     );
                     await fontCompilation.sendMessage({
                         type: 'storeLayerData',

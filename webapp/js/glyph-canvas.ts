@@ -62,6 +62,7 @@ class GlyphCanvas {
     textChangeBurstThreshold: number = 200; // ms - keystrokes within this window considered "burst typing"
     textChangeFastDelay: number = 50; // ms - delay during fast typing bursts
     textChangeSlowDelay: number = 150; // ms - delay during slow typing
+    textChangeLastSubsetKey: string = '';
 
     resizeObserver: ResizeObserver | null = null;
 
@@ -1243,6 +1244,8 @@ class GlyphCanvas {
         }
 
         try {
+            this.textChangeLastSubsetKey = '';
+
             // Store current variation settings to restore after font reload
             const previousVariationSettings = {
                 ...this.axesManager!.variationSettings
@@ -2286,22 +2289,30 @@ class GlyphCanvas {
 
         this.textChangeDebounceTimer = setTimeout(() => {
             if (fontManager && fontManager.isReady()) {
-                const subsetGlyphs = this.textRunEditor!.glyphNameBuffer || [];
-                // Only compile if we have subset info.
-                if (subsetGlyphs.length > 0) {
-                    fontManager
-                        .compileEditingFont(
-                            this.textRunEditor!.textBuffer,
-                            [],
-                            subsetGlyphs
-                        )
-                        .catch((error: any) => {
-                            console.error(
-                                'Failed to recompile editing font:',
-                                error
-                            );
-                        });
+                const textBuffer = this.textRunEditor!.textBuffer;
+                const subsetGlyphs =
+                    fontManager.deriveSubsetGlyphsFromText(textBuffer);
+                const subsetKey = [...subsetGlyphs].sort().join('\u0000');
+
+                if (subsetKey === this.textChangeLastSubsetKey) {
+                    return;
                 }
+
+                this.textChangeLastSubsetKey = subsetKey;
+                fontManager.updateEditingSubsetSnapshot(subsetGlyphs);
+
+                fontManager
+                    .compileEditingFont(
+                        textBuffer,
+                        [],
+                        subsetGlyphs.length > 0 ? subsetGlyphs : undefined
+                    )
+                    .catch((error: any) => {
+                        console.error(
+                            'Failed to recompile editing font:',
+                            error
+                        );
+                    });
             }
         }, debounceDelay);
     }
