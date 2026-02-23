@@ -22,6 +22,29 @@ if (typeof window.ResizeObserver === 'undefined') {
     };
 }
 
+const originalConsoleWarn = console.warn.bind(console);
+const suppressedWarningSubstrings = [
+    'No layer selected - cannot save',
+    'No current font to update cache',
+    'Cannot mark font dirty - no currentFont'
+];
+
+console.warn = (...args) => {
+    const warningText = args
+        .map((arg) => (typeof arg === 'string' ? arg : String(arg)))
+        .join(' ');
+
+    if (
+        suppressedWarningSubstrings.some((substring) =>
+            warningText.includes(substring)
+        )
+    ) {
+        return;
+    }
+
+    originalConsoleWarn(...args);
+};
+
 // Mock for HarfBuzz
 if (typeof createHarfBuzz === 'undefined') {
     global.createHarfBuzz = async () => ({});

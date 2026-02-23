@@ -18,9 +18,19 @@ function safeTimeStamp(label: string): void {
     }
 }
 
+function canMark(): boolean {
+    return typeof globalThis.performance?.mark === 'function';
+}
+
+function canMeasure(): boolean {
+    return typeof globalThis.performance?.measure === 'function';
+}
+
 export function timelineMark(stage: string): void {
     const label = toLabel(stage);
-    performance.mark(label);
+    if (canMark()) {
+        globalThis.performance.mark(label);
+    }
     safeTimeStamp(label);
 }
 
@@ -33,10 +43,12 @@ export function timelineSpanStart(
     const startMark = toLabel(`${spanId}:start`);
 
     activeSpans.set(spanId, { stage, startMark });
-    if (detail !== undefined) {
-        performance.mark(startMark, { detail });
-    } else {
-        performance.mark(startMark);
+    if (canMark()) {
+        if (detail !== undefined) {
+            globalThis.performance.mark(startMark, { detail });
+        } else {
+            globalThis.performance.mark(startMark);
+        }
     }
     safeTimeStamp(startMark);
 
@@ -50,12 +62,16 @@ export function timelineSpanEnd(spanId: string): void {
     }
 
     const endMark = toLabel(`${spanId}:end`);
-    performance.mark(endMark);
-    performance.measure(
-        toLabel(activeSpan.stage),
-        activeSpan.startMark,
-        endMark
-    );
+    if (canMark()) {
+        globalThis.performance.mark(endMark);
+    }
+    if (canMeasure()) {
+        globalThis.performance.measure(
+            toLabel(activeSpan.stage),
+            activeSpan.startMark,
+            endMark
+        );
+    }
     safeTimeStamp(endMark);
 
     activeSpans.delete(spanId);
