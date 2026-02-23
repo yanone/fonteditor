@@ -2103,7 +2103,7 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
+        // Get glyph name from glyphNameBuffer (current shaped output)
         // instead of looking up GID in font manager (which uses full font glyph order)
         const glyphName =
             this.textRunEditor.glyphNameBuffer[selectedGlyphIndex] || '';
@@ -3052,7 +3052,7 @@ export class GlyphCanvasRenderer {
                 const glyphX = xPosition + xOffset;
                 const glyphY = yOffset;
 
-                // Get glyph name from glyphNameBuffer (Stage 1 output with correct names)
+                // Get glyph name from glyphNameBuffer (current shaped output)
                 // instead of looking up GID in font manager (which uses full font glyph order)
                 const glyphName =
                     this.textRunEditor.glyphNameBuffer[glyphIndex];

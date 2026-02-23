@@ -43,7 +43,7 @@ export class SidebarErrorDisplay {
     /**
      * Show error message and hide normal sidebar content
      */
-    showError(errorInput: unknown, source?: 'typing' | 'editing') {
+    showError(errorInput: unknown, source?: 'editing') {
         // Initialize on first use
         this.initialize();
 
@@ -60,11 +60,9 @@ export class SidebarErrorDisplay {
                 errorInput
             ) || null;
         const title =
-            source === 'typing'
-                ? 'Typing Font Compilation Error'
-                : source === 'editing'
-                  ? 'Editing Font Compilation Error'
-                  : 'Compilation Error';
+            source === 'editing'
+                ? 'Editing Font Compilation Error'
+                : 'Compilation Error';
 
         const renderedFeatureParsingMessage = featureErrorDetails
             ? `<div style="

@@ -423,10 +423,9 @@ class GlyphCanvas {
                 this.captureTextModeAutoPanAnchor();
             }
 
-            // Re-run Stage 2 only (apply new feature settings to existing glyph names)
-            // Stage 1 already ran and produced glyphNameBuffer with base glyphs
-            // Layout closure ensures all substituted glyphs are already in the editing font
-            // No need to recompile the font - just re-shape with different features
+            // Re-run Stage 2 only (apply new feature settings to existing glyphs).
+            // Layout closure ensures all substituted glyphs are already in the editing font,
+            // so no compile is needed for feature toggles.
             console.log(
                 '[GlyphCanvas]',
                 'Re-running Stage 2 with updated features (no font recompilation needed)'
@@ -1257,10 +1256,7 @@ class GlyphCanvas {
                 'Editing font bytes stored, length:',
                 fontBytesArray.length
             );
-
-            // DO NOT overwrite axesManager.fontBytes or featuresManager.fontBytes here.
-            // Those are sourced from the typing font (which has GSUB features).
-            // The typing font compiled event handler sets them.
+            this.axesManager!.fontBytes = fontBytesArray;
 
             // Create HarfBuzz blob, face, and font for the editing font
             // Pass initialFontLoaded flag to only load text from font on first load
@@ -1275,25 +1271,7 @@ class GlyphCanvas {
                 // Restore previous variation settings before updating UI
                 this.axesManager!.variationSettings = previousVariationSettings;
 
-                // Only update axes UI on initial load (before typing font is available)
-                // Features/axes fontBytes and UI are set by typingFontCompiledHandler,
-                // which always has the correct data (full font with GSUB features)
-                if (!this.initialFontLoaded) {
-                    // On first load, use editing font for axes as a fallback
-                    // until the typing font arrives. Features UI is NOT updated here
-                    // because the editing font lacks GSUB features (only has GPOS/kern).
-                    this.axesManager!.fontBytes = fontBytesArray;
-                    await this.axesManager!.updateAxesUI();
-                    console.log(
-                        'Updated axes UI after initial font load (editing font fallback)'
-                    );
-                    // Note: featuresManager.fontBytes and features UI are set by
-                    // typingFontCompiledHandler to ensure GSUB features are available
-                } else {
-                    // On subsequent editing font reloads, restore axes UI
-                    // (features/axes fontBytes stay pointing to typing font)
-                    await this.axesManager!.updateAxesUI();
-                }
+                await this.axesManager!.updateAxesUI();
 
                 // Shape text with new editing font
                 // (Stage 2 will use the rebuilt name→GID map)
@@ -2286,9 +2264,7 @@ class GlyphCanvas {
     }
 
     onTextChange(): void {
-        // Run Stage 1 immediately to get glyph names for the new text
-        // (This was already triggered by setTextBuffer → shapeText,
-        //  so glyphNameBuffer is up to date)
+        // shapeText() already updated glyphNameBuffer from current editing-font shaping.
 
         // Calculate adaptive debounce delay based on typing speed
         const now = Date.now();
@@ -2311,10 +2287,7 @@ class GlyphCanvas {
         this.textChangeDebounceTimer = setTimeout(() => {
             if (fontManager && fontManager.isReady()) {
                 const subsetGlyphs = this.textRunEditor!.glyphNameBuffer || [];
-                // Only compile if we have subset info. An empty glyphNameBuffer
-                // means Stage 1 hasn't run yet or found no matching glyphs —
-                // triggering a full compile in that case would be wrong and
-                // wasteful; the subset compile will arrive via typingFontCompiledHandler.
+                // Only compile if we have subset info.
                 if (subsetGlyphs.length > 0) {
                     fontManager
                         .compileEditingFont(
@@ -3217,7 +3190,6 @@ window.addEventListener('fontReady', (event: Event) => {
 // Event handlers stored to prevent duplicate listeners
 let editingFontCompiledHandler: ((e: Event) => void) | null = null;
 let fontCompiledHandler: ((e: Event) => void) | null = null;
-let typingFontCompiledHandler: ((e: Event) => void) | null = null;
 let editingFontApplyQueue: Promise<void> = Promise.resolve();
 let latestAppliedEditingRevision: number = -1;
 
@@ -3235,96 +3207,6 @@ function setupFontLoadingListener() {
     if (fontCompiledHandler) {
         window.removeEventListener('fontCompiled', fontCompiledHandler);
     }
-    if (typingFontCompiledHandler) {
-        window.removeEventListener(
-            'typingFontCompiled',
-            typingFontCompiledHandler
-        );
-    }
-
-    // Listen for typing font compiled — set up Stage 1 shaping + features/axes UI
-    typingFontCompiledHandler = async (e: Event) => {
-        const detail = (e as CustomEvent).detail;
-        console.log(
-            '[GlyphCanvas]',
-            'Typing font compiled event received',
-            detail
-        );
-        if (window.glyphCanvas && detail && detail.fontBytes) {
-            const gc = window.glyphCanvas;
-            console.log(
-                '[GlyphCanvas]',
-                'Setting typing font on TextRunEditor, fontBytes length:',
-                detail.fontBytes.length
-            );
-
-            // Set typing font on TextRunEditor for Stage 1 shaping
-            gc.textRunEditor!.setTypingFont(detail.fontBytes);
-
-            // Source features/axes UI from the typing font (has GSUB features)
-            console.log(
-                '[GlyphCanvas]',
-                'Setting features/axes fontBytes from typing font'
-            );
-            gc.axesManager!.fontBytes = detail.fontBytes;
-            gc.featuresManager!.fontBytes = detail.fontBytes;
-
-            console.log('[GlyphCanvas]', 'Updating axes UI...');
-            await gc.axesManager!.updateAxesUI();
-            console.log('[GlyphCanvas]', 'Updating features UI...');
-            await gc.featuresManager!.updateFeaturesUI();
-            console.log(
-                '[GlyphCanvas]',
-                '✅ Features/axes UI sourced from typing font'
-            );
-
-            // Re-run Stage 1 shaping to populate glyphNameBuffer with the typing font
-            // This is necessary because the initial shapeText() may have run before
-            // the typing font was ready.
-            // Trigger editing font compile with subset regardless of whether editing
-            // font is already loaded — this covers the initial open case too.
-            if (gc.textRunEditor!.textBuffer) {
-                console.log(
-                    '[GlyphCanvas]',
-                    'Re-shaping text with typing font to populate glyphNameBuffer'
-                );
-                gc.textRunEditor!.shapeText();
-
-                // Compile editing font with subset
-                const subsetGlyphs = gc.textRunEditor!.glyphNameBuffer || [];
-                if (subsetGlyphs.length > 0 && fontManager) {
-                    console.log(
-                        '[GlyphCanvas]',
-                        'Compiling editing font with subset after typing font ready:',
-                        subsetGlyphs.length,
-                        'glyphs'
-                    );
-                    fontManager
-                        .compileEditingFont(
-                            gc.textRunEditor!.textBuffer,
-                            [],
-                            subsetGlyphs
-                        )
-                        .catch((error: any) => {
-                            console.error(
-                                'Failed to compile editing font with subset:',
-                                error
-                            );
-                        });
-                }
-            }
-        } else {
-            console.log(
-                '[GlyphCanvas]',
-                'Typing font event received but missing data:',
-                {
-                    hasGlyphCanvas: !!window.glyphCanvas,
-                    hasDetail: !!detail,
-                    hasFontBytes: detail && !!detail.fontBytes
-                }
-            );
-        }
-    };
 
     // Listen for editing font compiled by font manager (primary)
     editingFontCompiledHandler = async (e: Event) => {
@@ -3461,7 +3343,6 @@ function setupFontLoadingListener() {
         }
     };
 
-    window.addEventListener('typingFontCompiled', typingFontCompiledHandler);
     window.addEventListener('editingFontCompiled', editingFontCompiledHandler);
     window.addEventListener('fontCompiled', fontCompiledHandler);
 }

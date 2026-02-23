@@ -1,9 +1,8 @@
 // Font Manager
 // Keeps track of all open fonts, and access to font data.
 // Also maintains the opened font dropdown UI.
-// Implements two-stage font compilation architecture:
-// 1. "typing" font: Compiled once when font opens, kept in memory permanently for glyph name extraction
-// 2. "editing" font: Recompiled on demand with subset of glyphs for display in canvas
+// Implements editing-font compilation architecture:
+// "editing" font: Recompiled on demand with subset of glyphs for display in canvas
 
 import APP_SETTINGS from './settings';
 import { fontCompilation } from './font-compilation';
@@ -12,7 +11,6 @@ import type { Babelfont } from './babelfont';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation } from './locations';
 import { Font, Path } from './babelfont-model';
-import { ensureWasmInitialized } from './wasm-init';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
@@ -315,7 +313,6 @@ class FontManager {
 
     openedFonts: Map<string, OpenedFont>; // Record of fontId to OpenedFont
     currentFontId: string | null = null;
-    typingFont: Uint8Array | null;
     editingFont: Uint8Array | null;
     fullFont: Uint8Array | null;
     fullFontQcSummary: FontQCSummary | null;
@@ -339,7 +336,6 @@ class FontManager {
         this.fontNameElement = null;
         this.dirtyIndicator = null;
         this.openedFonts = new Map<string, OpenedFont>();
-        this.typingFont = null; // Uint8Array of compiled typing font
         this.editingFont = null; // Uint8Array of compiled editing font
         this.fullFont = null; // Uint8Array of compiled full font
         this.fullFontQcSummary = null;
@@ -744,7 +740,6 @@ class FontManager {
 
         const previousFontId = this.currentFontId;
         const previousOpenedFont = this.currentFont;
-        const previousTypingFont = this.typingFont;
         const previousEditingFont = this.editingFont;
         const previousGlyphOrderCache = this.glyphOrderCache;
         const previousClosureCache = this.closureCache;
@@ -777,7 +772,6 @@ class FontManager {
             this.openedFonts.set(previousFontId, reloadedFont);
             this.currentFontId = previousFontId;
 
-            this.typingFont = null;
             this.editingFont = null;
             this.glyphOrderCache = null;
             this.closureCache = null;
@@ -790,7 +784,6 @@ class FontManager {
                 this.currentText ||
                 '';
 
-            await this.compileTypingFont();
             await this.compileEditingFont(
                 textBuffer,
                 this.selectedFeatures,
@@ -819,7 +812,6 @@ class FontManager {
         } catch (error) {
             this.openedFonts.set(previousFontId, previousOpenedFont);
             this.currentFontId = previousFontId;
-            this.typingFont = previousTypingFont;
             this.editingFont = previousEditingFont;
             this.glyphOrderCache = previousGlyphOrderCache;
             this.closureCache = previousClosureCache;
@@ -831,8 +823,7 @@ class FontManager {
     }
 
     /**
-     * Initialize the font manager when a font is loaded
-     * Compiles the typing font immediately
+     * Initialize the font manager when a font is loaded.
      *
      * @param {string} babelfontJson - The .babelfont JSON string
      * @param {string} path - File path
@@ -858,7 +849,6 @@ class FontManager {
         this.openedFonts.set(newid, newFont);
         this.currentFontId = newid;
 
-        this.typingFont = null;
         this.editingFont = null;
         this.fullFont = null;
         this.fullFontQcSummary = null;
@@ -873,78 +863,21 @@ class FontManager {
         // Update window title with font file name
         const fileName = path.split('/').pop() || 'Untitled';
         document.title = fileName;
-
-        // Compile typing font immediately
-        await this.compileTypingFont();
     }
 
     /**
-     * Compile the typing font (happens once per font load)
-     * This font is used for glyph name extraction only
-     */
-    async compileTypingFont() {
-        // Ensure WASM is initialized before doing anything
-        await ensureWasmInitialized();
-
-        if (!this.currentFont) {
-            throw new Error('No font loaded');
-        }
-
-        if (!fontCompilation || !fontCompilation.isInitialized) {
-            throw new Error('Font compilation system not initialized');
-        }
-
-        const startTime = performance.now();
-        const compileTypingSpanId = timelineSpanStart('font.compileTyping');
-
-        try {
-            const result = await fontCompilation.compileFromJson(
-                this.currentFont.babelfontJson,
-                'typing-font.ttf',
-                'typing'
-            );
-
-            this.typingFont = new Uint8Array(result.result);
-            const duration = (performance.now() - startTime).toFixed(2);
-
-            console.log(
-                `✅ Typing font compiled in ${duration}ms (${this.typingFont.length} bytes)`
-            );
-
-            // Hide any error messages in sidebar
-            sidebarErrorDisplay.hideError();
-
-            // Dispatch event so canvas can set up the typing font for Stage 1 shaping
-            window.dispatchEvent(
-                new CustomEvent('typingFontCompiled', {
-                    detail: { fontBytes: this.typingFont }
-                })
-            );
-
-            // Save to file system for review
-            this.saveTypingFontToFileSystem();
-        } catch (error) {
-            console.error('❌ Failed to compile typing font:', error);
-            sidebarErrorDisplay.showError(error, 'typing');
-            throw error;
-        } finally {
-            timelineSpanEnd(compileTypingSpanId);
-        }
-    }
-
-    /**
-     * Get glyph names for the given text using the typing font
+     * Get glyph names for the given text using the editing font
      *
      * @param {string} text - Text to get glyph names for
      * @returns {Promise<Array<string>>} - Array of glyph names
      */
     async getGlyphNamesForText(text: string): Promise<string[]> {
-        if (!this.typingFont) {
-            throw new Error('Typing font not compiled yet');
+        if (!this.editingFont) {
+            throw new Error('Editing font not compiled yet');
         }
 
         // Use the shapeTextWithFont function from font-compilation.js
-        return await window.shapeTextWithFont(this.typingFont, text);
+        return await window.shapeTextWithFont(this.editingFont, text);
     }
 
     /**
@@ -990,10 +923,20 @@ class FontManager {
                 if (fallbackSubsetGlyphs.length > 0) {
                     glyphsToInclude = fallbackSubsetGlyphs;
                 } else {
-                    console.log(
-                        '[FontManager] Skipping editing font compile without subset glyphs'
-                    );
-                    return this.editingFont;
+                    const fallbackText =
+                        text ||
+                        window.glyphCanvas?.textRunEditor?.textBuffer ||
+                        this.currentText ||
+                        localStorage.getItem('glyphCanvasTextBuffer') ||
+                        'Hamburgevons';
+                    glyphsToInclude =
+                        this.deriveSubsetGlyphsFromText(fallbackText);
+                    if (!glyphsToInclude.length) {
+                        console.log(
+                            '[FontManager] Skipping editing font compile without subset glyphs'
+                        );
+                        return this.editingFont;
+                    }
                 }
             }
 
@@ -1178,6 +1121,85 @@ class FontManager {
         }
     }
 
+    private deriveSubsetGlyphsFromText(text: string): string[] {
+        const fontModel = this.currentFont?.fontModel;
+        if (!fontModel || !text) {
+            return [];
+        }
+
+        const subset: string[] = [];
+        const seen = new Set<string>();
+
+        const pushGlyph = (name?: string) => {
+            if (!name || seen.has(name)) {
+                return;
+            }
+            subset.push(name);
+            seen.add(name);
+        };
+
+        let index = 0;
+        while (index < text.length) {
+            const char = text[index];
+
+            if (
+                char === '/' &&
+                index + 1 < text.length &&
+                text[index + 1] === '/'
+            ) {
+                const slashGlyph = fontModel.findGlyphByCodepoint(
+                    '/'.codePointAt(0)!
+                );
+                pushGlyph(slashGlyph?.name);
+                index += 2;
+                continue;
+            }
+
+            if (char === '/') {
+                let cursor = index + 1;
+                while (
+                    cursor < text.length &&
+                    text[cursor] !== '/' &&
+                    !/\s/.test(text[cursor])
+                ) {
+                    cursor++;
+                }
+
+                const tokenName = text.slice(index + 1, cursor);
+                const terminator = cursor < text.length ? text[cursor] : '';
+                const validTerminator =
+                    terminator === '/' ||
+                    terminator === '' ||
+                    /\s/.test(terminator);
+
+                if (tokenName && validTerminator) {
+                    const tokenGlyph = fontModel.findGlyph(tokenName);
+                    if (tokenGlyph?.name) {
+                        pushGlyph(tokenGlyph.name);
+                        index = cursor;
+                        if (terminator === '/') {
+                            index += 1;
+                        } else if (terminator && /\s/.test(terminator)) {
+                            index += 1;
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            const codepoint = text.codePointAt(index);
+            if (codepoint !== undefined) {
+                const glyph = fontModel.findGlyphByCodepoint(codepoint);
+                pushGlyph(glyph?.name);
+                index += codepoint > 0xffff ? 2 : 1;
+            } else {
+                index += 1;
+            }
+        }
+
+        return subset;
+    }
+
     /**
      * Recompile editing font after font data changes
      * Implements continuous fresh-start compilation: if data changes during
@@ -1191,7 +1213,7 @@ class FontManager {
         // Capture change version at start of compilation
         const startVersion = this.currentFont.changeVersion;
 
-        // Get subset glyph names from the glyph canvas text run editor (Stage 1 output)
+        // Get subset glyph names from current shaped text output.
         const subsetGlyphs = window.glyphCanvas?.textRunEditor?.glyphNameBuffer;
 
         // Compile with current data
@@ -1221,36 +1243,8 @@ class FontManager {
      * Save compiled fonts to file system for review
      */
     saveFontsToFileSystem() {
-        this.saveTypingFontToFileSystem();
         this.saveEditingFontToFileSystem();
         this.saveFullFontToFileSystem();
-    }
-
-    /**
-     * Save typing font to file system
-     */
-    saveTypingFontToFileSystem() {
-        if (!APP_SETTINGS.FONT_MANAGER?.SAVE_DEBUG_FONTS) {
-            return; // Feature disabled in settings
-        }
-
-        if (!this.typingFont) {
-            return;
-        }
-
-        window.uploadFiles(
-            [
-                new File(
-                    [this.typingFont as Uint8Array<ArrayBuffer>],
-                    '_debug_typing_font.ttf',
-                    { type: 'font/ttf' }
-                )
-            ],
-            {
-                directory: '/user',
-                pluginId: 'memory'
-            }
-        );
     }
 
     /**
@@ -1357,13 +1351,6 @@ class FontManager {
     }
 
     /**
-     * Get the current typing font bytes
-     */
-    getTypingFont() {
-        return this.typingFont;
-    }
-
-    /**
      * Get the glyph order (array of glyph names) from the source font
      */
     getGlyphOrder() {
@@ -1372,20 +1359,29 @@ class FontManager {
             return this.glyphOrderCache;
         }
 
-        // Extract from compiled typing font using WASM
-        if (this.typingFont) {
+        // Extract from compiled editing font using WASM
+        if (this.editingFont) {
             try {
-                const glyphOrder = get_glyph_order(this.typingFont);
+                const glyphOrder = get_glyph_order(this.editingFont);
                 // Cache the result
                 this.glyphOrderCache = glyphOrder;
                 return glyphOrder;
             } catch (error) {
                 console.error(
                     '[FontManager]',
-                    'Failed to extract glyph order from typing font:',
+                    'Failed to extract glyph order from editing font:',
                     error
                 );
             }
+        }
+
+        const modelGlyphOrder =
+            this.currentFont?.fontModel?.glyphs
+                ?.map((glyph) => glyph?.name)
+                .filter((name): name is string => !!name) || [];
+        if (modelGlyphOrder.length > 0) {
+            this.glyphOrderCache = modelGlyphOrder;
+            return modelGlyphOrder;
         }
 
         return [];
@@ -1406,7 +1402,7 @@ class FontManager {
      * Check if fonts are ready
      */
     isReady() {
-        return this.typingFont !== null && this.editingFont !== null;
+        return this.editingFont !== null;
     }
 
     private getGlyph(glyphName: string): Babelfont.Glyph | null {
@@ -2105,9 +2101,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
         emitOpenLifecycle(openSessionId, 'onOpenedComplete');
 
-        // Initial editing font compile (with subset) is triggered by
-        // typingFontCompiledHandler. Listen for the first editingFontCompiled
-        // event instead of awaiting an explicit full compile here.
+        // Trigger initial editing compile and capture the first result.
         emitOpenLifecycle(openSessionId, 'editingCompileStart');
         window.addEventListener(
             'editingFontCompiled',
@@ -2129,6 +2123,14 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             },
             { once: true }
         );
+
+        fontManager!.compileEditingFont().catch((error) => {
+            console.error(
+                '[FontManager]',
+                'Initial editing compile failed:',
+                error
+            );
+        });
 
         fullCompileDeferredTimer = window.setTimeout(() => {
             emitOpenLifecycle(openSessionId, 'startup-ready-timeout-waiting', {

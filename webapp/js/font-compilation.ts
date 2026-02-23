@@ -68,17 +68,6 @@ const COMPILATION_TARGETS: Record<string, CompilationOptions> = {
     //     dont_use_production_names: true
     // },
 
-    // No outlines, kerning, or metrics - used to retrieve glyph names from input strings
-    typing: {
-        skip_kerning: true,
-        skip_features: false,
-        skip_metrics: true,
-        skip_outlines: true,
-        dont_use_production_names: true,
-        drop_incompatible_paths: false,
-        produce_varc_table: false
-    },
-
     // Subset font for canvas display with layout closure.
     // GSUB features included (via layout closure), GPOS retained for mark positioning.
     editing: {
@@ -622,7 +611,7 @@ class FontCompilation {
      *
      * @param {string} babelfontJson - Complete .babelfont JSON string
      * @param {string} filename - Optional filename for output (default: 'font.ttf')
-     * @param {string|object} target - Compilation target name ('user', 'glyph_overview', 'typing', 'editing') or custom options object
+     * @param {string|object} target - Compilation target name ('user', 'glyph_overview', 'editing') or custom options object
      * @param {Array<string>} subsetGlyphs - Optional array of glyph names to include (for 'editing' target)
      * @returns {Promise<Object>} - { result: Uint8Array, filename: string, timeTaken: number }
      */

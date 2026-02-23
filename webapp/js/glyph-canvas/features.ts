@@ -1,8 +1,4 @@
-import {
-    get_font_features,
-    get_font_features_with_tables,
-    get_stylistic_set_names
-} from '../../wasm-dist/babelfont_fontc_web';
+import { get_font_features_with_tables } from '../../wasm-dist/babelfont_fontc_web';
 import { getOpentypeFeatureInfo } from '../opentype-features';
 import { ensureWasmInitialized } from '../wasm-init';
 import { Logger } from '../logger';
@@ -13,7 +9,6 @@ export class FeaturesManager {
     featureSettings: Record<string, boolean>;
     defaultFeatureSettings: Record<string, boolean>;
     featureAvailabilityInEditingSubset: Record<string, boolean>;
-    fontBytes: Uint8Array | null;
     editingFontBytes: Uint8Array | null;
     featuresSection: HTMLElement | null;
     featureResetButton: HTMLButtonElement | null;
@@ -23,7 +18,6 @@ export class FeaturesManager {
         this.featureSettings = {}; // Store OpenType feature on/off states
         this.defaultFeatureSettings = {}; // Store default states for reset
         this.featureAvailabilityInEditingSubset = {}; // Store if feature is available in current editing subset
-        this.fontBytes = null; // Typing font bytes (full features)
         this.editingFontBytes = null; // Editing font bytes (subset with closure)
         this.featuresSection = null;
         this.featureResetButton = null;
@@ -104,62 +98,51 @@ export class FeaturesManager {
     }
 
     async getDiscretionaryFeatures() {
-        // Get discretionary features from both typing and editing fonts
-        if (!this.fontBytes) {
-            console.log('[Features]', 'No fontBytes available');
+        const fontModel = window.currentFontModel;
+        if (!fontModel?.features?.features) {
+            console.log('[Features]', 'No feature model available');
             return [];
         }
 
         try {
-            console.log(
-                '[Features]',
-                'Getting features from typing font, fontBytes length:',
-                this.fontBytes.length
-            );
-            // Ensure WASM is initialized
-            await ensureWasmInitialized();
+            const seenSourceTags = new Set<string>();
+            const sourceFeatureTags = fontModel.features.features
+                .map(([tag]) => tag)
+                .filter((tag): tag is string => {
+                    if (!tag || seenSourceTags.has(tag)) {
+                        return false;
+                    }
+                    seenSourceTags.add(tag);
+                    return true;
+                });
 
-            // Get all features from typing font using WASM
-            const featuresJson = get_font_features(this.fontBytes);
-            console.log('[Features]', 'Typing font features:', featuresJson);
-            const typingFontFeatures: Set<string> = new Set(
-                JSON.parse(featuresJson)
-            );
+            const featureInfo = getOpentypeFeatureInfo();
+            const defaultOnFeatures = new Set(featureInfo.default_on);
+            const defaultOffFeatures = new Set(featureInfo.default_off);
+            const descriptions = featureInfo.descriptions;
 
-            // Get table locations for all features from typing font (GSUB/GPOS)
-            const typingFeaturesWithTablesJson = get_font_features_with_tables(
-                this.fontBytes
-            );
-            const typingFeaturesWithTables: Record<string, string[]> =
-                JSON.parse(typingFeaturesWithTablesJson);
-            console.log(
-                '[Features]',
-                'Typing font features with tables:',
-                typingFeaturesWithTables
+            const allDiscretionary = new Set([
+                ...defaultOnFeatures,
+                ...defaultOffFeatures
+            ]);
+
+            const allFeatures = sourceFeatureTags.filter((tag) =>
+                allDiscretionary.has(tag)
             );
 
-            // Get features from editing font (subset with closure)
+            // Get table locations / availability from current editing font subset.
             let editingFontFeatures: Set<string> = new Set();
             let editingFeaturesWithTables: Record<string, string[]> = {};
             if (this.editingFontBytes) {
                 try {
-                    const editingFeaturesJson = get_font_features(
-                        this.editingFontBytes
-                    );
-                    editingFontFeatures = new Set(
-                        JSON.parse(editingFeaturesJson)
-                    );
-                    console.log(
-                        '[Features]',
-                        'Editing font features:',
-                        Array.from(editingFontFeatures)
-                    );
-
-                    // Get table locations from editing font
+                    await ensureWasmInitialized();
                     const editingFeaturesWithTablesJson =
                         get_font_features_with_tables(this.editingFontBytes);
                     editingFeaturesWithTables = JSON.parse(
                         editingFeaturesWithTablesJson
+                    );
+                    editingFontFeatures = new Set(
+                        Object.keys(editingFeaturesWithTables)
                     );
                     console.log(
                         '[Features]',
@@ -175,71 +158,34 @@ export class FeaturesManager {
                 }
             }
 
-            // Union of features from both fonts
-            const allFeatures = new Set([
-                ...typingFontFeatures,
-                ...editingFontFeatures
-            ]);
-
-            // Use table information only from editing font
-            // (GSUB/GPOS indicators should reflect what's in the editing font)
-            const featuresWithTables: Record<string, Set<string>> = {};
-
-            // Only use editing font tables for indicators
-            for (const [tag, tables] of Object.entries(
-                editingFeaturesWithTables
-            )) {
-                featuresWithTables[tag] = new Set(tables);
-            }
-
-            console.log(
-                '[Features]',
-                'Union of features with tables:',
-                featuresWithTables
-            );
-            console.log(
-                '[Features]',
-                'Union of all features:',
-                Array.from(allFeatures)
-            );
-
-            // Get stylistic set names from typing font
-            const ssNamesJson = get_stylistic_set_names(this.fontBytes);
-            console.log('[Features]', 'Stylistic set names JSON:', ssNamesJson);
-            const ssNames: Record<string, string> = JSON.parse(ssNamesJson);
-
-            // Get feature info from JavaScript module
-            const featureInfo = getOpentypeFeatureInfo();
-
-            const defaultOnFeatures = new Set(featureInfo.default_on);
-            const defaultOffFeatures = new Set(featureInfo.default_off);
-            const allDiscretionary = new Set([
-                ...defaultOnFeatures,
-                ...defaultOffFeatures
-            ]);
-            const descriptions = featureInfo.descriptions;
-
-            // Filter union to only discretionary features
-            const discretionaryInFont: string[] = Array.from(
-                allFeatures
-            ).filter((tag: string) => allDiscretionary.has(tag));
-
             // Build feature list with metadata and availability
-            const featureList = discretionaryInFont.map((tag: string) => {
-                // Use stylistic set name if available, otherwise fall back to description
-                const hasCustomName = !!ssNames[tag];
-                const description = ssNames[tag] || descriptions[tag] || tag;
-                const availableInEditingFont = editingFontFeatures.has(tag);
+            const featureList = allFeatures.map((tag: string) => {
+                const description = descriptions[tag] || tag;
+                const availableInEditingFont =
+                    editingFontFeatures.size > 0
+                        ? editingFontFeatures.has(tag)
+                        : true;
+
+                const inferredTables = fontModel.analyzeFeatureTables(tag);
+                const defaultTables: string[] = [];
+                if (inferredTables.hasGSUB) {
+                    defaultTables.push('GSUB');
+                }
+                if (inferredTables.hasGPOS) {
+                    defaultTables.push('GPOS');
+                }
+
+                const tables =
+                    editingFeaturesWithTables[tag] ||
+                    (availableInEditingFont ? defaultTables : []);
 
                 return {
                     tag: tag,
                     defaultOn: defaultOnFeatures.has(tag),
                     description: description,
-                    hasCustomName: hasCustomName,
+                    hasCustomName: false,
                     availableInEditingFont: availableInEditingFont,
-                    tables: featuresWithTables[tag]
-                        ? Array.from(featuresWithTables[tag])
-                        : []
+                    tables
                 };
             });
 

@@ -2614,8 +2614,7 @@ class FontInfoManager {
                 }
 
                 window.fontManager
-                    .compileTypingFont()
-                    .then(() => window.fontManager.recompileEditingFont())
+                    .recompileEditingFont()
                     .catch((error: any) => {
                         console.error(
                             'Failed to compile font after feature code change:',
