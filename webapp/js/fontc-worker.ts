@@ -262,7 +262,13 @@ function normalizeWorkerError(error: unknown): {
 }
 
 function toTransferableBuffer(bytes: Uint8Array): ArrayBuffer {
-    // Ensure we return a true ArrayBuffer (not ArrayBufferLike/SharedArrayBuffer)
+    if (
+        bytes.buffer instanceof ArrayBuffer &&
+        bytes.byteOffset === 0 &&
+        bytes.byteLength === bytes.buffer.byteLength
+    ) {
+        return bytes.buffer;
+    }
     return bytes.slice().buffer;
 }
 
@@ -889,8 +895,13 @@ self.onmessage = async (event) => {
                 const compileCachedSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.compileCachedFont'
                 );
+                const dirtyGlyphNames =
+                    typeof dirtyGlyphName === 'string' && dirtyGlyphName.length
+                        ? [dirtyGlyphName]
+                        : [];
                 const optionsWithDirtyGlyphs = {
-                    ...(options || {})
+                    ...(options || {}),
+                    dirty_glyphs: dirtyGlyphNames
                 };
                 const compiledBytes =
                     compile_cached_font_from_last_layout_closure(

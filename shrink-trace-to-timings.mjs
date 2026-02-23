@@ -287,19 +287,20 @@ function buildTraceGroups(events, startTs) {
                 .map(([traceId, entry]) => ({
                     traceId,
                     eventCount: entry.eventCount,
-                    firstTsUs:
-                        Number.isFinite(entry.firstTs) ? entry.firstTs : null,
-                    lastTsUs:
-                        Number.isFinite(entry.lastTs) ? entry.lastTs : null,
+                    firstTsUs: Number.isFinite(entry.firstTs)
+                        ? entry.firstTs
+                        : null,
+                    lastTsUs: Number.isFinite(entry.lastTs)
+                        ? entry.lastTs
+                        : null,
                     durationMs:
                         Number.isFinite(entry.firstTs) &&
                         Number.isFinite(entry.lastTs)
                             ? round((entry.lastTs - entry.firstTs) / 1000, 3)
                             : null,
-                    firstMsFromStart:
-                        Number.isFinite(entry.firstTs)
-                            ? round((entry.firstTs - startTs) / 1000, 3)
-                            : null,
+                    firstMsFromStart: Number.isFinite(entry.firstTs)
+                        ? round((entry.firstTs - startTs) / 1000, 3)
+                        : null,
                     topNames: topEntries(entry.names, 8, (name, count) => ({
                         name,
                         count,
@@ -453,6 +454,49 @@ function percentile(values, ratio) {
     return sorted[index];
 }
 
+function computePearsonCorrelation(valuesA, valuesB) {
+    if (
+        !Array.isArray(valuesA) ||
+        !Array.isArray(valuesB) ||
+        valuesA.length !== valuesB.length ||
+        valuesA.length < 2
+    ) {
+        return null;
+    }
+
+    const meanA = valuesA.reduce((sum, value) => sum + value, 0) / valuesA.length;
+    const meanB = valuesB.reduce((sum, value) => sum + value, 0) / valuesB.length;
+    const deviationsA = valuesA.map((value) => value - meanA);
+    const deviationsB = valuesB.map((value) => value - meanB);
+    const numerator = deviationsA.reduce(
+        (sum, deviationA, index) => sum + deviationA * deviationsB[index],
+        0,
+    );
+    const denominator = Math.sqrt(
+        deviationsA.reduce((sum, value) => sum + value * value, 0) *
+            deviationsB.reduce((sum, value) => sum + value * value, 0),
+    );
+
+    if (!Number.isFinite(denominator) || denominator === 0) {
+        return null;
+    }
+
+    return numerator / denominator;
+}
+
+function summarizeNumericValues(values) {
+    if (!values.length) {
+        return null;
+    }
+
+    return {
+        count: values.length,
+        avg: round(values.reduce((sum, value) => sum + value, 0) / values.length, 3),
+        min: round(Math.min(...values), 3),
+        max: round(Math.max(...values), 3),
+    };
+}
+
 function canonicalTimingName(rawName) {
     let normalized = String(rawName || "").trim();
     normalized = normalized.split("|")[0];
@@ -550,7 +594,8 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
         /^cp:wasm:compile_cached_font_from_last_layout_closure\.([^#]+)#(\d+):(start|end)$/;
     const wasmClosurePhaseEvents = events
         .map((event) => {
-            const match = String(event.name || "").match(wasmClosurePhasePattern);
+            const { baseName } = parseMarkerNameContext(event.name);
+            const match = String(baseName || "").match(wasmClosurePhasePattern);
             if (!match) {
                 return null;
             }
@@ -595,7 +640,7 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
         }
     }
 
-    const wasmClosureRuns = rawWasmClosureRuns
+    let wasmClosureRuns = rawWasmClosureRuns
         .map((run, index) => {
             if (!run.startUs || !run.endUs) {
                 return null;
@@ -657,6 +702,7 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
             const patchDirtyGlyphsPhase = buildPhase("patch_dirty_glyphs");
             const fetchLastClosurePhase = buildPhase("fetch_last_closure");
             const fetchClosureSubsetPhase = buildPhase("fetch_closure_subset");
+            const postIrCompilePhase = buildPhase("post_ir_compile");
 
             const preIrCompileMs = round(
                 (irCompile.startUs - run.startUs) / 1000,
@@ -676,6 +722,7 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
                 patchDirtyGlyphs: patchDirtyGlyphsPhase,
                 fetchLastClosure: fetchLastClosurePhase,
                 fetchClosureSubset: fetchClosureSubsetPhase,
+                postIrCompile: postIrCompilePhase,
                 preIrCompileMs,
                 postIrCompileTailMs,
                 irCompileShareOfTotalPct: round(
@@ -687,38 +734,263 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
         .filter(Boolean)
         .sort((a, b) => a.runIndex - b.runIndex);
 
-    const wasmTailValues = wasmClosureRuns.map((run) => run.postIrCompileTailMs);
-    const wasmPreValues = wasmClosureRuns.map((run) => run.preIrCompileMs);
-    const wasmIrValues = wasmClosureRuns.map((run) => run.irCompile.durationMs);
+    let wasmClosurePhaseSource = "hash-markers";
+    if (wasmClosureRuns.length === 0) {
+        const totalMeasureName =
+            "wasm:compile_cached_font_from_last_layout_closure.total";
+        const totalMeasureEvents = events
+            .filter((event) => {
+                if (typeof event.ts !== "number") {
+                    return false;
+                }
+
+                if (typeof event.dur !== "number" || event.dur <= 0) {
+                    return false;
+                }
+
+                return (
+                    canonicalTimingName(String(event.name || "")) ===
+                    totalMeasureName
+                );
+            })
+            .sort((a, b) => a.ts - b.ts);
+
+        if (totalMeasureEvents.length > 0) {
+            wasmClosurePhaseSource = "measure-total-only";
+            wasmClosureRuns = totalMeasureEvents.map((event, index) => {
+                const endUs = event.ts + event.dur;
+                return {
+                    runIndex: index + 1,
+                    total: {
+                        phaseId: null,
+                        startUs: event.ts,
+                        endUs,
+                        durationMs: round(event.dur / 1000, 3),
+                        startMsFromStart: toMsFromStart(event.ts, startTs),
+                        endMsFromStart: toMsFromStart(endUs, startTs),
+                    },
+                    irCompile: null,
+                    cacheRead: null,
+                    preparedSubsetLookup: null,
+                    patchDirtyGlyphs: null,
+                    fetchLastClosure: null,
+                    fetchClosureSubset: null,
+                    postIrCompile: null,
+                    preIrCompileMs: null,
+                    postIrCompileTailMs: null,
+                    irCompileShareOfTotalPct: null,
+                };
+            });
+        } else {
+            wasmClosurePhaseSource = "none";
+        }
+    }
+
+    const runsWithTail = wasmClosureRuns.filter(
+        (run) => typeof run.postIrCompileTailMs === "number",
+    );
+    const runsWithIr = wasmClosureRuns.filter(
+        (run) => run.irCompile && typeof run.irCompile.durationMs === "number",
+    );
+    const runsWithPre = wasmClosureRuns.filter(
+        (run) => typeof run.preIrCompileMs === "number",
+    );
+
+    const wasmTailValues = runsWithTail.map((run) => run.postIrCompileTailMs);
+    const wasmPreValues = runsWithPre.map((run) => run.preIrCompileMs);
+    const wasmIrValues = runsWithIr.map((run) => run.irCompile.durationMs);
     const wasmTotalValues = wasmClosureRuns.map((run) => run.total.durationMs);
 
     const wasmClosureTailSummary = wasmClosureRuns.length
         ? {
               runCount: wasmClosureRuns.length,
-              avgTailMs: round(
-                  wasmTailValues.reduce((sum, value) => sum + value, 0) /
-                      wasmTailValues.length,
-                  3,
-              ),
-              p50TailMs: percentile(wasmTailValues, 0.5),
-              p90TailMs: percentile(wasmTailValues, 0.9),
-              minTailMs: Math.min(...wasmTailValues),
-              maxTailMs: Math.max(...wasmTailValues),
-              avgPreIrCompileMs: round(
-                  wasmPreValues.reduce((sum, value) => sum + value, 0) /
-                      wasmPreValues.length,
-                  3,
-              ),
-              avgIrCompileMs: round(
-                  wasmIrValues.reduce((sum, value) => sum + value, 0) /
-                      wasmIrValues.length,
-                  3,
-              ),
+              phaseSource: wasmClosurePhaseSource,
+              hasSubphaseBreakdown: wasmTailValues.length > 0,
+              avgTailMs:
+                  wasmTailValues.length > 0
+                      ? round(
+                            wasmTailValues.reduce(
+                                (sum, value) => sum + value,
+                                0,
+                            ) / wasmTailValues.length,
+                            3,
+                        )
+                      : null,
+              p50TailMs:
+                  wasmTailValues.length > 0
+                      ? percentile(wasmTailValues, 0.5)
+                      : null,
+              p90TailMs:
+                  wasmTailValues.length > 0
+                      ? percentile(wasmTailValues, 0.9)
+                      : null,
+              minTailMs:
+                  wasmTailValues.length > 0
+                      ? Math.min(...wasmTailValues)
+                      : null,
+              maxTailMs:
+                  wasmTailValues.length > 0
+                      ? Math.max(...wasmTailValues)
+                      : null,
+              avgPreIrCompileMs:
+                  wasmPreValues.length > 0
+                      ? round(
+                            wasmPreValues.reduce(
+                                (sum, value) => sum + value,
+                                0,
+                            ) / wasmPreValues.length,
+                            3,
+                        )
+                      : null,
+              avgIrCompileMs:
+                  wasmIrValues.length > 0
+                      ? round(
+                            wasmIrValues.reduce(
+                                (sum, value) => sum + value,
+                                0,
+                            ) / wasmIrValues.length,
+                            3,
+                        )
+                      : null,
               avgTotalMs: round(
                   wasmTotalValues.reduce((sum, value) => sum + value, 0) /
                       wasmTotalValues.length,
                   3,
               ),
+              notes:
+                  wasmClosurePhaseSource === "measure-total-only"
+                      ? "Trace contains only total measure events for compile_cached_font_from_last_layout_closure; subphase breakdown (ir_compile/post_ir_compile) is unavailable in this capture."
+                      : null,
+          }
+        : null;
+
+    const numericRunValue = (run, key) =>
+        typeof run[key] === "number" ? run[key] : null;
+    const numericPhaseDuration = (run, key) => {
+        if (!run[key] || typeof run[key] !== "object") {
+            return null;
+        }
+
+        const duration = run[key].durationMs;
+        return typeof duration === "number" ? duration : null;
+    };
+    const collectRunValues = (key) =>
+        wasmClosureRuns
+            .map((run) => numericRunValue(run, key))
+            .filter((value) => value !== null);
+    const collectPhaseDurations = (key) =>
+        wasmClosureRuns
+            .map((run) => numericPhaseDuration(run, key))
+            .filter((value) => value !== null);
+
+    const pairwiseValues = {
+        tailVsPostIr: [],
+        tailVsCacheRead: [],
+        tailVsPreparedSubsetLookup: [],
+    };
+
+    for (const run of wasmClosureRuns) {
+        const tail = numericRunValue(run, "postIrCompileTailMs");
+        const postIr = numericPhaseDuration(run, "postIrCompile");
+        const cacheRead = numericPhaseDuration(run, "cacheRead");
+        const preparedSubsetLookup = numericPhaseDuration(
+            run,
+            "preparedSubsetLookup",
+        );
+
+        if (tail !== null && postIr !== null) {
+            pairwiseValues.tailVsPostIr.push([tail, postIr]);
+        }
+        if (tail !== null && cacheRead !== null) {
+            pairwiseValues.tailVsCacheRead.push([tail, cacheRead]);
+        }
+        if (tail !== null && preparedSubsetLookup !== null) {
+            pairwiseValues.tailVsPreparedSubsetLookup.push([
+                tail,
+                preparedSubsetLookup,
+            ]);
+        }
+    }
+
+    const tailVsPostIrDiffs = pairwiseValues.tailVsPostIr.map(
+        ([tail, postIr]) => Math.abs(tail - postIr),
+    );
+    const extractLeft = (pairs) => pairs.map(([left]) => left);
+    const extractRight = (pairs) => pairs.map(([, right]) => right);
+
+    const wasmClosurePhaseAnalysis = wasmClosureRuns.length
+        ? {
+              runCount: wasmClosureRuns.length,
+              scalarStats: {
+                  preIrCompileMs: summarizeNumericValues(
+                      collectRunValues("preIrCompileMs"),
+                  ),
+                  postIrCompileTailMs: summarizeNumericValues(
+                      collectRunValues("postIrCompileTailMs"),
+                  ),
+              },
+              phaseDurationStats: {
+                  total: summarizeNumericValues(collectPhaseDurations("total")),
+                  irCompile: summarizeNumericValues(
+                      collectPhaseDurations("irCompile"),
+                  ),
+                  postIrCompile: summarizeNumericValues(
+                      collectPhaseDurations("postIrCompile"),
+                  ),
+                  cacheRead: summarizeNumericValues(
+                      collectPhaseDurations("cacheRead"),
+                  ),
+                  preparedSubsetLookup: summarizeNumericValues(
+                      collectPhaseDurations("preparedSubsetLookup"),
+                  ),
+                  patchDirtyGlyphs: summarizeNumericValues(
+                      collectPhaseDurations("patchDirtyGlyphs"),
+                  ),
+              },
+              consistency: {
+                  tailVsPostIr: {
+                      pairCount: pairwiseValues.tailVsPostIr.length,
+                      avgAbsDiffMs: tailVsPostIrDiffs.length
+                          ? round(
+                                tailVsPostIrDiffs.reduce(
+                                    (sum, value) => sum + value,
+                                    0,
+                                ) / tailVsPostIrDiffs.length,
+                                3,
+                            )
+                          : null,
+                      maxAbsDiffMs: tailVsPostIrDiffs.length
+                          ? round(Math.max(...tailVsPostIrDiffs), 3)
+                          : null,
+                  },
+              },
+              correlations: {
+                  tailVsCacheRead: {
+                      pairCount: pairwiseValues.tailVsCacheRead.length,
+                      pearson: (() => {
+                          const value = computePearsonCorrelation(
+                              extractLeft(pairwiseValues.tailVsCacheRead),
+                              extractRight(pairwiseValues.tailVsCacheRead),
+                          );
+                          return value === null ? null : round(value, 3);
+                      })(),
+                  },
+                  tailVsPreparedSubsetLookup: {
+                      pairCount:
+                          pairwiseValues.tailVsPreparedSubsetLookup.length,
+                      pearson: (() => {
+                          const value = computePearsonCorrelation(
+                              extractLeft(
+                                  pairwiseValues.tailVsPreparedSubsetLookup,
+                              ),
+                              extractRight(
+                                  pairwiseValues.tailVsPreparedSubsetLookup,
+                              ),
+                          );
+                          return value === null ? null : round(value, 3);
+                      })(),
+                  },
+              },
           }
         : null;
 
@@ -919,6 +1191,7 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
             tMsFromStart: toMsFromStart(event.ts, startTs),
         })),
         wasmClosureTailSummary,
+        wasmClosurePhaseAnalysis,
         wasmClosureRuns,
         compileToCanvasChains,
         handoffWindows,

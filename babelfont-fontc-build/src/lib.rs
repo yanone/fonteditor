@@ -207,41 +207,56 @@ fn get_string_array_option(options: &JsValue, key: &str) -> Vec<String> {
         .collect()
 }
 
-fn patch_subset_glyphs_from_base_font(
+fn patch_subset_glyphs_from_cached_font(
     subset_font: &mut babelfont::Font,
-    base_font: &babelfont::Font,
     dirty_glyph_names: &[String],
-) -> usize {
+) -> Result<usize, JsValue> {
     if dirty_glyph_names.is_empty() {
-        return 0;
+        return Ok(0);
     }
 
-    let dirty_set: HashSet<String> = dirty_glyph_names.iter().cloned().collect();
-    let base_glyph_by_name: HashMap<String, babelfont::Glyph> = base_font
+    let dirty_set: HashSet<&str> = dirty_glyph_names.iter().map(String::as_str).collect();
+    let cache = FONT_CACHE.lock().unwrap();
+    let base_font = cache
+        .as_ref()
+        .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
+
+    let mut base_glyph_by_name: HashMap<String, babelfont::Glyph> = base_font
         .glyphs
         .iter()
-        .map(|glyph| (glyph.name.to_string(), glyph.clone()))
+        .filter_map(|glyph| {
+            let glyph_name = glyph.name.as_str();
+            if dirty_set.contains(glyph_name) {
+                Some((glyph_name.to_string(), glyph.clone()))
+            } else {
+                None
+            }
+        })
         .collect();
 
     let mut patched_count = 0;
     for subset_glyph in subset_font.glyphs.iter_mut() {
-        let subset_glyph_name = subset_glyph.name.to_string();
-        if !dirty_set.contains(&subset_glyph_name) {
+        let subset_glyph_name = subset_glyph.name.as_str();
+        if !dirty_set.contains(subset_glyph_name) {
             continue;
         }
 
-        if let Some(latest_glyph) = base_glyph_by_name.get(&subset_glyph_name) {
-            *subset_glyph = latest_glyph.clone();
+        if let Some(latest_glyph) = base_glyph_by_name.remove(subset_glyph_name) {
+            *subset_glyph = latest_glyph;
             patched_count += 1;
         }
     }
 
-    patched_count
+    Ok(patched_count)
 }
 
 fn canonical_subset_key(mut glyph_names: Vec<String>) -> String {
     glyph_names.sort();
     glyph_names.dedup();
+    glyph_names.join("\u{1F}")
+}
+
+fn canonical_subset_key_from_sorted_unique(glyph_names: &[String]) -> String {
     glyph_names.join("\u{1F}")
 }
 
@@ -790,18 +805,9 @@ pub fn compile_cached_font_from_last_layout_closure(
         .ok_or_else(|| JsValue::from_str("Primed layout closure key not found in cache."))?;
     drop(_subset_fetch_span);
 
-    let prepared_subset_key = canonical_subset_key(closure_subset.clone());
+    let prepared_subset_key = canonical_subset_key_from_sorted_unique(&closure_subset);
 
-    let _cache_read_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.cache_read");
-    let base_font = {
-        let cache = FONT_CACHE.lock().unwrap();
-        cache
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?
-    };
     let font_cache_epoch = FONT_CACHE_EPOCH.load(Ordering::Relaxed);
-    drop(_cache_read_span);
 
     let dirty_glyph_names = get_string_array_option(options, "dirty_glyphs");
 
@@ -822,6 +828,18 @@ pub fn compile_cached_font_from_last_layout_closure(
 
     let font_clone = if let Some((prepared_epoch, mut prepared_font)) = prepared_hit {
         if prepared_epoch != font_cache_epoch && dirty_glyph_names.is_empty() {
+            let _cache_read_span = PerfSpan::start(
+                "compile_cached_font_from_last_layout_closure.cache_read",
+            );
+            let base_font = {
+                let cache = FONT_CACHE.lock().unwrap();
+                cache
+                    .as_ref()
+                    .cloned()
+                    .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?
+            };
+            drop(_cache_read_span);
+
             let _clone_span =
                 PerfSpan::start("compile_cached_font_from_last_layout_closure.clone_cached_font");
             let mut subset_font = base_font;
@@ -849,11 +867,10 @@ pub fn compile_cached_font_from_last_layout_closure(
             let _patch_span = PerfSpan::start(
                 "compile_cached_font_from_last_layout_closure.patch_dirty_glyphs",
             );
-            let patched_count = patch_subset_glyphs_from_base_font(
+            let patched_count = patch_subset_glyphs_from_cached_font(
                 &mut prepared_font,
-                &base_font,
                 &dirty_glyph_names,
-            );
+            )?;
 
             if patched_count > 0 || prepared_epoch != font_cache_epoch {
                 perf_mark(&format!(
@@ -879,6 +896,18 @@ pub fn compile_cached_font_from_last_layout_closure(
             prepared_font
         }
     } else {
+        let _cache_read_span = PerfSpan::start(
+            "compile_cached_font_from_last_layout_closure.cache_read",
+        );
+        let base_font = {
+            let cache = FONT_CACHE.lock().unwrap();
+            cache
+                .as_ref()
+                .cloned()
+                .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?
+        };
+        drop(_cache_read_span);
+
         let _clone_span =
             PerfSpan::start("compile_cached_font_from_last_layout_closure.clone_cached_font");
         let mut subset_font = base_font;
@@ -921,6 +950,9 @@ pub fn compile_cached_font_from_last_layout_closure(
     let compiled_font = BabelfontIrSource::compile(font_clone, compilation_options)
         .map_err(|e| JsValue::from_str(&format!("Compilation failed: {:?}", e)))?;
     drop(_ir_compile_span);
+
+    let _post_ir_compile_span =
+        PerfSpan::start("compile_cached_font_from_last_layout_closure.post_ir_compile");
 
     Ok(compiled_font)
 }
