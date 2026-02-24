@@ -786,7 +786,12 @@ self.onmessage = async (event) => {
                     dirtyLayerData
                 } = data;
 
-                if (!babelfontJson || typeof babelfontJson !== 'string') {
+                const isIncrementalSentinel =
+                    babelfontJson === '__incremental_layer__';
+                if (
+                    !isIncrementalSentinel &&
+                    (!babelfontJson || typeof babelfontJson !== 'string')
+                ) {
                     throw new Error('Missing babelfontJson');
                 }
 
@@ -800,15 +805,20 @@ self.onmessage = async (event) => {
                 const ensureFontCachedSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.ensureFontCached'
                 );
-                const needsStore =
-                    cachedFontRevisionKey !== revisionKey ||
-                    cachedBabelfontJson !== babelfontJson;
                 const isDragActive = !!dragActive;
                 const isDragMode =
                     isDragActive ||
                     String(compileSource || '') === 'mouse-drag';
                 const isIncrementalLayerMode =
                     isDragMode || String(compileSource || '') === 'keyboard';
+
+                // For incremental layer updates (sentinel JSON), always
+                // apply via update_cached_layer without comparing the
+                // full JSON string.  For full JSON, compare as before.
+                const needsStore = isIncrementalSentinel
+                    ? true
+                    : cachedFontRevisionKey !== revisionKey ||
+                      cachedBabelfontJson !== babelfontJson;
 
                 // Always refresh cached font data for editing compiles.
                 // This guarantees each compile reflects latest drag edits.
@@ -820,7 +830,8 @@ self.onmessage = async (event) => {
                         typeof dirtyLayerId === 'string' &&
                         dirtyLayerId.length > 0 &&
                         dirtyLayerData !== undefined &&
-                        cachedBabelfontJson !== null;
+                        (isIncrementalSentinel ||
+                            cachedBabelfontJson !== null);
 
                     let storedViaFullFont = false;
                     if (canApplyIncrementalLayerUpdate) {
@@ -834,6 +845,11 @@ self.onmessage = async (event) => {
                                 'font.worker.compileEditingCached.ensureFontCached.updatedLayer'
                             );
                         } catch (_incrementalError) {
+                            if (isIncrementalSentinel) {
+                                throw new Error(
+                                    'Incremental layer update failed and no full JSON available'
+                                );
+                            }
                             store_font(babelfontJson);
                             storedViaFullFont = true;
                             timelineMark(
@@ -841,11 +857,18 @@ self.onmessage = async (event) => {
                             );
                         }
                     } else {
+                        if (isIncrementalSentinel) {
+                            throw new Error(
+                                'Incremental sentinel received but cannot apply layer update'
+                            );
+                        }
                         store_font(babelfontJson);
                         storedViaFullFont = true;
                     }
 
-                    cachedBabelfontJson = babelfontJson;
+                    if (!isIncrementalSentinel) {
+                        cachedBabelfontJson = babelfontJson;
+                    }
                     cachedFontRevisionKey = revisionKey;
                     lastStoreFontAtMs = performance.now();
                     dragCompilesSinceStore = 0;

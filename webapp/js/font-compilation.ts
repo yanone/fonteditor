@@ -794,9 +794,21 @@ class FontCompilation {
             ).sort();
             const subsetKey = normalizedSubsetGlyphs.join('\u001f');
 
+            // During incremental layer updates (drag/keyboard), skip
+            // transferring the full (stale) font JSON to the worker.
+            // The worker will use update_cached_layer() with just the
+            // dirty layer data, so the full JSON is unnecessary.
+            const isIncrementalLayer =
+                requestMeta?.dirtyLayerData !== undefined &&
+                (requestMeta?.compileSource === 'mouse-drag' ||
+                    requestMeta?.compileSource === 'keyboard');
+            const jsonForWorker = isIncrementalLayer
+                ? '__incremental_layer__'
+                : babelfontJson;
+
             const compileResult = await this.sendMessage({
                 type: 'compileEditingCached',
-                babelfontJson,
+                babelfontJson: jsonForWorker,
                 options,
                 subsetKey,
                 subsetGlyphs: normalizedSubsetGlyphs,

@@ -34,3 +34,6 @@ features = ["console"]
 [profile.release]
 opt-level = "z"
 lto = true
+
+[patch.crates-io]
+norad = { path = "../../norad" }

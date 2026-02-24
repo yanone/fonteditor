@@ -4,7 +4,7 @@ use babelfont::{
 };
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -34,6 +34,10 @@ static LAYOUT_CLOSURE_CACHE: LazyLock<Mutex<HashMap<String, Vec<String>>>> =
 static LAST_LAYOUT_CLOSURE_CACHE_KEY: Mutex<Option<String>> = Mutex::new(None);
 static PREPARED_SUBSET_FONT_CACHE: Mutex<Option<(String, u64, babelfont::Font)>> = Mutex::new(None);
 static FONT_CACHE_EPOCH: AtomicU64 = AtomicU64::new(0);
+/// Set to true by update_cached_layer when it patches the prepared subset in-place.
+/// Consumed (reset to false) by compile_cached_font_from_last_layout_closure to
+/// skip the redundant patch_subset_glyphs_from_cached_font call + clone-back.
+static PREPARED_SUBSET_PATCHED_IN_PLACE: AtomicBool = AtomicBool::new(false);
 static PERF_SPAN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const PERF_PREFIX: &str = "cp:wasm";
@@ -487,6 +491,7 @@ pub fn update_cached_layer(
                 prepared_glyph.layers.push(parsed_layer);
             }
             *prepared_epoch = next_epoch;
+            PREPARED_SUBSET_PATCHED_IN_PLACE.store(true, Ordering::Release);
             perf_mark(&format!(
                 "{}:update_cached_layer.patch_prepared_subset.applied{}",
                 PERF_PREFIX,
@@ -497,7 +502,7 @@ pub fn update_cached_layer(
     drop(_prepared_span);
 
     let _outline_clear_span = PerfSpan::start("update_cached_layer.clear_outline_cache");
-    glyph_outlines::clear_outline_cache();
+    glyph_outlines::clear_outline_cache_for_glyph(glyph_name);
     drop(_outline_clear_span);
 
     Ok(())
@@ -826,8 +831,13 @@ pub fn compile_cached_font_from_last_layout_closure(
         }
     };
 
+    // Check if update_cached_layer already patched the prepared subset in-place.
+    // If so, we can skip both patch_subset_glyphs_from_cached_font AND the
+    // clone-back into the cache — the cached copy is already up-to-date.
+    let already_patched = PREPARED_SUBSET_PATCHED_IN_PLACE.swap(false, Ordering::Acquire);
+
     let font_clone = if let Some((prepared_epoch, mut prepared_font)) = prepared_hit {
-        if prepared_epoch != font_cache_epoch && dirty_glyph_names.is_empty() {
+        if prepared_epoch != font_cache_epoch && dirty_glyph_names.is_empty() && !already_patched {
             let _cache_read_span = PerfSpan::start(
                 "compile_cached_font_from_last_layout_closure.cache_read",
             );
@@ -863,6 +873,16 @@ pub fn compile_cached_font_from_last_layout_closure(
             ));
 
             subset_font
+        } else if already_patched {
+            // update_cached_layer already patched the prepared subset in-place.
+            // The cached copy is up-to-date — just use prepared_font directly.
+            perf_mark(&format!(
+                "{}:compile_cached_font_from_last_layout_closure.skip_patch_already_applied{}",
+                PERF_PREFIX,
+                current_perf_trace_suffix()
+            ));
+
+            prepared_font
         } else {
             let _patch_span = PerfSpan::start(
                 "compile_cached_font_from_last_layout_closure.patch_dirty_glyphs",

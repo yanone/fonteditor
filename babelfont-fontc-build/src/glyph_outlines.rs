@@ -9,7 +9,7 @@ use fontdrasil::coords::{DesignCoord, DesignLocation, UserCoord};
 use kurbo::{Affine, Point};
 use serde_json::Value as JsonValue;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
@@ -23,6 +23,10 @@ static OUTLINE_CACHE: Mutex<Option<OutlineCache>> = Mutex::new(None);
 // Global persistent cache for interpolated layers (components)
 // This dramatically speeds up composite glyphs that share base components
 static LAYER_CACHE: Mutex<Option<LayerCache>> = Mutex::new(None);
+
+// Reverse component map: base glyph name -> set of composite glyph names that reference it.
+// Built lazily from OUTLINE_CACHE results (which contain flattened shapes).
+static COMPONENT_DEPENDENTS: Mutex<Option<HashMap<String, HashSet<String>>>> = Mutex::new(None);
 
 struct OutlineCache {
     location_json: String,
@@ -43,6 +47,57 @@ pub fn clear_outline_cache() {
     {
         let mut cache = LAYER_CACHE.lock().unwrap();
         *cache = None;
+    }
+    {
+        let mut deps = COMPONENT_DEPENDENTS.lock().unwrap();
+        *deps = None;
+    }
+}
+
+/// Clear outline/layer cache entries for a single glyph and any composites
+/// that reference it as a component.  Much cheaper than clear_outline_cache()
+/// when only one glyph has changed.
+pub fn clear_outline_cache_for_glyph(glyph_name: &str) {
+    // Collect the set of glyph names to invalidate: the glyph itself plus
+    // any composite glyphs that (transitively) reference it.
+    let mut to_invalidate: HashSet<String> = HashSet::new();
+    to_invalidate.insert(glyph_name.to_string());
+
+    {
+        let deps = COMPONENT_DEPENDENTS.lock().unwrap();
+        if let Some(ref dep_map) = *deps {
+            // BFS to find transitive dependents (e.g. A -> Aacute -> Aacute.ss01)
+            let mut queue: Vec<String> = vec![glyph_name.to_string()];
+            while let Some(base) = queue.pop() {
+                if let Some(dependents) = dep_map.get(&base) {
+                    for dep in dependents {
+                        if to_invalidate.insert(dep.clone()) {
+                            queue.push(dep.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Remove from OUTLINE_CACHE
+    {
+        let mut cache = OUTLINE_CACHE.lock().unwrap();
+        if let Some(ref mut c) = *cache {
+            for name in &to_invalidate {
+                c.results.remove(name);
+            }
+        }
+    }
+
+    // Remove from LAYER_CACHE (interpolated layers)
+    {
+        let mut cache = LAYER_CACHE.lock().unwrap();
+        if let Some(ref mut c) = *cache {
+            for name in &to_invalidate {
+                c.layers.remove(name);
+            }
+        }
     }
 }
 
@@ -252,6 +307,21 @@ pub fn get_glyphs_outlines(
 
         // Store in new_results for adding to persistent cache
         new_results.push((glyph_name.clone(), result));
+
+        // Record component dependencies for per-glyph cache invalidation.
+        // If this glyph uses components, register that those base glyphs
+        // have this glyph as a dependent.
+        for shape in &layer.shapes {
+            if let Shape::Component(component) = shape {
+                let base_name = component.reference.to_string();
+                let mut deps = COMPONENT_DEPENDENTS.lock().unwrap();
+                let dep_map = deps.get_or_insert_with(HashMap::new);
+                dep_map
+                    .entry(base_name)
+                    .or_insert_with(HashSet::new)
+                    .insert(glyph_name.clone());
+            }
+        }
     }
 
     // Add new results to persistent cache
