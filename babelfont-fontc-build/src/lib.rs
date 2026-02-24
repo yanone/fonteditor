@@ -294,6 +294,54 @@ fn canonical_subset_key_from_sorted_unique(glyph_names: &[String]) -> String {
     glyph_names.join("\u{1F}")
 }
 
+/// Expand a glyph closure to include all transitively referenced component glyphs.
+///
+/// `close_layout()` only computes the GSUB feature closure (substitution targets).
+/// Glyphs that are only used as *components* inside composite glyphs (e.g.
+/// `behDotless-ar` referenced by `nun-ar.medi` and `ba-ar.medi`) are not
+/// discovered by GSUB closure alone.  If such component glyphs are missing
+/// from the subset, `RetainGlyphs` decomposes the component references into
+/// inline outlines.  After decomposition, incremental `update_cached_layer`
+/// patches to the component glyph no longer propagate to the composites
+/// because the component reference no longer exists in the subset font.
+///
+/// This function walks every glyph in the closure, collects `Shape::Component`
+/// references, and transitively adds them — guaranteeing that component glyphs
+/// stay in the subset and their references remain live for incremental patching.
+fn expand_closure_with_component_deps(font: &babelfont::Font, result: &mut Vec<String>) {
+    let mut closure_set: HashSet<String> = result.iter().cloned().collect();
+    let mut queue: Vec<String> = result.clone();
+
+    while let Some(glyph_name) = queue.pop() {
+        let Some(glyph) = font.glyphs.iter().find(|g| g.name.as_str() == glyph_name.as_str()) else {
+            continue;
+        };
+        for layer in &glyph.layers {
+            if layer.is_background {
+                continue;
+            }
+            for shape in &layer.shapes {
+                if let babelfont::Shape::Component(component) = shape {
+                    let ref_name = component.reference.to_string();
+                    if closure_set.insert(ref_name.clone()) {
+                        queue.push(ref_name);
+                    }
+                }
+            }
+        }
+    }
+
+    // Add any newly discovered glyphs to the result
+    if closure_set.len() > result.len() {
+        let original: HashSet<String> = result.iter().cloned().collect();
+        for name in closure_set {
+            if !original.contains(&name) {
+                result.push(name);
+            }
+        }
+    }
+}
+
 fn compute_layout_closure_cached_internal(
     _font_revision: &str,
     glyph_names_json: &str,
@@ -334,6 +382,11 @@ fn compute_layout_closure_cached_internal(
 
     let _normalize_span = PerfSpan::start("layout_closure_cached.normalize");
     let mut result: Vec<String> = closure_set.into_iter().map(|s| s.to_string()).collect();
+
+    // Expand closure to include transitively referenced component glyphs
+    // so that RetainGlyphs does not decompose them out of the subset.
+    expand_closure_with_component_deps(font, &mut result);
+
     result.sort();
     result.dedup();
     drop(_normalize_span);
@@ -771,6 +824,10 @@ pub fn get_layout_closure(glyph_names_json: &str) -> Result<String, JsValue> {
     // Convert HashSet<SmolStr> back to sorted Vec<String> for consistent output
     let _result_span = PerfSpan::start("get_layout_closure.result_serialize");
     let mut result: Vec<String> = closure_set.into_iter().map(|s| s.to_string()).collect();
+
+    // Expand closure to include transitively referenced component glyphs
+    expand_closure_with_component_deps(font, &mut result);
+
     result.sort();
 
     // Serialize to JSON array
