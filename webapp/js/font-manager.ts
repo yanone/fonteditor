@@ -1563,14 +1563,14 @@ class FontManager {
         }
         this.fullCompileDebounceTimer = setTimeout(() => {
             this.fullCompileDebounceTimer = null;
-            if (
-                this.lastCompilationMode !== 'full' &&
-                this.currentFont &&
-                !this.currentFont.needsRecompile
-            ) {
+            if (this.lastCompilationMode !== 'full' && this.currentFont) {
                 console.log(
                     '[FontManager] Debounced full compile triggered after interactive editing'
                 );
+                // Reset lastEditType so the upcoming compile uses compilationMode = 'full'
+                // (with kern/features). Do this regardless of needsRecompile — if a compile
+                // is still in progress, the auto-compile loop's data-changed retry will pick
+                // up lastEditType = null and produce a full compile instead of outline-only.
                 this.lastEditType = null;
                 this.currentFont.markDirty('full-compile-debounce');
                 window.autoCompileManager.checkAndSchedule();
