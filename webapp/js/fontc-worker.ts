@@ -808,9 +808,10 @@ self.onmessage = async (event) => {
                 const isDragActive = !!dragActive;
                 const isDragMode =
                     isDragActive ||
-                    String(compileSource || '') === 'mouse-drag';
+                    String(compileSource || '').startsWith('mouse-drag');
                 const isIncrementalLayerMode =
-                    isDragMode || String(compileSource || '') === 'keyboard';
+                    isDragMode ||
+                    String(compileSource || '').startsWith('keyboard');
 
                 // For incremental layer updates (sentinel JSON), always
                 // apply via update_cached_layer without comparing the
@@ -892,8 +893,8 @@ self.onmessage = async (event) => {
                 const needsPrimeClosure =
                     cachedBaseSubsetKey !== incomingSubsetKey;
                 const isOutlineIncrementalCompile =
-                    String(compileSource || '') === 'mouse-drag' ||
-                    String(compileSource || '') === 'keyboard';
+                    String(compileSource || '').startsWith('mouse-drag') ||
+                    String(compileSource || '').startsWith('keyboard');
 
                 if (needsPrimeClosure && isOutlineIncrementalCompile) {
                     timelineMark(

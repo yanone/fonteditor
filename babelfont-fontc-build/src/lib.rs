@@ -34,11 +34,41 @@ static LAYOUT_CLOSURE_CACHE: LazyLock<Mutex<HashMap<String, Vec<String>>>> =
 static LAST_LAYOUT_CLOSURE_CACHE_KEY: Mutex<Option<String>> = Mutex::new(None);
 static PREPARED_SUBSET_FONT_CACHE: Mutex<Option<(String, u64, babelfont::Font)>> = Mutex::new(None);
 static FONT_CACHE_EPOCH: AtomicU64 = AtomicU64::new(0);
-/// Set to true by update_cached_layer when it patches the prepared subset in-place.
-/// Consumed (reset to false) by compile_cached_font_from_last_layout_closure to
+/// Filtered font cache: stores the result of apply_filters() keyed by
+/// (subset_key, filter_epoch, options_fingerprint).
+/// The filter_epoch tracks structural changes (font load, non-outline edits).
+/// Outline/anchor edits bump FONT_CACHE_EPOCH but NOT the filter epoch,
+/// so the cached filtered font can be reused with surgical glyph patching.
+static FILTERED_FONT_CACHE: Mutex<Option<FilteredFontCacheEntry>> = Mutex::new(None);
+/// Epoch counter for structural (non-outline) changes that require re-filtering.
+/// Incremented by store_font() and clear_font_cache(), but NOT by update_cached_layer().
+static FILTER_EPOCH: AtomicU64 = AtomicU64::new(0);
+/// Set to true by update_cached_layer when it patches the prepared subset in-place./// Consumed (reset to false) by compile_cached_font_from_last_layout_closure to
 /// skip the redundant patch_subset_glyphs_from_cached_font call + clone-back.
 static PREPARED_SUBSET_PATCHED_IN_PLACE: AtomicBool = AtomicBool::new(false);
 static PERF_SPAN_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Cache entry for a pre-filtered font ready for compilation.
+struct FilteredFontCacheEntry {
+    /// The subset key that was used to create this font
+    subset_key: String,
+    /// The filter epoch when filters were applied
+    filter_epoch: u64,
+    /// Fingerprint of compilation options that affect filtering
+    options_fingerprint: u64,
+    /// The filtered font (filters applied, ready for compile_filtered)
+    font: babelfont::Font,
+}
+
+/// Compute a fingerprint for compilation options that affect filtering.
+/// If any of these change, the filtered cache must be invalidated.
+fn options_filter_fingerprint(options: &CompilationOptions) -> u64 {
+    let mut h: u64 = 0;
+    if options.drop_incompatible_paths { h |= 1; }
+    if options.produce_varc_table { h |= 2; }
+    if options.dont_use_production_names { h |= 4; }
+    h
+}
 
 const PERF_PREFIX: &str = "cp:wasm";
 const PERF_TRACE_CONTEXT_GLOBAL_KEY: &str = "__cpPerfTraceContext";
@@ -423,6 +453,7 @@ pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
     drop(_cache_span);
 
     FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
+    FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
 
     // Keep layout-closure cache across store_font to avoid recomputing closure
     // for outline-only edits. The cache key should be provided by caller.
@@ -517,7 +548,9 @@ pub fn clear_font_cache() {
     LAYOUT_CLOSURE_CACHE.lock().unwrap().clear();
     *LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
     *PREPARED_SUBSET_FONT_CACHE.lock().unwrap() = None;
+    *FILTERED_FONT_CACHE.lock().unwrap() = None;
     FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
+    FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
 
     // Also clear the outline cache
     glyph_outlines::clear_outline_cache();
@@ -946,7 +979,7 @@ pub fn compile_cached_font_from_last_layout_closure(
         {
             let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
             prepared_cache.replace((
-                prepared_subset_key,
+                prepared_subset_key.clone(),
                 font_cache_epoch,
                 subset_font.clone(),
             ));
@@ -966,8 +999,70 @@ pub fn compile_cached_font_from_last_layout_closure(
         debug_feature_file: None,
     };
 
+    // Use filtered font cache: apply_filters() once, then reuse with surgical glyph patching.
+    let current_filter_epoch = FILTER_EPOCH.load(Ordering::Relaxed);
+    let current_options_fp = options_filter_fingerprint(&compilation_options);
+
+    let _filter_cache_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache");
+    let filtered_font = {
+        let mut filter_cache = FILTERED_FONT_CACHE.lock().unwrap();
+        let cache_hit = filter_cache.as_ref().map_or(false, |entry| {
+            entry.subset_key == prepared_subset_key
+                && entry.filter_epoch == current_filter_epoch
+                && entry.options_fingerprint == current_options_fp
+        });
+
+        if cache_hit {
+            // Cache hit: clone cached filtered font and patch dirty glyphs
+            let _clone_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.clone");
+            let mut filtered = filter_cache.as_ref().unwrap().font.clone();
+            drop(_clone_span);
+
+            // Patch dirty glyphs from the (already-patched) subset font
+            if !dirty_glyph_names.is_empty() {
+                let _patch_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.patch_dirty");
+                for dirty_name in &dirty_glyph_names {
+                    if let Some(source_glyph) = font_clone.glyphs.iter().find(|g| g.name.as_str() == dirty_name.as_str()) {
+                        if let Some(target_glyph) = filtered.glyphs.iter_mut().find(|g| g.name.as_str() == dirty_name.as_str()) {
+                            target_glyph.layers = source_glyph.layers.clone();
+                        }
+                    }
+                }
+                drop(_patch_span);
+            }
+
+            perf_mark(&format!(
+                "{}:compile_cached_font_from_last_layout_closure.filter_cache.hit{}",
+                PERF_PREFIX,
+                current_perf_trace_suffix()
+            ));
+            filtered
+        } else {
+            // Cache miss: run full filter pipeline and cache result
+            let _apply_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.apply_filters");
+            let filtered = BabelfontIrSource::apply_filters(&font_clone, &compilation_options)
+                .map_err(|e| JsValue::from_str(&format!("Filter pipeline failed: {:?}", e)))?;
+            drop(_apply_span);
+
+            *filter_cache = Some(FilteredFontCacheEntry {
+                subset_key: prepared_subset_key.clone(),
+                filter_epoch: current_filter_epoch,
+                options_fingerprint: current_options_fp,
+                font: filtered.clone(),
+            });
+
+            perf_mark(&format!(
+                "{}:compile_cached_font_from_last_layout_closure.filter_cache.miss{}",
+                PERF_PREFIX,
+                current_perf_trace_suffix()
+            ));
+            filtered
+        }
+    };
+    drop(_filter_cache_span);
+
     let _ir_compile_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.ir_compile");
-    let compiled_font = BabelfontIrSource::compile(font_clone, compilation_options)
+    let compiled_font = BabelfontIrSource::compile_filtered(filtered_font, compilation_options)
         .map_err(|e| JsValue::from_str(&format!("Compilation failed: {:?}", e)))?;
     drop(_ir_compile_span);
 

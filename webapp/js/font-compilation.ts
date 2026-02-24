@@ -759,6 +759,11 @@ class FontCompilation {
             dirtyGlyphName?: string;
             dirtyLayerId?: string;
             dirtyLayerData?: unknown;
+            optionOverrides?: {
+                skip_features?: boolean;
+                skip_kerning?: boolean;
+                produce_varc_table?: boolean;
+            };
         }
     ): Promise<{
         result: Uint8Array;
@@ -789,6 +794,12 @@ class FontCompilation {
                 ...COMPILATION_TARGETS.editing
             };
 
+            // Apply option overrides for incremental compilation
+            // (e.g., skip_features/skip_kerning during interactive editing)
+            if (requestMeta?.optionOverrides) {
+                Object.assign(options, requestMeta.optionOverrides);
+            }
+
             const normalizedSubsetGlyphs = Array.from(
                 new Set((subsetGlyphs || []).filter((glyph) => !!glyph))
             ).sort();
@@ -800,8 +811,9 @@ class FontCompilation {
             // dirty layer data, so the full JSON is unnecessary.
             const isIncrementalLayer =
                 requestMeta?.dirtyLayerData !== undefined &&
-                (requestMeta?.compileSource === 'mouse-drag' ||
-                    requestMeta?.compileSource === 'keyboard');
+                requestMeta?.compileSource !== undefined &&
+                (requestMeta.compileSource.startsWith('mouse-drag') ||
+                    requestMeta.compileSource.startsWith('keyboard'));
             const jsonForWorker = isIncrementalLayer
                 ? '__incremental_layer__'
                 : babelfontJson;

@@ -520,7 +520,11 @@ class GlyphCanvas {
         return false;
     }
     setupAxesManagerEventHandlers(): void {
-        this.axesManager!.on('sliderMouseDown', () => {
+        this.axesManager!.on('sliderMouseDown', async () => {
+            // Ensure a full compile (with features/kerning) exists before
+            // axis changes, since HarfBuzz shaping during slider animation
+            // depends on GPOS/kerning tables being present in the font.
+            await fontManager.ensureFullEditingCompile();
             this.outlineEditor.onSliderMouseDown();
             // Also capture text mode cursor position for auto-panning
             if (!this.outlineEditor.active && this.textRunEditor) {
@@ -1679,6 +1683,9 @@ class GlyphCanvas {
         masterId: string,
         masterLocation: Record<string, number>
     ): Promise<void> {
+        // Ensure a full compile before layer/master switch
+        await fontManager.ensureFullEditingCompile();
+
         // Select a master and animate to its location
         console.log(
             '[GlyphCanvas] Selecting master:',
@@ -3252,6 +3259,7 @@ function setupFontLoadingListener() {
                         '   Loading editing font into canvas...'
                     );
                     const isDragActive = !!detail.dragActive;
+                    const compilationMode = detail.compilationMode || 'full';
                     const arrayBuffer = detail.fontBytes.buffer.slice(
                         detail.fontBytes.byteOffset,
                         detail.fontBytes.byteOffset +
@@ -3259,6 +3267,45 @@ function setupFontLoadingListener() {
                     );
 
                     const gc = window.glyphCanvas;
+
+                    // Fast path: outline-only compilation — swap blob, skip reshape
+                    if (compilationMode === 'outline-only') {
+                        const fontBytesArray = new Uint8Array(arrayBuffer);
+                        gc.fontBytes = fontBytesArray;
+                        gc.axesManager!.fontBytes = fontBytesArray;
+                        gc.textRunEditor!.swapFontBlob(fontBytesArray);
+                        timelineMark(
+                            'canvas.editingFontCompiled.outlineOnlySwapped'
+                        );
+
+                        if (Number.isFinite(incomingRevision)) {
+                            latestAppliedEditingRevision = incomingRevision;
+                        }
+
+                        gc.requestRepaintAfterCompile();
+                        return;
+                    }
+
+                    // Anchor-only compilation — swap blob + reshape for GPOS mark positions
+                    if (compilationMode === 'anchor-only') {
+                        const fontBytesArray = new Uint8Array(arrayBuffer);
+                        gc.fontBytes = fontBytesArray;
+                        gc.axesManager!.fontBytes = fontBytesArray;
+                        gc.textRunEditor!.swapFontBlob(fontBytesArray);
+                        gc.textRunEditor!.shapeText(true);
+                        timelineMark(
+                            'canvas.editingFontCompiled.anchorOnlySwapped'
+                        );
+
+                        if (Number.isFinite(incomingRevision)) {
+                            latestAppliedEditingRevision = incomingRevision;
+                        }
+
+                        gc.requestRepaintAfterCompile();
+                        return;
+                    }
+
+                    // Full compilation path — existing behavior
                     if (gc.featuresManager) {
                         gc.featuresManager.editingFontBytes = detail.fontBytes;
                         if (!isDragActive) {

@@ -832,7 +832,11 @@ export class OutlineEditor {
         this._updateDraggedAnchors(deltaX, deltaY);
 
         // Save to Python immediately (non-blocking)
-        this.saveLayerData('mouse-drag');
+        // Use enriched changeSource to distinguish edit types for compilation optimization
+        const dragChangeSource = this.isDraggingAnchor
+            ? 'mouse-drag-anchor'
+            : 'mouse-drag-outline';
+        this.saveLayerData(dragChangeSource);
 
         this.glyphCanvas.render();
     }
@@ -1491,8 +1495,8 @@ export class OutlineEditor {
             }
         }
 
-        // Save to obect model (non-blocking)
-        this.saveLayerData('keyboard');
+        // Save to object model (non-blocking)
+        this.saveLayerData('keyboard-outline');
         this.glyphCanvas.render();
     }
 
@@ -1515,8 +1519,8 @@ export class OutlineEditor {
             }
         }
 
-        // Save to obect model (non-blocking)
-        this.saveLayerData('keyboard');
+        // Save to object model (non-blocking)
+        this.saveLayerData('keyboard-anchor');
         this.glyphCanvas.render();
     }
 
@@ -1549,8 +1553,8 @@ export class OutlineEditor {
             }
         }
 
-        // Save to obect model (non-blocking)
-        this.saveLayerData('keyboard');
+        // Save to object model (non-blocking)
+        this.saveLayerData('keyboard-outline');
         this.glyphCanvas.render();
     }
 

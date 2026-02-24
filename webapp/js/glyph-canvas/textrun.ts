@@ -1576,6 +1576,30 @@ export class TextRunEditor {
             this.textBuffer
         );
     }
+
+    /**
+     * Swap the HarfBuzz font blob without reshaping.
+     * Used during interactive outline editing to update glyph outlines
+     * while preserving existing shaped text positions (advances, kerning, GPOS).
+     * The renderer reads outlines from hbFont.glyphToPath() (fresh) and
+     * positions from shapedGlyphs (stale but correct for outline-only changes).
+     */
+    swapFontBlob(fontData: Uint8Array): void {
+        this.destroyHarfbuzz();
+        this.fontBlob = fontData;
+        this.hbBlob = this.hb.createBlob(fontData);
+        this.hbFace = this.hb.createFace(this.hbBlob, 0);
+        this.hbFont = this.hb.createFont(this.hbFace);
+
+        // Restore variation settings so glyphToPath returns correct outlines
+        if (
+            this.hbFont &&
+            Object.keys(this.axesManager.variationSettings).length > 0
+        ) {
+            this.hbFont.setVariations(this.axesManager.variationSettings);
+        }
+    }
+
     // Load text buffer from font.format_specific via Python
     async loadTextBufferFromFont() {
         // Check if loading from font is enabled

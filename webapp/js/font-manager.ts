@@ -321,6 +321,9 @@ class FontManager {
     isCompiling: boolean;
     glyphOrderCache: string[] | null;
     lastChangeSource: string | null = null; // Track what triggered the last change (keyboard, mouse-drag, etc.)
+    lastEditType: 'outline' | 'anchor' | null = null; // Track edit type for compilation optimization
+    lastCompilationMode: 'full' | 'outline-only' | 'anchor-only' = 'full'; // Track last compilation mode
+    fullCompileDebounceTimer: ReturnType<typeof setTimeout> | null = null; // Timer for debounced full compile after interactive editing
     closureCache: {
         subsetGlyphs: string[];
         activeFeatures: string;
@@ -346,6 +349,9 @@ class FontManager {
         this.isCompiling = false;
         this.glyphOrderCache = null; // Cache for glyph order to avoid re-parsing
         this.lastChangeSource = null;
+        this.lastEditType = null;
+        this.lastCompilationMode = 'full';
+        this.fullCompileDebounceTimer = null;
         this.closureCache = null;
         this.editingSubsetSnapshotGlyphs = [];
         this.editingSubsetSnapshotKey = '';
@@ -1110,6 +1116,8 @@ class FontManager {
             );
             let result;
             let responseRevisionKey = String(this.currentFont.changeVersion);
+            let compilationMode: 'full' | 'outline-only' | 'anchor-only' =
+                'full';
             try {
                 timelineMark(
                     'font.compileEditing.closureToCompileBridge.beforeCompileFromJson'
@@ -1136,8 +1144,9 @@ class FontManager {
                 let dirtyLayerData: unknown;
                 const incrementalChangeSource = this.lastChangeSource;
                 const shouldSendIncrementalLayer =
-                    incrementalChangeSource === 'mouse-drag' ||
-                    incrementalChangeSource === 'keyboard';
+                    incrementalChangeSource !== null &&
+                    (incrementalChangeSource.startsWith('mouse-drag') ||
+                        incrementalChangeSource.startsWith('keyboard'));
                 const dragGlyphNames = shouldSendIncrementalLayer
                     ? [
                           window.glyphCanvas?.outlineEditor?.currentGlyphName ||
@@ -1172,6 +1181,38 @@ class FontManager {
                     }
                 }
 
+                // Determine compilation mode based on edit type
+                const isInteractiveEdit =
+                    shouldSendIncrementalLayer &&
+                    (dragActiveAtRequest ||
+                        (incrementalChangeSource !== null &&
+                            incrementalChangeSource.startsWith('keyboard')));
+                compilationMode = 'full';
+                let optionOverrides:
+                    | {
+                          skip_features?: boolean;
+                          skip_kerning?: boolean;
+                          produce_varc_table?: boolean;
+                      }
+                    | undefined;
+                if (isInteractiveEdit && this.lastEditType === 'outline') {
+                    compilationMode = 'outline-only';
+                    optionOverrides = {
+                        skip_features: true,
+                        skip_kerning: true,
+                        produce_varc_table: false
+                    };
+                } else if (
+                    isInteractiveEdit &&
+                    this.lastEditType === 'anchor'
+                ) {
+                    compilationMode = 'anchor-only';
+                    optionOverrides = {
+                        skip_kerning: true,
+                        produce_varc_table: false
+                    };
+                }
+
                 result = await fontCompilation.compileEditingFromJsonCached(
                     this.currentFont.babelfontJson,
                     requestedRevisionKey,
@@ -1181,7 +1222,8 @@ class FontManager {
                         compileSource: this.lastChangeSource || undefined,
                         dirtyGlyphName,
                         dirtyLayerId,
-                        dirtyLayerData
+                        dirtyLayerData,
+                        optionOverrides
                     }
                 );
 
@@ -1217,7 +1259,8 @@ class FontManager {
 
             // Save debug editing font unless we're actively dragging points/anchors/components
             const isOutlineDragActive =
-                this.lastChangeSource === 'mouse-drag' &&
+                this.lastChangeSource !== null &&
+                this.lastChangeSource.startsWith('mouse-drag') &&
                 !!window.glyphCanvas?.outlineEditor?.draggingSomething;
 
             if (isOutlineDragActive) {
@@ -1226,6 +1269,9 @@ class FontManager {
                 this.saveEditingFontToFileSystem();
                 this.pendingDebugEditingFontSaveAfterDrag = false;
             }
+
+            // Track compilation mode for axis/layer switch gating
+            this.lastCompilationMode = compilationMode;
 
             // Dispatch event to notify canvas that new font is ready
             timelineMark(
@@ -1238,9 +1284,11 @@ class FontManager {
                         duration: duration,
                         fontRevisionKey: responseRevisionKey,
                         dragActive:
-                            this.lastChangeSource === 'mouse-drag' &&
+                            this.lastChangeSource !== null &&
+                            this.lastChangeSource.startsWith('mouse-drag') &&
                             !!window.glyphCanvas?.outlineEditor
-                                ?.draggingSomething
+                                ?.draggingSomething,
+                        compilationMode
                     }
                 })
             );
@@ -1483,6 +1531,63 @@ class FontManager {
 
         this.saveEditingFontToFileSystem();
         this.pendingDebugEditingFontSaveAfterDrag = false;
+    }
+
+    /**
+     * Schedule a debounced full compile after interactive editing stops.
+     * Resets on each call, so rapid edits (keyboard/drag) only trigger one
+     * full compile after the last edit + delay.
+     */
+    scheduleFullCompileDebounce(): void {
+        if (this.fullCompileDebounceTimer) {
+            clearTimeout(this.fullCompileDebounceTimer);
+        }
+        this.fullCompileDebounceTimer = setTimeout(() => {
+            this.fullCompileDebounceTimer = null;
+            if (
+                this.lastCompilationMode !== 'full' &&
+                this.currentFont &&
+                !this.currentFont.needsRecompile
+            ) {
+                console.log(
+                    '[FontManager] Debounced full compile triggered after interactive editing'
+                );
+                this.lastEditType = null;
+                this.currentFont.markDirty('full-compile-debounce');
+                window.autoCompileManager.checkAndSchedule();
+            }
+        }, 500);
+    }
+
+    /**
+     * Ensure a full editing font (with features/kerning) has been compiled.
+     * Call this before axis slider changes or layer switches that depend
+     * on correct HarfBuzz positioning.
+     * Returns a promise that resolves when the full compile is ready.
+     */
+    async ensureFullEditingCompile(): Promise<void> {
+        if (this.lastCompilationMode === 'full') {
+            return; // Already have a full compile
+        }
+        // Cancel pending debounce — we need it now
+        if (this.fullCompileDebounceTimer) {
+            clearTimeout(this.fullCompileDebounceTimer);
+            this.fullCompileDebounceTimer = null;
+        }
+        console.log(
+            '[FontManager] Forcing full compile before axis/layer change'
+        );
+        this.lastEditType = null;
+        this.currentFont?.markDirty('full-compile-required');
+        window.autoCompileManager.checkAndSchedule();
+        // Wait for the compile to finish
+        await new Promise<void>((resolve) => {
+            const handler = () => {
+                window.removeEventListener('editingFontCompiled', handler);
+                resolve();
+            };
+            window.addEventListener('editingFontCompiled', handler);
+        });
     }
 
     private syncBabelfontJsonFromCurrentModel(): boolean {
@@ -1888,7 +1993,11 @@ class FontManager {
         // Directly assign the cleaned layer data (no need for JSON.parse/stringify)
         glyph.layers[layerIndex] = layerDataCopy;
 
-        if (changeSource === 'mouse-drag' || changeSource === 'keyboard') {
+        const isInteractiveEdit =
+            changeSource.startsWith('mouse-drag') ||
+            changeSource.startsWith('keyboard');
+
+        if (isInteractiveEdit) {
             this.pendingBabelfontJsonSyncAfterDrag = true;
         } else {
             if (!this.syncBabelfontJsonFromCurrentModel()) {
@@ -1899,13 +2008,28 @@ class FontManager {
 
         // Mark font as dirty and track the change source
         this.lastChangeSource = changeSource;
+
+        // Derive edit type from enriched changeSource
+        if (changeSource.endsWith('-anchor')) {
+            this.lastEditType = 'anchor';
+        } else if (changeSource.endsWith('-outline')) {
+            this.lastEditType = 'outline';
+        } else {
+            this.lastEditType = null;
+        }
+
+        // Schedule debounced full compile after interactive editing stops
+        if (isInteractiveEdit && this.lastEditType) {
+            this.scheduleFullCompileDebounce();
+        }
+
         this.currentFont!.markDirty(changeSource);
         window.autoCompileManager.checkAndSchedule();
         await this.updateDirtyIndicator();
 
         // Update worker's font cache so glyph overview renders correctly
         // Skip during dragging to prevent clearing caches repeatedly - will update on drag end
-        if (changeSource !== 'mouse-drag' && changeSource !== 'keyboard') {
+        if (!isInteractiveEdit) {
             try {
                 await fontCompilation.sendMessage({
                     type: 'storeFontJson',
