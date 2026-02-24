@@ -830,8 +830,7 @@ self.onmessage = async (event) => {
                         typeof dirtyLayerId === 'string' &&
                         dirtyLayerId.length > 0 &&
                         dirtyLayerData !== undefined &&
-                        (isIncrementalSentinel ||
-                            cachedBabelfontJson !== null);
+                        (isIncrementalSentinel || cachedBabelfontJson !== null);
 
                     let storedViaFullFont = false;
                     if (canApplyIncrementalLayerUpdate) {
