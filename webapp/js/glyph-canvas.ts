@@ -60,9 +60,10 @@ class GlyphCanvas {
     // Adaptive debounce timing for progressive typing compilation
     textChangeLastKeystrokeTime: number = 0;
     textChangeBurstThreshold: number = 200; // ms - keystrokes within this window considered "burst typing"
-    textChangeFastDelay: number = 50; // ms - delay during fast typing bursts
+    textChangeFastDelay: number = 150; // ms - delay during fast typing bursts
     textChangeSlowDelay: number = 150; // ms - delay during slow typing
     textChangeLastSubsetKey: string = '';
+    textInputFullCompileTimer: any = null; // Deferred full compilation after typing stops
 
     resizeObserver: ResizeObserver | null = null;
 
@@ -2294,11 +2295,31 @@ class GlyphCanvas {
             clearTimeout(this.textChangeDebounceTimer);
         }
 
+        // Cancel any pending deferred full compile — typing is still active
+        if (this.textInputFullCompileTimer) {
+            clearTimeout(this.textInputFullCompileTimer);
+            this.textInputFullCompileTimer = null;
+        }
+
         this.textChangeDebounceTimer = setTimeout(() => {
             if (fontManager && fontManager.isReady()) {
                 const textBuffer = this.textRunEditor!.textBuffer;
                 const subsetGlyphs =
                     fontManager.deriveSubsetGlyphsFromText(textBuffer);
+
+                // Always include space glyph — it's typed frequently
+                // and must always be present in the compiled subset
+                const spaceGlyph =
+                    fontManager.currentFont?.fontModel?.findGlyphByCodepoint(
+                        0x20
+                    );
+                if (
+                    spaceGlyph?.name &&
+                    !subsetGlyphs.includes(spaceGlyph.name)
+                ) {
+                    subsetGlyphs.push(spaceGlyph.name);
+                }
+
                 const subsetKey = [...subsetGlyphs].sort().join('\u0000');
 
                 if (subsetKey === this.textChangeLastSubsetKey) {
@@ -2308,12 +2329,21 @@ class GlyphCanvas {
                 this.textChangeLastSubsetKey = subsetKey;
                 fontManager.updateEditingSubsetSnapshot(subsetGlyphs);
 
+                // Mark as text-input so the pipeline skips full JSON transfer
+                // and skips features/kerning for faster compilation
+                fontManager.lastChangeSource = 'text-input';
+
                 fontManager
                     .compileEditingFont(
                         textBuffer,
                         [],
                         subsetGlyphs.length > 0 ? subsetGlyphs : undefined
                     )
+                    .then(() => {
+                        // Schedule a deferred full compile with features/kerning
+                        // after typing settles, for correct OT rendering
+                        this.scheduleTextInputFullCompile();
+                    })
                     .catch((error: any) => {
                         console.error(
                             'Failed to recompile editing font:',
@@ -2322,6 +2352,29 @@ class GlyphCanvas {
                     });
             }
         }, debounceDelay);
+    }
+
+    /**
+     * Schedule a deferred full compile (with features/kerning) after typing stops.
+     * Resets on each call, so rapid typing only triggers one full compile.
+     */
+    scheduleTextInputFullCompile(): void {
+        if (this.textInputFullCompileTimer) {
+            clearTimeout(this.textInputFullCompileTimer);
+        }
+        this.textInputFullCompileTimer = setTimeout(() => {
+            this.textInputFullCompileTimer = null;
+            if (
+                fontManager &&
+                fontManager.isReady() &&
+                fontManager.lastCompilationMode !== 'full'
+            ) {
+                fontManager.lastChangeSource = null;
+                fontManager.lastEditType = null;
+                fontManager.currentFont?.markDirty('text-input-full-compile');
+                window.autoCompileManager.checkAndSchedule();
+            }
+        }, 500);
     }
 
     startKeyboardZoom(zoomIn: boolean): void {

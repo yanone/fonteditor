@@ -84,6 +84,7 @@ export class TextRunEditor {
     spaceKeyTimer: number | null; // Timer for space key delay
     spaceKeyPressTime: number | null; // Timestamp when space was pressed
     spaceActivatedPreview: boolean; // Whether space key activated preview mode
+    saveTextBufferToFontTimer: any; // Debounce timer for saveTextBufferToFont()
     cursorStyleBeforePreview: string | null; // Cursor style before entering preview mode
     skipRenderingDuringFeatureChange: boolean; // Skip rendering during OpenType feature changes to prevent .notdef flicker
 
@@ -135,6 +136,7 @@ export class TextRunEditor {
         this.spaceKeyTimer = null;
         this.spaceKeyPressTime = null;
         this.spaceActivatedPreview = false;
+        this.saveTextBufferToFontTimer = null;
         this.cursorStyleBeforePreview = null;
         this.skipRenderingDuringFeatureChange = false;
 
@@ -1684,8 +1686,15 @@ export class TextRunEditor {
             );
         }
 
-        // Save to font object via Python
-        this.saveTextBufferToFont();
+        // Debounce save to font object via Python (not time-critical;
+        // localStorage already captures the text buffer immediately)
+        if (this.saveTextBufferToFontTimer) {
+            clearTimeout(this.saveTextBufferToFontTimer);
+        }
+        this.saveTextBufferToFontTimer = setTimeout(() => {
+            this.saveTextBufferToFontTimer = null;
+            this.saveTextBufferToFont();
+        }, 1000);
 
         // Trigger font recompilation (debounced)
         this.call('textchanged');

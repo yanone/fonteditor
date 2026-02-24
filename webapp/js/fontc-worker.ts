@@ -788,6 +788,8 @@ self.onmessage = async (event) => {
 
                 const isIncrementalSentinel =
                     babelfontJson === '__incremental_layer__';
+                const isTextInputMode =
+                    String(compileSource || '') === 'text-input';
                 if (
                     !isIncrementalSentinel &&
                     (!babelfontJson || typeof babelfontJson !== 'string')
@@ -813,78 +815,92 @@ self.onmessage = async (event) => {
                     isDragMode ||
                     String(compileSource || '').startsWith('keyboard');
 
-                // For incremental layer updates (sentinel JSON), always
-                // apply via update_cached_layer without comparing the
-                // full JSON string.  For full JSON, compare as before.
-                const needsStore = isIncrementalSentinel
-                    ? true
-                    : cachedFontRevisionKey !== revisionKey ||
-                      cachedBabelfontJson !== babelfontJson;
+                // For text-input mode, the font data hasn't changed — only
+                // the subset changed. Reuse the cached font directly without
+                // storing or patching anything.
+                if (
+                    isTextInputMode &&
+                    isIncrementalSentinel &&
+                    cachedBabelfontJson !== null
+                ) {
+                    timelineMark(
+                        'font.worker.compileEditingCached.ensureFontCached.textInputReused'
+                    );
+                } else {
+                    // For incremental layer updates (sentinel JSON), always
+                    // apply via update_cached_layer without comparing the
+                    // full JSON string.  For full JSON, compare as before.
+                    const needsStore = isIncrementalSentinel
+                        ? true
+                        : cachedFontRevisionKey !== revisionKey ||
+                          cachedBabelfontJson !== babelfontJson;
 
-                // Always refresh cached font data for editing compiles.
-                // This guarantees each compile reflects latest drag edits.
-                if (needsStore) {
-                    const canApplyIncrementalLayerUpdate =
-                        isIncrementalLayerMode &&
-                        typeof dirtyGlyphName === 'string' &&
-                        dirtyGlyphName.length > 0 &&
-                        typeof dirtyLayerId === 'string' &&
-                        dirtyLayerId.length > 0 &&
-                        dirtyLayerData !== undefined &&
-                        (isIncrementalSentinel || cachedBabelfontJson !== null);
+                    // Always refresh cached font data for editing compiles.
+                    // This guarantees each compile reflects latest drag edits.
+                    if (needsStore) {
+                        const canApplyIncrementalLayerUpdate =
+                            isIncrementalLayerMode &&
+                            typeof dirtyGlyphName === 'string' &&
+                            dirtyGlyphName.length > 0 &&
+                            typeof dirtyLayerId === 'string' &&
+                            dirtyLayerId.length > 0 &&
+                            dirtyLayerData !== undefined &&
+                            (isIncrementalSentinel ||
+                                cachedBabelfontJson !== null);
 
-                    let storedViaFullFont = false;
-                    if (canApplyIncrementalLayerUpdate) {
-                        try {
-                            update_cached_layer(
-                                dirtyGlyphName,
-                                dirtyLayerId,
-                                JSON.stringify(dirtyLayerData)
-                            );
-                            timelineMark(
-                                'font.worker.compileEditingCached.ensureFontCached.updatedLayer'
-                            );
-                        } catch (_incrementalError) {
+                        let storedViaFullFont = false;
+                        if (canApplyIncrementalLayerUpdate) {
+                            try {
+                                update_cached_layer(
+                                    dirtyGlyphName,
+                                    dirtyLayerId,
+                                    JSON.stringify(dirtyLayerData)
+                                );
+                                timelineMark(
+                                    'font.worker.compileEditingCached.ensureFontCached.updatedLayer'
+                                );
+                            } catch (_incrementalError) {
+                                if (isIncrementalSentinel) {
+                                    throw new Error(
+                                        'Incremental layer update failed and no full JSON available'
+                                    );
+                                }
+                                store_font(babelfontJson);
+                                storedViaFullFont = true;
+                                timelineMark(
+                                    'font.worker.compileEditingCached.ensureFontCached.fallbackStore'
+                                );
+                            }
+                        } else {
                             if (isIncrementalSentinel) {
                                 throw new Error(
-                                    'Incremental layer update failed and no full JSON available'
+                                    'Incremental sentinel received but cannot apply layer update'
                                 );
                             }
                             store_font(babelfontJson);
                             storedViaFullFont = true;
-                            timelineMark(
-                                'font.worker.compileEditingCached.ensureFontCached.fallbackStore'
-                            );
                         }
-                    } else {
-                        if (isIncrementalSentinel) {
-                            throw new Error(
-                                'Incremental sentinel received but cannot apply layer update'
-                            );
-                        }
-                        store_font(babelfontJson);
-                        storedViaFullFont = true;
-                    }
 
-                    if (!isIncrementalSentinel) {
-                        cachedBabelfontJson = babelfontJson;
-                    }
-                    cachedFontRevisionKey = revisionKey;
-                    lastStoreFontAtMs = performance.now();
-                    dragCompilesSinceStore = 0;
-                    timelineMark(
-                        storedViaFullFont
-                            ? 'font.worker.compileEditingCached.ensureFontCached.stored'
-                            : 'font.worker.compileEditingCached.ensureFontCached.reusedWithLayerUpdate'
-                    );
-                } else {
-                    if (!isDragMode) {
+                        if (!isIncrementalSentinel) {
+                            cachedBabelfontJson = babelfontJson;
+                        }
+                        cachedFontRevisionKey = revisionKey;
+                        lastStoreFontAtMs = performance.now();
                         dragCompilesSinceStore = 0;
+                        timelineMark(
+                            storedViaFullFont
+                                ? 'font.worker.compileEditingCached.ensureFontCached.stored'
+                                : 'font.worker.compileEditingCached.ensureFontCached.reusedWithLayerUpdate'
+                        );
+                    } else {
+                        if (!isDragMode) {
+                            dragCompilesSinceStore = 0;
+                        }
+                        timelineMark(
+                            'font.worker.compileEditingCached.ensureFontCached.reused'
+                        );
                     }
-                    timelineMark(
-                        'font.worker.compileEditingCached.ensureFontCached.reused'
-                    );
-                }
+                } // end: non-text-input path
                 timelineSpanEnd(ensureFontCachedSpanId);
 
                 const primeClosureSpanId = timelineSpanStart(

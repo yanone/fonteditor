@@ -322,7 +322,11 @@ class FontManager {
     glyphOrderCache: string[] | null;
     lastChangeSource: string | null = null; // Track what triggered the last change (keyboard, mouse-drag, etc.)
     lastEditType: 'outline' | 'anchor' | null = null; // Track edit type for compilation optimization
-    lastCompilationMode: 'full' | 'outline-only' | 'anchor-only' = 'full'; // Track last compilation mode
+    lastCompilationMode:
+        | 'full'
+        | 'outline-only'
+        | 'anchor-only'
+        | 'text-input' = 'full'; // Track last compilation mode
     fullCompileDebounceTimer: ReturnType<typeof setTimeout> | null = null; // Timer for debounced full compile after interactive editing
     closureCache: {
         subsetGlyphs: string[];
@@ -1116,8 +1120,11 @@ class FontManager {
             );
             let result;
             let responseRevisionKey = String(this.currentFont.changeVersion);
-            let compilationMode: 'full' | 'outline-only' | 'anchor-only' =
-                'full';
+            let compilationMode:
+                | 'full'
+                | 'outline-only'
+                | 'anchor-only'
+                | 'text-input' = 'full';
             try {
                 timelineMark(
                     'font.compileEditing.closureToCompileBridge.beforeCompileFromJson'
@@ -1187,6 +1194,8 @@ class FontManager {
                     (dragActiveAtRequest ||
                         (incrementalChangeSource !== null &&
                             incrementalChangeSource.startsWith('keyboard')));
+                const isTextInputEdit =
+                    incrementalChangeSource === 'text-input';
                 compilationMode = 'full';
                 let optionOverrides:
                     | {
@@ -1208,6 +1217,16 @@ class FontManager {
                 ) {
                     compilationMode = 'anchor-only';
                     optionOverrides = {
+                        skip_kerning: true,
+                        produce_varc_table: false
+                    };
+                } else if (isTextInputEdit) {
+                    // Text typing: font data unchanged, only subset changed.
+                    // Skip features/kerning for fast compilation;
+                    // a deferred full compile fires after typing settles.
+                    compilationMode = 'text-input';
+                    optionOverrides = {
+                        skip_features: true,
                         skip_kerning: true,
                         produce_varc_table: false
                     };
