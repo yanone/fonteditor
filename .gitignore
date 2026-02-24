@@ -31,6 +31,12 @@ package-lock.json
 # Compilation test outputs
 webapp/compilation-test/output/
 
+# Generated build/test outputs (explicit paths for clarity)
+webapp/build/
+webapp/playwright-report/
+webapp/test-results/
+babelfont-fontc-build/target/
+
 # Playwright test artifacts
 test-results/
 playwright-report/
