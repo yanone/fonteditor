@@ -8,6 +8,7 @@
         "test:type-drift": "cd .. && ./check-type-drift.sh",
         "test:tsc": "tsc --noEmit",
         "test:any-budget": "node scripts/check-explicit-any-budget.mjs",
+        "test:update-type-keywords": "node scripts/update-type-keywords.mjs",
         "test:ui": "playwright test --ui",
         "test:record": "playwright codegen --ignore-https-errors https://localhost:8000",
         "test:debug": "playwright test --debug",

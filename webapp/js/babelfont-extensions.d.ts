@@ -70,3 +70,25 @@ export interface LayerData {
  * Design space location type
  */
 export type DesignspaceLocation = Record<string, number>;
+
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+export interface JsonObject {
+    [key: string]: JsonValue;
+}
+
+export type ModelData = Record<string, unknown>;
+
+export type RuntimeNodeData = Babelfont.Node & {
+    type?: string;
+    nodetype?: string;
+    smooth?: boolean;
+};
+
+export type RuntimePathData = Omit<Babelfont.Path, 'nodes'> & {
+    nodes: RuntimeNodeData[] | string;
+};
+
+export type RuntimeComponentData = Babelfont.Component;
+export type RuntimeAnchorData = Babelfont.Anchor;
+export type RuntimeGuideData = Babelfont.Guide;

@@ -24,6 +24,32 @@ import {
 const console = new Logger('BabelfontModel');
 
 type Unsafe = ReturnType<typeof JSON.parse>;
+type PathData = {
+    nodes: Babelfont.Node[] | string;
+    closed: boolean;
+    format_specific?: Record<string, Unsafe>;
+};
+
+type ComponentData = {
+    reference: string;
+    transform: Babelfont.DecomposedAffine;
+    location?: Record<string, number>;
+    format_specific?: Record<string, Unsafe>;
+};
+
+type AnchorData = {
+    x: number;
+    y: number;
+    name?: string;
+    format_specific?: Record<string, Unsafe>;
+};
+
+type GuideData = {
+    pos: Babelfont.Position;
+    name?: string;
+    color?: Babelfont.Color;
+    format_specific?: Record<string, Unsafe>;
+};
 
 /**
  * DecomposedAffine transformation utilities
@@ -179,11 +205,11 @@ function assertTaggedLayerMaster(master: Unsafe, context: string): void {
 /**
  * Base class for model objects that wrap JSON data
  */
-abstract class ModelBase {
-    protected _data: Unsafe;
-    protected _parentObject: Unsafe = null;
+abstract class ModelBase<TData = Unsafe, TParent = Unsafe> {
+    protected _data: TData;
+    protected _parentObject: TParent | null = null;
 
-    constructor(data: Unsafe, parentObject: Unsafe = null) {
+    constructor(data: TData, parentObject: TParent | null = null) {
         this._data = data;
         this._parentObject = parentObject;
     }
@@ -191,7 +217,7 @@ abstract class ModelBase {
     /**
      * Get the underlying JSON data for this object
      */
-    toJSON(): Unsafe {
+    toJSON(): TData {
         return this._data;
     }
 
@@ -199,7 +225,7 @@ abstract class ModelBase {
      * Get the parent object in the hierarchy
      * @returns The parent object, or null if this is the root Font object
      */
-    parent(): Unsafe {
+    parent(): TParent | null {
         return this._parentObject;
     }
 }
@@ -207,14 +233,17 @@ abstract class ModelBase {
 /**
  * Base class for objects that are elements in an array
  */
-abstract class ArrayElementBase extends ModelBase {
-    protected _parent: Unsafe[];
+abstract class ArrayElementBase<
+    TData = Unsafe,
+    TParent = Unsafe
+> extends ModelBase<TData, TParent> {
+    protected _parent: TData[];
     protected _index: number;
 
     constructor(
-        parent: Unsafe[],
+        parent: TData[],
         index: number,
-        parentObject: Unsafe = null
+        parentObject: TParent | null = null
     ) {
         super(parent[index], parentObject);
         this._parent = parent;
@@ -224,14 +253,14 @@ abstract class ArrayElementBase extends ModelBase {
     /**
      * Get current data (handles index changes)
      */
-    protected get data(): Unsafe {
+    protected get data(): TData {
         return this._parent[this._index];
     }
 
     /**
      * Update underlying data reference and mark font as dirty
      */
-    protected set data(value: Unsafe) {
+    protected set data(value: TData) {
         this._parent[this._index] = value;
         markFontDirty();
     }
@@ -240,7 +269,7 @@ abstract class ArrayElementBase extends ModelBase {
 /**
  * Point in a path
  */
-export class Node extends ArrayElementBase {
+export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     get x(): number {
         return this.data.x;
     }
@@ -286,30 +315,31 @@ export class Node extends ArrayElementBase {
 /**
  * Path (contour) in a layer
  */
-export class Path extends ArrayElementBase {
+export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     private _nodeWrappers: Node[] | null = null;
 
-    get nodes(): Node[] {
-        // If nodes is a string (from babelfont-rs compact format), parse it once
-        // and replace the string with the array in the underlying JSON data.
-        // This ensures all future accesses see the array, and modifications
-        // are properly persisted to the JSON structure.
+    private ensureNodesArray(): Babelfont.Node[] {
         if (typeof this.data.nodes === 'string') {
             this.data.nodes = Path.parseNodesString(this.data.nodes);
         }
 
-        // Ensure nodes is an array (defensive)
         if (!Array.isArray(this.data.nodes)) {
             this.data.nodes = [];
         }
 
+        return this.data.nodes;
+    }
+
+    get nodes(): Node[] {
+        const nodeArray = this.ensureNodesArray();
+
         // Create wrapper objects if needed
         if (
             !this._nodeWrappers ||
-            this._nodeWrappers.length !== this.data.nodes.length
+            this._nodeWrappers.length !== nodeArray.length
         ) {
-            this._nodeWrappers = this.data.nodes.map(
-                (_: Unsafe, i: number) => new Node(this.data.nodes, i, this)
+            this._nodeWrappers = nodeArray.map(
+                (_: Babelfont.Node, i: number) => new Node(nodeArray, i, this)
             );
         }
         return this._nodeWrappers!;
@@ -396,8 +426,7 @@ export class Path extends ArrayElementBase {
             tokens.push(y.toString());
 
             // Get node type - check both 'nodetype' (object model) and 'type' (normalizer)
-            const nodeType =
-                (node as Unsafe).nodetype || (node as Unsafe).type;
+            const nodeType = (node as Unsafe).nodetype || (node as Unsafe).type;
 
             // Map nodetype back to short form
             const typeMap: Record<string, string> = {
@@ -436,7 +465,7 @@ export class Path extends ArrayElementBase {
     }
 
     get closed(): boolean {
-        return this.data.closed;
+        return !!this.data.closed;
     }
 
     set closed(value: boolean) {
@@ -463,14 +492,15 @@ export class Path extends ArrayElementBase {
         nodetype: Babelfont.NodeType = 'Line' as Babelfont.NodeType,
         smooth?: boolean
     ): Node {
+        const nodeArray = this.ensureNodesArray();
         const nodeData: Babelfont.Node = { x, y, nodetype };
         if (smooth !== undefined) {
             nodeData.smooth = smooth;
         }
 
-        this.data.nodes.splice(index, 0, nodeData);
+        nodeArray.splice(index, 0, nodeData);
         this._nodeWrappers = null; // Invalidate cache
-        return new Node(this.data.nodes, index);
+        return new Node(nodeArray, index, this);
     }
 
     /**
@@ -479,7 +509,7 @@ export class Path extends ArrayElementBase {
      * path.removeNode(0)  # Remove first node
      */
     removeNode(index: number): void {
-        this.data.nodes.splice(index, 1);
+        this.ensureNodesArray().splice(index, 1);
         this._nodeWrappers = null; // Invalidate cache
     }
 
@@ -495,7 +525,13 @@ export class Path extends ArrayElementBase {
         nodetype: Babelfont.NodeType = 'Line' as Babelfont.NodeType,
         smooth?: boolean
     ): Node {
-        return this.insertNode(this.data.nodes.length, x, y, nodetype, smooth);
+        return this.insertNode(
+            this.ensureNodesArray().length,
+            x,
+            y,
+            nodetype,
+            smooth
+        );
     }
 
     toString(): string {
@@ -510,7 +546,7 @@ export class Path extends ArrayElementBase {
 /**
  * Component reference to another glyph
  */
-export class Component extends ArrayElementBase {
+export class Component extends ArrayElementBase<ComponentData, Shape> {
     get reference(): string {
         return this.data.reference;
     }
@@ -693,7 +729,7 @@ export class Component extends ArrayElementBase {
 /**
  * Anchor point in a layer
  */
-export class Anchor extends ArrayElementBase {
+export class Anchor extends ArrayElementBase<AnchorData, Layer> {
     get x(): number {
         return this.data.x;
     }
@@ -735,7 +771,7 @@ export class Anchor extends ArrayElementBase {
 /**
  * Guideline in a layer or master
  */
-export class Guide extends ArrayElementBase {
+export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     get pos(): Babelfont.Position {
         return this.data.pos;
     }
@@ -1067,8 +1103,7 @@ export class Layer extends ArrayElementBase {
             this._anchorWrappers.length !== this.data.anchors.length
         ) {
             this._anchorWrappers = this.data.anchors.map(
-                (_: Unsafe, i: number) =>
-                    new Anchor(this.data.anchors, i, this)
+                (_: Unsafe, i: number) => new Anchor(this.data.anchors, i, this)
             );
         }
         return this._anchorWrappers!;
@@ -1579,7 +1614,9 @@ export class Layer extends ArrayElementBase {
                             pathData.nodes
                         );
                     }
-                    paths.push(pathData);
+                    if (Array.isArray(pathData.nodes)) {
+                        paths.push(pathData as Babelfont.Path);
+                    }
                 }
             }
         }
@@ -1609,7 +1646,9 @@ export class Layer extends ArrayElementBase {
                             pathData.nodes
                         );
                     }
-                    paths.push(pathData);
+                    if (Array.isArray(pathData.nodes)) {
+                        paths.push(pathData as Babelfont.Path);
+                    }
                 }
             } else if (shape.isComponent()) {
                 // Get transformed paths from component recursively
@@ -1846,9 +1885,7 @@ export class Layer extends ArrayElementBase {
                     const curve = new Bezier(segment.points);
 
                     // Find intersections between this curve segment and the line
-                    const curveIntersections = curve.intersects(
-                        line as Unsafe
-                    );
+                    const curveIntersections = curve.intersects(line as Unsafe);
 
                     if (Array.isArray(curveIntersections)) {
                         for (const result of curveIntersections) {
@@ -2533,9 +2570,7 @@ export class Glyph extends ArrayElementBase {
         // Generate a unique ID for the layer
         let layerId: string;
         const existingIds = new Set(
-            this.data.layers
-                .map((l: Unsafe) => l.id)
-                .filter((id: Unsafe) => id)
+            this.data.layers.map((l: Unsafe) => l.id).filter((id: Unsafe) => id)
         );
         do {
             layerId = crypto.randomUUID();

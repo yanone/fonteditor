@@ -151,18 +151,20 @@ This script:
 - Use PascalCase for classes
 - Add JSDoc comments for complex functions
 - When adding properties to the global `window` object, type them in `js/index.d.ts`
+- Do not introduce new `any` or `unknown` types; replace existing uses with concrete, domain-specific types wherever possible
+- Exceptions are allowed only at typed boundary adapters (I/O, parsed JSON, external/plugin data), and must be immediately narrowed via dedicated type guards or parser functions
 
 **Console Logging Convention:**
 
 All TypeScript files MUST use the Logger class from `js/logger.ts`:
 
 ```typescript
-import { Logger } from './logger';
-const console = new Logger('FacilityName');
+import { Logger } from "./logger";
+const console = new Logger("FacilityName");
 
-console.log("Compiling font...");        // Conditional on registry
+console.log("Compiling font..."); // Conditional on registry
 console.warn("Script execution failed"); // Always printed
-console.error("Critical error");         // Always printed
+console.error("Critical error"); // Always printed
 ```
 
 **Facility Registry Control:**
@@ -172,8 +174,8 @@ The `FACILITY_REGISTRY` in `js/logger.ts` controls which facilities print normal
 ```typescript
 // Edit the registry directly in logger.ts:
 export const FACILITY_REGISTRY: Record<string, boolean> = {
-    FontCompilation: false,  // Disabled - only errors/warnings print
-    GlyphCanvas: true,       // Enabled - all logs print
+    FontCompilation: false, // Disabled - only errors/warnings print
+    GlyphCanvas: true, // Enabled - all logs print
     // ...
 };
 ```
@@ -182,12 +184,12 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
 
 ```javascript
 // Toggle facilities at runtime
-Logger.disable('GlyphCanvas');           // Mute normal logs
-Logger.enable('GlyphCanvas');            // Unmute normal logs
-Logger.isEnabled('GlyphCanvas');         // Check status
-Logger.getRegistry();                    // See all facilities
-Logger.enableOnly(['FontManager']);      // Enable only specific facilities
-Logger.reset();                          // Enable all facilities
+Logger.disable("GlyphCanvas"); // Mute normal logs
+Logger.enable("GlyphCanvas"); // Unmute normal logs
+Logger.isEnabled("GlyphCanvas"); // Check status
+Logger.getRegistry(); // See all facilities
+Logger.enableOnly(["FontManager"]); // Enable only specific facilities
+Logger.reset(); // Enable all facilities
 
 // Or access the registry directly
 window.FACILITY_REGISTRY.GlyphCanvas = false;
@@ -216,8 +218,8 @@ const tempContainer = document.createElement("div");
 
 // Swap in single paint cycle
 requestAnimationFrame(() => {
-  container.innerHTML = "";
-  container.appendChild(tempContainer);
+    container.innerHTML = "";
+    container.appendChild(tempContainer);
 });
 ```
 
@@ -227,9 +229,9 @@ All tippy menus MUST use the shared utilities from `js/tippy-utils.ts`:
 
 ```typescript
 import {
-  getOrCreateBackdrop,
-  addTippyBackdropSupport,
-  getTheme,
+    getOrCreateBackdrop,
+    addTippyBackdropSupport,
+    getTheme,
 } from "./tippy-utils";
 
 // Create backdrop
@@ -237,21 +239,21 @@ const backdrop = getOrCreateBackdrop("my-menu-backdrop");
 
 // Create tippy instance
 const tippyInstance = tippy(element, {
-  content: menuHtml,
-  allowHTML: true,
-  trigger: "manual",
-  interactive: true,
-  theme: getTheme(),
-  // ... other options
+    content: menuHtml,
+    allowHTML: true,
+    trigger: "manual",
+    interactive: true,
+    theme: getTheme(),
+    // ... other options
 });
 
 // Add backdrop support (enables click-outside-to-close + Escape key)
 addTippyBackdropSupport(tippyInstance, backdrop, {
-  targetElement: element, // Optional: element to add active class
-  activeClass: "menu-active", // Optional: class to add when menu shown
-  onEscape: () => {
-    /* ... */
-  }, // Optional: additional Escape handler
+    targetElement: element, // Optional: element to add active class
+    activeClass: "menu-active", // Optional: class to add when menu shown
+    onEscape: () => {
+        /* ... */
+    }, // Optional: additional Escape handler
 });
 ```
 
@@ -268,12 +270,12 @@ addTippyBackdropSupport(tippyInstance, backdrop, {
 ```css
 /* WRONG */
 .button {
-  background-color: #ff00ff;
+    background-color: #ff00ff;
 }
 
 /* CORRECT */
 .button {
-  background-color: var(--accent-magenta);
+    background-color: var(--accent-magenta);
 }
 ```
 
