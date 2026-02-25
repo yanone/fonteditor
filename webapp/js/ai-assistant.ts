@@ -429,7 +429,7 @@ class AIAssistant {
                 // Restore saved model from localStorage, or use server default
                 const savedModel = localStorage.getItem('ai_selected_model');
                 const validModel = this.availableModels.find(
-                    (m: any) => m.id === savedModel
+                    (m: { id: string }) => m.id === savedModel
                 );
                 if (validModel) {
                     this.selectedModelId = savedModel;
@@ -477,7 +477,7 @@ class AIAssistant {
 
     updateModelButtonText() {
         const model = this.availableModels.find(
-            (m: any) => m.id === this.selectedModelId
+            (m: { id: string }) => m.id === this.selectedModelId
         );
         if (model && this.modelBtnName) {
             this.modelBtnName.textContent = model.shortName;
@@ -489,7 +489,7 @@ class AIAssistant {
 
         this.modelPickerList.innerHTML = '';
 
-        this.availableModels.forEach((model: any) => {
+        this.availableModels.forEach((model: Record<string, any>) => {
             const option = document.createElement('div');
             option.className =
                 'ai-model-option' +
@@ -523,8 +523,12 @@ class AIAssistant {
         // Update selected state in picker
         const options =
             this.modelPickerList.querySelectorAll('.ai-model-option');
-        options.forEach((opt: any) => {
-            opt.classList.toggle('selected', opt.dataset.modelId === modelId);
+        options.forEach((opt: Element) => {
+            const optionEl = opt as HTMLElement;
+            optionEl.classList.toggle(
+                'selected',
+                optionEl.dataset.modelId === modelId
+            );
         });
 
         this.closeModelPicker();
@@ -731,17 +735,15 @@ class AIAssistant {
         const assistantView = document.getElementById('view-assistant');
         if (!assistantView) return;
 
-        assistantView.addEventListener('click', (event: any) => {
+        assistantView.addEventListener('click', (event: MouseEvent) => {
+            const target = event.target as Element | null;
             // Don't activate if clicking on a button or select
-            if (
-                event.target.closest('button') ||
-                event.target.closest('select')
-            ) {
+            if (target?.closest('button') || target?.closest('select')) {
                 return;
             }
 
             // Don't activate if clicking on the text field itself
-            if (event.target.id === 'ai-prompt') {
+            if (target?.id === 'ai-prompt') {
                 return;
             }
 
@@ -823,10 +825,11 @@ class AIAssistant {
         const allRunButtons = document.querySelectorAll(
             '.ai-run-in-console-btn'
         );
-        allRunButtons.forEach((btn: any) => {
-            const text = btn.textContent || btn.innerText;
+        allRunButtons.forEach((btn: Element) => {
+            const button = btn as HTMLElement;
+            const text = button.textContent || button.innerText;
             if (text.includes('Run in Console')) {
-                btn.innerHTML =
+                button.innerHTML =
                     '<span class="material-symbols-outlined">play_arrow</span>Run in Console';
             }
         });
@@ -834,26 +837,30 @@ class AIAssistant {
         const allOpenButtons = document.querySelectorAll(
             '.ai-open-in-editor-btn'
         );
-        allOpenButtons.forEach((btn: any) => {
-            const text = btn.textContent || btn.innerText;
+        allOpenButtons.forEach((btn: Element) => {
+            const button = btn as HTMLElement;
+            const text = button.textContent || button.innerText;
             if (
                 text.includes(window.translations.ai.buttons.openInEditor.text)
             ) {
-                btn.innerHTML = `<span class="material-symbols-outlined">edit</span>${window.translations.ai.buttons.openInEditor.text}`;
-                btn.title = window.translations.ai.buttons.openInEditor.title;
+                button.innerHTML = `<span class="material-symbols-outlined">edit</span>${window.translations.ai.buttons.openInEditor.text}`;
+                button.title =
+                    window.translations.ai.buttons.openInEditor.title;
             }
         });
 
         const allReviewButtons = document.querySelectorAll(
             '.ai-review-changes-btn'
         );
-        allReviewButtons.forEach((btn: any) => {
-            const text = btn.textContent || btn.innerText;
+        allReviewButtons.forEach((btn: Element) => {
+            const button = btn as HTMLElement;
+            const text = button.textContent || button.innerText;
             if (
                 text.includes(window.translations.ai.buttons.reviewChanges.text)
             ) {
-                btn.innerHTML = `<span class="material-symbols-outlined">visibility</span>${window.translations.ai.buttons.reviewChanges.text}`;
-                btn.title = window.translations.ai.buttons.reviewChanges.title;
+                button.innerHTML = `<span class="material-symbols-outlined">visibility</span>${window.translations.ai.buttons.reviewChanges.text}`;
+                button.title =
+                    window.translations.ai.buttons.reviewChanges.title;
             }
         });
 

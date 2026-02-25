@@ -3,6 +3,8 @@
     let currentFocusedView: string | null = null;
     let isFocusing = false; // Prevent recursive focus calls
 
+    type ResizeConfig = { width: number; height: number };
+
     // Get view settings from the global VIEW_SETTINGS object
     function getViewSettings() {
         if (!window.VIEW_SETTINGS) {
@@ -552,8 +554,8 @@
         // Apply to all views and rows
         document
             .querySelectorAll('.view, .top-row, .bottom-row')
-            .forEach((element: any) => {
-                element.style.transition = transition;
+            .forEach((element: Element) => {
+                (element as HTMLElement).style.transition = transition;
             });
     }
 
@@ -563,8 +565,8 @@
     function disableTransitions() {
         document
             .querySelectorAll('.view, .top-row, .bottom-row')
-            .forEach((element: any) => {
-                element.style.transition = '';
+            .forEach((element: Element) => {
+                (element as HTMLElement).style.transition = '';
             });
     }
 
@@ -628,7 +630,9 @@
             );
 
             // Find non-collapsed views (excluding the one being collapsed)
-            const otherViews = views.filter((v, i) => i !== viewIndex) as any[];
+            const otherViews = views.filter(
+                (v, i) => i !== viewIndex
+            ) as HTMLElement[];
             const nonCollapsedOtherViews = otherViews.filter(
                 (v) => v.offsetWidth > 24 + 5
             );
@@ -724,8 +728,8 @@
      */
     function resizeTopRowView(
         viewId: string,
-        view: any,
-        resizeConfig: any,
+        view: HTMLElement,
+        resizeConfig: ResizeConfig,
         containerWidth: number,
         containerHeight: number,
         forceResize = false
@@ -775,7 +779,8 @@
             if (totalOtherWidth >= minWidthPerOther * otherViews.length) {
                 // When forceResize is true (maximizing), collapse all other views
                 // Otherwise, separate based on current collapsed state
-                let collapsedViews: any[], nonCollapsedViews: any[];
+                let collapsedViews: HTMLElement[],
+                    nonCollapsedViews: HTMLElement[];
 
                 if (forceResize) {
                     // Maximize mode: treat all other views as collapsed
@@ -784,10 +789,11 @@
                 } else {
                     // Normal resize: separate based on current width
                     collapsedViews = otherViews.filter(
-                        (v: any) => v.offsetWidth <= fontinfoMinWidth + 5
+                        (v: HTMLElement) =>
+                            v.offsetWidth <= fontinfoMinWidth + 5
                     ); // 5px tolerance
                     nonCollapsedViews = otherViews.filter(
-                        (v: any) => v.offsetWidth > fontinfoMinWidth + 5
+                        (v: HTMLElement) => v.offsetWidth > fontinfoMinWidth + 5
                     );
                 }
 
@@ -847,8 +853,8 @@
      */
     function resizeBottomRowView(
         viewId: string,
-        view: any,
-        resizeConfig: any,
+        view: HTMLElement,
+        resizeConfig: ResizeConfig,
         containerWidth: number,
         containerHeight: number,
         forceResize = false
@@ -1050,7 +1056,7 @@
         // Capture console scroll position IMMEDIATELY if activating console
         // (before anything else that might trigger scroll)
         let consoleScrollBefore = 0;
-        let terminalScroller: any = null;
+        let terminalScroller: HTMLElement | null = null;
         if (viewId === 'view-console') {
             // Use scroll position from click handler if available (most accurate)
             if (consoleScrollFromClick !== null) {
@@ -1084,8 +1090,8 @@
         console.log('[KeyboardNav]', 'focusView called with:', viewId);
 
         // Remove focus from all views
-        document.querySelectorAll('.view').forEach((view: any) => {
-            view.classList.remove('focused');
+        document.querySelectorAll('.view').forEach((view: Element) => {
+            (view as HTMLElement).classList.remove('focused');
         });
 
         // Add focus to the target view
@@ -1281,11 +1287,11 @@
     /**
      * Check if element is a text input where Cmd+A should be allowed
      */
-    function isTextInputElement(element: any) {
+    function isTextInputElement(element: HTMLElement | null) {
         if (!element) return false;
 
         const tagName = element.tagName?.toLowerCase();
-        const type = element.type?.toLowerCase();
+        const type = (element as HTMLInputElement).type?.toLowerCase();
 
         // Allow in input fields (except non-text types)
         if (tagName === 'input') {
@@ -1340,7 +1346,7 @@
         }
 
         // Prevent browser back navigation shortcuts to avoid accidentally closing the app
-        const activeElement = document.activeElement;
+        const activeElement = document.activeElement as HTMLElement | null;
         const isInTextInput = isTextInputElement(activeElement);
 
         // Backspace - browser back (when not in text input)
@@ -1417,7 +1423,7 @@
         const isCmdA = cmdKey && key === 'a' && !shiftKey && !event.altKey;
 
         if (isCmdA) {
-            const activeElement = document.activeElement;
+            const activeElement = document.activeElement as HTMLElement | null;
             const tagName = activeElement?.tagName?.toLowerCase();
 
             console.log('[KeyboardNav]', 'Cmd+A detected - activeElement:', {
@@ -1479,7 +1485,14 @@
 
         // Check each view's shortcut
         for (const [viewId, config] of Object.entries(
-            shortcuts as Record<string, any>
+            shortcuts as Record<
+                string,
+                {
+                    key: string;
+                    modifiers: { cmd: boolean; shift: boolean };
+                    secondaryBehavior?: string;
+                }
+            >
         )) {
             if (config.modifiers.cmd && !cmdKey) continue;
             if (config.modifiers.shift && !shiftKey) continue;
@@ -1570,8 +1583,8 @@
         document.addEventListener('keydown', handleKeyDown, true);
 
         // Add click listeners to all views
-        document.querySelectorAll('.view').forEach((view: any) => {
-            view.addEventListener('click', handleViewClick);
+        document.querySelectorAll('.view').forEach((view: Element) => {
+            (view as HTMLElement).addEventListener('click', handleViewClick);
         });
 
         // Add special early capture for console clicks to grab scroll position

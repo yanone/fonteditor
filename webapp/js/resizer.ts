@@ -72,30 +72,32 @@ class ResizableViews {
             ? window.getCurrentFocusedView()
             : null;
 
-        views.forEach((view: any) => {
+        views.forEach((view: Element) => {
+            const viewEl = view as HTMLElement;
             // Skip the editor (primary view)
-            if (view.classList.contains('view-editor')) return;
+            if (viewEl.classList.contains('view-editor')) return;
 
-            const rect = view.getBoundingClientRect();
+            const rect = viewEl.getBoundingClientRect();
             const titleBarHeight = ResizableViews.TITLE_BAR_HEIGHT;
             const threshold = 5; // Tolerance for float comparison
 
             if (
-                view.classList.contains('view-fontinfo') ||
-                view.classList.contains('view-overview')
+                viewEl.classList.contains('view-fontinfo') ||
+                viewEl.classList.contains('view-overview')
             ) {
                 // Font info and overview collapse by width
                 const isWidthCollapsed =
                     rect.width <= ResizableViews.FONTINFO_MIN_WIDTH + threshold;
-                const wasCollapsed = view.classList.contains('collapsed-width');
-                view.classList.toggle('collapsed-width', isWidthCollapsed);
-                view.classList.remove('collapsed');
+                const wasCollapsed =
+                    viewEl.classList.contains('collapsed-width');
+                viewEl.classList.toggle('collapsed-width', isWidthCollapsed);
+                viewEl.classList.remove('collapsed');
 
                 // If this view just became collapsed and it was the focused view, mark to focus editor
                 if (
                     isWidthCollapsed &&
                     !wasCollapsed &&
-                    view.id === currentFocusedView
+                    viewEl.id === currentFocusedView
                 ) {
                     shouldFocusEditor = true;
                 }
@@ -103,15 +105,15 @@ class ResizableViews {
                 // Other secondary views collapse by height
                 const isHeightCollapsed =
                     rect.height <= titleBarHeight + threshold;
-                const wasCollapsed = view.classList.contains('collapsed');
-                view.classList.toggle('collapsed', isHeightCollapsed);
-                view.classList.remove('collapsed-width');
+                const wasCollapsed = viewEl.classList.contains('collapsed');
+                viewEl.classList.toggle('collapsed', isHeightCollapsed);
+                viewEl.classList.remove('collapsed-width');
 
                 // If this view just became collapsed and it was the focused view, mark to focus editor
                 if (
                     isHeightCollapsed &&
                     !wasCollapsed &&
-                    view.id === currentFocusedView
+                    viewEl.id === currentFocusedView
                 ) {
                     shouldFocusEditor = true;
                 }
@@ -137,8 +139,12 @@ class ResizableViews {
             const threshold = 5;
 
             let totalFixedWidth = 0;
-            const collapsedViews: Array<{ view: any; width: number }> = [];
-            const nonCollapsedViews: Array<{ view: any; width: number }> = [];
+            const collapsedViews: Array<{ view: HTMLElement; width: number }> =
+                [];
+            const nonCollapsedViews: Array<{
+                view: HTMLElement;
+                width: number;
+            }> = [];
 
             // Identify collapsed and non-collapsed views
             views.forEach((view) => {
@@ -188,8 +194,12 @@ class ResizableViews {
             const threshold = 5;
 
             let totalFixedHeight = 0;
-            const collapsedViews: Array<{ view: any; height: number }> = [];
-            const nonCollapsedViews: Array<{ view: any; height: number }> = [];
+            const collapsedViews: Array<{ view: HTMLElement; height: number }> =
+                [];
+            const nonCollapsedViews: Array<{
+                view: HTMLElement;
+                height: number;
+            }> = [];
 
             // Identify collapsed and non-collapsed views
             views.forEach((view) => {
@@ -220,9 +230,10 @@ class ResizableViews {
             '.horizontal-divider'
         ) as HTMLElement | null;
 
-        verticalDividers.forEach((divider: any) => {
-            divider.addEventListener('mousedown', (e: MouseEvent) =>
-                this.startResize(e, 'vertical')
+        verticalDividers.forEach((divider: Element) => {
+            const dividerEl = divider as HTMLElement;
+            dividerEl.addEventListener('mousedown', (e: Event) =>
+                this.startResize(e as MouseEvent, 'vertical')
             );
         });
 
@@ -261,7 +272,10 @@ class ResizableViews {
                 return;
             }
 
-            const layout = JSON.parse(saved) as any;
+            const layout = JSON.parse(saved) as {
+                horizontal?: { top: string; bottom: string };
+                vertical?: { top?: string[]; bottom?: string[] };
+            };
             console.log('[Resizer]', 'Loading view layout:', layout);
 
             // Apply horizontal layout
@@ -296,28 +310,32 @@ class ResizableViews {
             // Apply vertical layouts
             if (layout.vertical) {
                 if (layout.vertical.top) {
+                    const topLayout = layout.vertical.top;
                     const topRow = document.querySelector(
                         '.top-row'
                     ) as HTMLElement | null;
                     const topViews = topRow?.querySelectorAll('.view');
-                    topViews?.forEach((view: any, index: number) => {
-                        if (layout.vertical.top[index] !== undefined) {
-                            const savedFlex = layout.vertical.top[index];
+                    topViews?.forEach((view: Element, index: number) => {
+                        const viewEl = view as HTMLElement;
+                        if (topLayout[index] !== undefined) {
+                            const savedFlex = topLayout[index];
                             // Check if this is a fontinfo/overview view that should be collapsed
                             if (
-                                (view.classList.contains('view-fontinfo') ||
-                                    view.classList.contains('view-overview')) &&
+                                (viewEl.classList.contains('view-fontinfo') ||
+                                    viewEl.classList.contains(
+                                        'view-overview'
+                                    )) &&
                                 !savedFlex.includes('0 0')
                             ) {
                                 // Convert old flex ratio to fixed pixel width if it's very small (collapsed)
                                 const flexValue = parseFloat(savedFlex);
                                 if (flexValue < 0.05) {
-                                    view.style.flex = `0 0 24px`;
+                                    viewEl.style.flex = `0 0 24px`;
                                 } else {
-                                    view.style.flex = savedFlex;
+                                    viewEl.style.flex = savedFlex;
                                 }
                             } else {
-                                view.style.flex = savedFlex;
+                                viewEl.style.flex = savedFlex;
                             }
                         }
                     });
@@ -328,13 +346,15 @@ class ResizableViews {
                 }
 
                 if (layout.vertical.bottom) {
+                    const bottomLayout = layout.vertical.bottom;
                     const bottomRow = document.querySelector(
                         '.bottom-row'
                     ) as HTMLElement | null;
                     const bottomViews = bottomRow?.querySelectorAll('.view');
-                    bottomViews?.forEach((view: any, index: number) => {
-                        if (layout.vertical.bottom[index] !== undefined) {
-                            view.style.flex = layout.vertical.bottom[index];
+                    bottomViews?.forEach((view: Element, index: number) => {
+                        const viewEl = view as HTMLElement;
+                        if (bottomLayout[index] !== undefined) {
+                            viewEl.style.flex = bottomLayout[index];
                         }
                     });
                     console.log(
@@ -411,14 +431,18 @@ class ResizableViews {
 
             // Save top row views
             const topViews = topRow?.querySelectorAll('.view');
-            topViews?.forEach((view: any) => {
-                layout.vertical.top.push(view.style.flex || '1');
+            topViews?.forEach((view: Element) => {
+                layout.vertical.top.push(
+                    (view as HTMLElement).style.flex || '1'
+                );
             });
 
             // Save bottom row views
             const bottomViews = bottomRow?.querySelectorAll('.view');
-            bottomViews?.forEach((view: any) => {
-                layout.vertical.bottom.push(view.style.flex || '1');
+            bottomViews?.forEach((view: Element) => {
+                layout.vertical.bottom.push(
+                    (view as HTMLElement).style.flex || '1'
+                );
             });
 
             localStorage.setItem('viewLayout', JSON.stringify(layout));
@@ -458,9 +482,10 @@ class ResizableViews {
         const container = this.currentDivider.parentElement;
         const views = container.querySelectorAll('.view');
 
-        views.forEach((view: any, index: number) => {
-            const actualWidth = view.offsetWidth;
-            const minWidth = this.getMinWidth(view);
+        views.forEach((view: Element, index: number) => {
+            const viewEl = view as HTMLElement;
+            const actualWidth = viewEl.offsetWidth;
+            const minWidth = this.getMinWidth(viewEl);
             // If view is collapsed, lock to exact minimum width to prevent drift
             const isCollapsed = actualWidth <= minWidth + 5;
             this.startWidths[index] = isCollapsed ? minWidth : actualWidth;
