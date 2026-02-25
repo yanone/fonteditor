@@ -52,7 +52,10 @@ type ChangedPathRecord = {
 };
 
 type MenuElement = HTMLElement & { _handlersSetup?: boolean };
-type TippyHostElement = HTMLElement & { _tippy?: TippyInstance; _hasMenu?: boolean };
+type TippyHostElement = HTMLElement & {
+    _tippy?: TippyInstance;
+    _hasMenu?: boolean;
+};
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -215,7 +218,9 @@ function changedPathsAffectCurrentFont(
     );
 }
 
-function hasUnsavedFontChanges(currentFont: { hasUnsavedChanges?: boolean } | null): boolean {
+function hasUnsavedFontChanges(
+    currentFont: { hasUnsavedChanges?: boolean } | null
+): boolean {
     if (!currentFont) {
         return false;
     }

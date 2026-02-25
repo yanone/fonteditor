@@ -1059,7 +1059,8 @@ export class Layer extends ArrayElementBase {
             this._anchorWrappers.length !== this.data.anchors.length
         ) {
             this._anchorWrappers = this.data.anchors.map(
-                (_: unknown, i: number) => new Anchor(this.data.anchors, i, this)
+                (_: unknown, i: number) =>
+                    new Anchor(this.data.anchors, i, this)
             );
         }
         return this._anchorWrappers!;
@@ -2790,8 +2791,7 @@ export class Master extends ArrayElementBase {
             this._guideWrappers.length !== this.data.guides.length
         ) {
             this._guideWrappers = this.data.guides.map(
-                (_: unknown, i: number) =>
-                    new Guide(this.data.guides, i, this)
+                (_: unknown, i: number) => new Guide(this.data.guides, i, this)
             );
         }
         return this._guideWrappers!;
@@ -2989,8 +2989,7 @@ export class Font extends ModelBase {
             this._glyphWrappers.length !== this._data.glyphs.length
         ) {
             this._glyphWrappers = this._data.glyphs.map(
-                (_: unknown, i: number) =>
-                    new Glyph(this._data.glyphs, i, this)
+                (_: unknown, i: number) => new Glyph(this._data.glyphs, i, this)
             );
         }
         return this._glyphWrappers!;
