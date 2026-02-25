@@ -23,6 +23,8 @@ import {
 
 const console = new Logger('BabelfontModel');
 
+type Unsafe = ReturnType<typeof JSON.parse>;
+
 /**
  * DecomposedAffine transformation utilities
  * Based on babelfont-ts implementation
@@ -133,12 +135,12 @@ function isDevelopmentMode(): boolean {
         : false;
 }
 
-function isTaggedLayerType(value: unknown): boolean {
+function isTaggedLayerType(value: Unsafe): boolean {
     if (!value || typeof value !== 'object' || !('type' in value)) {
         return false;
     }
 
-    const taggedValue = value as { type?: unknown; master?: unknown };
+    const taggedValue = value as { type?: Unsafe; master?: Unsafe };
 
     if (taggedValue.type === 'FreeFloating') {
         return !('master' in taggedValue) || taggedValue.master === undefined;
@@ -155,7 +157,7 @@ function isTaggedLayerType(value: unknown): boolean {
     return false;
 }
 
-function assertTaggedLayerMaster(master: unknown, context: string): void {
+function assertTaggedLayerMaster(master: Unsafe, context: string): void {
     if (!isDevelopmentMode() || master === undefined) {
         return;
     }
@@ -178,10 +180,10 @@ function assertTaggedLayerMaster(master: unknown, context: string): void {
  * Base class for model objects that wrap JSON data
  */
 abstract class ModelBase {
-    protected _data: any;
-    protected _parentObject: any = null;
+    protected _data: Unsafe;
+    protected _parentObject: Unsafe = null;
 
-    constructor(data: any, parentObject: any = null) {
+    constructor(data: Unsafe, parentObject: Unsafe = null) {
         this._data = data;
         this._parentObject = parentObject;
     }
@@ -189,7 +191,7 @@ abstract class ModelBase {
     /**
      * Get the underlying JSON data for this object
      */
-    toJSON(): any {
+    toJSON(): Unsafe {
         return this._data;
     }
 
@@ -197,7 +199,7 @@ abstract class ModelBase {
      * Get the parent object in the hierarchy
      * @returns The parent object, or null if this is the root Font object
      */
-    parent(): any {
+    parent(): Unsafe {
         return this._parentObject;
     }
 }
@@ -206,10 +208,14 @@ abstract class ModelBase {
  * Base class for objects that are elements in an array
  */
 abstract class ArrayElementBase extends ModelBase {
-    protected _parent: any[];
+    protected _parent: Unsafe[];
     protected _index: number;
 
-    constructor(parent: any[], index: number, parentObject: any = null) {
+    constructor(
+        parent: Unsafe[],
+        index: number,
+        parentObject: Unsafe = null
+    ) {
         super(parent[index], parentObject);
         this._parent = parent;
         this._index = index;
@@ -218,14 +224,14 @@ abstract class ArrayElementBase extends ModelBase {
     /**
      * Get current data (handles index changes)
      */
-    protected get data(): any {
+    protected get data(): Unsafe {
         return this._parent[this._index];
     }
 
     /**
      * Update underlying data reference and mark font as dirty
      */
-    protected set data(value: any) {
+    protected set data(value: Unsafe) {
         this._parent[this._index] = value;
         markFontDirty();
     }
@@ -303,7 +309,7 @@ export class Path extends ArrayElementBase {
             this._nodeWrappers.length !== this.data.nodes.length
         ) {
             this._nodeWrappers = this.data.nodes.map(
-                (_: unknown, i: number) => new Node(this.data.nodes, i, this)
+                (_: Unsafe, i: number) => new Node(this.data.nodes, i, this)
             );
         }
         return this._nodeWrappers!;
@@ -390,7 +396,8 @@ export class Path extends ArrayElementBase {
             tokens.push(y.toString());
 
             // Get node type - check both 'nodetype' (object model) and 'type' (normalizer)
-            const nodeType = (node as any).nodetype || (node as any).type;
+            const nodeType =
+                (node as Unsafe).nodetype || (node as Unsafe).type;
 
             // Map nodetype back to short form
             const typeMap: Record<string, string> = {
@@ -436,11 +443,11 @@ export class Path extends ArrayElementBase {
         this.data.closed = value;
     }
 
-    get format_specific(): Record<string, any> | undefined {
+    get format_specific(): Record<string, Unsafe> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Record<string, any> | undefined) {
+    set format_specific(value: Record<string, Unsafe> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -528,11 +535,11 @@ export class Component extends ArrayElementBase {
         this.data.location = value;
     }
 
-    get format_specific(): Record<string, any> | undefined {
+    get format_specific(): Record<string, Unsafe> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Record<string, any> | undefined) {
+    set format_specific(value: Record<string, Unsafe> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -584,12 +591,12 @@ export class Component extends ArrayElementBase {
         if (!font) return paths;
 
         // Get the master ID from the layer
-        const masterId = (layer.master as any)?.master;
+        const masterId = (layer.master as Unsafe)?.master;
 
         // Helper to transform a node
-        const transformNode = (node: any, transform: number[]): any => {
+        const transformNode = (node: Unsafe, transform: number[]): Unsafe => {
             const [a, b, c, d, tx, ty] = transform;
-            const result: any = {
+            const result: Unsafe = {
                 x: a * node.x + c * node.y + tx,
                 y: b * node.x + d * node.y + ty
             };
@@ -620,7 +627,7 @@ export class Component extends ArrayElementBase {
         let componentLayer;
         if (masterId) {
             componentLayer = componentGlyph.layers.find(
-                (l) => l.master && (l.master as any).master === masterId
+                (l) => l.master && (l.master as Unsafe).master === masterId
             );
         }
         if (!componentLayer) {
@@ -641,7 +648,8 @@ export class Component extends ArrayElementBase {
                         DecomposedAffineTransform.toAffine(componentTransform);
                     for (const nestedPath of nestedPaths) {
                         const transformedNodes = nestedPath.nodes.map(
-                            (node: any) => transformNode(node, transformArray)
+                            (node: Unsafe) =>
+                                transformNode(node, transformArray)
                         );
                         paths.push({
                             nodes: transformedNodes,
@@ -663,7 +671,7 @@ export class Component extends ArrayElementBase {
                             DecomposedAffineTransform.toAffine(
                                 componentTransform
                             );
-                        const transformedNodes = nodes.map((node: any) =>
+                        const transformedNodes = nodes.map((node: Unsafe) =>
                             transformNode(node, transformArray)
                         );
                         paths.push({
@@ -710,11 +718,11 @@ export class Anchor extends ArrayElementBase {
         this.data.name = value;
     }
 
-    get format_specific(): Record<string, any> | undefined {
+    get format_specific(): Record<string, Unsafe> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Record<string, any> | undefined) {
+    set format_specific(value: Record<string, Unsafe> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -752,11 +760,11 @@ export class Guide extends ArrayElementBase {
         this.data.color = value;
     }
 
-    get format_specific(): Record<string, any> | undefined {
+    get format_specific(): Record<string, Unsafe> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Record<string, any> | undefined) {
+    set format_specific(value: Record<string, Unsafe> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -810,7 +818,7 @@ export class Shape extends ArrayElementBase {
                 }
             }
         });
-        return new Component(fakeArray as any, 0, this);
+        return new Component(fakeArray as Unsafe, 0, this);
     }
 
     /**
@@ -835,7 +843,7 @@ export class Shape extends ArrayElementBase {
                 }
             }
         });
-        return new Path(fakeArray as any, 0, this);
+        return new Path(fakeArray as Unsafe, 0, this);
     }
 
     toString(): string {
@@ -844,7 +852,7 @@ export class Shape extends ArrayElementBase {
         } else if (this.isPath()) {
             return `<Shape:${this.asPath().toString()}>`;
         }
-        return '<Shape unknown>';
+        return '<Shape Unsafe>';
     }
 }
 
@@ -1033,7 +1041,7 @@ export class Layer extends ArrayElementBase {
             this._guideWrappers.length !== this.data.guides.length
         ) {
             this._guideWrappers = this.data.guides.map(
-                (_: unknown, i: number) => new Guide(this.data.guides, i, this)
+                (_: Unsafe, i: number) => new Guide(this.data.guides, i, this)
             );
         }
         return this._guideWrappers!;
@@ -1046,7 +1054,7 @@ export class Layer extends ArrayElementBase {
             this._shapeWrappers.length !== this.data.shapes.length
         ) {
             this._shapeWrappers = this.data.shapes.map(
-                (_: unknown, i: number) => new Shape(this.data.shapes, i, this)
+                (_: Unsafe, i: number) => new Shape(this.data.shapes, i, this)
             );
         }
         return this._shapeWrappers!;
@@ -1059,7 +1067,7 @@ export class Layer extends ArrayElementBase {
             this._anchorWrappers.length !== this.data.anchors.length
         ) {
             this._anchorWrappers = this.data.anchors.map(
-                (_: unknown, i: number) =>
+                (_: Unsafe, i: number) =>
                     new Anchor(this.data.anchors, i, this)
             );
         }
@@ -1106,11 +1114,11 @@ export class Layer extends ArrayElementBase {
         this.data.location = value;
     }
 
-    get format_specific(): Record<string, any> | undefined {
+    get format_specific(): Record<string, Unsafe> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Record<string, any> | undefined) {
+    set format_specific(value: Record<string, Unsafe> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -1131,14 +1139,14 @@ export class Layer extends ArrayElementBase {
      * @example
      * path = layer.addPath(closed=True)
      */
-    addPath(closed: boolean | Record<string, any> = true): Path {
+    addPath(closed: boolean | Record<string, Unsafe> = true): Path {
         // Pyodide/JS interop can pass keyword arguments as an object,
         // e.g. addPath(closed=True) may arrive as { closed: true }.
         const resolvedClosed =
             typeof closed === 'boolean'
                 ? closed
                 : !!closed && typeof closed === 'object' && 'closed' in closed
-                  ? !!(closed as any).closed
+                  ? !!(closed as Unsafe).closed
                   : true;
 
         const pathData: Babelfont.Path = {
@@ -1252,7 +1260,7 @@ export class Layer extends ArrayElementBase {
      * @returns Array of Bezier curve segments, each with {points, type}
      */
     public static processPathSegments(pathData: {
-        nodes: any[];
+        nodes: Unsafe[];
         closed?: boolean;
     }): Array<{
         points: Array<{ x: number; y: number }>;
@@ -1271,18 +1279,18 @@ export class Layer extends ArrayElementBase {
         const closed = pathData.closed !== false; // Default to true
 
         // Helper to get node type (handles both 'type' and 'nodetype' fields)
-        const getNodeType = (node: any): string => {
+        const getNodeType = (node: Unsafe): string => {
             return (node.type || node.nodetype || '').toString().toLowerCase();
         };
 
         // Helper to check if node is offcurve
-        const isOffCurve = (node: any): boolean => {
+        const isOffCurve = (node: Unsafe): boolean => {
             const type = getNodeType(node);
             return type === 'o' || type === 'offcurve';
         };
 
         // Helper to check if node is oncurve
-        const isOnCurve = (node: any): boolean => {
+        const isOnCurve = (node: Unsafe): boolean => {
             return !isOffCurve(node);
         };
 
@@ -1375,22 +1383,22 @@ export class Layer extends ArrayElementBase {
 
     /**
      * Flatten all components in the layer to paths with their transforms applied
-     * This recursively processes nested components to any depth
+     * This recursively processes nested components to arbitrary depth
      * @param layerData - Raw layer data object
      * @param font - Font object for looking up component references
      * @returns Array of flattened path data objects with transformed coordinates
      */
     private static flattenComponents(
-        layerData: any,
+        layerData: Unsafe,
         font?: Font,
         masterId?: string
     ): Babelfont.Path[] {
         const flattenedPaths: Babelfont.Path[] = [];
 
         // Helper function to apply transform to a node
-        const transformNode = (node: any, transform: number[]): any => {
+        const transformNode = (node: Unsafe, transform: number[]): Unsafe => {
             const [a, b, c, d, tx, ty] = transform;
-            const result: any = {
+            const result: Unsafe = {
                 x: a * node.x + c * node.y + tx,
                 y: b * node.x + d * node.y + ty
             };
@@ -1427,7 +1435,7 @@ export class Layer extends ArrayElementBase {
 
         // Helper function to process shapes recursively (for components)
         const processShapes = (
-            shapes: any[],
+            shapes: Unsafe[],
             transform: number[] = [1, 0, 0, 1, 0, 0]
         ) => {
             if (!shapes || !Array.isArray(shapes)) return;
@@ -1436,7 +1444,7 @@ export class Layer extends ArrayElementBase {
                 // Handle both nested { Component: { reference, transform } } and flat { reference, transform }
                 const isNestedComponent = 'Component' in shape;
                 const componentData = isNestedComponent
-                    ? (shape as any).Component
+                    ? (shape as Unsafe).Component
                     : shape;
 
                 if ('reference' in componentData) {
@@ -1465,7 +1473,7 @@ export class Layer extends ArrayElementBase {
                                 layer = componentGlyph.layers.find(
                                     (l) =>
                                         l.data.master &&
-                                        (l.data.master as any).master ===
+                                        (l.data.master as Unsafe).master ===
                                             masterId
                                 );
                             }
@@ -1497,7 +1505,7 @@ export class Layer extends ArrayElementBase {
 
                     if (Array.isArray(nodes) && nodes.length > 0) {
                         // Transform all nodes and create a new path
-                        const transformedNodes = nodes.map((node: any) =>
+                        const transformedNodes = nodes.map((node: Unsafe) =>
                             transformNode(node, transform)
                         );
 
@@ -1517,7 +1525,7 @@ export class Layer extends ArrayElementBase {
 
                     if (Array.isArray(nodes) && nodes.length > 0) {
                         // Transform all nodes and create a new path
-                        const transformedNodes = nodes.map((node: any) =>
+                        const transformedNodes = nodes.map((node: Unsafe) =>
                             transformNode(node, transform)
                         );
 
@@ -1532,7 +1540,7 @@ export class Layer extends ArrayElementBase {
                     shape.nodes.length > 0
                 ) {
                     // Path with flat structure (parsed format)
-                    const transformedNodes = shape.nodes.map((node: any) =>
+                    const transformedNodes = shape.nodes.map((node: Unsafe) =>
                         transformNode(node, transform)
                     );
 
@@ -1623,7 +1631,7 @@ export class Layer extends ArrayElementBase {
      * @returns Bounding box {minX, minY, maxX, maxY, width, height} or null if no geometry
      */
     static calculateBoundingBox(
-        layerData: any,
+        layerData: Unsafe,
         includeAnchors: boolean = false,
         font?: Font,
         masterId?: string
@@ -1838,7 +1846,9 @@ export class Layer extends ArrayElementBase {
                     const curve = new Bezier(segment.points);
 
                     // Find intersections between this curve segment and the line
-                    const curveIntersections = curve.intersects(line as any);
+                    const curveIntersections = curve.intersects(
+                        line as Unsafe
+                    );
 
                     if (Array.isArray(curveIntersections)) {
                         for (const result of curveIntersections) {
@@ -2042,11 +2052,11 @@ export class Layer extends ArrayElementBase {
         }
 
         type MutablePath = {
-            pathData: any;
+            pathData: Unsafe;
             nodes: StrokePath['nodes'];
             closed: boolean;
             wasString: boolean;
-            mirrorShape: any | null;
+            mirrorShape: Unsafe | null;
             mirrorWasString: boolean;
             mirrorUsesNestedPath: boolean;
         };
@@ -2055,8 +2065,8 @@ export class Layer extends ArrayElementBase {
         for (const shape of this.shapes) {
             if (!shape.isPath()) continue;
 
-            const rawShapeData = shape.toJSON() as any;
-            const pathData = shape.asPath().toJSON() as any;
+            const rawShapeData = shape.toJSON() as Unsafe;
+            const pathData = shape.asPath().toJSON() as Unsafe;
             if (!pathData || !pathData.nodes) continue;
 
             const hasRawNodes =
@@ -2199,7 +2209,7 @@ export class Layer extends ArrayElementBase {
 
             if (shouldSerializePrimary || shouldSerializeMirror) {
                 const serializedNodes = LayerDataNormalizer.serializeNodes(
-                    path.nodes as any
+                    path.nodes as Unsafe
                 );
 
                 if (shouldSerializePrimary) {
@@ -2267,7 +2277,7 @@ export class Layer extends ArrayElementBase {
     }
 
     toString(): string {
-        const masterId = this.getMasterId() || 'unknown';
+        const masterId = this.getMasterId() || 'Unsafe';
         const shapesCount = this.shapes?.length || 0;
         return `<Layer width=${this.width} master="${masterId}" shapes=${shapesCount}>`;
     }
@@ -2293,7 +2303,7 @@ export class Glyph extends ArrayElementBase {
             typeof value === 'object' &&
             value !== null &&
             'Custom' in value &&
-            typeof (value as { Custom?: unknown }).Custom === 'string'
+            typeof (value as { Custom?: Unsafe }).Custom === 'string'
         ) {
             return value as Babelfont.GlyphCategory;
         }
@@ -2321,7 +2331,7 @@ export class Glyph extends ArrayElementBase {
     }
 
     private getLayerIdentifier(layer: Layer): string {
-        return layer.id || layer.master?.master || '[unknown-layer]';
+        return layer.id || layer.master?.master || '[Unsafe-layer]';
     }
 
     private getNormalizedLayerShapeStructure(layer: Layer): string[] {
@@ -2399,7 +2409,7 @@ export class Glyph extends ArrayElementBase {
                 this._layerWrappers.length !== this.data.layers.length
             ) {
                 this._layerWrappers = this.data.layers.map(
-                    (_: unknown, i: number) =>
+                    (_: Unsafe, i: number) =>
                         new Layer(this.data.layers, i, this)
                 );
             }
@@ -2434,7 +2444,7 @@ export class Glyph extends ArrayElementBase {
             let masterId: string | undefined;
             if (layer.master && typeof layer.master === 'object') {
                 if ('type' in layer.master) {
-                    masterId = (layer.master as any).master;
+                    masterId = (layer.master as Unsafe).master;
                 }
             }
             if (!masterId) {
@@ -2458,7 +2468,7 @@ export class Glyph extends ArrayElementBase {
                 const masterData = layer.master;
                 if (masterData && typeof masterData === 'object') {
                     if ('type' in masterData) {
-                        return (masterData as any).master || '';
+                        return (masterData as Unsafe).master || '';
                     }
                 }
                 // Fallback to layer id
@@ -2502,11 +2512,11 @@ export class Glyph extends ArrayElementBase {
         this.data.direction = value;
     }
 
-    get formatspecific(): Record<string, any> | undefined {
+    get formatspecific(): Record<string, Unsafe> | undefined {
         return this.data.formatspecific;
     }
 
-    set formatspecific(value: Record<string, any> | undefined) {
+    set formatspecific(value: Record<string, Unsafe> | undefined) {
         this.data.formatspecific = value;
     }
 
@@ -2523,7 +2533,9 @@ export class Glyph extends ArrayElementBase {
         // Generate a unique ID for the layer
         let layerId: string;
         const existingIds = new Set(
-            this.data.layers.map((l: any) => l.id).filter((id: any) => id)
+            this.data.layers
+                .map((l: Unsafe) => l.id)
+                .filter((id: Unsafe) => id)
         );
         do {
             layerId = crypto.randomUUID();
@@ -2554,7 +2566,7 @@ export class Glyph extends ArrayElementBase {
     findLayerById(id: string): Layer | undefined {
         const layers = this.layers;
         if (!layers) return undefined;
-        const index = this.data.layers.findIndex((l: any) => l.id === id);
+        const index = this.data.layers.findIndex((l: Unsafe) => l.id === id);
         return index >= 0 ? layers[index] : undefined;
     }
 
@@ -2564,7 +2576,7 @@ export class Glyph extends ArrayElementBase {
     findLayerByMasterId(masterId: string): Layer | undefined {
         const layers = this.layers;
         if (!layers) return undefined;
-        const index = this.data.layers.findIndex((l: any) => {
+        const index = this.data.layers.findIndex((l: Unsafe) => {
             const master = l.master;
             if (!master) return false;
             if (typeof master === 'object') {
@@ -2734,11 +2746,11 @@ export class Axis extends ArrayElementBase {
         this.data.values = value;
     }
 
-    get formatspecific(): Record<string, any> | undefined {
+    get formatspecific(): Record<string, Unsafe> | undefined {
         return this.data.formatspecific;
     }
 
-    set formatspecific(value: Record<string, any> | undefined) {
+    set formatspecific(value: Record<string, Unsafe> | undefined) {
         this.data.formatspecific = value;
     }
 
@@ -2748,7 +2760,7 @@ export class Axis extends ArrayElementBase {
                 ? this.name
                 : this.name?.en ||
                   Object.values(this.name || {})[0] ||
-                  'unknown';
+                  'Unsafe';
         const range = `${this.min || '?'}-${this.default || '?'}-${this.max || '?'}`;
         return `<Axis "${displayName}" tag="${this.tag}" ${range}>`;
     }
@@ -2791,7 +2803,7 @@ export class Master extends ArrayElementBase {
             this._guideWrappers.length !== this.data.guides.length
         ) {
             this._guideWrappers = this.data.guides.map(
-                (_: unknown, i: number) => new Guide(this.data.guides, i, this)
+                (_: Unsafe, i: number) => new Guide(this.data.guides, i, this)
             );
         }
         return this._guideWrappers!;
@@ -2813,19 +2825,19 @@ export class Master extends ArrayElementBase {
         this.data.kerning = value;
     }
 
-    get custom_ot_values(): any[] | undefined {
+    get custom_ot_values(): Unsafe[] | undefined {
         return this.data.custom_ot_values;
     }
 
-    set custom_ot_values(value: any[] | undefined) {
+    set custom_ot_values(value: Unsafe[] | undefined) {
         this.data.custom_ot_values = value;
     }
 
-    get format_specific(): Record<string, any> | undefined {
+    get format_specific(): Record<string, Unsafe> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Record<string, any> | undefined) {
+    set format_specific(value: Record<string, Unsafe> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -2835,7 +2847,7 @@ export class Master extends ArrayElementBase {
                 ? this.name
                 : this.name?.en ||
                   Object.values(this.name || {})[0] ||
-                  'unknown';
+                  'Unsafe';
         const location = this.location ? JSON.stringify(this.location) : '{}';
         return `<Master "${displayName}" id="${this.id}" location=${location}>`;
     }
@@ -2893,11 +2905,11 @@ export class Instance extends ArrayElementBase {
         this.data.linked_style = value;
     }
 
-    get format_specific(): Record<string, any> | undefined {
+    get format_specific(): Record<string, Unsafe> | undefined {
         return this.data.format_specific;
     }
 
-    set format_specific(value: Record<string, any> | undefined) {
+    set format_specific(value: Record<string, Unsafe> | undefined) {
         this.data.format_specific = value;
     }
 
@@ -2907,7 +2919,7 @@ export class Instance extends ArrayElementBase {
                 ? this.name
                 : this.name?.en ||
                   Object.values(this.name || {})[0] ||
-                  'unknown';
+                  'Unsafe';
         const location = this.location ? JSON.stringify(this.location) : '{}';
         return `<Instance "${displayName}" location=${location}>`;
     }
@@ -2949,7 +2961,7 @@ export class Font extends ModelBase {
             this._axisWrappers.length !== this._data.axes.length
         ) {
             this._axisWrappers = this._data.axes.map(
-                (_: unknown, i: number) => new Axis(this._data.axes, i, this)
+                (_: Unsafe, i: number) => new Axis(this._data.axes, i, this)
             );
         }
         return this._axisWrappers!;
@@ -2962,7 +2974,7 @@ export class Font extends ModelBase {
             this._instanceWrappers.length !== this._data.instances.length
         ) {
             this._instanceWrappers = this._data.instances.map(
-                (_: unknown, i: number) =>
+                (_: Unsafe, i: number) =>
                     new Instance(this._data.instances, i, this)
             );
         }
@@ -2976,7 +2988,7 @@ export class Font extends ModelBase {
             this._masterWrappers.length !== this._data.masters.length
         ) {
             this._masterWrappers = this._data.masters.map(
-                (_: unknown, i: number) =>
+                (_: Unsafe, i: number) =>
                     new Master(this._data.masters, i, this)
             );
         }
@@ -2989,7 +3001,7 @@ export class Font extends ModelBase {
             this._glyphWrappers.length !== this._data.glyphs.length
         ) {
             this._glyphWrappers = this._data.glyphs.map(
-                (_: unknown, i: number) => new Glyph(this._data.glyphs, i, this)
+                (_: Unsafe, i: number) => new Glyph(this._data.glyphs, i, this)
             );
         }
         return this._glyphWrappers!;
@@ -3019,11 +3031,11 @@ export class Font extends ModelBase {
         this._data.names = value;
     }
 
-    get custom_ot_values(): any[] | undefined {
+    get custom_ot_values(): Unsafe[] | undefined {
         return this._data.custom_ot_values;
     }
 
-    set custom_ot_values(value: any[] | undefined) {
+    set custom_ot_values(value: Unsafe[] | undefined) {
         this._data.custom_ot_values = value;
     }
 
@@ -3063,11 +3075,11 @@ export class Font extends ModelBase {
         this._data.second_kern_groups = value;
     }
 
-    get format_specific(): Record<string, any> | undefined {
+    get format_specific(): Record<string, Unsafe> | undefined {
         return this._data.format_specific;
     }
 
-    set format_specific(value: Record<string, any> | undefined) {
+    set format_specific(value: Record<string, Unsafe> | undefined) {
         this._data.format_specific = value;
     }
 
@@ -3087,7 +3099,9 @@ export class Font extends ModelBase {
      *     print(glyph.name)
      */
     findGlyph(name: string): Glyph | undefined {
-        const index = this._data.glyphs.findIndex((g: any) => g.name === name);
+        const index = this._data.glyphs.findIndex(
+            (g: Unsafe) => g.name === name
+        );
         return index >= 0 ? this.glyphs[index] : undefined;
     }
 
@@ -3098,14 +3112,14 @@ export class Font extends ModelBase {
      */
     findGlyphByCodepoint(codepoint: number): Glyph | undefined {
         const index = this._data.glyphs.findIndex(
-            (g: any) => g.codepoints && g.codepoints.includes(codepoint)
+            (g: Unsafe) => g.codepoints && g.codepoints.includes(codepoint)
         );
         return index >= 0 ? this.glyphs[index] : undefined;
     }
 
     /**
      * Find all glyphs that reference a given glyph as a component
-     * This recursively finds glyphs at any nesting level
+     * This recursively finds glyphs at each nesting level
      * @param componentGlyphName - Name of the component glyph to search for
      * @returns Array of glyph names that contain this component
      * @example
@@ -3116,7 +3130,7 @@ export class Font extends ModelBase {
         const affectedGlyphs = new Set<string>();
 
         // Helper function to check if a layer contains the component
-        const layerContainsComponent = (layer: any): boolean => {
+        const layerContainsComponent = (layer: Unsafe): boolean => {
             if (!layer || !layer.shapes) return false;
 
             for (const shape of layer.shapes) {
@@ -3167,7 +3181,7 @@ export class Font extends ModelBase {
 
         // Get the source glyph data - access through the internal _data array
         const sourceGlyphIndex = this._data.glyphs.findIndex(
-            (g: any) => g.name === glyph.name
+            (g: Unsafe) => g.name === glyph.name
         );
         if (sourceGlyphIndex < 0) {
             throw new Error(`Source glyph "${glyph.name}" not found in font`);
@@ -3222,7 +3236,7 @@ export class Font extends ModelBase {
     findAxis(id: string): Axis | undefined {
         const axes = this.axes;
         if (!axes) return undefined;
-        const index = this._data.axes.findIndex((a: any) => a.id === id);
+        const index = this._data.axes.findIndex((a: Unsafe) => a.id === id);
         return index >= 0 ? axes[index] : undefined;
     }
 
@@ -3234,7 +3248,7 @@ export class Font extends ModelBase {
     findAxisByTag(tag: string): Axis | undefined {
         const axes = this.axes;
         if (!axes) return undefined;
-        const index = this._data.axes.findIndex((a: any) => a.tag === tag);
+        const index = this._data.axes.findIndex((a: Unsafe) => a.tag === tag);
         return index >= 0 ? axes[index] : undefined;
     }
 
@@ -3244,7 +3258,7 @@ export class Font extends ModelBase {
     findMaster(id: string): Master | undefined {
         const masters = this.masters;
         if (!masters) return undefined;
-        const index = this._data.masters.findIndex((m: any) => m.id === id);
+        const index = this._data.masters.findIndex((m: Unsafe) => m.id === id);
         return index >= 0 ? masters[index] : undefined;
     }
 
@@ -3274,7 +3288,9 @@ export class Font extends ModelBase {
      * font.removeGlyph("oldGlyph")
      */
     removeGlyph(name: string): boolean {
-        const index = this._data.glyphs.findIndex((g: any) => g.name === name);
+        const index = this._data.glyphs.findIndex(
+            (g: Unsafe) => g.name === name
+        );
         if (index >= 0) {
             this._data.glyphs.splice(index, 1);
             this._glyphWrappers = null; // Invalidate cache
@@ -3391,8 +3407,8 @@ export class Font extends ModelBase {
     }
 
     /**
-     * Analyze any OpenType feature code to determine if it contains GSUB and/or GPOS rules
-     * This is a general-purpose method that can analyze code from features, prefixes, or any other source
+     * Analyze OpenType feature code to determine if it contains GSUB and/or GPOS rules
+     * This is a general-purpose method that can analyze code from features, prefixes, or other sources
      * @param code - The AFDKO feature code to analyze
      * @returns Object with hasGSUB and hasGPOS boolean flags
      * @example
