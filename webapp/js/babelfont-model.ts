@@ -133,19 +133,21 @@ function isDevelopmentMode(): boolean {
         : false;
 }
 
-function isTaggedLayerType(value: any): boolean {
+function isTaggedLayerType(value: unknown): boolean {
     if (!value || typeof value !== 'object' || !('type' in value)) {
         return false;
     }
 
-    if (value.type === 'FreeFloating') {
-        return !('master' in value) || value.master === undefined;
+    const taggedValue = value as { type?: unknown; master?: unknown };
+
+    if (taggedValue.type === 'FreeFloating') {
+        return !('master' in taggedValue) || taggedValue.master === undefined;
     }
 
     if (
-        (value.type === 'DefaultForMaster' ||
-            value.type === 'AssociatedWithMaster') &&
-        typeof value.master === 'string'
+        (taggedValue.type === 'DefaultForMaster' ||
+            taggedValue.type === 'AssociatedWithMaster') &&
+        typeof taggedValue.master === 'string'
     ) {
         return true;
     }
@@ -153,7 +155,7 @@ function isTaggedLayerType(value: any): boolean {
     return false;
 }
 
-function assertTaggedLayerMaster(master: any, context: string): void {
+function assertTaggedLayerMaster(master: unknown, context: string): void {
     if (!isDevelopmentMode() || master === undefined) {
         return;
     }
@@ -301,7 +303,7 @@ export class Path extends ArrayElementBase {
             this._nodeWrappers.length !== this.data.nodes.length
         ) {
             this._nodeWrappers = this.data.nodes.map(
-                (_: any, i: number) => new Node(this.data.nodes, i, this)
+                (_: unknown, i: number) => new Node(this.data.nodes, i, this)
             );
         }
         return this._nodeWrappers!;
@@ -1031,7 +1033,7 @@ export class Layer extends ArrayElementBase {
             this._guideWrappers.length !== this.data.guides.length
         ) {
             this._guideWrappers = this.data.guides.map(
-                (_: any, i: number) => new Guide(this.data.guides, i, this)
+                (_: unknown, i: number) => new Guide(this.data.guides, i, this)
             );
         }
         return this._guideWrappers!;
@@ -1044,7 +1046,7 @@ export class Layer extends ArrayElementBase {
             this._shapeWrappers.length !== this.data.shapes.length
         ) {
             this._shapeWrappers = this.data.shapes.map(
-                (_: any, i: number) => new Shape(this.data.shapes, i, this)
+                (_: unknown, i: number) => new Shape(this.data.shapes, i, this)
             );
         }
         return this._shapeWrappers!;
@@ -1057,7 +1059,7 @@ export class Layer extends ArrayElementBase {
             this._anchorWrappers.length !== this.data.anchors.length
         ) {
             this._anchorWrappers = this.data.anchors.map(
-                (_: any, i: number) => new Anchor(this.data.anchors, i, this)
+                (_: unknown, i: number) => new Anchor(this.data.anchors, i, this)
             );
         }
         return this._anchorWrappers!;
@@ -2396,7 +2398,8 @@ export class Glyph extends ArrayElementBase {
                 this._layerWrappers.length !== this.data.layers.length
             ) {
                 this._layerWrappers = this.data.layers.map(
-                    (_: any, i: number) => new Layer(this.data.layers, i, this)
+                    (_: unknown, i: number) =>
+                        new Layer(this.data.layers, i, this)
                 );
             }
             return this._layerWrappers!;
@@ -2787,7 +2790,8 @@ export class Master extends ArrayElementBase {
             this._guideWrappers.length !== this.data.guides.length
         ) {
             this._guideWrappers = this.data.guides.map(
-                (_: any, i: number) => new Guide(this.data.guides, i, this)
+                (_: unknown, i: number) =>
+                    new Guide(this.data.guides, i, this)
             );
         }
         return this._guideWrappers!;
@@ -2945,7 +2949,7 @@ export class Font extends ModelBase {
             this._axisWrappers.length !== this._data.axes.length
         ) {
             this._axisWrappers = this._data.axes.map(
-                (_: any, i: number) => new Axis(this._data.axes, i, this)
+                (_: unknown, i: number) => new Axis(this._data.axes, i, this)
             );
         }
         return this._axisWrappers!;
@@ -2958,7 +2962,7 @@ export class Font extends ModelBase {
             this._instanceWrappers.length !== this._data.instances.length
         ) {
             this._instanceWrappers = this._data.instances.map(
-                (_: any, i: number) =>
+                (_: unknown, i: number) =>
                     new Instance(this._data.instances, i, this)
             );
         }
@@ -2972,7 +2976,8 @@ export class Font extends ModelBase {
             this._masterWrappers.length !== this._data.masters.length
         ) {
             this._masterWrappers = this._data.masters.map(
-                (_: any, i: number) => new Master(this._data.masters, i, this)
+                (_: unknown, i: number) =>
+                    new Master(this._data.masters, i, this)
             );
         }
         return this._masterWrappers!;
@@ -2984,7 +2989,8 @@ export class Font extends ModelBase {
             this._glyphWrappers.length !== this._data.glyphs.length
         ) {
             this._glyphWrappers = this._data.glyphs.map(
-                (_: any, i: number) => new Glyph(this._data.glyphs, i, this)
+                (_: unknown, i: number) =>
+                    new Glyph(this._data.glyphs, i, this)
             );
         }
         return this._glyphWrappers!;

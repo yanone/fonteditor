@@ -34,6 +34,30 @@ const console = new Logger('FileBrowser');
 const LAST_CONTEXT_KEY = 'last-filesystem-context';
 const FILE_BROWSER_READY_EVENT = 'fileBrowserReady';
 
+type ChangedPathRecord = {
+    path?: unknown;
+    relativePath?: unknown;
+    changedPath?: unknown;
+    oldPath?: unknown;
+    newPath?: unknown;
+    relativePathComponents?: unknown;
+    movedFrom?: {
+        path?: unknown;
+        relativePathComponents?: unknown;
+    };
+    movedTo?: {
+        path?: unknown;
+        relativePathComponents?: unknown;
+    };
+};
+
+type MenuElement = HTMLElement & { _handlersSetup?: boolean };
+type TippyHostElement = HTMLElement & { _tippy?: TippyInstance; _hasMenu?: boolean };
+
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
 // Files/folders to hide from the file browser (applies to all plugins)
 const HIDDEN_FILES: string[] = ['.DS_Store'];
 
@@ -103,10 +127,10 @@ function normalizeObservedPath(path: string): string {
     return `/${cleaned}`.replace(/\/+/g, '/');
 }
 
-function extractChangedPathsFromRecords(records: any[]): string[] {
+function extractChangedPathsFromRecords(records: unknown[]): string[] {
     const paths = new Set<string>();
 
-    const addPath = (value: any) => {
+    const addPath = (value: unknown) => {
         if (typeof value === 'string' && value.trim()) {
             paths.add(normalizeObservedPath(value));
         }
@@ -117,30 +141,31 @@ function extractChangedPathsFromRecords(records: any[]): string[] {
             continue;
         }
 
-        addPath((record as any).path);
-        addPath((record as any).relativePath);
-        addPath((record as any).changedPath);
-        addPath((record as any).oldPath);
-        addPath((record as any).newPath);
+        const changedRecord = record as ChangedPathRecord;
+        addPath(changedRecord.path);
+        addPath(changedRecord.relativePath);
+        addPath(changedRecord.changedPath);
+        addPath(changedRecord.oldPath);
+        addPath(changedRecord.newPath);
 
-        const relComps = (record as any).relativePathComponents;
+        const relComps = changedRecord.relativePathComponents;
         if (Array.isArray(relComps) && relComps.length > 0) {
             addPath(relComps.join('/'));
         }
 
-        const movedFrom = (record as any).movedFrom;
+        const movedFrom = changedRecord.movedFrom;
         if (movedFrom && typeof movedFrom === 'object') {
-            addPath((movedFrom as any).path);
-            const comps = (movedFrom as any).relativePathComponents;
+            addPath(movedFrom.path);
+            const comps = movedFrom.relativePathComponents;
             if (Array.isArray(comps) && comps.length > 0) {
                 addPath(comps.join('/'));
             }
         }
 
-        const movedTo = (record as any).movedTo;
+        const movedTo = changedRecord.movedTo;
         if (movedTo && typeof movedTo === 'object') {
-            addPath((movedTo as any).path);
-            const comps = (movedTo as any).relativePathComponents;
+            addPath(movedTo.path);
+            const comps = movedTo.relativePathComponents;
             if (Array.isArray(comps) && comps.length > 0) {
                 addPath(comps.join('/'));
             }
@@ -190,7 +215,7 @@ function changedPathsAffectCurrentFont(
     );
 }
 
-function hasUnsavedFontChanges(currentFont: any): boolean {
+function hasUnsavedFontChanges(currentFont: { hasUnsavedChanges?: boolean } | null): boolean {
     if (!currentFont) {
         return false;
     }
@@ -495,7 +520,7 @@ function setupMenuItemHandlers(
     if (!menu) return;
 
     menu.querySelectorAll('.plugin-menu-item').forEach(
-        (item: any, index: number) => {
+        (item: Element, index: number) => {
             item.addEventListener('click', async () => {
                 tippyInstance.hide();
                 await menuItems[index].action();
@@ -508,7 +533,7 @@ function setupMenuItemHandlers(
 }
 
 // Track file context menu tippy instances for cleanup
-let fileContextMenuTippyInstances: any[] = [];
+let fileContextMenuTippyInstances: TippyInstance[] = [];
 
 function setupFileContextMenus() {
     // Destroy old tippy instances to prevent orphaned poppers
@@ -526,7 +551,7 @@ function setupFileContextMenus() {
     // Create shared backdrop for all file context menus
     const backdrop = getOrCreateBackdrop('file-context-menu-backdrop');
 
-    fileItems.forEach((item: any) => {
+    fileItems.forEach((item: Element) => {
         const element = item as HTMLElement;
         const path = element.getAttribute('data-path') || '';
         const name = element.getAttribute('data-name') || '';
@@ -547,16 +572,18 @@ function setupFileContextMenus() {
             zIndex: 9999,
             getReferenceClientRect: null as any, // Will be set on show
             onShown: (instance) => {
-                const menu = instance.popper.querySelector('.plugin-menu');
+                const menu = instance.popper.querySelector(
+                    '.plugin-menu'
+                ) as MenuElement | null;
                 if (!menu) return;
 
                 // Skip if handlers already set up
-                if ((menu as any)._handlersSetup) return;
-                (menu as any)._handlersSetup = true;
+                if (menu._handlersSetup) return;
+                menu._handlersSetup = true;
 
                 // Setup click handlers for menu items
                 menu.querySelectorAll('.plugin-menu-item').forEach(
-                    (menuItem: any) => {
+                    (menuItem: Element) => {
                         menuItem.addEventListener('click', async () => {
                             const action = menuItem.getAttribute('data-action');
 
@@ -630,7 +657,7 @@ function setupFileContextMenus() {
         });
 
         // Store tippy instance on element (for debugging access)
-        (element as any)._tippy = tippyInstance;
+        (element as TippyHostElement)._tippy = tippyInstance;
     });
 }
 
@@ -640,7 +667,8 @@ function updatePluginMenuButtonVisibility(plugin: FilesystemPlugin): void {
         `.context-tab[data-plugin-id="${pluginId}"]`
     ) as HTMLElement;
 
-    if (!button || !(button as any)._hasMenu) return;
+    const hostButton = button as TippyHostElement;
+    if (!hostButton || !hostButton._hasMenu) return;
 
     const dropdownIcon = button.querySelector(
         '.plugin-dropdown-icon'
@@ -1027,11 +1055,11 @@ async function openFont(
             setTimeout(() => window.glyphCanvas.canvas!.focus(), 0);
         }
         timelineSpanEnd(openSpan);
-    } catch (error: any) {
+    } catch (error: unknown) {
         timelineMark('font.open.failed');
         timelineSpanEnd(openSpan);
         console.error('[FileBrowser]', 'Error opening font:', error);
-        alert(`Error opening font: ${error.message}`);
+        alert(`Error opening font: ${getErrorMessage(error)}`);
         // Reset cursor on error
         endLoadingCursor();
     }
@@ -1067,7 +1095,7 @@ async function switchContext(pluginId: string) {
     // Update tab UI
     document
         .querySelectorAll('.context-tab[data-plugin-id]')
-        .forEach((tab: any) => {
+        .forEach((tab: Element) => {
             tab.classList.remove('active');
             if (tab.getAttribute('data-plugin-id') === pluginId) {
                 tab.classList.add('active');
@@ -1187,7 +1215,9 @@ async function selectDiskFolder() {
 
                 if (resolvedPath) {
                     currentFont.path = resolvedPath;
-                    const adapter = plugin.getAdapter() as any;
+                    const adapter = plugin.getAdapter() as {
+                        directoryHandle?: FileSystemDirectoryHandle;
+                    };
                     currentFont.directoryHandle = adapter.directoryHandle;
 
                     targetPath =
@@ -1230,9 +1260,9 @@ async function selectDiskFolder() {
                 }
             }, 100);
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[FileBrowser]', 'Error selecting folder:', error);
-        alert(`Error selecting folder: ${error.message}`);
+        alert(`Error selecting folder: ${getErrorMessage(error)}`);
     }
 }
 
@@ -1292,9 +1322,9 @@ async function reEnableAccess() {
         } else {
             alert('Permission not granted. Please try again.');
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[FileBrowser]', 'Error requesting permission:', error);
-        alert(`Error requesting permission: ${error.message}`);
+        alert(`Error requesting permission: ${getErrorMessage(error)}`);
     }
 }
 
@@ -1352,9 +1382,9 @@ async function createFolder() {
         await fileSystemCache.activeAdapter.createFolder(newPath);
         console.log('[FileBrowser]', `Created folder: ${newPath}`);
         await refreshFileSystem();
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[FileBrowser]', 'Error creating folder:', error);
-        alert(`Error creating folder: ${error.message}`);
+        alert(`Error creating folder: ${getErrorMessage(error)}`);
     }
 }
 
@@ -1379,9 +1409,9 @@ async function createFile() {
         );
         console.log('[FileBrowser]', `Created file: ${newPath}`);
         await refreshFileSystem();
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[FileBrowser]', 'Error creating file:', error);
-        alert(`Error creating file: ${error.message}`);
+        alert(`Error creating file: ${getErrorMessage(error)}`);
     }
 }
 
@@ -1392,15 +1422,19 @@ async function downloadFile(filePath: string, fileName: string) {
             await fileSystemCache.activeAdapter.readFile(filePath);
 
         // Ensure we have Uint8Array for blob creation
-        let fileData: Uint8Array;
+        let fileData: Uint8Array<ArrayBuffer>;
         if (typeof fileContent === 'string') {
-            fileData = new TextEncoder().encode(fileContent);
+            fileData = Uint8Array.from(new TextEncoder().encode(fileContent));
         } else {
-            fileData = new Uint8Array(fileContent as any);
+            const byteSource =
+                fileContent instanceof Uint8Array
+                    ? fileContent
+                    : new Uint8Array(fileContent as ArrayBuffer);
+            fileData = Uint8Array.from(byteSource);
         }
 
         // Create blob and download
-        const fileBlob = new Blob([fileData as any], {
+        const fileBlob = new Blob([fileData], {
             type: 'application/octet-stream'
         });
         const url = URL.createObjectURL(fileBlob);
@@ -1415,9 +1449,9 @@ async function downloadFile(filePath: string, fileName: string) {
         if (window.term) {
             window.term.echo(`[[;lime;]📥 Downloaded: ${fileName}]`);
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[FileBrowser]', 'Error downloading file:', error);
-        alert(`Error downloading file: ${error.message}`);
+        alert(`Error downloading file: ${getErrorMessage(error)}`);
     }
 }
 
@@ -1432,9 +1466,9 @@ async function deleteItem(itemPath: string, itemName: string, isDir: boolean) {
         await fileSystemCache.activeAdapter.deleteItem(itemPath, isDir);
         console.log('[FileBrowser]', `Deleted: ${itemPath}`);
         await refreshFileSystem();
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[FileBrowser]', 'Error deleting item:', error);
-        alert(`Error deleting item: ${error.message}`);
+        alert(`Error deleting item: ${getErrorMessage(error)}`);
     }
 }
 
@@ -1532,9 +1566,9 @@ async function renameItem(itemPath: string, itemName: string, isDir: boolean) {
             }
 
             await refreshFileSystem();
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('[FileBrowser]', 'Error renaming item:', error);
-            alert(`Error renaming item: ${error.message}`);
+            alert(`Error renaming item: ${getErrorMessage(error)}`);
         }
     };
 
@@ -1624,7 +1658,7 @@ async function uploadFiles(
             await targetAdapter.writeFile(fullpath, new Uint8Array(contents));
             console.log('[FileBrowser]', `Uploading file: ${fullpath}`);
             uploadedCount++;
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(
                 '[FileBrowser]',
                 `Error uploading ${file.name}:`,
@@ -1647,7 +1681,7 @@ async function uploadFiles(
             window.term.echo(`[[;lime;]${msg}]`);
         }
 
-        if (uploadedToCurrentPlugin && !(options as any).skipRefresh) {
+        if (uploadedToCurrentPlugin && !options.skipRefresh) {
             await refreshFileSystem();
         }
     }
@@ -1972,7 +2006,7 @@ function setupFileItemClickHandlers() {
     if (!fileTree) return;
 
     const fileItems = fileTree.querySelectorAll('.file-item');
-    fileItems.forEach((item: any) => {
+    fileItems.forEach((item: Element) => {
         const element = item as HTMLElement;
         const path = element.dataset.path!;
         const isDir = element.dataset.isDir === 'true';
@@ -2109,7 +2143,10 @@ async function resolveDiskPathForLaunchedFileHandle(
         return null;
     }
 
-    const adapter = diskPlugin.getAdapter() as any;
+    const adapter = diskPlugin.getAdapter() as {
+        listFilesRecursive?: (path: string, depth: number) => Promise<any[]>;
+        checkPermission?: () => Promise<'granted' | 'denied' | 'prompt'>;
+    };
     if (!adapter.listFilesRecursive || !adapter.checkPermission) {
         return null;
     }
@@ -2630,8 +2667,8 @@ window.addEventListener('pwaLaunchFilesPending', () => {
 document.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
         const allButtons = document.querySelectorAll('.context-tab');
-        allButtons.forEach((button: any) => {
-            const tippyInstance = (button as any)._tippy;
+        allButtons.forEach((button: Element) => {
+            const tippyInstance = (button as TippyHostElement)._tippy;
             if (tippyInstance && tippyInstance.state.isVisible) {
                 tippyInstance.hide();
             }

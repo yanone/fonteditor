@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = join(process.cwd(), 'js');
-const MAX_EXPLICIT_ANY = 737;
+const MAX_EXPLICIT_ANY = 685;
 const tsFilePaths = [];
 
 function walk(dir) {
