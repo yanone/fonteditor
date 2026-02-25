@@ -2,6 +2,10 @@
 // Prevents the browser from discarding the tab and protects font editor data
 
 class TabLifecycleManager {
+    lockHeld: boolean;
+    persistentStorageGranted: boolean;
+    keepAliveInterval: ReturnType<typeof setInterval> | null;
+
     constructor() {
         this.lockHeld = false;
         this.persistentStorageGranted = false;
@@ -56,12 +60,11 @@ class TabLifecycleManager {
                 // Check quota
                 if (navigator.storage.estimate) {
                     const estimate = await navigator.storage.estimate();
-                    const percentUsed = (
-                        (estimate.usage / estimate.quota) *
-                        100
-                    ).toFixed(2);
+                    const usage = estimate.usage ?? 0;
+                    const quota = estimate.quota ?? 1;
+                    const percentUsed = ((usage / quota) * 100).toFixed(2);
                     console.log(
-                        `[Tab Lifecycle] Storage: ${this.formatBytes(estimate.usage)} / ${this.formatBytes(estimate.quota)} (${percentUsed}%)`
+                        `[Tab Lifecycle] Storage: ${this.formatBytes(usage)} / ${this.formatBytes(quota)} (${percentUsed}%)`
                     );
                 }
 
@@ -192,8 +195,8 @@ class TabLifecycleManager {
 
         document.addEventListener(
             'click',
-            (e) => {
-                const target = e.target.closest('a');
+            (e: MouseEvent) => {
+                const target = (e.target as Element | null)?.closest('a');
                 if (
                     target &&
                     target.href &&
@@ -254,7 +257,7 @@ class TabLifecycleManager {
         }
     }
 
-    formatBytes(bytes) {
+    formatBytes(bytes: number) {
         if (bytes === 0) return '0 Bytes';
         const k = 1024;
         const sizes = ['Bytes', 'KB', 'MB', 'GB'];

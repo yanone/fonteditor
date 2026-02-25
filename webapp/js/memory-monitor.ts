@@ -4,7 +4,28 @@
 (function () {
     'use strict';
 
+    type MemoryInfo = {
+        supported: boolean;
+        usedMB: number | string;
+        totalMB: number | string;
+        limitMB: number | string;
+        percentUsed: number;
+        percentUsedRaw: number;
+        overLimit: boolean;
+        openFonts: number;
+    };
+
     class MemoryMonitor {
+        monitorElement: HTMLDivElement | null;
+        settingsBarElement: HTMLElement | null;
+        settingsPercentageElement: HTMLElement | null;
+        settingsDetailsElement: HTMLElement | null;
+        settingsIndicator: HTMLElement | null;
+        updateInterval: ReturnType<typeof setInterval> | null;
+        warningThreshold: number;
+        criticalThreshold: number;
+        isVisible: boolean;
+
         constructor() {
             this.monitorElement = null;
             this.settingsBarElement = null;
@@ -74,6 +95,9 @@
         }
 
         toggleVisibility() {
+            if (!this.monitorElement) {
+                return;
+            }
             this.isVisible = !this.isVisible;
             this.monitorElement.style.display = this.isVisible
                 ? 'block'
@@ -98,7 +122,7 @@
             }
 
             // Open popup
-            infoBtn.addEventListener('click', (e) => {
+            infoBtn.addEventListener('click', (e: MouseEvent) => {
                 e.preventDefault();
                 popup.style.display = 'flex';
             });
@@ -109,14 +133,14 @@
             });
 
             // Close popup - click outside
-            popup.addEventListener('click', (e) => {
+            popup.addEventListener('click', (e: MouseEvent) => {
                 if (e.target === popup) {
                     popup.style.display = 'none';
                 }
             });
 
             // Close popup - Escape key
-            document.addEventListener('keydown', (e) => {
+            document.addEventListener('keydown', (e: KeyboardEvent) => {
                 if (e.key === 'Escape' && popup.style.display === 'flex') {
                     e.preventDefault();
                     e.stopPropagation();
@@ -142,7 +166,7 @@
                 return;
             }
 
-            const percent = Math.min(100, parseFloat(info.percentUsedRaw));
+            const percent = Math.min(100, info.percentUsedRaw);
 
             // Update percentage display
             if (this.settingsPercentageElement) {
@@ -210,8 +234,8 @@
             }
         }
 
-        getMemoryInfo() {
-            const info = {
+        getMemoryInfo(): MemoryInfo {
+            const info: MemoryInfo = {
                 supported: false,
                 usedMB: 0,
                 totalMB: 0,
@@ -222,27 +246,34 @@
                 openFonts: 0
             };
             // Count open fonts from fontManager
-            if (window.fontManager && fontManager.openFonts) {
-                info.openFonts = fontManager.openedFonts.length;
+            if (window.fontManager?.openedFonts) {
+                info.openFonts = window.fontManager.openedFonts.length;
             }
 
             // Chrome/Edge specific
-            if (performance.memory) {
+            const perfWithMemory = performance as Performance & {
+                memory?: {
+                    usedJSHeapSize: number;
+                    totalJSHeapSize: number;
+                    jsHeapSizeLimit: number;
+                };
+            };
+            if (perfWithMemory.memory) {
                 info.supported = true;
                 info.usedMB = (
-                    performance.memory.usedJSHeapSize / 1048576
+                    perfWithMemory.memory.usedJSHeapSize / 1048576
                 ).toFixed(2);
                 info.totalMB = (
-                    performance.memory.totalJSHeapSize / 1048576
+                    perfWithMemory.memory.totalJSHeapSize / 1048576
                 ).toFixed(2);
                 info.limitMB = (
-                    performance.memory.jsHeapSizeLimit / 1048576
+                    perfWithMemory.memory.jsHeapSizeLimit / 1048576
                 ).toFixed(2);
 
                 // Calculate raw percentage
                 const rawPercent =
-                    (performance.memory.usedJSHeapSize /
-                        performance.memory.jsHeapSizeLimit) *
+                    (perfWithMemory.memory.usedJSHeapSize /
+                        perfWithMemory.memory.jsHeapSizeLimit) *
                     100;
                 info.percentUsedRaw = rawPercent;
 
@@ -250,13 +281,13 @@
                 info.overLimit = rawPercent > 100;
 
                 // Cap display percentage at 100% for UI purposes
-                info.percentUsed = Math.min(100, rawPercent).toFixed(1);
+                info.percentUsed = Math.min(100, rawPercent);
             }
 
             return info;
         }
 
-        formatMemoryInfo(info) {
+        formatMemoryInfo(info: MemoryInfo): string {
             if (!info.supported) {
                 return `
                     <div style="font-weight: bold; margin-bottom: 8px;">Memory Monitor</div>
@@ -323,11 +354,12 @@
 
         async forceGarbageCollection() {
             console.log('[MemoryMonitor]', '🗑️ Forcing garbage collection...');
+            const globalWindow = window as Window & { gc?: () => void };
 
             // JavaScript GC (can't force directly, but we can help)
-            if (window.gc) {
+            if (globalWindow.gc) {
                 // Available in Chrome with --expose-gc flag
-                window.gc();
+                globalWindow.gc();
                 console.log(
                     '[MemoryMonitor]',
                     'JavaScript GC triggered (--expose-gc)'

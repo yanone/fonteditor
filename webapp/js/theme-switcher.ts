@@ -15,6 +15,12 @@
     };
 
     class ThemeSwitcher {
+        settingsBtn: HTMLElement | null;
+        settingsPanel: HTMLElement | null;
+        settingsCloseBtn: HTMLElement | null;
+        themeOptions: NodeListOf<HTMLElement>;
+        mediaQuery: MediaQueryList;
+
         constructor() {
             this.settingsBtn = document.getElementById('settings-btn');
             this.settingsPanel = document.getElementById('settings-panel');
@@ -33,7 +39,7 @@
             this.updateActiveButton(savedTheme);
 
             // Settings panel toggle
-            this.settingsBtn?.addEventListener('click', (e) => {
+            this.settingsBtn?.addEventListener('click', (e: MouseEvent) => {
                 e.stopPropagation();
                 this.toggleSettings();
             });
@@ -42,10 +48,10 @@
             );
 
             // Click anywhere outside to close
-            document.addEventListener('click', (e) => {
+            document.addEventListener('click', (e: MouseEvent) => {
                 if (
                     this.settingsPanel?.classList.contains('open') &&
-                    !this.settingsPanel.contains(e.target) &&
+                    !this.settingsPanel.contains(e.target as Node | null) &&
                     e.target !== this.settingsBtn
                 ) {
                     this.closeSettings();
@@ -56,21 +62,26 @@
             this.themeOptions.forEach((option) => {
                 option.addEventListener('click', () => {
                     const theme = option.dataset.theme;
-                    this.setTheme(theme);
+                    if (theme) {
+                        this.setTheme(theme);
+                    }
                 });
             });
 
             // Listen for OS theme changes (only when in auto mode)
-            this.mediaQuery.addEventListener('change', (e) => {
-                const currentPreference =
-                    localStorage.getItem(THEME_KEY) || THEMES.AUTO;
-                if (currentPreference === THEMES.AUTO) {
-                    this.applyTheme(e.matches ? THEMES.DARK : THEMES.LIGHT);
+            this.mediaQuery.addEventListener(
+                'change',
+                (e: MediaQueryListEvent) => {
+                    const currentPreference =
+                        localStorage.getItem(THEME_KEY) || THEMES.AUTO;
+                    if (currentPreference === THEMES.AUTO) {
+                        this.applyTheme(e.matches ? THEMES.DARK : THEMES.LIGHT);
+                    }
                 }
-            });
+            );
 
             // Keyboard shortcut: Cmd/Ctrl + ,
-            document.addEventListener('keydown', (e) => {
+            document.addEventListener('keydown', (e: KeyboardEvent) => {
                 if ((e.metaKey || e.ctrlKey) && e.key === ',') {
                     e.preventDefault();
                     this.toggleSettings();
@@ -81,7 +92,7 @@
             // Use capture phase to ensure this runs before other escape handlers
             document.addEventListener(
                 'keydown',
-                (e) => {
+                (e: KeyboardEvent) => {
                     if (
                         e.key === 'Escape' &&
                         this.settingsPanel?.classList.contains('open')
@@ -119,17 +130,20 @@
                 window.glyphCanvas &&
                 window.glyphCanvas.canvas
             ) {
-                setTimeout(() => window.glyphCanvas.canvas.focus(), 0);
+                const canvas = window.glyphCanvas.canvas;
+                if (canvas) {
+                    setTimeout(() => canvas.focus(), 0);
+                }
             }
         }
 
-        setTheme(preference) {
+        setTheme(preference: string) {
             localStorage.setItem(THEME_KEY, preference);
             this.applyThemePreference(preference);
             this.updateActiveButton(preference);
         }
 
-        applyThemePreference(preference) {
+        applyThemePreference(preference: string) {
             let actualTheme;
 
             if (preference === THEMES.AUTO) {
@@ -144,7 +158,7 @@
             this.applyTheme(actualTheme);
         }
 
-        applyTheme(theme) {
+        applyTheme(theme: string) {
             const root = document.documentElement;
 
             if (theme === THEMES.LIGHT) {
@@ -164,7 +178,7 @@
             }
         }
 
-        updateThemeColorMeta(theme) {
+        updateThemeColorMeta(theme: string) {
             const themeColorMeta = document.querySelector(
                 'meta[name="theme-color"]'
             );
@@ -184,7 +198,7 @@
             );
         }
 
-        updateAceTheme(theme) {
+        updateAceTheme(theme: string) {
             // Wait for Ace editor to be initialized
             setTimeout(() => {
                 const scriptEditor = window.scriptEditor;
@@ -206,7 +220,7 @@
             }, 100);
         }
 
-        updateActiveButton(preference) {
+        updateActiveButton(preference: string) {
             this.themeOptions.forEach((option) => {
                 if (option.dataset.theme === preference) {
                     option.classList.add('active');
@@ -245,18 +259,23 @@
         const fullscreenBtn = document.getElementById('fullscreen-btn');
         const fullscreenIcon = fullscreenBtn?.querySelector(
             '.material-symbols-outlined'
-        );
+        ) as HTMLElement | null;
 
-        if (!fullscreenBtn) return;
+        if (!fullscreenBtn || !fullscreenIcon) return;
 
         // Update icon based on fullscreen state
         function updateIcon() {
+            const icon = fullscreenIcon;
+            const btn = fullscreenBtn;
+            if (!icon || !btn) {
+                return;
+            }
             if (document.fullscreenElement) {
-                fullscreenIcon.textContent = 'fullscreen_exit';
-                fullscreenBtn.title = 'Exit fullscreen';
+                icon.textContent = 'fullscreen_exit';
+                btn.title = 'Exit fullscreen';
             } else {
-                fullscreenIcon.textContent = 'fullscreen';
-                fullscreenBtn.title = 'Toggle fullscreen';
+                icon.textContent = 'fullscreen';
+                btn.title = 'Toggle fullscreen';
             }
         }
 

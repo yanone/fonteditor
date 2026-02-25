@@ -3,7 +3,10 @@
 // Note: glyphOverviewFilterManager is loaded via glyph-overview.ts bundle
 // and available on window.glyphOverviewFilterManager
 
-function timelineSpanStartSafe(stage, detail) {
+function timelineSpanStartSafe(
+    stage: string,
+    detail?: Record<string, unknown>
+) {
     if (window.timelineSpanStart) {
         return window.timelineSpanStart(stage, detail);
     }
@@ -13,7 +16,7 @@ function timelineSpanStartSafe(stage, detail) {
     return startMark;
 }
 
-function timelineSpanEndSafe(spanId) {
+function timelineSpanEndSafe(spanId: string) {
     if (window.timelineSpanEnd) {
         window.timelineSpanEnd(spanId);
         return;
@@ -32,11 +35,14 @@ function waitForNextAnimationFrame() {
 
 console.log('[OverviewView]', 'overview-view.js loaded');
 
-let glyphOverviewInstance = null;
-let pendingInitialOpenSession = null;
-let pendingInitialOpenStartedAt = null;
+let glyphOverviewInstance: any = null;
+let pendingInitialOpenSession: string | null = null;
+let pendingInitialOpenStartedAt: number | null = null;
 let initialRenderInProgress = false;
-let queuedRenderRequest = null;
+let queuedRenderRequest: {
+    reason: string;
+    openSessionId: string | null;
+} | null = null;
 let pendingFallbackAttempts = 0;
 const maxFallbackAttempts = 4;
 
@@ -83,7 +89,7 @@ async function refreshFilterPlugins() {
     }
 }
 
-function scheduleFallbackRender(sessionId, delayMs = 1200) {
+function scheduleFallbackRender(sessionId: string | null, delayMs = 1200) {
     if (!sessionId) {
         return;
     }
@@ -119,7 +125,10 @@ function scheduleFallbackRender(sessionId, delayMs = 1200) {
     }, delayMs);
 }
 
-async function renderOverviewAndEmit(reason, openSessionId = null) {
+async function renderOverviewAndEmit(
+    reason: string,
+    openSessionId: string | null = null
+) {
     if (!glyphOverviewInstance) {
         return false;
     }
@@ -209,7 +218,7 @@ async function renderOverviewAndEmit(reason, openSessionId = null) {
 async function initOverviewView() {
     const overviewContent = document.querySelector(
         '#view-overview .view-content'
-    );
+    ) as HTMLElement | null;
     if (overviewContent) {
         // Create main container with flexbox layout
         const mainContainer = document.createElement('div');
@@ -313,16 +322,18 @@ async function initOverviewView() {
                 mainContainer.style.display = isCollapsed ? 'none' : 'flex';
             };
 
-            const observer = new MutationObserver((mutations) => {
-                mutations.forEach((mutation) => {
-                    if (
-                        mutation.type === 'attributes' &&
-                        mutation.attributeName === 'class'
-                    ) {
-                        updateCollapsedState();
-                    }
-                });
-            });
+            const observer = new MutationObserver(
+                (mutations: MutationRecord[]) => {
+                    mutations.forEach((mutation: MutationRecord) => {
+                        if (
+                            mutation.type === 'attributes' &&
+                            mutation.attributeName === 'class'
+                        ) {
+                            updateCollapsedState();
+                        }
+                    });
+                }
+            );
             observer.observe(overviewView, {
                 attributes: true,
                 attributeFilter: ['class']
@@ -339,14 +350,16 @@ async function initOverviewView() {
 }
 
 // Update glyph overview when font is loaded
-window.addEventListener('fontReady', async (event) => {
+window.addEventListener('fontReady', async (event: Event) => {
     console.log('[OverviewView]', 'Font ready, updating glyph overview');
 
     const fontReadyOverviewSpanId = timelineSpanStartSafe(
         'overview.fontReadyHandler'
     );
 
-    const detail = event?.detail || {};
+    const detail =
+        (event as CustomEvent<{ openSessionId?: string; openedAt?: number }>)
+            .detail || {};
     pendingInitialOpenSession = detail.openSessionId || null;
     pendingInitialOpenStartedAt =
         typeof detail.openedAt === 'number' ? detail.openedAt : null;
@@ -375,8 +388,9 @@ window.addEventListener('fontReady', async (event) => {
     }, 100);
 });
 
-window.addEventListener('fontOpenEditingCompiled', async (event) => {
-    const detail = event?.detail || {};
+window.addEventListener('fontOpenEditingCompiled', async (event: Event) => {
+    const detail =
+        (event as CustomEvent<{ openSessionId?: string }>).detail || {};
     const openSessionId = detail.openSessionId;
 
     if (!openSessionId || !pendingInitialOpenSession) {

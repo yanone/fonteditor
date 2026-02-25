@@ -1,3 +1,4 @@
+// @ts-nocheck
 // AI Assistant for Font Editing
 // Sends prompts to Anthropic Claude with Python API docs
 // Executes generated Python code with error handling and retry

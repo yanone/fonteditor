@@ -3,7 +3,13 @@
  * Handles the save button state and save functionality
  */
 
+declare const $: any;
+
 class SaveButton {
+    button: any;
+    isSaving: boolean;
+    saveEnabled: boolean;
+
     constructor() {
         this.button = $('#save-font-btn');
         this.isSaving = false;
@@ -21,7 +27,7 @@ class SaveButton {
         this.button.on('click', () => this.handleSave());
 
         // Global keyboard shortcut
-        $(document).on('keydown', (e) => {
+        $(document).on('keydown', (e: KeyboardEvent) => {
             // Cmd+S (Mac) or Ctrl+S (Windows/Linux)
             // BUT NOT Cmd+Shift+S (that's for focusing script editor)
             if ((e.metaKey || e.ctrlKey) && e.key === 's' && !e.shiftKey) {
@@ -47,7 +53,7 @@ class SaveButton {
                 );
             },
 
-            afterSave: (fontId, filename, duration) => {
+            afterSave: (fontId: string, filename: string, duration: number) => {
                 const callbackStart = performance.now();
                 const fname = filename.split('/').pop();
                 console.log(
@@ -71,7 +77,7 @@ class SaveButton {
                 );
             },
 
-            onError: (fontId, filename, error) => {
+            onError: (fontId: string, filename: string, error: string) => {
                 console.error('[SaveButton]', `❌ Save failed: ${error}`);
                 this.isSaving = false;
                 this.showError();

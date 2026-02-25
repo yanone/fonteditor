@@ -3,7 +3,29 @@
  * Handles cross-domain authentication with fonteditorwebsite
  */
 
+type AuthUser = {
+    email?: string;
+    [key: string]: unknown;
+};
+
+type AuthSubscription = {
+    isAdvanced?: boolean;
+    [key: string]: unknown;
+};
+
+type AuthCredits = {
+    amountCents?: number;
+    overageAllowed?: boolean;
+    [key: string]: unknown;
+};
+
 class AuthManager {
+    websiteURL: string;
+    user: AuthUser | null;
+    subscription: AuthSubscription | null;
+    credits: AuthCredits | null;
+    sessionToken: string | null = null;
+
     constructor() {
         this.websiteURL = this.getWebsiteURL();
         this.user = null;
@@ -63,7 +85,7 @@ class AuthManager {
         }
     }
 
-    getWebsiteURL() {
+    getWebsiteURL(): string {
         // Detect environment and return appropriate website URL
         const hostname = window.location.hostname;
 
@@ -86,7 +108,7 @@ class AuthManager {
     /**
      * Check current authentication status with the website
      */
-    async checkAuthStatus() {
+    async checkAuthStatus(): Promise<AuthUser | null> {
         try {
             // Use already-set session token or read from cookie
             const sessionToken = this.sessionToken || this.getSessionToken();
@@ -115,7 +137,11 @@ class AuthManager {
             console.log('[Auth] API response status:', response.status);
 
             if (response.ok) {
-                const data = await response.json();
+                const data = (await response.json()) as {
+                    user: AuthUser;
+                    subscription: AuthSubscription;
+                    credits: AuthCredits;
+                };
                 console.log('[Auth] API response data:', data);
                 this.user = data.user;
                 this.subscription = data.subscription;
@@ -147,7 +173,7 @@ class AuthManager {
     /**
      * Get session token from cookie
      */
-    getSessionToken() {
+    getSessionToken(): string | null {
         console.log('[Auth] All cookies:', document.cookie);
         const cookies = document.cookie.split(';');
         for (let cookie of cookies) {
@@ -190,7 +216,11 @@ class AuthManager {
      * Callback for auth state changes
      * Override this in your app
      */
-    onAuthStateChanged(isAuthenticated, user, subscription) {
+    onAuthStateChanged(
+        isAuthenticated: boolean,
+        user: AuthUser | null,
+        subscription: AuthSubscription | null
+    ) {
         console.log(
             '[Auth] Auth state changed:',
             isAuthenticated,
@@ -203,7 +233,11 @@ class AuthManager {
     /**
      * Update settings panel UI based on auth state
      */
-    updateSettingsUI(isAuthenticated, user, subscription) {
+    updateSettingsUI(
+        isAuthenticated: boolean,
+        user: AuthUser | null,
+        subscription: AuthSubscription | null
+    ) {
         const loggedIn = document.getElementById('settings-logged-in');
         const loggedOut = document.getElementById('settings-logged-out');
         const userEmail = document.getElementById('settings-user-email');
@@ -218,7 +252,7 @@ class AuthManager {
             loggedOut.style.display = 'none';
 
             // Display email and subscription status
-            let statusText = user.email;
+            let statusText = user.email ?? '';
             if (subscription && subscription.isAdvanced) {
                 statusText += ' • Advanced';
             } else if (subscription) {

@@ -5,7 +5,7 @@
     'use strict';
 
     // Track which packages have been installed in this session
-    const installedPackages = new Set();
+    const installedPackages = new Set<string>();
 
     // Packages that should be lazy-loaded
     const lazyPackages = {
@@ -15,15 +15,15 @@
     };
 
     // Currently installing packages (to prevent duplicate installs)
-    const installingPackages = new Set();
+    const installingPackages = new Set<string>();
 
     /**
      * Check if code imports any lazy-loadable packages
      * @param {string} code - Python code to scan
      * @returns {string[]} - Array of package names that need to be installed
      */
-    function detectRequiredPackages(code) {
-        const required = [];
+    function detectRequiredPackages(code: string): string[] {
+        const required: string[] = [];
 
         for (const [packageName, pipName] of Object.entries(lazyPackages)) {
             // Skip if already installed or currently installing
@@ -55,7 +55,7 @@
      * Install required packages
      * @param {string[]} packages - Array of package names to install
      */
-    async function installPackages(packages) {
+    async function installPackages(packages: string[]): Promise<void> {
         if (packages.length === 0) {
             return;
         }
@@ -125,6 +125,8 @@
                         `print("[LazyLoader] ✅ Matplotlib auto-cleanup patch applied")`
                     );
                 } catch (error) {
+                    const message =
+                        error instanceof Error ? error.message : String(error);
                     console.error(
                         '[LazyLoader]',
                         '❌ Failed to apply matplotlib patch:',
@@ -132,7 +134,7 @@
                     );
                     // Print error to Python console
                     await window.pyodide._originalRunPythonAsync(
-                        `print("[LazyLoader] ❌ Failed to apply matplotlib patch: ${error.message}")`
+                        `print("[LazyLoader] ❌ Failed to apply matplotlib patch: ${message}")`
                     );
                 }
             }
@@ -157,7 +159,7 @@
     /**
      * Hook into Python execution to install packages as needed
      */
-    function setupLazyLoader() {
+    function setupLazyLoader(): void {
         if (!window.pyodide) {
             console.log('[LazyLoader]', 'Waiting for Pyodide...');
             setTimeout(setupLazyLoader, 500);
@@ -170,7 +172,7 @@
         const existingBeforeHook = window.beforePythonExecution;
 
         // Install our hook
-        window.beforePythonExecution = async function (code) {
+        window.beforePythonExecution = async function (code?: string) {
             const hookStartTime = performance.now();
 
             // Call existing hook first

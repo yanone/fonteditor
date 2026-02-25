@@ -37,7 +37,10 @@ module.exports = {
         'bootstrap': './js/bootstrap.ts',
         'fontc-worker': './js/fontc-worker.ts',
         'glyph-filter-worker': './js/glyph-filter-worker.ts',
-        'glyph-overview': './js/glyph-overview.ts'
+        'glyph-overview': './js/glyph-overview.ts',
+        'chat-session-manager': './js/chat-session-manager.ts',
+        'translations': './js/translations.ts',
+        'overview-view': './js/overview-view.ts'
     },
     output: {
         path: path.resolve(__dirname, 'build'),
@@ -70,19 +73,7 @@ module.exports = {
                 { from: 'examples', to: 'examples' },
                 { from: 'py', to: 'py' },
                 { from: 'wheels', to: 'wheels' },
-                { from: '_headers', to: '_headers' },
-                {
-                    from: 'js/chat-session-manager.js',
-                    to: 'js/chat-session-manager.js'
-                },
-                {
-                    from: 'js/translations.js',
-                    to: 'js/translations.js'
-                },
-                {
-                    from: 'js/overview-view.js',
-                    to: 'js/overview-view.js'
-                }
+                { from: '_headers', to: '_headers' }
             ]
         })
     ],

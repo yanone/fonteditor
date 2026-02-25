@@ -10,13 +10,13 @@
 (function () {
     'use strict';
 
-    let matplotlibModal = null;
-    let matplotlibModalBody = null;
-    let matplotlibModalCloseBtn = null;
-    let observer = null;
+    let matplotlibModal: HTMLElement | null = null;
+    let matplotlibModalBody: HTMLElement | null = null;
+    let matplotlibModalCloseBtn: HTMLElement | null = null;
+    let observer: MutationObserver | null = null;
 
     // Track canvases we've already processed to avoid duplicates
-    const processedCanvases = new WeakSet();
+    const processedCanvases = new WeakSet<HTMLElement>();
 
     // Initialize modal elements when DOM is ready
     function initMatplotlibModal() {
@@ -42,18 +42,16 @@
         matplotlibModalCloseBtn.addEventListener('click', closePlotModal);
 
         // Close on background click
-        matplotlibModal.addEventListener('click', function (event) {
+        matplotlibModal.addEventListener('click', function (event: MouseEvent) {
             if (event.target === matplotlibModal) {
                 closePlotModal();
             }
         });
 
         // Close on Escape key
-        document.addEventListener('keydown', function (event) {
-            if (
-                event.key === 'Escape' &&
-                matplotlibModal.classList.contains('active')
-            ) {
+        document.addEventListener('keydown', function (event: KeyboardEvent) {
+            const modal = matplotlibModal;
+            if (event.key === 'Escape' && modal?.classList.contains('active')) {
                 event.preventDefault();
                 event.stopPropagation();
                 closePlotModal();
@@ -78,9 +76,12 @@
         // Watch for matplotlib elements being added to the DOM
         // Pyodide matplotlib WebAgg backend creates a plain div with no id/class
         // appended to the end of body, containing the plot
-        observer = new MutationObserver(function (mutations) {
-            mutations.forEach(function (mutation) {
-                mutation.addedNodes.forEach(function (node) {
+        observer = new MutationObserver(function (mutations: MutationRecord[]) {
+            mutations.forEach(function (mutation: MutationRecord) {
+                mutation.addedNodes.forEach(function (node: Node) {
+                    const elementNode =
+                        node instanceof HTMLElement ? node : null;
+
                     // Check for matplotlib-figure custom elements (some backends)
                     if (node.nodeName === 'MATPLOTLIB-FIGURE') {
                         console.log(
@@ -88,11 +89,15 @@
                             '📊 Detected matplotlib-figure element:',
                             node
                         );
-                        handleMatplotlibFigure(node);
+                        if (elementNode) {
+                            handleMatplotlibFigure(elementNode);
+                        }
                     }
                     // Check for regular canvas elements
                     else if (node.nodeName === 'CANVAS') {
-                        handleNewCanvas(node);
+                        if (node instanceof HTMLCanvasElement) {
+                            handleNewCanvas(node);
+                        }
                     }
                     // Check for DIVs added directly to body (WebAgg backend pattern)
                     else if (
@@ -102,25 +107,26 @@
                         // WebAgg creates a div with no id/class containing the plot
                         // Skip if it's part of view controls or UI elements
                         if (
-                            !node.id &&
-                            !node.className &&
-                            !node.closest(
+                            elementNode &&
+                            !elementNode.id &&
+                            !elementNode.className &&
+                            !elementNode.closest(
                                 '.view-title-bar, .overview-size-control'
                             )
                         ) {
                             console.log(
                                 '[MatplotlibHandler]',
                                 '📊 Detected potential WebAgg plot div:',
-                                node
+                                elementNode
                             );
-                            handlePotentialWebAggDiv(node);
+                            handlePotentialWebAggDiv(elementNode);
                         }
                     }
                     // Check for divs or other containers with matplotlib content
-                    else if (node.querySelectorAll) {
+                    else if (elementNode) {
                         // Check for matplotlib-figure elements in subtrees
                         const matplotlibFigures =
-                            node.querySelectorAll('matplotlib-figure');
+                            elementNode.querySelectorAll('matplotlib-figure');
                         if (matplotlibFigures.length > 0) {
                             console.log(
                                 '[MatplotlibHandler]',
@@ -128,10 +134,12 @@
                                 matplotlibFigures
                             );
                         }
-                        matplotlibFigures.forEach(handleMatplotlibFigure);
+                        matplotlibFigures.forEach((figure) =>
+                            handleMatplotlibFigure(figure as HTMLElement)
+                        );
 
                         // Check for canvases in added subtrees
-                        const canvases = node.querySelectorAll('canvas');
+                        const canvases = elementNode.querySelectorAll('canvas');
                         canvases.forEach(handleNewCanvas);
                     }
                 });
@@ -145,7 +153,7 @@
         });
     }
 
-    function handleMatplotlibFigure(figureElement) {
+    function handleMatplotlibFigure(figureElement: HTMLElement) {
         // Skip if already processed
         if (processedCanvases.has(figureElement)) {
             return;
@@ -169,7 +177,7 @@
         }, 150);
     }
 
-    function handlePotentialWebAggDiv(div) {
+    function handlePotentialWebAggDiv(div: HTMLElement) {
         // Skip if already processed
         if (processedCanvases.has(div)) {
             return;
@@ -223,7 +231,7 @@
         }
     }
 
-    function handleNewCanvas(canvas) {
+    function handleNewCanvas(canvas: HTMLCanvasElement) {
         // Check if this looks like a matplotlib canvas
         // Skip if already processed
         if (processedCanvases.has(canvas)) {
@@ -330,7 +338,7 @@
         return false;
     }
 
-    function showPlotInModal(element) {
+    function showPlotInModal(element: HTMLElement) {
         if (!matplotlibModalBody || !matplotlibModal) {
             console.warn(
                 '[MatplotlibHandler]',
@@ -376,7 +384,7 @@
     }
 
     // Global function to manually show a plot
-    window.showMatplotlibPlot = function (element) {
+    window.showMatplotlibPlot = function (element: HTMLElement) {
         if (element && element.nodeType === 1) {
             // Element node
             processedCanvases.add(element);

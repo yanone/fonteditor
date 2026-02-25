@@ -3,8 +3,32 @@
  * Handles chat history, session persistence, and menu interactions
  */
 
+type ChatHistorySession = {
+    id: string;
+    contextType?: string;
+    shortDescription?: string;
+    lastActivityAt?: string;
+    updatedAt?: string;
+    createdAt?: string;
+};
+
+type ChatSessionResponse = {
+    chatSession: {
+        id: string;
+        contextType?: string;
+    };
+    messages: Array<{ role: string; content: string }>;
+};
+
 class ChatSessionManager {
-    constructor(aiAssistant) {
+    aiAssistant: any;
+    currentChatId: string | null;
+    chatHistory: ChatHistorySession[];
+    isContextLocked: boolean;
+    linkedFilePath: string | null;
+    filePathToChatId: Map<string, string>;
+
+    constructor(aiAssistant: any) {
         this.aiAssistant = aiAssistant;
         this.currentChatId = null;
         this.chatHistory = []; // Last 50 chats for the menu
@@ -16,7 +40,7 @@ class ChatSessionManager {
     /**
      * Set the linked file path for glyph filter context
      */
-    setLinkedFilePath(filePath) {
+    setLinkedFilePath(filePath: string | null) {
         this.linkedFilePath = filePath;
         console.log('[ChatSession] Linked file path set to:', filePath);
         // Track file-to-chat association when chat ID exists
@@ -36,7 +60,7 @@ class ChatSessionManager {
     /**
      * Get the linked file path for glyph filter context
      */
-    getLinkedFilePath() {
+    getLinkedFilePath(): string | null {
         return this.linkedFilePath;
     }
 
@@ -45,7 +69,7 @@ class ChatSessionManager {
      * @param {string} filePath - File path to check
      * @returns {string|null} Chat ID if exists, null otherwise
      */
-    getChatIdForFilePath(filePath) {
+    getChatIdForFilePath(filePath: string): string | null {
         return this.filePathToChatId.get(filePath) || null;
     }
 
@@ -104,7 +128,7 @@ class ChatSessionManager {
      * @param {string} contextType - 'font', 'script', or 'glyphfilter'
      * @returns {string} HTML for context icon
      */
-    static getContextIconHTML(contextType) {
+    static getContextIconHTML(contextType: string): string {
         let icon, contextClass;
         switch (contextType) {
             case 'script':
@@ -140,7 +164,7 @@ class ChatSessionManager {
      * Generate context selection buttons HTML
      * @returns {string} HTML for context selection buttons
      */
-    static getContextSelectionButtonsHTML() {
+    static getContextSelectionButtonsHTML(): string {
         const isFilterFileOpen = ChatSessionManager.isGlyphFilterFileOpen();
         const filterDisabledClass = isFilterFileOpen ? '' : 'disabled';
         const filterDisabledAttr = isFilterFileOpen ? '' : 'disabled';
@@ -168,7 +192,7 @@ class ChatSessionManager {
      * Generate explainer HTML for glyph filter context
      * @returns {string} HTML for the explainer (always shown for glyph filter button)
      */
-    static getGlyphFilterExplainerHTML() {
+    static getGlyphFilterExplainerHTML(): string {
         return `
             <div class="ai-context-explainer">
                 <span class="material-symbols-outlined">info</span>
@@ -208,12 +232,15 @@ class ChatSessionManager {
             '.ai-context-selection-btn'
         );
         buttons.forEach((btn) => {
-            btn.addEventListener('click', (e) => {
+            btn.addEventListener('click', (_e: Event) => {
                 // Skip if button is disabled
-                if (btn.disabled) return;
+                const button = btn as HTMLButtonElement;
+                if (button.disabled) return;
 
                 const context = btn.getAttribute('data-context');
-                this.selectContext(context);
+                if (context) {
+                    this.selectContext(context);
+                }
                 messageDiv.remove();
             });
         });
@@ -224,7 +251,7 @@ class ChatSessionManager {
     /**
      * Select and lock the context for this chat
      */
-    selectContext(context) {
+    selectContext(context: string) {
         this.aiAssistant.setContext(context);
         this.isContextLocked = true;
 
@@ -281,13 +308,13 @@ class ChatSessionManager {
     /**
      * Load a chat session from history
      */
-    async loadChatSession(chatId) {
+    async loadChatSession(chatId: string): Promise<void> {
         try {
             const sessionToken = window.authManager
                 ? window.authManager.getSessionToken()
                 : null;
 
-            const headers = {
+            const headers: Record<string, string> = {
                 'Content-Type': 'application/json'
             };
 
@@ -311,7 +338,7 @@ class ChatSessionManager {
                 );
             }
 
-            const data = await response.json();
+            const data = (await response.json()) as ChatSessionResponse;
 
             // Set current chat ID and save to localStorage
             this.currentChatId = data.chatSession.id;
@@ -355,7 +382,7 @@ class ChatSessionManager {
             this.aiAssistant.messagesContainer.innerHTML = '';
 
             // Recreate messages from history
-            data.messages.forEach((msg) => {
+            data.messages.forEach((msg: { role: string; content: string }) => {
                 if (msg.role === 'user') {
                     this.aiAssistant.addMessage('user', msg.content);
                 } else if (msg.role === 'assistant') {
@@ -417,15 +444,17 @@ class ChatSessionManager {
                 console.log(`[ChatSession] Loaded chat: ${chatId}`);
             }
         } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error);
             console.error('[ChatSession] Failed to load chat session:', error);
-            alert(`Failed to load chat: ${error.message}`);
+            alert(`Failed to load chat: ${message}`);
         }
     }
 
     /**
      * Load the last active chat on startup
      */
-    async loadLastChat() {
+    async loadLastChat(): Promise<void> {
         try {
             // Check if we have a saved chat ID in localStorage
             const savedChatId = localStorage.getItem('ai_last_chat_id');
@@ -437,9 +466,11 @@ class ChatSessionManager {
                     await this.loadChatSession(savedChatId);
                     return; // Successfully loaded saved chat
                 } catch (error) {
+                    const message =
+                        error instanceof Error ? error.message : String(error);
                     console.log(
                         '[ChatSession] Saved chat not available, falling back to last chat:',
-                        error.message
+                        message
                     );
                     // Clear invalid chat ID from localStorage
                     localStorage.removeItem('ai_last_chat_id');
@@ -452,7 +483,7 @@ class ChatSessionManager {
                 ? window.authManager.getSessionToken()
                 : null;
 
-            const headers = {
+            const headers: Record<string, string> = {
                 'Content-Type': 'application/json'
             };
 
@@ -485,7 +516,7 @@ class ChatSessionManager {
                 return;
             }
 
-            const data = await response.json();
+            const data = (await response.json()) as ChatSessionResponse;
 
             if (!data.chatSession) {
                 console.log('[ChatSession] No chat history found');
@@ -532,7 +563,7 @@ class ChatSessionManager {
             }
 
             // Recreate messages from history
-            data.messages.forEach((msg) => {
+            data.messages.forEach((msg: { role: string; content: string }) => {
                 if (msg.role === 'user') {
                     this.aiAssistant.addMessage('user', msg.content);
                 } else if (msg.role === 'assistant') {
@@ -572,7 +603,7 @@ class ChatSessionManager {
     /**
      * Update chat history menu
      */
-    updateChatHistory(chatHistory) {
+    updateChatHistory(chatHistory: ChatHistorySession[]) {
         this.chatHistory = chatHistory;
 
         // Update menu if it's currently open
@@ -637,7 +668,7 @@ class ChatSessionManager {
     /**
      * Load chat history from server
      */
-    async loadChatHistoryFromServer() {
+    async loadChatHistoryFromServer(): Promise<void> {
         try {
             const sessionToken = window.authManager
                 ? window.authManager.getSessionToken()
@@ -652,7 +683,7 @@ class ChatSessionManager {
                 !!window.authManager
             );
 
-            const headers = {
+            const headers: Record<string, string> = {
                 'Content-Type': 'application/json'
             };
 
@@ -703,7 +734,9 @@ class ChatSessionManager {
                 return;
             }
 
-            const data = await response.json();
+            const data = (await response.json()) as {
+                sessions?: ChatHistorySession[];
+            };
             console.log('[ChatSession] Raw response data:', data);
             this.chatHistory = data.sessions || [];
 
@@ -736,7 +769,7 @@ class ChatSessionManager {
     /**
      * Extract Python code and markdown from assistant response
      */
-    extractCodeAndMarkdown(content) {
+    extractCodeAndMarkdown(content: string) {
         let pythonCode = '';
         let markdownText = content;
 
@@ -784,7 +817,7 @@ class ChatSessionManager {
         }
 
         // Create items for each chat session
-        this.chatHistory.forEach((session) => {
+        this.chatHistory.forEach((session: ChatHistorySession) => {
             console.log('[ChatSession] Processing session:', session);
             const item = document.createElement('div');
             item.className = 'ai-chat-history-item';
@@ -868,7 +901,7 @@ class ChatSessionManager {
     /**
      * Format relative time for chat history
      */
-    formatRelativeTime(timestamp) {
+    formatRelativeTime(timestamp: number): string {
         const now = Date.now();
         const diff = now - timestamp;
 

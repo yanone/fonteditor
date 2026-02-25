@@ -19,7 +19,37 @@
  * Manages the canvas plugins dropdown in the editor title bar.
  */
 
+type PluginOption = {
+    label?: string;
+    value: string;
+};
+
+type PluginUIElement = {
+    type: string;
+    id: string;
+    label?: string;
+    default?: string | number | boolean;
+    min?: number;
+    max?: number;
+    step?: number;
+    placeholder?: string;
+    options?: PluginOption[];
+};
+
+type CanvasPluginEntry = {
+    entry_point: string;
+    name?: string;
+    ui_elements?: PluginUIElement[];
+    instance?: {
+        visible?: () => boolean;
+    };
+};
+
 class EditorPluginsUI {
+    dropdownBtn: HTMLElement | null;
+    dropdown: HTMLElement | null;
+    isOpen: boolean;
+
     constructor() {
         this.dropdownBtn = document.getElementById(
             'editor-plugins-dropdown-btn'
@@ -31,15 +61,19 @@ class EditorPluginsUI {
     }
 
     init() {
+        if (!this.dropdownBtn || !this.dropdown) {
+            return;
+        }
+
         // Toggle dropdown on button click
-        this.dropdownBtn.addEventListener('click', (e) => {
+        this.dropdownBtn.addEventListener('click', (e: MouseEvent) => {
             e.stopPropagation();
             this.toggleDropdown();
         });
 
         // Close dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-            if (this.isOpen && !this.dropdown.contains(e.target)) {
+        document.addEventListener('click', (e: MouseEvent) => {
+            if (this.isOpen && !this.dropdown?.contains(e.target as Node)) {
                 this.closeDropdown();
             }
         });
@@ -47,7 +81,7 @@ class EditorPluginsUI {
         // Close dropdown with Escape key
         document.addEventListener(
             'keydown',
-            (e) => {
+            (e: KeyboardEvent) => {
                 if (this.isOpen && e.key === 'Escape') {
                     e.preventDefault();
                     e.stopPropagation();
@@ -70,12 +104,19 @@ class EditorPluginsUI {
     }
 
     openDropdown() {
+        if (!this.dropdown) {
+            return;
+        }
+        const dropdown = this.dropdown;
         this.updatePluginList();
         this.dropdown.style.display = 'block';
         this.isOpen = true;
     }
 
     closeDropdown() {
+        if (!this.dropdown) {
+            return;
+        }
         this.dropdown.style.display = 'none';
         this.isOpen = false;
     }
@@ -88,7 +129,10 @@ class EditorPluginsUI {
             window.glyphCanvas &&
             window.glyphCanvas.canvas
         ) {
-            setTimeout(() => window.glyphCanvas.canvas.focus(), 0);
+            const canvas = window.glyphCanvas.canvas;
+            if (canvas) {
+                setTimeout(() => canvas.focus(), 0);
+            }
         }
     }
 
@@ -97,24 +141,36 @@ class EditorPluginsUI {
             !window.canvasPluginManager ||
             !window.canvasPluginManager.isLoaded()
         ) {
+            if (!this.dropdown) {
+                return;
+            }
             this.dropdown.innerHTML =
                 '<div class="editor-plugins-dropdown-empty">No plugins loaded</div>';
             return;
         }
 
-        const plugins = window.canvasPluginManager.getPlugins();
+        const plugins =
+            window.canvasPluginManager.getPlugins() as CanvasPluginEntry[];
 
         if (plugins.length === 0) {
+            if (!this.dropdown) {
+                return;
+            }
             this.dropdown.innerHTML =
                 '<div class="editor-plugins-dropdown-empty">No plugins available</div>';
             return;
         }
 
+        if (!this.dropdown) {
+            return;
+        }
+        const dropdown = this.dropdown;
+
         // Clear existing content
-        this.dropdown.innerHTML = '';
+        dropdown.innerHTML = '';
 
         // Create plugin items
-        plugins.forEach((plugin) => {
+        plugins.forEach((plugin: CanvasPluginEntry) => {
             // Skip plugins that have visible() method returning false
             if (plugin.instance && plugin.instance.visible) {
                 try {
@@ -157,17 +213,19 @@ class EditorPluginsUI {
             item.appendChild(name);
 
             // Toggle on click
-            item.addEventListener('click', (e) => {
+            item.addEventListener('click', (e: MouseEvent) => {
                 e.stopPropagation();
 
                 // Don't toggle if clicking on UI elements
-                if (e.target.closest('.plugin-ui-elements')) {
+                if (
+                    (e.target as HTMLElement | null)?.closest(
+                        '.plugin-ui-elements'
+                    )
+                ) {
                     return;
                 }
 
-                const newState = window.canvasPluginManager.togglePlugin(
-                    plugin.entry_point
-                );
+                window.canvasPluginManager.togglePlugin(plugin.entry_point);
 
                 // Update the entire dropdown to show/hide UI elements
                 this.updatePluginList();
@@ -181,7 +239,7 @@ class EditorPluginsUI {
                 this.restoreFocusToCanvas();
             });
 
-            this.dropdown.appendChild(item);
+            dropdown.appendChild(item);
 
             // Add UI elements if plugin is enabled and has UI elements
             if (
@@ -192,19 +250,19 @@ class EditorPluginsUI {
                 const uiContainer = document.createElement('div');
                 uiContainer.className = 'plugin-ui-elements';
 
-                plugin.ui_elements.forEach((element) => {
+                plugin.ui_elements.forEach((element: PluginUIElement) => {
                     const uiElement = this.createUIElement(element, plugin);
                     if (uiElement) {
                         uiContainer.appendChild(uiElement);
                     }
                 });
 
-                this.dropdown.appendChild(uiContainer);
+                dropdown.appendChild(uiContainer);
             }
         });
     }
 
-    createUIElement(element, plugin) {
+    createUIElement(element: PluginUIElement, plugin: CanvasPluginEntry) {
         if (element.type === 'slider') {
             return this.createSlider(element, plugin);
         } else if (element.type === 'textfield') {
@@ -219,7 +277,7 @@ class EditorPluginsUI {
         return null;
     }
 
-    createSlider(element, plugin) {
+    createSlider(element: PluginUIElement, plugin: CanvasPluginEntry) {
         const container = document.createElement('div');
         container.className = 'plugin-ui-slider';
 
@@ -233,9 +291,9 @@ class EditorPluginsUI {
 
         const slider = document.createElement('input');
         slider.type = 'range';
-        slider.min = element.min || 0;
-        slider.max = element.max || 100;
-        slider.step = element.step || 1;
+        slider.min = String(element.min ?? 0);
+        slider.max = String(element.max ?? 100);
+        slider.step = String(element.step ?? 1);
 
         // Get current value or use default
         let currentValue = window.canvasPluginManager.getPluginParameter(
@@ -245,8 +303,8 @@ class EditorPluginsUI {
         if (currentValue === null || currentValue === undefined) {
             currentValue = element.default || element.min || 0;
         }
-        slider.value = currentValue;
-        valueInput.value = currentValue;
+        slider.value = String(currentValue);
+        valueInput.value = String(currentValue);
 
         // Function to update slider fill
         const updateSliderFill = () => {
@@ -261,10 +319,10 @@ class EditorPluginsUI {
         updateSliderFill();
 
         // Update from slider
-        slider.addEventListener('input', (e) => {
+        slider.addEventListener('input', (e: Event) => {
             e.stopPropagation();
-            const value = parseFloat(e.target.value);
-            valueInput.value = value;
+            const value = parseFloat((e.target as HTMLInputElement).value);
+            valueInput.value = String(value);
             updateSliderFill();
             window.canvasPluginManager.setPluginParameter(
                 plugin.entry_point,
@@ -282,16 +340,16 @@ class EditorPluginsUI {
         });
 
         // Update from text input
-        valueInput.addEventListener('input', (e) => {
+        valueInput.addEventListener('input', (e: Event) => {
             e.stopPropagation();
-            const value = parseFloat(e.target.value);
+            const value = parseFloat((e.target as HTMLInputElement).value);
             if (!isNaN(value)) {
                 // Clamp to min/max
                 const clampedValue = Math.max(
                     element.min || 0,
                     Math.min(element.max || 100, value)
                 );
-                slider.value = clampedValue;
+                slider.value = String(clampedValue);
                 updateSliderFill();
                 window.canvasPluginManager.setPluginParameter(
                     plugin.entry_point,
@@ -307,8 +365,8 @@ class EditorPluginsUI {
         });
 
         // Validate and format on blur
-        valueInput.addEventListener('blur', (e) => {
-            const value = parseFloat(e.target.value);
+        valueInput.addEventListener('blur', (e: Event) => {
+            const value = parseFloat((e.target as HTMLInputElement).value);
             if (isNaN(value)) {
                 valueInput.value = slider.value;
             } else {
@@ -316,8 +374,8 @@ class EditorPluginsUI {
                     element.min || 0,
                     Math.min(element.max || 100, value)
                 );
-                valueInput.value = clampedValue;
-                slider.value = clampedValue;
+                valueInput.value = String(clampedValue);
+                slider.value = String(clampedValue);
                 updateSliderFill();
             }
 
@@ -326,7 +384,7 @@ class EditorPluginsUI {
         });
 
         // Handle Enter key
-        valueInput.addEventListener('keydown', (e) => {
+        valueInput.addEventListener('keydown', (e: KeyboardEvent) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 valueInput.blur();
@@ -340,7 +398,7 @@ class EditorPluginsUI {
         return container;
     }
 
-    createTextField(element, plugin) {
+    createTextField(element: PluginUIElement, plugin: CanvasPluginEntry) {
         const container = document.createElement('div');
         container.className = 'plugin-ui-textfield';
 
@@ -364,9 +422,9 @@ class EditorPluginsUI {
         input.value = currentValue;
 
         // Update on input
-        input.addEventListener('input', (e) => {
+        input.addEventListener('input', (e: Event) => {
             e.stopPropagation();
-            const value = e.target.value;
+            const value = (e.target as HTMLInputElement).value;
             window.canvasPluginManager.setPluginParameter(
                 plugin.entry_point,
                 element.id,
@@ -380,7 +438,7 @@ class EditorPluginsUI {
         });
 
         // Handle Enter key
-        input.addEventListener('keydown', (e) => {
+        input.addEventListener('keydown', (e: KeyboardEvent) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 input.blur();
@@ -398,7 +456,7 @@ class EditorPluginsUI {
         return container;
     }
 
-    createCheckbox(element, plugin) {
+    createCheckbox(element: PluginUIElement, plugin: CanvasPluginEntry) {
         const container = document.createElement('div');
         container.className = 'plugin-ui-checkbox';
 
@@ -422,9 +480,9 @@ class EditorPluginsUI {
         input.checked = currentValue;
 
         // Update on change
-        input.addEventListener('change', (e) => {
+        input.addEventListener('change', (e: Event) => {
             e.stopPropagation();
-            const value = e.target.checked;
+            const value = (e.target as HTMLInputElement).checked;
             window.canvasPluginManager.setPluginParameter(
                 plugin.entry_point,
                 element.id,
@@ -446,7 +504,7 @@ class EditorPluginsUI {
         return container;
     }
 
-    createRadioGroup(element, plugin) {
+    createRadioGroup(element: PluginUIElement, plugin: CanvasPluginEntry) {
         const container = document.createElement('div');
         container.className = 'plugin-ui-radio-group';
 
@@ -471,7 +529,7 @@ class EditorPluginsUI {
         optionsContainer.className = 'plugin-ui-radio-options';
 
         // Create radio buttons for each option
-        (element.options || []).forEach((option, index) => {
+        (element.options || []).forEach((option: PluginOption) => {
             const optionLabel = document.createElement('label');
             optionLabel.className = 'plugin-ui-radio-label';
 
@@ -486,10 +544,11 @@ class EditorPluginsUI {
             labelText.textContent = option.label || option.value;
 
             // Update on change
-            input.addEventListener('change', (e) => {
+            input.addEventListener('change', (e: Event) => {
                 e.stopPropagation();
-                if (e.target.checked) {
-                    const value = e.target.value;
+                const target = e.target as HTMLInputElement;
+                if (target.checked) {
+                    const value = target.value;
                     window.canvasPluginManager.setPluginParameter(
                         plugin.entry_point,
                         element.id,
@@ -516,7 +575,7 @@ class EditorPluginsUI {
         return container;
     }
 
-    createColorPicker(element, plugin) {
+    createColorPicker(element: PluginUIElement, plugin: CanvasPluginEntry) {
         const container = document.createElement('div');
         container.className = 'plugin-ui-color';
 
@@ -539,9 +598,9 @@ class EditorPluginsUI {
         input.value = currentValue;
 
         // Update on change
-        input.addEventListener('input', (e) => {
+        input.addEventListener('input', (e: Event) => {
             e.stopPropagation();
-            const value = e.target.value;
+            const value = (e.target as HTMLInputElement).value;
             window.canvasPluginManager.setPluginParameter(
                 plugin.entry_point,
                 element.id,

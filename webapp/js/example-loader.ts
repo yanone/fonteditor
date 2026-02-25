@@ -1,6 +1,22 @@
 // Example Loader
 // Loads example fonts from the examples folder into the /user folder on app initialization
 
+interface ExampleManifestEntry {
+    source: string;
+    destination: string;
+    testOnly?: boolean;
+    type?: 'directory' | 'file';
+    fileList?: string;
+}
+
+interface ExampleManifest {
+    examples: ExampleManifestEntry[];
+}
+
+interface ExampleFileListManifest {
+    files: string[];
+}
+
 /**
  * Load example fonts into the /user folder based on examples-manifest.json
  */
@@ -28,7 +44,7 @@ async function loadExampleFonts() {
             return;
         }
 
-        const manifest = await manifestResponse.json();
+        const manifest = (await manifestResponse.json()) as ExampleManifest;
         const isTestMode = !!window.isTestMode?.();
         const examplesToLoad = (manifest.examples || []).filter(
             (example) => !example.testOnly || isTestMode
@@ -59,7 +75,8 @@ async function loadExampleFonts() {
                         continue;
                     }
 
-                    const fileListManifest = await fileListResponse.json();
+                    const fileListManifest =
+                        (await fileListResponse.json()) as ExampleFileListManifest;
                     const relativeFiles = fileListManifest.files || [];
                     let uploadedFromDirectory = 0;
 

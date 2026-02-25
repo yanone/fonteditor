@@ -1,6 +1,18 @@
 // FontEditor initialization
 // Loads and initializes Python packages for font editing
 
+type WheelsManifest = {
+    wheels: string[];
+};
+
+type ExtendedWindow = Window & {
+    __unsupportedBrowserWarningRequired?: boolean;
+    __unsupportedBrowserWarningAcknowledged?: boolean;
+    WarpSpeedAnimation?: {
+        requestStop: (onDone: () => void) => void;
+    };
+};
+
 async function initFontEditor() {
     'use strict';
 
@@ -72,7 +84,7 @@ async function initFontEditor() {
 
         // Fetch the list of wheel files from the manifest
         const manifestResponse = await fetch('./wheels/wheels.json');
-        const manifest = await manifestResponse.json();
+        const manifest = (await manifestResponse.json()) as WheelsManifest;
         const wheelFiles = manifest.wheels;
         console.log('[FontEditor]', 'Found wheel files:', wheelFiles);
 
@@ -165,9 +177,10 @@ async function initFontEditor() {
         }
 
         const shouldWaitForUnsupportedBrowserContinue = () => {
+            const extendedWindow = window as ExtendedWindow;
             return (
-                window.__unsupportedBrowserWarningRequired === true &&
-                window.__unsupportedBrowserWarningAcknowledged !== true
+                extendedWindow.__unsupportedBrowserWarningRequired === true &&
+                extendedWindow.__unsupportedBrowserWarningAcknowledged !== true
             );
         };
 
@@ -178,7 +191,7 @@ async function initFontEditor() {
 
             // Fade logo color back to red before hiding overlay
             if (loadingLogo) {
-                loadingLogo.classList.add('fade-out');
+                (loadingLogo as HTMLElement).classList.add('fade-out');
             }
 
             if (loadingOverlay) {
@@ -204,10 +217,11 @@ async function initFontEditor() {
         // Wait briefly after "Ready" appears before starting fadeout
         setTimeout(() => {
             // Request animation to stop (it will drain particles first, then trigger fade)
-            if (window.WarpSpeedAnimation) {
+            const extendedWindow = window as ExtendedWindow;
+            if (extendedWindow.WarpSpeedAnimation) {
                 let callbackFired = false;
 
-                window.WarpSpeedAnimation.requestStop(() => {
+                extendedWindow.WarpSpeedAnimation.requestStop(() => {
                     if (!callbackFired) {
                         callbackFired = true;
                         hideLoadingOverlayWhenAllowed();
@@ -233,17 +247,17 @@ async function initFontEditor() {
 
         return true;
     } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         console.error('[FontEditor]', 'Error initializing FontEditor:', error);
         if (window.term) {
-            window.term.error(
-                'Failed to initialize FontEditor: ' + error.message
-            );
+            window.term.error('Failed to initialize FontEditor: ' + message);
         }
 
         // Hide loading overlay even on error (unless waiting for unsupported-browser acknowledgment)
+        const extendedWindow = window as ExtendedWindow;
         if (
-            window.__unsupportedBrowserWarningRequired !== true ||
-            window.__unsupportedBrowserWarningAcknowledged === true
+            extendedWindow.__unsupportedBrowserWarningRequired !== true ||
+            extendedWindow.__unsupportedBrowserWarningAcknowledged === true
         ) {
             const loadingOverlay = document.getElementById('loading-overlay');
             if (loadingOverlay) {
@@ -259,9 +273,10 @@ async function initFontEditor() {
 document.addEventListener('DOMContentLoaded', () => {
     // Safety timeout - hide loading screen after 30 seconds no matter what
     setTimeout(() => {
+        const extendedWindow = window as ExtendedWindow;
         if (
-            window.__unsupportedBrowserWarningRequired === true &&
-            window.__unsupportedBrowserWarningAcknowledged !== true
+            extendedWindow.__unsupportedBrowserWarningRequired === true &&
+            extendedWindow.__unsupportedBrowserWarningAcknowledged !== true
         ) {
             return;
         }

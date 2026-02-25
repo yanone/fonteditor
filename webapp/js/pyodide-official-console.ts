@@ -1,7 +1,11 @@
+// @ts-nocheck
 // Official Pyodide Console integration
 // Based on https://github.com/pyodide/pyodide/blob/main/src/templates/console.html
 
-function sleep(s) {
+declare function loadPyodide(options?: unknown): Promise<any>;
+declare function showDirectoryPicker(options?: unknown): Promise<any>;
+
+function sleep(s: number) {
     return new Promise((resolve) => setTimeout(resolve, s));
 }
 
@@ -13,14 +17,17 @@ async function initPyodideConsole() {
     const { showCriticalError, isWebAssemblyMemoryError } =
         await import('./critical-error-handler');
 
-    let term;
-    let pyodide;
-    let pyconsole;
-    let namespace;
-    let await_fut;
+    let term: any;
+    let pyodide: any;
+    let pyconsole: any;
+    let namespace: any;
+    let await_fut: any;
 
     // Hide loading spinner initially
-    document.getElementById('loading').style.display = 'block';
+    const loadingEl = document.getElementById('loading') as HTMLElement | null;
+    if (loadingEl) {
+        loadingEl.style.display = 'block';
+    }
 
     try {
         // Load Pyodide
@@ -63,7 +70,7 @@ async function initPyodideConsole() {
         );
         namespace.destroy();
 
-        const echo = (msg, ...opts) =>
+        const echo = (msg: string, ...opts: unknown[]) =>
             term.echo(
                 msg
                     .replaceAll(']]', '&rsqb;&rsqb;')
@@ -75,14 +82,14 @@ async function initPyodideConsole() {
         const ps2 = '... ';
 
         async function lock() {
-            let resolve;
+            let resolve: (() => void) | undefined;
             const ready = term.ready;
             term.ready = new Promise((res) => (resolve = res));
             await ready;
-            return resolve;
+            return resolve ?? (() => undefined);
         }
 
-        async function interpreter(command) {
+        async function interpreter(command: string) {
             // Call before-execution hook
             if (window.beforePythonExecution) {
                 window.beforePythonExecution();
@@ -138,14 +145,19 @@ async function initPyodideConsole() {
                         '✅ Console command completed successfully'
                     );
                 } catch (e) {
+                    const errorMessage =
+                        e instanceof Error ? e.message : String(e);
                     // Log error to browser console
                     console.error(
                         '[PyodideConsole]',
                         '❌ Console command failed:',
-                        e.message || e
+                        errorMessage
                     );
-                    if (e.constructor.name === 'PythonError') {
-                        const message = fut.formatted_error || e.message;
+                    if (
+                        (e as { constructor?: { name?: string } }).constructor
+                            ?.name === 'PythonError'
+                    ) {
+                        const message = fut.formatted_error || errorMessage;
                         const cleanedMessage =
                             window.cleanPythonTraceback(message);
                         term.error(cleanedMessage.trimEnd());
@@ -172,28 +184,31 @@ async function initPyodideConsole() {
             greetings: BANNER,
             prompt: ps1,
             completionEscape: false,
-            completion: function (command, callback) {
+            completion: function (
+                command: string,
+                callback: (items: any[]) => void
+            ) {
                 callback(pyconsole.complete(command).toJs()[0]);
             },
             keymap: {
-                'CTRL+C': async function (event, original) {
+                'CTRL+C': async function (_event: Event, _original: unknown) {
                     pyconsole.buffer.clear();
                     term.enter();
                     echo('KeyboardInterrupt');
                     term.set_command('');
                     term.set_prompt(ps1);
                 },
-                'CTRL+K': function (event, original) {
+                'CTRL+K': function (_event: Event, _original: unknown) {
                     // Clear the terminal output
                     term.clear();
                     return false;
                 },
-                'META+K': function (event, original) {
+                'META+K': function (_event: Event, _original: unknown) {
                     // Clear the terminal output (for macOS cmd+k)
                     term.clear();
                     return false;
                 },
-                'TAB': (event, original) => {
+                'TAB': (event: Event, original: (evt: Event) => unknown) => {
                     const command = term.before_cursor();
                     // Disable completion for whitespaces.
                     if (command.trim() === '') {
@@ -221,7 +236,7 @@ async function initPyodideConsole() {
             if (consoleContainer) {
                 consoleContainer.addEventListener(
                     'wheel',
-                    function (e) {
+                    function (e: WheelEvent) {
                         e.preventDefault();
                         e.stopPropagation();
 
@@ -285,7 +300,7 @@ async function initPyodideConsole() {
             }
         }, 500);
 
-        pyconsole.stdout_callback = (s) => {
+        pyconsole.stdout_callback = (s: string) => {
             // Filter system messages from interactive console too
             if (isSystemMessage(s)) {
                 console.log(
@@ -297,7 +312,7 @@ async function initPyodideConsole() {
             }
             echo(s, { newline: false });
         };
-        pyconsole.stderr_callback = (s) => {
+        pyconsole.stderr_callback = (s: string) => {
             // Filter stderr system messages from interactive console
             if (isSystemMessage(s)) {
                 console.warn(
@@ -313,10 +328,10 @@ async function initPyodideConsole() {
 
         // Make console output functions globally available
         window.consoleEcho = echo;
-        window.consoleError = (s) => term.error(s);
+        window.consoleError = (s: string) => term.error(s);
 
         // Filter function to identify system messages vs user print output
-        function isSystemMessage(message) {
+        function isSystemMessage(message: string): boolean {
             const systemPatterns = [
                 /^Loading\s+\w+/i,
                 /^Loaded\s+\w+/i,
@@ -345,7 +360,7 @@ async function initPyodideConsole() {
 
         // Set global stdout/stderr callbacks for pyodide.runPython() calls
         pyodide.setStdout({
-            batched: (s) => {
+            batched: (s: string) => {
                 // Filter out system messages - send them to browser console instead
                 if (isSystemMessage(s)) {
                     console.log(
@@ -365,7 +380,7 @@ async function initPyodideConsole() {
             }
         });
         pyodide.setStderr({
-            batched: (s) => {
+            batched: (s: string) => {
                 // Filter stderr system messages too
                 if (isSystemMessage(s)) {
                     console.warn(
@@ -379,8 +394,8 @@ async function initPyodideConsole() {
             }
         });
 
-        pyodide._api.on_fatal = async (e) => {
-            if (e.name === 'Exit') {
+        pyodide._api.on_fatal = async (e: any) => {
+            if (e?.name === 'Exit') {
                 term.error(e);
                 term.error('Pyodide exited and can no longer be used.');
             } else {
@@ -404,13 +419,13 @@ async function initPyodideConsole() {
                 const result = pyodide_py(...args);
                 if (result && typeof result.then !== 'undefined') {
                     return result
-                        .then((r) => {
+                        .then((r: any) => {
                             if (r && r.toJs) {
                                 r = r.toJs();
                             }
                             return r;
                         })
-                        .catch((e) => {
+                        .catch((e: any) => {
                             // Handle Python exceptions and display in console
                             if (e.constructor.name === 'PythonError') {
                                 term.error(e.message);
@@ -425,7 +440,7 @@ async function initPyodideConsole() {
                     }
                     return result;
                 }
-            } catch (e) {
+            } catch (e: any) {
                 // Handle synchronous Python exceptions
                 if (e.constructor.name === 'PythonError') {
                     term.error(e.message);
@@ -520,11 +535,14 @@ async function initPyodideConsole() {
         }
 
         // Hide loading spinner
-        document.getElementById('loading').style.display = 'none';
+        if (loadingEl) {
+            loadingEl.style.display = 'none';
+        }
 
         // Focus on terminal
         term.focus();
     } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         console.error(
             '[PyodideConsole]',
             'Error initializing Pyodide console:',
@@ -540,11 +558,13 @@ async function initPyodideConsole() {
             );
         } else {
             // Show regular error message for other errors
-            document.getElementById('loading').innerHTML = `
+            if (loadingEl) {
+                loadingEl.innerHTML = `
       <div style="color: red; padding: 20px;">
-        Error loading Python console: ${error.message}
+        Error loading Python console: ${message}
       </div>
     `;
+            }
         }
     }
 }

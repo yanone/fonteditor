@@ -1,3 +1,4 @@
+// @ts-nocheck
 console.log('[Resizer]', 'resizer.js loaded');
 
 class ResizableViews {
@@ -9,6 +10,14 @@ class ResizableViews {
     static SECONDARY_MIN_HEIGHT = 24; // Title bar only
     static FONTINFO_MIN_WIDTH = 24; // Title bar width when rotated
     static FONTINFO_MIN_HEIGHT = 100;
+
+    isResizing: boolean;
+    currentDivider: HTMLElement | null;
+    direction: 'vertical' | 'horizontal' = 'vertical';
+    startX: number;
+    startY: number;
+    startWidths: Record<number, number>;
+    startHeights: { top: number; bottom: number };
 
     constructor() {
         console.log('[Resizer]', 'ResizableViews constructor called');
@@ -25,7 +34,7 @@ class ResizableViews {
     /**
      * Get the minimum width for a view based on its type
      */
-    getMinWidth(view) {
+    getMinWidth(view: Element): number {
         if (view.classList.contains('view-editor')) {
             return ResizableViews.PRIMARY_MIN_WIDTH;
         }
@@ -41,7 +50,7 @@ class ResizableViews {
     /**
      * Get the minimum height for a view based on its type
      */
-    getMinHeight(view) {
+    getMinHeight(view: Element): number {
         if (view.classList.contains('view-editor')) {
             return ResizableViews.PRIMARY_MIN_HEIGHT;
         }
@@ -205,23 +214,25 @@ class ResizableViews {
         const horizontalDivider = document.querySelector('.horizontal-divider');
 
         verticalDividers.forEach((divider) => {
-            divider.addEventListener('mousedown', (e) =>
+            divider.addEventListener('mousedown', (e: MouseEvent) =>
                 this.startResize(e, 'vertical')
             );
         });
 
         if (horizontalDivider) {
-            horizontalDivider.addEventListener('mousedown', (e) =>
+            horizontalDivider.addEventListener('mousedown', (e: MouseEvent) =>
                 this.startResize(e, 'horizontal')
             );
         }
 
         // Global mouse events
-        document.addEventListener('mousemove', (e) => this.resize(e));
+        document.addEventListener('mousemove', (e: MouseEvent) =>
+            this.resize(e)
+        );
         document.addEventListener('mouseup', () => this.stopResize());
 
         // Prevent text selection during resize
-        document.addEventListener('selectstart', (e) => {
+        document.addEventListener('selectstart', (e: Event) => {
             if (this.isResizing) {
                 e.preventDefault();
             }
@@ -243,7 +254,7 @@ class ResizableViews {
                 return;
             }
 
-            const layout = JSON.parse(saved);
+            const layout = JSON.parse(saved) as any;
             console.log('[Resizer]', 'Loading view layout:', layout);
 
             // Apply horizontal layout
@@ -386,10 +397,10 @@ class ResizableViews {
         }
     }
 
-    startResize(e, direction) {
+    startResize(e: MouseEvent, direction: 'vertical' | 'horizontal') {
         e.preventDefault();
         this.isResizing = true;
-        this.currentDivider = e.target;
+        this.currentDivider = e.target as HTMLElement;
         this.direction = direction;
         this.startX = e.clientX;
         this.startY = e.clientY;
@@ -411,6 +422,9 @@ class ResizableViews {
     }
 
     storeVerticalDimensions() {
+        if (!this.currentDivider?.parentElement) {
+            return;
+        }
         const container = this.currentDivider.parentElement;
         const views = container.querySelectorAll('.view');
 
@@ -424,8 +438,14 @@ class ResizableViews {
     }
 
     storeHorizontalDimensions() {
-        const topRow = document.querySelector('.top-row');
-        const bottomRow = document.querySelector('.bottom-row');
+        const topRow = document.querySelector('.top-row') as HTMLElement | null;
+        const bottomRow = document.querySelector(
+            '.bottom-row'
+        ) as HTMLElement | null;
+
+        if (!topRow || !bottomRow) {
+            return;
+        }
 
         this.startHeights = {
             top: topRow.offsetHeight,
@@ -433,7 +453,7 @@ class ResizableViews {
         };
     }
 
-    resize(e) {
+    resize(e: MouseEvent) {
         if (!this.isResizing) return;
 
         e.preventDefault();
@@ -445,8 +465,11 @@ class ResizableViews {
         }
     }
 
-    resizeVertical(e) {
+    resizeVertical(e: MouseEvent) {
         const deltaX = e.clientX - this.startX;
+        if (!this.currentDivider?.parentElement) {
+            return;
+        }
         const container = this.currentDivider.parentElement;
         const views = Array.from(container.querySelectorAll('.view'));
         const dividers = Array.from(
@@ -508,7 +531,7 @@ class ResizableViews {
         }
 
         // Calculate new widths
-        const newWidths = {};
+        const newWidths: Record<number, number> = {};
 
         // Set new left width (clamped to minimum)
         newWidths[dividerIndex] = newLeftWidth;
@@ -610,13 +633,20 @@ class ResizableViews {
         this.updateCollapsedStates();
     }
 
-    resizeHorizontal(e) {
+    resizeHorizontal(e: MouseEvent) {
         const deltaY = e.clientY - this.startY;
-        const topRow = document.querySelector('.top-row');
-        const bottomRow = document.querySelector('.bottom-row');
+        const topRow = document.querySelector('.top-row') as HTMLElement | null;
+        const bottomRow = document.querySelector(
+            '.bottom-row'
+        ) as HTMLElement | null;
 
-        const containerHeight =
-            document.querySelector('.container').offsetHeight;
+        if (!topRow || !bottomRow) {
+            return;
+        }
+
+        const containerHeight = (
+            document.querySelector('.container') as HTMLElement
+        ).offsetHeight;
         const dividerHeight = 4; // Fixed divider height
         const availableHeight = containerHeight - dividerHeight;
 

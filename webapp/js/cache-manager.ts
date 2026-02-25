@@ -4,12 +4,20 @@
 (function () {
     'use strict';
 
+    type CacheOpResult = {
+        success: boolean;
+        count: number;
+        message?: string;
+        error?: string;
+        reset?: boolean;
+    };
+
     class CacheManager {
         constructor() {
             console.log('[CacheManager]', 'Cache Manager loaded');
         }
 
-        async clearServiceWorkers() {
+        async clearServiceWorkers(): Promise<CacheOpResult> {
             if ('serviceWorker' in navigator) {
                 try {
                     const registrations =
@@ -43,6 +51,8 @@
                         message: `Cleared ${registrations.length} service worker(s)`
                     };
                 } catch (error) {
+                    const message =
+                        error instanceof Error ? error.message : String(error);
                     console.error(
                         '[CacheManager]',
                         'Failed to clear service workers:',
@@ -50,18 +60,20 @@
                     );
                     return {
                         success: false,
-                        error: error.message
+                        count: 0,
+                        error: message
                     };
                 }
             } else {
                 return {
                     success: false,
+                    count: 0,
                     message: 'Service workers not supported'
                 };
             }
         }
 
-        async clearCaches() {
+        async clearCaches(): Promise<CacheOpResult> {
             if ('caches' in window) {
                 try {
                     const cacheNames = await caches.keys();
@@ -92,6 +104,8 @@
                         message: `Cleared ${cacheNames.length} cache(s)`
                     };
                 } catch (error) {
+                    const message =
+                        error instanceof Error ? error.message : String(error);
                     console.error(
                         '[CacheManager]',
                         'Failed to clear caches:',
@@ -99,19 +113,21 @@
                     );
                     return {
                         success: false,
-                        error: error.message
+                        count: 0,
+                        error: message
                     };
                 }
             } else {
                 return {
                     success: false,
+                    count: 0,
                     message: 'Cache API not supported'
                 };
             }
         }
 
-        async clearIndexedDB() {
-            return new Promise((resolve) => {
+        async clearIndexedDB(): Promise<CacheOpResult> {
+            return new Promise((resolve: (value: CacheOpResult) => void) => {
                 // Pyodide uses IndexedDB for package caching
                 const databases = ['pyodide', 'pyodide-packages'];
                 let cleared = 0;
@@ -168,7 +184,11 @@
             });
         }
 
-        async clearAll() {
+        async clearAll(): Promise<{
+            serviceWorkers: CacheOpResult;
+            caches: CacheOpResult;
+            indexedDB: CacheOpResult;
+        }> {
             console.log('[CacheManager]', '🗑️ Clearing all caches...');
 
             const results = {
@@ -204,7 +224,7 @@
             return results;
         }
 
-        async clearAndReload() {
+        async clearAndReload(): Promise<void> {
             console.log(
                 '[CacheManager]',
                 '🔄 Clearing all caches and reloading...'
@@ -214,11 +234,11 @@
             // Wait a moment for cleanup to complete
             setTimeout(() => {
                 console.log('[CacheManager]', '🔄 Reloading page...');
-                window.location.reload(true); // Force reload from server
+                window.location.reload(); // Force reload from server
             }, 500);
         }
 
-        getCacheStats() {
+        getCacheStats(): Record<string, unknown> {
             const stats = {
                 serviceWorkerSupported: 'serviceWorker' in navigator,
                 cacheApiSupported: 'caches' in window,
@@ -261,16 +281,24 @@ Manual cache access:
     );
 
     // Track memory across reloads
-    function trackMemoryAcrossReloads() {
+    function trackMemoryAcrossReloads(): void {
         const reloadCount =
             parseInt(sessionStorage.getItem('reloadCount') || '0') + 1;
         sessionStorage.setItem('reloadCount', reloadCount.toString());
 
-        if (performance.memory) {
+        const perfWithMemory = performance as Performance & {
+            memory?: {
+                usedJSHeapSize: number;
+                totalJSHeapSize: number;
+                jsHeapSizeLimit: number;
+            };
+        };
+
+        if (perfWithMemory.memory) {
             const currentMemory = {
-                used: performance.memory.usedJSHeapSize,
-                total: performance.memory.totalJSHeapSize,
-                limit: performance.memory.jsHeapSizeLimit,
+                used: perfWithMemory.memory.usedJSHeapSize,
+                total: perfWithMemory.memory.totalJSHeapSize,
+                limit: perfWithMemory.memory.jsHeapSizeLimit,
                 reloadCount: reloadCount,
                 timestamp: Date.now()
             };
@@ -283,10 +311,9 @@ Manual cache access:
             if (lastMemory) {
                 const usedMB = (currentMemory.used / 1048576).toFixed(2);
                 const lastUsedMB = (lastMemory.used / 1048576).toFixed(2);
-                const delta = (
-                    (currentMemory.used - lastMemory.used) /
-                    1048576
-                ).toFixed(2);
+                const deltaValue =
+                    (currentMemory.used - lastMemory.used) / 1048576;
+                const delta = deltaValue.toFixed(2);
                 const deltaPercent = (
                     ((currentMemory.used - lastMemory.used) / lastMemory.used) *
                     100
@@ -300,7 +327,7 @@ Manual cache access:
                 console.log('[CacheManager]', `   Current: ${usedMB} MB`);
                 console.log('[CacheManager]', `   Previous: ${lastUsedMB} MB`);
 
-                if (delta > 0) {
+                if (deltaValue > 0) {
                     console.log(
                         '[CacheManager]',
                         `   %cΔ +${delta} MB (+${deltaPercent}%) 📈 INCREASE`,
@@ -315,7 +342,7 @@ Manual cache access:
                 }
 
                 // Warn if memory keeps growing
-                if (reloadCount > 2 && delta > 10) {
+                if (reloadCount > 2 && deltaValue > 10) {
                     console.warn(
                         '[CacheManager]',
                         `%c⚠️ MEMORY LEAK DETECTED: Memory grew by ${delta}MB after reload!`,
@@ -353,7 +380,7 @@ Manual cache access:
     }
 
     // Auto-clear service worker caches on page load
-    async function forceServiceWorkerReset() {
+    async function forceServiceWorkerReset(): Promise<Record<string, unknown>> {
         if ('serviceWorker' in navigator) {
             try {
                 // Get the COI service worker
@@ -384,12 +411,14 @@ Manual cache access:
 
                 return { success: true, reset: true };
             } catch (error) {
+                const message =
+                    error instanceof Error ? error.message : String(error);
                 console.warn(
                     '[CacheManager]',
                     '⚠️ Failed to reset service worker:',
                     error
                 );
-                return { success: false, error: error.message };
+                return { success: false, error: message };
             }
         }
         return { success: false, message: 'Service workers not supported' };

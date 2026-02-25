@@ -1,16 +1,16 @@
-import TabLifecycleManager from './tab-lifecycle.js';
-import ThemeSwitcher from './theme-switcher.js';
-import AIAssistant from './ai-assistant.js';
-import CacheManager from './cache-manager.js';
-import type { FontCompilation } from './font-compilation.js';
-import FontManager from './font-manager.js';
-import { GlyphCanvas } from './glyph-canvas.js';
-import MemoryMonitor from './memory-monitor.js';
-import ResizableViews from './resizer.js';
-import SaveButton from './save-button.js';
-import { Font } from './babelfont-model.js';
-import type MCPLogTransport from './mcp-transport.js';
-import type { StateManager, EditorState } from './state-manager.js';
+import TabLifecycleManager from './tab-lifecycle';
+import ThemeSwitcher from './theme-switcher';
+import AIAssistant from './ai-assistant';
+import CacheManager from './cache-manager';
+import type { FontCompilation } from './font-compilation';
+import FontManager from './font-manager';
+import { GlyphCanvas } from './glyph-canvas';
+import MemoryMonitor from './memory-monitor';
+import ResizableViews from './resizer';
+import SaveButton from './save-button';
+import { Font } from './babelfont-model';
+import type MCPLogTransport from './mcp-transport';
+import type { StateManager, EditorState } from './state-manager';
 declare global {
     // Any property augmentation we make to the Window interface
     // should be declared here.
@@ -74,6 +74,46 @@ declare global {
         // From ai-assistant.js
         aiAssistant: AIAssistant;
 
+        // From auth-manager.ts
+        authManager: {
+            websiteURL: string;
+            user: { email?: string; [key: string]: unknown } | null;
+            subscription: {
+                isAdvanced?: boolean;
+                [key: string]: unknown;
+            } | null;
+            credits: {
+                amountCents?: number;
+                overageAllowed?: boolean;
+                [key: string]: unknown;
+            } | null;
+            checkAuthStatus: () => Promise<{
+                email?: string;
+                [key: string]: unknown;
+            } | null>;
+            getSessionToken: () => string | null;
+            login: () => Promise<void>;
+            logout: () => Promise<void>;
+            isAuthenticated: () => boolean;
+            getUser: () => { email?: string; [key: string]: unknown } | null;
+            onAuthStateChanged: (
+                isAuthenticated: boolean,
+                user: { email?: string; [key: string]: unknown } | null,
+                subscription: {
+                    isAdvanced?: boolean;
+                    [key: string]: unknown;
+                } | null
+            ) => void;
+            updateSettingsUI: (
+                isAuthenticated: boolean,
+                user: { email?: string; [key: string]: unknown } | null,
+                subscription: {
+                    isAdvanced?: boolean;
+                    [key: string]: unknown;
+                } | null
+            ) => void;
+        };
+
         // From auto-compile-manager.js
         autoCompileManager: {
             checkAndSchedule: () => void;
@@ -111,7 +151,7 @@ declare global {
 
         // From cache-manager.js
         cacheManager: CacheManager;
-        cacheStats: () => { size: number; itemCount: number };
+        cacheStats: () => Record<string, unknown>;
 
         // From python-utils.js
         cleanPythonTraceback: (
@@ -166,7 +206,8 @@ declare global {
         glyphOverviewFilterManager: {
             initialize: (
                 sidebarContainer: HTMLElement,
-                glyphOverview: any
+                glyphOverview: any,
+                groupLegendContainer?: HTMLElement
             ) => void;
             discoverPlugins: () => Promise<void>;
             refreshPlugins: (options?: {
@@ -183,6 +224,10 @@ declare global {
             updateSharedPluginContext: (patch: Record<string, any>) => void;
             getSharedPluginContext: () => Record<string, any>;
         };
+
+        // From glyph-overview.ts / overview-view.ts
+        GlyphOverview: new (container: HTMLElement) => any;
+        glyphOverviewInstance: any;
 
         // From file-browser.js
         navigateToPath: (
@@ -314,10 +359,16 @@ declare global {
         consoleError: (msg: string, ...opts: any[]) => void;
         term: any; // Terminal
         clearConsole: () => void;
+        mountDirectory: () => Promise<void>;
+        getMountedDirectoryInfo: () => Promise<Record<string, unknown>>;
+        unmountDirectory: () => Promise<string>;
 
         // From python-execution-wrapper.js
-        beforePythonExecution?: () => void;
+        beforePythonExecution?: (code?: string) => void | Promise<void>;
         afterPythonExecution?: () => void;
+
+        // From example-loader.ts
+        loadExampleFonts: () => Promise<void>;
 
         // From resizer.js
         resizableViews: ResizableViews;
@@ -375,6 +426,22 @@ declare global {
 
         // From theme-switcher.js
         themeSwitcher: ThemeSwitcher;
+
+        // From translations.ts
+        translations: {
+            ai: {
+                buttons: {
+                    reviewChanges: {
+                        text: string;
+                        title: string;
+                    };
+                    openInEditor: {
+                        text: string;
+                        title: string;
+                    };
+                };
+            };
+        };
 
         // From view-settings.js
         VIEW_SETTINGS: Record<string, any>;

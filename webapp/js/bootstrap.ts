@@ -1,5 +1,5 @@
 import './wasm-init'; // Initialize WASM module
-import './tab-lifecycle.js';
+import './tab-lifecycle';
 import './mcp-transport';
 import './critical-error-handler';
 import './state-manager'; // Initialize state manager early
@@ -410,37 +410,37 @@ if (document.readyState === 'loading') {
     disableDefaultContextMenu();
 }
 
-import './auth-manager.js'; // Authentication with fonteditorwebsite
-import './ai-assistant.js';
+import './auth-manager'; // Authentication with fonteditorwebsite
+import './ai-assistant';
 import './auto-compile-manager';
-import './cache-manager.js';
+import './cache-manager';
 import './canvas-plugin-manager';
-import './editor-plugins-ui.js';
-import './example-loader.js';
+import './editor-plugins-ui';
+import './example-loader';
 import './file-browser';
 import './full-font-compile-manager';
 import './font-info'; // Font info view manager (Names/Features tabs)
 import './font-interpolation';
 import './font-manager';
-import './fonteditor.js';
+import './fonteditor';
 import './state-sync'; // URL state synchronization
 import './state-restore'; // URL state restoration
 import './glyph-canvas';
-import './keyboard-navigation.js';
-import './matplotlib-handler.js';
-import './memory-monitor.js';
-import './python-utils.js';
-import './pyodide-official-console.js';
-import './python-execution-wrapper.js';
-import './python-package-lazy-loader.js';
-import './python-ui-sync.js';
+import './keyboard-navigation';
+import './matplotlib-handler';
+import './memory-monitor';
+import './python-utils';
+import './pyodide-official-console';
+import './python-execution-wrapper';
+import './python-package-lazy-loader';
+import './python-ui-sync';
 import './python-post-execution';
-import './resizer.js';
-import './save-button.js';
+import './resizer';
+import './save-button';
 import './script-editor';
 import './share-button';
-import './theme-switcher.js';
-import './view-settings.js';
+import './theme-switcher';
+import './view-settings';
 import { initViewTitleButtons } from './view-title-buttons';
 
 // Initialize view title buttons after DOM is ready and keyboard navigation is initialized

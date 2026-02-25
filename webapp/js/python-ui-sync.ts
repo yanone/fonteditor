@@ -5,7 +5,7 @@
 let isLoadingFont = false;
 
 // Debounce timer for dirty indicator updates
-let dirtyCheckTimeout = null;
+let dirtyCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Called before any Python code execution begins.
@@ -64,7 +64,7 @@ window.beforePythonExecution = beforePythonExecution;
 window.afterPythonExecution = afterPythonExecution;
 
 // Expose flag control for font loading operations
-window.setFontLoadingState = function (loading) {
+window.setFontLoadingState = function (loading: boolean) {
     isLoadingFont = loading;
     if (!loading) {
         // After font loading completes, check dirty state once

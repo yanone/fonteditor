@@ -10,8 +10,8 @@
  * @returns {string} - Traceback with adjusted line numbers
  */
 window.adjustTracebackLineNumbers = function adjustTracebackLineNumbers(
-    errorMessage,
-    lineOffset,
+    errorMessage: string,
+    lineOffset: number,
     framePatterns = ['<exec>', '<string>']
 ) {
     if (!errorMessage || typeof errorMessage !== 'string' || lineOffset <= 0) {
@@ -65,8 +65,8 @@ window.adjustTracebackLineNumbers = function adjustTracebackLineNumbers(
  * @returns {string} - Cleaned traceback with only user-relevant frames
  */
 window.cleanPythonTraceback = function cleanPythonTraceback(
-    errorMessage,
-    options = {}
+    errorMessage: string,
+    options: number | { lineOffset?: number; skipExecFrames?: boolean } = {}
 ) {
     // Handle legacy call with lineOffset as number
     if (typeof options === 'number') {
@@ -180,7 +180,7 @@ window.cleanPythonTraceback = function cleanPythonTraceback(
  * @param {string} code - The code string
  * @returns {number} - Number of lines
  */
-window.countCodeLines = function countCodeLines(code) {
+window.countCodeLines = function countCodeLines(code: string) {
     if (!code || typeof code !== 'string') return 0;
     return code.split('\n').length;
 };

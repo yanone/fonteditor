@@ -34,7 +34,10 @@
         let executionCounter = 0;
 
         // Wrap runPythonAsync to log all Python code to BROWSER CONSOLE ONLY
-        window.pyodide.runPythonAsync = async function (code, options) {
+        window.pyodide.runPythonAsync = async function (
+            code: string,
+            options?: unknown
+        ) {
             executionCounter++;
             const execId = executionCounter;
             const totalStartTime = performance.now();
@@ -71,10 +74,12 @@
                 );
                 return result;
             } catch (error) {
+                const errorMessage =
+                    error instanceof Error ? error.message : String(error);
                 console.error(
                     '[PythonExec]',
                     `❌ Execution #${execId} failed:`,
-                    error.message
+                    errorMessage
                 );
                 throw error;
             } finally {
@@ -101,7 +106,7 @@
         };
 
         // Wrap runPython (synchronous version used by console)
-        window.pyodide.runPython = function (code, options) {
+        window.pyodide.runPython = function (code: string, options?: unknown) {
             executionCounter++;
             const execId = executionCounter;
 
@@ -132,10 +137,12 @@
                 );
                 return result;
             } catch (error) {
+                const errorMessage =
+                    error instanceof Error ? error.message : String(error);
                 console.error(
                     '[PythonExec]',
                     `❌ Execution #${execId} failed:`,
-                    error.message
+                    errorMessage
                 );
                 throw error;
             } finally {
@@ -162,12 +169,12 @@
 
         // For console commands, intercept when window.term is set
         // Use a property descriptor to hook into the assignment
-        let _term = null;
+        let _term: any = null;
         Object.defineProperty(window, 'term', {
             get: function () {
                 return _term;
             },
-            set: function (newTerm) {
+            set: function (newTerm: any) {
                 _term = newTerm;
 
                 if (newTerm && newTerm.get_command) {
@@ -180,7 +187,10 @@
                     const originalInterpreter = newTerm.get_command();
 
                     // Create a wrapped interpreter
-                    const wrappedInterpreter = async function (command) {
+                    const wrappedInterpreter = async function (
+                        this: any,
+                        command: string
+                    ) {
                         if (command && command.trim()) {
                             executionCounter++;
                             const execId = executionCounter;

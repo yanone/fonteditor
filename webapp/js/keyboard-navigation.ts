@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Keyboard Navigation System
 (function () {
     let currentFocusedView = null;
