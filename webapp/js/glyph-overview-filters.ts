@@ -1151,7 +1151,7 @@ export class GlyphOverviewFilterManager {
                 (menu as any)._handlersSetup = true;
 
                 menu.querySelectorAll('.plugin-menu-item').forEach(
-                    (menuItem) => {
+                    (menuItem: any) => {
                         menuItem.addEventListener('click', async () => {
                             const action = menuItem.getAttribute('data-action');
 
@@ -1871,7 +1871,7 @@ export class GlyphOverviewFilterManager {
                 if (this.groupLegendContainer) {
                     this.groupLegendContainer
                         .querySelectorAll('.glyph-filter-legend-item.active')
-                        .forEach((el) => el.classList.remove('active'));
+                        .forEach((el: any) => el.classList.remove('active'));
                 }
 
                 // Add this group
@@ -1894,7 +1894,7 @@ export class GlyphOverviewFilterManager {
         if (this.groupLegendContainer) {
             this.groupLegendContainer
                 .querySelectorAll('.glyph-filter-legend-item.active')
-                .forEach((el) => el.classList.remove('active'));
+                .forEach((el: any) => el.classList.remove('active'));
         }
 
         // Re-apply filter to show all results

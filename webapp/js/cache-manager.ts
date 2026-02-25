@@ -200,15 +200,15 @@
             console.log('[CacheManager]', 'Cache clearing results:', results);
 
             // Show summary
-            const messages = [];
+            const messages: string[] = [];
             if (results.serviceWorkers.count > 0) {
-                messages.push(results.serviceWorkers.message);
+                messages.push(results.serviceWorkers.message || '');
             }
             if (results.caches.count > 0) {
-                messages.push(results.caches.message);
+                messages.push(results.caches.message || '');
             }
             if (results.indexedDB.count > 0) {
-                messages.push(results.indexedDB.message);
+                messages.push(results.indexedDB.message || '');
             }
 
             if (messages.length === 0) {

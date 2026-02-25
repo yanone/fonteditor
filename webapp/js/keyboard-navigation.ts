@@ -1,7 +1,6 @@
-// @ts-nocheck
 // Keyboard Navigation System
 (function () {
-    let currentFocusedView = null;
+    let currentFocusedView: string | null = null;
     let isFocusing = false; // Prevent recursive focus calls
 
     // Get view settings from the global VIEW_SETTINGS object
@@ -33,14 +32,14 @@
      * Expand view on activation if it's below threshold
      * Returns true if expansion was performed
      */
-    function expandViewOnActivation(viewId) {
+    function expandViewOnActivation(viewId: string) {
         const settings = getViewSettings();
         if (!settings || !settings.activation) return false;
 
         const view = document.getElementById(viewId);
         if (!view) return false;
 
-        const container = document.querySelector('.container');
+        const container = document.querySelector('.container') as HTMLElement;
         const containerWidth = container.offsetWidth;
         const containerHeight = container.offsetHeight;
         const horizontalDividerHeight = 4;
@@ -62,8 +61,10 @@
         if (viewId === 'view-editor') {
             // Editor view - expand if below threshold
             const config = settings.activation.editor;
-            const topRow = view.closest('.top-row');
-            const topRowViews = Array.from(topRow.querySelectorAll('.view'));
+            const topRow = view.closest('.top-row') as HTMLElement;
+            const topRowViews = Array.from(
+                topRow.querySelectorAll('.view')
+            ) as HTMLElement[];
             const viewIndex = topRowViews.indexOf(view);
 
             const currentWidth = view.offsetWidth;
@@ -116,7 +117,9 @@
             if (heightRatio < config.heightThreshold) {
                 // Expand height
                 const targetHeight = availableHeight * config.heightTarget;
-                const bottomRow = document.querySelector('.bottom-row');
+                const bottomRow = document.querySelector(
+                    '.bottom-row'
+                ) as HTMLElement;
                 const bottomHeight = availableHeight - targetHeight;
 
                 if (bottomHeight >= 24) {
@@ -134,8 +137,10 @@
         } else if (viewId === 'view-fontinfo') {
             // Font info view - expand by width if below threshold
             const config = settings.activation.fontinfo;
-            const topRow = view.closest('.top-row');
-            const topRowViews = Array.from(topRow.querySelectorAll('.view'));
+            const topRow = view.closest('.top-row') as HTMLElement;
+            const topRowViews = Array.from(
+                topRow.querySelectorAll('.view')
+            ) as HTMLElement[];
             const viewIndex = topRowViews.indexOf(view);
 
             const currentWidth = view.offsetWidth;
@@ -143,7 +148,9 @@
 
             if (widthRatio < config.widthThreshold) {
                 // Determine target width based on whether overview is also open
-                const overviewView = topRow.querySelector('.view-overview');
+                const overviewView = topRow.querySelector(
+                    '.view-overview'
+                ) as HTMLElement | null;
                 const isOverviewOpen =
                     overviewView && overviewView.offsetWidth > 24 + 5;
                 const targetWidthRatio = isOverviewOpen
@@ -199,8 +206,10 @@
         } else if (viewId === 'view-overview') {
             // Overview view - expand by width if below threshold
             const config = settings.activation.fontinfo; // Use same config as fontinfo
-            const topRow = view.closest('.top-row');
-            const topRowViews = Array.from(topRow.querySelectorAll('.view'));
+            const topRow = view.closest('.top-row') as HTMLElement;
+            const topRowViews = Array.from(
+                topRow.querySelectorAll('.view')
+            ) as HTMLElement[];
             const viewIndex = topRowViews.indexOf(view);
 
             const currentWidth = view.offsetWidth;
@@ -208,7 +217,9 @@
 
             if (widthRatio < config.widthThreshold) {
                 // Determine target width based on whether fontinfo is also open
-                const fontinfoView = topRow.querySelector('.view-fontinfo');
+                const fontinfoView = topRow.querySelector(
+                    '.view-fontinfo'
+                ) as HTMLElement | null;
                 const isFontinfoOpen =
                     fontinfoView && fontinfoView.offsetWidth > 24 + 5;
                 const targetWidthRatio = isFontinfoOpen
@@ -264,8 +275,8 @@
         } else if (isBottomRow) {
             // Secondary views in bottom row - expand by height if below threshold
             const config = settings.activation.secondary;
-            const bottomRow = view.closest('.bottom-row');
-            const topRow = document.querySelector('.top-row');
+            const bottomRow = view.closest('.bottom-row') as HTMLElement;
+            const topRow = document.querySelector('.top-row') as HTMLElement;
 
             const currentHeight = bottomRow.offsetHeight;
             const heightRatio = currentHeight / availableHeight;
@@ -308,7 +319,7 @@
      * - 'maximize': Resize to maximize values (for editor)
      * - 'expandToTarget': Expand to activation target if smaller (for secondary views)
      */
-    function resizeView(viewId) {
+    function resizeView(viewId: string) {
         const settings = getViewSettings();
         if (!settings) return;
 
@@ -328,7 +339,7 @@
         const view = document.getElementById(viewId);
         if (!view) return;
 
-        const container = document.querySelector('.container');
+        const container = document.querySelector('.container') as HTMLElement;
         const containerWidth = container.offsetWidth;
         const containerHeight = container.offsetHeight;
         const horizontalDividerHeight = 4;
@@ -351,7 +362,7 @@
         if (secondaryBehavior === 'maximize') {
             // Maximize behavior (for editor)
             // For top row: Calculate dynamic resize config accounting for multiple collapsed views
-            const topRow = view.closest('.top-row');
+            const topRow = view.closest('.top-row')!;
             const topRowViews = topRow
                 ? Array.from(topRow.querySelectorAll('.view'))
                 : [];
@@ -400,10 +411,10 @@
             if (viewId === 'view-fontinfo' || viewId === 'view-overview') {
                 // Font info or Overview - expand width to secondary target if smaller (50%)
                 const config = settings.activation.fontinfo;
-                const topRow = view.closest('.top-row');
+                const topRow = view.closest('.top-row') as HTMLElement;
                 const topRowViews = Array.from(
                     topRow.querySelectorAll('.view')
-                );
+                ) as HTMLElement[];
                 const viewIndex = topRowViews.indexOf(view);
                 const currentWidth = view.offsetWidth;
                 const targetWidth =
@@ -450,9 +461,13 @@
             } else if (isBottomRow) {
                 // Bottom row secondary views - expand height and width to resize target
                 const resizeConfig = settings.resize[viewId];
-                const bottomRow = view.closest('.bottom-row');
-                const topRow = document.querySelector('.top-row');
-                const views = Array.from(bottomRow.querySelectorAll('.view'));
+                const bottomRow = view.closest('.bottom-row') as HTMLElement;
+                const topRow = document.querySelector(
+                    '.top-row'
+                ) as HTMLElement;
+                const views = Array.from(
+                    bottomRow.querySelectorAll('.view')
+                ) as HTMLElement[];
                 const viewIndex = views.indexOf(view);
 
                 if (resizeConfig) {
@@ -480,7 +495,7 @@
                             remainingWidth / otherViewsCount;
 
                         if (remainingWidthPerView >= 100) {
-                            const widths = {};
+                            const widths: Record<number, number> = {};
                             views.forEach((v, i) => {
                                 widths[i] =
                                     i === viewIndex
@@ -531,13 +546,13 @@
     /**
      * Enable CSS transitions for smooth resizing
      */
-    function enableTransitions(duration, easing) {
+    function enableTransitions(duration: number, easing: string) {
         const transition = `flex ${duration}ms ${easing}`;
 
         // Apply to all views and rows
         document
             .querySelectorAll('.view, .top-row, .bottom-row')
-            .forEach((element) => {
+            .forEach((element: any) => {
                 element.style.transition = transition;
             });
     }
@@ -548,7 +563,7 @@
     function disableTransitions() {
         document
             .querySelectorAll('.view, .top-row, .bottom-row')
-            .forEach((element) => {
+            .forEach((element: any) => {
                 element.style.transition = '';
             });
     }
@@ -556,7 +571,7 @@
     /**
      * Collapse the active view completely
      */
-    function collapseActiveView(viewId) {
+    function collapseActiveView(viewId: string) {
         console.log('[KeyboardNav]', 'collapseActiveView called for:', viewId);
         const view = document.getElementById(viewId);
         if (!view || viewId === 'view-editor') {
@@ -578,7 +593,7 @@
             isBottomRow
         );
 
-        const container = document.querySelector('.container');
+        const container = document.querySelector('.container') as HTMLElement;
         const containerWidth = container.offsetWidth;
         const containerHeight = container.offsetHeight;
         const horizontalDividerHeight = 4;
@@ -594,8 +609,10 @@
 
         if (isTopRow) {
             // Collapse width to minimum (24px for fontinfo/overview)
-            const topRow = view.closest('.top-row');
-            const views = Array.from(topRow.querySelectorAll('.view'));
+            const topRow = view.closest('.top-row') as HTMLElement;
+            const views = Array.from(
+                topRow.querySelectorAll('.view')
+            ) as HTMLElement[];
             const viewIndex = views.indexOf(view);
             const minWidth = 24; // Minimum collapsed width
 
@@ -611,7 +628,7 @@
             );
 
             // Find non-collapsed views (excluding the one being collapsed)
-            const otherViews = views.filter((v, i) => i !== viewIndex);
+            const otherViews = views.filter((v, i) => i !== viewIndex) as any[];
             const nonCollapsedOtherViews = otherViews.filter(
                 (v) => v.offsetWidth > 24 + 5
             );
@@ -646,8 +663,8 @@
             });
         } else if (isBottomRow) {
             // Collapse bottom row to minimum height (title bar height)
-            const topRow = document.querySelector('.top-row');
-            const bottomRow = view.closest('.bottom-row');
+            const topRow = document.querySelector('.top-row') as HTMLElement;
+            const bottomRow = view.closest('.bottom-row') as HTMLElement;
             const minBottomHeight = 24; // Title bar height - same as SECONDARY_MIN_HEIGHT
 
             const currentBottomHeight = bottomRow.offsetHeight;
@@ -706,15 +723,17 @@
      * @param {boolean} forceResize - If true, resize even if target is smaller than current
      */
     function resizeTopRowView(
-        viewId,
-        view,
-        resizeConfig,
-        containerWidth,
-        containerHeight,
+        viewId: string,
+        view: any,
+        resizeConfig: any,
+        containerWidth: number,
+        containerHeight: number,
         forceResize = false
     ) {
-        const topRow = view.closest('.top-row');
-        const views = Array.from(topRow.querySelectorAll('.view'));
+        const topRow = view.closest('.top-row') as HTMLElement;
+        const views = Array.from(
+            topRow.querySelectorAll('.view')
+        ) as HTMLElement[];
         const viewIndex = views.indexOf(view);
 
         if (viewIndex === -1) return;
@@ -756,7 +775,7 @@
             if (totalOtherWidth >= minWidthPerOther * otherViews.length) {
                 // When forceResize is true (maximizing), collapse all other views
                 // Otherwise, separate based on current collapsed state
-                let collapsedViews, nonCollapsedViews;
+                let collapsedViews: any[], nonCollapsedViews: any[];
 
                 if (forceResize) {
                     // Maximize mode: treat all other views as collapsed
@@ -765,10 +784,10 @@
                 } else {
                     // Normal resize: separate based on current width
                     collapsedViews = otherViews.filter(
-                        (v) => v.offsetWidth <= fontinfoMinWidth + 5
+                        (v: any) => v.offsetWidth <= fontinfoMinWidth + 5
                     ); // 5px tolerance
                     nonCollapsedViews = otherViews.filter(
-                        (v) => v.offsetWidth > fontinfoMinWidth + 5
+                        (v: any) => v.offsetWidth > fontinfoMinWidth + 5
                     );
                 }
 
@@ -798,7 +817,9 @@
 
         // Handle height resizing
         if (shouldResizeHeight) {
-            const bottomRow = document.querySelector('.bottom-row');
+            const bottomRow = document.querySelector(
+                '.bottom-row'
+            ) as HTMLElement;
             const bottomTargetHeight = availableHeight - targetViewHeight;
 
             if (bottomTargetHeight >= 24) {
@@ -825,16 +846,18 @@
      * @param {boolean} forceResize - If true, resize even if target is smaller than current
      */
     function resizeBottomRowView(
-        viewId,
-        view,
-        resizeConfig,
-        containerWidth,
-        containerHeight,
+        viewId: string,
+        view: any,
+        resizeConfig: any,
+        containerWidth: number,
+        containerHeight: number,
         forceResize = false
     ) {
-        const bottomRow = view.closest('.bottom-row');
-        const topRow = document.querySelector('.top-row');
-        const views = Array.from(bottomRow.querySelectorAll('.view'));
+        const bottomRow = view.closest('.bottom-row') as HTMLElement;
+        const topRow = document.querySelector('.top-row') as HTMLElement;
+        const views = Array.from(
+            bottomRow.querySelectorAll('.view')
+        ) as HTMLElement[];
         const viewIndex = views.indexOf(view);
 
         if (viewIndex === -1) return;
@@ -882,7 +905,7 @@
 
             if (remainingWidthPerView >= 100) {
                 // Ensure minimum width for other views
-                const widths = {};
+                const widths: Record<number, number> = {};
 
                 // Distribute width to all views
                 views.forEach((v, i) => {
@@ -927,7 +950,7 @@
         // Find and blur the actual hidden input element that jQuery Terminal uses
         const terminalInput = document.querySelector(
             '.cmd textarea, .cmd input, #console-container .terminal'
-        );
+        ) as HTMLElement | null;
         if (terminalInput) {
             // Use blur on the actual input element
             terminalInput.blur();
@@ -939,7 +962,7 @@
             consoleContainer &&
             consoleContainer.contains(document.activeElement)
         ) {
-            document.activeElement.blur();
+            (document.activeElement as HTMLElement | null)?.blur();
         }
 
         // Restore scroll position after blur (in case jQuery Terminal scrolled)
@@ -1023,11 +1046,11 @@
      * @param {string} viewId - The ID of the view to focus
      * @param {boolean} viaKeyboard - Whether the focus was triggered by keyboard shortcut
      */
-    function focusView(viewId, viaKeyboard = false) {
+    function focusView(viewId: string, viaKeyboard = false) {
         // Capture console scroll position IMMEDIATELY if activating console
         // (before anything else that might trigger scroll)
         let consoleScrollBefore = 0;
-        let terminalScroller = null;
+        let terminalScroller: any = null;
         if (viewId === 'view-console') {
             // Use scroll position from click handler if available (most accurate)
             if (consoleScrollFromClick !== null) {
@@ -1061,7 +1084,7 @@
         console.log('[KeyboardNav]', 'focusView called with:', viewId);
 
         // Remove focus from all views
-        document.querySelectorAll('.view').forEach((view) => {
+        document.querySelectorAll('.view').forEach((view: any) => {
             view.classList.remove('focused');
         });
 
@@ -1138,7 +1161,9 @@
 
                         // If window.term doesn't exist, try to get it from the jQuery terminal plugin
                         if (!term) {
-                            const consoleElement = $('#console-container');
+                            const consoleElement = (window as any).$(
+                                '#console-container'
+                            );
                             if (
                                 consoleElement.length &&
                                 consoleElement.terminal
@@ -1157,7 +1182,7 @@
                     let scrollBlocked = false;
 
                     // Block any scroll events temporarily
-                    const blockScroll = (e) => {
+                    const blockScroll = (e: Event) => {
                         e.preventDefault();
                         e.stopPropagation();
                         if (terminalScroller) {
@@ -1182,7 +1207,7 @@
 
                         const cmdInput = document.querySelector(
                             '#console-container .cmd textarea'
-                        );
+                        ) as HTMLTextAreaElement | null;
                         if (cmdInput && !hasSelection) {
                             cmdInput.focus({ preventScroll: true });
                         }
@@ -1256,7 +1281,7 @@
     /**
      * Check if element is a text input where Cmd+A should be allowed
      */
-    function isTextInputElement(element) {
+    function isTextInputElement(element: any) {
         if (!element) return false;
 
         const tagName = element.tagName?.toLowerCase();
@@ -1297,7 +1322,7 @@
     /**
      * Handle keyboard shortcuts
      */
-    function handleKeyDown(event) {
+    function handleKeyDown(event: KeyboardEvent) {
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         const cmdKey = isMac ? event.metaKey : event.ctrlKey;
         const shiftKey = event.shiftKey;
@@ -1429,8 +1454,8 @@
                 console.log(
                     '[KeyboardNav]',
                     'Allowing Cmd+A in text input:',
-                    activeElement.tagName,
-                    activeElement.id || activeElement.className
+                    activeElement?.tagName,
+                    activeElement?.id || activeElement?.className
                 );
                 return;
             }
@@ -1453,7 +1478,9 @@
         const shortcuts = settings.shortcuts;
 
         // Check each view's shortcut
-        for (const [viewId, config] of Object.entries(shortcuts)) {
+        for (const [viewId, config] of Object.entries(
+            shortcuts as Record<string, any>
+        )) {
             if (config.modifiers.cmd && !cmdKey) continue;
             if (config.modifiers.shift && !shiftKey) continue;
             if (key === config.key) {
@@ -1514,14 +1541,14 @@
     }
 
     // Store console scroll position from click handler (before any other events fire)
-    let consoleScrollFromClick = null;
+    let consoleScrollFromClick: number | null = null;
 
     /**
      * Handle view clicks for focus
      */
-    function handleViewClick(event) {
+    function handleViewClick(event: Event) {
         // Find the closest parent view element
-        const view = event.currentTarget;
+        const view = event.currentTarget as HTMLElement | null;
         if (view && view.id) {
             // Scroll position for console already captured in mousedown handler
 
@@ -1543,7 +1570,7 @@
         document.addEventListener('keydown', handleKeyDown, true);
 
         // Add click listeners to all views
-        document.querySelectorAll('.view').forEach((view) => {
+        document.querySelectorAll('.view').forEach((view: any) => {
             view.addEventListener('click', handleViewClick);
         });
 
@@ -1553,7 +1580,7 @@
         if (consoleView) {
             consoleView.addEventListener(
                 'mousedown',
-                (event) => {
+                (_event: MouseEvent) => {
                     const terminalScroller = document.querySelector(
                         '#console-container .terminal-scroller'
                     );

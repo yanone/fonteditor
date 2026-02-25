@@ -1,15 +1,23 @@
 {
     "compilerOptions": {
-        "target": "es6",
+        "target": "es2021",
         "module": "esnext",
         "moduleResolution": "node",
         "strict": true,
+        "noImplicitAny": true,
+        "strictNullChecks": true,
+        "noImplicitThis": true,
+        "strictFunctionTypes": true,
+        "strictBindCallApply": true,
+        "strictPropertyInitialization": true,
+        "alwaysStrict": true,
+        "useUnknownInCatchVariables": true,
         "esModuleInterop": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
         "allowJs": true,
         "outDir": "./build",
-        "lib": ["es6", "dom", "DOM.AsyncIterable"]
+        "lib": ["es2021", "dom", "DOM.AsyncIterable"]
     },
-    "include": ["js/**/*.ts"]
+    "include": ["js/**/*.ts", "js/**/*.d.ts"]
 }

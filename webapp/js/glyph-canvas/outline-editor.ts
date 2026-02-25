@@ -2479,7 +2479,7 @@ export class OutlineEditor {
             this.glyphCanvas.propertiesSection.querySelectorAll(
                 '[data-master-id]'
             );
-        masterItems.forEach((item) => {
+        masterItems.forEach((item: any) => {
             const layerId = item.getAttribute('data-layer-id');
             if (layerId === this.selectedLayerId) {
                 item.classList.add('selected');

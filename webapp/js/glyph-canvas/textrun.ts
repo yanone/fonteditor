@@ -1915,7 +1915,7 @@ export class TextRunEditor {
         this.embeddingLevels = embedLevels;
 
         // Split into runs by embedding level
-        const runs = [];
+        const runs: any[] = [];
         let currentLevel = embedLevels.levels[0];
         let runStart = 0;
 
@@ -1950,7 +1950,7 @@ export class TextRunEditor {
 
         // Shape each run with HarfBuzz in its logical direction
         const features = this.featuresManager.getHarfBuzzFeatures();
-        const shapedRuns = [];
+        const shapedRuns: any[] = [];
 
         for (const run of runs) {
             const buffer = this.hb.createBuffer();
@@ -1997,7 +1997,7 @@ export class TextRunEditor {
         }
 
         const addedClusters = new Set();
-        const allGlyphs = [];
+        const allGlyphs: any[] = [];
 
         for (const charIdx of reorderedIndices) {
             let clusterStart = charIdx;
@@ -2635,7 +2635,7 @@ export class TextRunEditor {
 
         // First, shape the text in LOGICAL order with proper direction per run
         // Split into runs by embedding level
-        const runs = [];
+        const runs: any[] = [];
         let currentLevel = embedLevels.levels[0];
         let runStart = 0;
 
@@ -2670,7 +2670,7 @@ export class TextRunEditor {
 
         // Shape each run with HarfBuzz in its logical direction
         const features = this.featuresManager.getHarfBuzzFeatures();
-        const shapedRuns = [];
+        const shapedRuns: any[] = [];
         for (const run of runs) {
             const buffer = this.hb.createBuffer();
             buffer.addText(run.text);
@@ -2723,7 +2723,7 @@ export class TextRunEditor {
         // Build visual glyph order by following reordered character indices
         // Track which clusters we've already added to avoid duplicates
         const addedClusters = new Set();
-        const allGlyphs = [];
+        const allGlyphs: any[] = [];
 
         for (const charIdx of reorderedIndices) {
             // Find the cluster that contains this character position

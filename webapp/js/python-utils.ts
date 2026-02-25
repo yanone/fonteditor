@@ -19,7 +19,7 @@ window.adjustTracebackLineNumbers = function adjustTracebackLineNumbers(
     }
 
     const lines = errorMessage.split('\n');
-    const adjustedLines = [];
+    const adjustedLines: string[] = [];
 
     for (let i = 0; i < lines.length; i++) {
         let line = lines[i];
@@ -80,7 +80,7 @@ window.cleanPythonTraceback = function cleanPythonTraceback(
     }
 
     const lines = errorMessage.split('\n');
-    const cleanedLines = [];
+    const cleanedLines: string[] = [];
     let skipFrame = false;
 
     for (let i = 0; i < lines.length; i++) {

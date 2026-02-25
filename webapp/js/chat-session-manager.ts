@@ -231,7 +231,7 @@ class ChatSessionManager {
         const buttons = messageDiv.querySelectorAll(
             '.ai-context-selection-btn'
         );
-        buttons.forEach((btn) => {
+        buttons.forEach((btn: Element) => {
             btn.addEventListener('click', (_e: Event) => {
                 // Skip if button is disabled
                 const button = btn as HTMLButtonElement;

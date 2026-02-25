@@ -259,7 +259,7 @@ async function executeFilter(request: FilterExecutionRequest) {
             resultProxy.destroy();
         }
 
-        (self as DedicatedWorkerGlobalScope).postMessage({
+        (self as unknown as DedicatedWorkerGlobalScope).postMessage({
             id: request.id,
             ok: true,
             results: result.results || [],
@@ -268,7 +268,7 @@ async function executeFilter(request: FilterExecutionRequest) {
             contextPatch: pendingContextPatch || undefined
         });
     } catch (error: any) {
-        (self as DedicatedWorkerGlobalScope).postMessage({
+        (self as unknown as DedicatedWorkerGlobalScope).postMessage({
             id: request.id,
             ok: false,
             error: error?.message || String(error)
@@ -302,13 +302,13 @@ async function installPackages(
             installedDynamicPackages.add(pkg);
         }
 
-        (self as DedicatedWorkerGlobalScope).postMessage({
+        (self as unknown as DedicatedWorkerGlobalScope).postMessage({
             id: request.id,
             ok: true,
             installed: packagesToInstall
         });
     } catch (error: any) {
-        (self as DedicatedWorkerGlobalScope).postMessage({
+        (self as unknown as DedicatedWorkerGlobalScope).postMessage({
             id: request.id,
             ok: false,
             error: error?.message || String(error)
@@ -324,7 +324,7 @@ async function syncSharedContext(
     const incomingVersion =
         typeof request.version === 'number' ? request.version : 0;
     if (incomingVersion <= sharedContextVersion) {
-        (self as DedicatedWorkerGlobalScope).postMessage({
+        (self as unknown as DedicatedWorkerGlobalScope).postMessage({
             id: request.id,
             ok: true,
             applied: false,
@@ -340,7 +340,7 @@ async function syncSharedContext(
             : {};
     (self as any).sharedPluginContext = sharedPluginContext;
 
-    (self as DedicatedWorkerGlobalScope).postMessage({
+    (self as unknown as DedicatedWorkerGlobalScope).postMessage({
         id: request.id,
         ok: true,
         applied: true,
@@ -355,7 +355,7 @@ async function syncSharedContext(
 };
 (self as any).sharedPluginContext = sharedPluginContext;
 
-(self as DedicatedWorkerGlobalScope).onmessage = async (event) => {
+(self as unknown as DedicatedWorkerGlobalScope).onmessage = async (event) => {
     const request = event.data as WorkerRequest;
 
     if (!request || !request.type) {
@@ -365,9 +365,11 @@ async function syncSharedContext(
     if (request.type === 'init') {
         try {
             await ensureWorkerRuntime();
-            (self as DedicatedWorkerGlobalScope).postMessage({ type: 'ready' });
+            (self as unknown as DedicatedWorkerGlobalScope).postMessage({
+                type: 'ready'
+            });
         } catch (error: any) {
-            (self as DedicatedWorkerGlobalScope).postMessage({
+            (self as unknown as DedicatedWorkerGlobalScope).postMessage({
                 type: 'error',
                 during: 'init',
                 error: error?.message || String(error)

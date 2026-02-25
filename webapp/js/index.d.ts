@@ -11,7 +11,12 @@ import SaveButton from './save-button';
 import { Font } from './babelfont-model';
 import type MCPLogTransport from './mcp-transport';
 import type { StateManager, EditorState } from './state-manager';
+
 declare global {
+    var marked: any;
+    var Diff: any;
+    var Diff2HtmlUI: any;
+
     // Any property augmentation we make to the Window interface
     // should be declared here.
     interface Window {
@@ -471,6 +476,25 @@ interface FontInterpolationManager {
     ): Promise<Map<string, any>>;
     clearCache(): Promise<void>;
     handleWorkerMessage(e: MessageEvent): void;
+}
+
+declare module 'bidi-js' {
+    interface BidiEmbeddingLevels {
+        levels: number[];
+    }
+
+    interface BidiApi {
+        getEmbeddingLevels(text: string): BidiEmbeddingLevels;
+        getReorderedIndices(
+            text: string,
+            levels: BidiEmbeddingLevels
+        ): number[];
+    }
+
+    type BidiFactory = () => BidiApi;
+
+    const bidiFactory: BidiFactory;
+    export default bidiFactory;
 }
 
 export {};

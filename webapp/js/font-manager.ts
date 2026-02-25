@@ -1235,7 +1235,7 @@ class FontManager {
                 result = await fontCompilation.compileEditingFromJsonCached(
                     this.currentFont.babelfontJson,
                     requestedRevisionKey,
-                    subsetForCompile,
+                    subsetForCompile ?? [],
                     {
                         dragActive: dragActiveAtRequest,
                         compileSource: this.lastChangeSource || undefined,
@@ -1793,7 +1793,7 @@ class FontManager {
         for (let master of this.currentFont!.babelfontData.masters) {
             master_ids.add(master.id);
         }
-        let layersData = [];
+        let layersData: any[] = [];
         for (let layer of glyph.layers || []) {
             // Only include non-background layers that are DEFAULT layers for their master
             // (not AssociatedWithMaster layers, which are intermediate/alternate designs)
@@ -1824,7 +1824,7 @@ class FontManager {
         const axes = this.currentFont!.babelfontData.axes || [];
         let axes_order = axes.map((axis: Babelfont.Axis) => axis.tag);
 
-        let mastersData = [];
+        let mastersData: any[] = [];
         for (let master of this.currentFont!.babelfontData
             .masters as Babelfont.Master[]) {
             let userspaceLocation = designspaceToUserspace(
@@ -1957,7 +1957,7 @@ class FontManager {
             vertWidth: layerData.vertWidth,
             name: layerData.name,
             id: layerData.id,
-            _master: layerData.master,
+            master: layerData.master,
             shapes: newShapes || [],
             isInterpolated: false, // Always false for saved data
             // Copy other optional properties if they exist

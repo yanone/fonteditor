@@ -494,12 +494,14 @@ function setupMenuItemHandlers(
     const menu = tippyInstance.popper.querySelector('.plugin-menu');
     if (!menu) return;
 
-    menu.querySelectorAll('.plugin-menu-item').forEach((item, index) => {
-        item.addEventListener('click', async () => {
-            tippyInstance.hide();
-            await menuItems[index].action();
-        });
-    });
+    menu.querySelectorAll('.plugin-menu-item').forEach(
+        (item: any, index: number) => {
+            item.addEventListener('click', async () => {
+                tippyInstance.hide();
+                await menuItems[index].action();
+            });
+        }
+    );
 
     // Use shared keyboard navigation utility
     setupMenuKeyboardNav(menu);
@@ -524,7 +526,7 @@ function setupFileContextMenus() {
     // Create shared backdrop for all file context menus
     const backdrop = getOrCreateBackdrop('file-context-menu-backdrop');
 
-    fileItems.forEach((item) => {
+    fileItems.forEach((item: any) => {
         const element = item as HTMLElement;
         const path = element.getAttribute('data-path') || '';
         const name = element.getAttribute('data-name') || '';
@@ -554,7 +556,7 @@ function setupFileContextMenus() {
 
                 // Setup click handlers for menu items
                 menu.querySelectorAll('.plugin-menu-item').forEach(
-                    (menuItem) => {
+                    (menuItem: any) => {
                         menuItem.addEventListener('click', async () => {
                             const action = menuItem.getAttribute('data-action');
 
@@ -1063,12 +1065,14 @@ async function switchContext(pluginId: string) {
     }
 
     // Update tab UI
-    document.querySelectorAll('.context-tab[data-plugin-id]').forEach((tab) => {
-        tab.classList.remove('active');
-        if (tab.getAttribute('data-plugin-id') === pluginId) {
-            tab.classList.add('active');
-        }
-    });
+    document
+        .querySelectorAll('.context-tab[data-plugin-id]')
+        .forEach((tab: any) => {
+            tab.classList.remove('active');
+            if (tab.getAttribute('data-plugin-id') === pluginId) {
+                tab.classList.add('active');
+            }
+        });
 
     // Update dropdown icon visibility for all plugins
     pluginRegistry.getAll().forEach((p) => {
@@ -1598,7 +1602,9 @@ async function uploadFiles(
             : fileSystemCache.currentPath || '/');
 
     const normalizedBasePath =
-        basePath === '/' ? '/' : basePath.replace(/\/+$/, '') || '/';
+        basePath === '/'
+            ? '/'
+            : (basePath as string).replace(/\/+$/, '') || '/';
 
     let uploadedCount = 0;
 
@@ -1641,7 +1647,7 @@ async function uploadFiles(
             window.term.echo(`[[;lime;]${msg}]`);
         }
 
-        if (uploadedToCurrentPlugin && !options.skipRefresh) {
+        if (uploadedToCurrentPlugin && !(options as any).skipRefresh) {
             await refreshFileSystem();
         }
     }
@@ -1966,7 +1972,7 @@ function setupFileItemClickHandlers() {
     if (!fileTree) return;
 
     const fileItems = fileTree.querySelectorAll('.file-item');
-    fileItems.forEach((item) => {
+    fileItems.forEach((item: any) => {
         const element = item as HTMLElement;
         const path = element.dataset.path!;
         const isDir = element.dataset.isDir === 'true';
@@ -2410,7 +2416,7 @@ async function initFileBrowser() {
             // Update tab UI to reflect the active plugin
             document
                 .querySelectorAll('.context-tab[data-plugin-id]')
-                .forEach((tab) => {
+                .forEach((tab: any) => {
                     tab.classList.remove('active');
                     if (
                         tab.getAttribute('data-plugin-id') ===
@@ -2624,7 +2630,7 @@ window.addEventListener('pwaLaunchFilesPending', () => {
 document.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
         const allButtons = document.querySelectorAll('.context-tab');
-        allButtons.forEach((button) => {
+        allButtons.forEach((button: any) => {
             const tippyInstance = (button as any)._tippy;
             if (tippyInstance && tippyInstance.state.isVisible) {
                 tippyInstance.hide();
@@ -2726,7 +2732,7 @@ function updateCurrentFontHighlightInFileTree(): void {
     const currentFontPath = window.fontManager?.currentFont?.path || null;
     const fileItems = fileTree.querySelectorAll('.file-item');
 
-    fileItems.forEach((item) => {
+    fileItems.forEach((item: any) => {
         const element = item as HTMLElement;
         const itemPath = element.dataset.path || '';
         const isDir = element.dataset.isDir === 'true';

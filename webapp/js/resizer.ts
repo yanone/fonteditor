@@ -1,4 +1,3 @@
-// @ts-nocheck
 console.log('[Resizer]', 'resizer.js loaded');
 
 class ResizableViews {
@@ -26,7 +25,7 @@ class ResizableViews {
         this.startX = 0;
         this.startY = 0;
         this.startWidths = {};
-        this.startHeights = {};
+        this.startHeights = { top: 0, bottom: 0 };
 
         this.init();
     }
@@ -73,7 +72,7 @@ class ResizableViews {
             ? window.getCurrentFocusedView()
             : null;
 
-        views.forEach((view) => {
+        views.forEach((view: any) => {
             // Skip the editor (primary view)
             if (view.classList.contains('view-editor')) return;
 
@@ -130,14 +129,16 @@ class ResizableViews {
      */
     handleWindowResize() {
         // Process top row (horizontal layout)
-        const topRow = document.querySelector('.top-row');
+        const topRow = document.querySelector('.top-row') as HTMLElement | null;
         if (topRow) {
-            const views = Array.from(topRow.querySelectorAll('.view'));
+            const views = Array.from(
+                topRow.querySelectorAll('.view')
+            ) as HTMLElement[];
             const threshold = 5;
 
             let totalFixedWidth = 0;
-            const collapsedViews = [];
-            const nonCollapsedViews = [];
+            const collapsedViews: Array<{ view: any; width: number }> = [];
+            const nonCollapsedViews: Array<{ view: any; width: number }> = [];
 
             // Identify collapsed and non-collapsed views
             views.forEach((view) => {
@@ -177,14 +178,18 @@ class ResizableViews {
         }
 
         // Process bottom row (horizontal layout)
-        const bottomRow = document.querySelector('.bottom-row');
+        const bottomRow = document.querySelector(
+            '.bottom-row'
+        ) as HTMLElement | null;
         if (bottomRow) {
-            const views = Array.from(bottomRow.querySelectorAll('.view'));
+            const views = Array.from(
+                bottomRow.querySelectorAll('.view')
+            ) as HTMLElement[];
             const threshold = 5;
 
             let totalFixedHeight = 0;
-            const collapsedViews = [];
-            const nonCollapsedViews = [];
+            const collapsedViews: Array<{ view: any; height: number }> = [];
+            const nonCollapsedViews: Array<{ view: any; height: number }> = [];
 
             // Identify collapsed and non-collapsed views
             views.forEach((view) => {
@@ -211,17 +216,19 @@ class ResizableViews {
     init() {
         // Add event listeners for all dividers
         const verticalDividers = document.querySelectorAll('.vertical-divider');
-        const horizontalDivider = document.querySelector('.horizontal-divider');
+        const horizontalDivider = document.querySelector(
+            '.horizontal-divider'
+        ) as HTMLElement | null;
 
-        verticalDividers.forEach((divider) => {
+        verticalDividers.forEach((divider: any) => {
             divider.addEventListener('mousedown', (e: MouseEvent) =>
                 this.startResize(e, 'vertical')
             );
         });
 
         if (horizontalDivider) {
-            horizontalDivider.addEventListener('mousedown', (e: MouseEvent) =>
-                this.startResize(e, 'horizontal')
+            horizontalDivider.addEventListener('mousedown', (e: Event) =>
+                this.startResize(e as MouseEvent, 'horizontal')
             );
         }
 
@@ -259,8 +266,12 @@ class ResizableViews {
 
             // Apply horizontal layout
             if (layout.horizontal) {
-                const topRow = document.querySelector('.top-row');
-                const bottomRow = document.querySelector('.bottom-row');
+                const topRow = document.querySelector(
+                    '.top-row'
+                ) as HTMLElement | null;
+                const bottomRow = document.querySelector(
+                    '.bottom-row'
+                ) as HTMLElement | null;
                 if (topRow && bottomRow) {
                     // Check if bottom row should be collapsed
                     const savedBottomFlex = layout.horizontal.bottom;
@@ -285,9 +296,11 @@ class ResizableViews {
             // Apply vertical layouts
             if (layout.vertical) {
                 if (layout.vertical.top) {
-                    const topRow = document.querySelector('.top-row');
+                    const topRow = document.querySelector(
+                        '.top-row'
+                    ) as HTMLElement | null;
                     const topViews = topRow?.querySelectorAll('.view');
-                    topViews?.forEach((view, index) => {
+                    topViews?.forEach((view: any, index: number) => {
                         if (layout.vertical.top[index] !== undefined) {
                             const savedFlex = layout.vertical.top[index];
                             // Check if this is a fontinfo/overview view that should be collapsed
@@ -315,9 +328,11 @@ class ResizableViews {
                 }
 
                 if (layout.vertical.bottom) {
-                    const bottomRow = document.querySelector('.bottom-row');
+                    const bottomRow = document.querySelector(
+                        '.bottom-row'
+                    ) as HTMLElement | null;
                     const bottomViews = bottomRow?.querySelectorAll('.view');
-                    bottomViews?.forEach((view, index) => {
+                    bottomViews?.forEach((view: any, index: number) => {
                         if (layout.vertical.bottom[index] !== undefined) {
                             view.style.flex = layout.vertical.bottom[index];
                         }
@@ -341,8 +356,10 @@ class ResizableViews {
     applyDefaultLayout() {
         console.log('[Resizer]', 'Applying default view layout');
 
-        const topRow = document.querySelector('.top-row');
-        const topViews = topRow?.querySelectorAll('.view');
+        const topRow = document.querySelector('.top-row') as HTMLElement | null;
+        const topViews = topRow?.querySelectorAll('.view') as
+            | NodeListOf<HTMLElement>
+            | undefined;
 
         if (topViews && topViews.length === 3) {
             // fontinfo: collapsed (24px), overview: 35%, editor: 65%
@@ -365,10 +382,23 @@ class ResizableViews {
 
     saveLayout() {
         try {
-            const topRow = document.querySelector('.top-row');
-            const bottomRow = document.querySelector('.bottom-row');
+            const topRow = document.querySelector(
+                '.top-row'
+            ) as HTMLElement | null;
+            const bottomRow = document.querySelector(
+                '.bottom-row'
+            ) as HTMLElement | null;
 
-            const layout = {
+            const layout: {
+                horizontal: {
+                    top: string;
+                    bottom: string;
+                };
+                vertical: {
+                    top: string[];
+                    bottom: string[];
+                };
+            } = {
                 horizontal: {
                     top: topRow?.style.flex || '1',
                     bottom: bottomRow?.style.flex || '1'
@@ -381,13 +411,13 @@ class ResizableViews {
 
             // Save top row views
             const topViews = topRow?.querySelectorAll('.view');
-            topViews?.forEach((view) => {
+            topViews?.forEach((view: any) => {
                 layout.vertical.top.push(view.style.flex || '1');
             });
 
             // Save bottom row views
             const bottomViews = bottomRow?.querySelectorAll('.view');
-            bottomViews?.forEach((view) => {
+            bottomViews?.forEach((view: any) => {
                 layout.vertical.bottom.push(view.style.flex || '1');
             });
 
@@ -428,7 +458,7 @@ class ResizableViews {
         const container = this.currentDivider.parentElement;
         const views = container.querySelectorAll('.view');
 
-        views.forEach((view, index) => {
+        views.forEach((view: any, index: number) => {
             const actualWidth = view.offsetWidth;
             const minWidth = this.getMinWidth(view);
             // If view is collapsed, lock to exact minimum width to prevent drift
@@ -471,7 +501,9 @@ class ResizableViews {
             return;
         }
         const container = this.currentDivider.parentElement;
-        const views = Array.from(container.querySelectorAll('.view'));
+        const views = Array.from(
+            container.querySelectorAll('.view')
+        ) as HTMLElement[];
         const dividers = Array.from(
             container.querySelectorAll('.vertical-divider')
         );
@@ -584,7 +616,7 @@ class ResizableViews {
 
                     // Take the shortfall from other non-minimal views proportionally
                     const shortfall = minRequiredWidth - viewWidth;
-                    const otherIndices = [];
+                    const otherIndices: number[] = [];
                     let otherTotal = 0;
 
                     views.forEach((otherView, otherIndex) => {

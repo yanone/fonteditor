@@ -134,13 +134,15 @@
                                 matplotlibFigures
                             );
                         }
-                        matplotlibFigures.forEach((figure) =>
+                        matplotlibFigures.forEach((figure: Element) =>
                             handleMatplotlibFigure(figure as HTMLElement)
                         );
 
                         // Check for canvases in added subtrees
                         const canvases = elementNode.querySelectorAll('canvas');
-                        canvases.forEach(handleNewCanvas);
+                        canvases.forEach((canvas) =>
+                            handleNewCanvas(canvas as HTMLCanvasElement)
+                        );
                     }
                 });
             });

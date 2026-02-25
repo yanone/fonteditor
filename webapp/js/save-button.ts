@@ -46,7 +46,7 @@ class SaveButton {
     registerCallbacks() {
         // Create JavaScript functions that Python can call via js._fontSaveCallbacks
         window._fontSaveCallbacks = {
-            beforeSave: (fontId, filename) => {
+            beforeSave: (fontId: string, filename: string) => {
                 console.log(
                     '[SaveButton]',
                     `🔵 beforeSave callback: ${filename}`

@@ -51,7 +51,7 @@ function buildGlyphData() {
         return [];
     }
 
-    return window.currentFontModel.glyphs.map((glyph, index) => ({
+    return window.currentFontModel.glyphs.map((glyph: any, index: number) => ({
         id: String(index),
         name: glyph.name
     }));

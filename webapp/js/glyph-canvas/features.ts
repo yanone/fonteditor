@@ -107,8 +107,8 @@ export class FeaturesManager {
         try {
             const seenSourceTags = new Set<string>();
             const sourceFeatureTags = fontModel.features.features
-                .map(([tag]) => tag)
-                .filter((tag): tag is string => {
+                .map(([tag]: [string, unknown]) => tag)
+                .filter((tag: string): tag is string => {
                     if (!tag || seenSourceTags.has(tag)) {
                         return false;
                     }
@@ -126,7 +126,7 @@ export class FeaturesManager {
                 ...defaultOffFeatures
             ]);
 
-            const allFeatures = sourceFeatureTags.filter((tag) =>
+            const allFeatures = sourceFeatureTags.filter((tag: string) =>
                 allDiscretionary.has(tag)
             );
 
@@ -429,7 +429,7 @@ export class FeaturesManager {
             const buttons = this.featuresSection.querySelectorAll(
                 'button[data-feature-tag]'
             );
-            buttons.forEach((button) => {
+            buttons.forEach((button: Element) => {
                 const tag = button.getAttribute('data-feature-tag');
                 const isEnabled = this.defaultFeatureSettings[tag!];
                 button.classList.toggle('enabled', isEnabled);
@@ -443,7 +443,7 @@ export class FeaturesManager {
     getHarfBuzzFeatures() {
         // Build HarfBuzz feature string from feature settings
         // Format: "liga=1,dlig=0,kern=1" or undefined if no features
-        const featureParts = [];
+        const featureParts: string[] = [];
 
         for (const [tag, enabled] of Object.entries(this.featureSettings)) {
             featureParts.push(`${tag}=${enabled ? 1 : 0}`);

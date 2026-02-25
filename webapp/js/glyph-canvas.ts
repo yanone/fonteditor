@@ -1782,7 +1782,7 @@ class GlyphCanvas {
 
         const masterItems =
             this.propertiesSection.querySelectorAll('[data-master-id]');
-        masterItems.forEach((item) => {
+        masterItems.forEach((item: any) => {
             const masterId = item.getAttribute('data-master-id');
             if (masterId === this.textRunEditor!.selectedMasterId) {
                 item.classList.add('selected');
@@ -3469,7 +3469,7 @@ function setupEditorShortcutsModal() {
     if (!infoButton || !modal || !closeBtn) return;
 
     // Open modal
-    infoButton.addEventListener('click', (event) => {
+    infoButton.addEventListener('click', (event: Event) => {
         event.stopPropagation();
         modal.style.display = 'flex';
     });
@@ -3492,7 +3492,7 @@ function setupEditorShortcutsModal() {
     closeBtn.addEventListener('click', closeModal);
 
     // Close on backdrop click
-    modal.addEventListener('click', (e) => {
+    modal.addEventListener('click', (e: Event) => {
         if (e.target === modal) {
             closeModal();
         }

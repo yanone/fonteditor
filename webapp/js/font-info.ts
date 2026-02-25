@@ -290,7 +290,7 @@ class FontInfoManager {
 
         // Remove existing tab buttons but preserve search control
         const existingButtons = titleBarRight.querySelectorAll('.context-tab');
-        existingButtons.forEach((btn) => btn.remove());
+        existingButtons.forEach((btn: Element) => btn.remove());
 
         // Create Names button
         const namesButton = document.createElement('button');
@@ -510,7 +510,7 @@ class FontInfoManager {
                 const separators = featuresList.querySelectorAll(
                     '.feature-section-separator'
                 );
-                separators.forEach((sep) => {
+                separators.forEach((sep: Element) => {
                     (sep as HTMLElement).style.display = '';
                 });
             }
@@ -522,7 +522,7 @@ class FontInfoManager {
             const sectionTitles = sidebar.querySelectorAll(
                 '.sidebar-section-title'
             );
-            sectionTitles.forEach((title, index) => {
+            sectionTitles.forEach((title: Element, index: number) => {
                 let hasVisibleItems = false;
                 if (index === 0) hasVisibleItems = hasVisiblePrefixes;
                 else if (index === 1) hasVisibleItems = hasVisibleClasses;
@@ -1567,7 +1567,7 @@ class FontInfoManager {
             console.log(
                 `[FontInfo] Found ${buttons.length} buttons when switching to ${tab}`
             );
-            buttons.forEach((button) => {
+            buttons.forEach((button: Element) => {
                 const buttonTab = button.getAttribute('data-tab');
                 if (buttonTab === tab) {
                     button.classList.add('active');
@@ -2739,9 +2739,11 @@ class FontInfoManager {
     private onFeatureDragEnd() {
         this.draggedFeatureIndex = null;
         // Reset dragging class
-        document.querySelectorAll('.draggable-feature').forEach((item) => {
-            item.classList.remove('dragging');
-        });
+        document
+            .querySelectorAll('.draggable-feature')
+            .forEach((item: Element) => {
+                item.classList.remove('dragging');
+            });
     }
 
     /**

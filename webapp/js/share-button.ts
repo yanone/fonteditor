@@ -106,7 +106,7 @@ export function initShareButton(): void {
     const backdrop = getOrCreateBackdrop('share-menu-backdrop');
 
     // Create tippy menu
-    shareMenuInstance = tippy(shareButton, {
+    const tippyResult = tippy(shareButton, {
         content: createShareMenuHtml(),
         allowHTML: true,
         interactive: true,
@@ -160,6 +160,10 @@ export function initShareButton(): void {
         }
     });
 
+    shareMenuInstance = Array.isArray(tippyResult)
+        ? (tippyResult[0] ?? null)
+        : tippyResult;
+
     // Add backdrop and keyboard support
     addTippyBackdropSupport(shareMenuInstance, backdrop, {
         targetElement: shareButton,
@@ -167,7 +171,7 @@ export function initShareButton(): void {
     });
 
     // Click handler to toggle menu
-    shareButton.addEventListener('click', (e) => {
+    shareButton.addEventListener('click', (e: Event) => {
         e.preventDefault();
         e.stopPropagation();
 

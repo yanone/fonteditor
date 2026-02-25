@@ -1,9 +1,10 @@
-// @ts-nocheck
 // AI Assistant for Font Editing
 // Sends prompts to Anthropic Claude with Python API docs
 // Executes generated Python code with error handling and retry
 
 class AIAssistant {
+    [key: string]: any;
+
     constructor() {
         this.messages = [];
         this.conversationHistory = [];
@@ -60,9 +61,9 @@ class AIAssistant {
         // Listen for auth state changes first
         const originalCallback = window.authManager.onAuthStateChanged;
         window.authManager.onAuthStateChanged = (
-            isAuthenticated,
-            user,
-            subscription
+            isAuthenticated: boolean,
+            user: any,
+            subscription: any
         ) => {
             this.isAuthenticated = isAuthenticated;
             this.subscription = subscription;
@@ -133,7 +134,7 @@ class AIAssistant {
         this.updateContextLabel();
 
         // Event listeners
-        this.sendButton.addEventListener('click', (event) => {
+        this.sendButton.addEventListener('click', (event: Event) => {
             event.stopPropagation(); // Prevent view focus
             this.sendPrompt();
             // Restore cursor to input field
@@ -182,7 +183,7 @@ class AIAssistant {
         this.setupAssistantViewClickHandler();
 
         // Send on Cmd+Enter
-        this.promptInput.addEventListener('keydown', (e) => {
+        this.promptInput.addEventListener('keydown', (e: KeyboardEvent) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 // Don't send if modal is open
                 const modal = document.getElementById('diff-review-modal');
@@ -195,9 +196,10 @@ class AIAssistant {
         });
 
         // Listen for view focus events
-        window.addEventListener('viewFocused', (event) => {
+        window.addEventListener('viewFocused', (event: Event) => {
+            const focusedEvent = event as CustomEvent<{ viewId: string }>;
             this.isAssistantViewFocused =
-                event.detail.viewId === 'view-assistant';
+                focusedEvent.detail?.viewId === 'view-assistant';
             this.updateContextLabel(); // Update context label appearance based on focus
             this.updateSendButtonShortcut(); // Show/hide shortcut based on focus
         });
@@ -232,8 +234,9 @@ class AIAssistant {
                         '.ai-review-changes-btn'
                     );
                     if (reviewButtons.length > 0) {
-                        const lastButton =
-                            reviewButtons[reviewButtons.length - 1];
+                        const lastButton = reviewButtons[
+                            reviewButtons.length - 1
+                        ] as HTMLButtonElement;
                         if (!lastButton.disabled) {
                             lastButton.click();
                         }
@@ -244,7 +247,9 @@ class AIAssistant {
                         '.ai-run-in-console-btn'
                     );
                     if (runButtons.length > 0) {
-                        const lastButton = runButtons[runButtons.length - 1];
+                        const lastButton = runButtons[
+                            runButtons.length - 1
+                        ] as HTMLButtonElement;
                         if (!lastButton.disabled) {
                             lastButton.click();
                         }
@@ -269,7 +274,9 @@ class AIAssistant {
 
                 if (openButtons.length > 0) {
                     // Get the last button and trigger it
-                    const lastButton = openButtons[openButtons.length - 1];
+                    const lastButton = openButtons[
+                        openButtons.length - 1
+                    ] as HTMLButtonElement;
                     if (!lastButton.disabled) {
                         lastButton.click();
                     }
@@ -305,8 +312,10 @@ class AIAssistant {
         const scriptRadio = document.getElementById('ai-context-radio-script');
 
         if (fontRadio && scriptRadio) {
+            const fontRadioInput = fontRadio as HTMLInputElement;
+            const scriptRadioInput = scriptRadio as HTMLInputElement;
             fontRadio.addEventListener('change', () => {
-                if (fontRadio.checked) {
+                if (fontRadioInput.checked) {
                     this.context = 'font';
                     localStorage.setItem('ai_context', 'font');
                     this.updateAutoRunVisibility();
@@ -314,7 +323,7 @@ class AIAssistant {
             });
 
             scriptRadio.addEventListener('change', () => {
-                if (scriptRadio.checked) {
+                if (scriptRadioInput.checked) {
                     this.context = 'script';
                     localStorage.setItem('ai_context', 'script');
                     this.updateAutoRunVisibility();
@@ -323,9 +332,9 @@ class AIAssistant {
 
             // Set initial state based on saved context
             if (this.context === 'font') {
-                fontRadio.checked = true;
+                fontRadioInput.checked = true;
             } else {
-                scriptRadio.checked = true;
+                scriptRadioInput.checked = true;
             }
         }
     }
@@ -333,7 +342,7 @@ class AIAssistant {
     /**
      * Set the context (font, script, or glyphfilter) and update all related UI
      */
-    setContext(context) {
+    setContext(context: string) {
         this.context = context;
         localStorage.setItem('ai_context', context);
 
@@ -341,8 +350,10 @@ class AIAssistant {
         const fontRadio = document.getElementById('ai-context-radio-font');
         const scriptRadio = document.getElementById('ai-context-radio-script');
         if (fontRadio && scriptRadio) {
-            fontRadio.checked = context === 'font';
-            scriptRadio.checked =
+            const fontRadioInput = fontRadio as HTMLInputElement;
+            const scriptRadioInput = scriptRadio as HTMLInputElement;
+            fontRadioInput.checked = context === 'font';
+            scriptRadioInput.checked =
                 context === 'script' || context === 'glyphfilter';
         }
 
@@ -418,7 +429,7 @@ class AIAssistant {
                 // Restore saved model from localStorage, or use server default
                 const savedModel = localStorage.getItem('ai_selected_model');
                 const validModel = this.availableModels.find(
-                    (m) => m.id === savedModel
+                    (m: any) => m.id === savedModel
                 );
                 if (validModel) {
                     this.selectedModelId = savedModel;
@@ -466,7 +477,7 @@ class AIAssistant {
 
     updateModelButtonText() {
         const model = this.availableModels.find(
-            (m) => m.id === this.selectedModelId
+            (m: any) => m.id === this.selectedModelId
         );
         if (model && this.modelBtnName) {
             this.modelBtnName.textContent = model.shortName;
@@ -478,7 +489,7 @@ class AIAssistant {
 
         this.modelPickerList.innerHTML = '';
 
-        this.availableModels.forEach((model) => {
+        this.availableModels.forEach((model: any) => {
             const option = document.createElement('div');
             option.className =
                 'ai-model-option' +
@@ -502,7 +513,7 @@ class AIAssistant {
         });
     }
 
-    selectModel(modelId) {
+    selectModel(modelId: string) {
         this.selectedModelId = modelId;
         localStorage.setItem('ai_selected_model', modelId);
         console.log('[AI] Saved model selection:', modelId);
@@ -512,7 +523,7 @@ class AIAssistant {
         // Update selected state in picker
         const options =
             this.modelPickerList.querySelectorAll('.ai-model-option');
-        options.forEach((opt) => {
+        options.forEach((opt: any) => {
             opt.classList.toggle('selected', opt.dataset.modelId === modelId);
         });
 
@@ -521,7 +532,7 @@ class AIAssistant {
 
     setupModelPickerEvents() {
         // Open modal
-        this.modelBtn.addEventListener('click', (e) => {
+        this.modelBtn.addEventListener('click', (e: Event) => {
             e.stopPropagation();
             this.openModelPicker();
         });
@@ -535,7 +546,7 @@ class AIAssistant {
 
         // Close on overlay click
         if (this.modelPickerOverlay) {
-            this.modelPickerOverlay.addEventListener('click', (e) => {
+            this.modelPickerOverlay.addEventListener('click', (e: Event) => {
                 if (e.target === this.modelPickerOverlay) {
                     this.closeModelPicker();
                 }
@@ -543,7 +554,7 @@ class AIAssistant {
         }
 
         // Close on Escape key
-        this._modelPickerEscHandler = (e) => {
+        this._modelPickerEscHandler = (e: KeyboardEvent) => {
             if (
                 e.key === 'Escape' &&
                 this.modelPickerOverlay.style.display !== 'none'
@@ -574,7 +585,7 @@ class AIAssistant {
         console.log('[AIAssistant] History button found:', !!historyBtn);
 
         if (newChatBtn) {
-            newChatBtn.addEventListener('click', (event) => {
+            newChatBtn.addEventListener('click', (event: Event) => {
                 event.stopPropagation();
                 if (this.sessionManager) {
                     this.sessionManager.startNewChat();
@@ -583,7 +594,7 @@ class AIAssistant {
         }
 
         if (historyBtn) {
-            historyBtn.addEventListener('click', (event) => {
+            historyBtn.addEventListener('click', (event: Event) => {
                 console.log('[AIAssistant] Chat history button clicked');
                 event.stopPropagation();
                 console.log(
@@ -656,16 +667,17 @@ class AIAssistant {
     setupAutoRunCheckbox() {
         const checkbox = document.getElementById('ai-auto-run-checkbox');
         if (!checkbox) return;
+        const checkboxInput = checkbox as HTMLInputElement;
 
         // Set initial state from localStorage
-        checkbox.checked = this.autoRun;
+        checkboxInput.checked = this.autoRun;
 
         // Update localStorage and instance variable when changed
         checkbox.addEventListener('change', () => {
-            this.autoRun = checkbox.checked;
+            this.autoRun = checkboxInput.checked;
             localStorage.setItem(
                 'ai_auto_run',
-                checkbox.checked ? 'true' : 'false'
+                checkboxInput.checked ? 'true' : 'false'
             );
             console.log('[AIAssistant] Auto-run set to:', this.autoRun);
         });
@@ -677,12 +689,13 @@ class AIAssistant {
     updateAutoRunVisibility() {
         const label = document.querySelector('.ai-auto-run-label');
         if (!label) return;
+        const labelEl = label as HTMLElement;
 
         // Only show in font context
         if (this.context === 'font') {
-            label.style.display = 'flex';
+            labelEl.style.display = 'flex';
         } else {
-            label.style.display = 'none';
+            labelEl.style.display = 'none';
         }
     }
 
@@ -718,7 +731,7 @@ class AIAssistant {
         const assistantView = document.getElementById('view-assistant');
         if (!assistantView) return;
 
-        assistantView.addEventListener('click', (event) => {
+        assistantView.addEventListener('click', (event: any) => {
             // Don't activate if clicking on a button or select
             if (
                 event.target.closest('button') ||
@@ -756,7 +769,7 @@ class AIAssistant {
         if (!infoButton || !modal || !closeBtn) return;
 
         // Open modal
-        infoButton.addEventListener('click', (event) => {
+        infoButton.addEventListener('click', (event: Event) => {
             event.stopPropagation();
             modal.style.display = 'flex';
         });
@@ -779,14 +792,17 @@ class AIAssistant {
                 window.glyphCanvas &&
                 window.glyphCanvas.canvas
             ) {
-                setTimeout(() => window.glyphCanvas.canvas.focus(), 0);
+                const canvas = window.glyphCanvas.canvas;
+                if (canvas) {
+                    setTimeout(() => canvas.focus(), 0);
+                }
             }
         };
 
         closeBtn.addEventListener('click', closeModal);
 
         // Close on backdrop click
-        modal.addEventListener('click', (e) => {
+        modal.addEventListener('click', (e: Event) => {
             if (e.target === modal) {
                 closeModal();
             }
@@ -807,7 +823,7 @@ class AIAssistant {
         const allRunButtons = document.querySelectorAll(
             '.ai-run-in-console-btn'
         );
-        allRunButtons.forEach((btn) => {
+        allRunButtons.forEach((btn: any) => {
             const text = btn.textContent || btn.innerText;
             if (text.includes('Run in Console')) {
                 btn.innerHTML =
@@ -818,7 +834,7 @@ class AIAssistant {
         const allOpenButtons = document.querySelectorAll(
             '.ai-open-in-editor-btn'
         );
-        allOpenButtons.forEach((btn) => {
+        allOpenButtons.forEach((btn: any) => {
             const text = btn.textContent || btn.innerText;
             if (
                 text.includes(window.translations.ai.buttons.openInEditor.text)
@@ -831,7 +847,7 @@ class AIAssistant {
         const allReviewButtons = document.querySelectorAll(
             '.ai-review-changes-btn'
         );
-        allReviewButtons.forEach((btn) => {
+        allReviewButtons.forEach((btn: any) => {
             const text = btn.textContent || btn.innerText;
             if (
                 text.includes(window.translations.ai.buttons.reviewChanges.text)
@@ -860,16 +876,18 @@ class AIAssistant {
             '.ai-review-changes-btn'
         );
         if (reviewButton) {
+            const reviewButtonEl = reviewButton as HTMLButtonElement;
             reviewButton.innerHTML = `<span class="material-symbols-outlined">visibility</span>${window.translations.ai.buttons.reviewChanges.text} <span class="ai-btn-shortcut"><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>R</span>`;
-            reviewButton.title =
+            reviewButtonEl.title =
                 window.translations.ai.buttons.reviewChanges.title;
         }
 
         // Check for Open in Script Editor button
         const openButton = lastMessage.querySelector('.ai-open-in-editor-btn');
         if (openButton) {
+            const openButtonEl = openButton as HTMLButtonElement;
             openButton.innerHTML = `<span class="material-symbols-outlined">edit</span>${window.translations.ai.buttons.openInEditor.text} <span class="ai-btn-shortcut"><span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>O</span>`;
-            openButton.title =
+            openButtonEl.title =
                 window.translations.ai.buttons.openInEditor.title;
         }
     }
@@ -884,7 +902,15 @@ class AIAssistant {
      * @param {string} options.rightContent - Additional HTML for the right side
      * @returns {string} HTML string for the header
      */
-    createMessageHeader(role, options = {}) {
+    createMessageHeader(
+        role: string,
+        options: {
+            icon?: string;
+            label?: string;
+            rightContent?: string;
+            showContext?: boolean;
+        } = {}
+    ) {
         const timestamp = new Date().toLocaleTimeString();
 
         // Determine icon and label based on role
@@ -929,7 +955,12 @@ class AIAssistant {
         return `<div class="ai-message-header"><span>${iconHtml} ${label} - ${timestamp}</span></div>`;
     }
 
-    addMessage(role, content, isCode = false, isCollapsible = false) {
+    addMessage(
+        role: string,
+        content: string,
+        isCode = false,
+        isCollapsible = false
+    ) {
         // Show messages container on first message
         if (
             this.messagesContainer.style.display === 'none' ||
@@ -1057,15 +1088,15 @@ class AIAssistant {
         // Find all user messages that are not error tracebacks
         const allUserMessages =
             this.messagesContainer.querySelectorAll('.ai-message-user');
-        const userMessages = Array.from(allUserMessages).filter(
-            (msg) => !msg.hasAttribute('data-error-traceback')
-        );
+        const userMessages = (
+            Array.from(allUserMessages) as HTMLElement[]
+        ).filter((msg) => !msg.hasAttribute('data-error-traceback'));
 
         if (userMessages.length === 0) return;
 
         // Add reuse buttons to ALL user messages (including the last one)
         for (let i = 0; i < userMessages.length; i++) {
-            const messageDiv = userMessages[i];
+            const messageDiv = userMessages[i] as HTMLElement;
 
             // Check if button already exists
             if (messageDiv.querySelector('.ai-reuse-prompt-btn')) continue;
@@ -1104,7 +1135,7 @@ class AIAssistant {
                 // Add click handler for reuse button
                 const reuseBtn = document.getElementById(reuseId);
                 if (reuseBtn) {
-                    reuseBtn.addEventListener('click', (event) => {
+                    reuseBtn.addEventListener('click', (event: Event) => {
                         event.stopPropagation(); // Prevent view focus
 
                         this.promptInput.value = prompt;
@@ -1120,7 +1151,7 @@ class AIAssistant {
                 // Add click handler for copy button
                 const copyBtn = document.getElementById(copyId);
                 if (copyBtn) {
-                    copyBtn.addEventListener('click', async (event) => {
+                    copyBtn.addEventListener('click', async (event: Event) => {
                         event.stopPropagation(); // Prevent view focus
 
                         try {
@@ -1170,7 +1201,12 @@ class AIAssistant {
         }, 50);
     }
 
-    addOutputWithCode(output, code, markdownText = '', showRunButton = false) {
+    addOutputWithCode(
+        output: string,
+        code: string,
+        markdownText = '',
+        showRunButton = false
+    ) {
         // Show messages container on first message
         if (
             this.messagesContainer.style.display === 'none' ||
@@ -1262,13 +1298,13 @@ class AIAssistant {
         if (openBtn) {
             if (this.context === 'script') {
                 // In script context, this is the Review Changes button
-                openBtn.addEventListener('click', (event) => {
+                openBtn.addEventListener('click', (event: Event) => {
                     event.stopPropagation(); // Prevent view focus
                     this.showDiffReview(code, markdownText);
                 });
             } else if (this.context !== 'glyphfilter') {
                 // In font context, open directly in editor
-                openBtn.addEventListener('click', (event) => {
+                openBtn.addEventListener('click', (event: Event) => {
                     event.stopPropagation(); // Prevent view focus
                     this.openCodeInEditor(code);
                 });
@@ -1280,9 +1316,11 @@ class AIAssistant {
             const directOpenBtnId = messageDiv.querySelector(
                 '.ai-button-group .ai-open-in-editor-btn'
             )?.id;
-            const directOpenBtn = document.getElementById(directOpenBtnId);
+            const directOpenBtn = directOpenBtnId
+                ? document.getElementById(directOpenBtnId)
+                : null;
             if (directOpenBtn) {
-                directOpenBtn.addEventListener('click', (event) => {
+                directOpenBtn.addEventListener('click', (event: Event) => {
                     event.stopPropagation(); // Prevent view focus
                     this.openCodeInEditor(code);
                 });
@@ -1296,20 +1334,21 @@ class AIAssistant {
         ) {
             const runBtn = document.getElementById(runBtnId);
             if (runBtn) {
-                runBtn.addEventListener('click', async (event) => {
+                const runButton = runBtn as HTMLButtonElement;
+                runBtn.addEventListener('click', async (event: Event) => {
                     event.stopPropagation(); // Prevent view focus
-                    runBtn.disabled = true;
-                    runBtn.innerHTML =
+                    runButton.disabled = true;
+                    runButton.innerHTML =
                         '<span class="material-symbols-outlined">hourglass_empty</span>Running...';
                     try {
                         await this.runCodeInConsole(code);
-                        runBtn.innerHTML =
+                        runButton.innerHTML =
                             '<span class="material-symbols-outlined">check_circle</span>Executed';
                         setTimeout(() => {
-                            runBtn.innerHTML =
+                            runButton.innerHTML =
                                 '<span class="material-symbols-outlined">play_arrow</span>Run in Console';
                             this.updateButtonShortcuts();
-                            runBtn.disabled = false;
+                            runButton.disabled = false;
                         }, 2000);
                     } catch (error) {
                         console.error(
@@ -1317,13 +1356,13 @@ class AIAssistant {
                             'Error running code in console:',
                             error
                         );
-                        runBtn.innerHTML =
+                        runButton.innerHTML =
                             '<span class="material-symbols-outlined">error</span>Error';
                         setTimeout(() => {
-                            runBtn.innerHTML =
+                            runButton.innerHTML =
                                 '<span class="material-symbols-outlined">play_arrow</span>Run in Console';
                             this.updateButtonShortcuts();
-                            runBtn.disabled = false;
+                            runButton.disabled = false;
                         }, 2000);
                     }
                 });
@@ -1339,7 +1378,7 @@ class AIAssistant {
         return messageDiv;
     }
 
-    async runCodeInConsole(code) {
+    async runCodeInConsole(code: string) {
         if (!window.pyodide) {
             throw new Error('Python environment not ready');
         }
@@ -1374,16 +1413,19 @@ class AIAssistant {
             window.term.echo('✅ Code executed successfully');
         } catch (error) {
             // Clean the traceback before displaying
+            const errorMessage =
+                error instanceof Error ? error.message : String(error);
             const cleanedError =
-                error?.constructor?.name === 'PythonError'
-                    ? window.cleanPythonTraceback(error.message)
-                    : error?.message || String(error);
+                error instanceof Error &&
+                error.constructor?.name === 'PythonError'
+                    ? window.cleanPythonTraceback(errorMessage)
+                    : errorMessage;
             window.term.error('Error: ' + cleanedError);
             throw error;
         }
     }
 
-    openCodeInEditor(code) {
+    openCodeInEditor(code: string) {
         // Get the script editor instance
         if (window.scriptEditor && window.scriptEditor.editor) {
             // Set the code in the editor
@@ -1402,7 +1444,7 @@ class AIAssistant {
         }
     }
 
-    showDiffReview(newCode, markdownText = '') {
+    showDiffReview(newCode: string, markdownText = '') {
         // Get current code from script editor
         const oldCode =
             window.scriptEditor && window.scriptEditor.editor
@@ -1429,6 +1471,17 @@ class AIAssistant {
         const closeBtn = document.getElementById('diff-modal-close-btn');
         const cancelBtn = document.getElementById('diff-cancel-btn');
         const acceptBtn = document.getElementById('diff-accept-btn');
+
+        if (
+            !modal ||
+            !diffContainer ||
+            !explanationContainer ||
+            !closeBtn ||
+            !cancelBtn ||
+            !acceptBtn
+        ) {
+            return;
+        }
 
         // Render diff with diff2html
         const configuration = {
@@ -1460,7 +1513,7 @@ class AIAssistant {
             this.pendingCode = null;
         };
 
-        const handleKeydown = (e) => {
+        const handleKeydown = (e: KeyboardEvent) => {
             // Escape to close
             if (e.key === 'Escape') {
                 e.preventDefault();
@@ -1482,15 +1535,15 @@ class AIAssistant {
 
         // Set up event listeners (remove old ones first to prevent duplicates)
         const newCloseBtn = closeBtn.cloneNode(true);
-        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+        closeBtn.parentNode?.replaceChild(newCloseBtn, closeBtn);
         newCloseBtn.addEventListener('click', closeModal);
 
         const newCancelBtn = cancelBtn.cloneNode(true);
-        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+        cancelBtn.parentNode?.replaceChild(newCancelBtn, cancelBtn);
         newCancelBtn.addEventListener('click', closeModal);
 
         const newAcceptBtn = acceptBtn.cloneNode(true);
-        acceptBtn.parentNode.replaceChild(newAcceptBtn, acceptBtn);
+        acceptBtn.parentNode?.replaceChild(newAcceptBtn, acceptBtn);
         newAcceptBtn.addEventListener('click', () => {
             this.openCodeInEditor(this.pendingCode);
             closeModal();
@@ -1500,20 +1553,20 @@ class AIAssistant {
         modal.addEventListener('keydown', handleKeydown);
 
         // Close on backdrop click
-        modal.addEventListener('click', (e) => {
+        modal.addEventListener('click', (e: Event) => {
             if (e.target === modal) {
                 closeModal();
             }
         });
     }
 
-    escapeHtml(text) {
+    escapeHtml(text: string) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
     }
 
-    formatMarkdown(text) {
+    formatMarkdown(text: string) {
         if (!text || !text.trim()) {
             return '';
         }
@@ -1538,7 +1591,7 @@ class AIAssistant {
         return this.escapeHtml(text).replace(/\n/g, '<br>');
     }
 
-    addErrorFixMessage(errorTraceback, scriptCode) {
+    addErrorFixMessage(errorTraceback: string, scriptCode: string) {
         // Clean the traceback to remove Pyodide internal frames
         const cleanedTraceback = window.cleanPythonTraceback(errorTraceback);
         // Check if we're already showing or about to show an error fix message
@@ -1622,7 +1675,7 @@ class AIAssistant {
             // Add event listener to fix button
             const fixBtn = document.getElementById(fixBtnId);
             if (fixBtn) {
-                fixBtn.addEventListener('click', (event) => {
+                fixBtn.addEventListener('click', (event: Event) => {
                     event.stopPropagation(); // Prevent view focus initially
 
                     // Use the latest stored traceback
@@ -1657,9 +1710,13 @@ class AIAssistant {
                         try {
                             await this.executeWithRetry(prompt, 0);
                         } catch (error) {
+                            const errorMessage =
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error);
                             this.addMessage(
                                 'error',
-                                `Failed after ${this.maxRetries} attempts: ${error.message}`
+                                `Failed after ${this.maxRetries} attempts: ${errorMessage}`
                             );
                         } finally {
                             // Hide typing indicator
@@ -1676,7 +1733,7 @@ class AIAssistant {
         }, 2500);
     }
 
-    addErrorTracebackMessage(errorTraceback) {
+    addErrorTracebackMessage(errorTraceback: string) {
         // Show messages container
         if (
             this.messagesContainer.style.display === 'none' ||
@@ -1840,9 +1897,11 @@ ${errorTraceback}
         try {
             await this.executeWithRetry(prompt, 0);
         } catch (error) {
+            const errorMessage =
+                error instanceof Error ? error.message : String(error);
             this.addMessage(
                 'error',
-                `Failed after ${this.maxRetries} attempts: ${error.message}`
+                `Failed after ${this.maxRetries} attempts: ${errorMessage}`
             );
         } finally {
             // Hide typing indicator
@@ -1856,9 +1915,9 @@ ${errorTraceback}
     }
 
     async executeWithRetry(
-        originalPrompt,
-        attemptNumber,
-        previousError = null
+        originalPrompt: string,
+        attemptNumber: number,
+        previousError: string | null = null
     ) {
         if (attemptNumber >= this.maxRetries) {
             throw new Error(
@@ -1921,11 +1980,15 @@ ${errorTraceback}
                 error
             );
 
+            const errorMessage =
+                error instanceof Error ? error.message : String(error);
+
             // Clean the error message if it's a Python error
             const cleanedError =
-                error?.constructor?.name === 'PythonError'
-                    ? window.cleanPythonTraceback(error.message)
-                    : error?.message || String(error);
+                error instanceof Error &&
+                error.constructor?.name === 'PythonError'
+                    ? window.cleanPythonTraceback(errorMessage)
+                    : errorMessage;
 
             // Add error message with traceback in code block
             const formattedError = `The script encountered an error during execution:\n\n\`\`\`\n${cleanedError}\n\`\`\``;
@@ -1947,7 +2010,7 @@ ${errorTraceback}
                     cleanedError
                 );
             } else {
-                throw error;
+                throw new Error(cleanedError);
             }
         }
     }
@@ -1957,7 +2020,7 @@ ${errorTraceback}
      * @param {string} filePath - Path to the .py file
      * @returns {Promise<string>} File content
      */
-    async readGlyphFilterFile(filePath) {
+    async readGlyphFilterFile(filePath: string) {
         const diskPlugin = window.pluginRegistry?.get('disk');
         if (!diskPlugin) {
             throw new Error('Disk plugin not available');
@@ -1979,9 +2042,13 @@ ${errorTraceback}
             : new TextDecoder().decode(content);
     }
 
-    async callClaude(userPrompt, previousError = null, attemptNumber = 0) {
+    async callClaude(
+        userPrompt: string,
+        previousError: string | null = null,
+        attemptNumber = 0
+    ) {
         // Get current script content if in script/glyphfilter mode
-        let currentScript = null;
+        let currentScript: string | null = null;
         if (
             this.context === 'script' &&
             window.scriptEditor &&
@@ -2029,7 +2096,7 @@ ${errorTraceback}
             sessionToken ? sessionToken.substring(0, 20) + '...' : 'NONE'
         );
 
-        const headers = {
+        const headers: Record<string, string> = {
             'Content-Type': 'application/json'
         };
 
@@ -2191,7 +2258,7 @@ ${errorTraceback}
         return { pythonCode, markdownText };
     }
 
-    async saveCodeToFile(code, filePath) {
+    async saveCodeToFile(code: string, filePath: string) {
         try {
             const diskPlugin = window.pluginRegistry?.get('disk');
             if (!diskPlugin) {
@@ -2215,7 +2282,7 @@ ${errorTraceback}
         }
     }
 
-    async executePython(code) {
+    async executePython(code: string) {
         if (!window.pyodide) {
             throw new Error('Pyodide not available');
         }
@@ -2266,7 +2333,9 @@ if '_original_stdout' in dir():
             }
 
             // Re-throw with cleaned up error message
-            throw new Error(error.message || String(error));
+            throw new Error(
+                error instanceof Error ? error.message : String(error)
+            );
         }
     }
 
@@ -2405,7 +2474,7 @@ if '_original_stdout' in dir():
         this.promptInput.addEventListener('input', updateCursor);
         this.promptInput.addEventListener('click', updateCursor);
         this.promptInput.addEventListener('keyup', updateCursor);
-        this.promptInput.addEventListener('keydown', (e) => {
+        this.promptInput.addEventListener('keydown', (e: KeyboardEvent) => {
             // For arrow keys and navigation, schedule update after event processes
             const navKeys = [
                 'ArrowLeft',

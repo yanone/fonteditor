@@ -389,7 +389,7 @@ const console = new Logger('ScriptEditor');
         // Intercept ALL mouse events on the container when not focused
         container.addEventListener(
             'mousedown',
-            (e) => {
+            (e: Event) => {
                 if (!isScriptViewFocused) {
                     // Save cursor position before any click
                     savedCursorPosition = editor.getCursorPosition();
@@ -1489,7 +1489,7 @@ const console = new Logger('ScriptEditor');
 
         if (apiDocsBtn && apiDocsModal && apiDocsCloseBtn) {
             // Open modal
-            apiDocsBtn.addEventListener('click', (event) => {
+            apiDocsBtn.addEventListener('click', (event: Event) => {
                 event.stopPropagation();
                 apiDocsModal.style.display = 'flex';
             });
@@ -1512,7 +1512,7 @@ const console = new Logger('ScriptEditor');
             apiDocsCloseBtn.addEventListener('click', closeModal);
 
             // Close on backdrop click
-            apiDocsModal.addEventListener('click', (e) => {
+            apiDocsModal.addEventListener('click', (e: Event) => {
                 if (e.target === apiDocsModal) {
                     closeModal();
                 }

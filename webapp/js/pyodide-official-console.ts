@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Official Pyodide Console integration
 // Based on https://github.com/pyodide/pyodide/blob/main/src/templates/console.html
 
@@ -34,14 +33,14 @@ async function initPyodideConsole() {
         pyodide = await loadPyodide({
             stdin: () => {
                 let result = prompt();
-                echo(result);
+                echo(result ?? '');
                 return result;
             }
         });
 
         // Make pyodide globally available
         window.pyodide = pyodide;
-        globalThis.pyodide = pyodide;
+        (globalThis as any).pyodide = pyodide;
 
         // Import console components
         let { repr_shorten, BANNER, PyodideConsole } =
@@ -82,11 +81,11 @@ async function initPyodideConsole() {
         const ps2 = '... ';
 
         async function lock() {
-            let resolve: (() => void) | undefined;
+            let resolve: any;
             const ready = term.ready;
             term.ready = new Promise((res) => (resolve = res));
             await ready;
-            return resolve ?? (() => undefined);
+            return resolve || (() => undefined);
         }
 
         async function interpreter(command: string) {
@@ -180,7 +179,7 @@ async function initPyodideConsole() {
         }
 
         // Initialize terminal in the console container
-        term = $('#console-container').terminal(interpreter, {
+        term = (window as any).$('#console-container').terminal(interpreter, {
             greetings: BANNER,
             prompt: ps1,
             completionEscape: false,
@@ -414,7 +413,7 @@ async function initPyodideConsole() {
 
         // Wrap pyodide.runPython to handle errors properly
         const pyodide_py = pyodide.runPython;
-        pyodide.runPython = (...args) => {
+        pyodide.runPython = (...args: any[]) => {
             try {
                 const result = pyodide_py(...args);
                 if (result && typeof result.then !== 'undefined') {
@@ -473,8 +472,8 @@ async function initPyodideConsole() {
                 }
                 await pyodide.mountNativeFS(pyodideDirectory, directoryHandle);
             }
-            globalThis.mountDirectory = mountDirectory;
-            window.mountDirectory = mountDirectory;
+            (globalThis as any).mountDirectory = mountDirectory;
+            (window as any).mountDirectory = mountDirectory;
 
             async function getMountedDirectoryInfo() {
                 const directoryKey = 'pyodide-directory-handle';
@@ -498,8 +497,9 @@ async function initPyodideConsole() {
                     message: `Mounted: "${directoryHandle.name}" (${permission})`
                 };
             }
-            globalThis.getMountedDirectoryInfo = getMountedDirectoryInfo;
-            window.getMountedDirectoryInfo = getMountedDirectoryInfo;
+            (globalThis as any).getMountedDirectoryInfo =
+                getMountedDirectoryInfo;
+            (window as any).getMountedDirectoryInfo = getMountedDirectoryInfo;
 
             async function unmountDirectory() {
                 const directoryKey = 'pyodide-directory-handle';
@@ -511,23 +511,23 @@ async function initPyodideConsole() {
                 );
                 return 'Directory unmounted. Please reload the page.';
             }
-            globalThis.unmountDirectory = unmountDirectory;
-            window.unmountDirectory = unmountDirectory;
+            (globalThis as any).unmountDirectory = unmountDirectory;
+            (window as any).unmountDirectory = unmountDirectory;
         } else {
             // Provide helpful error messages when File System Access API is not available
-            window.mountDirectory = () => {
+            (window as any).mountDirectory = () => {
                 throw new Error(
                     'File System Access API not supported in this browser. Use Chrome or Edge.'
                 );
             };
-            window.getMountedDirectoryInfo = () => {
+            (window as any).getMountedDirectoryInfo = () => {
                 return {
                     mounted: false,
                     message:
                         'File System Access API not supported in this browser'
                 };
             };
-            window.unmountDirectory = () => {
+            (window as any).unmountDirectory = () => {
                 throw new Error(
                     'File System Access API not supported in this browser. Use Chrome or Edge.'
                 );
@@ -550,7 +550,7 @@ async function initPyodideConsole() {
         );
 
         // Check if this is a WebAssembly memory error
-        if (isWebAssemblyMemoryError(error)) {
+        if (error instanceof Error && isWebAssemblyMemoryError(error)) {
             showCriticalError(
                 'Memory Allocation Error',
                 'The application cannot allocate enough memory to run.',
@@ -578,7 +578,7 @@ window.clearConsole = function () {
     }
 
     // Fallback: try to get terminal directly from jQuery
-    const terminalElement = $('#console-container');
+    const terminalElement = (window as any).$('#console-container');
     if (terminalElement.length && terminalElement.terminal) {
         const term = terminalElement.terminal();
         if (term && typeof term.clear === 'function') {
@@ -622,7 +622,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add click handler for Clear button
     const clearButton = document.getElementById('clear-console-btn');
     if (clearButton) {
-        clearButton.addEventListener('click', (event) => {
+        clearButton.addEventListener('click', (event: Event) => {
             event.stopPropagation(); // Prevent view focus
             window.clearConsole();
         });

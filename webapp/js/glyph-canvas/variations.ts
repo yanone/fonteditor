@@ -105,19 +105,21 @@ export class AxesManager {
         if (!this.axesSection) return;
 
         // Update all sliders
-        const sliders: NodeListOf<HTMLInputElement> =
-            this.axesSection.querySelectorAll('input[data-axis-tag]');
+        const sliders = this.axesSection.querySelectorAll(
+            'input[data-axis-tag]'
+        );
         sliders.forEach((slider) => {
+            const input = slider as HTMLInputElement;
             const axisTag: string | null = slider.getAttribute('data-axis-tag');
             if (axisTag && this.variationSettings[axisTag] !== undefined) {
-                slider.value = this.variationSettings[axisTag].toString();
+                input.value = this.variationSettings[axisTag].toString();
 
                 // Update slider fill
-                const min = parseFloat(slider.min);
-                const max = parseFloat(slider.max);
-                const value = parseFloat(slider.value);
+                const min = parseFloat(input.min);
+                const max = parseFloat(input.max);
+                const value = parseFloat(input.value);
                 const percent = ((value - min) / (max - min)) * 100;
-                slider.style.setProperty('--value-percent', `${percent}%`);
+                input.style.setProperty('--value-percent', `${percent}%`);
             }
         });
 
@@ -125,7 +127,7 @@ export class AxesManager {
         const valueLabels = this.axesSection.querySelectorAll(
             'input[data-axis-tag].editor-axis-value'
         );
-        valueLabels.forEach((label) => {
+        valueLabels.forEach((label: any) => {
             const axisTag: string | null = label.getAttribute('data-axis-tag');
             if (axisTag && this.variationSettings[axisTag] !== undefined) {
                 (label as HTMLInputElement).value =
