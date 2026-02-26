@@ -9,7 +9,7 @@ use fea_rs_ast::FeatureFile;
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -57,9 +57,14 @@ static FILTERED_FONT_CACHE: Mutex<Option<FilteredFontCacheEntry>> = Mutex::new(N
 /// Epoch counter for structural (non-outline) changes that require re-filtering.
 /// Incremented by store_font() and clear_font_cache(), but NOT by update_cached_layer().
 static FILTER_EPOCH: AtomicU64 = AtomicU64::new(0);
-/// Set to true by update_cached_layer when it patches the prepared subset in-place./// Consumed (reset to false) by compile_cached_font_from_last_layout_closure to
+/// Set to true by update_cached_layer when it patches the prepared subset in-place.
+/// Consumed (reset to false) by compile_cached_font_from_last_layout_closure to
 /// skip the redundant patch_subset_glyphs_from_cached_font call + clone-back.
 static PREPARED_SUBSET_PATCHED_IN_PLACE: AtomicBool = AtomicBool::new(false);
+/// Set to true by update_cached_layer when it patches FILTERED_FONT_CACHE in-place.
+/// Consumed by the filter-cache section of compile_cached_font_from_last_layout_closure
+/// so it can skip the dirty-glyph patching loop (the cache is already current).
+static FILTERED_FONT_PATCHED_IN_PLACE: AtomicBool = AtomicBool::new(false);
 static PERF_SPAN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Cache entry for a pre-filtered font ready for compilation.
@@ -70,16 +75,23 @@ struct FilteredFontCacheEntry {
     filter_epoch: u64,
     /// Fingerprint of compilation options that affect filtering
     options_fingerprint: u64,
-    /// The filtered font (filters applied, ready for compile_filtered)
-    font: babelfont::Font,
+    /// The filtered font (filters applied, ready for compile_filtered).
+    /// Stored in an Arc so callers can clone the handle in O(1) rather than
+    /// doing a full data copy.  Mutations via update_cached_layer() use
+    /// Arc::make_mut(), which is O(1) when the Arc is the sole owner (always
+    /// the case in WASM's single-threaded execution model).
+    font: Arc<babelfont::Font>,
 }
 
 /// Compute a fingerprint for compilation options that affect filtering.
 /// If any of these change, the filtered cache must be invalidated.
+/// Note: `produce_varc_table` is intentionally excluded — a font filtered
+/// WITH RewriteSmartAxes applied can be compiled without VARC table
+/// generation, so outline-only mode (produce_varc_table=false) reuses the
+/// same cached filtered font as full mode (produce_varc_table=true).
 fn options_filter_fingerprint(options: &CompilationOptions) -> u64 {
     let mut h: u64 = 0;
     if options.drop_incompatible_paths { h |= 1; }
-    if options.produce_varc_table { h |= 2; }
     if options.dont_use_production_names { h |= 4; }
     h
 }
@@ -640,6 +652,9 @@ pub fn update_cached_layer(
 
     let next_epoch = FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed) + 1;
 
+    // Keep a copy of parsed_layer for patching the filtered font cache below.
+    let parsed_layer_for_filter = parsed_layer.clone();
+
     let _prepared_span = PerfSpan::start("update_cached_layer.patch_prepared_subset");
     let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
     if let Some((_subset_key, prepared_epoch, prepared_font)) = prepared_cache.as_mut() {
@@ -668,6 +683,37 @@ pub fn update_cached_layer(
     }
     drop(_prepared_span);
 
+    // D2: Also patch FILTERED_FONT_CACHE in-place so compile_cached_font_from_last_layout_closure
+    // can skip the dirty-glyph patching loop entirely (avoiding both the find + layers clone).
+    // Arc::make_mut() is O(1) here because WASM is single-threaded: the compile that previously
+    // consumed an Arc::clone() has already returned before the next update_cached_layer() call.
+    let _filtered_span = PerfSpan::start("update_cached_layer.patch_filtered_font");
+    let mut filtered_cache = FILTERED_FONT_CACHE.lock().unwrap();
+    if let Some(entry) = filtered_cache.as_mut() {
+        if let Some(filtered_glyph) = Arc::make_mut(&mut entry.font)
+            .glyphs
+            .iter_mut()
+            .find(|glyph| glyph.name.as_str() == glyph_name)
+        {
+            if let Some(filtered_layer) = filtered_glyph
+                .layers
+                .iter_mut()
+                .find(|layer| layer.id.as_deref() == Some(layer_id))
+            {
+                *filtered_layer = parsed_layer_for_filter;
+            } else {
+                filtered_glyph.layers.push(parsed_layer_for_filter);
+            }
+            FILTERED_FONT_PATCHED_IN_PLACE.store(true, Ordering::Release);
+            perf_mark(&format!(
+                "{}:update_cached_layer.patch_filtered_font.applied{}",
+                PERF_PREFIX,
+                current_perf_trace_suffix()
+            ));
+        }
+    }
+    drop(_filtered_span);
+
     let _outline_clear_span = PerfSpan::start("update_cached_layer.clear_outline_cache");
     glyph_outlines::clear_outline_cache_for_glyph(glyph_name);
     drop(_outline_clear_span);
@@ -689,6 +735,7 @@ pub fn clear_font_cache() {
     *FEATURE_FEA_STRING_CACHE.lock().unwrap() = None;
     FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
     FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
+    FILTERED_FONT_PATCHED_IN_PLACE.store(false, Ordering::Relaxed);
 
     // Also clear the outline cache
     glyph_outlines::clear_outline_cache();
@@ -1265,14 +1312,27 @@ pub fn compile_cached_font_from_last_layout_closure(
                 && entry.options_fingerprint == current_options_fp
         });
 
-        if cache_hit {
-            // Cache hit: clone cached filtered font and patch dirty glyphs
-            let _clone_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.clone");
-            let mut filtered = filter_cache.as_ref().unwrap().font.clone();
-            drop(_clone_span);
+        // D2: consume the flag set by update_cached_layer() so we know whether
+        // the cached filtered font is already up-to-date for the dirty glyph.
+        let filter_already_patched = FILTERED_FONT_PATCHED_IN_PLACE.swap(false, Ordering::Acquire);
 
-            // Patch dirty glyphs from the (already-patched) subset font
-            if !dirty_glyph_names.is_empty() {
+        if cache_hit {
+            // Cache hit: clone the Arc handle (O(1)) and patch dirty glyphs if needed.
+            let _clone_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.clone");
+            let filtered_arc = if filter_already_patched || dirty_glyph_names.is_empty() {
+                // Fast path: update_cached_layer already patched the filtered font
+                // in-place, or no dirty glyphs at all — just clone the Arc (O(1)).
+                perf_mark(&format!(
+                    "{}:compile_cached_font_from_last_layout_closure.filter_cache.hit.no_patch{}",
+                    PERF_PREFIX,
+                    current_perf_trace_suffix()
+                ));
+                Arc::clone(&filter_cache.as_ref().unwrap().font)
+            } else {
+                // Slow path: need to incorporate dirty glyphs not yet in the cached filtered font.
+                let mut filtered: babelfont::Font = (*filter_cache.as_ref().unwrap().font).clone();
+                drop(_clone_span);
+
                 let _patch_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.patch_dirty");
                 for dirty_name in &dirty_glyph_names {
                     if let Some(source_glyph) = font_clone.glyphs.iter().find(|g| g.name.as_str() == dirty_name.as_str()) {
@@ -1282,14 +1342,16 @@ pub fn compile_cached_font_from_last_layout_closure(
                     }
                 }
                 drop(_patch_span);
-            }
+
+                Arc::new(filtered)
+            };
 
             perf_mark(&format!(
                 "{}:compile_cached_font_from_last_layout_closure.filter_cache.hit{}",
                 PERF_PREFIX,
                 current_perf_trace_suffix()
             ));
-            filtered
+            filtered_arc
         } else {
             // Cache miss: run full filter pipeline and cache result
             let _apply_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.apply_filters");
@@ -1300,11 +1362,13 @@ pub fn compile_cached_font_from_last_layout_closure(
             drop(_fea_parse_pipeline_span);
             drop(_apply_span);
 
+            // Store as Arc so future cache hits can clone the handle in O(1).
+            let filtered_arc = Arc::new(filtered);
             *filter_cache = Some(FilteredFontCacheEntry {
                 subset_key: prepared_subset_key.clone(),
                 filter_epoch: current_filter_epoch,
                 options_fingerprint: current_options_fp,
-                font: filtered.clone(),
+                font: Arc::clone(&filtered_arc),
             });
 
             perf_mark(&format!(
@@ -1312,7 +1376,7 @@ pub fn compile_cached_font_from_last_layout_closure(
                 PERF_PREFIX,
                 current_perf_trace_suffix()
             ));
-            filtered
+            filtered_arc
         }
     };
     drop(_filter_cache_span);
