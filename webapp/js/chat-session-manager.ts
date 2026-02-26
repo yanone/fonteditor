@@ -921,3 +921,6 @@ class ChatSessionManager {
         }
     }
 }
+
+// Expose to window so the bootstrap bundle (ai-assistant.ts) can access it
+(window as any).ChatSessionManager = ChatSessionManager;

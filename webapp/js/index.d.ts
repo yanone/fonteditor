@@ -432,6 +432,12 @@ declare global {
         // From theme-switcher.js
         themeSwitcher: ThemeSwitcher;
 
+        // From chat-session-manager.ts
+        ChatSessionManager: {
+            new(aiAssistant: AIAssistant): object;
+            getContextIconHTML(contextType: string): string;
+        };
+
         // From translations.ts
         translations: {
             ai: {

@@ -167,10 +167,10 @@ class AIAssistant {
         // Initialize session manager after UI is ready
         console.log(
             '[AIAssistant] ChatSessionManager available:',
-            typeof ChatSessionManager !== 'undefined'
+            typeof window.ChatSessionManager !== 'undefined'
         );
-        if (typeof ChatSessionManager !== 'undefined') {
-            this.sessionManager = new ChatSessionManager(this);
+        if (typeof window.ChatSessionManager !== 'undefined') {
+            this.sessionManager = new window.ChatSessionManager(this);
             console.log(
                 '[AIAssistant] SessionManager initialized:',
                 !!this.sessionManager
@@ -2627,11 +2627,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Insert icons at the beginning of each custom radio span
         fontRadio.insertAdjacentHTML(
             'afterbegin',
-            ChatSessionManager.getContextIconHTML('font')
+            window.ChatSessionManager.getContextIconHTML('font')
         );
         scriptRadio.insertAdjacentHTML(
             'afterbegin',
-            ChatSessionManager.getContextIconHTML('script')
+            window.ChatSessionManager.getContextIconHTML('script')
         );
     }
 
