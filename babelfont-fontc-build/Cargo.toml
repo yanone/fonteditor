@@ -8,6 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 babelfont = { path = "../../babelfont-rs/babelfont", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
+fea-rs-ast = "0.1.2"
 typeshare = "1.0"
 kurbo = "0.13"
 fontdrasil = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts" }

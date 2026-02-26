@@ -173,6 +173,7 @@ version = "0.1.0"
 dependencies = [
  "babelfont",
  "console_error_panic_hook",
+ "fea-rs-ast",
  "fontdrasil 0.4.0 (git+https://github.com/simoncozens/fontc?branch=new-varc-writefonts)",
  "fontspector-checkapi",
  "fontspector-profile-fontwerk",

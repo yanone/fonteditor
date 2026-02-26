@@ -1,7 +1,9 @@
 use babelfont::{
+    close_layout_with_feature_file,
     convertors::fontir::{BabelfontIrSource, CompilationOptions},
     filters::FontFilter as _,
 };
+use fea_rs_ast::FeatureFile;
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -29,6 +31,11 @@ pub use fontspector::run_fontspector;
 // Global storage for cached fonts
 // Use a Mutex to allow safe mutable access from multiple calls
 static FONT_CACHE: Mutex<Option<babelfont::Font>> = Mutex::new(None);
+/// B2: Pre-parsed FeatureFile AST, populated once in store_font() and reused
+/// for every close_layout() call.  The visitor only reads the AST, never
+/// modifies it, so the same instance is safe to reuse across keystrokes.
+/// WASM is single-threaded so no concurrent access can occur.
+static FEATURE_FILE_CACHE: Mutex<Option<FeatureFile>> = Mutex::new(None);
 static LAYOUT_CLOSURE_CACHE: LazyLock<Mutex<HashMap<String, Vec<String>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static LAST_LAYOUT_CLOSURE_CACHE_KEY: Mutex<Option<String>> = Mutex::new(None);
@@ -309,11 +316,16 @@ fn canonical_subset_key_from_sorted_unique(glyph_names: &[String]) -> String {
 /// references, and transitively adds them — guaranteeing that component glyphs
 /// stay in the subset and their references remain live for incremental patching.
 fn expand_closure_with_component_deps(font: &babelfont::Font, result: &mut Vec<String>) {
+    // A5: Build O(1) name → glyph index up-front so the inner loop does a
+    // HashMap lookup instead of an O(total_glyphs) iter().find() per glyph.
+    let glyph_index: HashMap<&str, &babelfont::Glyph> =
+        font.glyphs.iter().map(|g| (g.name.as_str(), g)).collect();
+
     let mut closure_set: HashSet<String> = result.iter().cloned().collect();
     let mut queue: Vec<String> = result.clone();
 
     while let Some(glyph_name) = queue.pop() {
-        let Some(glyph) = font.glyphs.iter().find(|g| g.name.as_str() == glyph_name.as_str()) else {
+        let Some(glyph) = glyph_index.get(glyph_name.as_str()) else {
             continue;
         };
         for layer in &glyph.layers {
@@ -376,16 +388,32 @@ fn compute_layout_closure_cached_internal(
     drop(_to_set_span);
 
     let _compute_span = PerfSpan::start("layout_closure_cached.compute");
-    let closure_set = babelfont::close_layout(font, glyph_set)
-        .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?;
+    // Phase A1+A2+A3 benchmark point: FEA parse, glyph-class expansion, multi-round loop.
+    let _close_layout_span = PerfSpan::start("layout_closure_cached.compute.close_layout");
+    // B2: Use the pre-parsed FeatureFile from the cache if available (populated
+    // by store_font). The visitor only reads the AST so we can safely return it
+    // to the cache after the call.
+    let closure_set = {
+        let mut fea_cache = FEATURE_FILE_CACHE.lock().unwrap();
+        if let Some(ref mut feature_file) = *fea_cache {
+            close_layout_with_feature_file(font, glyph_set, feature_file)
+                .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?        } else {
+            // Cold path: FeatureFile not cached yet; falls back to internal parse.
+            babelfont::close_layout(font, glyph_set)
+                .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?        }
+    };
+    drop(_close_layout_span);
     drop(_compute_span);
 
     let _normalize_span = PerfSpan::start("layout_closure_cached.normalize");
     let mut result: Vec<String> = closure_set.into_iter().map(|s| s.to_string()).collect();
 
+    // Phase A5 benchmark point: index-based glyph lookup for component dependencies.
+    let _component_deps_span = PerfSpan::start("layout_closure_cached.normalize.component_deps");
     // Expand closure to include transitively referenced component glyphs
     // so that RetainGlyphs does not decompose them out of the subset.
     expand_closure_with_component_deps(font, &mut result);
+    drop(_component_deps_span);
 
     result.sort();
     result.dedup();
@@ -500,10 +528,21 @@ pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
         .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
     drop(_parse_span);
 
+    // B2: Build FeatureFile from the local `font` BEFORE acquiring FONT_CACHE,
+    // so we never attempt a recursive lock (WASM mutex panics on re-entrancy).
+    let _fea_span = PerfSpan::start("store_font.parse_feature_file");
+    let fea = font.features.to_fea();
+    let font_glyphs: Vec<&str> = font.glyphs.iter().map(|g| g.name.as_str()).collect();
+    let new_feature_file = FeatureFile::new_from_fea(&fea, Some(&font_glyphs), font.source.clone()).ok();
+    drop(font_glyphs);
+    drop(_fea_span);
+
     let _cache_span = PerfSpan::start("store_font.cache_write");
     let mut cache = FONT_CACHE.lock().unwrap();
     *cache = Some(font);
     drop(_cache_span);
+
+    *FEATURE_FILE_CACHE.lock().unwrap() = new_feature_file;
 
     FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
     FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
@@ -602,6 +641,7 @@ pub fn clear_font_cache() {
     *LAST_LAYOUT_CLOSURE_CACHE_KEY.lock().unwrap() = None;
     *PREPARED_SUBSET_FONT_CACHE.lock().unwrap() = None;
     *FILTERED_FONT_CACHE.lock().unwrap() = None;
+    *FEATURE_FILE_CACHE.lock().unwrap() = None;
     FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
     FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
 
@@ -1097,8 +1137,11 @@ pub fn compile_cached_font_from_last_layout_closure(
         } else {
             // Cache miss: run full filter pipeline and cache result
             let _apply_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.apply_filters");
+            // Phase A4 benchmark point: FEA parses inside SubsetLayout and GlyphsNumberValue filters.
+            let _fea_parse_pipeline_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.apply_filters.fea_parse_pipeline");
             let filtered = BabelfontIrSource::apply_filters(&font_clone, &compilation_options)
                 .map_err(|e| JsValue::from_str(&format!("Filter pipeline failed: {:?}", e)))?;
+            drop(_fea_parse_pipeline_span);
             drop(_apply_span);
 
             *filter_cache = Some(FilteredFontCacheEntry {

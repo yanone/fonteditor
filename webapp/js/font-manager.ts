@@ -1222,12 +1222,11 @@ class FontManager {
                     };
                 } else if (isTextInputEdit) {
                     // Text typing: font data unchanged, only subset changed.
-                    // Skip features/kerning for fast compilation;
-                    // a deferred full compile fires after typing settles.
+                    // Features and kerning must stay ON — Arabic and other
+                    // connected scripts rely on them to keep letters joined.
+                    // A deferred full compile fires after typing settles.
                     compilationMode = 'text-input';
                     optionOverrides = {
-                        skip_features: true,
-                        skip_kerning: true,
                         produce_varc_table: false
                     };
                 }

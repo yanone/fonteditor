@@ -615,6 +615,132 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
         .filter(Boolean)
         .sort((a, b) => a.tsUs - b.tsUs);
 
+    // Generic extractor for any cp:wasm:<prefix>.<subphase>#<id>:(start|end) pattern.
+    // Returns sorted array of {tsUs, phaseName, phaseId, side} for a given prefix.
+    function extractWasmPhaseEvents(prefix) {
+        const re = new RegExp(
+            `^cp:wasm:${prefix.replace(/\./g, "\\.")}(?:\\.([^#]+))?#(\\d+):(start|end)$`,
+        );
+        return events
+            .map((event) => {
+                const { baseName } = parseMarkerNameContext(event.name);
+                const match = String(baseName || "").match(re);
+                if (!match) return null;
+                return {
+                    tsUs: event.ts,
+                    phaseName: match[1] ?? "total",
+                    phaseId: Number(match[2]),
+                    side: match[3],
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.tsUs - b.tsUs);
+    }
+
+    // Build a map of phaseId→{startUs, endUs} for a flat list of phase events.
+    function buildPhaseMap(phaseEvents) {
+        const map = new Map(); // phaseId → {startUs, endUs, phaseName}
+        for (const ev of phaseEvents) {
+            if (!map.has(ev.phaseId)) {
+                map.set(ev.phaseId, {
+                    phaseName: ev.phaseName,
+                    startUs: null,
+                    endUs: null,
+                });
+            }
+            const entry = map.get(ev.phaseId);
+            if (ev.side === "start") entry.startUs = ev.tsUs;
+            else entry.endUs = ev.tsUs;
+        }
+        return map;
+    }
+
+    // Collect completed (start+end) intervals from a phase map, keyed by phaseName.
+    // When multiple intervals share a phaseName, keep the one matching a given
+    // totalId bracket; otherwise take the first complete one.
+    function collectIntervals(phaseMap) {
+        const byName = new Map();
+        for (const [phaseId, entry] of phaseMap) {
+            if (entry.startUs === null || entry.endUs === null) continue;
+            const name = entry.phaseName;
+            if (!byName.has(name)) byName.set(name, []);
+            byName
+                .get(name)
+                .push({ phaseId, startUs: entry.startUs, endUs: entry.endUs });
+        }
+        return byName;
+    }
+
+    // Extract store_font runs (total + sub-phases)
+    const storeFontPhaseEvents = extractWasmPhaseEvents("store_font");
+    const storeFontPhaseMap = buildPhaseMap(storeFontPhaseEvents);
+    const storeFontByName = collectIntervals(storeFontPhaseMap);
+    const storeFontTotals = (storeFontByName.get("total") || []).sort(
+        (a, b) => a.startUs - b.startUs,
+    );
+
+    // Extract prime_layout_closure_cache runs (and sub-phases of layout_closure_cached)
+    const primeClosurePhaseEvents = extractWasmPhaseEvents(
+        "prime_layout_closure_cache",
+    );
+    const primeClosurePhaseMap = buildPhaseMap(primeClosurePhaseEvents);
+    const primeClosureByName = collectIntervals(primeClosurePhaseMap);
+    const primeClosureTotals = (primeClosureByName.get("total") || []).sort(
+        (a, b) => a.startUs - b.startUs,
+    );
+
+    // Extract layout_closure_cached sub-phases (close_layout, component_deps, etc.)
+    const closureCachedEvents = extractWasmPhaseEvents("layout_closure_cached");
+    const closureCachedPhaseMap = buildPhaseMap(closureCachedEvents);
+    const closureCachedByName = collectIntervals(closureCachedPhaseMap);
+    // Key sub-phase names we care about (our A-phase benchmarks)
+    const closeLayoutIntervals = (
+        closureCachedByName.get("compute.close_layout") || []
+    ).sort((a, b) => a.startUs - b.startUs);
+    const componentDepsIntervals = (
+        closureCachedByName.get("normalize.component_deps") || []
+    ).sort((a, b) => a.startUs - b.startUs);
+    const feaPipelineIntervals = (
+        closureCachedByName.get("apply_filters.fea_parse_pipeline") || []
+    ).sort((a, b) => a.startUs - b.startUs);
+
+    // Helper: find the interval in a sorted list whose time window overlaps [winStart, winEnd]
+    // and was consumed most recently before winEnd; returns the first hit.
+    function findIntervalBefore(sortedIntervals, winStart, winEnd) {
+        for (const iv of sortedIntervals) {
+            if (iv.startUs >= winStart && iv.endUs <= winEnd) return iv;
+        }
+        return null;
+    }
+
+    // Build compile-cycle associations by walking WASM runs and correlated
+    // store_font / prime_closure intervals in chronological order.
+    // For each compile_cached run we pick the immediately-preceding interval
+    // from each ancillary list (consuming it so it won't match again).
+    function buildCompileCycleMap(compileCachedRuns, ancillaryIntervals) {
+        // ancillaryIntervals: [{startUs, endUs}] sorted ascending
+        const result = new Map(); // runIndex (1-based) → interval or null
+        let ancillaryIdx = 0;
+        for (const run of compileCachedRuns) {
+            // The run starts at run.startUs; any ancillary that ended at or
+            // before that point and hasn't been consumed belongs to this run.
+            const preceding = [];
+            while (
+                ancillaryIdx < ancillaryIntervals.length &&
+                ancillaryIntervals[ancillaryIdx].endUs <= run.startUs + 5000 // 5ms slack
+            ) {
+                preceding.push(ancillaryIntervals[ancillaryIdx]);
+                ancillaryIdx++;
+            }
+            // The closest preceding interval (last one in the list)
+            result.set(
+                run.runIndex ?? run.totalPhaseId,
+                preceding.length ? preceding[preceding.length - 1] : null,
+            );
+        }
+        return result;
+    }
+
     const openTotalStack = [];
     const rawWasmClosureRuns = [];
 
@@ -644,6 +770,21 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
             );
         }
     }
+
+    // Cursor-based consumption for ancillary intervals.
+    // Intervals are sorted ascending by endUs. For each compile run (processed
+    // chronologically) we advance the cursor past all intervals whose endUs is
+    // strictly before run.startUs, keeping the most-recently-consumed one.
+    // This ensures each store_font/prime_closure call is attributed to exactly
+    // one compile run — the first run that starts after the interval ends.
+    let storeFontCursor = 0;
+    let primeClosureCursor = 0;
+    let closeLayoutCursor = 0;
+    let componentDepsCursor = 0;
+    let feaPipelineCursor = 0;
+
+    // Ensure runs are in chronological start order before cursor sweep
+    rawWasmClosureRuns.sort((a, b) => (a.startUs ?? 0) - (b.startUs ?? 0));
 
     let wasmClosureRuns = rawWasmClosureRuns
         .map((run, index) => {
@@ -718,6 +859,65 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
                 3,
             );
 
+            // Correlate store_font and prime_layout_closure_cache to this compile
+            // run using cursor-based consumption. The cursors advance chronologically
+            // so each ancillary interval is attributed to exactly ONE compile run.
+            const advanceCursor = (list, cursorVal) => {
+                let idx = cursorVal;
+                while (
+                    idx < list.length &&
+                    list[idx].endUs <= run.startUs + 5000
+                ) {
+                    idx++;
+                }
+                return {
+                    newCursor: idx,
+                    lastConsumed: idx > cursorVal ? list[idx - 1] : null,
+                };
+            };
+
+            const sfResult = advanceCursor(storeFontTotals, storeFontCursor);
+            storeFontCursor = sfResult.newCursor;
+            const storeFontIv = sfResult.lastConsumed;
+
+            const pcResult = advanceCursor(
+                primeClosureTotals,
+                primeClosureCursor,
+            );
+            primeClosureCursor = pcResult.newCursor;
+            const primeClosureIv = pcResult.lastConsumed;
+
+            // Sub-phases of prime_layout_closure: correlate within the prime-closure window
+            const clResult = advanceCursor(
+                closeLayoutIntervals,
+                closeLayoutCursor,
+            );
+            closeLayoutCursor = clResult.newCursor;
+            const closeLayoutIv = clResult.lastConsumed;
+
+            const cdResult = advanceCursor(
+                componentDepsIntervals,
+                componentDepsCursor,
+            );
+            componentDepsCursor = cdResult.newCursor;
+            const componentDepsIv = cdResult.lastConsumed;
+
+            const fpResult = advanceCursor(
+                feaPipelineIntervals,
+                feaPipelineCursor,
+            );
+            feaPipelineCursor = fpResult.newCursor;
+            const feaPipelineIv = fpResult.lastConsumed;
+
+            const makeTiming = (iv) =>
+                iv
+                    ? {
+                          durationMs: round((iv.endUs - iv.startUs) / 1000, 3),
+                          startMsFromStart: toMsFromStart(iv.startUs, startTs),
+                          endMsFromStart: toMsFromStart(iv.endUs, startTs),
+                      }
+                    : null;
+
             return {
                 runIndex: index + 1,
                 total: totalPhase,
@@ -734,6 +934,12 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
                     (irCompilePhase.durationMs / totalPhase.durationMs) * 100,
                     2,
                 ),
+                // Per-compile context: store_font and layout-closure phases
+                storeFontMs: makeTiming(storeFontIv),
+                primeLayoutClosureMs: makeTiming(primeClosureIv),
+                closeLayoutMs: makeTiming(closeLayoutIv),
+                componentDepsMs: makeTiming(componentDepsIv),
+                feaParsePipelineMs: makeTiming(feaPipelineIv),
             };
         })
         .filter(Boolean)
@@ -1174,6 +1380,7 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
                 (chain) => chain.completed,
             ).length,
             wasmClosureRunCount: wasmClosureRuns.length,
+            storeFontCallCount: storeFontTotals.length,
         },
         traceGroups: buildTraceGroups(events, startTs),
         inferredBreakReason,
@@ -1196,6 +1403,26 @@ function buildCompileRenderHandoff(filteredEvents, inputPath, metadata) {
             tMsFromStart: toMsFromStart(event.ts, startTs),
         })),
         wasmClosureTailSummary,
+        storeFontSummary: (() => {
+            const durations = storeFontTotals
+                .filter((iv) => iv.startUs !== null && iv.endUs !== null)
+                .map((iv) => round((iv.endUs - iv.startUs) / 1000, 3));
+            if (!durations.length) return null;
+            return {
+                callCount: durations.length,
+                avgMs: round(
+                    durations.reduce((s, v) => s + v, 0) / durations.length,
+                    3,
+                ),
+                minMs: round(Math.min(...durations), 3),
+                maxMs: round(Math.max(...durations), 3),
+                totalMs: round(
+                    durations.reduce((s, v) => s + v, 0),
+                    3,
+                ),
+                note: "Each store_font call fully re-parses the font JSON. Ideally 0 or 1 per session (only on font load).",
+            };
+        })(),
         wasmClosurePhaseAnalysis,
         wasmClosureRuns,
         compileToCanvasChains,

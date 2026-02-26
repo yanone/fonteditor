@@ -829,11 +829,15 @@ self.onmessage = async (event) => {
                 } else {
                     // For incremental layer updates (sentinel JSON), always
                     // apply via update_cached_layer without comparing the
-                    // full JSON string.  For full JSON, compare as before.
+                    // full JSON string.  For full JSON, only re-store when
+                    // the JSON content has actually changed.  A revision-key
+                    // bump from markDirty() (e.g. text-input deferred full
+                    // compile) must NOT trigger store_font when the underlying
+                    // font data is identical — store_font parses the full JSON
+                    // and can take ~600 ms on large fonts.
                     const needsStore = isIncrementalSentinel
                         ? true
-                        : cachedFontRevisionKey !== revisionKey ||
-                          cachedBabelfontJson !== babelfontJson;
+                        : cachedBabelfontJson !== babelfontJson;
 
                     // Always refresh cached font data for editing compiles.
                     // This guarantees each compile reflects latest drag edits.
@@ -896,6 +900,9 @@ self.onmessage = async (event) => {
                         if (!isDragMode) {
                             dragCompilesSinceStore = 0;
                         }
+                        // Keep the revision key current even when we skip
+                        // store_font (JSON unchanged, only markDirty fired).
+                        cachedFontRevisionKey = revisionKey;
                         timelineMark(
                             'font.worker.compileEditingCached.ensureFontCached.reused'
                         );
@@ -942,9 +949,22 @@ self.onmessage = async (event) => {
                     timelineMark(
                         'font.worker.compileEditingCached.primeLayoutClosure.primed'
                     );
+                    // Phase A1+A2+A3 benchmark point: layout closure (FEA parse,
+                    // glyph-class expansion, multi-round loop) just ran inside WASM.
+                    // Phase A5 benchmark point: component-deps expansion also ran.
+                    timelineMark(
+                        'font.worker.compileEditingCached.primeLayoutClosure.phaseA.computed',
+                        { parentSpanId: primeClosureSpanId }
+                    );
                 } else {
                     timelineMark(
                         'font.worker.compileEditingCached.primeLayoutClosure.reused'
+                    );
+                    // Phase A1+A2+A3+A5 were served from cache — useful for
+                    // verifying caching effectiveness before/after optimizations.
+                    timelineMark(
+                        'font.worker.compileEditingCached.primeLayoutClosure.phaseA.cache_hit',
+                        { parentSpanId: primeClosureSpanId }
                     );
                 }
                 timelineSpanEnd(primeClosureSpanId);
@@ -964,6 +984,12 @@ self.onmessage = async (event) => {
                     compile_cached_font_from_last_layout_closure(
                         optionsWithDirtyGlyphs
                     );
+                // Phase A4 benchmark point: filter-pipeline FEA parses (SubsetLayout +
+                // GlyphsNumberValue) ran on a cache miss inside WASM.
+                timelineMark(
+                    'font.worker.compileEditingCached.compileCachedFont.phaseA.compile_done',
+                    { parentSpanId: compileCachedSpanId }
+                );
                 timelineSpanEnd(compileCachedSpanId);
                 const endTime = performance.now();
 
