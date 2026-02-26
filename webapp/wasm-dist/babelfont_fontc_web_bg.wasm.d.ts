@@ -16,13 +16,13 @@ export const prime_layout_closure_cache: (a: number, b: number, c: number, d: nu
 export const store_font: (a: number, b: number) => [number, number];
 export const update_cached_layer: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
 export const version: () => [number, number];
-export const run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const get_font_axes: (a: number, b: number) => [number, number, number, number];
 export const get_font_features: (a: number, b: number) => [number, number, number, number];
 export const get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
 export const get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
 export const get_glyph_order: (a: number, b: number) => [number, number, number, number];
 export const get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
+export const run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_exn_store: (a: number) => void;

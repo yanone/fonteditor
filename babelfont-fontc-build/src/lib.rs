@@ -1,8 +1,10 @@
 use babelfont::{
     close_layout_with_feature_file,
     convertors::fontir::{BabelfontIrSource, CompilationOptions},
-    filters::FontFilter as _,
+    filters::{FontFilter as _, RetainGlyphs, SubsetLayout},
+    Features,
 };
+use fea_rs_ast::AsFea as _;
 use fea_rs_ast::FeatureFile;
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
@@ -36,6 +38,11 @@ static FONT_CACHE: Mutex<Option<babelfont::Font>> = Mutex::new(None);
 /// modifies it, so the same instance is safe to reuse across keystrokes.
 /// WASM is single-threaded so no concurrent access can occur.
 static FEATURE_FILE_CACHE: Mutex<Option<FeatureFile>> = Mutex::new(None);
+/// C1: Serialized FEA string + full glyph name list stored alongside the parsed
+/// FeatureFile.  Cloning a String is cheap; used by subset_font_using_cached_fea
+/// to re-parse a fresh FeatureFile for the SubsetLayout visitor (which mutates
+/// the AST, so we can't reuse the B2 cached FeatureFile directly).
+static FEATURE_FEA_STRING_CACHE: Mutex<Option<(String, Vec<String>)>> = Mutex::new(None);
 static LAYOUT_CLOSURE_CACHE: LazyLock<Mutex<HashMap<String, Vec<String>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static LAST_LAYOUT_CLOSURE_CACHE_KEY: Mutex<Option<String>> = Mutex::new(None);
@@ -75,6 +82,40 @@ fn options_filter_fingerprint(options: &CompilationOptions) -> u64 {
     if options.produce_varc_table { h |= 2; }
     if options.dont_use_production_names { h |= 4; }
     h
+}
+
+/// C1: Apply RetainGlyphs to `font` using the cached FEA string to re-parse a
+/// fresh FeatureFile for the SubsetLayout visitor.  Re-parsing from the cached
+/// string avoids the expensive `font.features.to_fea()` round-trip (~100ms).
+/// Falls back to the cold `RetainGlyphs::new()` path when the cache is empty.
+fn subset_font_using_cached_fea(
+    font: &mut babelfont::Font,
+    closure_subset: &[String],
+) -> Result<(), JsValue> {
+    let fea_cache = FEATURE_FEA_STRING_CACHE.lock().unwrap().clone();
+    if let Some((fea_string, glyph_names)) = fea_cache {
+        // Fast path: re-parse from the cached serialized FEA string (cheap clone + parse)
+        // rather than re-serializing from the Font struct (expensive to_fea()).
+        let _fea_visit_span = PerfSpan::start("subset_font_using_cached_fea.visit");
+        let glyph_refs: Vec<&str> = glyph_names.iter().map(|s| s.as_str()).collect();
+        let mut feature_file = FeatureFile::new_from_fea(&fea_string, Some(&glyph_refs), font.source.clone())
+            .map_err(|e| JsValue::from_str(&format!("FEA re-parse failed: {:?}", e)))?;
+        SubsetLayout::new(closure_subset.to_vec())
+            .visit_feature_file(&mut feature_file)
+            .map_err(|e| JsValue::from_str(&format!("SubsetLayout visit failed: {:?}", e)))?;
+        font.features = Features::from_fea(&feature_file.as_fea(""));
+        drop(_fea_visit_span);
+        // Skip internal SubsetLayout since we already applied it.
+        RetainGlyphs::new_with_fea_subset(closure_subset.to_vec())
+            .apply(font)
+            .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
+    } else {
+        // Cold fallback: no cached FEA string available.
+        RetainGlyphs::new(closure_subset.to_vec())
+            .apply(font)
+            .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
+    }
+    Ok(())
 }
 
 const PERF_PREFIX: &str = "cp:wasm";
@@ -532,9 +573,9 @@ pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
     // so we never attempt a recursive lock (WASM mutex panics on re-entrancy).
     let _fea_span = PerfSpan::start("store_font.parse_feature_file");
     let fea = font.features.to_fea();
-    let font_glyphs: Vec<&str> = font.glyphs.iter().map(|g| g.name.as_str()).collect();
-    let new_feature_file = FeatureFile::new_from_fea(&fea, Some(&font_glyphs), font.source.clone()).ok();
-    drop(font_glyphs);
+    let font_glyphs: Vec<String> = font.glyphs.iter().map(|g| g.name.to_string()).collect();
+    let font_glyphs_ref: Vec<&str> = font_glyphs.iter().map(|s| s.as_str()).collect();
+    let new_feature_file = FeatureFile::new_from_fea(&fea, Some(&font_glyphs_ref), font.source.clone()).ok();
     drop(_fea_span);
 
     let _cache_span = PerfSpan::start("store_font.cache_write");
@@ -543,6 +584,9 @@ pub fn store_font(babelfont_json: &str) -> Result<(), JsValue> {
     drop(_cache_span);
 
     *FEATURE_FILE_CACHE.lock().unwrap() = new_feature_file;
+    // C1: Also cache the raw FEA string + glyph list so subset_font_using_cached_fea
+    // can re-parse a fresh FeatureFile without the expensive to_fea() round-trip.
+    *FEATURE_FEA_STRING_CACHE.lock().unwrap() = Some((fea, font_glyphs));
 
     FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
     FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
@@ -642,6 +686,7 @@ pub fn clear_font_cache() {
     *PREPARED_SUBSET_FONT_CACHE.lock().unwrap() = None;
     *FILTERED_FONT_CACHE.lock().unwrap() = None;
     *FEATURE_FILE_CACHE.lock().unwrap() = None;
+    *FEATURE_FEA_STRING_CACHE.lock().unwrap() = None;
     FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed);
     FILTER_EPOCH.fetch_add(1, Ordering::Relaxed);
 
@@ -988,10 +1033,7 @@ pub fn compile_cached_font_from_last_layout_closure(
             let _retain_span =
                 PerfSpan::start("compile_cached_font_from_last_layout_closure.retain_glyphs");
             if !closure_subset.is_empty() {
-                let subsetter = babelfont::filters::RetainGlyphs::new(closure_subset.clone());
-                subsetter
-                    .apply(&mut subset_font)
-                    .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
+                subset_font_using_cached_fea(&mut subset_font, &closure_subset)?;
             }
             drop(_retain_span);
 
@@ -1046,6 +1088,121 @@ pub fn compile_cached_font_from_last_layout_closure(
             prepared_font
         }
     } else {
+        // Key mismatch — C3: three tiered strategy to avoid expensive full rebuilds:
+        //
+        //  1. New subset ⊆ old prepared subset (deletion / selection-shrink):
+        //     Reuse the existing prepared font unchanged. The font has a few extra
+        //     glyphs compared to the new closure, which is harmless for a preview
+        //     compile. No rebuild at all.
+        //
+        //  2. New subset ⊃ old prepared subset (typing, pure expansion):
+        //     Clone the existing prepared font (~20 glyphs) and add only the
+        //     new glyphs, rather than cloning the entire 500-glyph font.
+        //
+        //  3. Otherwise (cold start or no previous prepared cache):
+        //     Full rebuild via FONT_CACHE clone + RetainGlyphs.
+        let new_glyph_set: HashSet<&str> = closure_subset.iter().map(|s| s.as_str()).collect();
+
+        enum IncrementalOp {
+            /// New subset ⊆ old — reuse old prepared font unchanged.
+            Subset(babelfont::Font),
+            /// New subset ⊃ old — expand old prepared font with added glyphs.
+            Superset { font: babelfont::Font, added: Vec<String> },
+        }
+
+        let incremental_op = {
+            let prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
+            prepared_cache.as_ref().and_then(|(old_key, _old_epoch, old_font)| {
+                if old_key.is_empty() {
+                    return None;
+                }
+                let old_set: HashSet<&str> = old_key.split('\u{1F}').collect();
+                let added: Vec<String> = new_glyph_set
+                    .iter()
+                    .filter(|g| !old_set.contains(**g))
+                    .map(|s| s.to_string())
+                    .collect();
+                if added.is_empty() {
+                    // New set has no glyphs not in old set → it's ⊆ old.
+                    // Reuse old prepared font as-is.
+                    Some(IncrementalOp::Subset(old_font.clone()))
+                } else {
+                    // New set has additions. Only do incremental expand (not full
+                    // rebuild) — any removed glyphs just stay in the prepared font
+                    // as harmless extras.
+                    Some(IncrementalOp::Superset { font: old_font.clone(), added })
+                }
+            })
+        };
+
+        match incremental_op {
+            Some(IncrementalOp::Subset(existing_font)) => {
+                // C3a: subset (deletion/shrink) — reuse existing prepared font unchanged.
+                // Update the key so future incremental ops use the smaller set as the base.
+                perf_mark(&format!(
+                    "{}:compile_cached_font_from_last_layout_closure.incremental_reuse{}",
+                    PERF_PREFIX,
+                    current_perf_trace_suffix()
+                ));
+                {
+                    let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
+                    // Keep the font object but update the key to the new (smaller) subset
+                    // so the next keystroke's incremental-expand starts from the right baseline.
+                    if let Some(entry) = prepared_cache.as_mut() {
+                        entry.0 = prepared_subset_key.clone();
+                        entry.1 = font_cache_epoch;
+                    }
+                }
+                existing_font
+            }
+            Some(IncrementalOp::Superset { mut font, added: added_glyphs }) => {
+                // C3b: superset (typing) — expand existing prepared font with added glyphs.
+                let _expand_span = PerfSpan::start(
+                    "compile_cached_font_from_last_layout_closure.incremental_expand",
+                );
+                perf_mark(&format!(
+                    "{}:compile_cached_font_from_last_layout_closure.incremental_expand.added_count={}{}",
+                    PERF_PREFIX,
+                    added_glyphs.len(),
+                    current_perf_trace_suffix()
+                ));
+
+                // Copy added glyphs + restore full kern groups/masters from FONT_CACHE,
+                // then re-subset features and filter kerning/masters to the new set.
+                {
+                    let cache = FONT_CACHE.lock().unwrap();
+                    let full_font = cache.as_ref().ok_or_else(|| {
+                        JsValue::from_str("No font cached. Call store_font() first.")
+                    })?;
+                    for name in &added_glyphs {
+                        if let Some(glyph) =
+                            full_font.glyphs.iter().find(|g| g.name.as_str() == name.as_str())
+                        {
+                            font.glyphs.push(glyph.clone());
+                        }
+                    }
+                    font.first_kern_groups = full_font.first_kern_groups.clone();
+                    font.second_kern_groups = full_font.second_kern_groups.clone();
+                    font.masters = full_font.masters.clone();
+                }
+
+                if !closure_subset.is_empty() {
+                    subset_font_using_cached_fea(&mut font, &closure_subset)?;
+                }
+                drop(_expand_span);
+
+                {
+                    let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
+                    prepared_cache.replace((
+                        prepared_subset_key.clone(),
+                        font_cache_epoch,
+                        font.clone(),
+                    ));
+                }
+                font
+            }
+            None => {
+                // C3c: cold start — full rebuild
         let _cache_read_span = PerfSpan::start(
             "compile_cached_font_from_last_layout_closure.cache_read",
         );
@@ -1066,10 +1223,7 @@ pub fn compile_cached_font_from_last_layout_closure(
         let _retain_span =
             PerfSpan::start("compile_cached_font_from_last_layout_closure.retain_glyphs");
         if !closure_subset.is_empty() {
-            let subsetter = babelfont::filters::RetainGlyphs::new(closure_subset.clone());
-            subsetter
-                .apply(&mut subset_font)
-                .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
+            subset_font_using_cached_fea(&mut subset_font, &closure_subset)?;
         }
         drop(_retain_span);
 
@@ -1082,6 +1236,8 @@ pub fn compile_cached_font_from_last_layout_closure(
             ));
         }
         subset_font
+            } // end None arm (full rebuild)
+        } // end match incremental_op
     };
     drop(_prepared_lookup_span);
 
