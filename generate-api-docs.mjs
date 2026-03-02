@@ -755,6 +755,24 @@ if glyph.layers:
                         print(f"Node at ({node.x}, {node.y})")
 \`\`\`
 
+### Guardrails for Dictionary Fields
+
+Dictionary-like fields reject scalar overwrite assignments to prevent broken model state.
+
+\`\`\`python
+# ❌ Avoid replacing a language dictionary with a string
+# font.names.familyName = "My Font"
+
+# ✅ Set a language value inside the dictionary
+font.names.familyName["dflt"] = "My Font"
+
+# ✅ Or replace with a full mapping
+font.names.familyName = {
+    "dflt": "My Font",
+    "de": "Meine Schrift"
+}
+\`\`\`
+
 ### Accessing Nodes Example
 
 \`\`\`python

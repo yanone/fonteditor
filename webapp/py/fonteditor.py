@@ -124,6 +124,16 @@ def _js_set(target, key, value):
     js.Reflect.set(target, key, value)
 
 
+def _is_mapping_assignment_value(value):
+    if isinstance(value, (LiveDictProxy, ModelObjectProxy)):
+        return True
+    if isinstance(value, MutableMapping):
+        return True
+    if isinstance(value, pyodide.ffi.JsProxy) and _is_plain_js_object(value):
+        return True
+    return False
+
+
 def _wrap_js_value(value, owner_class_name=None, attr_name=None):
     if _is_js_null_or_undefined(value):
         return None
@@ -168,6 +178,20 @@ class LiveDictProxy(MutableMapping):
 
     def __setitem__(self, key, value):
         key_string = str(key)
+
+        key_exists = bool(
+            js.Object.prototype.hasOwnProperty.call(self._js_obj, key_string)
+        )
+        if key_exists:
+            existing = _js_get(self._js_obj, key_string)
+            if _is_plain_js_object(existing) and not _is_mapping_assignment_value(value):
+                value_type = type(value).__name__
+                raise TypeError(
+                    f"Cannot overwrite dictionary entry '{key_string}' with non-dictionary value ({value_type}). "
+                    f"Use '{key_string}[\"dflt\"] = ...' for language values, or assign a full mapping like "
+                    f"{key_string} = {{\"dflt\": ...}}."
+                )
+
         _js_set(self._js_obj, key_string, _unwrap_py_value(value))
 
     def __delitem__(self, key):
@@ -277,6 +301,15 @@ class ModelObjectProxy:
         return _wrap_js_value(raw, owner_class_name, name)
 
     def __setattr__(self, name, value):
+        owner_class_name = _get_constructor_name(self._js_obj)
+        dict_fields = _DICT_LIKE_FIELDS_BY_CLASS.get(owner_class_name, set())
+        if name in dict_fields and not _is_mapping_assignment_value(value):
+            value_type = type(value).__name__
+            raise TypeError(
+                f"Cannot assign non-dictionary value ({value_type}) to dict-like field "
+                f"'{owner_class_name}.{name}'. Use key assignment (e.g. {name}[\"dflt\"] = ...), "
+                f"or assign a full mapping."
+            )
         setattr(self._js_obj, name, _unwrap_py_value(value))
 
     def __getitem__(self, key):
