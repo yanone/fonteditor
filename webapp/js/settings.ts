@@ -209,7 +209,7 @@ const PRODUCTION_OVERRIDES = {
         SHOW_COMPONENT_ORIGIN_MARKERS: false // Hide component origin markers in production
     },
     FONT_MANAGER: {
-        SAVE_DEBUG_FONTS: true // Set to true to save typing/editing fonts to file system for inspection
+        SAVE_DEBUG_FONTS: false // Disable debug font generation in production
     }
 };
 
@@ -226,6 +226,13 @@ if (isProduction()) {
         Object.assign(
             APP_SETTINGS.OUTLINE_EDITOR,
             PRODUCTION_OVERRIDES.OUTLINE_EDITOR
+        );
+    }
+
+    if (PRODUCTION_OVERRIDES.FONT_MANAGER) {
+        Object.assign(
+            APP_SETTINGS.FONT_MANAGER,
+            PRODUCTION_OVERRIDES.FONT_MANAGER
         );
     }
 } else {
