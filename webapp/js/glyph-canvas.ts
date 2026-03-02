@@ -868,6 +868,19 @@ class GlyphCanvas {
         // Focus the canvas when clicked
         this.canvas!.focus();
 
+        // Refresh mouse position + hover targets at click time.
+        // Double-click handling relies on hovered* state and can otherwise use stale values
+        // when the pointer did not move just before the click.
+        const rect = this.canvas!.getBoundingClientRect();
+        this.mouseX = e.clientX - rect.left;
+        this.mouseY = e.clientY - rect.top;
+        this.mouseCanvasX = (this.mouseX * this.canvas!.width) / rect.width;
+        this.mouseCanvasY = (this.mouseY * this.canvas!.height) / rect.height;
+        if (!this.measurementTool.shouldBlockHitDetection()) {
+            this.outlineEditor.performHitDetection(e);
+            this.updateHoveredGlyph();
+        }
+
         // Priority: If Space key is pressed, start canvas panning immediately
         if (this.outlineEditor.spaceKeyPressed) {
             this.isDraggingCanvas = true;
@@ -922,7 +935,6 @@ class GlyphCanvas {
         }
 
         // Start measurement drag when Shift key is pressed in editing mode
-        const rect = this.canvas!.getBoundingClientRect();
         if (this.measurementTool.handleMouseDown(e.clientX, e.clientY, rect)) {
             this.updateCursorStyle(); // Update cursor immediately
             this.render();

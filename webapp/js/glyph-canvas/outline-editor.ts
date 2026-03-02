@@ -611,18 +611,17 @@ export class OutlineEditor {
         );
 
         // If in edit mode with a component/point/anchor hovered, prioritize that over glyph switching
-        if (this.active && this.selectedLayerId) {
+        if (this.active && this.layerData && !this.isPreviewMode) {
             // Double-click on component - enter component editing (without selecting it)
             if (this.hoveredComponentIndex !== null) {
                 console.log(
                     '[OutlineEditor] Entering component editing for index:',
                     this.hoveredComponentIndex
                 );
-                // Clear component selection before entering
-                this.selectedComponents = [];
-                this.enterComponentEditing(
+                // Ensure we have an actual layer selection for component editing.
+                // This avoids requiring a manual click in the layer list first.
+                void this.enterComponentEditingFromHover(
                     this.hoveredComponentIndex,
-                    false,
                     e
                 );
                 return true; // Event handled - skip single-click
@@ -789,6 +788,46 @@ export class OutlineEditor {
             this.selectedComponents = [];
             this.glyphCanvas.render();
         }
+    }
+
+    private async ensureLayerSelectedForEditing(): Promise<boolean> {
+        if (this.selectedLayerId) {
+            return true;
+        }
+
+        await this.autoSelectMatchingLayer();
+        if (this.selectedLayerId) {
+            return true;
+        }
+
+        const sortedLayers = this.glyphCanvas.getSortedLayers();
+        if (sortedLayers.length === 0) {
+            return false;
+        }
+
+        const fallbackLayer = this.getFullLayerData(sortedLayers[0].id);
+        if (!fallbackLayer) {
+            return false;
+        }
+
+        await this.selectLayer(fallbackLayer);
+        return !!this.selectedLayerId;
+    }
+
+    private async enterComponentEditingFromHover(
+        componentIndex: number,
+        e: MouseEvent
+    ): Promise<void> {
+        const hasLayer = await this.ensureLayerSelectedForEditing();
+        if (!hasLayer) {
+            console.warn(
+                '[OutlineEditor] Cannot enter component editing: no selectable layer available'
+            );
+            return;
+        }
+
+        this.selectedComponents = [];
+        await this.enterComponentEditing(componentIndex, false, e);
     }
 
     onMouseMove(e: MouseEvent) {
@@ -1053,15 +1092,7 @@ export class OutlineEditor {
 
     // In outline editor mode, check for hovered components, anchors and points first (unless in preview mode), then other glyphs
     performHitDetection(e: MouseEvent | null): void {
-        if (
-            !(
-                this.active &&
-                this.selectedLayerId &&
-                this.layerData &&
-                !this.isPreviewMode
-            )
-        )
-            return;
+        if (!(this.active && this.layerData && !this.isPreviewMode)) return;
 
         this.updateHoveredComponent();
         this.updateHoveredAnchor();

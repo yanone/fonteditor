@@ -227,7 +227,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ◻️ .vfb input
 - ◻️ Python scripts I/O
 - ✅ Glyph overview
-- ◻️ Grid glyph overview
+- ✅ Grid glyph overview
 - ✅ Glyph search and filtering
 - ✅ Glyph filtering plugins
 - ✅ Insert glyphs into editor text
