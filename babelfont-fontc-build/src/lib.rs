@@ -1,10 +1,10 @@
 use babelfont::{
-    close_layout_with_feature_file,
     convertors::fontir::{BabelfontIrSource, CompilationOptions},
-    filters::{FontFilter as _, RetainGlyphs, SubsetLayout},
-    Features,
+    filters::{
+        DropIncompatiblePaths, FontFilter as _, GlyphsBracketLayers, GlyphsData,
+        GlyphsNumberValue, GlyphsStylisticSetLabel, RetainGlyphs, RewriteSmartAxes,
+    },
 };
-use fea_rs_ast::AsFea as _;
 use fea_rs_ast::FeatureFile;
 use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
@@ -104,30 +104,183 @@ fn subset_font_using_cached_fea(
     font: &mut babelfont::Font,
     closure_subset: &[String],
 ) -> Result<(), JsValue> {
-    let fea_cache = FEATURE_FEA_STRING_CACHE.lock().unwrap().clone();
-    if let Some((fea_string, glyph_names)) = fea_cache {
-        // Fast path: re-parse from the cached serialized FEA string (cheap clone + parse)
-        // rather than re-serializing from the Font struct (expensive to_fea()).
-        let _fea_visit_span = PerfSpan::start("subset_font_using_cached_fea.visit");
-        let glyph_refs: Vec<&str> = glyph_names.iter().map(|s| s.as_str()).collect();
-        let mut feature_file = FeatureFile::new_from_fea(&fea_string, Some(&glyph_refs), font.source.clone())
-            .map_err(|e| JsValue::from_str(&format!("FEA re-parse failed: {:?}", e)))?;
-        SubsetLayout::new(closure_subset.to_vec())
-            .visit_feature_file(&mut feature_file)
-            .map_err(|e| JsValue::from_str(&format!("SubsetLayout visit failed: {:?}", e)))?;
-        font.features = Features::from_fea(&feature_file.as_fea(""));
-        drop(_fea_visit_span);
-        // Skip internal SubsetLayout since we already applied it.
-        RetainGlyphs::new_with_fea_subset(closure_subset.to_vec())
-            .apply(font)
-            .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
-    } else {
-        // Cold fallback: no cached FEA string available.
-        RetainGlyphs::new(closure_subset.to_vec())
-            .apply(font)
-            .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
-    }
+    // Current babelfont API performs SubsetLayout internally in RetainGlyphs.
+    // Keep the existing function boundary for minimal call-site changes.
+    RetainGlyphs::new(closure_subset.to_vec())
+        .apply(font)
+        .map_err(|e| JsValue::from_str(&format!("Subsetting failed: {:?}", e)))?;
     Ok(())
+}
+
+fn apply_filter_pipeline(
+    font: &babelfont::Font,
+    options: &CompilationOptions,
+) -> Result<babelfont::Font, JsValue> {
+    let mut filtered = font.clone();
+
+    if options.drop_incompatible_paths {
+        DropIncompatiblePaths
+            .apply(&mut filtered)
+            .map_err(|e| JsValue::from_str(&format!("DropIncompatiblePaths failed: {:?}", e)))?;
+    }
+
+    if options.produce_varc_table {
+        RewriteSmartAxes
+            .apply(&mut filtered)
+            .map_err(|e| JsValue::from_str(&format!("RewriteSmartAxes failed: {:?}", e)))?;
+    }
+
+    let exported_names: Vec<String> = filtered
+        .glyphs
+        .iter()
+        .filter(|g| g.exported)
+        .map(|g| g.name.to_string())
+        .collect();
+    RetainGlyphs::new(exported_names)
+        .apply(&mut filtered)
+        .map_err(|e| JsValue::from_str(&format!("RetainGlyphs failed: {:?}", e)))?;
+
+    GlyphsNumberValue
+        .apply(&mut filtered)
+        .map_err(|e| JsValue::from_str(&format!("GlyphsNumberValue failed: {:?}", e)))?;
+    GlyphsData
+        .apply(&mut filtered)
+        .map_err(|e| JsValue::from_str(&format!("GlyphsData failed: {:?}", e)))?;
+    GlyphsStylisticSetLabel
+        .apply(&mut filtered)
+        .map_err(|e| JsValue::from_str(&format!("GlyphsStylisticSetLabel failed: {:?}", e)))?;
+    GlyphsBracketLayers
+        .apply(&mut filtered)
+        .map_err(|e| JsValue::from_str(&format!("GlyphsBracketLayers failed: {:?}", e)))?;
+
+    Ok(filtered)
+}
+
+fn parse_usize_prefix(text: &str) -> Option<(usize, usize)> {
+    let mut end = 0usize;
+    for ch in text.chars() {
+        if ch.is_ascii_digit() {
+            end += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if end == 0 {
+        return None;
+    }
+    let value = text[..end].parse::<usize>().ok()?;
+    Some((value, end))
+}
+
+fn extract_span_from_feature_error_entry(entry: &str) -> Option<(usize, usize)> {
+    let marker = "span: ";
+    let start_idx = entry.find(marker)? + marker.len();
+    let rest = &entry[start_idx..];
+    let (start, consumed_start) = parse_usize_prefix(rest)?;
+    let rest = &rest[consumed_start..];
+    if !rest.starts_with("..") {
+        return None;
+    }
+    let rest = &rest[2..];
+    let (end, _consumed_end) = parse_usize_prefix(rest)?;
+    Some((start, end))
+}
+
+fn extract_feature_error_span(error_text: &str) -> Option<(usize, usize)> {
+    let mut first_with_span: Option<(usize, usize)> = None;
+    let mut search_from = 0usize;
+
+    while let Some(rel_idx) = error_text[search_from..].find("FeatureError {") {
+        let entry_start = search_from + rel_idx;
+        let entry_end = error_text[entry_start..]
+            .find('}')
+            .map(|idx| entry_start + idx + 1)
+            .unwrap_or(error_text.len());
+        let entry = &error_text[entry_start..entry_end];
+
+        if let Some(span) = extract_span_from_feature_error_entry(entry) {
+            if first_with_span.is_none() {
+                first_with_span = Some(span);
+            }
+            if entry.contains("is_error: true") {
+                return Some(span);
+            }
+        }
+
+        if entry_end >= error_text.len() {
+            break;
+        }
+        search_from = entry_end;
+    }
+
+    first_with_span
+}
+
+fn feature_span_debug_context(fea: &str, start: usize, end: usize) -> String {
+    let bytes = fea.as_bytes();
+    let len = bytes.len();
+    if len == 0 {
+        return "empty feature code".to_string();
+    }
+
+    let clamped_start = start.min(len);
+    let clamped_end = end.max(clamped_start).min(len);
+
+    let line_number = bytes[..clamped_start]
+        .iter()
+        .filter(|b| **b == b'\n')
+        .count()
+        + 1;
+    let line_start = bytes[..clamped_start]
+        .iter()
+        .rposition(|b| *b == b'\n')
+        .map(|idx| idx + 1)
+        .unwrap_or(0);
+    let line_end = bytes[clamped_start..]
+        .iter()
+        .position(|b| *b == b'\n')
+        .map(|idx| clamped_start + idx)
+        .unwrap_or(len);
+
+    let window_start = clamped_start.saturating_sub(80);
+    let window_end = (clamped_end + 160).min(len);
+
+    let line_text = String::from_utf8_lossy(&bytes[line_start..line_end])
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+    let window_text = String::from_utf8_lossy(&bytes[window_start..window_end])
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+
+    format!(
+        "span={}..{} line={} line_text=\"{}\" window=\"{}\"",
+        clamped_start, clamped_end, line_number, line_text, window_text
+    )
+}
+
+fn compile_with_feature_debug_context(
+    font: &babelfont::Font,
+    options: &CompilationOptions,
+    context: &str,
+) -> Result<Vec<u8>, JsValue> {
+    match BabelfontIrSource::compile(font.clone(), options.clone()) {
+        Ok(compiled) => Ok(compiled),
+        Err(err) => {
+            let error_text = format!("{:?}", err);
+            if error_text.contains("FeatureParsing(") {
+                let fea = font.features.to_fea();
+                let debug_context = extract_feature_error_span(&error_text)
+                    .map(|(start, end)| feature_span_debug_context(&fea, start, end))
+                    .unwrap_or_else(|| "span not found in FeatureParsing payload".to_string());
+                return Err(JsValue::from_str(&format!(
+                    "Compilation failed: {:?}\n[FeatureDebug:{}] {}",
+                    err, context, debug_context
+                )));
+            }
+
+            Err(JsValue::from_str(&format!("Compilation failed: {:?}", err)))
+        }
+    }
 }
 
 const PERF_PREFIX: &str = "cp:wasm";
@@ -446,15 +599,8 @@ fn compute_layout_closure_cached_internal(
     // B2: Use the pre-parsed FeatureFile from the cache if available (populated
     // by store_font). The visitor only reads the AST so we can safely return it
     // to the cache after the call.
-    let closure_set = {
-        let mut fea_cache = FEATURE_FILE_CACHE.lock().unwrap();
-        if let Some(ref mut feature_file) = *fea_cache {
-            close_layout_with_feature_file(font, glyph_set, feature_file)
-                .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?        } else {
-            // Cold path: FeatureFile not cached yet; falls back to internal parse.
-            babelfont::close_layout(font, glyph_set)
-                .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?        }
-    };
+    let closure_set = babelfont::close_layout(font, glyph_set)
+        .map_err(|e| JsValue::from_str(&format!("Layout closure computation failed: {:?}", e)))?;
     drop(_close_layout_span);
     drop(_compute_span);
 
@@ -544,8 +690,11 @@ pub fn compile_babelfont(babelfont_json: &str, options: &JsValue) -> Result<Vec<
     };
 
     let _ir_compile_span = PerfSpan::start("compile_babelfont.ir_compile");
-    let compiled_font = BabelfontIrSource::compile(font, options)
-        .map_err(|e| JsValue::from_str(&format!("Compilation failed: {:?}", e)))?;
+    let compiled_font = compile_with_feature_debug_context(
+        &font,
+        &options,
+        "compile_babelfont",
+    )?;
     drop(_ir_compile_span);
 
     Ok(compiled_font)
@@ -1357,8 +1506,7 @@ pub fn compile_cached_font_from_last_layout_closure(
             let _apply_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.apply_filters");
             // Phase A4 benchmark point: FEA parses inside SubsetLayout and GlyphsNumberValue filters.
             let _fea_parse_pipeline_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.apply_filters.fea_parse_pipeline");
-            let filtered = BabelfontIrSource::apply_filters(&font_clone, &compilation_options)
-                .map_err(|e| JsValue::from_str(&format!("Filter pipeline failed: {:?}", e)))?;
+            let filtered = apply_filter_pipeline(&font_clone, &compilation_options)?;
             drop(_fea_parse_pipeline_span);
             drop(_apply_span);
 
@@ -1382,8 +1530,11 @@ pub fn compile_cached_font_from_last_layout_closure(
     drop(_filter_cache_span);
 
     let _ir_compile_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.ir_compile");
-    let compiled_font = BabelfontIrSource::compile_filtered(filtered_font, compilation_options)
-        .map_err(|e| JsValue::from_str(&format!("Compilation failed: {:?}", e)))?;
+    let compiled_font = compile_with_feature_debug_context(
+        filtered_font.as_ref(),
+        &compilation_options,
+        "compile_cached_font_from_last_layout_closure",
+    )?;
     drop(_ir_compile_span);
 
     let _post_ir_compile_span =
@@ -1453,8 +1604,11 @@ pub fn compile_cached_font(options: &JsValue) -> Result<Vec<u8>, JsValue> {
     };
 
     let _ir_compile_span = PerfSpan::start("compile_cached_font.ir_compile");
-    let compiled_font = BabelfontIrSource::compile(font_clone, compilation_options)
-        .map_err(|e| JsValue::from_str(&format!("Compilation failed: {:?}", e)))?;
+    let compiled_font = compile_with_feature_debug_context(
+        &font_clone,
+        &compilation_options,
+        "compile_cached_font",
+    )?;
     drop(_ir_compile_span);
 
     Ok(compiled_font)

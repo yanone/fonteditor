@@ -1456,60 +1456,7 @@ class FontInfoManager {
             }
         }
 
-        const messageTokenTarget =
-            this.findFeatureItemFromErrorMessage(issueMessage);
-        if (messageTokenTarget) {
-            return messageTokenTarget;
-        }
-
         return null;
-    }
-
-    private findFeatureItemFromErrorMessage(
-        issueMessage?: string
-    ): ResolvedFeatureSpanTarget | null {
-        if (!issueMessage) {
-            return null;
-        }
-
-        const token =
-            issueMessage.match(/'([^']+)'/)?.[1] ||
-            issueMessage.match(/"([^"]+)"/)?.[1] ||
-            null;
-
-        if (!token || token.trim().length === 0) {
-            return null;
-        }
-
-        const blocks = this.buildFeatureSourceBlocks();
-        if (!blocks.length) {
-            return null;
-        }
-
-        const targetBlock = blocks.find((block) => block.code.includes(token));
-        if (!targetBlock) {
-            return null;
-        }
-
-        const localCodeUnitStart = targetBlock.code.indexOf(token);
-        if (localCodeUnitStart < 0) {
-            return null;
-        }
-
-        const localCodeUnitEnd = localCodeUnitStart + token.length;
-
-        return {
-            target: targetBlock,
-            coordinateMode: 'codeUnit',
-            normalizedStart:
-                targetBlock.globalCodeUnitStart +
-                targetBlock.codeUnitStart +
-                localCodeUnitStart,
-            normalizedEnd:
-                targetBlock.globalCodeUnitStart +
-                targetBlock.codeUnitStart +
-                localCodeUnitEnd
-        };
     }
 
     private getFeatureTargetLabel(

@@ -2239,6 +2239,7 @@ dependencies = [
 [[package]]
 name = "norad"
 version = "0.18.0"
+source = "git+https://github.com/yanone/norad?branch=hasmap-loading#3f31848e74e907db5d3f85c1a93e8535dd012dbf"
 dependencies = [
  "base64",
  "close_already",
@@ -4988,3 +4989,7 @@ checksum = "410e9ecef634c709e3831c2cfdb8d9c32164fae1c67496d5b68fff728eec37fe"
 dependencies = [
  "zune-core",
 ]
+
+[[patch.unused]]
+name = "norad"
+version = "0.18.0"
