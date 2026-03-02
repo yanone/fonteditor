@@ -2129,11 +2129,14 @@ export class OutlineEditor {
     }
 
     async autoSelectMatchingLayer(): Promise<void> {
+        const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
+
         console.log('[OutlineEditor] autoSelectMatchingLayer called', {
             active: this.active,
             isInterpolating: this.isInterpolating,
             selectedLayerId: this.selectedLayerId,
-            currentGlyphName: this.currentGlyphName
+            currentGlyphName: this.currentGlyphName,
+            rootGlyphName
         });
 
         // Get current glyph from font model
@@ -2150,18 +2153,18 @@ export class OutlineEditor {
         }
 
         const currentGlyph = fontModel.glyphs.find(
-            (g: any) => g.name === this.currentGlyphName
+            (g: any) => g.name === rootGlyphName
         );
         console.log('[OutlineEditor] currentGlyph lookup:', {
             found: !!currentGlyph,
-            searchingFor: this.currentGlyphName,
+            searchingFor: rootGlyphName,
             layerCount: currentGlyph?.layers?.length
         });
 
         if (!currentGlyph) {
             console.log(
                 '[OutlineEditor] No current glyph found:',
-                this.currentGlyphName
+                rootGlyphName
             );
             return;
         }
@@ -2234,7 +2237,7 @@ export class OutlineEditor {
                     this.rebuildGlyphStackWithNewLayer(layer.id!);
                 } else {
                     // If stack is empty, build initial stack for root glyph
-                    this.buildGlyphStack(this.currentGlyphName!, layer.id!, []);
+                    this.buildGlyphStack(rootGlyphName, layer.id!, []);
                 }
 
                 // Don't clear previous state - keep it to allow Escape to restore
@@ -2280,18 +2283,16 @@ export class OutlineEditor {
         }
 
         // If we're in glyph edit mode and not on a layer, interpolate at current position
-        if (
-            this.active &&
-            this.selectedLayerId === null &&
-            this.currentGlyphName
-        ) {
+        if (this.active && this.selectedLayerId === null && rootGlyphName) {
             console.log(
                 'Interpolating at current position after entering edit mode'
             );
 
-            // Build glyph stack even at interpolated positions (without a layer ID)
-            // This ensures the glyph gets marked in the overview
-            this.buildGlyphStack(this.currentGlyphName, '', []);
+            // Preserve existing component navigation during slider interpolation.
+            // Only bootstrap stack when it's missing.
+            if (!this.glyphStack) {
+                this.buildGlyphStack(rootGlyphName, '', []);
+            }
 
             await this.interpolateCurrentGlyph(true); // force=true to bypass guard
 
