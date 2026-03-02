@@ -3633,6 +3633,12 @@ flex-direction: row;
     color: var(--text-primary);
 }
 
+.ai-model-option-full-name {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
 .ai-model-option-price {
     font-size: 11px;
     color: var(--text-muted);
