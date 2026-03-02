@@ -342,7 +342,7 @@ def _cp_wrap_js_value(value):
     return _wrap_js_value(value)
 
 
-def CurrentFont():
+def Font():
     """
     Get the currently active font.
 
@@ -353,7 +353,7 @@ def CurrentFont():
         RuntimeError: If no font is currently open
 
     Example:
-        >>> font = CurrentFont()
+        >>> font = Font()
         >>> print(font.info.familyName)
     """
     host = _cp_get_host_object()
@@ -362,7 +362,7 @@ def CurrentFont():
     return _wrap_js_value(host.currentFontModel)
 
 
-def CurrentContext():
+def Context():
     host = _cp_get_host_object()
     if not hasattr(host, 'sharedPluginContext'):
         return {}

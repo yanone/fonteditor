@@ -35,7 +35,7 @@ reflected in the font structure.
 
 ```python
 # Get the current font (fonteditor module is pre-loaded)
-font = CurrentFont()
+font = Font()
 ```
 
 ### Dictionary Access (Python wrappers)
@@ -44,7 +44,7 @@ Dictionary-like object model fields are wrapped as live Python mappings.
 Use normal Python dictionary access for both reading and writing.
 
 ```python
-font = CurrentFont()
+font = Font()
 master = font.masters[0]
 
 # Nested kerning dictionary (live two-way view)
@@ -67,7 +67,7 @@ kerning_snapshot = master.kerning.as_dict()
 ### Shared Plugin Context
 
 ```python
-ctx = CurrentContext()
+ctx = Context()
 ctx.runCount = getattr(ctx, "runCount", 0) + 1
 SetContextPatch({"lastRun": {"count": ctx.runCount}})
 ```
@@ -101,7 +101,7 @@ The main font class representing a complete font
 **Access:**
 ```python
 # fonteditor module is pre-loaded
-font = CurrentFont()
+font = Font()
 ```
 
 ### Properties
@@ -735,7 +735,7 @@ All properties are read/write:
 
 ```python
 # Get the font
-font = CurrentFont()
+font = Font()
 
 # Create a new glyph
 glyph = font.addGlyph("myGlyph", "Base")
@@ -756,7 +756,7 @@ print(f"Created glyph: {glyph.name}")
 ### Example 2: Modifying Existing Glyphs
 
 ```python
-font = CurrentFont()
+font = Font()
 
 # Find glyph A
 glyph_a = font.findGlyph("A")
@@ -781,7 +781,7 @@ if glyph_a:
 ### Example 3: Working with Components
 
 ```python
-font = CurrentFont()
+font = Font()
 
 # Create a glyph with a component
 glyph = font.addGlyph("Aacute", "Base")
@@ -800,7 +800,7 @@ print(f"Created {glyph.name} with components")
 ### Example 4: Iterating Through Font
 
 ```python
-font = CurrentFont()
+font = Font()
 
 # Count nodes across all glyphs
 total_nodes = 0
@@ -819,7 +819,7 @@ print(f"Total nodes in font: {total_nodes}")
 ### Example 5: Working with Variable Fonts
 
 ```python
-font = CurrentFont()
+font = Font()
 
 # Check if font has axes
 if font.axes:
@@ -838,7 +838,7 @@ if font.axes:
 ### Example 6: Batch Processing Glyphs
 
 ```python
-font = CurrentFont()
+font = Font()
 
 # Scale all glyphs by 1.5x
 scale_factor = 1.5
@@ -870,7 +870,7 @@ print(f"Scaled {len(font.glyphs)} glyphs by {scale_factor}x")
 ### Example 7: Kerning and i18n Dictionaries
 
 ```python
-font = CurrentFont()
+font = Font()
 master = font.masters[0]
 
 # Ensure nested kerning bucket exists
@@ -894,7 +894,7 @@ font.names.familyName["ar"] = "كاونتربنش سانس"
 ### Example 8: Editing OpenType Features List
 
 ```python
-font = CurrentFont()
+font = Font()
 
 # features is a live list-like wrapper
 feature_items = font.features.features

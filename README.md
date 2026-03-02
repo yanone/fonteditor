@@ -28,7 +28,7 @@ These environments are isolated. Python objects and module state are not shared 
 Use the shared plugin context channel (JSON-like data only):
 
 - Main thread sets context via `window.glyphOverviewFilterManager`.
-- Worker-side filter Python reads it via `CurrentContext()`.
+- Worker-side filter Python reads it via `Context()`.
 - Worker-side filter Python can send updates back via `SetContextPatch({...})`.
 
 Main-thread API:
@@ -54,7 +54,7 @@ Worker-side Python plugin example:
 
 ```python
 def filter_glyphs(font):
-		ctx = CurrentContext()  # Live Python mapping over shared context
+		ctx = Context()  # Live Python mapping over shared context
 		thresholds = ctx.thresholds if hasattr(ctx, "thresholds") else {}
 		max_nodes = thresholds.maxNodes if hasattr(thresholds, "maxNodes") else 1000
 

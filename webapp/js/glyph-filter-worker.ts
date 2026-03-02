@@ -91,7 +91,7 @@ import pyodide.ffi
 _CP_PLUGIN_CACHE = {}
 _CP_DISCOVERED = None
 
-def CurrentContext():
+def Context():
     if type(js.self.sharedPluginContext) is pyodide.ffi.JsNull:
         return {}
     return _cp_wrap_js_value(js.self.sharedPluginContext)
@@ -149,7 +149,7 @@ def _run_builtin_filter(keyword: str):
     if not hasattr(plugin, 'filter_glyphs'):
         return {'results': [], 'groups': groups, 'status': 'no_filter_function'}
 
-    _font = CurrentFont()
+    _font = Font()
     _result = plugin.filter_glyphs(_font)
     if isinstance(_result, types.GeneratorType):
         _result = list(_result)
@@ -178,7 +178,7 @@ def _run_user_filter(code: str):
                 'status': 'no_filter_function'
             }
         else:
-            _font = CurrentFont()
+            _font = Font()
             _results = _filter_func(_font)
             if isinstance(_results, types.GeneratorType):
                 _results = list(_results)
