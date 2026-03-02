@@ -38,6 +38,34 @@ reflected in the font structure.
 font = CurrentFont()
 ```
 
+### Dictionary Access (Python wrappers)
+
+Dictionary-like object model fields are wrapped as live Python mappings.
+Use normal Python dictionary access for both reading and writing.
+
+```python
+font = CurrentFont()
+master = font.masters[0]
+
+# Nested kerning dictionary (live two-way view)
+master.kerning["A"]["V"] = -80
+
+# Internationalized naming dictionaries
+font.names["familyName"]["en"] = "My Family"
+master.name["de"] = "Standard"
+
+# Optional snapshot copy when needed
+kerning_snapshot = master.kerning.as_dict()
+```
+
+### Shared Plugin Context
+
+```python
+ctx = CurrentContext()
+ctx["runCount"] = ctx.get("runCount", 0) + 1
+SetContextPatch({"lastRun": {"count": ctx["runCount"]}})
+```
+
 ### Parent Navigation
 
 All objects in the hierarchy have a `parent()` method that returns their parent object,
@@ -78,10 +106,10 @@ font = CurrentFont()
 - **`version`** ([number, number])
 - **`note`** (str | None)
 - **`date`** (str)
-- **`names`** (Babelfont.Names)
-- **`custom_ot_values`** (list[Any] | None)
+- **`names`** (dict[str, dict[str, str] | None])
+- **`custom_ot_values`** (list[Unsafe] | None)
 - **`variation_sequences`** ( | dict | None)
-- **`features`** (Babelfont.Features)
+- **`features`** (dict[str, Any])
 - **`first_kern_groups`** (dict | None)
 - **`second_kern_groups`** (dict | None)
 - **`format_specific`** (dict | None)
@@ -116,7 +144,7 @@ glyph = font.findGlyphByCodepoint(0x0041)  # Find 'A'
 
 #### `findGlyphsUsingComponent(componentGlyphName: str) -> list[str]`
 Find all glyphs that reference a given glyph as a component
-This recursively finds glyphs at any nesting level
+This recursively finds glyphs at each nesting level
 
 **Example:**
 ```python
@@ -182,8 +210,8 @@ if (analysis.hasGSUB) console.log("Feature has substitution rules")
 ```
 
 #### `analyzeOpenTypeCode(code: str) -> { hasGSUB: boolean; hasGPOS: boolean; }`
-Analyze any OpenType feature code to determine if it contains GSUB and/or GPOS rules
-This is a general-purpose method that can analyze code from features, prefixes, or any other source
+Analyze OpenType feature code to determine if it contains GSUB and/or GPOS rules
+This is a general-purpose method that can analyze code from features, prefixes, or other sources
 
 **Example:**
 ```python
@@ -303,7 +331,7 @@ Returns a Master only when this layer is a DefaultForMaster layer.
 #### `addShape(shape: Babelfont.Shape) -> [Shape](#shape)`
 Add a new shape to the layer
 
-#### `addPath(closed: bool | dict, any>) -> [Path](#path)`
+#### `addPath(closed: bool | dict, Unsafe>) -> [Path](#path)`
 Add a new path to the layer
 
 **Example:**
@@ -335,7 +363,7 @@ anchor = layer.addAnchor(250, 700, "top")
 #### `removeAnchor(index: float | int) -> None`
 Remove an anchor at the specified index
 
-#### `processPathSegments(pathData: { nodes: any[]; closed?: boolean; }) -> Array<{ points: Array<{ x: number; y: number }>; type: 'line' | 'quadratic' | 'cubic'; }>`
+#### `processPathSegments(pathData: { nodes: Unsafe[]; closed?: boolean; }) -> Array<{ points: Array<{ x: number; y: number }>; type: 'line' | 'quadratic' | 'cubic'; }>`
 Process a path into Bezier curve segments
 Handles the babelfont node format where:
 - Nodes can have 'type' (lowercase: o, c, l, q, etc.) or 'nodetype' (capitalized: OffCurve, Curve, Line, etc.)
@@ -345,7 +373,7 @@ Handles the babelfont node format where:
 #### `getAllPaths() -> list[Babelfont.Path]`
 Get all paths in this layer including transformed paths from components (recursively flattened)
 
-#### `calculateBoundingBox(layerData: Any, includeAnchors: bool, font: [Font](#font) | None = None, masterId: str | None = None) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
+#### `calculateBoundingBox(layerData: Unsafe, includeAnchors: bool, font: [Font](#font) | None = None, masterId: str | None = None) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
 Calculate bounding box for layer data
 
 #### `getBoundingBox(includeAnchors: bool) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
@@ -618,7 +646,7 @@ axis = font.findAxisByTag("wght")
 
 All properties are read/write:
 
-- **`name`** (Babelfont.I18NDictionary)
+- **`name`** (dict[str, str])
 - **`tag`** (str)
 - **`id`** (str)
 - **`min`** (float | int | None)
@@ -650,12 +678,12 @@ master = font.findMaster("master-id")
 
 #### Read/Write Properties
 
-- **`name`** (Babelfont.I18NDictionary)
+- **`name`** (dict[str, str])
 - **`id`** (str)
 - **`location`** (dict | None)
 - **`metrics`** (dict)
 - **`kerning`** (dict)
-- **`custom_ot_values`** (list[Any] | None)
+- **`custom_ot_values`** (list[Unsafe] | None)
 - **`format_specific`** (dict | None)
 
 #### Read-Only Properties
@@ -682,9 +710,9 @@ instance = font.instances[0]
 All properties are read/write:
 
 - **`id`** (str)
-- **`name`** (Babelfont.I18NDictionary)
+- **`name`** (dict[str, str])
 - **`location`** (dict | None)
-- **`custom_names`** (Babelfont.Names)
+- **`custom_names`** (dict[str, dict[str, str] | None])
 - **`variable`** (bool | None)
 - **`linked_style`** (str | None)
 - **`format_specific`** (dict | None)
@@ -833,6 +861,28 @@ for glyph in font.glyphs:
 print(f"Scaled {len(font.glyphs)} glyphs by {scale_factor}x")
 ```
 
+### Example 7: Kerning and i18n Dictionaries
+
+```python
+font = CurrentFont()
+master = font.masters[0]
+
+# Ensure nested kerning bucket exists
+if "A" not in master.kerning:
+    master.kerning["A"] = {}
+
+master.kerning["A"]["V"] = -90
+master.kerning["A"]["W"] = -70
+
+# Read values with standard dict APIs
+av_value = master.kerning["A"].get("V")
+print(f"A/V kerning: {av_value}")
+
+# Update localized names
+font.names["familyName"]["en"] = "Counterpunch Sans"
+font.names["familyName"]["de"] = "Counterpunch Sans DE"
+```
+
 ---
 
 ## Tips and Best Practices
@@ -841,6 +891,7 @@ print(f"Scaled {len(font.glyphs)} glyphs by {scale_factor}x")
 
 - Changes to properties are immediately reflected in the underlying JSON data
 - No need to "save" or "commit" changes - they are live
+- Dictionary-like fields are live Python mappings (no routine `.to_py()` needed)
 - For batch operations, group changes together to minimize redraws
 
 ### Type Checking

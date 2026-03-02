@@ -76,6 +76,10 @@ async function ensureWorkerRuntime(): Promise<void> {
         pyodide = await pyodideModule.loadPyodide({});
         await installWheels(pyodide);
 
+        const fonteditorModule = await fetch('/py/fonteditor.py');
+        const fonteditorCode = await fonteditorModule.text();
+        await pyodide.runPython(fonteditorCode);
+
         await pyodide.runPythonAsync(`
 import sys
 from io import StringIO
@@ -87,21 +91,14 @@ import pyodide.ffi
 _CP_PLUGIN_CACHE = {}
 _CP_DISCOVERED = None
 
-
-def CurrentFont():
-    if type(js.self.currentFontModel) is pyodide.ffi.JsNull:
-        raise RuntimeError("No font is currently open")
-    return js.self.currentFontModel
-
-
 def CurrentContext():
     if type(js.self.sharedPluginContext) is pyodide.ffi.JsNull:
         return {}
-    return js.self.sharedPluginContext
+    return _cp_wrap_js_value(js.self.sharedPluginContext)
 
 
 def SetContextPatch(patch):
-    js.self.setPendingContextPatch(patch)
+    js.self.setPendingContextPatch(_unwrap_py_value(patch))
 
 
 def _discover_plugins():

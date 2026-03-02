@@ -54,7 +54,7 @@ Worker-side Python plugin example:
 
 ```python
 def filter_glyphs(font):
-		ctx = CurrentContext()  # JsProxy of shared JSON-like context
+		ctx = CurrentContext()  # Live Python mapping over shared context
 		thresholds = ctx.get("thresholds", {})
 		max_nodes = thresholds.get("maxNodes", 1000)
 
@@ -73,6 +73,8 @@ def filter_glyphs(font):
 		# Send patch back to main thread context
 		SetContextPatch({"lastRun": {"flagged": flagged}})
 ```
+
+Object model dictionaries are also live mappings (e.g. `master.kerning`, `font.names`, `instance.custom_names`) and can be read/written with normal Python dict syntax without calling `.to_py()` first.
 
 Notes:
 

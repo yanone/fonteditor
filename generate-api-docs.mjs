@@ -208,6 +208,9 @@ function tsToPythonType(tsType) {
         void: "None",
         undefined: "None",
         null: "None",
+        "Babelfont.I18NDictionary": "dict[str, str]",
+        "Babelfont.Names": "dict[str, dict[str, str] | None]",
+        "Babelfont.Features": "dict[str, Any]",
     };
 
     // Handle array types
@@ -470,6 +473,34 @@ reflected in the font structure.
 font = CurrentFont()
 \`\`\`
 
+### Dictionary Access (Python wrappers)
+
+Dictionary-like object model fields are wrapped as live Python mappings.
+Use normal Python dictionary access for both reading and writing.
+
+\`\`\`python
+font = CurrentFont()
+master = font.masters[0]
+
+# Nested kerning dictionary (live two-way view)
+master.kerning["A"]["V"] = -80
+
+# Internationalized naming dictionaries
+font.names["familyName"]["en"] = "My Family"
+master.name["de"] = "Standard"
+
+# Optional snapshot copy when needed
+kerning_snapshot = master.kerning.as_dict()
+\`\`\`
+
+### Shared Plugin Context
+
+\`\`\`python
+ctx = CurrentContext()
+ctx["runCount"] = ctx.get("runCount", 0) + 1
+SetContextPatch({"lastRun": {"count": ctx["runCount"]}})
+\`\`\`
+
 ### Parent Navigation
 
 All objects in the hierarchy have a \`parent()\` method that returns their parent object,
@@ -633,6 +664,28 @@ for glyph in font.glyphs:
 print(f"Scaled {len(font.glyphs)} glyphs by {scale_factor}x")
 \`\`\`
 
+### Example 7: Kerning and i18n Dictionaries
+
+\`\`\`python
+font = CurrentFont()
+master = font.masters[0]
+
+# Ensure nested kerning bucket exists
+if "A" not in master.kerning:
+    master.kerning["A"] = {}
+
+master.kerning["A"]["V"] = -90
+master.kerning["A"]["W"] = -70
+
+# Read values with standard dict APIs
+av_value = master.kerning["A"].get("V")
+print(f"A/V kerning: {av_value}")
+
+# Update localized names
+font.names["familyName"]["en"] = "Counterpunch Sans"
+font.names["familyName"]["de"] = "Counterpunch Sans DE"
+\`\`\`
+
 ---
 
 ## Tips and Best Practices
@@ -641,6 +694,7 @@ print(f"Scaled {len(font.glyphs)} glyphs by {scale_factor}x")
 
 - Changes to properties are immediately reflected in the underlying JSON data
 - No need to "save" or "commit" changes - they are live
+- Dictionary-like fields are live Python mappings (no routine \`.to_py()\` needed)
 - For batch operations, group changes together to minimize redraws
 
 ### Type Checking
