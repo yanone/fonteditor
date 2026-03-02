@@ -2,6 +2,7 @@
 // Shows/hides error messages in the right sidebar when font compilation fails
 
 import { Logger } from './logger';
+import { extractFeatureIssuesFromCompilationError } from './feature-error-parser';
 
 const console = new Logger('SidebarErrorDisplay');
 
@@ -242,34 +243,21 @@ export class SidebarErrorDisplay {
         messages: string[];
         fallback: string;
     } {
-        const sources: unknown[] = [errorInput];
+        const featureIssues =
+            extractFeatureIssuesFromCompilationError(errorInput);
+        if (featureIssues.length > 0) {
+            const messages = featureIssues.map((issue) => {
+                const spanSuffix =
+                    issue.start !== undefined && issue.end !== undefined
+                        ? ` (span ${issue.start}..${issue.end})`
+                        : '';
+                return `${issue.category}: ${this.truncateForDisplay(issue.message + spanSuffix)}`;
+            });
 
-        if (errorInput instanceof Error) {
-            sources.push(errorInput.message);
-            const withPayload = errorInput as Error & {
-                compilationErrorPayload?: unknown;
+            return {
+                messages,
+                fallback: 'Compilation failed.'
             };
-            if (withPayload.compilationErrorPayload !== undefined) {
-                sources.push(withPayload.compilationErrorPayload);
-            }
-        }
-
-        for (const source of sources) {
-            const messages = this.extractStructuredMessages(source);
-            if (messages.length > 0) {
-                return {
-                    messages,
-                    fallback: 'Compilation failed.'
-                };
-            }
-
-            const rustStyleMessages = this.extractRustStyleMessages(source);
-            if (rustStyleMessages.length > 0) {
-                return {
-                    messages: rustStyleMessages,
-                    fallback: 'Compilation failed.'
-                };
-            }
         }
 
         const fallbackText =
@@ -291,97 +279,6 @@ export class SidebarErrorDisplay {
                 fallbackText || 'Compilation failed.'
             )
         };
-    }
-
-    private extractStructuredMessages(source: unknown): string[] {
-        const parsed = this.tryParseJsonLike(source);
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            return [];
-        }
-
-        const messages: string[] = [];
-        const errorMap = parsed as Record<string, unknown>;
-
-        Object.entries(errorMap).forEach(([category, issues]) => {
-            if (!Array.isArray(issues)) {
-                return;
-            }
-
-            issues.forEach((issue) => {
-                if (!issue || typeof issue !== 'object') {
-                    return;
-                }
-
-                const issueRecord = issue as Record<string, unknown>;
-                const message =
-                    typeof issueRecord.message === 'string'
-                        ? issueRecord.message
-                        : null;
-
-                if (!message) {
-                    return;
-                }
-
-                messages.push(
-                    `${category}: ${this.truncateForDisplay(message)}`
-                );
-            });
-        });
-
-        return messages;
-    }
-
-    private extractRustStyleMessages(source: unknown): string[] {
-        if (typeof source !== 'string') {
-            return [];
-        }
-
-        if (!/featureparsing|featureerror/i.test(source)) {
-            return [];
-        }
-
-        const messages: string[] = [];
-        const messageMatch = source.match(/message:\s*"((?:[^"\\]|\\.)*)"/i);
-        const spanMatch = source.match(/span:\s*(\d+)\.\.(\d+)/i);
-
-        const parsedMessage = messageMatch?.[1]
-            ? messageMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
-            : 'Feature compilation error';
-
-        const spanSuffix = spanMatch
-            ? ` (span ${spanMatch[1]}..${spanMatch[2]})`
-            : '';
-
-        messages.push(
-            `FeatureParsing: ${this.truncateForDisplay(parsedMessage + spanSuffix)}`
-        );
-
-        return messages;
-    }
-
-    private tryParseJsonLike(source: unknown): unknown {
-        if (typeof source === 'string') {
-            const trimmed = source.trim();
-            if (
-                !(
-                    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-                    (trimmed.startsWith('[') && trimmed.endsWith(']'))
-                )
-            ) {
-                return null;
-            }
-            try {
-                return JSON.parse(trimmed);
-            } catch {
-                return null;
-            }
-        }
-
-        if (source && typeof source === 'object') {
-            return source;
-        }
-
-        return null;
     }
 
     private truncateForDisplay(text: string): string {

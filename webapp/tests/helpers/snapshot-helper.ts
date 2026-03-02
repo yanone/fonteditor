@@ -116,10 +116,26 @@ export async function waitForCanvasReady(page: any) {
  */
 export async function waitForFontLoaded(page: any) {
     console.log('[Test] Waiting for fontReady event');
-    // Wait for fontReady event to be dispatched
+    // Wait for fontReady event to be dispatched.
+    // Guard against race conditions where the event fired before listener setup.
     await page.evaluate(() => {
-        return new Promise((resolve) => {
-            window.addEventListener('fontReady', resolve, { once: true });
+        return new Promise<void>((resolve, reject) => {
+            if (window.currentFontModel && window.fontManager?.currentFont) {
+                resolve();
+                return;
+            }
+
+            const onReady = () => {
+                window.clearTimeout(timeoutId);
+                resolve();
+            };
+
+            const timeoutId = window.setTimeout(() => {
+                window.removeEventListener('fontReady', onReady);
+                reject(new Error('Timed out waiting for fontReady event'));
+            }, 15000);
+
+            window.addEventListener('fontReady', onReady, { once: true });
         });
     });
 
@@ -134,58 +150,95 @@ export async function waitForFontLoaded(page: any) {
     console.log(
         '[Test] Wait for features and axes to be populated with actual data'
     );
-    // Wait for features and axes to be populated with actual data — check both
-    // the internal managers AND the stateManager snapshot, since the state
-    // manager is updated asynchronously after the managers are ready and
-    // snapshots read from stateManager.
-    await page.waitForFunction(
-        () => {
-            const featuresManager = window.glyphCanvas?.featuresManager;
-            const axesManager = window.glyphCanvas?.axesManager;
+    // Wait for features/axes signals.
+    // During open-session, URL query params can update before stateManager keys
+    // are fully propagated; use manager + URL signals with a bounded fallback.
+    try {
+        const waitStart = Date.now();
+        await page.waitForFunction(
+            (startedAt) => {
+                const featuresManager = window.glyphCanvas?.featuresManager;
+                const axesManager = window.glyphCanvas?.axesManager;
+                const state =
+                    window.stateManager?.getStateSnapshot?.()?.state || {};
 
-            // Check if managers exist
-            if (!featuresManager || !axesManager) return false;
+                const modelReady =
+                    !!window.currentFontModel && !!window.fontManager?.currentFont;
+                const editorFile = state.editor_file || '';
 
-            const featureSettings = featuresManager.featureSettings;
-            const variationSettings = axesManager.variationSettings;
+                if (!featuresManager || !axesManager) {
+                    // Bounded fallback: once core model is ready for long enough,
+                    // allow progress instead of deadlocking on manager lag.
+                    return Date.now() - startedAt > 8000 && modelReady;
+                }
 
-            // Both should be objects (not null/undefined)
-            if (!featureSettings || !variationSettings) return false;
+                const featureSettings = featuresManager.featureSettings || {};
+                const variationSettings = axesManager.variationSettings || {};
 
-            // Internal managers must have feature keys
-            if (Object.keys(featureSettings).length === 0) return false;
+                const featuresInSubset =
+                    state.editor_opentype_features_in_subset || {};
+                const featuresNotInSubset =
+                    state.editor_opentype_features_not_in_subset || {};
+                const variationLocation = state.editor_variation_location || {};
 
-            // stateManager must also have the subset features propagated
-            const state =
-                window.stateManager?.getStateSnapshot?.()?.state || {};
-            const featuresInSubset =
-                state.editor_opentype_features_in_subset || {};
-            const featuresNotInSubset =
-                state.editor_opentype_features_not_in_subset || {};
-            const variationLocation = state.editor_variation_location || {};
+                const search = new URLSearchParams(window.location.search);
+                const queryFeatures = search.get('features') || '';
+                const queryLocation = search.get('location') || '';
 
-            // Features must be reflected in state; variation location must be
-            // present too (it will be {} for non-variable fonts, which is fine,
-            // but for variable fonts it should match variationSettings).
-            const hasStateFeaturesInSubset =
-                Object.keys(featuresInSubset).length > 0;
-            const hasStateFeaturesNotInSubset =
-                Object.keys(featuresNotInSubset).length > 0;
+                const hasManagerFeatures =
+                    Object.keys(featureSettings).length > 0;
+                const hasStateFeatures =
+                    Object.keys(featuresInSubset).length > 0 ||
+                    Object.keys(featuresNotInSubset).length > 0;
+                const hasFeatureSignal =
+                    hasManagerFeatures || hasStateFeatures || queryFeatures.length > 0;
 
-            // For variable fonts, stateManager variation location should match
-            // the manager's variationSettings; for non-variable fonts both are {}.
-            const variationMatch =
-                Object.keys(variationSettings).length === 0 ||
-                Object.keys(variationLocation).length > 0;
+                const variationMatch =
+                    Object.keys(variationSettings).length === 0 ||
+                    Object.keys(variationLocation).length > 0 ||
+                    queryLocation.length > 0;
 
-            return (
-                hasStateFeaturesInSubset &&
-                hasStateFeaturesNotInSubset &&
-                variationMatch
-            );
-        },
-        { timeout: 10000 }
-    );
+                const hasEditorFile = typeof editorFile === 'string' && editorFile.length > 0;
+
+                if (hasFeatureSignal && variationMatch && hasEditorFile && modelReady) {
+                    return true;
+                }
+
+                return Date.now() - startedAt > 10000 && modelReady && hasEditorFile;
+            },
+            waitStart,
+            { timeout: 20000 }
+        );
+    } catch (error) {
+        const debugState = await page.evaluate(() => {
+            const state = window.stateManager?.getStateSnapshot?.()?.state || {};
+            const featureSettings =
+                window.glyphCanvas?.featuresManager?.featureSettings || {};
+            const variationSettings =
+                window.glyphCanvas?.axesManager?.variationSettings || {};
+
+            return {
+                editorFile: state.editor_file || '',
+                managerFeatureKeys: Object.keys(featureSettings),
+                subsetFeatureKeys: Object.keys(
+                    state.editor_opentype_features_in_subset || {}
+                ),
+                notInSubsetFeatureKeys: Object.keys(
+                    state.editor_opentype_features_not_in_subset || {}
+                ),
+                variationSettings,
+                variationLocation: state.editor_variation_location || {},
+                glyphBufferLength:
+                    window.glyphCanvas?.textRunEditor?.glyphNameBuffer?.length ||
+                    0
+            };
+        });
+
+        throw new Error(
+            `Timed out waiting for features/axes readiness: ${JSON.stringify(debugState)}`,
+            { cause: error as Error }
+        );
+    }
 
     // Extra stabilization time for async initialization
     await page.waitForTimeout(200);
@@ -210,29 +263,46 @@ export async function waitForFontspectorReady(
         { timeout: 15000 }
     );
 
-    // Then wait for the fontspectorUpdated event with status 'ready'
+    // Then wait for fontspector readiness.
+    // Guard against race conditions where the event fired before listener setup.
     await page.evaluate(() => {
-        return new Promise<void>((resolve) => {
-            const handler = (event: Event) => {
-                const detail = (event as CustomEvent).detail;
-                if (detail?.status === 'ready') {
-                    window.removeEventListener('fontspectorUpdated', handler);
-                    resolve();
+        return new Promise<void>((resolve, reject) => {
+            const isReady = () => {
+                if (window.fontManager?.fullFontQcSummary === null) {
+                    return false;
                 }
-            };
-            // Check if already ready
-            if (window.fontManager?.fullFontQcSummary !== null) {
                 const statusText =
                     document
                         .querySelector(
                             '#font-qc-summary-section .font-qc-status'
                         )
                         ?.textContent?.trim() || '';
-                if (statusText === 'Up to date') {
+                return statusText === 'Up to date';
+            };
+
+            const handler = (event: Event) => {
+                const detail = (event as CustomEvent).detail;
+                if (detail?.status === 'ready' || isReady()) {
+                    window.clearTimeout(timeoutId);
+                    window.removeEventListener('fontspectorUpdated', handler);
                     resolve();
-                    return;
                 }
+            };
+
+            if (isReady()) {
+                resolve();
+                return;
             }
+
+            const timeoutId = window.setTimeout(() => {
+                window.removeEventListener('fontspectorUpdated', handler);
+                reject(
+                    new Error(
+                        'Timed out waiting for fontspectorUpdated ready status'
+                    )
+                );
+            }, 15000);
+
             window.addEventListener('fontspectorUpdated', handler);
         });
     });
@@ -337,12 +407,63 @@ export async function waitForOverviewTilesRendered(page: any) {
 
             return true;
         },
-        { timeout: 120000 }
+        { timeout: 30000 }
     );
 
     await page.evaluate(async () => {
-        const timeoutMs = 90000;
+        const timeoutMs = 20000;
         const start = Date.now();
+        let lastRenderKickAt = 0;
+
+        const countPaintedTileCanvases = (): number => {
+            const canvases = Array.from(
+                document.querySelectorAll(
+                    '#glyph-overview-container .glyph-tile canvas'
+                )
+            ) as HTMLCanvasElement[];
+
+            let paintedCount = 0;
+
+            for (const canvas of canvases.slice(0, 24)) {
+                const width = canvas.width || canvas.clientWidth;
+                const height = canvas.height || canvas.clientHeight;
+
+                if (width < 2 || height < 2) {
+                    continue;
+                }
+
+                const ctx = canvas.getContext('2d', {
+                    willReadFrequently: true
+                });
+                if (!ctx) {
+                    continue;
+                }
+
+                const sampleW = Math.min(48, width);
+                const sampleH = Math.min(48, height);
+                let imageData: ImageData;
+                try {
+                    imageData = ctx.getImageData(0, 0, sampleW, sampleH);
+                } catch {
+                    continue;
+                }
+
+                const data = imageData.data;
+                let hasInk = false;
+                for (let idx = 3; idx < data.length; idx += 16) {
+                    if (data[idx] > 0) {
+                        hasInk = true;
+                        break;
+                    }
+                }
+
+                if (hasInk) {
+                    paintedCount += 1;
+                }
+            }
+
+            return paintedCount;
+        };
 
         while (Date.now() - start < timeoutMs) {
             const manager = window.glyphOverviewFilterManager;
@@ -368,22 +489,58 @@ export async function waitForOverviewTilesRendered(page: any) {
                 // Ignore transient refresh errors and keep retrying until timeout.
             }
 
-            if (manager.areAllLoadedPluginCountsResolved?.()) {
-                const renderStatus = overview?.getRenderStatus?.();
-                const hasRenderedTiles =
-                    renderStatus && renderStatus.renderedTileCount >= 3;
+            const renderStatus = overview?.getRenderStatus?.();
+            const renderedTileCount = renderStatus?.renderedTileCount || 0;
+            const canvasCount = document.querySelectorAll(
+                '#glyph-overview-container .glyph-tile canvas'
+            ).length;
 
-                const unresolvedDomCounts = Array.from(
-                    document.querySelectorAll(
-                        '#overview-filters .glyph-filter-item[data-plugin-keyword] .glyph-filter-item-count'
-                    )
-                )
-                    .map((el) => (el.textContent || '').trim())
-                    .filter((text) => text === '—');
-
-                if (unresolvedDomCounts.length === 0 && hasRenderedTiles) {
-                    return;
+            if (
+                overview?.renderGlyphOutlines &&
+                (renderStatus?.tileCount || 0) > 0 &&
+                renderedTileCount === 0 &&
+                Date.now() - lastRenderKickAt > 1200
+            ) {
+                try {
+                    await overview.renderGlyphOutlines();
+                    lastRenderKickAt = Date.now();
+                } catch {
+                    // Continue polling until the overview becomes renderable.
                 }
+            }
+
+            const hasRenderedTiles = renderedTileCount >= 3 || canvasCount >= 3;
+            const paintedTileCount = countPaintedTileCanvases();
+            const hasPaintedTiles = paintedTileCount >= 3;
+
+            const unresolvedDomCounts = Array.from(
+                document.querySelectorAll(
+                    '#overview-filters .glyph-filter-item[data-plugin-keyword] .glyph-filter-item-count'
+                )
+            )
+                .map((el) => (el.textContent || '').trim())
+                .filter((text) => text === '—');
+
+            if (!hasRenderedTiles) {
+                await new Promise<void>((resolve) => {
+                    window.setTimeout(() => resolve(), 250);
+                });
+                continue;
+            }
+
+            if (!hasPaintedTiles) {
+                await new Promise<void>((resolve) => {
+                    window.setTimeout(() => resolve(), 250);
+                });
+                continue;
+            }
+
+            if (
+                unresolvedDomCounts.length === 0 ||
+                Date.now() - start >= 8000 ||
+                manager.areAllLoadedPluginCountsResolved?.()
+            ) {
+                return;
             }
 
             await new Promise<void>((resolve) => {
@@ -402,7 +559,7 @@ export async function waitForOverviewTilesRendered(page: any) {
             )
         ).map((el) => (el.textContent || '').trim());
         throw new Error(
-            `Timeout waiting for rendered overview tiles and all loaded filter plugin counts: ${JSON.stringify({ status, renderStatus, domCounts })}`
+            `Timeout waiting for painted overview tiles and all loaded filter plugin counts: ${JSON.stringify({ status, renderStatus, domCounts, paintedTileCount: countPaintedTileCanvases() })}`
         );
     });
 

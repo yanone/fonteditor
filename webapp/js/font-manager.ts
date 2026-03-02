@@ -2264,6 +2264,33 @@ window.addEventListener('fontLoaded', async (event: Event) => {
     let startupReleased = false;
     let canvasReady = false;
     let overviewReady = false;
+    let fontReadyDispatched = false;
+    let activeOpenSessionDetail:
+        | { path: string; openSessionId: string; openedAt: number }
+        | null = null;
+
+    const dispatchFontReadyIfNeeded = (openSessionId: string) => {
+        if (fontReadyDispatched || !activeOpenSessionDetail) {
+            return;
+        }
+
+        if (activeOpenSessionDetail.openSessionId !== openSessionId) {
+            return;
+        }
+
+        window.dispatchEvent(
+            new CustomEvent('fontReady', {
+                detail: {
+                    path: activeOpenSessionDetail.path,
+                    openSessionId: activeOpenSessionDetail.openSessionId,
+                    openedAt: activeOpenSessionDetail.openedAt
+                }
+            })
+        );
+
+        fontReadyDispatched = true;
+        emitOpenLifecycle(openSessionId, 'fontReadyDispatched');
+    };
 
     const tryReleaseStartupGates = (openSessionId: string) => {
         if (!canvasReady || !overviewReady) {
@@ -2323,6 +2350,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         endLoadingCursor();
 
         timelineSpanEnd(openSessionSpanId);
+        dispatchFontReadyIfNeeded(openSessionId);
     };
 
     try {
@@ -2330,6 +2358,12 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         const detail = (event as CustomEvent).detail;
         const openSessionId = createOpenSessionId();
         const openedAt = performance.now();
+
+        activeOpenSessionDetail = {
+            path: detail.path,
+            openSessionId,
+            openedAt
+        };
 
         startupOpenSessionActive = true;
         startupOpenSessionEditingCompileCount = 0;
@@ -2375,7 +2409,9 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             detail.directoryHandle
         );
 
-        emitOpenLifecycle(openSessionId, 'loadFontComplete');
+        emitOpenLifecycle(openSessionId, 'loadFontComplete', {
+            openedAt
+        });
 
         canvasReadyListener = (canvasEvent: Event) => {
             const canvasDetail = (canvasEvent as CustomEvent).detail;
@@ -2416,15 +2452,6 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             'overviewInitialRenderComplete',
             overviewReadyListener
         );
-
-        // Dispatch fontReady event (font is loaded, currentFont is set)
-        window.dispatchEvent(
-            new CustomEvent('fontReady', {
-                detail: { path: detail.path, openSessionId, openedAt }
-            })
-        );
-
-        emitOpenLifecycle(openSessionId, 'fontReadyDispatched');
 
         // Update display
         await fontManager!.onOpened();

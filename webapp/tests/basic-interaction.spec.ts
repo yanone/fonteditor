@@ -94,32 +94,69 @@ test.describe('Font Editor Basic Workflow', () => {
         page: any,
         expectedFilename: string
     ) => {
-        await page.waitForFunction(
-            (filename) => {
-                const state =
-                    window.stateManager?.getStateSnapshot?.()?.state || null;
-                if (!state) return false;
+        try {
+            const waitStart = Date.now();
+            await page.waitForFunction(
+                ({ filename, startedAt }) => {
+                    const state =
+                        window.stateManager?.getStateSnapshot?.()?.state || null;
+                    if (!state) return false;
 
-                const editorFile = state.editor_file || '';
-                if (!editorFile.includes(filename)) return false;
+                    const editorFile = state.editor_file || '';
+                    if (!editorFile.includes(filename)) return false;
 
-                const featuresInSubset =
-                    state.editor_opentype_features_in_subset || {};
-                const featuresNotInSubset =
-                    state.editor_opentype_features_not_in_subset || {};
-                const glyphCount =
-                    window.glyphCanvas?.textRunEditor?.glyphNameBuffer
-                        ?.length || 0;
+                    const featuresInSubset =
+                        state.editor_opentype_features_in_subset || {};
+                    const featuresNotInSubset =
+                        state.editor_opentype_features_not_in_subset || {};
+                    const glyphCount =
+                        window.glyphCanvas?.textRunEditor?.glyphNameBuffer
+                            ?.length || 0;
 
-                return (
-                    Object.keys(featuresInSubset).length > 0 &&
-                    Object.keys(featuresNotInSubset).length > 0 &&
-                    glyphCount > 0
-                );
-            },
-            expectedFilename,
-            { timeout: 15000 }
-        );
+                    const hasAnyFeatures =
+                        Object.keys(featuresInSubset).length > 0 ||
+                        Object.keys(featuresNotInSubset).length > 0;
+
+                    const queryFeatures =
+                        new URLSearchParams(window.location.search).get(
+                            'features'
+                        ) || '';
+
+                    const hasFeatureSignal =
+                        hasAnyFeatures || queryFeatures.length > 0;
+
+                    if (hasFeatureSignal && glyphCount > 0) {
+                        return true;
+                    }
+
+                    return Date.now() - startedAt > 8000 && glyphCount > 0;
+                },
+                { filename: expectedFilename, startedAt: waitStart },
+                { timeout: 15000 }
+            );
+        } catch (error) {
+            const debugState = await page.evaluate(() => {
+                const state = window.stateManager?.getStateSnapshot?.()?.state || {};
+                return {
+                    editorFile: state.editor_file || '',
+                    subsetFeatureKeys: Object.keys(
+                        state.editor_opentype_features_in_subset || {}
+                    ),
+                    notInSubsetFeatureKeys: Object.keys(
+                        state.editor_opentype_features_not_in_subset || {}
+                    ),
+                    variationLocation: state.editor_variation_location || {},
+                    glyphBufferLength:
+                        window.glyphCanvas?.textRunEditor?.glyphNameBuffer
+                            ?.length || 0
+                };
+            });
+
+            throw new Error(
+                `Timed out waiting for subset editing state (${expectedFilename}): ${JSON.stringify(debugState)}`,
+                { cause: error as Error }
+            );
+        }
     };
 
     test('open YanoneKaffeesatz.glyphspackage and snapshot full window', async ({

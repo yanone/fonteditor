@@ -3,6 +3,8 @@ import { fullFontCompilation } from './font-compilation';
 import fontManager from './font-manager';
 import { Logger } from './logger';
 import { timelineSpanEnd, timelineSpanStart } from './perf-timeline';
+import { sidebarErrorDisplay } from './sidebar-error-display';
+import { extractFeatureIssuesFromCompilationError } from './feature-error-parser';
 
 const console = new Logger('FullFontCompileManager');
 
@@ -293,12 +295,19 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                 } catch (error) {
                     const message =
                         error instanceof Error ? error.message : String(error);
+                    const featureIssues =
+                        extractFeatureIssuesFromCompilationError(error);
+                    const humanReadableMessage =
+                        featureIssues.length > 0
+                            ? `${featureIssues[0].category}: ${featureIssues[0].message}`
+                            : message;
                     console.error('Full background compilation failed:', error);
+                    sidebarErrorDisplay.showError(error);
                     dispatchQcUpdate(
                         fontManager.fullFontQcSummary,
                         'error',
                         targetVersion,
-                        message,
+                        humanReadableMessage,
                         lastChecks
                     );
                     break;

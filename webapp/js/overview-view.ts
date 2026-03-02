@@ -350,29 +350,23 @@ async function initOverviewView() {
 }
 
 // Update glyph overview when font is loaded
-window.addEventListener('fontReady', async (event: Event) => {
-    console.log('[OverviewView]', 'Font ready, updating glyph overview');
-
-    const fontReadyOverviewSpanId = timelineSpanStartSafe(
-        'overview.fontReadyHandler'
-    );
-
-    const detail =
-        (event as CustomEvent<{ openSessionId?: string; openedAt?: number }>)
-            .detail || {};
-    pendingInitialOpenSession = detail.openSessionId || null;
-    pendingInitialOpenStartedAt =
-        typeof detail.openedAt === 'number' ? detail.openedAt : null;
+const queueOverviewRefresh = (
+    spanId: string,
+    reason: string,
+    openSessionId: string | null,
+    openedAt: number | null
+) => {
+    pendingInitialOpenSession = openSessionId;
+    pendingInitialOpenStartedAt = openedAt;
     pendingFallbackAttempts = 0;
 
-    // Wait a bit for currentFontModel to be set
     setTimeout(async () => {
         try {
             if (glyphOverviewInstance && window.currentFontModel?.glyphs) {
                 const glyphData = await updateOverviewTiles();
 
                 if (!pendingInitialOpenSession) {
-                    await renderOverviewAndEmit('fontReady-no-session');
+                    await renderOverviewAndEmit(`${reason}-no-session`);
                 } else {
                     scheduleFallbackRender(pendingInitialOpenSession, 1200);
                 }
@@ -383,9 +377,49 @@ window.addEventListener('fontReady', async (event: Event) => {
                 );
             }
         } finally {
-            timelineSpanEndSafe(fontReadyOverviewSpanId);
+            timelineSpanEndSafe(spanId);
         }
     }, 100);
+};
+
+window.addEventListener('fontOpenLifecycle', (event: Event) => {
+    const detail =
+        (event as CustomEvent<{
+            phase?: string;
+            openSessionId?: string;
+            openedAt?: number;
+        }>).detail || {};
+
+    if (detail.phase !== 'loadFontComplete' || !detail.openSessionId) {
+        return;
+    }
+
+    console.log(
+        '[OverviewView]',
+        'Load font complete, scheduling overview refresh'
+    );
+
+    const spanId = timelineSpanStartSafe('overview.loadFontCompleteHandler');
+    queueOverviewRefresh(
+        spanId,
+        'loadFontComplete',
+        detail.openSessionId,
+        typeof detail.openedAt === 'number' ? detail.openedAt : null
+    );
+});
+
+window.addEventListener('fontReady', (event: Event) => {
+    const detail =
+        (event as CustomEvent<{ openSessionId?: string; openedAt?: number }>)
+            .detail || {};
+
+    if (detail.openSessionId) {
+        return;
+    }
+
+    console.log('[OverviewView]', 'Font ready (no session), updating overview');
+    const spanId = timelineSpanStartSafe('overview.fontReadyHandler');
+    queueOverviewRefresh(spanId, 'fontReady', null, null);
 });
 
 window.addEventListener('fontOpenEditingCompiled', async (event: Event) => {

@@ -11,6 +11,7 @@ import {
     isDiscretionary,
     SCRIPT_TO_SHAPER
 } from './opentype-features';
+import { extractPrimaryFeatureIssue } from './feature-error-parser';
 // Import FEA mode for Ace Editor (registers the mode automatically)
 import './mode-fea';
 const console = new Logger('FontInfo');
@@ -30,6 +31,7 @@ interface FeatureErrorSpanIssue {
     end: number;
     message: string;
     category: string;
+    coordinateMode?: 'byte' | 'codeUnit';
 }
 
 interface SidebarFeatureErrorTarget {
@@ -50,6 +52,16 @@ interface FeatureSourceBlock {
     globalByteStart: number;
     globalByteEnd: number;
     codeByteStart: number;
+    globalCodeUnitStart: number;
+    globalCodeUnitEnd: number;
+    codeUnitStart: number;
+}
+
+interface ResolvedFeatureSpanTarget {
+    target: FeatureSourceBlock;
+    coordinateMode: 'byte' | 'codeUnit';
+    normalizedStart: number;
+    normalizedEnd: number;
 }
 
 class FontInfoManager {
@@ -771,7 +783,8 @@ class FontInfoManager {
         }
 
         const blocks: FeatureSourceBlock[] = [];
-        let cursor = 0;
+        let byteCursor = 0;
+        let codeUnitCursor = 0;
 
         const classes = font.features.classes || {};
         Object.entries(classes).forEach(([className, codeData]) => {
@@ -780,17 +793,22 @@ class FontInfoManager {
             const suffix = `];\n`;
             const blockText = `${prefix}${code}${suffix}`;
             const blockByteLen = this.utf8ByteLength(blockText);
+            const blockCodeUnitLen = blockText.length;
 
             blocks.push({
                 type: 'class',
                 key: className,
                 code,
-                globalByteStart: cursor,
-                globalByteEnd: cursor + blockByteLen,
-                codeByteStart: this.utf8ByteLength(prefix)
+                globalByteStart: byteCursor,
+                globalByteEnd: byteCursor + blockByteLen,
+                codeByteStart: this.utf8ByteLength(prefix),
+                globalCodeUnitStart: codeUnitCursor,
+                globalCodeUnitEnd: codeUnitCursor + blockCodeUnitLen,
+                codeUnitStart: prefix.length
             });
 
-            cursor += blockByteLen;
+            byteCursor += blockByteLen;
+            codeUnitCursor += blockCodeUnitLen;
         });
 
         const prefixes = font.features.prefixes || {};
@@ -801,17 +819,22 @@ class FontInfoManager {
             const suffix = `\n`;
             const blockText = `${header}${code}${suffix}`;
             const blockByteLen = this.utf8ByteLength(blockText);
+            const blockCodeUnitLen = blockText.length;
 
             blocks.push({
                 type: 'prefix',
                 key: prefixName,
                 code,
-                globalByteStart: cursor,
-                globalByteEnd: cursor + blockByteLen,
-                codeByteStart: this.utf8ByteLength(header)
+                globalByteStart: byteCursor,
+                globalByteEnd: byteCursor + blockByteLen,
+                codeByteStart: this.utf8ByteLength(header),
+                globalCodeUnitStart: codeUnitCursor,
+                globalCodeUnitEnd: codeUnitCursor + blockCodeUnitLen,
+                codeUnitStart: header.length
             });
 
-            cursor += blockByteLen;
+            byteCursor += blockByteLen;
+            codeUnitCursor += blockCodeUnitLen;
         });
 
         const features = font.features.features || [];
@@ -821,17 +844,22 @@ class FontInfoManager {
             const tail = `\n} ${featureTag};\n`;
             const blockText = `${head}${code}${tail}`;
             const blockByteLen = this.utf8ByteLength(blockText);
+            const blockCodeUnitLen = blockText.length;
 
             blocks.push({
                 type: 'feature',
                 key: featureIndex,
                 code,
-                globalByteStart: cursor,
-                globalByteEnd: cursor + blockByteLen,
-                codeByteStart: this.utf8ByteLength(head)
+                globalByteStart: byteCursor,
+                globalByteEnd: byteCursor + blockByteLen,
+                codeByteStart: this.utf8ByteLength(head),
+                globalCodeUnitStart: codeUnitCursor,
+                globalCodeUnitEnd: codeUnitCursor + blockCodeUnitLen,
+                codeUnitStart: head.length
             });
 
-            cursor += blockByteLen;
+            byteCursor += blockByteLen;
+            codeUnitCursor += blockCodeUnitLen;
         });
 
         return blocks;
@@ -1025,10 +1053,12 @@ class FontInfoManager {
             return null;
         }
 
-        const target = this.findFeatureItemFromGlobalSpan(
+        const resolved = this.resolveFeatureSpanTarget(
             issue.start,
-            issue.end
+            issue.end,
+            issue.message
         );
+        const target = resolved?.target || null;
 
         if (!target) {
             return {
@@ -1052,13 +1082,23 @@ class FontInfoManager {
             return;
         }
 
-        const target = this.findFeatureItemFromGlobalSpan(
+        const resolved = this.resolveFeatureSpanTarget(
             issue.start,
-            issue.end
+            issue.end,
+            issue.message
         );
+        const target = resolved?.target || null;
         if (!target) {
+            this.featureErrorIssue = issue;
+            this.featureErrorTarget = null;
+            this.clearFeatureErrorMarker();
+            this.refreshFeatureErrorIconInSidebar();
             return;
         }
+
+        issue.start = resolved!.normalizedStart;
+        issue.end = resolved!.normalizedEnd;
+        issue.coordinateMode = resolved!.coordinateMode;
 
         this.featureErrorTarget = {
             type: target.type,
@@ -1106,26 +1146,42 @@ class FontInfoManager {
             true
         );
 
-        const target = this.findFeatureItemFromGlobalSpan(
+        const resolved = this.resolveFeatureSpanTarget(
             this.featureErrorIssue.start,
-            this.featureErrorIssue.end
+            this.featureErrorIssue.end,
+            this.featureErrorIssue.message
         );
+        const target = resolved?.target || null;
         if (!target || !this.featuresEditor) {
             return;
         }
 
-        const clampedLocalStart = Math.max(
-            0,
-            Math.min(
-                this.utf8ByteLength(target.code),
-                this.featureErrorIssue.start -
-                    (target.globalByteStart + target.codeByteStart)
-            )
-        );
-        const localCodeUnitStartIndex = this.utf8ByteOffsetToCodeUnitIndex(
-            target.code,
-            clampedLocalStart
-        );
+        const coordinateMode =
+            this.featureErrorIssue.coordinateMode || resolved?.coordinateMode;
+
+        const localCodeUnitStartIndex =
+            coordinateMode === 'codeUnit'
+                ? Math.max(
+                      0,
+                      Math.min(
+                          target.code.length,
+                          this.featureErrorIssue.start -
+                              (target.globalCodeUnitStart +
+                                  target.codeUnitStart)
+                      )
+                  )
+                : this.utf8ByteOffsetToCodeUnitIndex(
+                      target.code,
+                      Math.max(
+                          0,
+                          Math.min(
+                              this.utf8ByteLength(target.code),
+                              this.featureErrorIssue.start -
+                                  (target.globalByteStart +
+                                      target.codeByteStart)
+                          )
+                      )
+                  );
         const row = this.featuresEditor.session.doc.indexToPosition(
             localCodeUnitStartIndex
         ).row;
@@ -1154,14 +1210,19 @@ class FontInfoManager {
             return;
         }
 
-        const target = this.findFeatureItemFromGlobalSpan(
+        const resolved = this.resolveFeatureSpanTarget(
             this.featureErrorIssue.start,
-            this.featureErrorIssue.end
+            this.featureErrorIssue.end,
+            this.featureErrorIssue.message
         );
+        const target = resolved?.target || null;
         if (!target) {
             this.clearFeatureErrorMarker();
             return;
         }
+
+        this.featureErrorIssue.coordinateMode =
+            this.featureErrorIssue.coordinateMode || resolved!.coordinateMode;
 
         this.renderFeatureErrorInEditor(this.featureErrorIssue, target);
     }
@@ -1173,6 +1234,8 @@ class FontInfoManager {
             key: string | number;
             globalByteStart: number;
             codeByteStart: number;
+            globalCodeUnitStart: number;
+            codeUnitStart: number;
             code: string;
         }
     ) {
@@ -1180,31 +1243,54 @@ class FontInfoManager {
             return;
         }
 
-        const clampedLocalStart = Math.max(
-            0,
-            Math.min(
-                this.utf8ByteLength(target.code),
-                issue.start - (target.globalByteStart + target.codeByteStart)
-            )
-        );
+        const coordinateMode = issue.coordinateMode || 'byte';
+        const localCodeUnitStartIndex =
+            coordinateMode === 'codeUnit'
+                ? Math.max(
+                      0,
+                      Math.min(
+                          target.code.length,
+                          issue.start -
+                              (target.globalCodeUnitStart +
+                                  target.codeUnitStart)
+                      )
+                  )
+                : this.utf8ByteOffsetToCodeUnitIndex(
+                      target.code,
+                      Math.max(
+                          0,
+                          Math.min(
+                              this.utf8ByteLength(target.code),
+                              issue.start -
+                                  (target.globalByteStart +
+                                      target.codeByteStart)
+                          )
+                      )
+                  );
 
-        const clampedLocalEnd = Math.max(
-            0,
-            Math.min(
-                this.utf8ByteLength(target.code),
-                issue.end - (target.globalByteStart + target.codeByteStart)
-            )
-        );
-
-        const localCodeUnitStartIndex = this.utf8ByteOffsetToCodeUnitIndex(
-            target.code,
-            clampedLocalStart
-        );
-
-        let localCodeUnitEndIndex = this.utf8ByteOffsetToCodeUnitIndex(
-            target.code,
-            clampedLocalEnd
-        );
+        let localCodeUnitEndIndex =
+            coordinateMode === 'codeUnit'
+                ? Math.max(
+                      0,
+                      Math.min(
+                          target.code.length,
+                          issue.end -
+                              (target.globalCodeUnitStart +
+                                  target.codeUnitStart)
+                      )
+                  )
+                : this.utf8ByteOffsetToCodeUnitIndex(
+                      target.code,
+                      Math.max(
+                          0,
+                          Math.min(
+                              this.utf8ByteLength(target.code),
+                              issue.end -
+                                  (target.globalByteStart +
+                                      target.codeByteStart)
+                          )
+                      )
+                  );
 
         if (localCodeUnitEndIndex <= localCodeUnitStartIndex) {
             localCodeUnitEndIndex = Math.min(
@@ -1243,147 +1329,32 @@ class FontInfoManager {
     private extractFeatureSpanIssue(
         errorInput: unknown
     ): FeatureErrorSpanIssue | null {
-        const sources: unknown[] = [errorInput];
-
-        if (errorInput instanceof Error) {
-            sources.push(errorInput.message);
-            const withPayload = errorInput as Error & {
-                compilationErrorPayload?: unknown;
-            };
-            if (withPayload.compilationErrorPayload !== undefined) {
-                sources.push(withPayload.compilationErrorPayload);
-            }
-        }
-
-        for (const source of sources) {
-            const rustStyleIssue =
-                this.extractRustStyleFeatureSpanIssue(source);
-            if (rustStyleIssue) {
-                return rustStyleIssue;
-            }
-
-            const parsed = this.tryParseJsonLike(source);
-            if (
-                !parsed ||
-                typeof parsed !== 'object' ||
-                Array.isArray(parsed)
-            ) {
-                continue;
-            }
-
-            for (const [category, issues] of Object.entries(
-                parsed as Record<string, unknown>
-            )) {
-                if (!category.toLowerCase().includes('feature')) {
-                    continue;
-                }
-                if (!Array.isArray(issues)) {
-                    continue;
-                }
-
-                for (const issue of issues) {
-                    if (!issue || typeof issue !== 'object') {
-                        continue;
-                    }
-
-                    const issueRecord = issue as Record<string, unknown>;
-                    const span = issueRecord.span as
-                        | { start?: number; end?: number }
-                        | undefined;
-                    const start = span?.start;
-                    const end = span?.end;
-
-                    if (
-                        typeof start === 'number' &&
-                        Number.isFinite(start) &&
-                        typeof end === 'number' &&
-                        Number.isFinite(end)
-                    ) {
-                        return {
-                            start,
-                            end,
-                            message:
-                                typeof issueRecord.message === 'string'
-                                    ? issueRecord.message
-                                    : 'Feature compilation error',
-                            category
-                        };
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private extractRustStyleFeatureSpanIssue(
-        source: unknown
-    ): FeatureErrorSpanIssue | null {
-        if (typeof source !== 'string') {
+        const issue = extractPrimaryFeatureIssue(errorInput);
+        if (!issue || issue.start === undefined || issue.end === undefined) {
             return null;
         }
-
-        if (!/featureparsing|featureerror/i.test(source)) {
-            return null;
-        }
-
-        const spanMatch = source.match(/span:\s*(\d+)\.\.(\d+)/i);
-        if (!spanMatch) {
-            return null;
-        }
-
-        const start = Number(spanMatch[1]);
-        const end = Number(spanMatch[2]);
-        if (!Number.isFinite(start) || !Number.isFinite(end)) {
-            return null;
-        }
-
-        const messageMatch = source.match(/message:\s*"((?:[^"\\]|\\.)*)"/i);
-        const message = messageMatch?.[1]
-            ? messageMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
-            : 'Feature compilation error';
 
         return {
-            start,
-            end,
-            message,
-            category: 'FeatureParsing'
+            start: issue.start,
+            end: issue.end,
+            message: issue.message,
+            category: issue.category
         };
-    }
-
-    private tryParseJsonLike(source: unknown): unknown {
-        if (typeof source === 'string') {
-            const trimmed = source.trim();
-            if (
-                !(
-                    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-                    (trimmed.startsWith('[') && trimmed.endsWith(']'))
-                )
-            ) {
-                return null;
-            }
-            try {
-                return JSON.parse(trimmed);
-            } catch {
-                return null;
-            }
-        }
-
-        if (source && typeof source === 'object') {
-            return source;
-        }
-
-        return null;
     }
 
     private findFeatureItemFromGlobalSpan(
         start: number,
-        end: number
+        end: number,
+        coordinateMode: 'byte' | 'codeUnit' = 'byte'
     ): {
         type: 'prefix' | 'class' | 'feature';
         key: string | number;
         globalByteStart: number;
+        globalByteEnd: number;
         codeByteStart: number;
+        globalCodeUnitStart: number;
+        globalCodeUnitEnd: number;
+        codeUnitStart: number;
         code: string;
     } | null {
         const blocks = this.buildFeatureSourceBlocks();
@@ -1396,13 +1367,25 @@ class FontInfoManager {
         const matching =
             blocks.find(
                 (block) =>
-                    start >= block.globalByteStart &&
-                    start < block.globalByteEnd
+                    start >=
+                        (coordinateMode === 'byte'
+                            ? block.globalByteStart
+                            : block.globalCodeUnitStart) &&
+                    start <
+                        (coordinateMode === 'byte'
+                            ? block.globalByteEnd
+                            : block.globalCodeUnitEnd)
             ) ||
             blocks.find(
                 (block) =>
-                    endInclusive >= block.globalByteStart &&
-                    endInclusive < block.globalByteEnd
+                    endInclusive >=
+                        (coordinateMode === 'byte'
+                            ? block.globalByteStart
+                            : block.globalCodeUnitStart) &&
+                    endInclusive <
+                        (coordinateMode === 'byte'
+                            ? block.globalByteEnd
+                            : block.globalCodeUnitEnd)
             );
 
         if (!matching) {
@@ -1413,8 +1396,119 @@ class FontInfoManager {
             type: matching.type,
             key: matching.key,
             globalByteStart: matching.globalByteStart,
+            globalByteEnd: matching.globalByteEnd,
             codeByteStart: matching.codeByteStart,
+            globalCodeUnitStart: matching.globalCodeUnitStart,
+            globalCodeUnitEnd: matching.globalCodeUnitEnd,
+            codeUnitStart: matching.codeUnitStart,
             code: matching.code
+        };
+    }
+
+    private resolveFeatureSpanTarget(
+        start: number,
+        end: number,
+        issueMessage?: string
+    ): ResolvedFeatureSpanTarget | null {
+        const normalizedStart = Math.max(0, start);
+        const normalizedEnd = Math.max(normalizedStart, end);
+
+        const candidates: Array<{
+            start: number;
+            end: number;
+            coordinateMode: 'byte' | 'codeUnit';
+        }> = [
+            {
+                start: normalizedStart,
+                end: normalizedEnd,
+                coordinateMode: 'byte'
+            },
+            {
+                start: Math.max(0, normalizedStart - 1),
+                end: Math.max(0, normalizedEnd - 1),
+                coordinateMode: 'byte'
+            },
+            {
+                start: normalizedStart,
+                end: normalizedEnd,
+                coordinateMode: 'codeUnit'
+            },
+            {
+                start: Math.max(0, normalizedStart - 1),
+                end: Math.max(0, normalizedEnd - 1),
+                coordinateMode: 'codeUnit'
+            }
+        ];
+
+        for (const candidate of candidates) {
+            const target = this.findFeatureItemFromGlobalSpan(
+                candidate.start,
+                candidate.end,
+                candidate.coordinateMode
+            );
+            if (target) {
+                return {
+                    target,
+                    coordinateMode: candidate.coordinateMode,
+                    normalizedStart: candidate.start,
+                    normalizedEnd: candidate.end
+                };
+            }
+        }
+
+        const messageTokenTarget =
+            this.findFeatureItemFromErrorMessage(issueMessage);
+        if (messageTokenTarget) {
+            return messageTokenTarget;
+        }
+
+        return null;
+    }
+
+    private findFeatureItemFromErrorMessage(
+        issueMessage?: string
+    ): ResolvedFeatureSpanTarget | null {
+        if (!issueMessage) {
+            return null;
+        }
+
+        const token =
+            issueMessage.match(/'([^']+)'/)?.[1] ||
+            issueMessage.match(/"([^"]+)"/)?.[1] ||
+            null;
+
+        if (!token || token.trim().length === 0) {
+            return null;
+        }
+
+        const blocks = this.buildFeatureSourceBlocks();
+        if (!blocks.length) {
+            return null;
+        }
+
+        const targetBlock = blocks.find((block) => block.code.includes(token));
+        if (!targetBlock) {
+            return null;
+        }
+
+        const localCodeUnitStart = targetBlock.code.indexOf(token);
+        if (localCodeUnitStart < 0) {
+            return null;
+        }
+
+        const localCodeUnitEnd = localCodeUnitStart + token.length;
+
+        return {
+            target: targetBlock,
+            coordinateMode: 'codeUnit',
+            normalizedStart:
+                targetBlock.globalCodeUnitStart +
+                targetBlock.codeUnitStart +
+                localCodeUnitStart,
+            normalizedEnd:
+                targetBlock.globalCodeUnitStart +
+                targetBlock.codeUnitStart +
+                localCodeUnitEnd
         };
     }
 

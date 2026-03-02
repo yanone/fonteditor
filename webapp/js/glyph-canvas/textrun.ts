@@ -286,8 +286,17 @@ export class TextRunEditor {
         return this._findGlyphAtClusterPosition(clusterPos, true);
     }
 
+    private syncTextBufferToStateManager() {
+        if (!window.stateManager) {
+            return;
+        }
+
+        window.stateManager.editor_text_buffer = this.textBuffer;
+    }
+
     setTextBuffer(text: string) {
         this.textBuffer = text || '';
+        this.syncTextBufferToStateManager();
 
         // Save to localStorage
         try {
@@ -1640,6 +1649,7 @@ export class TextRunEditor {
                     result
                 );
                 this.textBuffer = result;
+                this.syncTextBufferToStateManager();
                 // Update localStorage to match
                 try {
                     localStorage.setItem(
@@ -1676,6 +1686,8 @@ export class TextRunEditor {
 
     // Helper to save text buffer and trigger recompilation
     saveTextBuffer() {
+        this.syncTextBufferToStateManager();
+
         try {
             localStorage.setItem('glyphCanvasTextBuffer', this.textBuffer);
         } catch (e) {

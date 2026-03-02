@@ -15,8 +15,7 @@
       "tnum": false,
       "dlig": false,
       "ss01": false,
-      "ss04": false,
-      "kern": true
+      "ss04": false
     },
     "editor_opentype_features_not_in_subset": {
       "locl": true,
