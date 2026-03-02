@@ -31,6 +31,7 @@ _DICT_LIKE_FIELDS_BY_CLASS = {
     'Anchor': {'format_specific'},
     'Axis': {'name', 'format_specific'},
     'Component': {'location', 'format_specific', 'transform'},
+    # Features.features is an array and is wrapped via _is_js_array -> LiveListProxy.
     'Features': {'classes', 'prefixes'},
     'Font': {
         'custom_ot_values',
@@ -96,6 +97,11 @@ def _unwrap_py_value(value):
         return value._js_obj
     if isinstance(value, LiveListProxy):
         return value._js_array
+    if isinstance(value, (dict, list, tuple)):
+        return pyodide.ffi.to_js(
+            value,
+            dict_converter=js.Object.fromEntries,
+        )
     return value
 
 

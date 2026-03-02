@@ -686,6 +686,27 @@ font.names["familyName"]["en"] = "Counterpunch Sans"
 font.names["familyName"]["de"] = "Counterpunch Sans DE"
 \`\`\`
 
+### Example 8: Editing OpenType Features List
+
+\`\`\`python
+font = CurrentFont()
+
+# features is a live list-like wrapper
+feature_items = font.features["features"]
+
+# Append a new feature tuple: [tag, code-record]
+feature_items.append(["liga", {"code": "sub f i by fi;"}])
+
+# Insert at the top
+feature_items.insert(0, ["kern", {"code": "pos A V -80;"}])
+
+# Remove entries with normal list operations
+if len(feature_items) > 5:
+    feature_items.pop()
+
+del feature_items[0]
+\`\`\`
+
 ---
 
 ## Tips and Best Practices
@@ -695,6 +716,7 @@ font.names["familyName"]["de"] = "Counterpunch Sans DE"
 - Changes to properties are immediately reflected in the underlying JSON data
 - No need to "save" or "commit" changes - they are live
 - Dictionary-like fields are live Python mappings (no routine \`.to_py()\` needed)
+- Array fields (for example \`font.features["features"]\`) are live list-like wrappers
 - For batch operations, group changes together to minimize redraws
 
 ### Type Checking
