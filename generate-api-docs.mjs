@@ -486,8 +486,14 @@ master = font.masters[0]
 master.kerning["A"]["V"] = -80
 
 # Internationalized naming dictionaries
-font.names["familyName"]["en"] = "My Family"
+font.names.familyName["dflt"] = "My Family"
+font.names.familyName["de"] = "Meine Familie"
+font.names.familyName["fr"] = "Ma Famille"
+font.names.familyName["ar"] = "عائلتي"
+master.name["dflt"] = "Standard"
 master.name["de"] = "Standard"
+master.name["fr"] = "Standard"
+master.name["ar"] = "قياسي"
 
 # Optional snapshot copy when needed
 kerning_snapshot = master.kerning.as_dict()
@@ -497,8 +503,8 @@ kerning_snapshot = master.kerning.as_dict()
 
 \`\`\`python
 ctx = CurrentContext()
-ctx["runCount"] = ctx.get("runCount", 0) + 1
-SetContextPatch({"lastRun": {"count": ctx["runCount"]}})
+ctx.runCount = getattr(ctx, "runCount", 0) + 1
+SetContextPatch({"lastRun": {"count": ctx.runCount}})
 \`\`\`
 
 ### Parent Navigation
@@ -682,8 +688,10 @@ av_value = master.kerning["A"].get("V")
 print(f"A/V kerning: {av_value}")
 
 # Update localized names
-font.names["familyName"]["en"] = "Counterpunch Sans"
-font.names["familyName"]["de"] = "Counterpunch Sans DE"
+font.names.familyName["dflt"] = "Counterpunch Sans"
+font.names.familyName["de"] = "Counterpunch Sans DE"
+font.names.familyName["fr"] = "Counterpunch Sans FR"
+font.names.familyName["ar"] = "كاونتربنش سانس"
 \`\`\`
 
 ### Example 8: Editing OpenType Features List
@@ -692,7 +700,7 @@ font.names["familyName"]["de"] = "Counterpunch Sans DE"
 font = CurrentFont()
 
 # features is a live list-like wrapper
-feature_items = font.features["features"]
+feature_items = font.features.features
 
 # Append a new feature tuple: [tag, code-record]
 feature_items.append(["liga", {"code": "sub f i by fi;"}])
@@ -716,7 +724,7 @@ del feature_items[0]
 - Changes to properties are immediately reflected in the underlying JSON data
 - No need to "save" or "commit" changes - they are live
 - Dictionary-like fields are live Python mappings (no routine \`.to_py()\` needed)
-- Array fields (for example \`font.features["features"]\`) are live list-like wrappers
+- Array fields (for example \`font.features.features\`) are live list-like wrappers
 - For batch operations, group changes together to minimize redraws
 
 ### Type Checking

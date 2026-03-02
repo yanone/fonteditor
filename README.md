@@ -55,8 +55,8 @@ Worker-side Python plugin example:
 ```python
 def filter_glyphs(font):
 		ctx = CurrentContext()  # Live Python mapping over shared context
-		thresholds = ctx.get("thresholds", {})
-		max_nodes = thresholds.get("maxNodes", 1000)
+		thresholds = ctx.thresholds if hasattr(ctx, "thresholds") else {}
+		max_nodes = thresholds.maxNodes if hasattr(thresholds, "maxNodes") else 1000
 
 		flagged = 0
 		for glyph in font.glyphs:

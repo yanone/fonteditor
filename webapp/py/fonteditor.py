@@ -19,6 +19,7 @@ Core functionality for font editing operations
 """
 
 from collections.abc import MutableMapping, MutableSequence
+from keyword import iskeyword
 
 import js
 import pyodide.ffi
@@ -154,7 +155,10 @@ def _wrap_js_value(value, owner_class_name=None, attr_name=None):
 
 class LiveDictProxy(MutableMapping):
     def __init__(self, js_obj):
-        self._js_obj = js_obj
+        object.__setattr__(self, '_js_obj', js_obj)
+
+    def _is_attr_key(self, name):
+        return isinstance(name, str) and name.isidentifier() and not iskeyword(name)
 
     def __getitem__(self, key):
         key_string = str(key)
@@ -190,6 +194,32 @@ class LiveDictProxy(MutableMapping):
 
     def __repr__(self):
         return repr(self.to_py())
+
+    def __getattr__(self, name):
+        if self._is_attr_key(name):
+            try:
+                return self[name]
+            except KeyError as error:
+                raise AttributeError(name) from error
+        raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        if name.startswith('_'):
+            object.__setattr__(self, name, value)
+            return
+        if self._is_attr_key(name):
+            self[name] = value
+            return
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name):
+        if self._is_attr_key(name):
+            try:
+                del self[name]
+                return
+            except KeyError as error:
+                raise AttributeError(name) from error
+        object.__delattr__(self, name)
 
 
 class LiveListProxy(MutableSequence):
