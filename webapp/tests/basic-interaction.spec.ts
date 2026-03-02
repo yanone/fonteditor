@@ -99,7 +99,8 @@ test.describe('Font Editor Basic Workflow', () => {
             await page.waitForFunction(
                 ({ filename, startedAt }) => {
                     const state =
-                        window.stateManager?.getStateSnapshot?.()?.state || null;
+                        window.stateManager?.getStateSnapshot?.()?.state ||
+                        null;
                     if (!state) return false;
 
                     const editorFile = state.editor_file || '';
@@ -136,7 +137,8 @@ test.describe('Font Editor Basic Workflow', () => {
             );
         } catch (error) {
             const debugState = await page.evaluate(() => {
-                const state = window.stateManager?.getStateSnapshot?.()?.state || {};
+                const state =
+                    window.stateManager?.getStateSnapshot?.()?.state || {};
                 return {
                     editorFile: state.editor_file || '',
                     subsetFeatureKeys: Object.keys(

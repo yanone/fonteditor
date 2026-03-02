@@ -384,11 +384,13 @@ const queueOverviewRefresh = (
 
 window.addEventListener('fontOpenLifecycle', (event: Event) => {
     const detail =
-        (event as CustomEvent<{
-            phase?: string;
-            openSessionId?: string;
-            openedAt?: number;
-        }>).detail || {};
+        (
+            event as CustomEvent<{
+                phase?: string;
+                openSessionId?: string;
+                openedAt?: number;
+            }>
+        ).detail || {};
 
     if (detail.phase !== 'loadFontComplete' || !detail.openSessionId) {
         return;

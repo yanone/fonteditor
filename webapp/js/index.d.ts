@@ -434,7 +434,7 @@ declare global {
 
         // From chat-session-manager.ts
         ChatSessionManager: {
-            new(aiAssistant: AIAssistant): object;
+            new (aiAssistant: AIAssistant): object;
             getContextIconHTML(contextType: string): string;
         };
 

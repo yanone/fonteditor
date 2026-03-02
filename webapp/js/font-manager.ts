@@ -2265,9 +2265,11 @@ window.addEventListener('fontLoaded', async (event: Event) => {
     let canvasReady = false;
     let overviewReady = false;
     let fontReadyDispatched = false;
-    let activeOpenSessionDetail:
-        | { path: string; openSessionId: string; openedAt: number }
-        | null = null;
+    let activeOpenSessionDetail: {
+        path: string;
+        openSessionId: string;
+        openedAt: number;
+    } | null = null;
 
     const dispatchFontReadyIfNeeded = (openSessionId: string) => {
         if (fontReadyDispatched || !activeOpenSessionDetail) {

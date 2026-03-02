@@ -163,7 +163,8 @@ export async function waitForFontLoaded(page: any) {
                     window.stateManager?.getStateSnapshot?.()?.state || {};
 
                 const modelReady =
-                    !!window.currentFontModel && !!window.fontManager?.currentFont;
+                    !!window.currentFontModel &&
+                    !!window.fontManager?.currentFont;
                 const editorFile = state.editor_file || '';
 
                 if (!featuresManager || !axesManager) {
@@ -191,27 +192,40 @@ export async function waitForFontLoaded(page: any) {
                     Object.keys(featuresInSubset).length > 0 ||
                     Object.keys(featuresNotInSubset).length > 0;
                 const hasFeatureSignal =
-                    hasManagerFeatures || hasStateFeatures || queryFeatures.length > 0;
+                    hasManagerFeatures ||
+                    hasStateFeatures ||
+                    queryFeatures.length > 0;
 
                 const variationMatch =
                     Object.keys(variationSettings).length === 0 ||
                     Object.keys(variationLocation).length > 0 ||
                     queryLocation.length > 0;
 
-                const hasEditorFile = typeof editorFile === 'string' && editorFile.length > 0;
+                const hasEditorFile =
+                    typeof editorFile === 'string' && editorFile.length > 0;
 
-                if (hasFeatureSignal && variationMatch && hasEditorFile && modelReady) {
+                if (
+                    hasFeatureSignal &&
+                    variationMatch &&
+                    hasEditorFile &&
+                    modelReady
+                ) {
                     return true;
                 }
 
-                return Date.now() - startedAt > 10000 && modelReady && hasEditorFile;
+                return (
+                    Date.now() - startedAt > 10000 &&
+                    modelReady &&
+                    hasEditorFile
+                );
             },
             waitStart,
             { timeout: 20000 }
         );
     } catch (error) {
         const debugState = await page.evaluate(() => {
-            const state = window.stateManager?.getStateSnapshot?.()?.state || {};
+            const state =
+                window.stateManager?.getStateSnapshot?.()?.state || {};
             const featureSettings =
                 window.glyphCanvas?.featuresManager?.featureSettings || {};
             const variationSettings =
@@ -229,8 +243,8 @@ export async function waitForFontLoaded(page: any) {
                 variationSettings,
                 variationLocation: state.editor_variation_location || {},
                 glyphBufferLength:
-                    window.glyphCanvas?.textRunEditor?.glyphNameBuffer?.length ||
-                    0
+                    window.glyphCanvas?.textRunEditor?.glyphNameBuffer
+                        ?.length || 0
             };
         });
 
