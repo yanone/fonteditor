@@ -100,6 +100,11 @@ export class OutlineEditor {
     layerDataDirty: boolean = false;
     previousSelectedLayerId: string | null = null;
     previousVariationSettings: Record<string, number> | null = null;
+    // When a brace layer is selected, save the master IDs of adjacent layers so
+    // Cmd+Up/Down navigation can resume from the right position on glyphs that
+    // don't have that brace layer.
+    braceLayerNeighborAboveMasterId: string | null = null;
+    braceLayerNeighborBelowMasterId: string | null = null;
     layerData: Babelfont.Layer | null = null;
     targetLayerData: Babelfont.Layer | null = null;
     selectedLayerId: string | null = null;
@@ -1855,8 +1860,15 @@ export class OutlineEditor {
             }
         }
 
-        // Handle Cmd+Up/Down to cycle through layers
-        if ((e.metaKey || e.ctrlKey) && this.selectedLayerId) {
+        // Handle Cmd+Up/Down to cycle through layers.
+        // Allow when a layer is selected, or when we have saved brace-layer
+        // neighbors so navigation can resume after switching to a glyph that
+        // doesn't have that brace layer.
+        const canCycleLayers =
+            this.selectedLayerId !== null ||
+            this.braceLayerNeighborAboveMasterId !== null ||
+            this.braceLayerNeighborBelowMasterId !== null;
+        if ((e.metaKey || e.ctrlKey) && canCycleLayers) {
             if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                 e.preventDefault();
                 this.cycleLayers(e.key === 'ArrowUp');
@@ -1941,10 +1953,28 @@ export class OutlineEditor {
             (layer) => layer.id === this.selectedLayerId
         );
         if (currentIndex === -1) {
-            // No layer selected, select first layer
-            const layerToSelect = this.getFullLayerData(sortedLayers[0].id);
-            if (layerToSelect) {
-                await this.selectLayer(layerToSelect);
+            // No layer selected. If we last had a brace layer selected, resume
+            // navigation from the saved adjacent master position.
+            const neighborMasterId = moveUp
+                ? this.braceLayerNeighborAboveMasterId
+                : this.braceLayerNeighborBelowMasterId;
+            if (neighborMasterId) {
+                const neighborIndex = sortedLayers.findIndex(
+                    (l) => l._master === neighborMasterId
+                );
+                const targetIndex = neighborIndex !== -1 ? neighborIndex : 0;
+                const layerToSelect = this.getFullLayerData(
+                    sortedLayers[targetIndex].id
+                );
+                if (layerToSelect) {
+                    await this.selectLayer(layerToSelect);
+                }
+            } else {
+                // Default: select first layer
+                const layerToSelect = this.getFullLayerData(sortedLayers[0].id);
+                if (layerToSelect) {
+                    await this.selectLayer(layerToSelect);
+                }
             }
             return;
         }
@@ -2013,6 +2043,29 @@ export class OutlineEditor {
             `[OutlineEditor] Set selectedLayerId to:`,
             this.selectedLayerId
         );
+        // When a brace layer is selected, record the master IDs of the layers
+        // immediately above and below it in the sorted list. This lets
+        // Cmd+Up/Down resume from the right position when switching to a glyph
+        // that doesn't have the same brace layer.
+        const isBraceLayer =
+            !!layer.location && Object.keys(layer.location).length > 0;
+        if (isBraceLayer) {
+            const sortedLayers = this.glyphCanvas.getSortedLayers();
+            const braceIndex = sortedLayers.findIndex((l) => l.id === layer.id);
+            if (braceIndex !== -1) {
+                const above =
+                    braceIndex > 0 ? sortedLayers[braceIndex - 1] : undefined;
+                const below =
+                    braceIndex < sortedLayers.length - 1
+                        ? sortedLayers[braceIndex + 1]
+                        : undefined;
+                this.braceLayerNeighborAboveMasterId = above?._master ?? null;
+                this.braceLayerNeighborBelowMasterId = below?._master ?? null;
+            }
+        } else {
+            this.braceLayerNeighborAboveMasterId = null;
+            this.braceLayerNeighborBelowMasterId = null;
+        }
 
         // Rebuild glyph_stack with new layer ID (preserves component path)
         if (this.glyphStack && this.glyphStack !== '') {
