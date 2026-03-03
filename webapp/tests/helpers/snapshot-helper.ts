@@ -282,16 +282,28 @@ export async function waitForFontspectorReady(
     await page.evaluate(() => {
         return new Promise<void>((resolve, reject) => {
             const isReady = () => {
-                if (window.fontManager?.fullFontQcSummary === null) {
+                const fullCompileStatus =
+                    window.fullCompileManager?.getStatus?.() || null;
+                const currentFont = window.fontManager?.currentFont || null;
+
+                if (!fullCompileStatus || !currentFont) {
                     return false;
                 }
-                const statusText =
-                    document
-                        .querySelector(
-                            '#font-qc-summary-section .font-qc-status'
-                        )
-                        ?.textContent?.trim() || '';
-                return statusText === 'Up to date';
+
+                if (
+                    !fullCompileStatus.isEnabled ||
+                    fullCompileStatus.isCompiling
+                ) {
+                    return false;
+                }
+
+                const currentPath = currentFont.path || null;
+                const currentVersion = currentFont.changeVersion;
+
+                return (
+                    fullCompileStatus.lastCompiledPath === currentPath &&
+                    fullCompileStatus.lastCompiledVersion >= currentVersion
+                );
             };
 
             const handler = (event: Event) => {
@@ -310,9 +322,19 @@ export async function waitForFontspectorReady(
 
             const timeoutId = window.setTimeout(() => {
                 window.removeEventListener('fontspectorUpdated', handler);
+                const fullCompileStatus =
+                    window.fullCompileManager?.getStatus?.() || null;
+                const currentFont = window.fontManager?.currentFont || null;
                 reject(
                     new Error(
-                        'Timed out waiting for fontspectorUpdated ready status'
+                        `Timed out waiting for fontspectorUpdated ready status: ${JSON.stringify(
+                            {
+                                fullCompileStatus,
+                                currentFontPath: currentFont?.path || null,
+                                currentFontVersion:
+                                    currentFont?.changeVersion ?? null
+                            }
+                        )}`
                     )
                 );
             }, 15000);
