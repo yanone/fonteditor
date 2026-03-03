@@ -124,6 +124,28 @@ export class GlyphOverviewFilterManager {
         this.loadActiveState();
     }
 
+    private isDiskAdapterLike(adapter: unknown): adapter is NativeAdapter {
+        if (!adapter || typeof adapter !== 'object') {
+            return false;
+        }
+
+        const candidate = adapter as {
+            hasDirectory?: unknown;
+            initialize?: unknown;
+            fileExists?: unknown;
+            listFilesRecursive?: unknown;
+            readFile?: unknown;
+        };
+
+        return (
+            typeof candidate.hasDirectory === 'function' &&
+            typeof candidate.initialize === 'function' &&
+            typeof candidate.fileExists === 'function' &&
+            typeof candidate.listFilesRecursive === 'function' &&
+            typeof candidate.readFile === 'function'
+        );
+    }
+
     /**
      * Build empty tree structure from FILTER_PATHS
      */
@@ -465,7 +487,7 @@ export class GlyphOverviewFilterManager {
         }
 
         const adapter = diskPlugin.getAdapter();
-        if (!(adapter instanceof NativeAdapter)) {
+        if (!this.isDiskAdapterLike(adapter)) {
             console.log('Disk adapter is not NativeAdapter');
             this.renderSidebar();
             return;
@@ -884,10 +906,11 @@ export class GlyphOverviewFilterManager {
 
         // Check if disk is available
         const diskPlugin = pluginRegistry.get('disk');
+        const diskAdapter = diskPlugin?.getAdapter();
         const hasDisk =
             diskPlugin &&
-            diskPlugin.getAdapter() instanceof NativeAdapter &&
-            (diskPlugin.getAdapter() as NativeAdapter).hasDirectory();
+            this.isDiskAdapterLike(diskAdapter) &&
+            diskAdapter.hasDirectory();
 
         // Create header with refresh button
         const header = document.createElement('div');
@@ -2203,7 +2226,7 @@ export class GlyphOverviewFilterManager {
         }
 
         const adapter = diskPlugin.getAdapter();
-        if (!(adapter instanceof NativeAdapter) || !adapter.hasDirectory()) {
+        if (!this.isDiskAdapterLike(adapter) || !adapter.hasDirectory()) {
             alert('Disk directory not available');
             return;
         }
@@ -2404,7 +2427,7 @@ def filter_glyphs(font):
         if (!diskPlugin) return;
 
         const adapter = diskPlugin.getAdapter();
-        if (!(adapter instanceof NativeAdapter)) return;
+        if (!this.isDiskAdapterLike(adapter)) return;
 
         // Find the label element
         const labelElement = element.querySelector(
@@ -2549,7 +2572,7 @@ def filter_glyphs(font):
         if (!diskPlugin) return;
 
         const adapter = diskPlugin.getAdapter();
-        if (!(adapter instanceof NativeAdapter)) return;
+        if (!this.isDiskAdapterLike(adapter)) return;
 
         try {
             await adapter.deleteItem(filePath, false);
