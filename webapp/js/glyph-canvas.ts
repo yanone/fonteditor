@@ -1539,86 +1539,103 @@ class GlyphCanvas {
         const mastersList = document.createElement('div');
         mastersList.className = 'editor-layers-list';
 
-        for (const master of fontModel.masters) {
-            const masterItem = document.createElement('div');
-            masterItem.className = 'editor-layer-item sidebar-item';
-            masterItem.setAttribute('data-master-id', master.id!);
+        const formatAxisValues = (
+            location: Record<string, number> | undefined
+        ): string => {
+            if (!location || !fontModel.axes) return '';
+            const userspaceLocation = designspaceToUserspace(
+                location,
+                fontModel.axes as any
+            );
+            const axesOrder =
+                (fontModel as any).axesOrder ||
+                Object.keys(userspaceLocation).sort();
+            return axesOrder
+                .filter((tag: string) => tag in userspaceLocation)
+                .map(
+                    (tag: string) =>
+                        `${tag}:${Math.round(userspaceLocation[tag])}`
+                )
+                .join(', ');
+        };
 
-            // In edit mode, find corresponding layer for this master
-            let correspondingLayer: Layer | undefined;
+        const getLayerMasterId = (layer: Layer): string | undefined => {
+            const layerMaster = layer.master;
+            if (layerMaster && typeof layerMaster === 'object') {
+                if ('type' in layerMaster) {
+                    return (layerMaster as any).master;
+                }
+            }
+            return undefined;
+        };
+
+        const createLayerItem = (
+            master: any,
+            layer: Layer | undefined,
+            displayName: string,
+            axisValues: string,
+            inactiveIfMissing: boolean
+        ): HTMLDivElement => {
+            const item = document.createElement('div');
+            item.className = 'editor-layer-item sidebar-item';
+            item.setAttribute('data-master-id', master.id!);
+
+            if (layer?.id) {
+                item.setAttribute('data-layer-id', layer.id);
+            } else if (inactiveIfMissing) {
+                item.classList.add('inactive');
+            }
+
             if (isEditMode) {
-                correspondingLayer = glyphLayers.find((layer) => {
-                    const layerMaster = layer.master;
-                    if (layerMaster && typeof layerMaster === 'object') {
-                        if (
-                            'type' in layerMaster &&
-                            layerMaster.type === 'DefaultForMaster'
-                        ) {
-                            return (layerMaster as any).master === master.id;
-                        }
-                    }
-                    return false;
-                });
+                if (
+                    layer?.id &&
+                    this.outlineEditor.selectedLayerId === layer.id
+                ) {
+                    item.classList.add('selected');
+                }
+            } else if (this.textRunEditor!.selectedMasterId === master.id) {
+                item.classList.add('selected');
+            }
 
-                // If no layer exists for this master, mark as inactive
-                if (!correspondingLayer) {
-                    masterItem.classList.add('inactive');
+            const nameSpan = document.createElement('div');
+            nameSpan.className = 'master-item-name';
+            nameSpan.textContent = displayName;
+            item.appendChild(nameSpan);
+
+            if (axisValues) {
+                const axisSpan = document.createElement('div');
+                axisSpan.className = 'master-item-location';
+                axisSpan.textContent = axisValues;
+                item.appendChild(axisSpan);
+            }
+
+            item.addEventListener('click', () => {
+                if (isEditMode) {
+                    if (layer) {
+                        this.outlineEditor.selectLayer({
+                            id: layer.id,
+                            name: layer.name,
+                            master: layer.master,
+                            location: layer.location,
+                            shapes: layer.shapes || [],
+                            width: layer.width,
+                            isInterpolated: false
+                        } as any);
+                    }
                 } else {
-                    // Store layer id for selection updates
-                    masterItem.setAttribute(
-                        'data-layer-id',
-                        correspondingLayer.id!
-                    );
+                    this.selectMaster(master.id!, master.location || {});
                 }
-            }
 
-            // Check if this master/layer is selected
-            if (isEditMode) {
-                if (correspondingLayer) {
-                    const isSelected =
-                        this.outlineEditor.selectedLayerId ===
-                        correspondingLayer.id;
-                    console.log(
-                        `[LayerSelection] Layer ${correspondingLayer.id}:`,
-                        `selectedLayerId='${this.outlineEditor.selectedLayerId}'`,
-                        `layerId='${correspondingLayer.id}'`,
-                        `match=${isSelected}`
-                    );
-                    if (isSelected) {
-                        masterItem.classList.add('selected');
-                        console.log(
-                            `[LayerSelection] ✓ Marked layer ${correspondingLayer.id} as selected`
-                        );
-                    }
+                const editorView = document.getElementById('view-editor');
+                if (editorView && editorView.classList.contains('focused')) {
+                    setTimeout(() => this.canvas!.focus(), 0);
                 }
-            } else {
-                if (this.textRunEditor!.selectedMasterId === master.id) {
-                    masterItem.classList.add('selected');
-                }
-            }
+            });
 
-            // Format axis values for display (e.g., "wght:400, wdth:100")
-            // Convert from design coordinates to userspace coordinates
-            let axisValues = '';
-            if (master.location && fontModel.axes) {
-                const userspaceLocation = designspaceToUserspace(
-                    master.location,
-                    fontModel.axes as any
-                );
+            return item;
+        };
 
-                const axesOrder =
-                    (fontModel as any).axesOrder ||
-                    Object.keys(userspaceLocation).sort();
-                const locationParts = axesOrder
-                    .filter((tag: string) => tag in userspaceLocation)
-                    .map(
-                        (tag: string) =>
-                            `${tag}:${Math.round(userspaceLocation[tag])}`
-                    )
-                    .join(', ');
-                axisValues = locationParts;
-            }
-
+        for (const master of fontModel.masters) {
             // Get master name, handling I18NDictionary
             const masterName =
                 typeof master.name === 'string'
@@ -1629,53 +1646,60 @@ class GlyphCanvas {
                         ? master.name.en
                         : null;
 
-            // Create display with master name and axis values
-            const nameSpan = document.createElement('div');
-            nameSpan.className = 'master-item-name';
-            nameSpan.textContent = masterName || 'Default';
-            masterItem.appendChild(nameSpan);
+            let defaultLayer: Layer | undefined;
+            let braceLayers: Layer[] = [];
 
-            if (axisValues) {
-                const axisSpan = document.createElement('div');
-                axisSpan.className = 'master-item-location';
-                axisSpan.textContent = axisValues;
-                masterItem.appendChild(axisSpan);
+            if (isEditMode) {
+                defaultLayer = glyphLayers.find((layer) => {
+                    const layerMaster = layer.master;
+                    return (
+                        layerMaster &&
+                        typeof layerMaster === 'object' &&
+                        'type' in layerMaster &&
+                        layerMaster.type === 'DefaultForMaster' &&
+                        getLayerMasterId(layer) === master.id
+                    );
+                });
+
+                braceLayers = glyphLayers.filter((layer) => {
+                    const layerMaster = layer.master;
+                    return (
+                        layerMaster &&
+                        typeof layerMaster === 'object' &&
+                        'type' in layerMaster &&
+                        layerMaster.type === 'AssociatedWithMaster' &&
+                        getLayerMasterId(layer) === master.id &&
+                        !!layer.location &&
+                        Object.keys(layer.location).length > 0
+                    );
+                });
             }
 
-            // Click handler - different behavior based on mode
-            masterItem.addEventListener('click', () => {
-                if (isEditMode) {
-                    // Edit mode: load layer if it exists
-                    if (correspondingLayer) {
-                        console.log(`[LayerClick] Clicked layer:`, {
-                            id: correspondingLayer.id,
-                            name: correspondingLayer.name,
-                            master: correspondingLayer.master
-                        });
-                        // Pass the layer's raw data object
-                        this.outlineEditor.selectLayer({
-                            id: correspondingLayer.id,
-                            name: correspondingLayer.name,
-                            master: correspondingLayer.master,
-                            shapes: correspondingLayer.shapes || [],
-                            width: correspondingLayer.width,
-                            isInterpolated: false
-                        } as any);
-                    }
-                    // If no layer, do nothing (inactive state)
-                } else {
-                    // Text mode: select master and animate to its location
-                    this.selectMaster(master.id!, master.location || {});
-                }
-
-                // Restore focus to canvas if editor view is active
-                const editorView = document.getElementById('view-editor');
-                if (editorView && editorView.classList.contains('focused')) {
-                    setTimeout(() => this.canvas!.focus(), 0);
-                }
-            });
-
+            const masterItem = createLayerItem(
+                master,
+                isEditMode ? defaultLayer : undefined,
+                masterName || 'Default',
+                formatAxisValues(master.location),
+                isEditMode
+            );
             mastersList.appendChild(masterItem);
+
+            if (isEditMode && braceLayers.length > 0) {
+                for (const braceLayer of braceLayers) {
+                    const braceName =
+                        braceLayer.name && braceLayer.name.trim() !== ''
+                            ? braceLayer.name
+                            : 'Brace';
+                    const braceItem = createLayerItem(
+                        master,
+                        braceLayer,
+                        braceName,
+                        formatAxisValues(braceLayer.location),
+                        false
+                    );
+                    mastersList.appendChild(braceItem);
+                }
+            }
         }
 
         this.propertiesSection!.appendChild(mastersList);
@@ -2193,8 +2217,8 @@ class GlyphCanvas {
             return [];
         }
 
-        // Get sorted layers by master order
-        // Sort layers by master order (order in which masters are defined in font.masters)
+        // Get sorted layers by master order.
+        // Within one master, keep default layers first, then brace layers.
         const sortedLayers = [...this.fontData.layers].sort((a, b) => {
             const masterIndexA = this.fontData.masters.findIndex(
                 (m: any) => m.id === a._master
@@ -2203,7 +2227,6 @@ class GlyphCanvas {
                 (m: any) => m.id === b._master
             );
 
-            // If master not found, put at end
             const posA =
                 masterIndexA === -1
                     ? this.fontData.masters.length
@@ -2213,7 +2236,18 @@ class GlyphCanvas {
                     ? this.fontData.masters.length
                     : masterIndexB;
 
-            return posA - posB;
+            if (posA !== posB) {
+                return posA - posB;
+            }
+
+            // Within same master: default layers (no location) before brace layers
+            const isBraceA = !!a.location && Object.keys(a.location).length > 0;
+            const isBraceB = !!b.location && Object.keys(b.location).length > 0;
+            if (isBraceA !== isBraceB) {
+                return isBraceA ? 1 : -1;
+            }
+
+            return 0;
         });
         return sortedLayers;
     }

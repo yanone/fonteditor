@@ -2453,7 +2453,9 @@ export class Glyph extends ArrayElementBase {
             return this._layerWrappers!;
         }
 
-        // Filter: only foreground layers that are default for their master
+        // Filter: foreground layers that are either
+        // - default layers for their master, or
+        // - brace layers (AssociatedWithMaster + non-empty location)
         const masterIds = new Set(fontMasters.map((m: Master) => m.id));
         const filteredIndices: number[] = [];
 
@@ -2469,14 +2471,24 @@ export class Glyph extends ArrayElementBase {
             // Skip background layers
             if (layer.is_background) continue;
 
-            // Check if this is a default layer
             const isDefaultLayer =
                 layer.master &&
                 typeof layer.master === 'object' &&
                 'type' in layer.master &&
                 layer.master.type === 'DefaultForMaster';
 
-            if (!isDefaultLayer) continue;
+            const isAssociatedLayer =
+                layer.master &&
+                typeof layer.master === 'object' &&
+                'type' in layer.master &&
+                layer.master.type === 'AssociatedWithMaster';
+
+            const hasBraceLocation =
+                !!layer.location && Object.keys(layer.location).length > 0;
+
+            if (!isDefaultLayer && !(isAssociatedLayer && hasBraceLocation)) {
+                continue;
+            }
 
             let masterId: string | undefined;
             if (layer.master && typeof layer.master === 'object') {
@@ -2498,9 +2510,9 @@ export class Glyph extends ArrayElementBase {
             (i: number) => new Layer(this.data.layers, i, this)
         );
 
-        // Sort by master order
+        // Sort by master order.
+        // Within one master, keep default layer first and brace layers after it.
         wrappers.sort((a, b) => {
-            // Extract master IDs from the wrappers
             const getMasterId = (layer: Layer): string => {
                 const masterData = layer.master;
                 if (masterData && typeof masterData === 'object') {
@@ -2508,8 +2520,20 @@ export class Glyph extends ArrayElementBase {
                         return (masterData as Unsafe).master || '';
                     }
                 }
-                // Fallback to layer id
                 return layer.id || '';
+            };
+
+            const getLayerTypeRank = (layer: Layer): number => {
+                const masterData = layer.master;
+                if (
+                    masterData &&
+                    typeof masterData === 'object' &&
+                    'type' in masterData &&
+                    masterData.type === 'DefaultForMaster'
+                ) {
+                    return 0;
+                }
+                return 1;
             };
 
             const masterIdA = getMasterId(a);
@@ -2527,7 +2551,17 @@ export class Glyph extends ArrayElementBase {
             const posB =
                 masterIndexB === -1 ? fontMasters.length : masterIndexB;
 
-            return posA - posB;
+            if (posA !== posB) {
+                return posA - posB;
+            }
+
+            const typeRankA = getLayerTypeRank(a);
+            const typeRankB = getLayerTypeRank(b);
+            if (typeRankA !== typeRankB) {
+                return typeRankA - typeRankB;
+            }
+
+            return 0;
         });
 
         return wrappers;

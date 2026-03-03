@@ -1811,10 +1811,10 @@ class FontManager {
         }
         let layersData: any[] = [];
         for (let layer of glyph.layers || []) {
-            // Only include non-background layers that are DEFAULT layers for their master
-            // (not AssociatedWithMaster layers, which are intermediate/alternate designs)
+            // Include non-background layers that are either:
+            // - default layers for their master, or
+            // - brace layers (AssociatedWithMaster + non-empty location)
             if (!layer.is_background) {
-                // Check if this is a default layer
                 const layerAny = layer as any;
                 const hasTaggedMaster =
                     layerAny.master &&
@@ -1823,8 +1823,13 @@ class FontManager {
                 const isDefaultLayer =
                     hasTaggedMaster &&
                     layerAny.master.type === 'DefaultForMaster';
+                const isAssociatedLayer =
+                    hasTaggedMaster &&
+                    layerAny.master.type === 'AssociatedWithMaster';
+                const hasBraceLocation =
+                    !!layer.location && Object.keys(layer.location).length > 0;
 
-                if (isDefaultLayer) {
+                if (isDefaultLayer || (isAssociatedLayer && hasBraceLocation)) {
                     const masterIdStr = layerAny.master?.master || layer.id;
                     if (master_ids.has(masterIdStr)) {
                         layersData.push({

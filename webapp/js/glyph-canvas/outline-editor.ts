@@ -7,7 +7,7 @@ import { Transform } from '../basictypes';
 import { Logger } from '../logger';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 import APP_SETTINGS from '../settings';
-import { userspaceToDesignspace } from '../locations';
+import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 
 let console: Logger = new Logger('OutlineEditor');
 
@@ -1990,6 +1990,7 @@ export class OutlineEditor {
             id: layer.id,
             name: layer.name,
             master: layer.master,
+            location: layer.location,
             width: layer.width,
             shapes: layer.shapes?.map((s: any) => ({ ...s })),
             isInterpolated: false
@@ -2030,7 +2031,10 @@ export class OutlineEditor {
         if (this.layerData) {
             this.layerData.isInterpolated = false;
         }
-        let masters: Babelfont.Master[] = this.glyphCanvas.fontData.masters;
+        // Use font model masters (designspace locations), NOT fontData.masters
+        // which has already-converted userspace locations
+        let masters: Babelfont.Master[] =
+            (fontManager.currentFont?.fontModel?.masters as any) || [];
         console.log(`Selected layer: ${layer.name} (ID: ${layer.id})`);
         console.log('Layer data:', layer);
         console.log('Available masters:', masters);
@@ -2067,10 +2071,16 @@ export class OutlineEditor {
             this.glyphCanvas.renderSuppressed = false;
         }
 
-        // Find the master for this layer
+        // Find the master for this layer and compute effective target location
         const masterIdToFind = layer.master?.master;
         const master = masters.find((m) => m.id === masterIdToFind);
-        if (!master || !master.location) {
+        const hasLayerLocation =
+            !!layer.location && Object.keys(layer.location).length > 0;
+        const targetDesignLocation = hasLayerLocation
+            ? layer.location
+            : master?.location;
+
+        if (!targetDesignLocation) {
             console.warn('No master location found for layer', {
                 layer_master: layer.master,
                 available_master_ids: masters.map((m) => m.id),
@@ -2079,11 +2089,22 @@ export class OutlineEditor {
             return;
         }
 
-        console.log(`Setting axis values to master location:`, master.location);
+        const fontAxes = fontManager.currentFont?.fontModel?.axes || [];
+        const targetUserspaceLocation = designspaceToUserspace(
+            targetDesignLocation,
+            fontAxes as any
+        );
+
+        console.log(`Setting axis values to layer location:`, {
+            designspace: targetDesignLocation,
+            userspace: targetUserspaceLocation
+        });
 
         // Set up animation to all axes at once
         const newSettings: Record<string, number> = {};
-        for (const [axisTag, value] of Object.entries(master.location)) {
+        for (const [axisTag, value] of Object.entries(
+            targetUserspaceLocation
+        )) {
             newSettings[axisTag] = value as number;
         }
         this.glyphCanvas.axesManager!._setupAnimation(newSettings);
@@ -2203,19 +2224,26 @@ export class OutlineEditor {
         // Check each layer to find a match
         for (const layer of layers) {
             const masterId = layer.master?.master;
-
+            const hasLayerLocation =
+                !!layer.location && Object.keys(layer.location).length > 0;
             const master = masters.find((m) => m.id === masterId);
-            if (!master || !master.location) {
+            const effectiveDesignLocation = hasLayerLocation
+                ? layer.location
+                : master?.location;
+
+            if (!effectiveDesignLocation) {
                 console.log(
                     '[OutlineEditor]',
-                    `  Skipping layer ${layer.id}: no master found for masterId=${masterId}`
+                    `  Skipping layer ${layer.id}: no effective location for masterId=${masterId}`
                 );
                 continue;
             }
 
             // Check if all axis values match exactly (comparing in designspace)
             let allMatch = true;
-            for (const [tag, value] of Object.entries(master.location)) {
+            for (const [tag, value] of Object.entries(
+                effectiveDesignLocation
+            )) {
                 if ((currentDesignspaceLocation[tag] || 0) !== value) {
                     allMatch = false;
                     break;
@@ -2225,8 +2253,8 @@ export class OutlineEditor {
             if (allMatch) {
                 console.log(
                     '[OutlineEditor]',
-                    `  ✓ MATCH found: layer ${layer.id} with master location`,
-                    master.location
+                    `  ✓ MATCH found: layer ${layer.id} with effective location`,
+                    effectiveDesignLocation
                 );
                 // Found a matching layer - select it
                 this.selectedLayerId = layer.id || null;
@@ -3264,8 +3292,12 @@ export class OutlineEditor {
                 'Layer switch animation complete, restored target layer for editing'
             );
 
-            // Now check if we're on an exact layer match to update selectedLayerId
-            await this.autoSelectMatchingLayer();
+            // Only re-match if we don't already have an explicitly selected layer.
+            // When the user clicked a layer (including brace layers), selectedLayerId
+            // is already set correctly by selectLayer() — don't override it.
+            if (!this.selectedLayerId) {
+                await this.autoSelectMatchingLayer();
+            }
 
             if (this.active) {
                 this.glyphCanvas.render();
