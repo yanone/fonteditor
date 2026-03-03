@@ -54,6 +54,7 @@ export class LayerDataNormalizer {
             anchors: this.normalizeAnchors(layerData.anchors || []),
             guides: layerData.guides || [],
             format_specific: layerData.format_specific || {},
+            _verticalMetrics: layerData._verticalMetrics || null,
             // Add metadata flag for rendering
             isInterpolated: isInterpolated,
             name: layerData.name || null,

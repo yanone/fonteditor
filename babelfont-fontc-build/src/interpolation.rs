@@ -5,7 +5,8 @@
 // Optimized with per-request caching for batch operations.
 
 use babelfont::{Layer, Shape, Tag};
-use fontdrasil::coords::{DesignCoord, DesignLocation, DesignSpace, UserCoord};
+use fontdrasil::coords::{DesignCoord, DesignLocation, DesignSpace, Location, NormalizedSpace, UserCoord};
+use fontdrasil::variations::VariationModel;
 use serde_json::Value as JsonValue;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -90,6 +91,9 @@ pub fn interpolate_glyph(
     let mut result: serde_json::Value = serde_json::from_str(&layer_json_with_components)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse layer JSON: {}", e)))?;
 
+    let vertical_metrics = interpolate_vertical_metrics(font, &design_location)
+        .map_err(|e| JsValue::from_str(&format!("Vertical metrics interpolation error: {}", e)))?;
+
     // Add the location (user space) to the result
     if let Some(obj) = result.as_object_mut() {
         obj.insert(
@@ -97,6 +101,7 @@ pub fn interpolate_glyph(
             serde_json::to_value(&location_map)
                 .map_err(|e| JsValue::from_str(&format!("Failed to serialize location: {}", e)))?,
         );
+        obj.insert("_verticalMetrics".to_string(), vertical_metrics);
     }
 
     // Serialize back to string
@@ -104,6 +109,92 @@ pub fn interpolate_glyph(
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))?;
 
     Ok(result_json)
+}
+
+fn normalize_vertical_metric_value(metric_name: &str, metric_value: f64) -> f64 {
+    if metric_name == "WinDescent" && metric_value > 0.0 {
+        -metric_value
+    } else {
+        metric_value
+    }
+}
+
+fn interpolate_vertical_metrics(
+    font: &babelfont::Font,
+    target_location: &DesignLocation,
+) -> Result<JsonValue, String> {
+    let axis_order: Vec<babelfont::Tag> = font.axes.iter().map(|axis| axis.tag).collect();
+    let target_normalized = font
+        .normalize_location(target_location.clone())
+        .map_err(|e| format!("Failed to normalize target location: {:?}", e))?;
+
+    let mut master_rows: Vec<(Location<NormalizedSpace>, serde_json::Map<String, JsonValue>)> =
+        Vec::new();
+    let mut metric_names: HashSet<String> = HashSet::new();
+
+    for master in &font.masters {
+        let normalized_location = font
+            .normalize_location(master.location.clone())
+            .map_err(|e| format!("Failed to normalize master location: {:?}", e))?;
+
+        let metrics_json = serde_json::to_value(&master.metrics)
+            .map_err(|e| format!("Failed to serialize master metrics: {}", e))?;
+
+        if let JsonValue::Object(metrics_object) = metrics_json {
+            for (metric_name, metric_raw_value) in &metrics_object {
+                if metric_raw_value.as_f64().is_some() {
+                    metric_names.insert(metric_name.clone());
+                }
+            }
+            master_rows.push((normalized_location, metrics_object));
+        }
+    }
+
+    let mut interpolated_metrics = serde_json::Map::new();
+
+    for metric_name in metric_names {
+        let mut locations_for_metric: HashSet<Location<NormalizedSpace>> = HashSet::new();
+        let mut values_by_location: HashMap<Location<NormalizedSpace>, Vec<f64>> = HashMap::new();
+
+        for (location, metrics_object) in &master_rows {
+            let Some(metric_value) = metrics_object
+                .get(&metric_name)
+                .and_then(|value| value.as_f64())
+            else {
+                continue;
+            };
+
+            let normalized_value = normalize_vertical_metric_value(&metric_name, metric_value);
+            locations_for_metric.insert(location.clone());
+            values_by_location.insert(location.clone(), vec![normalized_value]);
+        }
+
+        if values_by_location.is_empty() {
+            continue;
+        }
+
+        let interpolated_value = if values_by_location.len() == 1 {
+            values_by_location
+                .values()
+                .next()
+                .and_then(|vals| vals.first())
+                .copied()
+                .unwrap_or(0.0)
+        } else {
+            let model = VariationModel::new(locations_for_metric, axis_order.clone());
+            let deltas = model
+                .deltas(&values_by_location)
+                .map_err(|e| format!("Failed computing metric deltas: {:?}", e))?;
+            let interpolated = model.interpolate_from_deltas(&target_normalized, &deltas);
+            interpolated.first().copied().unwrap_or(0.0)
+        };
+
+        if interpolated_value.is_finite() {
+            interpolated_metrics.insert(metric_name, JsonValue::from(interpolated_value));
+        }
+    }
+
+    Ok(JsonValue::Object(interpolated_metrics))
 }
 
 /// Manually interpolate a layer that contains components, preserving their transforms

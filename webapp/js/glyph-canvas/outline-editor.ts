@@ -128,171 +128,59 @@ export class OutlineEditor {
         this.glyphCanvas = glyphCanvas;
     }
 
-    private normalizeVerticalMetricValue(
-        metricKey: string,
-        metricValue: number
-    ): number {
-        if (metricKey === 'WinDescent' && metricValue > 0) {
-            return -metricValue;
+    private normalizeAndRoundVerticalMetrics(
+        metrics: Record<string, number> | null | undefined
+    ): Record<string, number> | null {
+        if (!metrics) {
+            return null;
         }
-        return metricValue;
+
+        const result: Record<string, number> = {};
+        for (const [metricKey, rawValue] of Object.entries(metrics)) {
+            if (!Number.isFinite(rawValue)) {
+                continue;
+            }
+
+            let normalizedValue = rawValue;
+            if (metricKey === 'WinDescent' && normalizedValue > 0) {
+                normalizedValue = -normalizedValue;
+            }
+
+            result[metricKey] = normalizedValue;
+        }
+
+        return Object.keys(result).length ? result : null;
     }
 
-    private interpolateVerticalMetricsAtLocation(
-        userspaceLocation: Record<string, number>
-    ): Record<string, number> | null {
+    private setRenderVerticalMetricsFromInterpolatedLayer(
+        layerData: any
+    ): void {
+        this.renderVerticalMetrics = this.normalizeAndRoundVerticalMetrics(
+            layerData?._verticalMetrics
+        );
+    }
+
+    private setRenderVerticalMetricsFromSelectedMaster(): void {
         const fontModel = (window as any).currentFontModel;
         const masters = fontModel?.masters;
-        const axes = fontModel?.axes;
-
-        if (!Array.isArray(masters) || masters.length === 0) {
-            return null;
-        }
-        if (!Array.isArray(axes) || axes.length === 0) {
-            return null;
+        if (!Array.isArray(masters) || !this.selectedLayerId) {
+            this.renderVerticalMetrics = null;
+            return;
         }
 
-        const designspaceLocation = userspaceToDesignspace(
-            userspaceLocation,
-            axes as any
-        );
-
-        const defaultUserspaceLocation: Record<string, number> = {};
-        const axisTags: string[] = [];
-        for (const axis of axes) {
-            if (!axis?.tag) {
-                continue;
-            }
-            axisTags.push(axis.tag);
-            defaultUserspaceLocation[axis.tag] =
-                typeof axis.default === 'number' ? axis.default : 0;
-        }
-
-        const designspaceDefaults = userspaceToDesignspace(
-            defaultUserspaceLocation,
-            axes as any
-        );
-
-        const metricKeys = new Set<string>();
-        const masterRows: Array<{
-            location: Record<string, number>;
-            metrics: Record<string, number>;
-        }> = [];
-
-        for (const master of masters) {
-            const location = master?.location || {};
-            const metrics = master?.metrics || {};
-            if (!location || !metrics) {
-                continue;
-            }
-
-            masterRows.push({
-                location,
-                metrics
-            });
-
-            for (const [metricKey, metricValue] of Object.entries(metrics)) {
-                if (Number.isFinite(metricValue)) {
-                    metricKeys.add(metricKey);
-                }
-            }
-        }
-
-        if (masterRows.length === 0 || metricKeys.size === 0) {
-            return null;
-        }
-
-        const axisSpans: Record<string, number> = {};
-        for (const axisTag of axisTags) {
-            let minValue = Infinity;
-            let maxValue = -Infinity;
-
-            for (const row of masterRows) {
-                const locationValue =
-                    row.location[axisTag] ?? designspaceDefaults[axisTag] ?? 0;
-                minValue = Math.min(minValue, locationValue);
-                maxValue = Math.max(maxValue, locationValue);
-            }
-
-            const span = maxValue - minValue;
-            axisSpans[axisTag] = span > 0 ? span : 1;
-        }
-
-        const distanceToTarget = (location: Record<string, number>): number => {
-            let sumSquares = 0;
-
-            for (const axisTag of axisTags) {
-                const target =
-                    designspaceLocation[axisTag] ??
-                    designspaceDefaults[axisTag] ??
-                    0;
-                const source =
-                    location[axisTag] ?? designspaceDefaults[axisTag] ?? 0;
-                const span = axisSpans[axisTag] || 1;
-                const normalizedDelta = (target - source) / span;
-                sumSquares += normalizedDelta * normalizedDelta;
-            }
-
-            return Math.sqrt(sumSquares);
-        };
-
-        const interpolatedMetrics: Record<string, number> = {};
-
-        for (const metricKey of metricKeys) {
-            const metricSamples: Array<{ value: number; distance: number }> =
-                [];
-
-            for (const row of masterRows) {
-                const metricValue = row.metrics[metricKey];
-                if (!Number.isFinite(metricValue)) {
-                    continue;
-                }
-
-                metricSamples.push({
-                    value: this.normalizeVerticalMetricValue(
-                        metricKey,
-                        metricValue
-                    ),
-                    distance: distanceToTarget(row.location)
-                });
-            }
-
-            if (metricSamples.length === 0) {
-                continue;
-            }
-
-            const exactSample = metricSamples.find(
-                (sample) => sample.distance <= 1e-8
-            );
-            if (exactSample) {
-                interpolatedMetrics[metricKey] = exactSample.value;
-                continue;
-            }
-
-            let weightedValueSum = 0;
-            let totalWeight = 0;
-
-            for (const sample of metricSamples) {
-                const weight = 1 / Math.max(sample.distance, 1e-6) ** 2;
-                weightedValueSum += sample.value * weight;
-                totalWeight += weight;
-            }
-
-            if (totalWeight > 0) {
-                interpolatedMetrics[metricKey] = weightedValueSum / totalWeight;
-            }
-        }
-
-        return Object.keys(interpolatedMetrics).length
-            ? interpolatedMetrics
+        const sortedLayers = this.glyphCanvas.getSortedLayers();
+        const selectedLayer = Array.isArray(sortedLayers)
+            ? sortedLayers.find((layer: any) => layer?.id === this.selectedLayerId)
             : null;
-    }
+        const selectedMasterId =
+            selectedLayer?.master || selectedLayer?._master || this.selectedLayerId;
 
-    private updateRenderVerticalMetrics(
-        userspaceLocation: Record<string, number>
-    ): void {
-        this.renderVerticalMetrics =
-            this.interpolateVerticalMetricsAtLocation(userspaceLocation);
+        const selectedMaster = masters.find(
+            (master: any) => master?.id === selectedMasterId
+        );
+        this.renderVerticalMetrics = this.normalizeAndRoundVerticalMetrics(
+            selectedMaster?.metrics || null
+        );
     }
 
     /**
@@ -1821,7 +1709,7 @@ export class OutlineEditor {
             } else {
                 // Between layers - need to interpolate
                 if (this.currentGlyphName) {
-                    await this.interpolateCurrentGlyph();
+                    await this.interpolateCurrentGlyph(true);
                 } else {
                     this.glyphCanvas.render();
                 }
@@ -1937,7 +1825,9 @@ export class OutlineEditor {
                 interpolatedLayer,
                 location
             );
-            this.updateRenderVerticalMetrics(location);
+            this.setRenderVerticalMetricsFromInterpolatedLayer(
+                interpolatedLayer
+            );
             console.log(
                 '[OutlineEditor] After applyInterpolatedLayer - layerData.width:',
                 this.layerData?.width
@@ -2663,13 +2553,7 @@ export class OutlineEditor {
                 parseComponentNodes(this.layerData.shapes);
             }
 
-            if (this.glyphCanvas.axesManager?.variationSettings) {
-                this.updateRenderVerticalMetrics(
-                    this.glyphCanvas.axesManager.variationSettings
-                );
-            } else {
-                this.renderVerticalMetrics = null;
-            }
+            this.setRenderVerticalMetricsFromSelectedMaster();
 
             // Update currentGlyphName based on glyph_stack position
             // If we're in a nested component, extract the component name from the stack

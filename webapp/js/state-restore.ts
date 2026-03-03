@@ -208,6 +208,31 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
             // Activate editing mode
             if (glyphCanvas.textRunEditor!.selectedGlyphIndex >= 0) {
                 glyphCanvas.outlineEditor.active = true;
+
+                // Ensure layer data + render metrics are initialized on startup restore.
+                // Without this, metric underlay lines may not appear until a manual layer switch.
+                if (glyphCanvas.outlineEditor.selectedLayerId !== null) {
+                    try {
+                        await glyphCanvas.outlineEditor.fetchLayerData(true);
+                    } catch (error) {
+                        console.warn(
+                            'fetchLayerData failed during restore; continuing:',
+                            error
+                        );
+                    }
+                } else {
+                    try {
+                        await glyphCanvas.outlineEditor.interpolateCurrentGlyph(
+                            true
+                        );
+                    } catch (error) {
+                        console.warn(
+                            'interpolateCurrentGlyph failed during restore; continuing:',
+                            error
+                        );
+                    }
+                }
+
                 glyphCanvas.renderer?.render();
             } else {
                 // If glyph selection failed, keep state as text mode to avoid inconsistent UI
