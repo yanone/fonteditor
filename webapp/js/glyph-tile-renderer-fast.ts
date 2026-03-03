@@ -18,8 +18,8 @@ interface RenderMetrics {
 interface GlyphOutlineData {
     name: string;
     width: number;
-    shapes: any[];
-    bounds: {
+    shapes?: any[];
+    bounds?: {
         xMin: number;
         yMin: number;
         xMax: number;
@@ -175,6 +175,31 @@ class FastGlyphTileRenderer {
         }
     }
 
+    private toFiniteNumber(value: unknown, fallback: number): number {
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return fallback;
+        }
+        return value;
+    }
+
+    private getSafeBounds(glyphData: GlyphOutlineData): {
+        xMin: number;
+        xMax: number;
+    } {
+        const bounds = glyphData?.bounds;
+        if (!bounds || typeof bounds !== 'object') {
+            return { xMin: 0, xMax: 0 };
+        }
+
+        const xMin = this.toFiniteNumber((bounds as any).xMin, 0);
+        const xMax = this.toFiniteNumber((bounds as any).xMax, xMin);
+        if (xMax < xMin) {
+            return { xMin: xMax, xMax: xMin };
+        }
+
+        return { xMin, xMax };
+    }
+
     /**
      * Render a glyph directly to a canvas element
      * Reuses existing canvas if provided, creates new one otherwise
@@ -233,9 +258,12 @@ class FastGlyphTileRenderer {
 
         // Scale to fit metrics height in drawing area (0.7 factor to draw 30% smaller)
         const scale = ((drawHeight - padding * 2) / metricsHeight) * 0.7;
+        if (!Number.isFinite(scale) || scale <= 0) {
+            return canvas;
+        }
 
         // Center horizontally based on glyph visual bounds
-        const bounds = glyphData.bounds;
+        const bounds = this.getSafeBounds(glyphData);
         const glyphVisualCenterX = (bounds.xMin + bounds.xMax) / 2;
         const tileCenterX = drawWidth / 2;
         const offsetX = tileCenterX - glyphVisualCenterX * scale;
@@ -248,9 +276,10 @@ class FastGlyphTileRenderer {
         ctx.scale(scale, -scale); // Flip Y axis
 
         // Draw shapes
+        const shapes = Array.isArray(glyphData?.shapes) ? glyphData.shapes : [];
         this.drawShapes(
             ctx,
-            glyphData.shapes,
+            shapes,
             this.componentColor,
             this.pathColor,
             null,
@@ -273,6 +302,10 @@ class FastGlyphTileRenderer {
         parentTransform: number[] | null,
         insideComponent: boolean
     ): void {
+        if (!Array.isArray(shapes) || shapes.length === 0) {
+            return;
+        }
+
         // First pass: draw all regular paths
         ctx.beginPath();
         this.buildPathsOnly(ctx, shapes);

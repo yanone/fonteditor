@@ -270,6 +270,16 @@ export class LayerDataNormalizer {
             return -1;
         }
 
+        const isOnCurve = (node: Babelfont.Node | undefined): boolean => {
+            const type = node?.nodetype;
+            return (
+                type === 'Move' ||
+                type === 'Line' ||
+                type === 'Curve' ||
+                type === 'QCurve'
+            );
+        };
+
         // Prefer explicit Move start if present, otherwise use first on-curve point
         let startIdx = 0;
         for (let i = 0; i < nodes.length; i++) {
@@ -290,70 +300,97 @@ export class LayerDataNormalizer {
             }
         }
 
-        const { x: startX, y: startY } = nodes[startIdx];
+        if (!isOnCurve(nodes[startIdx])) {
+            for (let i = 0; i < nodes.length; i++) {
+                if (isOnCurve(nodes[i])) {
+                    startIdx = i;
+                    break;
+                }
+            }
+        }
+
+        const contour = nodes
+            .slice(startIdx)
+            .concat(nodes.slice(0, startIdx)) as Babelfont.Node[];
+        if (contour.length === 0) {
+            return -1;
+        }
+
+        const { x: startX, y: startY } = contour[0];
         target.moveTo(startX, startY);
 
-        // Draw contour by looking ahead for control points
-        let i = 0;
-        while (i < nodes.length) {
-            const idx = (startIdx + i) % nodes.length;
-            const nextIdx = (startIdx + i + 1) % nodes.length;
-            const next2Idx = (startIdx + i + 2) % nodes.length;
-            const next3Idx = (startIdx + i + 3) % nodes.length;
+        let currentIndex = 0;
+        let guard = 0;
+        const guardLimit = contour.length * 4;
 
-            const { nodetype: type } = nodes[idx];
-            const {
-                x: next1X,
-                y: next1Y,
-                nodetype: next1Type
-            } = nodes[nextIdx];
+        while (guard < guardLimit) {
+            guard += 1;
 
-            if (
-                type === 'Move' ||
-                type === 'Line' ||
-                type === 'Curve' ||
-                type === 'QCurve'
-            ) {
-                // We're at an on-curve point, look ahead for next segment
-                if (next1Type === 'OffCurve') {
-                    // Next is off-curve - check if cubic (two consecutive off-curve)
-                    const {
-                        x: next2X,
-                        y: next2Y,
-                        nodetype: next2Type
-                    } = nodes[next2Idx];
-                    const { x: next3X, y: next3Y } = nodes[next3Idx];
-
-                    if (next2Type === 'OffCurve') {
-                        // Cubic bezier: two off-curve control points + on-curve endpoint
-                        target.bezierCurveTo(
-                            next1X,
-                            next1Y,
-                            next2X,
-                            next2Y,
-                            next3X,
-                            next3Y
-                        );
-                        i += 3;
-                    } else {
-                        // Single off-curve - shouldn't happen with cubic, just draw line
-                        target.lineTo(next2X, next2Y);
-                        i += 2;
-                    }
-                } else if (
-                    next1Type === 'Line' ||
-                    next1Type === 'Curve' ||
-                    next1Type === 'QCurve'
-                ) {
-                    // Next is on-curve - draw line
-                    target.lineTo(next1X, next1Y);
-                    i++;
-                } else {
-                    i++;
+            const current = contour[currentIndex];
+            if (!isOnCurve(current)) {
+                currentIndex = (currentIndex + 1) % contour.length;
+                if (currentIndex === 0) {
+                    break;
                 }
+                continue;
+            }
+
+            let nextIndex = (currentIndex + 1) % contour.length;
+            const controls: Babelfont.Node[] = [];
+
+            while (nextIndex !== currentIndex) {
+                const candidate = contour[nextIndex];
+                if (!candidate) {
+                    break;
+                }
+                if (candidate.nodetype === 'OffCurve') {
+                    controls.push(candidate);
+                    nextIndex = (nextIndex + 1) % contour.length;
+                    continue;
+                }
+                break;
+            }
+
+            if (nextIndex === currentIndex) {
+                break;
+            }
+
+            const end = contour[nextIndex];
+            if (!end) {
+                break;
+            }
+
+            if (controls.length === 0) {
+                if (end.nodetype !== 'Move') {
+                    target.lineTo(end.x, end.y);
+                }
+            } else if (controls.length >= 2 && end.nodetype === 'Curve') {
+                const c1 = controls[0];
+                const c2 = controls[1];
+                target.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, end.x, end.y);
             } else {
-                // Skip off-curve points (handled by looking ahead)
-                i++;
+                for (let i = 0; i < controls.length; i += 1) {
+                    const control = controls[i];
+                    const isLastControl = i === controls.length - 1;
+                    const segmentEnd = isLastControl
+                        ? { x: end.x, y: end.y }
+                        : {
+                              x: (controls[i].x + controls[i + 1].x) / 2,
+                              y: (controls[i].y + controls[i + 1].y) / 2
+                          };
+
+                    target.quadraticCurveTo(
+                        control.x,
+                        control.y,
+                        segmentEnd.x,
+                        segmentEnd.y
+                    );
+                }
+            }
+
+            currentIndex = nextIndex;
+            if (currentIndex === 0) {
+                break;
             }
         }
 

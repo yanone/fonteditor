@@ -1023,13 +1023,15 @@ class GlyphOverview {
                         continue;
                     }
 
-                    tile.cachedData = glyphData;
-                    this.renderTileCanvas(
+                    const rendered = this.renderTileCanvas(
                         tile,
                         glyphData,
                         dims.width,
                         dims.height
                     );
+                    if (rendered) {
+                        tile.cachedData = glyphData;
+                    }
                 }
 
                 index = end;
@@ -1133,21 +1135,33 @@ class GlyphOverview {
         glyphData: any,
         width?: number,
         height?: number
-    ): void {
+    ): boolean {
         // Use provided dimensions or get current size
         const dims =
             width && height ? { width, height } : this.getTileDimensions();
 
         // Render directly to the tile's pre-existing canvas
         if (tile.canvas) {
-            fastGlyphTileRenderer.renderToCanvas(
-                glyphData,
-                this.renderMetrics || undefined,
-                dims.width,
-                dims.height,
-                tile.canvas
-            );
+            try {
+                fastGlyphTileRenderer.renderToCanvas(
+                    glyphData,
+                    this.renderMetrics || undefined,
+                    dims.width,
+                    dims.height,
+                    tile.canvas
+                );
+                return true;
+            } catch (error) {
+                const message =
+                    error instanceof Error ? error.message : String(error);
+                console.warn(
+                    `[GlyphOverview] Failed to render tile ${tile.glyphName}: ${message}`
+                );
+                return false;
+            }
         }
+
+        return false;
     }
 
     /**
@@ -1159,9 +1173,11 @@ class GlyphOverview {
         width?: number,
         height?: number
     ): void {
-        // Cache data for future resizing
-        tile.cachedData = glyphData;
-        this.renderTileCanvas(tile, glyphData, width, height);
+        const rendered = this.renderTileCanvas(tile, glyphData, width, height);
+        if (rendered) {
+            // Cache data for future resizing
+            tile.cachedData = glyphData;
+        }
     }
 
     /**
@@ -1551,13 +1567,17 @@ class GlyphOverview {
                             return;
                         }
 
-                        tile.cachedData = glyphData; // Cache for resizing
-                        this.renderTileCanvas(
+                        const rendered = this.renderTileCanvas(
                             tile,
                             glyphData,
                             dims.width,
                             dims.height
                         );
+                        if (rendered) {
+                            tile.cachedData = glyphData; // Cache for resizing
+                        } else {
+                            this.pendingGlyphIds.add(tile.glyphId);
+                        }
                     });
 
                     renderDurationMs = performance.now() - renderStart;
