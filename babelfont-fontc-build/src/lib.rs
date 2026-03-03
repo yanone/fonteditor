@@ -1363,25 +1363,70 @@ pub fn compile_cached_font_from_last_layout_closure(
                     current_perf_trace_suffix()
                 ));
 
-                // Rebuild from the full cached font so that font.features is
-                // consistent with font.glyphs before subsetting.  Incremental
-                // glyph-patching cannot be used here because subset_font_using_
-                // cached_fea (RetainGlyphs/SubsetLayout) requires all glyphs
-                // referenced in the feature file to be present in font.glyphs —
-                // otherwise it errors on unknown glyph references.  Starting
-                // from a full-font clone (like C3c) and re-subsetting is the
-                // only correct approach for the superset case.
-                let _ = added_glyphs; // unused now that we clone the full font
+                // SubsetLayout (inside subset_font_using_cached_fea) calls
+                // FeatureFile::new_from_fea(&fea, Some(&old_glyphs), ...) which validates
+                // every glyph name referenced in the FEA against old_glyphs.  The full
+                // features reference ~1000 glyphs, but font.glyphs only holds the old
+                // ~30-glyph subset — causing "not a known glyph" errors for every name
+                // in the FEA not in that small list.
+                //
+                // Solution: add lightweight stub Glyphs (name only, no layer data) for
+                // every full-font glyph not already in font.glyphs before subsetting.
+                // SubsetLayout sees the full glyph universe → validation passes → correctly
+                // prunes GSUB/GPOS rules to the new closure.
+                // RetainGlyphs (called inside subset_font_using_cached_fea) then drops all
+                // stubs because they are not in closure_subset.
+                //
+                // This is far cheaper than full_font.clone() (which copies all path data
+                // for 1000+ glyphs); stubs carry only a SmolStr name.
                 {
                     let cache = FONT_CACHE.lock().unwrap();
                     let full_font = cache.as_ref().ok_or_else(|| {
                         JsValue::from_str("No font cached. Call store_font() first.")
                     })?;
-                    font = full_font.clone();
+
+                    // Add truly new glyphs with full layer/path data.
+                    for name in &added_glyphs {
+                        if let Some(glyph) =
+                            full_font.glyphs.iter().find(|g| g.name.as_str() == name.as_str())
+                        {
+                            font.glyphs.push(glyph.clone());
+                        }
+                    }
+
+                    // Restore full features — the cached prepared font has already-pruned
+                    // features that are missing GSUB rules for the newly added glyphs.
+                    font.features = full_font.features.clone();
+
+                    // Restore kern groups and masters.
+                    font.first_kern_groups = full_font.first_kern_groups.clone();
+                    font.second_kern_groups = full_font.second_kern_groups.clone();
+                    font.masters = full_font.masters.clone();
+
+                    // Add stub glyphs for every full-font glyph name not already present.
+                    // Stubs carry only the name (no layers/paths) and exported=false so
+                    // they are excluded from the filter pipeline's exported-names set.
+                    // Collect stub names first (releasing the borrow on font.glyphs)
+                    // before pushing, to satisfy the borrow checker.
+                    let existing: std::collections::HashSet<smol_str::SmolStr> =
+                        font.glyphs.iter().map(|g| g.name.clone()).collect();
+                    let stub_names: Vec<smol_str::SmolStr> = full_font
+                        .glyphs
+                        .iter()
+                        .filter(|g| !existing.contains(&g.name))
+                        .map(|g| g.name.clone())
+                        .collect();
+                    for name in stub_names {
+                        font.glyphs.push(babelfont::Glyph {
+                            name,
+                            exported: false,
+                            ..babelfont::Glyph::default()
+                        });
+                    }
                 }
 
                 if !closure_subset.is_empty() {
-                    subset_font_using_cached_fea(&mut font, &closure_subset)?;
+                    subset_font_using_cached_fea(&mut font, &closure_subset)?
                 }
                 drop(_expand_span);
 
