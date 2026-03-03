@@ -208,6 +208,15 @@ class OpenedFont {
     }
 
     /**
+     * Request editing-font recompilation without marking font data as changed.
+     * Use this when switching compilation mode (e.g. outline-only -> full)
+     * without any new source data edits.
+     */
+    requestRecompileWithoutDataChange(): void {
+        this.needsRecompile = true;
+    }
+
+    /**
      * Sync the JSON string from the object model data
      * Call this after making changes through the object model
      * Converts nodes arrays back to string format for Rust compiler
@@ -1579,7 +1588,7 @@ class FontManager {
                 // is still in progress, the auto-compile loop's data-changed retry will pick
                 // up lastEditType = null and produce a full compile instead of outline-only.
                 this.lastEditType = null;
-                this.currentFont.markDirty('full-compile-debounce');
+                this.currentFont.requestRecompileWithoutDataChange();
                 window.autoCompileManager.checkAndSchedule();
             }
         }, 500);
@@ -1604,7 +1613,7 @@ class FontManager {
             '[FontManager] Forcing full compile before axis/layer change'
         );
         this.lastEditType = null;
-        this.currentFont?.markDirty('full-compile-required');
+        this.currentFont?.requestRecompileWithoutDataChange();
         window.autoCompileManager.checkAndSchedule();
         // Wait for the compile to finish
         await new Promise<void>((resolve) => {
