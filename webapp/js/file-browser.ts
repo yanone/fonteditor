@@ -1246,6 +1246,16 @@ async function selectDiskFolder() {
             detachedLaunchFileHandle = null;
             updateOpenFolderPromptForDetachedLaunch();
             hideOpenFolderUI();
+
+            window.dispatchEvent(
+                new CustomEvent('diskFolderAccessChanged', {
+                    detail: {
+                        hasDiskAccess: true,
+                        source: 'attach'
+                    }
+                })
+            );
+
             fileSystemCache.currentPath = targetPath;
             await navigateToPath(targetPath);
 
@@ -2692,6 +2702,15 @@ window.addEventListener('pluginFolderClosed', async () => {
         });
         updatePluginMenuButtonVisibility(currentPlugin);
     }
+
+    window.dispatchEvent(
+        new CustomEvent('diskFolderAccessChanged', {
+            detail: {
+                hasDiskAccess: false,
+                source: 'detach'
+            }
+        })
+    );
 });
 
 // Listen for disk file system changes (FileSystemObserver)

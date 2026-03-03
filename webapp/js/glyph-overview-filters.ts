@@ -460,12 +460,14 @@ export class GlyphOverviewFilterManager {
         const diskPlugin = pluginRegistry.get('disk');
         if (!diskPlugin) {
             console.log('Disk plugin not available');
+            this.renderSidebar();
             return;
         }
 
         const adapter = diskPlugin.getAdapter();
         if (!(adapter instanceof NativeAdapter)) {
             console.log('Disk adapter is not NativeAdapter');
+            this.renderSidebar();
             return;
         }
 
@@ -477,6 +479,7 @@ export class GlyphOverviewFilterManager {
         // Check if disk folder is selected
         if (!adapter.hasDirectory()) {
             console.log('No disk folder selected');
+            this.renderSidebar();
             return;
         }
 
@@ -486,6 +489,7 @@ export class GlyphOverviewFilterManager {
             const exists = await adapter.fileExists(filtersPath);
             if (!exists) {
                 console.log(`${filtersPath} does not exist`);
+                this.renderSidebar();
                 return;
             }
 

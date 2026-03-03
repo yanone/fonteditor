@@ -215,6 +215,10 @@ declare global {
                 groupLegendContainer?: HTMLElement
             ) => void;
             discoverPlugins: () => Promise<void>;
+            discoverUserFilters: (
+                skipObserverSetup?: boolean,
+                renamedToDisplayName?: string | null
+            ) => Promise<void>;
             refreshPlugins: (options?: {
                 deferCounts?: boolean;
             }) => Promise<void>;

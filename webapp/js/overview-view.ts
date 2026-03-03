@@ -89,6 +89,14 @@ async function refreshFilterPlugins() {
     }
 }
 
+async function refreshOverviewSidebarForDiskAccessChange() {
+    if (!window.glyphOverviewFilterManager?.isLoaded()) {
+        return;
+    }
+
+    await window.glyphOverviewFilterManager.discoverUserFilters();
+}
+
 function scheduleFallbackRender(sessionId: string | null, delayMs = 1200) {
     if (!sessionId) {
         return;
@@ -449,6 +457,10 @@ window.addEventListener('fontOpenEditingCompiled', async (event: Event) => {
         pendingInitialOpenSession = null;
         pendingInitialOpenStartedAt = null;
     }
+});
+
+window.addEventListener('diskFolderAccessChanged', async () => {
+    await refreshOverviewSidebarForDiskAccessChange();
 });
 
 // Initialize when DOM is ready

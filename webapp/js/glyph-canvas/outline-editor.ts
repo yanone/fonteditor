@@ -170,10 +170,14 @@ export class OutlineEditor {
 
         const sortedLayers = this.glyphCanvas.getSortedLayers();
         const selectedLayer = Array.isArray(sortedLayers)
-            ? sortedLayers.find((layer: any) => layer?.id === this.selectedLayerId)
+            ? sortedLayers.find(
+                  (layer: any) => layer?.id === this.selectedLayerId
+              )
             : null;
         const selectedMasterId =
-            selectedLayer?.master || selectedLayer?._master || this.selectedLayerId;
+            selectedLayer?.master ||
+            selectedLayer?._master ||
+            this.selectedLayerId;
 
         const selectedMaster = masters.find(
             (master: any) => master?.id === selectedMasterId
