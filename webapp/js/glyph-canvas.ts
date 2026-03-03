@@ -3095,6 +3095,18 @@ function initCanvas() {
         fontQcProfileSelect.id = 'font-qc-profile-select';
         fontQcProfileSelect.className = 'font-qc-profile-select';
 
+        const fontQcSearchRow = document.createElement('div');
+        fontQcSearchRow.className = 'font-qc-search-row';
+
+        const fontQcSearchInput = document.createElement('input');
+        fontQcSearchInput.className = 'font-qc-search-input';
+        fontQcSearchInput.type = 'search';
+        fontQcSearchInput.placeholder = 'Search checks';
+        fontQcSearchInput.setAttribute(
+            'aria-label',
+            'Search Fontspector checks'
+        );
+
         const fontQcBody = document.createElement('div');
         fontQcBody.className = 'font-qc-body';
 
@@ -3113,6 +3125,8 @@ function initCanvas() {
 
         fontQcHeaderContainer.appendChild(fontQcHeader);
         fontQcHeaderContainer.appendChild(fontQcCounts);
+        fontQcSearchRow.appendChild(fontQcSearchInput);
+        fontQcHeaderContainer.appendChild(fontQcSearchRow);
         fontQcProfileRow.appendChild(fontQcProfileLabel);
         fontQcProfileRow.appendChild(fontQcProfileSelect);
         fontQcHeaderContainer.appendChild(fontQcProfileRow);
@@ -3140,6 +3154,7 @@ function initCanvas() {
             warn: true,
             info: true
         };
+        let qcSearchQuery = '';
 
         const isRecord = (value: unknown): value is Record<string, unknown> =>
             typeof value === 'object' && value !== null;
@@ -3249,6 +3264,124 @@ function initCanvas() {
             }
 
             return Array.from(uniqueCodes);
+        };
+
+        const getCheckName = (item: any): string => {
+            if (typeof item?.checkId === 'string' && item.checkId.trim()) {
+                return item.checkId.trim();
+            }
+            if (typeof item?.check === 'string' && item.check.trim()) {
+                return item.check.trim();
+            }
+            if (typeof item?.name === 'string' && item.name.trim()) {
+                return item.name.trim();
+            }
+            return '';
+        };
+
+        const stringifyMetadataEntry = (entry: unknown): string => {
+            if (typeof entry === 'string') {
+                return entry;
+            }
+
+            try {
+                return JSON.stringify(entry);
+            } catch {
+                return '';
+            }
+        };
+
+        const getMetadataSearchLines = (item: any): string[] => {
+            if (!Array.isArray(item?.metadata)) {
+                return [];
+            }
+
+            return item.metadata
+                .map((entry: unknown) => stringifyMetadataEntry(entry).trim())
+                .filter((entry: string) => Boolean(entry));
+        };
+
+        const getSearchHaystack = (item: any): string => {
+            const level =
+                typeof item?.level === 'string' ? item.level.toLowerCase() : '';
+            const codes = extractCodes(item).join(' ');
+            const message =
+                typeof item?.message === 'string' ? item.message : '';
+            const checkName = getCheckName(item);
+            const metadata = getMetadataSearchLines(item).join(' ');
+
+            return [level, checkName, codes, message, metadata]
+                .join(' ')
+                .toLowerCase();
+        };
+
+        const matchesQcSearch = (item: any, query: string): boolean => {
+            const normalizedQuery = query.trim().toLowerCase();
+            if (!normalizedQuery) {
+                return true;
+            }
+
+            return getSearchHaystack(item).includes(normalizedQuery);
+        };
+
+        const appendHighlightedText = (
+            container: HTMLElement,
+            text: string,
+            query: string
+        ): void => {
+            const normalizedQuery = query.trim();
+            container.textContent = '';
+
+            if (!normalizedQuery || !text) {
+                container.textContent = text;
+                return;
+            }
+
+            const lowerText = text.toLowerCase();
+            const lowerQuery = normalizedQuery.toLowerCase();
+            let scanIndex = 0;
+
+            while (scanIndex < text.length) {
+                const hitIndex = lowerText.indexOf(lowerQuery, scanIndex);
+                if (hitIndex === -1) {
+                    container.appendChild(
+                        document.createTextNode(text.slice(scanIndex))
+                    );
+                    break;
+                }
+
+                if (hitIndex > scanIndex) {
+                    container.appendChild(
+                        document.createTextNode(text.slice(scanIndex, hitIndex))
+                    );
+                }
+
+                const mark = document.createElement('mark');
+                mark.className = 'font-qc-search-highlight';
+                mark.textContent = text.slice(
+                    hitIndex,
+                    hitIndex + lowerQuery.length
+                );
+                container.appendChild(mark);
+
+                scanIndex = hitIndex + lowerQuery.length;
+            }
+        };
+
+        const getMetadataMatchSnippet = (item: any, query: string): string => {
+            const normalizedQuery = query.trim().toLowerCase();
+            if (!normalizedQuery) {
+                return '';
+            }
+
+            const metadataLines = getMetadataSearchLines(item);
+            for (const line of metadataLines) {
+                if (line.toLowerCase().includes(normalizedQuery)) {
+                    return line;
+                }
+            }
+
+            return '';
         };
 
         const getQcCheckKey = (item: any, fallbackIndex: number): string => {
@@ -3426,11 +3559,13 @@ function initCanvas() {
 
         const createQcItemElement = (
             item: any,
-            fallbackIndex: number
+            fallbackIndex: number,
+            query: string
         ): HTMLElement => {
             const level = (item?.level || 'info').toLowerCase();
             const codes = extractCodes(item);
             const message = item?.message || '';
+            const checkName = getCheckName(item);
             const checkKey = getQcCheckKey(item, fallbackIndex);
             const checkSignature = getCheckSignature(item);
 
@@ -3439,24 +3574,61 @@ function initCanvas() {
 
             const metaElement = document.createElement('div');
             metaElement.className = 'font-qc-item-meta';
-            metaElement.textContent = String(level).toUpperCase();
+
+            const levelElement = document.createElement('span');
+            levelElement.className = 'font-qc-item-meta-level';
+            appendHighlightedText(
+                levelElement,
+                String(level).toUpperCase(),
+                query
+            );
+            metaElement.appendChild(levelElement);
+
+            if (checkName) {
+                const checkNameElement = document.createElement('span');
+                checkNameElement.className = 'font-qc-item-check-name';
+                appendHighlightedText(checkNameElement, checkName, query);
+                metaElement.appendChild(checkNameElement);
+            }
 
             const codesElement = document.createElement('div');
             codesElement.className = 'font-qc-item-codes';
             for (const code of codes) {
                 const codeElement = document.createElement('span');
                 codeElement.className = 'font-qc-item-code';
-                codeElement.textContent = code;
+                appendHighlightedText(codeElement, code, query);
                 codesElement.appendChild(codeElement);
             }
 
             const messageElement = document.createElement('div');
             messageElement.className = 'font-qc-item-message';
-            messageElement.textContent = message;
+            appendHighlightedText(messageElement, message, query);
 
+            const metadataMatchSnippet = getMetadataMatchSnippet(item, query);
             itemElement.appendChild(metaElement);
             itemElement.appendChild(codesElement);
             itemElement.appendChild(messageElement);
+
+            if (metadataMatchSnippet) {
+                const metadataElement = document.createElement('div');
+                metadataElement.className = 'font-qc-item-metadata';
+
+                const metadataPrefix = document.createElement('span');
+                metadataPrefix.className = 'font-qc-item-metadata-label';
+                metadataPrefix.textContent = 'Meta:';
+                metadataElement.appendChild(metadataPrefix);
+
+                const metadataText = document.createElement('span');
+                metadataText.className = 'font-qc-item-metadata-text';
+                appendHighlightedText(
+                    metadataText,
+                    metadataMatchSnippet,
+                    query
+                );
+                metadataElement.appendChild(metadataText);
+
+                itemElement.appendChild(metadataElement);
+            }
 
             const glyphProblems = extractGlyphProblems(item);
 
@@ -3548,18 +3720,23 @@ function initCanvas() {
 
             const visible = qcChecks.filter((item) => {
                 const level = item?.level as 'fail' | 'warn' | 'info';
-                return qcFilters[level] !== false;
+                return (
+                    qcFilters[level] !== false &&
+                    matchesQcSearch(item, qcSearchQuery)
+                );
             });
 
             if (!visible.length) {
                 fontQcList.innerHTML =
-                    '<div class="font-qc-empty">No messages match current filters.</div>';
+                    '<div class="font-qc-empty">No messages match current filters/search.</div>';
                 return;
             }
 
             fontQcList.innerHTML = '';
             visible.forEach((item, index) => {
-                fontQcList.appendChild(createQcItemElement(item, index));
+                fontQcList.appendChild(
+                    createQcItemElement(item, index, qcSearchQuery)
+                );
             });
         };
 
@@ -3735,6 +3912,31 @@ function initCanvas() {
             window.fullCompileManager?.setProfile?.(selected);
         });
 
+        fontQcSearchInput.addEventListener('click', (event) => {
+            event.stopPropagation();
+        });
+
+        fontQcSearchInput.addEventListener('mousedown', (event) => {
+            event.stopPropagation();
+        });
+
+        fontQcSearchInput.addEventListener('pointerdown', (event) => {
+            event.stopPropagation();
+        });
+
+        fontQcSearchInput.addEventListener('keydown', (event) => {
+            event.stopPropagation();
+        });
+
+        fontQcSearchInput.addEventListener('input', () => {
+            qcSearchQuery = fontQcSearchInput.value;
+            if (!qcExpanded) {
+                setQcExpanded(true);
+                return;
+            }
+            renderQcList();
+        });
+
         const toggleFilter = (level: 'fail' | 'warn' | 'info') => {
             if (!qcExpanded) {
                 setQcExpanded(true);
@@ -3794,14 +3996,22 @@ function initCanvas() {
                 const editorView = document.querySelector('#view-editor');
                 const isEditorFocused =
                     editorView?.classList.contains('focused');
-                if (!isEditorFocused || qcExpanded) {
+                if (!isEditorFocused) {
                     return;
                 }
 
                 event.preventDefault();
                 event.stopPropagation();
                 event.stopImmediatePropagation();
-                setQcExpanded(true);
+
+                if (!qcExpanded) {
+                    setQcExpanded(true);
+                }
+
+                window.requestAnimationFrame(() => {
+                    fontQcSearchInput.focus();
+                    fontQcSearchInput.select();
+                });
             },
             true
         );

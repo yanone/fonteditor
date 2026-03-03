@@ -94,6 +94,10 @@
     display: none;
 }
 
+.font-qc-summary.collapsed .font-qc-search-row {
+    display: none;
+}
+
 .font-qc-summary.collapsed .font-qc-status {
     display: none;
 }
@@ -286,6 +290,32 @@
     gap: 4px;
 }
 
+.font-qc-search-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.font-qc-search-input {
+    width: 100%;
+    height: 24px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-primary);
+    font-size: 11px;
+    padding: 0 6px;
+}
+
+.font-qc-search-input::placeholder {
+    color: var(--text-muted);
+}
+
+.font-qc-search-input:focus {
+    outline: none;
+    border-color: var(--border-active);
+}
+
 .font-qc-profile-label {
     font-size: 10px;
     color: var(--text-muted);
@@ -352,16 +382,66 @@
 }
 
 .font-qc-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
     font-size: 9px;
     color: var(--text-muted);
     margin-bottom: 2px;
     text-transform: uppercase;
 }
 
+.font-qc-item-meta-level {
+    flex-shrink: 0;
+}
+
+.font-qc-item-check-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-transform: none;
+}
+
 .font-qc-item-message {
     font-size: 11px;
     color: var(--text-primary);
     line-height: 1.25;
+}
+
+.font-qc-item-metadata {
+    margin-top: 3px;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    font-size: 9px;
+    color: var(--text-muted);
+    line-height: 1.3;
+}
+
+.font-qc-item-metadata-label {
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+}
+
+.font-qc-item-metadata-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.font-qc-search-highlight {
+    padding: 0;
+    border-radius: 2px;
+    background: color-mix(
+        in srgb,
+        var(--accent-yellow) 38%,
+        var(--background-secondary) 62%
+    );
+    color: var(--text-primary);
 }
 
 .font-qc-item-codes {
