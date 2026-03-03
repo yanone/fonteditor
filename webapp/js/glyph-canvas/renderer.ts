@@ -291,12 +291,14 @@ export class GlyphCanvasRenderer {
         // Check if stack preview mode is active
         if (this.glyphCanvas.stackPreviewAnimator.shouldRenderStackPreview()) {
             // In stack preview mode, render other glyphs normally but replace selected glyph with stack preview
+            this.drawEditingMetricsUnderlay();
             this.drawSelection();
             this.drawShapedGlyphsWithStackPreview();
             this.drawCanvasPluginsBelow();
             this.drawCanvasPluginsAbove();
         } else {
             // Normal rendering
+            this.drawEditingMetricsUnderlay();
             // Draw selection highlight
             this.drawSelection();
 
@@ -546,6 +548,171 @@ export class GlyphCanvasRenderer {
                 xPosition += xAdvance;
             }
         );
+    }
+
+    private getTextRunHorizontalExtents(): {
+        minX: number;
+        maxX: number;
+    } | null {
+        if (
+            !this.textRunEditor.shapedGlyphs ||
+            this.textRunEditor.shapedGlyphs.length === 0
+        ) {
+            return null;
+        }
+
+        let xPosition = 0;
+        let minX = Infinity;
+        let maxX = -Infinity;
+
+        for (const shapedGlyph of this.textRunEditor.shapedGlyphs) {
+            const xOffset = shapedGlyph.dx || 0;
+            const xAdvance = shapedGlyph.ax || 0;
+            const glyphStartX = xPosition + xOffset;
+            const glyphEndX = glyphStartX + xAdvance;
+
+            minX = Math.min(minX, glyphStartX, glyphEndX);
+            maxX = Math.max(maxX, glyphStartX, glyphEndX);
+
+            xPosition += xAdvance;
+        }
+
+        if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
+            return null;
+        }
+
+        return { minX, maxX };
+    }
+
+    private drawEditingMetricsUnderlay(): void {
+        if (
+            !this.glyphCanvas.outlineEditor.active ||
+            this.glyphCanvas.outlineEditor.isPreviewMode
+        ) {
+            return;
+        }
+
+        const lineExtents = this.getTextRunHorizontalExtents();
+        if (!lineExtents) {
+            return;
+        }
+
+        const verticalMetrics =
+            this.glyphCanvas.outlineEditor.renderVerticalMetrics;
+        if (!verticalMetrics) {
+            return;
+        }
+
+        const relevantMetricKeys = new Set([
+            'Ascender',
+            'Descender',
+            'ascender',
+            'descender',
+            'HheaAscender',
+            'HheaDescender',
+            'TypoAscender',
+            'TypoDescender',
+            'WinAscent',
+            'WinDescent',
+            'xHeight',
+            'XHeight',
+            'CapHeight'
+        ]);
+
+        const metricValues: number[] = [];
+        for (const [metricKey, metricValue] of Object.entries(
+            verticalMetrics
+        )) {
+            if (!relevantMetricKeys.has(metricKey)) {
+                continue;
+            }
+            if (!Number.isFinite(metricValue)) {
+                continue;
+            }
+            metricValues.push(metricValue);
+        }
+
+        const uniqueMetricValues: number[] = [];
+        for (const metricValue of metricValues) {
+            const alreadyPresent = uniqueMetricValues.some(
+                (existingValue) => Math.abs(existingValue - metricValue) < 0.25
+            );
+            if (!alreadyPresent) {
+                uniqueMetricValues.push(metricValue);
+            }
+        }
+
+        if (uniqueMetricValues.length === 0) {
+            return;
+        }
+
+        uniqueMetricValues.push(0);
+
+        const topY = Math.max(...uniqueMetricValues);
+        const bottomY = Math.min(...uniqueMetricValues);
+
+        const isDarkTheme =
+            document.documentElement.getAttribute('data-theme') !== 'light';
+        const colors = isDarkTheme
+            ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
+            : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+
+        const baseMetricColor = desaturateColor(colors.GLYPH_ACTIVE_IN_EDITOR);
+        const parsedBaseColor = parseRgbaColor(toRgba(baseMetricColor));
+        const underlayColor = parsedBaseColor
+            ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.16)`
+            : baseMetricColor;
+        const baselineColor = parsedBaseColor
+            ? `rgba(${parsedBaseColor.r}, ${parsedBaseColor.g}, ${parsedBaseColor.b}, 0.22)`
+            : baseMetricColor;
+
+        this.ctx.save();
+        this.ctx.lineWidth = 1 / this.viewportManager.scale;
+
+        for (const metricValue of uniqueMetricValues) {
+            const isBaseline = Math.abs(metricValue) < 1e-8;
+            this.ctx.strokeStyle = isBaseline ? baselineColor : underlayColor;
+            this.ctx.beginPath();
+            this.ctx.moveTo(lineExtents.minX, metricValue);
+            this.ctx.lineTo(lineExtents.maxX, metricValue);
+            this.ctx.stroke();
+        }
+
+        const selectedGlyphIndex = this.textRunEditor.selectedGlyphIndex;
+        if (
+            selectedGlyphIndex >= 0 &&
+            selectedGlyphIndex < this.textRunEditor.shapedGlyphs.length
+        ) {
+            const selectedLayerData = this.glyphCanvas.outlineEditor.layerData;
+            const selectedGlyph =
+                this.textRunEditor.shapedGlyphs[selectedGlyphIndex];
+            const glyphPosition =
+                this.textRunEditor._getGlyphPosition(selectedGlyphIndex);
+
+            const layerWidth = selectedLayerData?.width;
+            const activeGlyphAdvance =
+                typeof layerWidth === 'number' && Number.isFinite(layerWidth)
+                    ? layerWidth
+                    : Number(selectedGlyph.ax) || 0;
+
+            const activeGlyphStartX =
+                glyphPosition.xPosition + glyphPosition.xOffset;
+            const activeGlyphEndX = activeGlyphStartX + activeGlyphAdvance;
+
+            this.ctx.strokeStyle = underlayColor;
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(activeGlyphStartX, bottomY);
+            this.ctx.lineTo(activeGlyphStartX, topY);
+            this.ctx.stroke();
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(activeGlyphEndX, bottomY);
+            this.ctx.lineTo(activeGlyphEndX, topY);
+            this.ctx.stroke();
+        }
+
+        this.ctx.restore();
     }
 
     drawCachedExplicitGlyphOutline(outlineData: any, x: number, y: number) {
