@@ -1363,23 +1363,21 @@ pub fn compile_cached_font_from_last_layout_closure(
                     current_perf_trace_suffix()
                 ));
 
-                // Copy added glyphs + restore full kern groups/masters from FONT_CACHE,
-                // then re-subset features and filter kerning/masters to the new set.
+                // Rebuild from the full cached font so that font.features is
+                // consistent with font.glyphs before subsetting.  Incremental
+                // glyph-patching cannot be used here because subset_font_using_
+                // cached_fea (RetainGlyphs/SubsetLayout) requires all glyphs
+                // referenced in the feature file to be present in font.glyphs —
+                // otherwise it errors on unknown glyph references.  Starting
+                // from a full-font clone (like C3c) and re-subsetting is the
+                // only correct approach for the superset case.
+                let _ = added_glyphs; // unused now that we clone the full font
                 {
                     let cache = FONT_CACHE.lock().unwrap();
                     let full_font = cache.as_ref().ok_or_else(|| {
                         JsValue::from_str("No font cached. Call store_font() first.")
                     })?;
-                    for name in &added_glyphs {
-                        if let Some(glyph) =
-                            full_font.glyphs.iter().find(|g| g.name.as_str() == name.as_str())
-                        {
-                            font.glyphs.push(glyph.clone());
-                        }
-                    }
-                    font.first_kern_groups = full_font.first_kern_groups.clone();
-                    font.second_kern_groups = full_font.second_kern_groups.clone();
-                    font.masters = full_font.masters.clone();
+                    font = full_font.clone();
                 }
 
                 if !closure_subset.is_empty() {
