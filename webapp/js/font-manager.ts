@@ -1566,6 +1566,14 @@ class FontManager {
                 console.log(
                     '[FontManager] Debounced full compile triggered after interactive editing'
                 );
+
+                if (this.pendingBabelfontJsonSyncAfterDrag) {
+                    if (!this.syncBabelfontJsonFromCurrentModel()) {
+                        return;
+                    }
+                    this.pendingBabelfontJsonSyncAfterDrag = false;
+                }
+
                 // Reset lastEditType so the upcoming compile uses compilationMode = 'full'
                 // (with kern/features). Do this regardless of needsRecompile — if a compile
                 // is still in progress, the auto-compile loop's data-changed retry will pick
@@ -2113,7 +2121,13 @@ class FontManager {
                         layerData: layerDataCopy
                     });
                     updatedViaIncrementalLayer = true;
-                    this.pendingBabelfontJsonSyncAfterDrag = false;
+
+                    if (this.pendingBabelfontJsonSyncAfterDrag) {
+                        if (!this.syncBabelfontJsonFromCurrentModel()) {
+                            return;
+                        }
+                        this.pendingBabelfontJsonSyncAfterDrag = false;
+                    }
                 } catch (error) {
                     console.warn(
                         '[FontManager] Incremental post-drag worker layer update failed, falling back to full store:',

@@ -3284,13 +3284,17 @@ function initCanvas() {
             window.glyphCanvas?.clearActiveQcCanvasMarkers();
         };
 
-        const syncActiveSelectionToChecks = (): void => {
+        const syncActiveSelectionToChecks = (
+            status: 'ready' | 'compiling' | 'idle' | 'error'
+        ): void => {
             if (!selectedQcGlyphButton) {
                 return;
             }
 
             let matchedCheckKey: string | null = null;
+            let matchedCheckSignature: string | null = null;
             let matchedGlyphProblem: QCGlyphProblem | null = null;
+            let matchedGlyphProblemSignature: string | null = null;
 
             const distanceSquared = (
                 first: [number, number],
@@ -3301,65 +3305,82 @@ function initCanvas() {
                 return dx * dx + dy * dy;
             };
 
+            let bestMatchScore = Number.POSITIVE_INFINITY;
+            let bestDistance = Number.POSITIVE_INFINITY;
+
             for (let index = 0; index < qcChecks.length; index++) {
                 const check = qcChecks[index];
                 const checkSignature = getCheckSignature(check);
-                if (checkSignature !== selectedQcGlyphButton.checkSignature) {
-                    continue;
-                }
-
                 const glyphProblems = extractGlyphProblems(check);
-                const matchingCandidates = glyphProblems.filter(
-                    (glyphProblem) =>
-                        glyphProblem.glyphName ===
-                            selectedQcGlyphButton!.glyphName &&
-                        getGlyphProblemSignature(glyphProblem) ===
-                            selectedQcGlyphButton!.glyphProblemSignature
-                );
+                for (const glyphProblem of glyphProblems) {
+                    if (
+                        glyphProblem.glyphName !==
+                        selectedQcGlyphButton.glyphName
+                    ) {
+                        continue;
+                    }
 
-                if (matchingCandidates.length) {
-                    matchedCheckKey = getQcCheckKey(check, index);
+                    const glyphProblemSignature =
+                        getGlyphProblemSignature(glyphProblem);
+                    const checkMatches =
+                        checkSignature === selectedQcGlyphButton.checkSignature;
+                    const glyphMatches =
+                        glyphProblemSignature ===
+                        selectedQcGlyphButton.glyphProblemSignature;
 
+                    let score = 4;
+                    if (checkMatches && glyphMatches) {
+                        score = 0;
+                    } else if (glyphMatches) {
+                        score = 1;
+                    } else if (checkMatches) {
+                        score = 2;
+                    } else {
+                        score = 3;
+                    }
+
+                    let distance = Number.POSITIVE_INFINITY;
                     if (
                         selectedQcGlyphButton.lastKnownPosition &&
-                        matchingCandidates.some(
-                            (candidate) => candidate.position !== null
-                        )
+                        glyphProblem.position
                     ) {
-                        const targetPosition =
-                            selectedQcGlyphButton.lastKnownPosition;
-                        matchedGlyphProblem = matchingCandidates
-                            .filter((candidate) => candidate.position !== null)
-                            .sort((first, second) => {
-                                return (
-                                    distanceSquared(
-                                        first.position as [number, number],
-                                        targetPosition
-                                    ) -
-                                    distanceSquared(
-                                        second.position as [number, number],
-                                        targetPosition
-                                    )
-                                );
-                            })[0];
+                        distance = distanceSquared(
+                            glyphProblem.position,
+                            selectedQcGlyphButton.lastKnownPosition
+                        );
                     }
 
-                    if (!matchedGlyphProblem) {
-                        matchedGlyphProblem = matchingCandidates[0];
+                    if (
+                        score < bestMatchScore ||
+                        (score === bestMatchScore && distance < bestDistance)
+                    ) {
+                        bestMatchScore = score;
+                        bestDistance = distance;
+                        matchedCheckKey = getQcCheckKey(check, index);
+                        matchedCheckSignature = checkSignature;
+                        matchedGlyphProblem = glyphProblem;
+                        matchedGlyphProblemSignature = glyphProblemSignature;
                     }
-                }
-
-                if (matchedCheckKey) {
-                    break;
                 }
             }
 
-            if (!matchedCheckKey || !matchedGlyphProblem) {
+            if (
+                !matchedCheckKey ||
+                !matchedGlyphProblem ||
+                !matchedCheckSignature ||
+                !matchedGlyphProblemSignature
+            ) {
+                if (status === 'compiling' || qcChecks.length === 0) {
+                    return;
+                }
                 clearActiveQcSelection();
                 return;
             }
 
             selectedQcGlyphButton.checkKey = matchedCheckKey;
+            selectedQcGlyphButton.checkSignature = matchedCheckSignature;
+            selectedQcGlyphButton.glyphProblemSignature =
+                matchedGlyphProblemSignature;
             selectedQcGlyphButton.lastKnownPosition =
                 matchedGlyphProblem.position;
 
@@ -3599,7 +3620,7 @@ function initCanvas() {
                 __qcKey: `${qcVersionSeed}:${index}`
             }));
 
-            syncActiveSelectionToChecks();
+            syncActiveSelectionToChecks(status);
             const checksWithMetadata = qcChecks.filter((check) =>
                 Array.isArray(check?.metadata)
             ).length;
