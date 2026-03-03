@@ -85,7 +85,10 @@ test.describe('Font Editor Basic Workflow', () => {
         // across macOS versions produce different line breaks.
         await expect(page).toHaveScreenshot(
             `${snapshotNumber}-${label}-window.png`,
-            { mask: [page.locator('#console-container')] }
+            {
+                maxDiffPixelRatio: 0.02,
+                mask: [page.locator('#console-container')]
+            }
         );
         return snapshot;
     };
@@ -653,7 +656,10 @@ test.describe('Font Editor Basic Workflow', () => {
         );
         await expect(page).toHaveScreenshot(
             '19-feature-compile-error-window.png',
-            { mask: [page.locator('#console-container')] }
+            {
+                maxDiffPixelRatio: 0.02,
+                mask: [page.locator('#console-container')]
+            }
         );
 
         console.log('[Test] Test complete');

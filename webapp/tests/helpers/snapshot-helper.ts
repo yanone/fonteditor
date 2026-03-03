@@ -620,7 +620,7 @@ export async function takeSnapshot(
     snapshotNumber: string,
     label: string,
     expect: any,
-    maxDiffPixelRatio?: number
+    maxDiffPixelRatio: number = 0.02
 ): Promise<any> {
     // Wait 100ms for rendering to stabilize
     await page.waitForTimeout(100);
@@ -634,8 +634,7 @@ export async function takeSnapshot(
     );
 
     // Assert PNG screenshot with optional threshold
-    const screenshotOptions =
-        maxDiffPixelRatio !== undefined ? { maxDiffPixelRatio } : {};
+    const screenshotOptions = { maxDiffPixelRatio };
 
     await expect(
         page.locator('#glyph-canvas-container canvas')

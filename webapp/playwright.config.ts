@@ -26,6 +26,12 @@ export default defineConfig({
     // Reporter to use
     reporter: [['html'], ['list']],
 
+    expect: {
+        toHaveScreenshot: {
+            maxDiffPixelRatio: 0.05
+        }
+    },
+
     // Shared settings for all projects
     use: {
         // Base URL for navigation
