@@ -2986,6 +2986,10 @@ function initCanvas() {
         rightSidebar.id = 'glyph-editor-sidebar';
         rightSidebar.className = 'view-sidebar view-sidebar-right';
 
+        const rightSidebarScrollContent = document.createElement('div');
+        rightSidebarScrollContent.id = 'glyph-editor-scroll-content';
+        rightSidebar.appendChild(rightSidebarScrollContent);
+
         // Create canvas container
         const canvasContainer = document.createElement('div');
         canvasContainer.id = 'glyph-canvas-container';
@@ -3009,17 +3013,23 @@ function initCanvas() {
 
         // Create variable axes container (initially empty)
         const axesSection = window.glyphCanvas.axesManager!.createAxesSection();
-        rightSidebar.appendChild(axesSection);
+        rightSidebarScrollContent.appendChild(axesSection);
 
         // Create OpenType features container (initially empty)
         const featuresSection =
             window.glyphCanvas.featuresManager!.createFeaturesSection();
-        rightSidebar.appendChild(featuresSection);
+        rightSidebarScrollContent.appendChild(featuresSection);
 
         // Create font QC summary container (bottom of right sidebar)
         const fontQcSection = document.createElement('div');
         fontQcSection.id = 'font-qc-summary-section';
         fontQcSection.className = 'font-qc-summary collapsed';
+
+        const fontQcHeaderContainer = document.createElement('div');
+        fontQcHeaderContainer.className = 'font-qc-header-container';
+
+        const fontQcListContainer = document.createElement('div');
+        fontQcListContainer.className = 'font-qc-list-container';
 
         const fontQcHeader = document.createElement('div');
         fontQcHeader.className = 'font-qc-header';
@@ -3101,13 +3111,15 @@ function initCanvas() {
         fontQcCounts.appendChild(warnCount);
         fontQcCounts.appendChild(infoCount);
 
-        fontQcSection.appendChild(fontQcHeader);
-        fontQcSection.appendChild(fontQcCounts);
+        fontQcHeaderContainer.appendChild(fontQcHeader);
+        fontQcHeaderContainer.appendChild(fontQcCounts);
         fontQcProfileRow.appendChild(fontQcProfileLabel);
         fontQcProfileRow.appendChild(fontQcProfileSelect);
-        fontQcSection.appendChild(fontQcProfileRow);
-        fontQcSection.appendChild(fontQcStatus);
-        fontQcSection.appendChild(fontQcBody);
+        fontQcHeaderContainer.appendChild(fontQcProfileRow);
+        fontQcHeaderContainer.appendChild(fontQcStatus);
+        fontQcListContainer.appendChild(fontQcBody);
+        fontQcSection.appendChild(fontQcHeaderContainer);
+        fontQcSection.appendChild(fontQcListContainer);
         rightSidebar.appendChild(fontQcSection);
 
         let qcExpanded = false;
@@ -3555,9 +3567,8 @@ function initCanvas() {
             qcExpanded = expanded;
             fontQcSection.classList.toggle('expanded', expanded);
             fontQcSection.classList.toggle('collapsed', !expanded);
-            axesSection.style.display = expanded ? 'none' : '';
-            featuresSection.style.display = expanded ? 'none' : '';
-            rightSidebar.style.overflowY = expanded ? 'hidden' : 'auto';
+            rightSidebar.classList.toggle('font-qc-expanded', expanded);
+            rightSidebarScrollContent.style.display = expanded ? 'none' : '';
             const sidebarTargetWidth = expanded
                 ? sidebarExpandedWidth
                 : sidebarCollapsedWidth;

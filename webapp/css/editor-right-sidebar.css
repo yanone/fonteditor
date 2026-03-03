@@ -3,14 +3,24 @@
     min-width: 200px;
     height: 100%;
     border-left: 1px solid var(--border-primary);
-    padding: 12px;
-    padding-bottom: 0;
-    overflow-y: auto;
+    padding: 0;
+    overflow: hidden;
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
     gap: 0;
     transition: width 0.22s ease, min-width 0.22s ease;
+}
+
+#glyph-editor-scroll-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 12px 12px 0;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 #glyph-axes-section {
@@ -25,7 +35,7 @@
     gap: 2px;
     margin-top: 14px;
     min-width: 0;
-    overflow-x: hidden;
+    overflow: visible;
 }
 
 /* OpenType Features Section */
@@ -44,8 +54,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin-left: -12px;
-    margin-right: -12px;
+    margin: 0;
     padding-left: 12px;
     padding-right: 12px;
     padding-top: 8px;
@@ -60,11 +69,24 @@
     flex-shrink: 0;
 }
 
+.font-qc-header-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-right: 10px;
+}
+
+.font-qc-list-container {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
 .font-qc-summary.collapsed {
     flex: 0 0 auto;
     opacity: 1;
     transform: translateY(0);
-    margin-bottom: -14px;
+    margin-bottom: -17px;
     gap: 6px;
 }
 
@@ -76,6 +98,10 @@
     display: none;
 }
 
+.font-qc-summary.collapsed .font-qc-list-container {
+    display: none;
+}
+
 .font-qc-summary.expanded {
     margin-top: 0 !important;
     flex: 1;
@@ -84,6 +110,27 @@
     padding-top: 6px;
     opacity: 1;
     transform: translateY(0);
+}
+
+#glyph-editor-sidebar.font-qc-expanded {
+    padding: 0;
+}
+
+#glyph-editor-sidebar.font-qc-expanded #font-qc-summary-section {
+    margin-top: 0;
+    flex: 1;
+    min-height: 0;
+}
+
+#glyph-editor-sidebar.font-qc-expanded .font-qc-summary {
+    margin: 0;
+    border-top: none;
+    height: 100%;
+    min-height: 0;
+    padding-top: 10px;
+    padding-right: 0px;
+    padding-bottom: 0px;
+    padding-left: 12px;
 }
 
 .font-qc-header {
@@ -292,7 +339,9 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding-right: 2px;
+    padding-right: 4px;
+
+
 }
 
 .font-qc-item {
