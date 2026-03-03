@@ -2,8 +2,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = join(process.cwd(), 'js');
-const EXPECTED_EXPLICIT_ANY = 599;
-const EXPECTED_EXPLICIT_UNKNOWN = 95;
+const EXPECTED_EXPLICIT_ANY = 615;
+const EXPECTED_EXPLICIT_UNKNOWN = 115;
 const EXPECTED_BABELFONT_MODEL_ANY = 0;
 const EXPECTED_BABELFONT_MODEL_UNKNOWN = 0;
 const BABE_FONT_MODEL_PATH_SUFFIX = join('js', 'babelfont-model.ts');
