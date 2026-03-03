@@ -22,6 +22,18 @@ import { timelineMark } from './perf-timeline';
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
 
+type QCGlyphProblem = {
+    glyphName: string;
+    userspaceLocation: Record<string, number> | null;
+    position: [number, number] | null;
+};
+
+export type QCCanvasMarker = {
+    glyphName: string;
+    position: [number, number];
+    userspaceLocation?: Record<string, number> | null;
+};
+
 class GlyphCanvas {
     container: HTMLElement;
     canvas: HTMLCanvasElement | null = null;
@@ -112,6 +124,8 @@ class GlyphCanvas {
 
     // Auto-pan anchor for text mode (cursor position)
     textModeAutoPanAnchorScreen: { x: number; y: number } | null = null;
+
+    activeQcCanvasMarkers: QCCanvasMarker[] = [];
 
     // Pending anchors for feature changes that trigger font recompilation
     // These are applied after the editing font reloads to prevent glyph jumping
@@ -1925,11 +1939,19 @@ class GlyphCanvas {
     ): Promise<void> {
         // Animate designspace location from current to target over specified frames
         const startLocation: Record<string, number> = {};
+        const isEditing = this.outlineEditor.active;
+        const previousIsAnimating = this.axesManager!.isAnimating;
+
+        if (isEditing) {
+            this.outlineEditor.onSliderMouseDown();
+        }
+
+        this.axesManager!.isAnimating = true;
 
         // Get current location from axes manager
         for (const tag in targetLocation) {
             startLocation[tag] =
-                this.axesManager!.getAxisValue(tag) || targetLocation[tag];
+                this.axesManager!.getAxisValue(tag) ?? targetLocation[tag];
         }
 
         console.log(
@@ -1958,15 +1980,143 @@ class GlyphCanvas {
             // Update axis sliders UI to show the animation
             this.axesManager!.updateAxisSliders();
 
-            // Shape text with HarfBuzz and apply auto-pan for all frames
-            this.textRunEditor!.shapeText(true); // Skip render - we'll render after auto-pan
-            this.applyTextModeAutoPanAdjustment();
-            this.render();
+            if (isEditing) {
+                this.outlineEditor.animationInProgress();
+            } else {
+                // Shape text with HarfBuzz and apply auto-pan for all frames
+                this.textRunEditor!.shapeText(true); // Skip render - we'll render after auto-pan
+                this.applyTextModeAutoPanAdjustment();
+                this.render();
+            }
 
             // Wait for next frame
             if (frame < frames) {
                 await new Promise((resolve) => requestAnimationFrame(resolve));
             }
+        }
+
+        // Snap to exact target values at the end to avoid accumulated float drift.
+        for (const tag in targetLocation) {
+            this.axesManager!.setAxisValue(tag, targetLocation[tag]);
+        }
+        this.axesManager!.updateAxisSliders();
+
+        this.axesManager!.isAnimating = false;
+
+        if (isEditing) {
+            await this.outlineEditor.onSliderMouseUp();
+        } else {
+            this.textRunEditor!.shapeText(true);
+            this.applyTextModeAutoPanAdjustment();
+            this.render();
+        }
+
+        this.axesManager!.isAnimating = previousIsAnimating;
+
+        await this.autoSelectMatchingMaster();
+    }
+
+    setActiveQcCanvasMarkers(markers: QCCanvasMarker[]): void {
+        this.activeQcCanvasMarkers = [...markers];
+        this.render();
+    }
+
+    clearActiveQcCanvasMarkers(): void {
+        if (!this.activeQcCanvasMarkers.length) {
+            return;
+        }
+        this.activeQcCanvasMarkers = [];
+        this.render();
+    }
+
+    async activateQCGlyphProblem(problem: QCGlyphProblem): Promise<void> {
+        if (!this.textRunEditor) {
+            return;
+        }
+
+        const wasEditing = this.outlineEditor.active;
+
+        const tokenText = `/${problem.glyphName}`;
+        const currentStackGlyphName = (() => {
+            if (!wasEditing) {
+                return null;
+            }
+
+            const parsedStack = this.outlineEditor.parseGlyphStack();
+            if (parsedStack.length) {
+                return parsedStack[parsedStack.length - 1].glyphName;
+            }
+
+            const currentGlyphName = this.getCurrentGlyphName();
+            return currentGlyphName === 'undefined' ? null : currentGlyphName;
+        })();
+
+        const isGlyphAlreadyLoaded =
+            (typeof currentStackGlyphName === 'string' &&
+                currentStackGlyphName === problem.glyphName) ||
+            this.textRunEditor.textBuffer === tokenText;
+
+        if (!isGlyphAlreadyLoaded) {
+            this.textRunEditor.setTextBufferForNavigation(tokenText);
+        }
+
+        if (!isGlyphAlreadyLoaded && fontManager && fontManager.isReady()) {
+            const subsetGlyphs =
+                fontManager.deriveSubsetGlyphsFromText(tokenText);
+            if (
+                problem.glyphName &&
+                !subsetGlyphs.includes(problem.glyphName)
+            ) {
+                subsetGlyphs.push(problem.glyphName);
+            }
+
+            await fontManager.compileEditingFont(
+                tokenText,
+                [],
+                subsetGlyphs.length > 0 ? subsetGlyphs : undefined
+            );
+        }
+
+        if (problem.userspaceLocation) {
+            await this.animateToLocation(problem.userspaceLocation, 10);
+
+            if (wasEditing) {
+                await this.outlineEditor.autoSelectMatchingLayer();
+                await this.displayMastersList();
+                await this.doUIUpdateAsync();
+            }
+        }
+
+        if (!this.outlineEditor.active) {
+            this.textRunEditor.shapeText(true);
+
+            const targetGlyphIndex = this.textRunEditor.shapedGlyphs.findIndex(
+                (glyph: any) => glyph.explicitGlyphName === problem.glyphName
+            );
+
+            const glyphIndexToEdit =
+                targetGlyphIndex >= 0
+                    ? targetGlyphIndex
+                    : this.textRunEditor.shapedGlyphs.length > 0
+                      ? 0
+                      : -1;
+
+            if (glyphIndexToEdit >= 0) {
+                await this.textRunEditor.selectGlyphByIndex(glyphIndexToEdit);
+            }
+        }
+
+        if (problem.position) {
+            this.setActiveQcCanvasMarkers([
+                {
+                    glyphName: problem.glyphName,
+                    position: problem.position,
+                    userspaceLocation: problem.userspaceLocation
+                }
+            ]);
+        } else {
+            this.clearActiveQcCanvasMarkers();
+            this.render();
         }
     }
 
@@ -2887,6 +3037,10 @@ function initCanvas() {
         fontQcShortcut.innerHTML =
             '<span class="material-symbols-outlined">keyboard_command_key</span><span class="material-symbols-outlined">keyboard_option_key</span>F';
 
+        const fontQcCompileDot = document.createElement('span');
+        fontQcCompileDot.className = 'font-qc-compile-dot';
+        fontQcCompileDot.title = 'Fontspector idle';
+
         const fontQcCloseBtn = document.createElement('button');
         fontQcCloseBtn.className = 'font-qc-close-button';
         fontQcCloseBtn.type = 'button';
@@ -2940,6 +3094,7 @@ function initCanvas() {
 
         fontQcTitleWrap.appendChild(fontQcTitle);
         fontQcTitleWrap.appendChild(fontQcShortcut);
+        fontQcTitleWrap.appendChild(fontQcCompileDot);
         fontQcHeader.appendChild(fontQcTitleWrap);
         fontQcHeader.appendChild(fontQcCloseBtn);
         fontQcCounts.appendChild(failCount);
@@ -2958,6 +3113,13 @@ function initCanvas() {
         let qcExpanded = false;
         let qcChecks: any[] = [];
         let qcAvailableProfiles: string[] = [];
+        let selectedQcGlyphButton: {
+            checkKey: string;
+            checkSignature: string;
+            glyphProblemSignature: string;
+            glyphName: string;
+            lastKnownPosition: [number, number] | null;
+        } | null = null;
         const sidebarCollapsedWidth =
             Number.parseFloat(rightSidebar.style.width) || 200;
         const sidebarExpandedWidth = sidebarCollapsedWidth * 2;
@@ -2965,6 +3127,383 @@ function initCanvas() {
             fail: true,
             warn: true,
             info: true
+        };
+
+        const isRecord = (value: unknown): value is Record<string, unknown> =>
+            typeof value === 'object' && value !== null;
+
+        const parseUserspaceLocation = (
+            value: unknown
+        ): Record<string, number> | null => {
+            if (!isRecord(value)) {
+                return null;
+            }
+
+            const location: Record<string, number> = {};
+            for (const [tag, rawValue] of Object.entries(value)) {
+                if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+                    location[tag] = rawValue;
+                }
+            }
+
+            return Object.keys(location).length ? location : null;
+        };
+
+        const parsePosition = (value: unknown): [number, number] | null => {
+            if (!Array.isArray(value) || value.length < 2) {
+                return null;
+            }
+
+            const [x, y] = value;
+            if (
+                typeof x !== 'number' ||
+                typeof y !== 'number' ||
+                !Number.isFinite(x) ||
+                !Number.isFinite(y)
+            ) {
+                return null;
+            }
+
+            return [x, y];
+        };
+
+        const extractGlyphProblems = (item: any): QCGlyphProblem[] => {
+            if (!Array.isArray(item?.metadata)) {
+                return [];
+            }
+
+            const uniqueProblems = new Map<string, QCGlyphProblem>();
+
+            for (const metadataEntry of item.metadata) {
+                if (!isRecord(metadataEntry)) {
+                    continue;
+                }
+
+                const rawGlyphProblem = metadataEntry.GlyphProblem;
+                if (!isRecord(rawGlyphProblem)) {
+                    continue;
+                }
+
+                const glyphName = rawGlyphProblem.glyph_name;
+                if (typeof glyphName !== 'string' || !glyphName) {
+                    continue;
+                }
+
+                const userspaceLocation = parseUserspaceLocation(
+                    rawGlyphProblem.userspace_location
+                );
+                const position = parsePosition(rawGlyphProblem.position);
+
+                const dedupeKey = JSON.stringify({
+                    glyphName,
+                    userspaceLocation,
+                    position
+                });
+
+                uniqueProblems.set(dedupeKey, {
+                    glyphName,
+                    userspaceLocation,
+                    position
+                });
+            }
+
+            return Array.from(uniqueProblems.values());
+        };
+
+        const extractCodes = (item: any): string[] => {
+            const uniqueCodes = new Set<string>();
+
+            const pushCode = (value: unknown): void => {
+                if (typeof value !== 'string') {
+                    return;
+                }
+
+                const code = value.trim();
+                if (code) {
+                    uniqueCodes.add(code);
+                }
+            };
+
+            if (Array.isArray(item?.codes)) {
+                for (const codeValue of item.codes) {
+                    pushCode(codeValue);
+                }
+            }
+
+            pushCode(item?.code);
+
+            if (!uniqueCodes.size) {
+                uniqueCodes.add('uncoded');
+            }
+
+            return Array.from(uniqueCodes);
+        };
+
+        const getQcCheckKey = (item: any, fallbackIndex: number): string => {
+            if (typeof item?.__qcKey === 'string' && item.__qcKey) {
+                return item.__qcKey;
+            }
+            return `qc-${fallbackIndex}`;
+        };
+
+        const serializeUserspaceLocation = (
+            location: Record<string, number> | null
+        ): string => {
+            if (!location) {
+                return '';
+            }
+
+            const sortedEntries = Object.entries(location).sort(([a], [b]) =>
+                a.localeCompare(b)
+            );
+            return JSON.stringify(sortedEntries);
+        };
+
+        const getCheckSignature = (item: any): string => {
+            const level = (item?.level || 'info').toLowerCase();
+            const message =
+                typeof item?.message === 'string' ? item.message : '';
+            const checkId =
+                typeof item?.checkId === 'string' ? item.checkId : '';
+            const codes = extractCodes(item);
+
+            return JSON.stringify({ level, message, checkId, codes });
+        };
+
+        const getGlyphProblemSignature = (problem: QCGlyphProblem): string => {
+            return JSON.stringify({
+                glyphName: problem.glyphName,
+                userspaceLocation: serializeUserspaceLocation(
+                    problem.userspaceLocation
+                )
+            });
+        };
+
+        const clearActiveQcSelection = (): void => {
+            selectedQcGlyphButton = null;
+            window.glyphCanvas?.clearActiveQcCanvasMarkers();
+        };
+
+        const syncActiveSelectionToChecks = (): void => {
+            if (!selectedQcGlyphButton) {
+                return;
+            }
+
+            let matchedCheckKey: string | null = null;
+            let matchedGlyphProblem: QCGlyphProblem | null = null;
+
+            const distanceSquared = (
+                first: [number, number],
+                second: [number, number]
+            ): number => {
+                const dx = first[0] - second[0];
+                const dy = first[1] - second[1];
+                return dx * dx + dy * dy;
+            };
+
+            for (let index = 0; index < qcChecks.length; index++) {
+                const check = qcChecks[index];
+                const checkSignature = getCheckSignature(check);
+                if (checkSignature !== selectedQcGlyphButton.checkSignature) {
+                    continue;
+                }
+
+                const glyphProblems = extractGlyphProblems(check);
+                const matchingCandidates = glyphProblems.filter(
+                    (glyphProblem) =>
+                        glyphProblem.glyphName ===
+                            selectedQcGlyphButton!.glyphName &&
+                        getGlyphProblemSignature(glyphProblem) ===
+                            selectedQcGlyphButton!.glyphProblemSignature
+                );
+
+                if (matchingCandidates.length) {
+                    matchedCheckKey = getQcCheckKey(check, index);
+
+                    if (
+                        selectedQcGlyphButton.lastKnownPosition &&
+                        matchingCandidates.some(
+                            (candidate) => candidate.position !== null
+                        )
+                    ) {
+                        const targetPosition =
+                            selectedQcGlyphButton.lastKnownPosition;
+                        matchedGlyphProblem = matchingCandidates
+                            .filter((candidate) => candidate.position !== null)
+                            .sort((first, second) => {
+                                return (
+                                    distanceSquared(
+                                        first.position as [number, number],
+                                        targetPosition
+                                    ) -
+                                    distanceSquared(
+                                        second.position as [number, number],
+                                        targetPosition
+                                    )
+                                );
+                            })[0];
+                    }
+
+                    if (!matchedGlyphProblem) {
+                        matchedGlyphProblem = matchingCandidates[0];
+                    }
+                }
+
+                if (matchedCheckKey) {
+                    break;
+                }
+            }
+
+            if (!matchedCheckKey || !matchedGlyphProblem) {
+                clearActiveQcSelection();
+                return;
+            }
+
+            selectedQcGlyphButton.checkKey = matchedCheckKey;
+            selectedQcGlyphButton.lastKnownPosition =
+                matchedGlyphProblem.position;
+
+            if (matchedGlyphProblem.position) {
+                window.glyphCanvas?.setActiveQcCanvasMarkers([
+                    {
+                        glyphName: matchedGlyphProblem.glyphName,
+                        position: matchedGlyphProblem.position,
+                        userspaceLocation: matchedGlyphProblem.userspaceLocation
+                    }
+                ]);
+            } else {
+                window.glyphCanvas?.clearActiveQcCanvasMarkers();
+            }
+        };
+
+        const getCurrentStackGlyphName = (): string | null => {
+            if (!window.glyphCanvas?.outlineEditor?.active) {
+                return null;
+            }
+
+            const parsedStack =
+                window.glyphCanvas.outlineEditor.parseGlyphStack();
+            if (!parsedStack.length) {
+                return null;
+            }
+
+            const currentEntry = parsedStack[parsedStack.length - 1];
+            return currentEntry?.glyphName || null;
+        };
+
+        const createQcItemElement = (
+            item: any,
+            fallbackIndex: number
+        ): HTMLElement => {
+            const level = (item?.level || 'info').toLowerCase();
+            const codes = extractCodes(item);
+            const message = item?.message || '';
+            const checkKey = getQcCheckKey(item, fallbackIndex);
+            const checkSignature = getCheckSignature(item);
+
+            const itemElement = document.createElement('div');
+            itemElement.className = `font-qc-item ${level}`;
+
+            const metaElement = document.createElement('div');
+            metaElement.className = 'font-qc-item-meta';
+            metaElement.textContent = String(level).toUpperCase();
+
+            const codesElement = document.createElement('div');
+            codesElement.className = 'font-qc-item-codes';
+            for (const code of codes) {
+                const codeElement = document.createElement('span');
+                codeElement.className = 'font-qc-item-code';
+                codeElement.textContent = code;
+                codesElement.appendChild(codeElement);
+            }
+
+            const messageElement = document.createElement('div');
+            messageElement.className = 'font-qc-item-message';
+            messageElement.textContent = message;
+
+            itemElement.appendChild(metaElement);
+            itemElement.appendChild(codesElement);
+            itemElement.appendChild(messageElement);
+
+            const glyphProblems = extractGlyphProblems(item);
+
+            const currentStackGlyphName = getCurrentStackGlyphName();
+            if (
+                currentStackGlyphName &&
+                glyphProblems.some(
+                    (problem) => problem.glyphName === currentStackGlyphName
+                )
+            ) {
+                itemElement.classList.add('is-current-stack-glyph');
+            }
+
+            if (!glyphProblems.length) {
+                return itemElement;
+            }
+
+            const actionsElement = document.createElement('div');
+            actionsElement.className = 'font-qc-item-actions';
+
+            const actionsLabel = document.createElement('span');
+            actionsLabel.className = 'font-qc-item-actions-label';
+            actionsLabel.textContent = 'Glyph:';
+            actionsElement.appendChild(actionsLabel);
+
+            for (const glyphProblem of glyphProblems) {
+                const glyphButton = document.createElement('button');
+                glyphButton.type = 'button';
+                glyphButton.className = 'font-qc-glyph-button';
+                glyphButton.textContent = glyphProblem.glyphName;
+                const glyphProblemSignature =
+                    getGlyphProblemSignature(glyphProblem);
+
+                if (
+                    selectedQcGlyphButton &&
+                    selectedQcGlyphButton.checkKey === checkKey &&
+                    selectedQcGlyphButton.glyphName ===
+                        glyphProblem.glyphName &&
+                    selectedQcGlyphButton.checkSignature === checkSignature &&
+                    selectedQcGlyphButton.glyphProblemSignature ===
+                        glyphProblemSignature
+                ) {
+                    glyphButton.classList.add('is-selected');
+                }
+
+                glyphButton.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    selectedQcGlyphButton = {
+                        checkKey,
+                        checkSignature,
+                        glyphProblemSignature,
+                        glyphName: glyphProblem.glyphName,
+                        lastKnownPosition: glyphProblem.position
+                    };
+                    if (qcExpanded) {
+                        renderQcList();
+                    }
+
+                    void window.glyphCanvas
+                        ?.activateQCGlyphProblem(glyphProblem)
+                        .catch((error: unknown) => {
+                            console.warn(
+                                '[GlyphCanvas] Failed to activate QC glyph problem',
+                                error
+                            );
+                        })
+                        .finally(() => {
+                            if (qcExpanded) {
+                                renderQcList();
+                            }
+                        });
+                });
+
+                actionsElement.appendChild(glyphButton);
+            }
+
+            itemElement.appendChild(actionsElement);
+            return itemElement;
         };
 
         const renderQcList = () => {
@@ -2985,16 +3524,10 @@ function initCanvas() {
                 return;
             }
 
-            const rows = visible
-                .map((item) => {
-                    const level = (item?.level || 'info').toLowerCase();
-                    const code = item?.code || 'uncoded';
-                    const message = item?.message || '';
-                    return `<div class="font-qc-item ${level}"><div class="font-qc-item-meta">${level.toUpperCase()} · ${code}</div><div class="font-qc-item-message">${message}</div></div>`;
-                })
-                .join('');
-
-            fontQcList.innerHTML = rows;
+            fontQcList.innerHTML = '';
+            visible.forEach((item, index) => {
+                fontQcList.appendChild(createQcItemElement(item, index));
+            });
         };
 
         const setQcExpanded = (expanded: boolean) => {
@@ -3012,6 +3545,8 @@ function initCanvas() {
 
             if (expanded) {
                 renderQcList();
+            } else {
+                clearActiveQcSelection();
             }
         };
 
@@ -3052,7 +3587,42 @@ function initCanvas() {
             const summary = detail?.summary || { fails: 0, warns: 0, infos: 0 };
             const status = detail?.status || 'idle';
             const isCompiling = status === 'compiling';
-            qcChecks = Array.isArray(detail?.checks) ? detail.checks : qcChecks;
+            const incomingChecks = Array.isArray(detail?.checks)
+                ? detail.checks
+                : qcChecks;
+            const qcVersionSeed =
+                typeof detail?.changeVersion === 'number'
+                    ? detail.changeVersion
+                    : 0;
+            qcChecks = incomingChecks.map((check: any, index: number) => ({
+                ...check,
+                __qcKey: `${qcVersionSeed}:${index}`
+            }));
+
+            syncActiveSelectionToChecks();
+            const checksWithMetadata = qcChecks.filter((check) =>
+                Array.isArray(check?.metadata)
+            ).length;
+            const checksWithGlyphProblem = qcChecks.filter((check) =>
+                Array.isArray(check?.metadata)
+                    ? check.metadata.some(
+                          (entry: unknown) =>
+                              isRecord(entry) && isRecord(entry.GlyphProblem)
+                      )
+                    : false
+            ).length;
+            console.log(
+                '[GlyphCanvas] Fontspector panel received checks:',
+                qcChecks.length,
+                'with metadata:',
+                checksWithMetadata,
+                'with GlyphProblem:',
+                checksWithGlyphProblem,
+                'status:',
+                status,
+                'profile:',
+                detail?.profile
+            );
             const availableProfiles = Array.isArray(detail?.availableProfiles)
                 ? detail.availableProfiles
                 : qcAvailableProfiles;
@@ -3082,13 +3652,14 @@ function initCanvas() {
             infoCount.style.display = (summary.infos ?? 0) > 0 ? '' : 'none';
 
             fontQcSection.classList.toggle('is-compiling', isCompiling);
+            fontQcCompileDot.title = isCompiling ? 'Fontspector compiling' : '';
 
             if (status === 'error') {
                 fontQcStatus.textContent = 'QC failed';
             } else if (status === 'ready') {
-                fontQcStatus.textContent = 'Up to date';
+                fontQcStatus.textContent = '';
             } else {
-                fontQcStatus.textContent = 'Waiting';
+                fontQcStatus.textContent = '';
             }
 
             if (qcExpanded) {
@@ -3216,6 +3787,19 @@ function initCanvas() {
 
         window.addEventListener('fontspectorUpdated', (event: Event) => {
             updateQcSummary((event as CustomEvent).detail);
+        });
+
+        window.addEventListener('glyphStackChanged', () => {
+            renderQcList();
+        });
+
+        window.addEventListener('editorModeChanged', (event: Event) => {
+            const mode = (event as CustomEvent).detail?.mode;
+            if (mode === 'text') {
+                clearActiveQcSelection();
+            }
+
+            renderQcList();
         });
 
         // Store reference to sidebars for later updates

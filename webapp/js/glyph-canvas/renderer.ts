@@ -8,7 +8,7 @@ const console = new Logger('Renderer');
 
 import type { ViewportManager } from './viewport';
 import type { TextRunEditor } from './textrun';
-import { GlyphCanvas } from '../glyph-canvas';
+import { GlyphCanvas, type QCCanvasMarker } from '../glyph-canvas';
 import { LayerDataNormalizer } from '../layer-data-normalizer';
 import type { Babelfont } from '../babelfont';
 
@@ -324,6 +324,9 @@ export class GlyphCanvasRenderer {
 
         // Draw glyph name tooltip (still in transformed space)
         this.drawGlyphTooltip();
+
+        // Draw QC diagnostic point markers (still in transformed space)
+        this.drawQcCanvasMarkers();
 
         this.ctx.restore();
 
@@ -748,6 +751,139 @@ export class GlyphCanvasRenderer {
             const invScale = 1 / this.viewportManager.scale;
             this.drawHoverLabel(glyphName, tooltipX, tooltipY, invScale);
         }
+    }
+
+    drawQcCanvasMarkers() {
+        const markers = this.glyphCanvas.activeQcCanvasMarkers;
+        if (
+            !this.glyphCanvas.outlineEditor.active ||
+            !markers.length ||
+            !this.textRunEditor.shapedGlyphs.length
+        ) {
+            return;
+        }
+
+        const getAxisDefaultValue = (tag: string): number | undefined => {
+            const fontModel = window.currentFontModel;
+            const axes = fontModel?.axes;
+            if (!Array.isArray(axes)) {
+                return undefined;
+            }
+
+            const axis = axes.find((candidate: any) => candidate?.tag === tag);
+            if (!axis || typeof axis.default !== 'number') {
+                return undefined;
+            }
+
+            return axis.default;
+        };
+
+        const markerMatchesCurrentLocation = (
+            marker: QCCanvasMarker
+        ): boolean => {
+            if (!marker.userspaceLocation) {
+                return true;
+            }
+
+            const axesManager = this.glyphCanvas.axesManager;
+            if (!axesManager) {
+                return true;
+            }
+
+            const tolerance = 1e-4;
+            for (const [tag, targetValue] of Object.entries(
+                marker.userspaceLocation
+            )) {
+                if (!Number.isFinite(targetValue)) {
+                    continue;
+                }
+
+                const currentValue =
+                    axesManager.getAxisValue(tag) ?? getAxisDefaultValue(tag);
+
+                if (
+                    typeof currentValue !== 'number' ||
+                    !Number.isFinite(currentValue)
+                ) {
+                    return false;
+                }
+
+                if (Math.abs(currentValue - targetValue) > tolerance) {
+                    return false;
+                }
+            }
+
+            return true;
+        };
+
+        const invScale = 1 / this.viewportManager.scale;
+        const markerRadius = 36 * invScale;
+        const markerStroke = 3 * invScale;
+        const markerFill = 'rgba(0, 0, 0, 0)';
+        const markerStrokeColor = getComputedStyle(document.documentElement)
+            .getPropertyValue('--accent-red')
+            .trim();
+
+        const matchesMarkerGlyph = (
+            marker: QCCanvasMarker,
+            glyphIndex: number
+        ): boolean => {
+            const shapedGlyph = this.textRunEditor.shapedGlyphs[glyphIndex];
+
+            if (shapedGlyph.explicitGlyphName) {
+                return shapedGlyph.explicitGlyphName === marker.glyphName;
+            }
+
+            if (!this.textRunEditor.fontBlob) {
+                return false;
+            }
+
+            try {
+                return (
+                    get_glyph_name(
+                        this.textRunEditor.fontBlob,
+                        shapedGlyph.g
+                    ) === marker.glyphName
+                );
+            } catch {
+                return false;
+            }
+        };
+
+        this.ctx.save();
+        this.ctx.lineWidth = markerStroke;
+        this.ctx.strokeStyle = markerStrokeColor;
+        this.ctx.fillStyle = markerFill;
+
+        for (const marker of markers) {
+            if (!markerMatchesCurrentLocation(marker)) {
+                continue;
+            }
+
+            for (
+                let glyphIndex = 0;
+                glyphIndex < this.textRunEditor.shapedGlyphs.length;
+                glyphIndex++
+            ) {
+                if (!matchesMarkerGlyph(marker, glyphIndex)) {
+                    continue;
+                }
+
+                const glyphPosition =
+                    this.textRunEditor._getGlyphPosition(glyphIndex);
+                const [pointX, pointY] = marker.position;
+                const x =
+                    glyphPosition.xPosition + glyphPosition.xOffset + pointX;
+                const y = glyphPosition.yOffset + pointY;
+
+                this.ctx.beginPath();
+                this.ctx.arc(x, y, markerRadius, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.stroke();
+            }
+        }
+
+        this.ctx.restore();
     }
 
     /**

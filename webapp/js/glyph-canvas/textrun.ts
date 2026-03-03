@@ -320,6 +320,15 @@ export class TextRunEditor {
         this.call('textchanged');
     }
 
+    setTextBufferForNavigation(text: string) {
+        this.textBuffer = text || '';
+        this.syncTextBufferToStateManager();
+
+        // Shape immediately for visual update but do not persist to font/localStorage
+        // and do not trigger textchanged (which can cascade into full compile dirtying).
+        this.shapeText();
+    }
+
     async selectGlyphByIndex(glyphIndex: number, fromKeyboard = false) {
         // Select a glyph by its index in the shaped glyphs array
 

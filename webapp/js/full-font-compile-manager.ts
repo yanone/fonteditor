@@ -17,7 +17,11 @@ type QCSummary = {
 type QCCheck = {
     level: 'fail' | 'warn' | 'info';
     code: string;
+    codes?: string[];
     message: string;
+    severity?: string;
+    checkId?: string;
+    metadata?: unknown[];
 };
 
 const FONT_QC_PROFILE_STORAGE_KEY = 'fontQcProfile';

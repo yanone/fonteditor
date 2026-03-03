@@ -136,7 +136,8 @@ pub fn run_fontspector(font_bytes: &[u8], profile: &str) -> Result<String, JsVal
                     "code": sub.code.as_deref().unwrap_or("uncoded"),
                     "message": sub.message.as_deref().unwrap_or(""),
                     "checkId": result.check_id,
-                    "severity": sub.severity.to_string()
+                    "severity": sub.severity.to_string(),
+                    "metadata": sub.metadata
                 }));
             }
         }
