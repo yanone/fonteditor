@@ -413,7 +413,9 @@ export class OutlineEditor {
                 console.log('Restoring previous layer by selecting it');
 
                 // Get full layer data from font model
-                const layerToSelect = this.getFullLayerData(previousState.selectionId);
+                const layerToSelect = this.getFullLayerData(
+                    previousState.selectionId
+                );
 
                 if (layerToSelect) {
                     console.log('Found previous layer:', layerToSelect.id);
@@ -612,7 +614,8 @@ export class OutlineEditor {
                     '[OutlineEditor] Saved previous state for Escape:',
                     {
                         layerId: this.selectedLayerId,
-                        settings: this.glyphCanvas.axesManager!.variationSettings
+                        settings:
+                            this.glyphCanvas.axesManager!.variationSettings
                     }
                 );
             }

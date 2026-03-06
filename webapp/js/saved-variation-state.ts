@@ -28,7 +28,10 @@ export class SavedVariationState {
         return this.selectionId !== null && this.selectionId === selectionId;
     }
 
-    save(selectionId: string | null, variationSettings: Record<string, number>): boolean {
+    save(
+        selectionId: string | null,
+        variationSettings: Record<string, number>
+    ): boolean {
         if (selectionId === null) {
             return false;
         }
@@ -42,7 +45,10 @@ export class SavedVariationState {
         return true;
     }
 
-    sync(selectionId: string | null, variationSettings: Record<string, number> | null): void {
+    sync(
+        selectionId: string | null,
+        variationSettings: Record<string, number> | null
+    ): void {
         if (selectionId === null || variationSettings === null) {
             this.clear();
             return;

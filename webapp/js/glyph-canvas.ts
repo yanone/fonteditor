@@ -1933,7 +1933,11 @@ class GlyphCanvas {
 
         e.preventDefault();
 
-        if (this.textModeEscapeState.matchesCurrent(this.textRunEditor?.selectedMasterId || null)) {
+        if (
+            this.textModeEscapeState.matchesCurrent(
+                this.textRunEditor?.selectedMasterId || null
+            )
+        ) {
             this.textModeEscapeState.clear();
             return;
         }
@@ -1949,7 +1953,10 @@ class GlyphCanvas {
         );
 
         if (previousMaster?.location) {
-            await this.selectMaster(previousState.selectionId, previousMaster.location);
+            await this.selectMaster(
+                previousState.selectionId,
+                previousMaster.location
+            );
             return;
         }
 
