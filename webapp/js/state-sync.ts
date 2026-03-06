@@ -136,6 +136,13 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
 
             window.stateManager.editor_variation_location = roundedLocation;
 
+            // Notify glyph overview and other listeners about location change
+            window.dispatchEvent(
+                new CustomEvent('variationLocationChanged', {
+                    detail: { location: roundedLocation }
+                })
+            );
+
             // Only record events when URL sync is active.
             if (!window.stateManager.isUrlSyncEnabled()) return;
 

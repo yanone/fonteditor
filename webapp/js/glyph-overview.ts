@@ -155,6 +155,13 @@ class GlyphOverview {
             this.onModeChanged.bind(this)
         );
 
+        // Listen for variation location changes to re-render tiles
+        window.addEventListener('variationLocationChanged', ((
+            e: CustomEvent
+        ) => {
+            void this.renderGlyphOutlines(e.detail.location);
+        }) as EventListener);
+
         // Listen for theme changes to re-render tiles
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
@@ -929,6 +936,12 @@ class GlyphOverview {
         await this.tileBuildPromise;
 
         this.currentLocation = location;
+
+        // Invalidate cached outline data so tiles re-fetch at the new location
+        this.tiles.forEach((tile) => {
+            tile.cachedData = undefined;
+        });
+        this.pendingGlyphIds.clear();
 
         // Cache metrics from font model for consistent tile sizing
         this.updateRenderMetrics();

@@ -2164,6 +2164,17 @@ class GlyphCanvas {
 
         this.axesManager!.isAnimating = previousIsAnimating;
 
+        // Notify listeners (e.g. glyph overview) about the final location
+        const finalLocation: Record<string, number> = {};
+        for (const tag in targetLocation) {
+            finalLocation[tag] = Math.round(targetLocation[tag]);
+        }
+        window.dispatchEvent(
+            new CustomEvent('variationLocationChanged', {
+                detail: { location: finalLocation }
+            })
+        );
+
         await this.autoSelectMatchingMaster();
     }
 

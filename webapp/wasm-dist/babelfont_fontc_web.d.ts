@@ -278,13 +278,13 @@ export interface InitOutput {
     readonly store_font: (a: number, b: number) => [number, number];
     readonly update_cached_layer: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly version: () => [number, number];
-    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
     readonly get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
     readonly get_glyph_order: (a: number, b: number) => [number, number, number, number];
     readonly get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
+    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
