@@ -57,32 +57,6 @@ export async function captureSnapshot(
 }
 
 /**
- * Compare two snapshots and return differences
- * Useful for debugging test failures
- */
-export function compareSnapshots(
-    snapshot1: AppSnapshot,
-    snapshot2: AppSnapshot
-): any {
-    const differences: any = {};
-
-    const keys = Object.keys(snapshot1.state || {});
-    for (const key of keys) {
-        const val1 = JSON.stringify(snapshot1.state[key]);
-        const val2 = JSON.stringify(snapshot2.state[key]);
-
-        if (val1 !== val2) {
-            differences[key] = {
-                before: snapshot1.state[key],
-                after: snapshot2.state[key]
-            };
-        }
-    }
-
-    return differences;
-}
-
-/**
  * Wait for app to be fully loaded (loading overlay hidden)
  */
 export async function waitForCanvasReady(page: any) {

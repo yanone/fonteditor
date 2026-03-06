@@ -1,25 +1,30 @@
-// Mock isDevelopment/isProduction functions (from index.html)
-// These must be defined BEFORE importing any modules that use them
-if (typeof window.isDevelopment === 'undefined') {
-    window.isDevelopment = () => true; // Default to development mode in tests
-}
-if (typeof window.isProduction === 'undefined') {
-    window.isProduction = () => !window.isDevelopment();
-}
+const hasWindow = typeof window !== 'undefined';
 
-global.GlyphCanvas = require('../js/glyph-canvas').GlyphCanvas;
-global.ViewportManager = require('../js/glyph-canvas/viewport').ViewportManager;
+if (hasWindow) {
+    // Mock isDevelopment/isProduction functions (from index.html)
+    // These must be defined BEFORE importing any modules that use them
+    if (typeof window.isDevelopment === 'undefined') {
+        window.isDevelopment = () => true;
+    }
+    if (typeof window.isProduction === 'undefined') {
+        window.isProduction = () => !window.isDevelopment();
+    }
 
-// Mock browser-specific APIs that are not available in JSDOM by default
-if (typeof window.requestAnimationFrame === 'undefined') {
-    window.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-}
-if (typeof window.ResizeObserver === 'undefined') {
-    window.ResizeObserver = class ResizeObserver {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-    };
+    global.GlyphCanvas = require('../js/glyph-canvas').GlyphCanvas;
+    global.ViewportManager =
+        require('../js/glyph-canvas/viewport').ViewportManager;
+
+    // Mock browser-specific APIs that are not available in JSDOM by default
+    if (typeof window.requestAnimationFrame === 'undefined') {
+        window.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+    }
+    if (typeof window.ResizeObserver === 'undefined') {
+        window.ResizeObserver = class ResizeObserver {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        };
+    }
 }
 
 const originalConsoleWarn = console.warn.bind(console);
@@ -68,14 +73,14 @@ if (typeof createHarfBuzz === 'undefined') {
 }
 
 // Mock for python interface
-if (typeof window.pyodide === 'undefined') {
+if (hasWindow && typeof window.pyodide === 'undefined') {
     window.pyodide = {
-        runPythonAsync: async (code) => {
+        runPythonAsync: async (_code) => {
             return '{}';
         }
     };
 }
-if (typeof window.fontManager === 'undefined') {
+if (hasWindow && typeof window.fontManager === 'undefined') {
     window.fontManager = {
         getGlyphName: () => 'mockGlyphName',
         setFormatSpecific: () => {}
@@ -164,4 +169,6 @@ if (typeof APP_SETTINGS === 'undefined') {
     };
 }
 
-window._jestSetupDone = true;
+if (hasWindow) {
+    window._jestSetupDone = true;
+}
