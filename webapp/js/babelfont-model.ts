@@ -134,6 +134,59 @@ export class DecomposedAffineTransform {
             order: order || ('RestOfTheWorld' as Babelfont.TransformOrder)
         };
     }
+
+    /**
+     * Convert an affine matrix [a, b, c, d, e, f] to DecomposedAffine.
+     * Mirrors babelfont-rs canonical decomposition for legacy affine input.
+     */
+    static fromAffine(
+        affine: number[],
+        order?: Babelfont.TransformOrder
+    ): Babelfont.DecomposedAffine {
+        const [rawA, rawB, rawC, rawD, rawTx, rawTy] = [
+            Number(affine[0]) || 0,
+            Number(affine[1]) || 0,
+            Number(affine[2]) || 0,
+            Number(affine[3]) || 0,
+            Number(affine[4]) || 0,
+            Number(affine[5]) || 0
+        ];
+
+        let a = rawA;
+        let b = rawB;
+        const c = rawC;
+        const d = rawD;
+        const sxSign = a === 0 ? 1 : Math.sign(a);
+
+        if (sxSign < 0) {
+            a *= sxSign;
+            b *= sxSign;
+        }
+
+        const delta = a * d - b * c;
+        let rotation = 0;
+        let scale: [number, number] = [0, 0];
+        let skew: [number, number] = [0, 0];
+
+        if (a !== 0 || b !== 0) {
+            const r = Math.hypot(a, b);
+            rotation = delta >= 0 ? Math.atan2(-b, a) : Math.atan2(b, a);
+            scale = [r * sxSign, delta / r];
+            skew = [Math.atan((a * c + b * d) / (r * r)) * sxSign, 0];
+        } else if (c !== 0 || d !== 0) {
+            const s = Math.hypot(c, d);
+            rotation = delta >= 0 ? Math.atan2(c, d) : Math.atan2(-c, d);
+            scale = [delta / s, s];
+        }
+
+        return {
+            translation: [rawTx, rawTy],
+            scale,
+            rotation,
+            skew,
+            order: order || ('RestOfTheWorld' as Babelfont.TransformOrder)
+        };
+    }
 }
 
 /**
@@ -1221,26 +1274,11 @@ export class Layer extends ArrayElementBase {
         transform?: number[] | Babelfont.DecomposedAffine
     ): Babelfont.DecomposedAffine {
         if (!transform) {
-            // Identity transform
-            return {
-                translation: [0, 0],
-                scale: [1, 1],
-                rotation: 0,
-                skew: [0, 0]
-            };
+            return DecomposedAffineTransform.identity();
         }
 
         if (Array.isArray(transform)) {
-            // Legacy 6-element affine matrix [a, b, c, d, tx, ty]
-            // For now, just extract translation and scale
-            // TODO: proper decomposition from affine matrix
-            const [a, b, c, d, tx, ty] = transform;
-            return {
-                translation: [tx, ty],
-                scale: [a, d],
-                rotation: 0,
-                skew: [0, 0]
-            };
+            return DecomposedAffineTransform.fromAffine(transform);
         }
 
         return transform;

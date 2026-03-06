@@ -58,29 +58,8 @@ pub fn interpolate_glyph(
         .into_iter()
         .collect();
 
-    // Get the glyph to check if it has components
-    let glyph = font
-        .glyphs
-        .get(glyph_name)
-        .ok_or_else(|| JsValue::from_str(&format!("Glyph '{}' not found", glyph_name)))?;
-
-    // Check if any master layer has components
-    let has_components = glyph.layers.iter().any(|layer| {
-        layer
-            .shapes
-            .iter()
-            .any(|shape| matches!(shape, Shape::Component(_)))
-    });
-
-    let interpolated_layer = if has_components {
-        // For glyphs with components, manually interpolate to preserve component transforms
-        manually_interpolate_layer(font, glyph, &design_location)
-            .map_err(|e| JsValue::from_str(&format!("Manual interpolation failed: {}", e)))?
-    } else {
-        // For glyphs without components, use babelfont's fast interpolation
-        font.interpolate_glyph(glyph_name, &design_location)
-            .map_err(|e| JsValue::from_str(&format!("Interpolation failed: {:?}", e)))?
-    };
+    let interpolated_layer = interpolate_glyph_layer(font, glyph_name, &design_location)
+        .map_err(|e| JsValue::from_str(&format!("Interpolation failed: {}", e)))?;
 
     // Serialize to JSON and recursively add component layer data
     let layer_json_with_components =
@@ -109,6 +88,31 @@ pub fn interpolate_glyph(
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))?;
 
     Ok(result_json)
+}
+
+pub fn interpolate_glyph_layer(
+    font: &babelfont::Font,
+    glyph_name: &str,
+    target_location: &DesignLocation,
+) -> Result<Layer, String> {
+    let glyph = font
+        .glyphs
+        .get(glyph_name)
+        .ok_or_else(|| format!("Glyph '{}' not found", glyph_name))?;
+
+    let has_components = glyph.layers.iter().any(|layer| {
+        layer
+            .shapes
+            .iter()
+            .any(|shape| matches!(shape, Shape::Component(_)))
+    });
+
+    if has_components {
+        manually_interpolate_layer(font, glyph, target_location)
+    } else {
+        font.interpolate_glyph(glyph_name, target_location)
+            .map_err(|e| format!("{:?}", e))
+    }
 }
 
 fn normalize_vertical_metric_value(metric_name: &str, metric_value: f64) -> f64 {
@@ -244,13 +248,13 @@ fn manually_interpolate_layer(
     for (shape_idx, reference_shape) in reference_layer.shapes.iter().enumerate() {
         match reference_shape {
             Shape::Component(ref_comp) => {
-                // Collect transforms from all masters for this component
-                let master_transforms: Vec<(kurbo::Affine, f64)> = masters
+                // Collect decomposed transforms from all masters for this component
+                let master_components: Vec<(&babelfont::Component, f64)> = masters
                     .iter()
                     .filter_map(|(layer, loc_value)| {
                         layer.shapes.get(shape_idx).and_then(|s| {
                             if let Shape::Component(comp) = s {
-                                Some((comp.transform.as_affine(), *loc_value))
+                                Some((comp, *loc_value))
                             } else {
                                 None
                             }
@@ -259,21 +263,16 @@ fn manually_interpolate_layer(
                     .collect();
 
                 // Interpolate the transform
-                let interpolated_transform = if master_transforms.len() >= 2 {
-                    interpolate_affine(&master_transforms, target_value)?
-                } else if !master_transforms.is_empty() {
-                    master_transforms[0].0
+                let interpolated_component = if master_components.len() >= 2 {
+                    interpolate_component(ref_comp, &master_components, target_value)?
+                } else if !master_components.is_empty() {
+                    master_components[0].0.clone()
                 } else {
-                    ref_comp.transform.as_affine()
+                    ref_comp.clone()
                 };
 
                 // Create component with interpolated transform (reference stays the same)
-                interpolated_shapes.push(Shape::Component(babelfont::Component {
-                    reference: ref_comp.reference.clone(),
-                    transform: interpolated_transform.into(),
-                    location: ref_comp.location.clone(),
-                    format_specific: ref_comp.format_specific.clone(),
-                }));
+                interpolated_shapes.push(Shape::Component(interpolated_component));
             }
             Shape::Path(_) => {
                 // Collect paths from all masters for this shape
@@ -357,6 +356,72 @@ fn manually_interpolate_layer(
         master: babelfont::LayerType::FreeFloating,
         format_specific: Default::default(),
     })
+}
+
+fn interpolate_component(
+    reference_component: &babelfont::Component,
+    master_components: &[(&babelfont::Component, f64)],
+    target_value: f64,
+) -> Result<babelfont::Component, String> {
+    let mut component = reference_component.clone();
+
+    let translation_x = interpolate_values(
+        &master_components
+            .iter()
+            .map(|(comp, loc)| (comp.transform.translation.0, *loc))
+            .collect::<Vec<_>>(),
+        target_value,
+    )?;
+    let translation_y = interpolate_values(
+        &master_components
+            .iter()
+            .map(|(comp, loc)| (comp.transform.translation.1, *loc))
+            .collect::<Vec<_>>(),
+        target_value,
+    )?;
+    let scale_x = interpolate_values(
+        &master_components
+            .iter()
+            .map(|(comp, loc)| (comp.transform.scale.0, *loc))
+            .collect::<Vec<_>>(),
+        target_value,
+    )?;
+    let scale_y = interpolate_values(
+        &master_components
+            .iter()
+            .map(|(comp, loc)| (comp.transform.scale.1, *loc))
+            .collect::<Vec<_>>(),
+        target_value,
+    )?;
+    let rotation = interpolate_angles(
+        &master_components
+            .iter()
+            .map(|(comp, loc)| (comp.transform.rotation, *loc))
+            .collect::<Vec<_>>(),
+        target_value,
+    )?;
+    let skew_x = interpolate_values(
+        &master_components
+            .iter()
+            .map(|(comp, loc)| (comp.transform.skew.0, *loc))
+            .collect::<Vec<_>>(),
+        target_value,
+    )?;
+    let skew_y = interpolate_values(
+        &master_components
+            .iter()
+            .map(|(comp, loc)| (comp.transform.skew.1, *loc))
+            .collect::<Vec<_>>(),
+        target_value,
+    )?;
+
+    component.transform.translation = (translation_x, translation_y);
+    component.transform.scale = (scale_x, scale_y);
+    component.transform.rotation = rotation;
+    component.transform.skew = (skew_x, skew_y);
+    component.transform.order = reference_component.transform.order;
+
+    Ok(component)
 }
 
 /// Interpolate a Path shape across masters
@@ -477,23 +542,21 @@ fn interpolate_values(values: &[(f64, f64)], target_value: f64) -> Result<f64, S
 }
 
 /// Interpolate an Affine transform
-fn interpolate_affine(
-    master_transforms: &[(kurbo::Affine, f64)],
+fn interpolate_angles(
+    values: &[(f64, f64)],
     target_value: f64,
-) -> Result<kurbo::Affine, String> {
-    if master_transforms.is_empty() {
-        return Err("No transforms to interpolate".to_string());
+) -> Result<f64, String> {
+    if values.is_empty() {
+        return Err("No values to interpolate".to_string());
     }
 
-    if master_transforms.len() == 1 {
-        return Ok(master_transforms[0].0);
+    if values.len() == 1 {
+        return Ok(values[0].0);
     }
 
-    // Sort by location value
-    let mut sorted = master_transforms.to_vec();
+    let mut sorted = values.to_vec();
     sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
-    // Find bracketing masters
     let mut lower = &sorted[0];
     let mut upper = &sorted[sorted.len() - 1];
 
@@ -505,27 +568,16 @@ fn interpolate_affine(
         }
     }
 
-    // Linear interpolation factor
     let t = if (upper.1 - lower.1).abs() < 1e-10 {
         0.0
     } else {
         (target_value - lower.1) / (upper.1 - lower.1)
     };
 
-    // Interpolate each coefficient
-    let lower_coeffs = lower.0.as_coeffs();
-    let upper_coeffs = upper.0.as_coeffs();
-
-    let interpolated_coeffs = [
-        lower_coeffs[0] + t * (upper_coeffs[0] - lower_coeffs[0]), // a
-        lower_coeffs[1] + t * (upper_coeffs[1] - lower_coeffs[1]), // b
-        lower_coeffs[2] + t * (upper_coeffs[2] - lower_coeffs[2]), // c
-        lower_coeffs[3] + t * (upper_coeffs[3] - lower_coeffs[3]), // d
-        lower_coeffs[4] + t * (upper_coeffs[4] - lower_coeffs[4]), // tx
-        lower_coeffs[5] + t * (upper_coeffs[5] - lower_coeffs[5]), // ty
-    ];
-
-    Ok(kurbo::Affine::new(interpolated_coeffs))
+    let delta = (upper.0 - lower.0 + std::f64::consts::PI)
+        .rem_euclid(std::f64::consts::TAU)
+        - std::f64::consts::PI;
+    Ok(lower.0 + t * delta)
 }
 
 /// Serialize a layer with recursively interpolated component data
@@ -605,7 +657,7 @@ fn serialize_layer_recursive_cached(
                                 cached.clone()
                             } else {
                                 drop(cache);
-                                match font.interpolate_glyph(&reference, location) {
+                                match interpolate_glyph_layer(font, &reference, location) {
                                     Ok(interpolated) => {
                                         layer_cache
                                             .borrow_mut()
@@ -694,7 +746,7 @@ fn serialize_layer_recursive(
 
                         // Interpolate the component's glyph to get its untransformed layer data
                         // We want the raw interpolated geometry without the parent transform applied
-                        match font.interpolate_glyph(&reference, location) {
+                        match interpolate_glyph_layer(font, &reference, location) {
                             Ok(component_layer) => {
                                 // Recursively serialize with nested components
                                 match serialize_layer_recursive(

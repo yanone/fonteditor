@@ -18,14 +18,7 @@ type Point = { contourIndex: number; nodeIndex: number };
  * Convert affine matrix [a, b, c, d, e, f] to DecomposedAffine
  */
 function affineToDecomposed(affine: number[]): Babelfont.DecomposedAffine {
-    const [a, b, c, d, e, f] = affine;
-    return {
-        translation: [e, f],
-        scale: [a, d],
-        rotation: 0,
-        skew: [b, c],
-        order: undefined
-    };
+    return DecomposedAffineTransform.fromAffine(affine);
 }
 
 /**

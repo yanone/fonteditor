@@ -1,6 +1,6 @@
 # Unreleased
 
-- **Add items here** for the next release (Replace this comment)
+- **Component Transform Rendering Fixes**: Fixed several inconsistencies in how component transforms are resolved across exact layers, interpolated layers, and glyph overview tiles. Legacy affine component data is now canonically decomposed into babelfont's decomposed transform model instead of using a lossy conversion, so object-model edits and transform round-tripping preserve scale, rotation, skew, and translation correctly. Interpolated component layers in the Rust/WASM pipeline now interpolate decomposed transform parameters directly, including angle-aware rotation interpolation, instead of linearly interpolating affine matrix coefficients, which eliminates skewed component rendering during live interpolation. Glyph overview rendering now uses the same component-aware interpolation path and derives tile centering bounds from the actual recursively transformed shape tree, so overview tiles match editor rendering more closely for transformed and nested components.
 
 # v0.2.0
 

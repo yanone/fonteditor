@@ -99,6 +99,8 @@ npm run tokens
 ./update-rust-deps.sh
 ```
 
+If you change Rust code in `babelfont-fontc-build/src/`, you MUST rebuild the WebAssembly output with `./build-fontc-wasm.sh` before considering the task finished.
+
 ### Testing
 
 ```bash
@@ -296,6 +298,7 @@ Design tokens are defined in `css/tokens.json` and generated to `css/tokens.css`
 - Follow standard Rust conventions
 - Use rustfmt for formatting
 - Write documentation comments with `///`
+- After changing `babelfont-fontc-build/src/*.rs`, rebuild the generated WASM artifacts with `./build-fontc-wasm.sh` and verify the generated files are updated as expected
 
 ## Testing Strategy
 

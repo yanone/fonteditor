@@ -186,6 +186,16 @@ class FastGlyphTileRenderer {
         xMin: number;
         xMax: number;
     } {
+        const computedBounds = this.getVisualBoundsFromShapes(
+            Array.isArray(glyphData?.shapes) ? glyphData.shapes : []
+        );
+        if (computedBounds) {
+            return {
+                xMin: computedBounds.xMin,
+                xMax: computedBounds.xMax
+            };
+        }
+
         const bounds = glyphData?.bounds;
         if (!bounds || typeof bounds !== 'object') {
             return { xMin: 0, xMax: 0 };
@@ -198,6 +208,85 @@ class FastGlyphTileRenderer {
         }
 
         return { xMin, xMax };
+    }
+
+    private getVisualBoundsFromShapes(
+        shapes: any[],
+        parentTransform: number[] = [1, 0, 0, 1, 0, 0]
+    ): {
+        xMin: number;
+        xMax: number;
+        yMin: number;
+        yMax: number;
+    } | null {
+        if (!Array.isArray(shapes) || shapes.length === 0) {
+            return null;
+        }
+
+        let xMin = Infinity;
+        let xMax = -Infinity;
+        let yMin = Infinity;
+        let yMax = -Infinity;
+
+        const includePoint = (x: number, y: number) => {
+            xMin = Math.min(xMin, x);
+            xMax = Math.max(xMax, x);
+            yMin = Math.min(yMin, y);
+            yMax = Math.max(yMax, y);
+        };
+
+        for (const shape of shapes) {
+            const normalized = this.normalizeShape(shape);
+            if (!normalized) {
+                continue;
+            }
+
+            if (normalized.kind === 'path') {
+                let nodes = normalized.data.nodes;
+                if (typeof nodes === 'string') {
+                    nodes = LayerDataNormalizer.parseNodes(nodes);
+                }
+                if (!Array.isArray(nodes)) {
+                    continue;
+                }
+                for (const node of nodes) {
+                    if (
+                        !node ||
+                        typeof node.x !== 'number' ||
+                        typeof node.y !== 'number'
+                    ) {
+                        continue;
+                    }
+                    const [a, b, c, d, tx, ty] = parentTransform;
+                    includePoint(
+                        a * node.x + c * node.y + tx,
+                        b * node.x + d * node.y + ty
+                    );
+                }
+                continue;
+            }
+
+            const component = normalized.data;
+            const transform = this.parseTransform(component.transform);
+            const finalTransform = this.multiplyTransforms(
+                parentTransform,
+                transform
+            );
+            const componentBounds = this.getVisualBoundsFromShapes(
+                component.layerData?.shapes || [],
+                finalTransform
+            );
+            if (componentBounds) {
+                includePoint(componentBounds.xMin, componentBounds.yMin);
+                includePoint(componentBounds.xMax, componentBounds.yMax);
+            }
+        }
+
+        if (!Number.isFinite(xMin) || !Number.isFinite(xMax)) {
+            return null;
+        }
+
+        return { xMin, xMax, yMin, yMax };
     }
 
     /**

@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
 
-use crate::interpolation::serialize_layer_with_components_cached;
+use crate::interpolation::{interpolate_glyph_layer, serialize_layer_with_components_cached};
 
 // Global persistent cache for glyph outline results
 // Key: glyph_name, Value: complete result JSON object
@@ -248,11 +248,10 @@ pub fn get_glyphs_outlines(
                 cached.clone()
             } else {
                 drop(cache);
-                let interpolated = font
-                    .interpolate_glyph(glyph_name, &design_location)
+                let interpolated = interpolate_glyph_layer(font, glyph_name, &design_location)
                     .map_err(|e| {
                         JsValue::from_str(&format!(
-                            "Interpolation failed for '{}': {:?}",
+                            "Interpolation failed for '{}': {}",
                             glyph_name, e
                         ))
                     })?;
@@ -406,11 +405,14 @@ fn flatten_layer_components_cached(
                     } else {
                         drop(cache);
                         comp_misses += 1;
-                        let interpolated = font
-                            .interpolate_glyph(&component.reference, location)
-                            .map_err(|e| {
+                        let interpolated = interpolate_glyph_layer(
+                            font,
+                            &component.reference,
+                            location,
+                        )
+                        .map_err(|e| {
                             JsValue::from_str(&format!(
-                                "Failed to interpolate component '{}': {:?}",
+                                "Failed to interpolate component '{}': {}",
                                 component.reference, e
                             ))
                         })?;
