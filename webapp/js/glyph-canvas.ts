@@ -124,6 +124,8 @@ class GlyphCanvas {
 
     // Auto-pan anchor for text mode (cursor position)
     textModeAutoPanAnchorScreen: { x: number; y: number } | null = null;
+    previousSelectedMasterId: string | null = null;
+    previousTextVariationSettings: Record<string, number> | null = null;
 
     activeQcCanvasMarkers: QCCanvasMarker[] = [];
 
@@ -352,6 +354,10 @@ class GlyphCanvas {
                     this.stackPreviewAnimator.reverseAnimation();
                     return;
                 }
+                if (!this.outlineEditor.active) {
+                    this.handleTextModeEscapeKey(e);
+                    return;
+                }
                 this.outlineEditor.onEscapeKey(e);
             }
         });
@@ -543,6 +549,7 @@ class GlyphCanvas {
             this.outlineEditor.onSliderMouseDown();
             // Also capture text mode cursor position for auto-panning
             if (!this.outlineEditor.active && this.textRunEditor) {
+                this.saveTextModeStateForEscape();
                 this.captureTextModeAutoPanAnchor();
             }
         });
@@ -554,6 +561,7 @@ class GlyphCanvas {
                 );
                 this.outlineEditor.onSliderMouseUp();
             } else {
+                await this.finalizeTextModeSliderInteraction();
                 // In text editing mode, restore focus to canvas
                 // Clear auto-pan anchor if animation is already complete
                 if (!this.axesManager!.isAnimating) {
@@ -1737,6 +1745,9 @@ class GlyphCanvas {
         // Ensure a full compile before layer/master switch
         await fontManager.ensureFullEditingCompile();
 
+        this.previousSelectedMasterId = null;
+        this.previousTextVariationSettings = null;
+
         // Select a master and animate to its location
         console.log(
             '[GlyphCanvas] Selecting master:',
@@ -1840,6 +1851,145 @@ class GlyphCanvas {
                 item.classList.remove('selected');
             }
         });
+    }
+
+    saveTextModeStateForEscape(): void {
+        if (
+            this.outlineEditor.active ||
+            !this.textRunEditor ||
+            !this.axesManager
+        ) {
+            return;
+        }
+
+        const selectedMasterId = this.textRunEditor.selectedMasterId;
+        if (selectedMasterId === null) {
+            return;
+        }
+
+        if (
+            this.previousSelectedMasterId === null ||
+            this.previousSelectedMasterId !== selectedMasterId
+        ) {
+            this.previousSelectedMasterId = selectedMasterId;
+            this.previousTextVariationSettings = {
+                ...this.axesManager.variationSettings
+            };
+            console.log(
+                '[GlyphCanvas] Saved previous text mode state for Escape:',
+                {
+                    masterId: this.previousSelectedMasterId,
+                    settings: this.previousTextVariationSettings
+                }
+            );
+        }
+
+        this.textRunEditor.selectedMasterId = null;
+        this.updateMasterSelection();
+    }
+
+    async finalizeTextModeSliderInteraction(): Promise<void> {
+        if (
+            this.outlineEditor.active ||
+            !this.textRunEditor ||
+            !this.axesManager
+        ) {
+            return;
+        }
+
+        await this.autoSelectMatchingMaster();
+
+        if (this.textRunEditor.selectedMasterId !== null) {
+            this.previousSelectedMasterId = this.textRunEditor.selectedMasterId;
+            this.previousTextVariationSettings = {
+                ...this.axesManager.variationSettings
+            };
+            console.log(
+                '[GlyphCanvas] Updated previous text mode state to new master:',
+                {
+                    masterId: this.previousSelectedMasterId,
+                    settings: this.previousTextVariationSettings
+                }
+            );
+        }
+    }
+
+    alignTextModeEscapeStateWithCurrentMaster(): void {
+        if (
+            this.outlineEditor.active ||
+            !this.textRunEditor ||
+            !this.axesManager
+        ) {
+            return;
+        }
+
+        if (this.textRunEditor.selectedMasterId === null) {
+            this.previousSelectedMasterId = null;
+            this.previousTextVariationSettings = null;
+            return;
+        }
+
+        this.previousSelectedMasterId = this.textRunEditor.selectedMasterId;
+        this.previousTextVariationSettings = {
+            ...this.axesManager.variationSettings
+        };
+    }
+
+    async handleTextModeEscapeKey(e: KeyboardEvent): Promise<void> {
+        // Check if editor view is focused
+        const editorView = document.querySelector('#view-editor');
+        const isEditorFocused =
+            editorView && editorView.classList.contains('focused');
+
+        if (!isEditorFocused) {
+            return;
+        }
+
+        if (this.axesManager?.isLoopAnimating) {
+            e.preventDefault();
+            this.axesManager.stopAllLoopAnimations();
+            return;
+        }
+
+        if (this.previousSelectedMasterId === null) {
+            return;
+        }
+
+        e.preventDefault();
+
+        if (
+            this.previousSelectedMasterId ===
+            this.textRunEditor?.selectedMasterId
+        ) {
+            this.previousSelectedMasterId = null;
+            this.previousTextVariationSettings = null;
+            return;
+        }
+
+        const previousSelectedMasterId = this.previousSelectedMasterId;
+        const previousTextVariationSettings = this.previousTextVariationSettings
+            ? { ...this.previousTextVariationSettings }
+            : null;
+
+        this.previousSelectedMasterId = null;
+        this.previousTextVariationSettings = null;
+
+        const fontModel = fontManager.currentFont?.fontModel;
+        const previousMaster = fontModel?.masters?.find(
+            (master) => master.id === previousSelectedMasterId
+        );
+
+        if (previousMaster?.location) {
+            await this.selectMaster(
+                previousSelectedMasterId,
+                previousMaster.location
+            );
+            return;
+        }
+
+        if (previousTextVariationSettings) {
+            await this.animateToLocation(previousTextVariationSettings, 10);
+        }
     }
 
     async autoSelectMatchingMaster(): Promise<void> {

@@ -242,7 +242,26 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
         } else {
             // Ensure we're in text mode
             glyphCanvas.outlineEditor.active = false;
+            try {
+                await glyphCanvas.autoSelectMatchingMaster();
+                glyphCanvas.alignTextModeEscapeStateWithCurrentMaster();
+            } catch (error) {
+                console.warn(
+                    'autoSelectMatchingMaster failed during text-mode restore; continuing:',
+                    error
+                );
+            }
             glyphCanvas.renderer?.render();
+        }
+    } else if (!glyphCanvas.outlineEditor.active) {
+        try {
+            await glyphCanvas.autoSelectMatchingMaster();
+            glyphCanvas.alignTextModeEscapeStateWithCurrentMaster();
+        } catch (error) {
+            console.warn(
+                'autoSelectMatchingMaster failed during default text-mode restore; continuing:',
+                error
+            );
         }
     }
 }
