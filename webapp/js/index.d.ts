@@ -374,7 +374,7 @@ declare global {
 
         // From python-execution-wrapper.js
         beforePythonExecution?: (code?: string) => void | Promise<void>;
-        afterPythonExecution?: () => void;
+        afterPythonExecution?: () => void | Promise<void>;
 
         // From example-loader.ts
         loadExampleFonts: () => Promise<void>;

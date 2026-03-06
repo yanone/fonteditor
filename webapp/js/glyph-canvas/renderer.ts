@@ -2506,7 +2506,7 @@ export class GlyphCanvasRenderer {
             this.glyphCanvas.outlineEditor.transformMouseToComponentSpace();
 
         // Use the raw layerData from outlineEditor which has nested components properly populated
-        // via fontManager.fetchLayerData() - this is already at the correct nesting level
+        // via Rust WASM interpolation - this is already at the correct nesting level
         const layerData = this.glyphCanvas.outlineEditor.layerData;
 
         // Create a temporary Layer wrapper to use getIntersectionsOnLine()

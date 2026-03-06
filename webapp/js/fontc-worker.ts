@@ -553,6 +553,7 @@ function postCompiledResult(
  * AssociatedWithMaster layers without location data are old backup layers
  * that should not be compiled.
  */
+
 function stripLayerData(fontData: any): any {
     if (!fontData || typeof fontData !== 'object') return fontData;
 
@@ -856,6 +857,7 @@ self.onmessage = async (event) => {
                 return;
             }
 
+            let cleanedJson = '';
             try {
                 timelineMark(
                     'font.worker.compile.started',
@@ -870,27 +872,16 @@ self.onmessage = async (event) => {
                 const fontData = JSON.parse(data.babelfontJson);
                 timelineSpanEnd(parseJsonSpanId);
 
-                // TEMPORARY: Bypass stripLayerData to isolate issue
-                const cleanFontDataSpanId = timelineSpanStart(
-                    'font.worker.compile.cleanFontData'
-                );
-                const cleanedFontData = fontData;
-                // const cleanedFontData = stripLayerData(fontData);
-                timelineSpanEnd(cleanFontDataSpanId);
-
-                // Validate font data
-                // validateFontData(cleanedFontData);
-
                 const stringifyJsonSpanId = timelineSpanStart(
                     'font.worker.compile.stringifyInputJson'
                 );
-                const cleanedJson = JSON.stringify(cleanedFontData);
+                cleanedJson = JSON.stringify(fontData);
                 timelineSpanEnd(stringifyJsonSpanId);
 
                 // Send debug info to main thread
                 self.postMessage({
                     type: 'debug',
-                    message: `Before compile: ${cleanedFontData.glyphs.length} glyphs, JSON ${cleanedJson.length} bytes, options: ${JSON.stringify(data.options)}`
+                    message: `Before compile: ${fontData.glyphs.length} glyphs, JSON ${cleanedJson.length} bytes, options: ${JSON.stringify(data.options)}`
                 });
 
                 const wasmCompileBridgeSpanId = timelineSpanStart(
@@ -935,7 +926,7 @@ self.onmessage = async (event) => {
                 if (line && column) {
                     try {
                         const snippet = getJsonSnippetAtLineColumn(
-                            data.babelfontJson || '',
+                            cleanedJson || data.babelfontJson || '',
                             line,
                             column
                         );

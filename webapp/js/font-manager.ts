@@ -10,7 +10,7 @@ import { get_glyph_order } from '../wasm-dist/babelfont_fontc_web';
 import type { Babelfont } from './babelfont';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation } from './locations';
-import { Font, Path } from './babelfont-model';
+import { Font, Path, DecomposedAffineTransform } from './babelfont-model';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
@@ -235,7 +235,7 @@ class OpenedFont {
                 for (let i = 0; i < layer.shapes.length; i++) {
                     let shape = layer.shapes[i];
 
-                    // Handle Path shapes - convert array nodes to strings
+                    // Handle flat Path shapes - convert array nodes to strings.
                     if ('nodes' in shape && shape.nodes) {
                         pathsFound++;
 
@@ -255,6 +255,21 @@ class OpenedFont {
                         }
                     }
 
+                    // Handle wrapped Path shapes { Path: { nodes, closed } }.
+                    // The Path.nodes getter in babelfont-model mutates the underlying
+                    // data from string to array; syncJsonFromModel must convert it back
+                    // so toJSONString() doesn't emit array-nodes that Rust can't parse.
+                    if (
+                        'Path' in shape &&
+                        shape.Path &&
+                        typeof shape.Path === 'object' &&
+                        'nodes' in shape.Path &&
+                        Array.isArray(shape.Path.nodes)
+                    ) {
+                        shape.Path.nodes = Path.nodesToString(shape.Path.nodes);
+                        wrappersFixed++;
+                    }
+
                     // Note: normalizer wrapper properties (nodes, isInterpolated) are filtered
                     // out during JSON.stringify by the replacer function in toJSONString()
                 }
@@ -262,6 +277,14 @@ class OpenedFont {
         }
 
         this.babelfontJson = this.fontModel.toJSONString();
+
+        if (pathsConverted > 0 || wrappersFixed > 0) {
+            console.log(
+                `[syncJsonFromModel] Converted ${pathsConverted} array-node paths, ` +
+                    `${wrappersFixed} wrapped paths, ${pathsAlreadyString} already strings, ` +
+                    `${pathsFound} total paths found. JSON length: ${this.babelfontJson.length}`
+            );
+        }
     }
 
     /**
@@ -977,9 +1000,16 @@ class FontManager {
                 : shape;
 
         if ('reference' in componentCandidate) {
+            // Convert array-format transforms to DecomposedAffine objects.
+            // Rust expects {translation, scale, rotation, skew, order}, not [a,b,c,d,tx,ty].
+            // Array transforms come from layer-data-normalizer's identity fallback.
+            let transform = componentCandidate.transform;
+            if (Array.isArray(transform)) {
+                transform = DecomposedAffineTransform.fromAffine(transform);
+            }
             return {
                 reference: componentCandidate.reference,
-                transform: componentCandidate.transform,
+                ...(transform !== undefined && { transform }),
                 ...(componentCandidate.location && {
                     location: componentCandidate.location
                 }),
@@ -1722,59 +1752,6 @@ class FontManager {
         return glyph;
     }
 
-    private getLayer(
-        glyphName: string,
-        layerId: string
-    ): Babelfont.Layer | null {
-        // Get layer data for a specific glyph and layer ID
-        let glyph = this.getGlyph(glyphName);
-        if (!glyph || !glyph.layers) {
-            console.warn(
-                `[FontManager] getLayer: glyph "${glyphName}" not found or has no layers`
-            );
-            return null;
-        }
-        let layer = glyph.layers.find((l) => l.id === layerId);
-        if (!layer) {
-            console.warn(
-                `[FontManager] getLayer: layer ID "${layerId}" not found in glyph "${glyphName}"`,
-                {
-                    availableLayerIds: glyph.layers.map((l) => l.id),
-                    requestedLayerId: layerId
-                }
-            );
-            return null;
-        }
-        return layer;
-    }
-
-    /**
-     *  Fetch layer data for a specific glyph, including nested components
-     */
-    fetchLayerData(
-        componentGlyphName: string,
-        selectedLayerId: string
-    ): Babelfont.Layer | null {
-        // Fetch layer data for a specific glyph, recursively fetching nested component layer data
-        let layer = this.getLayer(componentGlyphName, selectedLayerId);
-        if (!layer) {
-            return null;
-        }
-        // Recursively fetch component layer data for nested components
-        for (const shape of layer.shapes || []) {
-            if ('reference' in shape && shape.reference) {
-                let nestedData = this.fetchLayerData(
-                    shape.reference,
-                    selectedLayerId
-                );
-                if (nestedData) {
-                    shape.layerData = nestedData;
-                }
-            }
-        }
-        return layer;
-    }
-
     /**
      * Looks for a font-level format_specific key in the current font
      *
@@ -1971,14 +1948,20 @@ class FontManager {
         }));
 
         // Create a clean copy of the layer data with only serializable properties
-        // Don't save isInterpolated flag - it's runtime state only
+        // Don't save isInterpolated flag - it's runtime state only.
+        // Use layerId and master from the *original* layer, not from the Rust-derived
+        // layerData, because interpolate_glyph may return a reference-master id and
+        // LayerType::FreeFloating instead of the actual layer metadata.
+        const originalLayer = this.getGlyph(glyphName)?.layers?.find(
+            (l: any) => l.id === layerId
+        );
         let layerDataCopy: Babelfont.Layer = {
             width: layerData.width,
             height: layerData.height,
             vertWidth: layerData.vertWidth,
             name: layerData.name,
-            id: layerData.id,
-            master: layerData.master,
+            id: layerId, // Always use the canonical layerId, not Rust's id
+            master: originalLayer?.master ?? layerData.master, // Preserve original master type
             shapes: newShapes || [],
             isInterpolated: false, // Always false for saved data
             // Copy other optional properties if they exist

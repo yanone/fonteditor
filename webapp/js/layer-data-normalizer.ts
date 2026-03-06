@@ -13,9 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { GlyphCanvas } from './glyph-canvas';
 import { OutlineEditor } from './glyph-canvas/outline-editor';
-import { DesignspaceLocation } from './locations';
 import type { Babelfont } from './babelfont';
 import { Logger } from './logger';
 
@@ -174,60 +172,9 @@ export class LayerDataNormalizer {
     }
 
     /**
-     * Apply interpolated layer data from babelfont-rs to GlyphCanvas
-     *
-     * @param {OutlineEditor} outlineEditor - The glyph canvas instance
-     * @param {Object} interpolatedLayer - Layer data from babelfont-rs interpolate_glyph
-     * @param {Object} location - The designspace location used for interpolation
-     */
-    static applyInterpolatedLayer(
-        outlineEditor: OutlineEditor,
-        interpolatedLayer: any,
-        location: DesignspaceLocation
-    ) {
-        console.log(
-            '[LayerDataNormalizer]',
-            '📍 Location:',
-            JSON.stringify(location)
-        );
-        const normalized = this.normalize(interpolatedLayer, true);
-
-        // Parse component nodes recursively
-        const parseComponentNodes = (shapes: any[]) => {
-            if (!shapes) return;
-
-            shapes.forEach((shape) => {
-                // Already parsed in normalize(), but ensure consistency
-                if ('nodes' in shape && !shape.nodes) {
-                    shape.nodes = this.parseNodes(shape.nodes);
-                }
-
-                // Recursively parse nested component data
-                if (
-                    'reference' in shape &&
-                    shape.layerData &&
-                    shape.layerData.shapes
-                ) {
-                    parseComponentNodes(shape.layerData.shapes);
-                }
-            });
-        };
-
-        if (normalized && normalized.shapes) {
-            parseComponentNodes(normalized.shapes);
-        }
-
-        outlineEditor.layerData = normalized;
-        console.log('[LayerDataNormalizer]', 'Layer data applied to canvas');
-        // Don't render here - let the calling code control when to render
-        // This prevents intermediate renders that can cause flicker
-    }
-
-    /**
-     * Restore exact layer from Python
+     * Restore exact layer via Rust
      */
     static async restoreExactLayer(outlineEditor: OutlineEditor) {
-        // Fetch layer data from Python
         await outlineEditor.fetchLayerData();
     }
 

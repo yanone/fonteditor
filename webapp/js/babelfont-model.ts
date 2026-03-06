@@ -1031,18 +1031,19 @@ export class Layer extends ArrayElementBase {
                 } else if ('Component' in shape && shape.Component) {
                     // Update component transform translation
                     if (!shape.Component.transform) {
-                        // Create identity transform if none exists
-                        shape.Component.transform = [1, 0, 0, 1, 0, 0];
+                        // Create identity transform in DecomposedAffine format
+                        shape.Component.transform =
+                            DecomposedAffineTransform.identity();
+                    } else if (Array.isArray(shape.Component.transform)) {
+                        // Convert legacy array format to DecomposedAffine
+                        shape.Component.transform =
+                            DecomposedAffineTransform.fromAffine(
+                                shape.Component.transform
+                            );
                     }
                     const transform = shape.Component.transform;
-                    if (Array.isArray(transform)) {
-                        transform[4] += offset; // Update x translation
-                    } else {
-                        // DecomposedAffine format
-                        if (!transform.translation)
-                            transform.translation = [0, 0];
-                        transform.translation[0] += offset;
-                    }
+                    if (!transform.translation) transform.translation = [0, 0];
+                    transform.translation[0] += offset;
                 }
             }
         }
@@ -3422,6 +3423,11 @@ export class Font extends ModelBase {
                 //
                 // Output must be plain shapes for Rust serde untagged enums:
                 //   { nodes: ..., closed: ... }  OR  { reference: ..., transform: ... }
+                //
+                // Additionally, the Path.nodes getter in babelfont-model mutates
+                // underlying data from string → array. We must convert array nodes
+                // back to compact strings here at serialization time so
+                // compile_babelfont() never sees invalid array-format nodes.
                 if (
                     value &&
                     typeof value === 'object' &&
@@ -3434,7 +3440,11 @@ export class Font extends ModelBase {
                                 ? value.Path
                                 : null;
                         if (pathPayload) {
-                            return { ...pathPayload };
+                            const result = { ...pathPayload };
+                            if (Array.isArray(result.nodes)) {
+                                result.nodes = Path.nodesToString(result.nodes);
+                            }
+                            return result;
                         }
                     }
 
@@ -3446,8 +3456,42 @@ export class Font extends ModelBase {
                                 ? value.Component
                                 : null;
                         if (componentPayload) {
-                            return { ...componentPayload };
+                            const result = { ...componentPayload };
+                            // Convert array-format transforms to DecomposedAffine objects
+                            // Rust expects {translation, scale, rotation, skew, order}, not [a,b,c,d,tx,ty]
+                            if (Array.isArray(result.transform)) {
+                                result.transform =
+                                    DecomposedAffineTransform.fromAffine(
+                                        result.transform
+                                    );
+                            }
+                            return result;
                         }
+                    }
+
+                    // Normalize flat Component shapes with array transforms
+                    if (
+                        'reference' in value &&
+                        Array.isArray(value.transform)
+                    ) {
+                        return {
+                            ...value,
+                            transform: DecomposedAffineTransform.fromAffine(
+                                value.transform
+                            )
+                        };
+                    }
+
+                    // Normalize flat Path shapes with array nodes
+                    if (
+                        'nodes' in value &&
+                        Array.isArray(value.nodes) &&
+                        !('reference' in value)
+                    ) {
+                        return {
+                            ...value,
+                            nodes: Path.nodesToString(value.nodes)
+                        };
                     }
                 }
                 return value;

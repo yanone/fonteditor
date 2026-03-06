@@ -91,7 +91,7 @@ function setupHooks() {
      * Hook that runs after every Python code execution
      * Triggers font recompilation
      */
-    window.afterPythonExecution = function () {
+    window.afterPythonExecution = async function () {
         // Call the existing hook first (if any)
         if (typeof existingHook === 'function') {
             existingHook();
@@ -103,19 +103,19 @@ function setupHooks() {
         if (window.fontManager?.currentFont) {
             window.fontManager.currentFont.syncJsonFromModel();
 
+            // Keep Rust-side cache in sync after Python manipulations,
+            // then recompile the editing font from the updated source JSON.
+            // Must complete before fetchLayerData() since it reads from Rust.
+            await syncRustAndRecompileEditingFont();
+
             // Refresh canvas to pick up changes if in edit mode
             // After syncJsonFromModel, nodes arrays have been converted to strings,
             // so we need to refetch layer data to get fresh parsed arrays
             if (window.glyphCanvas?.outlineEditor) {
-                // Refetch layer data to get fresh normalizer wrappers
-                window.glyphCanvas.outlineEditor.fetchLayerData().then(() => {
-                    window.glyphCanvas!.render();
-                });
+                // Refetch layer data from Rust (now synced) to get fresh data
+                await window.glyphCanvas.outlineEditor.fetchLayerData();
+                window.glyphCanvas.render();
             }
-
-            // Keep Rust-side cache in sync after Python manipulations,
-            // then recompile the editing font from the updated source JSON
-            void syncRustAndRecompileEditingFont();
         }
 
         // Trigger font recompilation via auto-compile manager

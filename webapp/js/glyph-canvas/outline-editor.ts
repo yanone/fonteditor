@@ -145,39 +145,60 @@ export class OutlineEditor {
         return Object.keys(result).length ? result : null;
     }
 
-    private setRenderVerticalMetricsFromInterpolatedLayer(
-        layerData: any
-    ): void {
+    private setRenderVerticalMetrics(layerData: any): void {
         this.renderVerticalMetrics = this.normalizeAndRoundVerticalMetrics(
             layerData?._verticalMetrics
         );
     }
 
-    private setRenderVerticalMetricsFromSelectedMaster(): void {
-        const fontModel = (window as any).currentFontModel;
-        const masters = fontModel?.masters;
-        if (!Array.isArray(masters) || !this.selectedLayerId) {
-            this.renderVerticalMetrics = null;
-            return;
+    /**
+     * Look up the userspace location for a layer by its ID.
+     * Finds the layer in the current glyph's font model, resolves its
+     * design-space location (brace layer location or master location),
+     * and converts to userspace.
+     */
+    private getUserspaceLocationForLayer(
+        layerId: string
+    ): Record<string, number> | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel) return null;
+
+        const glyphName = this.glyphCanvas.getCurrentGlyphName();
+        const glyph = fontModel.glyphs.find((g: any) => g.name === glyphName);
+        if (!glyph?.layers) return null;
+
+        const layer = glyph.layers.find((l: any) => l.id === layerId);
+        if (!layer) return null;
+
+        const masters: Babelfont.Master[] = (fontModel.masters as any) || [];
+        const masterIdToFind = layer.master?.master;
+        const master = masters.find((m) => m.id === masterIdToFind);
+        const hasLayerLocation =
+            !!layer.location && Object.keys(layer.location).length > 0;
+        const designLocation = hasLayerLocation
+            ? layer.location
+            : master?.location;
+
+        if (!designLocation) return null;
+
+        const fontAxes = fontModel.axes || [];
+        return designspaceToUserspace(designLocation, fontAxes as any);
+    }
+
+    /**
+     * Apply Rust-returned layer data (interpolated or on-layer) to the editor.
+     * Normalizes, parses component nodes, assigns layerData, and sets vertical metrics.
+     */
+    private applyRustLayerData(rustResult: any, isInterpolated: boolean): void {
+        const normalized = LayerDataNormalizer.normalize(
+            rustResult,
+            isInterpolated
+        );
+        if (normalized && normalized.shapes) {
+            parseComponentNodes(normalized.shapes);
         }
-
-        const sortedLayers = this.glyphCanvas.getSortedLayers();
-        const selectedLayer = Array.isArray(sortedLayers)
-            ? sortedLayers.find(
-                  (layer: any) => layer?.id === this.selectedLayerId
-              )
-            : null;
-        const selectedMasterId =
-            selectedLayer?.master ||
-            selectedLayer?._master ||
-            this.selectedLayerId;
-
-        const selectedMaster = masters.find(
-            (master: any) => master?.id === selectedMasterId
-        );
-        this.renderVerticalMetrics = this.normalizeAndRoundVerticalMetrics(
-            selectedMaster?.metrics || null
-        );
+        this.layerData = normalized;
+        this.setRenderVerticalMetrics(rustResult);
     }
 
     /**
@@ -1624,16 +1645,16 @@ export class OutlineEditor {
                 if (!shape.transform) {
                     // Initialize transform if it doesn't exist
                     shape.transform = identityDecomposed();
+                } else if (Array.isArray(shape.transform)) {
+                    // Convert legacy array format to DecomposedAffine before mutating
+                    shape.transform = DecomposedAffineTransform.fromAffine(
+                        shape.transform
+                    );
                 }
-                const transform = shape.transform;
-                if (Array.isArray(transform)) {
-                    transform[4] += deltaX;
-                    transform[5] += deltaY;
-                } else {
-                    if (!transform.translation) transform.translation = [0, 0];
-                    transform.translation[0] += deltaX;
-                    transform.translation[1] += deltaY;
-                }
+                const transform = shape.transform as Babelfont.DecomposedAffine;
+                if (!transform.translation) transform.translation = [0, 0];
+                transform.translation[0] += deltaX;
+                transform.translation[1] += deltaY;
             }
         }
 
@@ -1804,26 +1825,8 @@ export class OutlineEditor {
                 return;
             }
 
-            // Apply interpolated data using normalizer
-            console.log(
-                '[OutlineEditor] Calling LayerDataNormalizer.applyInterpolatedLayer...'
-            );
-            console.log(
-                '[OutlineEditor] Before applyInterpolatedLayer - layerData.width:',
-                this.layerData?.width
-            );
-            LayerDataNormalizer.applyInterpolatedLayer(
-                this,
-                interpolatedLayer,
-                location
-            );
-            this.setRenderVerticalMetricsFromInterpolatedLayer(
-                interpolatedLayer
-            );
-            console.log(
-                '[OutlineEditor] After applyInterpolatedLayer - layerData.width:',
-                this.layerData?.width
-            );
+            // Apply interpolated data via shared normalizer
+            this.applyRustLayerData(interpolatedLayer, true);
 
             // In editing mode, update HarfBuzz and auto-pan together to keep them in sync
             if (
@@ -2174,34 +2177,22 @@ export class OutlineEditor {
             this.glyphCanvas.renderSuppressed = false;
         }
 
-        // Find the master for this layer and compute effective target location
-        const masterIdToFind = layer.master?.master;
-        const master = masters.find((m) => m.id === masterIdToFind);
-        const hasLayerLocation =
-            !!layer.location && Object.keys(layer.location).length > 0;
-        const targetDesignLocation = hasLayerLocation
-            ? layer.location
-            : master?.location;
+        // Find the userspace location for this layer
+        const targetUserspaceLocation = this.getUserspaceLocationForLayer(
+            layer.id!
+        );
 
-        if (!targetDesignLocation) {
-            console.warn('No master location found for layer', {
-                layer_master: layer.master,
-                available_master_ids: masters.map((m) => m.id),
-                master_found: master
+        if (!targetUserspaceLocation) {
+            console.warn('No location found for layer', {
+                layerId: layer.id
             });
             return;
         }
 
-        const fontAxes = fontManager.currentFont?.fontModel?.axes || [];
-        const targetUserspaceLocation = designspaceToUserspace(
-            targetDesignLocation,
-            fontAxes as any
+        console.log(
+            `Setting axis values to layer location:`,
+            targetUserspaceLocation
         );
-
-        console.log(`Setting axis values to layer location:`, {
-            designspace: targetDesignLocation,
-            userspace: targetUserspaceLocation
-        });
 
         // Set up animation to all axes at once
         const newSettings: Record<string, number> = {};
@@ -2489,7 +2480,7 @@ export class OutlineEditor {
 
         // ALWAYS fetch root glyph layer data (with nested components)
         // Never fetch layer data for a component separately
-        if (!window.pyodide || !this.selectedLayerId) {
+        if (!this.selectedLayerId) {
             this.layerData = null;
             this.renderVerticalMetrics = null;
             return;
@@ -2497,28 +2488,34 @@ export class OutlineEditor {
 
         try {
             // Always fetch root glyph name - never component reference
-            let glyphName = this.glyphCanvas.getCurrentGlyphName();
+            const glyphName = this.glyphCanvas.getCurrentGlyphName();
             console.log(
                 `🔍 Fetching ROOT layer data for glyph: "${glyphName}", layer: ${this.selectedLayerId}`
             );
 
-            // Fetch root layer data with all nested components
-            this.layerData = await fontManager!.fetchLayerData(
-                glyphName,
+            // Compute the userspace location for this layer
+            const userspaceLocation = this.getUserspaceLocationForLayer(
                 this.selectedLayerId
             );
-
-            // Clear isInterpolated flag since we're loading actual layer data
-            if (this.layerData) {
-                this.layerData.isInterpolated = false;
+            if (!userspaceLocation) {
+                console.warn(
+                    `[OutlineEditor] Could not resolve location for layer ${this.selectedLayerId}`
+                );
+                this.layerData = null;
+                this.renderVerticalMetrics = null;
+                return;
             }
 
-            // Parse all component nodes in the entire tree
-            if (this.layerData && this.layerData.shapes) {
-                parseComponentNodes(this.layerData.shapes);
-            }
+            // Fetch via Rust WASM — same path as interpolation.
+            // The Rust FONT_CACHE is already up-to-date via incremental
+            // update_cached_layer during edits and storeFontJson at font-open time.
+            const rustResult = await fontInterpolation.interpolateGlyph(
+                glyphName,
+                userspaceLocation
+            );
 
-            this.setRenderVerticalMetricsFromSelectedMaster();
+            // Apply as non-interpolated (exact layer) data
+            this.applyRustLayerData(rustResult, false);
 
             // Update currentGlyphName based on glyph_stack position
             // If we're in a nested component, extract the component name from the stack
@@ -2538,7 +2535,15 @@ export class OutlineEditor {
                 this.glyphCanvas.render();
             }
         } catch (error) {
-            console.error('Error fetching layer data from Python:', error);
+            // Silently ignore cancellations — these happen when a newer fetchLayerData
+            // call supersedes this one during startup or rapid glyph switching.
+            if (
+                error instanceof Error &&
+                error.message.includes('Interpolation cancelled')
+            ) {
+                return;
+            }
+            console.error('Error fetching layer data via Rust:', error);
             this.layerData = null;
             this.renderVerticalMetrics = null;
         }

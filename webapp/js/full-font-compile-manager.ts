@@ -217,6 +217,10 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                 const startedAt = performance.now();
                 const fullCompileSpanId = timelineSpanStart('font.compileFull');
                 try {
+                    // Always sync babelfontJson from the current model before full compile.
+                    // This converts any array-format nodes back to Rust's compact string
+                    // format and regenerates the JSON string from the latest model state.
+                    currentFont.syncJsonFromModel();
                     const compileResult =
                         await fullFontCompilation.compileFromJson(
                             currentFont.babelfontJson,
