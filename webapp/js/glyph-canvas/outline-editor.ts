@@ -8,6 +8,7 @@ import { Logger } from '../logger';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 import APP_SETTINGS from '../settings';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
+import { SavedVariationState } from '../saved-variation-state';
 
 let console: Logger = new Logger('OutlineEditor');
 
@@ -98,8 +99,7 @@ export class OutlineEditor {
     selectedPointIndex: any = null;
 
     layerDataDirty: boolean = false;
-    previousSelectedLayerId: string | null = null;
-    previousVariationSettings: Record<string, number> | null = null;
+    escapeState: SavedVariationState = new SavedVariationState();
     // When a brace layer is selected, save the master IDs of adjacent layers so
     // Cmd+Up/Down navigation can resume from the right position on glyphs that
     // don't have that brace layer.
@@ -390,34 +390,30 @@ export class OutlineEditor {
 
         e.preventDefault();
 
+        const previousState = this.escapeState.peek();
+
         console.log('Escape pressed. Previous state:', {
-            layerId: this.previousSelectedLayerId,
-            settings: this.previousVariationSettings,
+            layerId: previousState?.selectionId || null,
+            settings: previousState?.variationSettings || null,
             componentStackDepth: this.getComponentDepth()
         });
 
         // Priority 1: If we have a saved previous state from slider interaction, restore it first
         // (This takes precedence over exiting component editing)
         // However, if the previous layer is the same as the current layer, skip restoration
-        if (
-            this.previousSelectedLayerId !== null &&
-            this.previousVariationSettings !== null
-        ) {
+        if (previousState) {
             // Check if we're already on the previous layer
-            if (this.previousSelectedLayerId === this.selectedLayerId) {
+            if (this.escapeState.matchesCurrent(this.selectedLayerId)) {
                 console.log(
                     'Already on previous layer, clearing state and continuing to exit'
                 );
-                this.previousSelectedLayerId = null;
-                this.previousVariationSettings = null;
+                this.escapeState.clear();
                 // Don't return - fall through to exit component or edit mode
             } else {
                 console.log('Restoring previous layer by selecting it');
 
                 // Get full layer data from font model
-                const layerToSelect = this.getFullLayerData(
-                    this.previousSelectedLayerId
-                );
+                const layerToSelect = this.getFullLayerData(previousState.selectionId);
 
                 if (layerToSelect) {
                     console.log('Found previous layer:', layerToSelect.id);
@@ -426,8 +422,7 @@ export class OutlineEditor {
 
                     // Clear previous state before calling selectLayer
                     // (selectLayer will also clear these, but we do it here to be explicit)
-                    this.previousSelectedLayerId = null;
-                    this.previousVariationSettings = null;
+                    this.escapeState.clear();
 
                     // Imitate clicking on the layer in the list by calling selectLayer
                     // This will handle everything: fetch data, animate sliders, update UI
@@ -437,8 +432,7 @@ export class OutlineEditor {
 
                 // Fallback if layer not found - just clear state
                 console.warn('Previous layer not found, clearing state');
-                this.previousSelectedLayerId = null;
-                this.previousVariationSettings = null;
+                this.escapeState.clear();
             }
         }
 
@@ -509,13 +503,13 @@ export class OutlineEditor {
             // If we landed on an exact layer, update the saved state to this new layer
             // so Escape will return here, not to the original layer
             if (this.selectedLayerId) {
-                this.previousSelectedLayerId = this.selectedLayerId;
-                this.previousVariationSettings = {
-                    ...this.glyphCanvas.axesManager!.variationSettings
-                };
+                this.escapeState.sync(
+                    this.selectedLayerId,
+                    this.glyphCanvas.axesManager!.variationSettings
+                );
                 console.log('Updated previous state to new layer:', {
-                    layerId: this.previousSelectedLayerId,
-                    settings: this.previousVariationSettings
+                    layerId: this.selectedLayerId,
+                    settings: this.glyphCanvas.axesManager!.variationSettings
                 });
 
                 // Fetch layer data but skip render - we'll render after clearing flags
@@ -565,13 +559,13 @@ export class OutlineEditor {
             // If we landed on an exact layer, update the saved state to this new layer
             // so Escape will return here, not to the original layer
             if (this.selectedLayerId) {
-                this.previousSelectedLayerId = this.selectedLayerId;
-                this.previousVariationSettings = {
-                    ...this.glyphCanvas.axesManager!.variationSettings
-                };
+                this.escapeState.sync(
+                    this.selectedLayerId,
+                    this.glyphCanvas.axesManager!.variationSettings
+                );
                 console.log('Updated previous state to new layer:', {
-                    layerId: this.previousSelectedLayerId,
-                    settings: this.previousVariationSettings
+                    layerId: this.selectedLayerId,
+                    settings: this.glyphCanvas.axesManager!.variationSettings
                 });
 
                 // Fetch layer data but skip render - we'll render after clearing flags
@@ -609,18 +603,16 @@ export class OutlineEditor {
             // Only update previous state if we're starting a new drag session
             // (not continuing an existing interpolation session)
             if (
-                this.previousSelectedLayerId === null ||
-                this.previousSelectedLayerId !== this.selectedLayerId
+                this.escapeState.save(
+                    this.selectedLayerId,
+                    this.glyphCanvas.axesManager!.variationSettings
+                )
             ) {
-                this.previousSelectedLayerId = this.selectedLayerId;
-                this.previousVariationSettings = {
-                    ...this.glyphCanvas.axesManager!.variationSettings
-                };
                 console.log(
                     '[OutlineEditor] Saved previous state for Escape:',
                     {
-                        layerId: this.previousSelectedLayerId,
-                        settings: this.previousVariationSettings
+                        layerId: this.selectedLayerId,
+                        settings: this.glyphCanvas.axesManager!.variationSettings
                     }
                 );
             }
@@ -2093,8 +2085,7 @@ export class OutlineEditor {
     async selectLayer(layer: Babelfont.Layer): Promise<void> {
         // Select a layer and update axis sliders to match its master location
         // Clear previous state when explicitly selecting a layer
-        this.previousSelectedLayerId = null;
-        this.previousVariationSettings = null;
+        this.escapeState.clear();
 
         console.log(
             `[OutlineEditor] selectLayer called with layer:`,

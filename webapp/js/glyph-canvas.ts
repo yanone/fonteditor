@@ -18,6 +18,7 @@ import { Glyph, Layer } from './babelfont-model';
 import { updateUrlState, encodeLocation } from './url-state';
 import { isSyncEnabled } from './state-sync';
 import { timelineMark } from './perf-timeline';
+import { SavedVariationState } from './saved-variation-state';
 
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
@@ -124,8 +125,7 @@ class GlyphCanvas {
 
     // Auto-pan anchor for text mode (cursor position)
     textModeAutoPanAnchorScreen: { x: number; y: number } | null = null;
-    previousSelectedMasterId: string | null = null;
-    previousTextVariationSettings: Record<string, number> | null = null;
+    textModeEscapeState: SavedVariationState = new SavedVariationState();
 
     activeQcCanvasMarkers: QCCanvasMarker[] = [];
 
@@ -549,7 +549,25 @@ class GlyphCanvas {
             this.outlineEditor.onSliderMouseDown();
             // Also capture text mode cursor position for auto-panning
             if (!this.outlineEditor.active && this.textRunEditor) {
-                this.saveTextModeStateForEscape();
+                const selectedMasterId = this.textRunEditor.selectedMasterId;
+                if (
+                    this.axesManager &&
+                    this.textModeEscapeState.save(
+                        selectedMasterId,
+                        this.axesManager.variationSettings
+                    )
+                ) {
+                    console.log(
+                        '[GlyphCanvas] Saved previous text mode state for Escape:',
+                        {
+                            masterId: selectedMasterId,
+                            settings: this.axesManager.variationSettings
+                        }
+                    );
+                }
+
+                this.textRunEditor.selectedMasterId = null;
+                this.updateMasterSelection();
                 this.captureTextModeAutoPanAnchor();
             }
         });
@@ -1745,8 +1763,7 @@ class GlyphCanvas {
         // Ensure a full compile before layer/master switch
         await fontManager.ensureFullEditingCompile();
 
-        this.previousSelectedMasterId = null;
-        this.previousTextVariationSettings = null;
+        this.textModeEscapeState.clear();
 
         // Select a master and animate to its location
         console.log(
@@ -1853,41 +1870,6 @@ class GlyphCanvas {
         });
     }
 
-    saveTextModeStateForEscape(): void {
-        if (
-            this.outlineEditor.active ||
-            !this.textRunEditor ||
-            !this.axesManager
-        ) {
-            return;
-        }
-
-        const selectedMasterId = this.textRunEditor.selectedMasterId;
-        if (selectedMasterId === null) {
-            return;
-        }
-
-        if (
-            this.previousSelectedMasterId === null ||
-            this.previousSelectedMasterId !== selectedMasterId
-        ) {
-            this.previousSelectedMasterId = selectedMasterId;
-            this.previousTextVariationSettings = {
-                ...this.axesManager.variationSettings
-            };
-            console.log(
-                '[GlyphCanvas] Saved previous text mode state for Escape:',
-                {
-                    masterId: this.previousSelectedMasterId,
-                    settings: this.previousTextVariationSettings
-                }
-            );
-        }
-
-        this.textRunEditor.selectedMasterId = null;
-        this.updateMasterSelection();
-    }
-
     async finalizeTextModeSliderInteraction(): Promise<void> {
         if (
             this.outlineEditor.active ||
@@ -1900,15 +1882,15 @@ class GlyphCanvas {
         await this.autoSelectMatchingMaster();
 
         if (this.textRunEditor.selectedMasterId !== null) {
-            this.previousSelectedMasterId = this.textRunEditor.selectedMasterId;
-            this.previousTextVariationSettings = {
-                ...this.axesManager.variationSettings
-            };
+            this.textModeEscapeState.sync(
+                this.textRunEditor.selectedMasterId,
+                this.axesManager.variationSettings
+            );
             console.log(
                 '[GlyphCanvas] Updated previous text mode state to new master:',
                 {
-                    masterId: this.previousSelectedMasterId,
-                    settings: this.previousTextVariationSettings
+                    masterId: this.textRunEditor.selectedMasterId,
+                    settings: this.axesManager.variationSettings
                 }
             );
         }
@@ -1923,16 +1905,10 @@ class GlyphCanvas {
             return;
         }
 
-        if (this.textRunEditor.selectedMasterId === null) {
-            this.previousSelectedMasterId = null;
-            this.previousTextVariationSettings = null;
-            return;
-        }
-
-        this.previousSelectedMasterId = this.textRunEditor.selectedMasterId;
-        this.previousTextVariationSettings = {
-            ...this.axesManager.variationSettings
-        };
+        this.textModeEscapeState.sync(
+            this.textRunEditor.selectedMasterId,
+            this.axesManager.variationSettings
+        );
     }
 
     async handleTextModeEscapeKey(e: KeyboardEvent): Promise<void> {
@@ -1951,44 +1927,34 @@ class GlyphCanvas {
             return;
         }
 
-        if (this.previousSelectedMasterId === null) {
+        if (!this.textModeEscapeState.hasSavedState()) {
             return;
         }
 
         e.preventDefault();
 
-        if (
-            this.previousSelectedMasterId ===
-            this.textRunEditor?.selectedMasterId
-        ) {
-            this.previousSelectedMasterId = null;
-            this.previousTextVariationSettings = null;
+        if (this.textModeEscapeState.matchesCurrent(this.textRunEditor?.selectedMasterId || null)) {
+            this.textModeEscapeState.clear();
             return;
         }
 
-        const previousSelectedMasterId = this.previousSelectedMasterId;
-        const previousTextVariationSettings = this.previousTextVariationSettings
-            ? { ...this.previousTextVariationSettings }
-            : null;
-
-        this.previousSelectedMasterId = null;
-        this.previousTextVariationSettings = null;
+        const previousState = this.textModeEscapeState.consume();
+        if (!previousState) {
+            return;
+        }
 
         const fontModel = fontManager.currentFont?.fontModel;
         const previousMaster = fontModel?.masters?.find(
-            (master) => master.id === previousSelectedMasterId
+            (master) => master.id === previousState.selectionId
         );
 
         if (previousMaster?.location) {
-            await this.selectMaster(
-                previousSelectedMasterId,
-                previousMaster.location
-            );
+            await this.selectMaster(previousState.selectionId, previousMaster.location);
             return;
         }
 
-        if (previousTextVariationSettings) {
-            await this.animateToLocation(previousTextVariationSettings, 10);
+        if (previousState.variationSettings) {
+            await this.animateToLocation(previousState.variationSettings, 10);
         }
     }
 
