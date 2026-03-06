@@ -1481,7 +1481,10 @@ class GlyphCanvas {
         this.render();
     }
 
-    async displayMastersList(): Promise<void> {
+    async displayMastersList(
+        targetContainer: HTMLElement = this.propertiesSection!,
+        autoSelectLayer: boolean = true
+    ): Promise<void> {
         // Display unified masters/layers list
         // In text mode: show all masters, click selects master location
         // In edit mode: show all masters, check if glyph has corresponding layers
@@ -1492,7 +1495,7 @@ class GlyphCanvas {
             this.outlineEditor?.selectedLayerId
         );
 
-        if (!fontManager.currentFont?.fontModel) {
+        if (!targetContainer || !fontManager.currentFont?.fontModel) {
             console.log('[GlyphCanvas] No font model available');
             return;
         }
@@ -1504,6 +1507,10 @@ class GlyphCanvas {
         }
 
         const isEditMode = this.outlineEditor.active;
+        const preselectedLayerId = isEditMode
+            ? this.outlineEditor.findMatchingLayer()?.id ||
+              this.outlineEditor.selectedLayerId
+            : null;
         console.log(
             '[GlyphCanvas] Found',
             fontModel.masters.length,
@@ -1559,7 +1566,7 @@ class GlyphCanvas {
         const sectionTitle = document.createElement('div');
         sectionTitle.className = 'editor-section-title';
         sectionTitle.textContent = isEditMode ? 'Layers' : 'Masters';
-        this.propertiesSection!.appendChild(sectionTitle);
+        targetContainer.appendChild(sectionTitle);
 
         // Create masters/layers list
         const mastersList = document.createElement('div');
@@ -1613,10 +1620,7 @@ class GlyphCanvas {
             }
 
             if (isEditMode) {
-                if (
-                    layer?.id &&
-                    this.outlineEditor.selectedLayerId === layer.id
-                ) {
+                if (layer?.id && preselectedLayerId === layer.id) {
                     item.classList.add('selected');
                 }
             } else if (this.textRunEditor!.selectedMasterId === master.id) {
@@ -1728,7 +1732,7 @@ class GlyphCanvas {
             }
         }
 
-        this.propertiesSection!.appendChild(mastersList);
+        targetContainer.appendChild(mastersList);
 
         // In edit mode, add glyph_stack debug label (development mode only, not in test mode)
         if (isEditMode && window.isDevelopment?.() && !window.isTestMode?.()) {
@@ -1747,11 +1751,11 @@ class GlyphCanvas {
             `;
             stackLabel.textContent = `Stack: ${this.outlineEditor.glyphStack || '(none)'}`;
             this.glyphStackLabel = stackLabel;
-            this.propertiesSection!.appendChild(stackLabel);
+            targetContainer.appendChild(stackLabel);
         }
 
         // In edit mode, auto-select layer if current axis values match a layer's master location
-        if (isEditMode) {
+        if (isEditMode && autoSelectLayer) {
             await this.outlineEditor.autoSelectMatchingLayer();
         }
     }
@@ -2563,11 +2567,15 @@ class GlyphCanvas {
             // Update editor title bar with glyph name
             this.outlineEditor.updateEditorTitleBar();
 
+            const nextContent = document.createElement('div');
+
             // Show unified master/layer list for both text and edit modes
             if (!this.outlineEditor.active) {
                 // Text mode
-                this.propertiesSection.innerHTML = '';
-                await this.displayMastersList();
+                await this.displayMastersList(nextContent);
+                this.propertiesSection.replaceChildren(
+                    ...Array.from(nextContent.childNodes)
+                );
                 this.isUpdatingPropertiesUI = false;
                 return;
             }
@@ -2578,15 +2586,26 @@ class GlyphCanvas {
                 this.textRunEditor!.selectedGlyphIndex <
                     this.textRunEditor!.shapedGlyphs.length
             ) {
-                this.propertiesSection.innerHTML = '';
-                await this.displayMastersList(); // Unified function now handles both modes
+                await this.displayMastersList(nextContent, false); // Build off-DOM first; select after mount
             } else {
                 // No glyph selected
-                this.propertiesSection.innerHTML = '';
                 const emptyMessage = document.createElement('div');
                 emptyMessage.className = 'editor-empty-message';
                 emptyMessage.textContent = 'No glyph selected';
-                this.propertiesSection.appendChild(emptyMessage);
+                nextContent.appendChild(emptyMessage);
+            }
+
+            this.propertiesSection.replaceChildren(
+                ...Array.from(nextContent.childNodes)
+            );
+
+            if (
+                this.outlineEditor.active &&
+                this.textRunEditor!.selectedGlyphIndex >= 0 &&
+                this.textRunEditor!.selectedGlyphIndex <
+                    this.textRunEditor!.shapedGlyphs.length
+            ) {
+                await this.outlineEditor.autoSelectMatchingLayer();
             }
         } finally {
             this.isUpdatingPropertiesUI = false;

@@ -2259,80 +2259,35 @@ export class OutlineEditor {
         }
     }
 
-    async autoSelectMatchingLayer(): Promise<void> {
-        const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
-
-        console.log('[OutlineEditor] autoSelectMatchingLayer called', {
-            active: this.active,
-            isInterpolating: this.isInterpolating,
-            selectedLayerId: this.selectedLayerId,
-            currentGlyphName: this.currentGlyphName,
-            rootGlyphName
-        });
-
-        // Get current glyph from font model
+    findMatchingLayer(
+        rootGlyphName: string = this.glyphCanvas.getCurrentGlyphName()
+    ): Babelfont.Layer | null {
         const fontModel = fontManager.currentFont?.fontModel;
-        console.log('[OutlineEditor] fontModel check:', {
-            hasFontModel: !!fontModel,
-            hasGlyphs: !!fontModel?.glyphs,
-            glyphCount: fontModel?.glyphs?.length
-        });
-
         if (!fontModel || !fontModel.glyphs) {
-            console.log('[OutlineEditor] No font model or glyphs, returning');
-            return;
+            return null;
         }
 
         const currentGlyph = fontModel.glyphs.find(
             (g: any) => g.name === rootGlyphName
         );
-        console.log('[OutlineEditor] currentGlyph lookup:', {
-            found: !!currentGlyph,
-            searchingFor: rootGlyphName,
-            layerCount: currentGlyph?.layers?.length
-        });
-
-        if (!currentGlyph) {
-            console.log(
-                '[OutlineEditor] No current glyph found:',
-                rootGlyphName
-            );
-            return;
+        if (!currentGlyph?.layers?.length) {
+            return null;
         }
 
-        let layers = currentGlyph.layers;
-        let masters: Babelfont.Master[] = (fontModel.masters || []) as any;
-        if (
-            !layers ||
-            layers.length === 0 ||
-            !masters ||
-            masters.length === 0
-        ) {
-            console.log(
-                '[OutlineEditor] No layers or masters found, returning',
-                { layerCount: layers?.length, masterCount: masters.length }
-            );
-            return;
+        const masters: Babelfont.Master[] = (fontModel.masters || []) as any;
+        if (!masters.length) {
+            return null;
         }
 
-        // Get current axis tags and values (in USERSPACE)
         const currentUserspaceLocation = {
             ...this.glyphCanvas.axesManager!.variationSettings
         };
-
-        // Convert to designspace for comparison with master locations
         const currentDesignspaceLocation = userspaceToDesignspace(
             currentUserspaceLocation,
             fontModel.axes || []
         );
 
-        console.log('[OutlineEditor]', 'autoSelectMatchingLayer - locations:', {
-            userspace: currentUserspaceLocation,
-            designspace: currentDesignspaceLocation
-        });
-
-        // Check each layer to find a match
-        for (const layer of layers) {
+        for (const layer of currentGlyph.layers) {
             const masterId = layer.master?.master;
             const hasLayerLocation =
                 !!layer.location && Object.keys(layer.location).length > 0;
@@ -2361,50 +2316,69 @@ export class OutlineEditor {
             }
 
             if (allMatch) {
-                console.log(
-                    '[OutlineEditor]',
-                    `  ✓ MATCH found: layer ${layer.id} with effective location`,
-                    effectiveDesignLocation
-                );
-                // Found a matching layer - select it
-                this.selectedLayerId = layer.id || null;
-
-                // Build or rebuild glyph_stack with new layer ID
-                if (this.glyphStack && this.glyphStack !== '') {
-                    // If stack exists, rebuild with new layer (preserves component path)
-                    this.rebuildGlyphStackWithNewLayer(layer.id!);
-                } else {
-                    // If stack is empty, build initial stack for root glyph
-                    this.buildGlyphStack(rootGlyphName, layer.id!, []);
-                }
-
-                // Don't clear previous state - keep it to allow Escape to restore
-                // The previous state is only cleared in selectLayer() when explicitly clicking a layer
-                console.log('Keeping previous state for Escape functionality');
-
-                // Fetch layer data EXCEPT during slider interpolation or layer switch animation
-                // During these states, we use interpolated data instead
-                if (!this.isInterpolating && !this.isLayerSwitchAnimating) {
-                    await this.fetchLayerData(); // Fetch layer data for outline editor
-
-                    // Perform mouse hit detection after layer data is loaded
-                    this.performHitDetection(null);
-                }
-
-                // Clear the interpolating flag and render to display the new outlines
-                this.isInterpolating = false;
-                this.autoPanAnchorScreen = null;
-
-                if (this.active) {
-                    this.glyphCanvas.render();
-                }
-
-                this.updateLayerSelection();
-                console.log(
-                    `Auto-selected layer: ${layer.name || 'Default'} (${layer.id})`
-                );
-                return;
+                return layer as Babelfont.Layer;
             }
+        }
+
+        return null;
+    }
+
+    async autoSelectMatchingLayer(): Promise<void> {
+        const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
+
+        console.log('[OutlineEditor] autoSelectMatchingLayer called', {
+            active: this.active,
+            isInterpolating: this.isInterpolating,
+            selectedLayerId: this.selectedLayerId,
+            currentGlyphName: this.currentGlyphName,
+            rootGlyphName
+        });
+
+        const matchingLayer = this.findMatchingLayer(rootGlyphName);
+
+        if (matchingLayer) {
+            console.log(
+                '[OutlineEditor]',
+                `  ✓ MATCH found: layer ${matchingLayer.id}`
+            );
+            // Found a matching layer - select it
+            this.selectedLayerId = matchingLayer.id || null;
+
+            // Build or rebuild glyph_stack with new layer ID
+            if (this.glyphStack && this.glyphStack !== '') {
+                // If stack exists, rebuild with new layer (preserves component path)
+                this.rebuildGlyphStackWithNewLayer(matchingLayer.id!);
+            } else {
+                // If stack is empty, build initial stack for root glyph
+                this.buildGlyphStack(rootGlyphName, matchingLayer.id!, []);
+            }
+
+            // Don't clear previous state - keep it to allow Escape to restore
+            // The previous state is only cleared in selectLayer() when explicitly clicking a layer
+            console.log('Keeping previous state for Escape functionality');
+
+            // Fetch layer data EXCEPT during slider interpolation or layer switch animation
+            // During these states, we use interpolated data instead
+            if (!this.isInterpolating && !this.isLayerSwitchAnimating) {
+                await this.fetchLayerData(); // Fetch layer data for outline editor
+
+                // Perform mouse hit detection after layer data is loaded
+                this.performHitDetection(null);
+            }
+
+            // Clear the interpolating flag and render to display the new outlines
+            this.isInterpolating = false;
+            this.autoPanAnchorScreen = null;
+
+            if (this.active) {
+                this.glyphCanvas.render();
+            }
+
+            this.updateLayerSelection();
+            console.log(
+                `Auto-selected layer: ${matchingLayer.name || 'Default'} (${matchingLayer.id})`
+            );
+            return;
         }
 
         // No matching layer found - deselect current layer
