@@ -46,6 +46,8 @@ export interface EditorState {
     cursor_position: number;
     mode: 'text' | 'edit';
     glyph_stack: string;
+    harfbuzz_glyph_buffer: Array<Record<string, number | string | undefined>>;
+    harfbuzz_gid_to_name: Array<{ gid: number; name: string }>;
     isInterpolating: boolean;
     isAnimating: boolean;
     opentype_features_in_subset: Record<string, boolean>;
@@ -143,6 +145,8 @@ export class StateManager {
         this._state.editor_cursor_position = 0;
         this._state.editor_mode = 'text' as 'text' | 'edit';
         this._state.editor_glyph_stack = '';
+        this._state.editor_harfbuzz_glyph_buffer = [];
+        this._state.editor_harfbuzz_gid_to_name = [];
         this._state.editor_isInterpolating = false;
         this._state.editor_isAnimating = false;
         this._state.editor_opentype_features_in_subset = {};

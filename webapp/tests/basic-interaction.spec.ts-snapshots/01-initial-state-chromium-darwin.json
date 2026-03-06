@@ -7,6 +7,8 @@
     "editor_cursor_position": 0,
     "editor_mode": "text",
     "editor_glyph_stack": "",
+    "editor_harfbuzz_glyph_buffer": [],
+    "editor_harfbuzz_gid_to_name": [],
     "editor_isInterpolating": false,
     "editor_isAnimating": false,
     "editor_opentype_features_in_subset": {},

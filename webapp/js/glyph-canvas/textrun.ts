@@ -1882,6 +1882,35 @@ export class TextRunEditor {
         this.glyphNameBuffer = names;
     }
 
+    getGlyphNameForGid(gid: number): string {
+        if (!Number.isFinite(gid)) {
+            return '';
+        }
+
+        if (this.fontBlob) {
+            try {
+                const resolvedName = get_glyph_name(this.fontBlob, gid);
+                if (resolvedName) {
+                    return resolvedName;
+                }
+            } catch (error) {
+                console.warn(
+                    '[TextRun]',
+                    `Failed to resolve glyph name for gid ${gid}:`,
+                    error
+                );
+            }
+        }
+
+        for (const [glyphName, mappedGid] of this.editingFontNameToGid) {
+            if (mappedGid === gid) {
+                return glyphName;
+            }
+        }
+
+        return '';
+    }
+
     /**
      * Rebuild the name→GID map from the current editing font bytes.
      * Called when the editing font is reloaded.

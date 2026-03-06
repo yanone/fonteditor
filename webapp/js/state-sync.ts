@@ -64,8 +64,40 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
         return;
     }
 
+    const syncHarfBuzzGlyphState = () => {
+        const textRunEditor = glyphCanvas.textRunEditor;
+        if (!textRunEditor) {
+            return;
+        }
+
+        const glyphBuffer = (textRunEditor.shapedGlyphs || []).map((glyph) => ({
+            ...glyph
+        }));
+        window.stateManager.editor_harfbuzz_glyph_buffer = glyphBuffer;
+
+        const uniqueGids = new Set<number>();
+        for (const glyph of glyphBuffer) {
+            if (Number.isFinite(glyph.g)) {
+                uniqueGids.add(glyph.g as number);
+            }
+        }
+
+        const gidToName = Array.from(uniqueGids)
+            .sort((a, b) => a - b)
+            .map((gid) => ({
+                gid,
+                name: textRunEditor.getGlyphNameForGid(gid)
+            }));
+
+        window.stateManager.editor_harfbuzz_gid_to_name = gidToName;
+    };
+
     // Monitor text buffer changes
     if (glyphCanvas.textRunEditor) {
+        glyphCanvas.textRunEditor.on('render', () => {
+            syncHarfBuzzGlyphState();
+        });
+
         glyphCanvas.textRunEditor.on('textchanged', () => {
             if (!window.stateManager.isUrlSyncEnabled()) return;
 
@@ -87,6 +119,8 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
                 cursor
             });
         });
+
+        syncHarfBuzzGlyphState();
     }
 
     // Monitor glyph selection in editing mode

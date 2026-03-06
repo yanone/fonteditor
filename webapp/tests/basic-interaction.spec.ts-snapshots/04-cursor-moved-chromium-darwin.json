@@ -7,6 +7,197 @@
     "editor_cursor_position": 12,
     "editor_mode": "text",
     "editor_glyph_stack": "",
+    "editor_harfbuzz_glyph_buffer": [
+      {
+        "g": 2,
+        "cl": 0,
+        "dx": 0,
+        "dy": 0,
+        "ax": 569,
+        "ay": 0,
+        "flags": 0
+      },
+      {
+        "g": 1,
+        "cl": 1,
+        "dx": 0,
+        "dy": 0,
+        "ax": 544,
+        "ay": 0,
+        "flags": 0
+      },
+      {
+        "g": 3,
+        "cl": 2,
+        "dx": 0,
+        "dy": 0,
+        "ax": 220,
+        "ay": 0,
+        "flags": 0
+      },
+      {
+        "g": 3,
+        "cl": 3,
+        "dx": 0,
+        "dy": 0,
+        "ax": 220,
+        "ay": 0,
+        "flags": 0
+      },
+      {
+        "g": 4,
+        "cl": 4,
+        "dx": 0,
+        "dy": 0,
+        "ax": 570,
+        "ay": 0,
+        "flags": 0
+      },
+      {
+        "g": 30,
+        "cl": 5,
+        "dx": 0,
+        "dy": 0,
+        "ax": 210,
+        "ay": 0,
+        "flags": 0
+      },
+      {
+        "g": 36,
+        "cl": 12,
+        "dx": 2,
+        "dy": 289,
+        "ax": 0,
+        "ay": 0,
+        "flags": 1
+      },
+      {
+        "g": 9,
+        "cl": 12,
+        "dx": 0,
+        "dy": 0,
+        "ax": 196,
+        "ay": 0,
+        "flags": 1
+      },
+      {
+        "g": 33,
+        "cl": 11,
+        "dx": 76,
+        "dy": -96,
+        "ax": 0,
+        "ay": 0,
+        "flags": 1
+      },
+      {
+        "g": 12,
+        "cl": 11,
+        "dx": 0,
+        "dy": 0,
+        "ax": 202,
+        "ay": 0,
+        "flags": 1
+      },
+      {
+        "g": 35,
+        "cl": 9,
+        "dx": 86,
+        "dy": -23,
+        "ax": 0,
+        "ay": 0,
+        "flags": 0
+      },
+      {
+        "g": 19,
+        "cl": 9,
+        "dx": 0,
+        "dy": 0,
+        "ax": 618,
+        "ay": 0,
+        "flags": 0
+      },
+      {
+        "g": 21,
+        "cl": 8,
+        "dx": 0,
+        "dy": 0,
+        "ax": 278,
+        "ay": 0,
+        "flags": 1
+      },
+      {
+        "g": 35,
+        "cl": 6,
+        "dx": 171,
+        "dy": 14,
+        "ax": 0,
+        "ay": 0,
+        "flags": 0
+      },
+      {
+        "g": 27,
+        "cl": 6,
+        "dx": 0,
+        "dy": 0,
+        "ax": 501,
+        "ay": 0,
+        "flags": 0
+      }
+    ],
+    "editor_harfbuzz_gid_to_name": [
+      {
+        "gid": 1,
+        "name": "e"
+      },
+      {
+        "gid": 2,
+        "name": "h"
+      },
+      {
+        "gid": 3,
+        "name": "l"
+      },
+      {
+        "gid": 4,
+        "name": "o"
+      },
+      {
+        "gid": 9,
+        "name": "alef-ar.short.fina"
+      },
+      {
+        "gid": 12,
+        "name": "behDotless-ar.medi"
+      },
+      {
+        "gid": 19,
+        "name": "hah-ar.init"
+      },
+      {
+        "gid": 21,
+        "name": "reh-ar.fina"
+      },
+      {
+        "gid": 27,
+        "name": "meem-ar.init"
+      },
+      {
+        "gid": 30,
+        "name": "space"
+      },
+      {
+        "gid": 33,
+        "name": "dotbelow-ar"
+      },
+      {
+        "gid": 35,
+        "name": "fatha-ar"
+      },
+      {
+        "gid": 36,
+        "name": "fathatan-ar"
+      }
+    ],
     "editor_isInterpolating": false,
     "editor_isAnimating": false,
     "editor_opentype_features_in_subset": {
