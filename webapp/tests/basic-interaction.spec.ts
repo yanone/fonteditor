@@ -93,6 +93,59 @@ test.describe('Font Editor Basic Workflow', () => {
         return snapshot;
     };
 
+    const getCurrentEditorGlyphName = async (page: any): Promise<string> => {
+        return await page.evaluate(() => {
+            const win = window as any;
+            const state = win.stateManager?.getStateSnapshot?.()?.state || {};
+            const glyphStack = String(state.editor_glyph_stack || '');
+            if (!glyphStack) {
+                return '';
+            }
+
+            const deepestSegment = glyphStack.split('>').pop() || '';
+            return deepestSegment.split('@')[0] || '';
+        });
+    };
+
+    const navigateToGlyphByName = async (
+        page: any,
+        targetGlyphName: string,
+        options?: { maxSteps?: number; waitMs?: number }
+    ) => {
+        const maxSteps = options?.maxSteps ?? 24;
+        const waitMs = options?.waitMs ?? 120;
+
+        const initialGlyph = await getCurrentEditorGlyphName(page);
+        if (initialGlyph === targetGlyphName) {
+            return;
+        }
+
+        const tryDirection = async (shortcut: string) => {
+            for (let step = 0; step < maxSteps; step++) {
+                await page.keyboard.press(shortcut);
+                await page.waitForTimeout(waitMs);
+                const currentGlyph = await getCurrentEditorGlyphName(page);
+                if (currentGlyph === targetGlyphName) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (await tryDirection('Meta+ArrowLeft')) {
+            return;
+        }
+
+        if (await tryDirection('Meta+ArrowRight')) {
+            return;
+        }
+
+        const finalGlyph = await getCurrentEditorGlyphName(page);
+        throw new Error(
+            `Failed to navigate to ${targetGlyphName}; current glyph is ${finalGlyph || '(none)'}`
+        );
+    };
+
     const waitForSubsetEditingFontState = async (
         page: any,
         expectedFilename: string
@@ -364,14 +417,7 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // Move to meem.init
         console.log('[Test] Moving to meem.init');
-        await page.keyboard.press('Meta+ArrowLeft');
-        await page.keyboard.press('Meta+ArrowLeft');
-        await page.keyboard.press('Meta+ArrowLeft');
-        await page.keyboard.press('Meta+ArrowLeft');
-        await page.keyboard.press('Meta+ArrowLeft');
-        await page.keyboard.press('Meta+ArrowLeft');
-        await page.keyboard.press('Meta+ArrowLeft');
-        await page.keyboard.press('Meta+ArrowLeft');
+        await navigateToGlyphByName(page, 'meem-ar.init');
         await page.waitForTimeout(300);
 
         // SNAPSHOT POINT 8: Moved to meem.init
