@@ -101,6 +101,46 @@ function safeErrorReason(reason: any): string {
     }
 }
 
+function isSafariUserAgent(userAgent: string): boolean {
+    return (
+        /Safari\//.test(userAgent) &&
+        !/Chrome\//.test(userAgent) &&
+        !/Chromium\//.test(userAgent) &&
+        !/CriOS\//.test(userAgent) &&
+        !/Edg\//.test(userAgent) &&
+        !/OPR\//.test(userAgent) &&
+        !/FxiOS\//.test(userAgent) &&
+        !/Firefox\//.test(userAgent) &&
+        !/Android/.test(userAgent)
+    );
+}
+
+function safeSessionStorageGet(key: string): string | null {
+    try {
+        return window.sessionStorage.getItem(key);
+    } catch (_error) {
+        return null;
+    }
+}
+
+function getErrorRuntimeContext() {
+    const userAgent = navigator.userAgent || '';
+    const hasServiceWorkerController =
+        'serviceWorker' in navigator && !!navigator.serviceWorker.controller;
+
+    return {
+        startupMs: Math.round(performance.now()),
+        readyState: document.readyState,
+        visibilityState: document.visibilityState,
+        userAgent,
+        browserFamily: isSafariUserAgent(userAgent) ? 'safari' : 'other',
+        hasServiceWorkerController,
+        serviceWorkerState: navigator.serviceWorker.controller?.state || null,
+        coiReloadedBySelf: safeSessionStorageGet('coiReloadedBySelf'),
+        hasSharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined'
+    };
+}
+
 async function sendErrorReportToServer(payload: Record<string, any>) {
     try {
         const websiteURL = getWebsiteURL();
@@ -583,6 +623,7 @@ const stateManager = new StateManager();
 // Install global error handlers
 window.addEventListener('error', async (event) => {
     const reason = event.error || event.message || 'Unknown window error';
+    const runtimeContext = getErrorRuntimeContext();
     stateManager.captureError(reason, 'window.error');
     const mappedReport = await stateManager.captureErrorMapped(
         reason,
@@ -597,6 +638,7 @@ window.addEventListener('error', async (event) => {
         events: snapshot.events,
         source: 'editor.window.error',
         reason: safeErrorReason(reason),
+        runtimeContext,
         url: window.location.href,
         userAgent: navigator.userAgent,
         appVersion: (window as any).EDITOR_VERSION || null,
@@ -606,6 +648,8 @@ window.addEventListener('error', async (event) => {
 
 window.addEventListener('unhandledrejection', async (event) => {
     const reason = event.reason || 'Unhandled promise rejection';
+    const runtimeContext = getErrorRuntimeContext();
+
     stateManager.captureError(reason, 'window.unhandledrejection');
     const mappedReport = await stateManager.captureErrorMapped(
         reason,
@@ -620,6 +664,7 @@ window.addEventListener('unhandledrejection', async (event) => {
         events: snapshot.events,
         source: 'editor.window.unhandledrejection',
         reason: safeErrorReason(reason),
+        runtimeContext,
         url: window.location.href,
         userAgent: navigator.userAgent,
         appVersion: (window as any).EDITOR_VERSION || null,
