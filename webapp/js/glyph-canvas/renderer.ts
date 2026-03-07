@@ -1342,18 +1342,14 @@ export class GlyphCanvasRenderer {
             if (currentLayerData && currentLayerData.shapes) {
                 // Calculate bounds from all contours
                 currentLayerData.shapes.forEach((shape) => {
-                    if ('nodes' in shape && shape.nodes) {
-                        const nodes = shape.nodes as Babelfont.Node[];
-                        if (nodes.length > 0) {
-                            nodes.forEach(
-                                ({ x, y }: { x: number; y: number }) => {
-                                    minX = Math.min(minX, x);
-                                    maxX = Math.max(maxX, x);
-                                    minY = Math.min(minY, y);
-                                    maxY = Math.max(maxY, y);
-                                }
-                            );
-                        }
+                    const nodes = getNodesFromShape(shape);
+                    if (nodes && nodes.length > 0) {
+                        nodes.forEach(({ x, y }: { x: number; y: number }) => {
+                            minX = Math.min(minX, x);
+                            maxX = Math.max(maxX, x);
+                            minY = Math.min(minY, y);
+                            maxY = Math.max(maxY, y);
+                        });
                     }
                 });
                 // Add padding
