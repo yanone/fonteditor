@@ -2626,17 +2626,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const scriptRadio = document.querySelector(
         '#ai-context-radio-script + .ai-context-radio-custom'
     );
+    const getContextIconHTML = window.ChatSessionManager?.getContextIconHTML;
 
     if (fontRadio && scriptRadio) {
-        // Insert icons at the beginning of each custom radio span
-        fontRadio.insertAdjacentHTML(
-            'afterbegin',
-            window.ChatSessionManager.getContextIconHTML('font')
-        );
-        scriptRadio.insertAdjacentHTML(
-            'afterbegin',
-            window.ChatSessionManager.getContextIconHTML('script')
-        );
+        if (typeof getContextIconHTML === 'function') {
+            // Insert icons at the beginning of each custom radio span
+            fontRadio.insertAdjacentHTML(
+                'afterbegin',
+                getContextIconHTML('font')
+            );
+            scriptRadio.insertAdjacentHTML(
+                'afterbegin',
+                getContextIconHTML('script')
+            );
+        } else {
+            console.warn(
+                '[AIAssistant]',
+                'ChatSessionManager unavailable during initial context icon render'
+            );
+        }
     }
 
     // Wait for Pyodide to be ready
