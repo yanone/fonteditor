@@ -510,17 +510,29 @@ describe('GlyphCanvas component movement', () => {
 
     test('should move selected components by delta', () => {
         canvas.outlineEditor.moveSelectedComponents(10, 20);
-        expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(110);
-        expect(canvas.outlineEditor.layerData.shapes[0].transform[5]).toBe(120);
+        expect(
+            canvas.outlineEditor.layerData.shapes[0].transform.translation[0]
+        ).toBe(110);
+        expect(
+            canvas.outlineEditor.layerData.shapes[0].transform.translation[1]
+        ).toBe(120);
     });
 
     test('should move multiple selected components', () => {
         canvas.outlineEditor.selectedComponents = [0, 1];
         canvas.outlineEditor.moveSelectedComponents(10, 20);
-        expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(110);
-        expect(canvas.outlineEditor.layerData.shapes[0].transform[5]).toBe(120);
-        expect(canvas.outlineEditor.layerData.shapes[1].transform[4]).toBe(210);
-        expect(canvas.outlineEditor.layerData.shapes[1].transform[5]).toBe(220);
+        expect(
+            canvas.outlineEditor.layerData.shapes[0].transform.translation[0]
+        ).toBe(110);
+        expect(
+            canvas.outlineEditor.layerData.shapes[0].transform.translation[1]
+        ).toBe(120);
+        expect(
+            canvas.outlineEditor.layerData.shapes[1].transform.translation[0]
+        ).toBe(210);
+        expect(
+            canvas.outlineEditor.layerData.shapes[1].transform.translation[1]
+        ).toBe(220);
     });
 
     test('should not move components when none are selected', () => {

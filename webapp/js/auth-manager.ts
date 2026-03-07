@@ -119,20 +119,12 @@ class AuthManager {
             );
             console.log('[Auth] Website URL:', this.websiteURL);
 
-            if (!sessionToken) {
-                console.log('[Auth] No session token found');
-                this.user = null;
-                this.subscription = null;
-                this.onAuthStateChanged(false, null, null);
-                return null;
+            const headers: Record<string, string> = {};
+            if (sessionToken) {
+                headers.Authorization = `Bearer ${sessionToken}`;
             }
 
-            const response = await fetch(`${this.websiteURL}/api/auth/me`, {
-                credentials: 'include', // Include cookies for cross-domain
-                headers: {
-                    Authorization: `Bearer ${sessionToken}`
-                }
-            });
+            const response = await this.fetchAuthMeWithLocalRetry(headers);
 
             console.log('[Auth] API response status:', response.status);
 
@@ -170,14 +162,78 @@ class AuthManager {
         }
     }
 
+    async fetchAuthMeWithLocalRetry(
+        headers: Record<string, string>
+    ): Promise<Response> {
+        const isLocalWebsite = this.websiteURL === 'http://localhost:8788';
+        const maxAttempts = isLocalWebsite ? 4 : 1;
+        const localWebsiteCandidates = isLocalWebsite
+            ? [
+                  'http://localhost:8788',
+                  'http://127.0.0.1:8788',
+                  'http://[::1]:8788'
+              ]
+            : [this.websiteURL];
+        let lastResponse: Response | null = null;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            for (const candidateWebsiteURL of localWebsiteCandidates) {
+                const authMeUrl = new URL('/api/auth/me', candidateWebsiteURL);
+                if (isLocalWebsite) {
+                    authMeUrl.searchParams.set('_ts', String(Date.now()));
+                }
+
+                const response = await fetch(authMeUrl.toString(), {
+                    credentials: 'include',
+                    cache: 'no-store',
+                    headers
+                });
+
+                lastResponse = response;
+
+                // Prefer the first candidate that returns anything other than 404.
+                if (response.status !== 404) {
+                    if (this.websiteURL !== candidateWebsiteURL) {
+                        console.log(
+                            '[Auth] Switched local website endpoint candidate:',
+                            candidateWebsiteURL
+                        );
+                        this.websiteURL = candidateWebsiteURL;
+                    }
+                    return response;
+                }
+            }
+
+            if (!(isLocalWebsite && attempt < maxAttempts)) {
+                return lastResponse as Response;
+            }
+
+            console.warn(
+                '[Auth] /api/auth/me returned 404 on all local loopback candidates, retrying...',
+                `attempt ${attempt}/${maxAttempts}`
+            );
+
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+
+        return lastResponse as Response;
+    }
+
     /**
      * Get session token from cookie
      */
     getSessionToken(): string | null {
         console.log('[Auth] All cookies:', document.cookie);
         const cookies = document.cookie.split(';');
-        for (let cookie of cookies) {
-            const [name, value] = cookie.trim().split('=');
+        for (const cookie of cookies) {
+            const trimmedCookie = cookie.trim();
+            const separatorIndex = trimmedCookie.indexOf('=');
+            if (separatorIndex === -1) {
+                continue;
+            }
+
+            const name = trimmedCookie.slice(0, separatorIndex);
+            const value = trimmedCookie.slice(separatorIndex + 1);
             if (name === 'editor_session') {
                 console.log(
                     '[Auth] Found editor session cookie:',

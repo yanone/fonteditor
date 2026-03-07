@@ -80,7 +80,14 @@ function getWebsiteURL(): string {
 function getSessionTokenFromCookie(): string | null {
     const cookies = document.cookie.split(';');
     for (const cookie of cookies) {
-        const [name, value] = cookie.trim().split('=');
+        const trimmedCookie = cookie.trim();
+        const separatorIndex = trimmedCookie.indexOf('=');
+        if (separatorIndex === -1) {
+            continue;
+        }
+
+        const name = trimmedCookie.slice(0, separatorIndex);
+        const value = trimmedCookie.slice(separatorIndex + 1);
         if (name === 'editor_session') {
             return value;
         }

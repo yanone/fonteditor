@@ -205,6 +205,19 @@ class ChatSessionManager {
      * Show context selection at the start of a new chat
      */
     showContextSelection() {
+        // Hide legacy inline selector; ChatSessionManager renders the canonical selector UI.
+        const legacyContextSelector = document.getElementById(
+            'ai-context-selector'
+        );
+        if (legacyContextSelector) {
+            legacyContextSelector.classList.add('hidden');
+        }
+
+        // Ensure the message area is visible before appending selector content.
+        if (this.aiAssistant.messagesContainer) {
+            this.aiAssistant.messagesContainer.style.display = 'block';
+        }
+
         // Hide input container until context is selected
         const inputContainer = document.getElementById('ai-input-container');
         if (inputContainer) {
