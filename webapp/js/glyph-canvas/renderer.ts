@@ -3821,7 +3821,11 @@ export class GlyphCanvasRenderer {
 
             if (!shape.layerData || !shape.layerData.shapes) return;
 
-            const transform = shape.transform || [1, 0, 0, 1, 0, 0];
+            const transformRaw =
+                shape.transform || DecomposedAffineTransform.identity();
+            const transform = Array.isArray(transformRaw)
+                ? transformRaw
+                : DecomposedAffineTransform.toAffine(transformRaw);
             const [a, b, c, d, tx, ty] = transform;
 
             this.ctx.save();
