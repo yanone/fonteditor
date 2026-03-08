@@ -135,9 +135,6 @@ export class OutlineEditor {
             }
 
             let normalizedValue = rawValue;
-            if (metricKey === 'WinDescent' && normalizedValue > 0) {
-                normalizedValue = -normalizedValue;
-            }
 
             result[metricKey] = normalizedValue;
         }
@@ -701,15 +698,14 @@ export class OutlineEditor {
                     hoveredLayerTreeIndex
                 ];
 
-            // Root node has no component path to enter.
-            if (!node || node.componentPath.length === 0) {
+            if (!node) {
                 return true;
             }
 
             const componentPath = [...node.componentPath];
             this.glyphCanvas.stackPreviewAnimator.reverseAnimation(() => {
                 void this.enterComponentEditingByPath(componentPath);
-            });
+            }, componentPath);
             return true;
         }
 
@@ -936,15 +932,21 @@ export class OutlineEditor {
     private async enterComponentEditingByPath(
         componentPath: number[]
     ): Promise<void> {
-        if (componentPath.length === 0) {
-            return;
-        }
-
         const hasLayer = await this.ensureLayerSelectedForEditing();
         if (!hasLayer) {
             console.warn(
                 '[OutlineEditor] Cannot enter component editing path: no selectable layer available'
             );
+            return;
+        }
+
+        if (componentPath.length === 0) {
+            this.exitAllComponentEditing();
+            this.clearAllSelections();
+            this.currentGlyphName = this.glyphCanvas.getCurrentGlyphName();
+            this.glyphCanvas.updateComponentBreadcrumb();
+            await this.glyphCanvas.updatePropertiesUI();
+            this.glyphCanvas.render();
             return;
         }
 

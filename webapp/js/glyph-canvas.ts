@@ -2510,6 +2510,69 @@ class GlyphCanvas {
         );
     }
 
+    getCmdZeroViewportTarget(
+        margin: number | null = null
+    ): { scale: number; panX: number; panY: number } | null {
+        if (
+            !this.outlineEditor.active ||
+            this.textRunEditor!.selectedGlyphIndex < 0 ||
+            !this.viewportManager ||
+            !this.canvas
+        ) {
+            return null;
+        }
+
+        const rootLayerData = this.outlineEditor.layerData;
+        if (!rootLayerData) {
+            return null;
+        }
+
+        // Always frame the root glyph (Cmd+0 behavior), even when editing nested components.
+        const bounds = Layer.calculateBoundingBox(rootLayerData, true);
+        if (!bounds) {
+            return null;
+        }
+
+        const rect = this.canvas.getBoundingClientRect();
+        const glyphPosition = this.textRunEditor!._getGlyphPosition(
+            this.textRunEditor!.selectedGlyphIndex
+        );
+
+        const effectiveMargin =
+            margin === null
+                ? APP_SETTINGS.OUTLINE_EDITOR.CANVAS_MARGIN
+                : margin;
+        const fontSpaceMinX =
+            glyphPosition.xPosition + glyphPosition.xOffset + bounds.minX;
+        const fontSpaceMaxX =
+            glyphPosition.xPosition + glyphPosition.xOffset + bounds.maxX;
+        const fontSpaceMinY = glyphPosition.yOffset + bounds.minY;
+        const fontSpaceMaxY = glyphPosition.yOffset + bounds.maxY;
+
+        const fontSpaceCenterX = (fontSpaceMinX + fontSpaceMaxX) / 2;
+        const fontSpaceCenterY = (fontSpaceMinY + fontSpaceMaxY) / 2;
+
+        const scaleX = (rect.width - effectiveMargin * 2) / bounds.width;
+        const scaleY = (rect.height - effectiveMargin * 2) / bounds.height;
+        const targetScale = Math.min(scaleX, scaleY);
+        const clampedScale = Math.max(
+            0.01,
+            Math.min(
+                APP_SETTINGS.OUTLINE_EDITOR.MAX_ZOOM_FOR_CMD_ZERO,
+                targetScale
+            )
+        );
+
+        const targetPanX = rect.width / 2 - fontSpaceCenterX * clampedScale;
+        const targetPanY = rect.height / 2 - -fontSpaceCenterY * clampedScale;
+
+        return {
+            scale: clampedScale,
+            panX: targetPanX,
+            panY: targetPanY
+        };
+    }
+
     panToGlyph(glyphIndex: number): void {
         // Pan to show a specific glyph (used when switching glyphs with cmd+left/right)
         // Delegates to ViewportManager.panToGlyph

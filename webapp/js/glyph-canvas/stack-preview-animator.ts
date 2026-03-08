@@ -45,6 +45,9 @@ export class StackPreviewAnimator {
     animationStartTime = 0;
     layerTree: LayerTreeNode[] = [];
     hoveredLayerTreeIndex: number | null = null;
+    highlightedLayerTreeIndex: number | null = null;
+    highlightedComponentPath: number[] = [];
+    transitionTargetComponentPath: number[] | null = null;
     private reverseCompletionCallbacks: Array<() => void> = [];
 
     // Viewport state
@@ -54,6 +57,11 @@ export class StackPreviewAnimator {
     targetPanX = 0;
     targetPanY = 0;
     targetScale = 1;
+    cmdZeroViewportTarget: {
+        scale: number;
+        panX: number;
+        panY: number;
+    } | null = null;
 
     // Debug visualization
     debugBounds: {
@@ -88,6 +96,11 @@ export class StackPreviewAnimator {
         this.isAnimating = true;
         this.isReversing = false;
         this.hoveredLayerTreeIndex = null;
+        this.highlightedComponentPath = this.getCurrentGlyphStackPath();
+        this.highlightedLayerTreeIndex = null;
+        this.transitionTargetComponentPath = null;
+        this.cmdZeroViewportTarget =
+            this.glyphCanvas.getCmdZeroViewportTarget();
         this.animationStartTime = performance.now();
 
         this.savedPanX = viewport.panX;
@@ -100,10 +113,17 @@ export class StackPreviewAnimator {
     }
 
     /** Start reverse animation to exit stack preview mode */
-    reverseAnimation(onComplete?: () => void): void {
+    reverseAnimation(
+        onComplete?: () => void,
+        transitionTargetComponentPath: number[] | null = null
+    ): void {
         if (onComplete) {
             this.reverseCompletionCallbacks.push(onComplete);
         }
+
+        this.transitionTargetComponentPath = transitionTargetComponentPath
+            ? [...transitionTargetComponentPath]
+            : null;
 
         if (this.isAnimating && this.isReversing) return;
 
@@ -122,6 +142,12 @@ export class StackPreviewAnimator {
         this.isReversing = true;
         this.hoveredLayerTreeIndex = null;
         this.animationStartTime = performance.now();
+
+        if (this.cmdZeroViewportTarget) {
+            this.savedPanX = this.cmdZeroViewportTarget.panX;
+            this.savedPanY = this.cmdZeroViewportTarget.panY;
+            this.savedScale = this.cmdZeroViewportTarget.scale;
+        }
 
         this.targetPanX = viewport.panX;
         this.targetPanY = viewport.panY;
@@ -172,6 +198,10 @@ export class StackPreviewAnimator {
                 this.currentTiltAngle = 0;
                 this.layerTree = [];
                 this.hoveredLayerTreeIndex = null;
+                this.highlightedLayerTreeIndex = null;
+                this.highlightedComponentPath = [];
+                this.transitionTargetComponentPath = null;
+                this.cmdZeroViewportTarget = null;
                 viewport.panX = this.savedPanX;
                 viewport.panY = this.savedPanY;
                 viewport.scale = this.savedScale;
@@ -209,6 +239,42 @@ export class StackPreviewAnimator {
         });
 
         this.processComponents(layerData.shapes, IDENTITY_TRANSFORM, 1, []);
+        this.resolveHighlightedLayerTreeIndex();
+    }
+
+    private getCurrentGlyphStackPath(): number[] {
+        const parsed = this.glyphCanvas.outlineEditor.parseGlyphStack();
+        if (parsed.length === 0) {
+            return [];
+        }
+
+        const componentPath: number[] = [];
+        for (const item of parsed) {
+            if (item.componentIndex === undefined) {
+                continue;
+            }
+            componentPath.push(item.componentIndex);
+        }
+        return componentPath;
+    }
+
+    private resolveHighlightedLayerTreeIndex(): void {
+        const targetPath = this.highlightedComponentPath;
+        this.highlightedLayerTreeIndex = this.layerTree.findIndex((node) => {
+            if (node.componentPath.length !== targetPath.length) {
+                return false;
+            }
+            for (let i = 0; i < targetPath.length; i++) {
+                if (node.componentPath[i] !== targetPath[i]) {
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        if (this.highlightedLayerTreeIndex < 0) {
+            this.highlightedLayerTreeIndex = 0;
+        }
     }
 
     /** Recursively process component shapes and add instances to layer tree */

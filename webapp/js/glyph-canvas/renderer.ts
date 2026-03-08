@@ -316,6 +316,11 @@ export class GlyphCanvasRenderer {
     }
 
     private getStackPreviewEasedProgress(): number {
+        const animationProgress = this.getStackPreviewAnimationProgress();
+        return 1 - Math.pow(1 - animationProgress, 3);
+    }
+
+    private getStackPreviewAnimationProgress(): number {
         const animator = this.glyphCanvas.stackPreviewAnimator;
         let animationProgress;
         if (animator.isAnimating) {
@@ -330,7 +335,7 @@ export class GlyphCanvasRenderer {
         } else {
             animationProgress = animator.isActive ? 1 : 0;
         }
-        return 1 - Math.pow(1 - animationProgress, 3);
+        return animationProgress;
     }
 
     private getStackPreviewSlantAngleRadians(): number {
@@ -362,6 +367,103 @@ export class GlyphCanvasRenderer {
             baseX: xPosition + (glyph.dx || 0),
             baseY: glyph.dy || 0
         };
+    }
+
+    private transformPointWithAffine(
+        x: number,
+        y: number,
+        transform: number[]
+    ): { x: number; y: number } {
+        return {
+            x: transform[0] * x + transform[2] * y + transform[4],
+            y: transform[1] * x + transform[3] * y + transform[5]
+        };
+    }
+
+    private getLayerLocalBounds(
+        layerData: Babelfont.Layer,
+        parentTransform: number[] = [1, 0, 0, 1, 0, 0]
+    ): { minX: number; minY: number; maxX: number; maxY: number } | null {
+        if (!layerData?.shapes || layerData.shapes.length === 0) {
+            return null;
+        }
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        const accumulatePoint = (x: number, y: number) => {
+            const transformed = this.transformPointWithAffine(
+                x,
+                y,
+                parentTransform
+            );
+            minX = Math.min(minX, transformed.x);
+            minY = Math.min(minY, transformed.y);
+            maxX = Math.max(maxX, transformed.x);
+            maxY = Math.max(maxY, transformed.y);
+        };
+
+        for (const shape of layerData.shapes) {
+            if ('reference' in shape) {
+                const nestedLayerData = (shape as any).layerData;
+                if (!nestedLayerData?.shapes) {
+                    continue;
+                }
+
+                const transformRaw =
+                    (shape as any).transform ||
+                    DecomposedAffineTransform.identity();
+                const componentTransform = Array.isArray(transformRaw)
+                    ? transformRaw
+                    : DecomposedAffineTransform.toAffine(transformRaw);
+
+                const [a1, b1, c1, d1, tx1, ty1] = parentTransform;
+                const [a2, b2, c2, d2, tx2, ty2] = componentTransform;
+                const composedTransform = [
+                    a1 * a2 + c1 * b2,
+                    b1 * a2 + d1 * b2,
+                    a1 * c2 + c1 * d2,
+                    b1 * c2 + d1 * d2,
+                    a1 * tx2 + c1 * ty2 + tx1,
+                    b1 * tx2 + d1 * ty2 + ty1
+                ];
+
+                const nestedBounds = this.getLayerLocalBounds(
+                    nestedLayerData,
+                    composedTransform
+                );
+                if (nestedBounds) {
+                    minX = Math.min(minX, nestedBounds.minX);
+                    minY = Math.min(minY, nestedBounds.minY);
+                    maxX = Math.max(maxX, nestedBounds.maxX);
+                    maxY = Math.max(maxY, nestedBounds.maxY);
+                }
+                continue;
+            }
+
+            const nodes =
+                getNodesFromShape(shape) || getNodesFromOutlineShape(shape);
+            if (!nodes || nodes.length === 0) {
+                continue;
+            }
+
+            for (const node of nodes) {
+                accumulatePoint(node.x, node.y);
+            }
+        }
+
+        if (
+            !Number.isFinite(minX) ||
+            !Number.isFinite(minY) ||
+            !Number.isFinite(maxX) ||
+            !Number.isFinite(maxY)
+        ) {
+            return null;
+        }
+
+        return { minX, minY, maxX, maxY };
     }
 
     private isPointInLayerShapes(
@@ -455,7 +557,10 @@ export class GlyphCanvasRenderer {
         const invScale = 1 / this.viewportManager.scale;
         const viewportTransform = this.viewportManager.getTransformMatrix();
 
-        for (let i = animator.layerTree.length - 1; i >= 0; i--) {
+        let bestLayerTreeIndex: number | null = null;
+        let bestDistance = Infinity;
+
+        for (let i = 0; i < animator.layerTree.length; i++) {
             const node = animator.layerTree[i];
 
             this.ctx.save();
@@ -494,14 +599,25 @@ export class GlyphCanvasRenderer {
                 mouseY,
                 invScale
             );
-            this.ctx.restore();
 
             if (hit) {
-                return i;
+                const currentTransform = this.ctx.getTransform();
+                const originScreenX = currentTransform.e;
+                const originScreenY = currentTransform.f;
+                const dx = mouseX - originScreenX;
+                const dy = mouseY - originScreenY;
+                const distance = Math.hypot(dx, dy);
+
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestLayerTreeIndex = i;
+                }
             }
+
+            this.ctx.restore();
         }
 
-        return null;
+        return bestLayerTreeIndex;
     }
 
     /**
@@ -3895,9 +4011,71 @@ export class GlyphCanvasRenderer {
             this.ctx.restore();
         }
 
+        const animator = this.glyphCanvas.stackPreviewAnimator;
+        const activeHighlightLayerTreeIndex =
+            animator.hoveredLayerTreeIndex ??
+            animator.highlightedLayerTreeIndex;
+        const animationProgress = this.getStackPreviewAnimationProgress();
+
+        const isSamePath = (pathA: number[], pathB: number[]): boolean => {
+            if (pathA.length !== pathB.length) {
+                return false;
+            }
+            for (let i = 0; i < pathA.length; i++) {
+                if (pathA[i] !== pathB[i]) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        const getLayerOpacity = (node: any): number => {
+            // Entering stack preview: keep the origin layer fully visible and fade in all others.
+            if (animator.isAnimating && !animator.isReversing) {
+                const isOriginLayer = isSamePath(
+                    node.componentPath,
+                    animator.highlightedComponentPath
+                );
+                return isOriginLayer ? 1 : animationProgress;
+            }
+
+            // Exiting via double-click: keep only the exact target layer fully visible,
+            // while all other layers fade out continuously.
+            if (
+                animator.isAnimating &&
+                animator.isReversing &&
+                animator.transitionTargetComponentPath
+            ) {
+                const isTargetLayer = isSamePath(
+                    node.componentPath,
+                    animator.transitionTargetComponentPath
+                );
+                return isTargetLayer ? 1 : animationProgress;
+            }
+
+            return 1;
+        };
+
+        const getLayerOpacitySafe = (node: any): number => {
+            const opacity = getLayerOpacity(node);
+            if (opacity < 0) {
+                return 0;
+            }
+            if (opacity > 1) {
+                return 1;
+            }
+            return opacity;
+        };
+
         // Render all layers with animated diagonal offset (45° to top-right)
-        layerTree.forEach((node) => {
+        layerTree.forEach((node, layerTreeIndex) => {
+            const layerOpacity = getLayerOpacitySafe(node);
+            if (layerOpacity <= 0.001) {
+                return;
+            }
+
             this.ctx.save();
+            this.ctx.globalAlpha *= layerOpacity;
 
             // Translate to base glyph position
             this.ctx.translate(baseX, baseY);
@@ -3929,8 +4107,78 @@ export class GlyphCanvasRenderer {
             // Draw this component instance
             this.drawComponentInstance(node);
 
+            if (
+                activeHighlightLayerTreeIndex !== null &&
+                layerTreeIndex === activeHighlightLayerTreeIndex
+            ) {
+                this.drawStackPreviewLayerHighlight(node);
+            }
+
             this.ctx.restore();
         });
+    }
+
+    private strokeLayerOutlinesRecursively(layerData: Babelfont.Layer): void {
+        if (!layerData?.shapes) {
+            return;
+        }
+
+        for (const shape of layerData.shapes) {
+            if ('reference' in shape) {
+                const nestedLayerData = (shape as any).layerData;
+                if (!nestedLayerData?.shapes) {
+                    continue;
+                }
+
+                const transformRaw =
+                    (shape as any).transform ||
+                    DecomposedAffineTransform.identity();
+                const transform = Array.isArray(transformRaw)
+                    ? transformRaw
+                    : DecomposedAffineTransform.toAffine(transformRaw);
+
+                this.ctx.save();
+                this.ctx.transform(
+                    transform[0],
+                    transform[1],
+                    transform[2],
+                    transform[3],
+                    transform[4],
+                    transform[5]
+                );
+                this.strokeLayerOutlinesRecursively(nestedLayerData);
+                this.ctx.restore();
+                continue;
+            }
+
+            const nodes =
+                getNodesFromShape(shape) || getNodesFromOutlineShape(shape);
+            if (!nodes || nodes.length === 0) {
+                continue;
+            }
+
+            this.ctx.beginPath();
+            this.buildPathFromNodes(nodes);
+            this.ctx.closePath();
+            this.ctx.stroke();
+        }
+    }
+
+    private drawStackPreviewLayerHighlight(node: any): void {
+        const isDarkTheme =
+            document.documentElement.getAttribute('data-theme') !== 'light';
+
+        this.ctx.save();
+        this.ctx.strokeStyle = isDarkTheme
+            ? 'rgba(255, 255, 255, 0.14)'
+            : 'rgba(0, 0, 0, 0.12)';
+        this.ctx.lineWidth = 10 / this.viewportManager.scale;
+        this.ctx.lineJoin = 'round';
+        this.ctx.lineCap = 'round';
+
+        this.strokeLayerOutlinesRecursively(node.componentLayerData);
+
+        this.ctx.restore();
     }
 
     drawStackPreviewHoverLabel(): void {
@@ -3959,15 +4207,56 @@ export class GlyphCanvasRenderer {
             (animator.config.diagonalOffsetAngle * Math.PI) / 180;
         const offsetDistance =
             node.depth * animator.config.verticalSpacing * easedProgress;
-        const labelX =
+
+        const localBounds = this.getLayerLocalBounds(node.componentLayerData);
+        let labelX =
             basePosition.baseX +
             node.transform[4] +
             offsetDistance * Math.cos(diagonalAngleRad);
-        const labelY =
+        let labelY =
             basePosition.baseY +
             node.transform[5] +
             offsetDistance * Math.sin(diagonalAngleRad) -
-            40 / this.viewportManager.scale;
+            100;
+
+        if (localBounds) {
+            const corners = [
+                this.transformPointWithAffine(
+                    localBounds.minX,
+                    localBounds.minY,
+                    node.transform
+                ),
+                this.transformPointWithAffine(
+                    localBounds.maxX,
+                    localBounds.minY,
+                    node.transform
+                ),
+                this.transformPointWithAffine(
+                    localBounds.minX,
+                    localBounds.maxY,
+                    node.transform
+                ),
+                this.transformPointWithAffine(
+                    localBounds.maxX,
+                    localBounds.maxY,
+                    node.transform
+                )
+            ];
+
+            const transformedMinX = Math.min(...corners.map((p) => p.x));
+            const transformedMaxX = Math.max(...corners.map((p) => p.x));
+            const transformedMinY = Math.min(...corners.map((p) => p.y));
+
+            labelX =
+                basePosition.baseX +
+                (transformedMinX + transformedMaxX) / 2 +
+                offsetDistance * Math.cos(diagonalAngleRad);
+            labelY =
+                basePosition.baseY +
+                transformedMinY -
+                100 +
+                offsetDistance * Math.sin(diagonalAngleRad);
+        }
 
         const labelText =
             node.glyphName || this.glyphCanvas.getCurrentGlyphName();
