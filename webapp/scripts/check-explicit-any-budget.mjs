@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = join(process.cwd(), 'js');
-const EXPECTED_EXPLICIT_ANY = 624;
+const EXPECTED_EXPLICIT_ANY = 634;
 const EXPECTED_EXPLICIT_UNKNOWN = 121;
 const EXPECTED_BABELFONT_MODEL_ANY = 0;
 const EXPECTED_BABELFONT_MODEL_UNKNOWN = 0;

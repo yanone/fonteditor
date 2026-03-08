@@ -4167,8 +4167,14 @@ export class GlyphCanvasRenderer {
     private drawStackPreviewLayerHighlight(node: any): void {
         const isDarkTheme =
             document.documentElement.getAttribute('data-theme') !== 'light';
+        const animator = this.glyphCanvas.stackPreviewAnimator;
+        const highlightFade =
+            animator.isAnimating && animator.isReversing
+                ? this.getStackPreviewAnimationProgress()
+                : 1;
 
         this.ctx.save();
+        this.ctx.globalAlpha *= highlightFade;
         this.ctx.strokeStyle = isDarkTheme
             ? 'rgba(255, 255, 255, 0.14)'
             : 'rgba(0, 0, 0, 0.12)';

@@ -89,6 +89,9 @@ class GlyphOverview {
     } | null = null;
     // Currently highlighted editing glyph
     private highlightedGlyphName: string | null = null;
+    private highlightScrollSyncRafId: number | null = null;
+    private highlightScrollSyncAttempts = 0;
+    private readonly maxHighlightScrollSyncAttempts = 8;
     // Tile size control
     private currentSizeStep: number = 2; // Default to middle (step 2 of 11)
     private sizeSlider: HTMLInputElement | null = null;
@@ -416,10 +419,12 @@ class GlyphOverview {
 
         if (this.viewMode === 'grid') {
             this.renderGridMode();
+            this.scheduleHighlightedGlyphVisibilitySync();
             return;
         }
 
         this.renderLinesMode();
+        this.scheduleHighlightedGlyphVisibilitySync();
     }
 
     private renderLinesMode(): void {
@@ -1327,6 +1332,12 @@ class GlyphOverview {
     private setEditingHighlight(glyphName: string | null): void {
         if (glyphName === this.highlightedGlyphName) return;
 
+        if (this.highlightScrollSyncRafId !== null) {
+            cancelAnimationFrame(this.highlightScrollSyncRafId);
+            this.highlightScrollSyncRafId = null;
+        }
+        this.highlightScrollSyncAttempts = 0;
+
         // Remove highlight from previous tile
         if (this.highlightedGlyphName) {
             for (const tile of this.tiles.values()) {
@@ -1344,11 +1355,82 @@ class GlyphOverview {
                 if (tile.glyphName === glyphName) {
                     tile.element.style.boxShadow =
                         'inset 0 0 0 2px var(--accent-blue)';
-                    this.scrollToTile(tile.element);
+                    this.scheduleHighlightedGlyphVisibilitySync();
                     break;
                 }
             }
         }
+    }
+
+    private scheduleHighlightedGlyphVisibilitySync(): void {
+        if (!this.highlightedGlyphName || !this.container) {
+            return;
+        }
+
+        if (this.highlightScrollSyncRafId !== null) {
+            cancelAnimationFrame(this.highlightScrollSyncRafId);
+            this.highlightScrollSyncRafId = null;
+        }
+        this.highlightScrollSyncAttempts = 0;
+
+        const syncStep = () => {
+            if (!this.highlightedGlyphName || !this.container) {
+                this.highlightScrollSyncRafId = null;
+                return;
+            }
+
+            let highlightedTile: GlyphTile | null = null;
+            for (const tile of this.tiles.values()) {
+                if (tile.glyphName === this.highlightedGlyphName) {
+                    highlightedTile = tile;
+                    break;
+                }
+            }
+
+            if (!highlightedTile) {
+                this.highlightScrollSyncRafId = null;
+                return;
+            }
+
+            if (!this.isTileFullyVisible(highlightedTile.element)) {
+                this.scrollToTile(highlightedTile.element);
+            }
+
+            this.highlightScrollSyncAttempts += 1;
+            if (
+                this.highlightScrollSyncAttempts <
+                this.maxHighlightScrollSyncAttempts
+            ) {
+                this.highlightScrollSyncRafId = requestAnimationFrame(syncStep);
+                return;
+            }
+
+            this.highlightScrollSyncRafId = null;
+        };
+
+        this.highlightScrollSyncRafId = requestAnimationFrame(syncStep);
+    }
+
+    private isTileFullyVisible(element: HTMLElement): boolean {
+        if (!this.container || !element.isConnected) {
+            return false;
+        }
+
+        const containerRect = this.container.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+
+        if (
+            containerRect.height <= 0 ||
+            elementRect.height <= 0 ||
+            elementRect.width <= 0
+        ) {
+            return false;
+        }
+
+        return (
+            elementRect.top >= containerRect.top &&
+            elementRect.bottom <= containerRect.bottom
+        );
     }
 
     /**
@@ -1357,8 +1439,22 @@ class GlyphOverview {
     private scrollToTile(element: HTMLElement): void {
         if (!this.container) return;
 
+        const glyphId = element.dataset.glyphId;
+
+        // If the tile isn't mounted (or has no measurable box yet), use index-based
+        // scrolling to avoid bad geometry reads that can jump to the top.
+        if (!element.isConnected) {
+            if (glyphId) {
+                this.scrollToGlyphId(glyphId);
+            }
+            return;
+        }
+
+        if (this.container.clientHeight <= 0) {
+            return;
+        }
+
         if (this.linesVirtualizationActive) {
-            const glyphId = element.dataset.glyphId;
             if (glyphId) {
                 this.scrollToGlyphId(glyphId);
                 return;
@@ -1367,6 +1463,17 @@ class GlyphOverview {
 
         const containerRect = this.container.getBoundingClientRect();
         const elementRect = element.getBoundingClientRect();
+
+        if (
+            containerRect.height <= 0 ||
+            elementRect.height <= 0 ||
+            elementRect.width <= 0
+        ) {
+            if (glyphId) {
+                this.scrollToGlyphId(glyphId);
+            }
+            return;
+        }
 
         // Check if element is already fully visible
         if (
@@ -1404,6 +1511,7 @@ class GlyphOverview {
 
     private scrollToGlyphId(glyphId: string): void {
         if (!this.container) return;
+        if (this.container.clientHeight <= 0) return;
 
         const index = this.visibleGlyphIds.indexOf(glyphId);
         if (index === -1) return;
@@ -1425,7 +1533,11 @@ class GlyphOverview {
             0,
             tileTop - this.container.clientHeight / 2 + dims.height / 2
         );
-        this.container.scrollTop = targetScroll;
+        const maxScroll = Math.max(
+            0,
+            this.container.scrollHeight - this.container.clientHeight
+        );
+        this.container.scrollTop = Math.min(targetScroll, maxScroll);
         this.renderVirtualizedLinesWindow(true);
     }
 

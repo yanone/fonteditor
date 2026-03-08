@@ -125,6 +125,15 @@ export class StackPreviewAnimator {
             ? [...transitionTargetComponentPath]
             : null;
 
+        if (this.transitionTargetComponentPath) {
+            this.highlightedComponentPath = [
+                ...this.transitionTargetComponentPath
+            ];
+            if (this.layerTree.length > 0) {
+                this.resolveHighlightedLayerTreeIndex();
+            }
+        }
+
         if (this.isAnimating && this.isReversing) return;
 
         const viewport = this.glyphCanvas.viewportManager;
