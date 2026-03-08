@@ -684,6 +684,35 @@ export class OutlineEditor {
             this.hoveredComponentIndex
         );
 
+        // Stack preview mode: double-click enters component editing at hovered stack node.
+        if (this.glyphCanvas.stackPreviewAnimator.shouldRenderStackPreview()) {
+            if (this.glyphCanvas.stackPreviewAnimator.isInputBlocked()) {
+                return true;
+            }
+
+            const hoveredLayerTreeIndex =
+                this.glyphCanvas.stackPreviewAnimator.hoveredLayerTreeIndex;
+            if (hoveredLayerTreeIndex === null) {
+                return true;
+            }
+
+            const node =
+                this.glyphCanvas.stackPreviewAnimator.layerTree[
+                    hoveredLayerTreeIndex
+                ];
+
+            // Root node has no component path to enter.
+            if (!node || node.componentPath.length === 0) {
+                return true;
+            }
+
+            const componentPath = [...node.componentPath];
+            this.glyphCanvas.stackPreviewAnimator.reverseAnimation(() => {
+                void this.enterComponentEditingByPath(componentPath);
+            });
+            return true;
+        }
+
         // If in edit mode with a component/point/anchor hovered, prioritize that over glyph switching
         if (this.active && this.layerData && !this.isPreviewMode) {
             // Double-click on component - enter component editing (without selecting it)
@@ -890,7 +919,7 @@ export class OutlineEditor {
 
     private async enterComponentEditingFromHover(
         componentIndex: number,
-        e: MouseEvent
+        e: MouseEvent | null
     ): Promise<void> {
         const hasLayer = await this.ensureLayerSelectedForEditing();
         if (!hasLayer) {
@@ -902,6 +931,46 @@ export class OutlineEditor {
 
         this.selectedComponents = [];
         await this.enterComponentEditing(componentIndex, false, e);
+    }
+
+    private async enterComponentEditingByPath(
+        componentPath: number[]
+    ): Promise<void> {
+        if (componentPath.length === 0) {
+            return;
+        }
+
+        const hasLayer = await this.ensureLayerSelectedForEditing();
+        if (!hasLayer) {
+            console.warn(
+                '[OutlineEditor] Cannot enter component editing path: no selectable layer available'
+            );
+            return;
+        }
+
+        this.exitAllComponentEditing();
+        this.selectedComponents = [];
+
+        for (let i = 0; i < componentPath.length; i++) {
+            const depthBefore = this.getComponentDepth();
+            const skipUIUpdate = i < componentPath.length - 1;
+            await this.enterComponentEditing(
+                componentPath[i],
+                skipUIUpdate,
+                null
+            );
+
+            // Abort if path navigation failed at this depth.
+            if (this.getComponentDepth() === depthBefore) {
+                console.warn(
+                    '[OutlineEditor] Failed to enter component path at depth',
+                    i,
+                    'componentIndex:',
+                    componentPath[i]
+                );
+                break;
+            }
+        }
     }
 
     onMouseMove(e: MouseEvent) {
@@ -1167,6 +1236,9 @@ export class OutlineEditor {
     // In outline editor mode, check for hovered components, anchors and points first (unless in preview mode), then other glyphs
     performHitDetection(e: MouseEvent | null): void {
         if (!(this.active && this.layerData && !this.isPreviewMode)) return;
+        if (this.glyphCanvas.stackPreviewAnimator.shouldRenderStackPreview()) {
+            return;
+        }
 
         this.updateHoveredComponent();
         this.updateHoveredAnchor();

@@ -13,9 +13,11 @@ const IDENTITY_TRANSFORM = [1, 0, 0, 1, 0, 0];
  */
 export interface LayerTreeNode {
     componentLayerData: Babelfont.Layer;
+    glyphName: string;
     depth: number;
     transform: number[]; // Accumulated 2D affine transform [a, b, c, d, tx, ty]
     yOffset: number;
+    componentPath: number[];
 }
 
 /**
@@ -42,6 +44,8 @@ export class StackPreviewAnimator {
     currentTiltAngle = 0;
     animationStartTime = 0;
     layerTree: LayerTreeNode[] = [];
+    hoveredLayerTreeIndex: number | null = null;
+    private reverseCompletionCallbacks: Array<() => void> = [];
 
     // Viewport state
     savedPanX = 0;
@@ -83,6 +87,7 @@ export class StackPreviewAnimator {
         this.isActive = true;
         this.isAnimating = true;
         this.isReversing = false;
+        this.hoveredLayerTreeIndex = null;
         this.animationStartTime = performance.now();
 
         this.savedPanX = viewport.panX;
@@ -95,14 +100,27 @@ export class StackPreviewAnimator {
     }
 
     /** Start reverse animation to exit stack preview mode */
-    reverseAnimation(): void {
+    reverseAnimation(onComplete?: () => void): void {
+        if (onComplete) {
+            this.reverseCompletionCallbacks.push(onComplete);
+        }
+
         if (this.isAnimating && this.isReversing) return;
 
         const viewport = this.glyphCanvas.viewportManager;
-        if (!viewport) return;
+        if (!viewport) {
+            this.flushReverseCompletionCallbacks();
+            return;
+        }
+
+        if (!this.isActive && !this.isAnimating) {
+            this.flushReverseCompletionCallbacks();
+            return;
+        }
 
         this.isAnimating = true;
         this.isReversing = true;
+        this.hoveredLayerTreeIndex = null;
         this.animationStartTime = performance.now();
 
         this.targetPanX = viewport.panX;
@@ -153,11 +171,24 @@ export class StackPreviewAnimator {
                 this.isActive = false;
                 this.currentTiltAngle = 0;
                 this.layerTree = [];
+                this.hoveredLayerTreeIndex = null;
                 viewport.panX = this.savedPanX;
                 viewport.panY = this.savedPanY;
                 viewport.scale = this.savedScale;
+                this.flushReverseCompletionCallbacks();
             }
             this.glyphCanvas.render();
+        }
+    }
+
+    private flushReverseCompletionCallbacks(): void {
+        if (this.reverseCompletionCallbacks.length === 0) {
+            return;
+        }
+        const callbacks = [...this.reverseCompletionCallbacks];
+        this.reverseCompletionCallbacks = [];
+        for (const callback of callbacks) {
+            callback();
         }
     }
 
@@ -170,21 +201,25 @@ export class StackPreviewAnimator {
 
         this.layerTree.push({
             componentLayerData: layerData,
+            glyphName: this.glyphCanvas.getCurrentGlyphName(),
             depth: 0,
             transform: IDENTITY_TRANSFORM,
-            yOffset: 0
+            yOffset: 0,
+            componentPath: []
         });
 
-        this.processComponents(layerData.shapes, IDENTITY_TRANSFORM, 1);
+        this.processComponents(layerData.shapes, IDENTITY_TRANSFORM, 1, []);
     }
 
     /** Recursively process component shapes and add instances to layer tree */
     private processComponents(
         shapes: Babelfont.Shape[],
         accumulatedTransform: number[],
-        depth: number
+        depth: number,
+        componentPath: number[]
     ): void {
-        for (const shape of shapes) {
+        for (let index = 0; index < shapes.length; index++) {
+            const shape = shapes[index];
             // Unwrapped format: Component has 'reference' field
             if (!('reference' in shape)) continue;
 
@@ -199,18 +234,22 @@ export class StackPreviewAnimator {
                 transformArray
             );
             const componentLayerData = (shape as any).layerData;
+            const nextPath = [...componentPath, index];
 
             if (componentLayerData?.shapes) {
                 this.layerTree.push({
                     componentLayerData,
+                    glyphName: (shape as any).reference,
                     depth,
                     transform: newTransform,
-                    yOffset: depth * this.config.verticalSpacing
+                    yOffset: depth * this.config.verticalSpacing,
+                    componentPath: nextPath
                 });
                 this.processComponents(
                     componentLayerData.shapes,
                     newTransform,
-                    depth + 1
+                    depth + 1,
+                    nextPath
                 );
             }
         }

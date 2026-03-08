@@ -1142,6 +1142,15 @@ class GlyphCanvas {
             return;
         }
 
+        // Stack preview has its own transformed hit targets and pointer behavior.
+        if (this.stackPreviewAnimator.shouldRenderStackPreview()) {
+            this.canvas!.style.cursor =
+                this.stackPreviewAnimator.hoveredLayerTreeIndex !== null
+                    ? 'pointer'
+                    : 'default';
+            return;
+        }
+
         // In outline editor mode, let it control the cursor
         if (this.outlineEditor.active) {
             this.outlineEditor.cursorStyle();
@@ -1157,6 +1166,39 @@ class GlyphCanvas {
     }
 
     updateHoveredGlyph(): void {
+        if (this.stackPreviewAnimator.shouldRenderStackPreview()) {
+            const hoveredLayerTreeIndex =
+                this.renderer?.hitTestStackPreviewLayer(
+                    this.mouseX,
+                    this.mouseY
+                ) ?? null;
+
+            let didChange = false;
+
+            if (
+                this.stackPreviewAnimator.hoveredLayerTreeIndex !==
+                hoveredLayerTreeIndex
+            ) {
+                this.stackPreviewAnimator.hoveredLayerTreeIndex =
+                    hoveredLayerTreeIndex;
+                didChange = true;
+            }
+
+            if (this.outlineEditor.hoveredGlyphIndex !== -1) {
+                this.outlineEditor.hoveredGlyphIndex = -1;
+                didChange = true;
+            }
+
+            if (didChange) {
+                this.render();
+            }
+            return;
+        }
+
+        if (this.stackPreviewAnimator.hoveredLayerTreeIndex !== null) {
+            this.stackPreviewAnimator.hoveredLayerTreeIndex = null;
+        }
+
         let foundIndex = -1;
 
         // Check each glyph using path hit testing

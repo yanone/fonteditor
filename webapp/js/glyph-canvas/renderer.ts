@@ -259,32 +259,8 @@ export class GlyphCanvasRenderer {
 
         // Apply rotation if stack preview mode is active
         if (this.glyphCanvas.stackPreviewAnimator.shouldRenderStackPreview()) {
-            // Calculate animation progress for rotation
-            let animationProgress;
-            if (this.glyphCanvas.stackPreviewAnimator.isAnimating) {
-                const elapsed =
-                    performance.now() -
-                    this.glyphCanvas.stackPreviewAnimator.animationStartTime;
-                const rawProgress = Math.min(
-                    elapsed /
-                        this.glyphCanvas.stackPreviewAnimator.config
-                            .animationDuration,
-                    1.0
-                );
-                animationProgress = this.glyphCanvas.stackPreviewAnimator
-                    .isReversing
-                    ? 1 - rawProgress
-                    : rawProgress;
-            } else {
-                animationProgress = this.glyphCanvas.stackPreviewAnimator
-                    .isActive
-                    ? 1
-                    : 0;
-            }
-            const easedProgress = 1 - Math.pow(1 - animationProgress, 3);
-
             // Apply 30° slant to the left (horizontal skew)
-            const slantAngle = -30 * (Math.PI / 180) * easedProgress;
+            const slantAngle = this.getStackPreviewSlantAngleRadians();
             this.ctx.transform(1, 0, Math.tan(slantAngle), 1, 0, 0);
         }
 
@@ -327,6 +303,9 @@ export class GlyphCanvasRenderer {
         // Draw glyph name tooltip (still in transformed space)
         this.drawGlyphTooltip();
 
+        // Draw stack preview layer hover label (still in transformed space)
+        this.drawStackPreviewHoverLabel();
+
         // Draw QC diagnostic point markers (still in transformed space)
         this.drawQcCanvasMarkers();
 
@@ -334,6 +313,195 @@ export class GlyphCanvasRenderer {
 
         // Draw UI overlay (zoom level, etc.)
         this.drawUIOverlay();
+    }
+
+    private getStackPreviewEasedProgress(): number {
+        const animator = this.glyphCanvas.stackPreviewAnimator;
+        let animationProgress;
+        if (animator.isAnimating) {
+            const elapsed = performance.now() - animator.animationStartTime;
+            const rawProgress = Math.min(
+                elapsed / animator.config.animationDuration,
+                1.0
+            );
+            animationProgress = animator.isReversing
+                ? 1 - rawProgress
+                : rawProgress;
+        } else {
+            animationProgress = animator.isActive ? 1 : 0;
+        }
+        return 1 - Math.pow(1 - animationProgress, 3);
+    }
+
+    private getStackPreviewSlantAngleRadians(): number {
+        return -30 * (Math.PI / 180) * this.getStackPreviewEasedProgress();
+    }
+
+    private getSelectedGlyphBasePosition(): {
+        baseX: number;
+        baseY: number;
+    } | null {
+        if (
+            this.textRunEditor.selectedGlyphIndex < 0 ||
+            this.textRunEditor.selectedGlyphIndex >=
+                this.textRunEditor.shapedGlyphs.length
+        ) {
+            return null;
+        }
+
+        let xPosition = 0;
+        for (let i = 0; i < this.textRunEditor.selectedGlyphIndex; i++) {
+            xPosition += this.textRunEditor.shapedGlyphs[i].ax || 0;
+        }
+
+        const glyph =
+            this.textRunEditor.shapedGlyphs[
+                this.textRunEditor.selectedGlyphIndex
+            ];
+        return {
+            baseX: xPosition + (glyph.dx || 0),
+            baseY: glyph.dy || 0
+        };
+    }
+
+    private isPointInLayerShapes(
+        layerData: Babelfont.Layer,
+        mouseX: number,
+        mouseY: number,
+        invScale: number
+    ): boolean {
+        if (!layerData?.shapes) {
+            return false;
+        }
+
+        for (const shape of layerData.shapes) {
+            if ('reference' in shape) {
+                const nestedLayerData = (shape as any).layerData;
+                if (!nestedLayerData?.shapes) {
+                    continue;
+                }
+
+                const transformRaw =
+                    (shape as any).transform ||
+                    DecomposedAffineTransform.identity();
+                const transform = Array.isArray(transformRaw)
+                    ? transformRaw
+                    : DecomposedAffineTransform.toAffine(transformRaw);
+
+                this.ctx.save();
+                this.ctx.transform(
+                    transform[0],
+                    transform[1],
+                    transform[2],
+                    transform[3],
+                    transform[4],
+                    transform[5]
+                );
+                const hit = this.isPointInLayerShapes(
+                    nestedLayerData,
+                    mouseX,
+                    mouseY,
+                    invScale
+                );
+                this.ctx.restore();
+
+                if (hit) {
+                    return true;
+                }
+                continue;
+            }
+
+            const nodes =
+                getNodesFromShape(shape) || getNodesFromOutlineShape(shape);
+            if (!nodes || nodes.length === 0) {
+                continue;
+            }
+
+            this.ctx.beginPath();
+            this.buildPathFromNodes(nodes);
+            this.ctx.closePath();
+            this.ctx.lineWidth =
+                APP_SETTINGS.OUTLINE_EDITOR.HIT_TOLERANCE /
+                this.viewportManager.scale;
+
+            if (
+                this.ctx.isPointInPath(mouseX, mouseY) ||
+                this.ctx.isPointInStroke(mouseX, mouseY)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    hitTestStackPreviewLayer(mouseX: number, mouseY: number): number | null {
+        const animator = this.glyphCanvas.stackPreviewAnimator;
+        if (
+            !animator.shouldRenderStackPreview() ||
+            animator.layerTree.length === 0
+        ) {
+            return null;
+        }
+
+        const basePosition = this.getSelectedGlyphBasePosition();
+        if (!basePosition) {
+            return null;
+        }
+
+        const easedProgress = this.getStackPreviewEasedProgress();
+        const diagonalAngleRad =
+            (animator.config.diagonalOffsetAngle * Math.PI) / 180;
+        const invScale = 1 / this.viewportManager.scale;
+        const viewportTransform = this.viewportManager.getTransformMatrix();
+
+        for (let i = animator.layerTree.length - 1; i >= 0; i--) {
+            const node = animator.layerTree[i];
+
+            this.ctx.save();
+            this.ctx.setTransform(
+                viewportTransform.a,
+                viewportTransform.b,
+                viewportTransform.c,
+                viewportTransform.d,
+                viewportTransform.e,
+                viewportTransform.f
+            );
+
+            const slantAngle = this.getStackPreviewSlantAngleRadians();
+            this.ctx.transform(1, 0, Math.tan(slantAngle), 1, 0, 0);
+
+            this.ctx.translate(basePosition.baseX, basePosition.baseY);
+            this.ctx.transform(
+                node.transform[0],
+                node.transform[1],
+                node.transform[2],
+                node.transform[3],
+                node.transform[4],
+                node.transform[5]
+            );
+
+            const offsetDistance =
+                node.depth * animator.config.verticalSpacing * easedProgress;
+            this.ctx.translate(
+                offsetDistance * Math.cos(diagonalAngleRad),
+                offsetDistance * Math.sin(diagonalAngleRad)
+            );
+
+            const hit = this.isPointInLayerShapes(
+                node.componentLayerData,
+                mouseX,
+                mouseY,
+                invScale
+            );
+            this.ctx.restore();
+
+            if (hit) {
+                return i;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -3590,19 +3758,11 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        let xPosition = 0;
-        for (let i = 0; i < this.textRunEditor.selectedGlyphIndex; i++) {
-            xPosition += this.textRunEditor.shapedGlyphs[i].ax || 0;
+        const basePosition = this.getSelectedGlyphBasePosition();
+        if (!basePosition) {
+            return;
         }
-
-        const glyph =
-            this.textRunEditor.shapedGlyphs[
-                this.textRunEditor.selectedGlyphIndex
-            ];
-        const xOffset = glyph.dx || 0;
-        const yOffset = glyph.dy || 0;
-        const baseX = xPosition + xOffset;
-        const baseY = yOffset;
+        const { baseX, baseY } = basePosition;
 
         // Draw debug bounds if enabled
         if (
@@ -3625,28 +3785,7 @@ export class GlyphCanvasRenderer {
             this.ctx.restore();
         }
 
-        // Calculate animation progress with reverse support
-        let animationProgress;
-        if (this.glyphCanvas.stackPreviewAnimator.isAnimating) {
-            const elapsed =
-                performance.now() -
-                this.glyphCanvas.stackPreviewAnimator.animationStartTime;
-            const rawProgress = Math.min(
-                elapsed /
-                    this.glyphCanvas.stackPreviewAnimator.config
-                        .animationDuration,
-                1.0
-            );
-            animationProgress = this.glyphCanvas.stackPreviewAnimator
-                .isReversing
-                ? 1 - rawProgress
-                : rawProgress;
-        } else {
-            animationProgress = this.glyphCanvas.stackPreviewAnimator.isActive
-                ? 1
-                : 0;
-        }
-        const easedProgress = 1 - Math.pow(1 - animationProgress, 3);
+        const easedProgress = this.getStackPreviewEasedProgress();
 
         // Collect guide lines from ALL layers with outlines (not just max depth)
         interface PathOriginPair {
@@ -3792,6 +3931,52 @@ export class GlyphCanvasRenderer {
 
             this.ctx.restore();
         });
+    }
+
+    drawStackPreviewHoverLabel(): void {
+        const animator = this.glyphCanvas.stackPreviewAnimator;
+        if (!animator.shouldRenderStackPreview()) {
+            return;
+        }
+
+        const hoveredLayerTreeIndex = animator.hoveredLayerTreeIndex;
+        if (hoveredLayerTreeIndex === null) {
+            return;
+        }
+
+        const node = animator.layerTree[hoveredLayerTreeIndex];
+        if (!node) {
+            return;
+        }
+
+        const basePosition = this.getSelectedGlyphBasePosition();
+        if (!basePosition) {
+            return;
+        }
+
+        const easedProgress = this.getStackPreviewEasedProgress();
+        const diagonalAngleRad =
+            (animator.config.diagonalOffsetAngle * Math.PI) / 180;
+        const offsetDistance =
+            node.depth * animator.config.verticalSpacing * easedProgress;
+        const labelX =
+            basePosition.baseX +
+            node.transform[4] +
+            offsetDistance * Math.cos(diagonalAngleRad);
+        const labelY =
+            basePosition.baseY +
+            node.transform[5] +
+            offsetDistance * Math.sin(diagonalAngleRad) -
+            40 / this.viewportManager.scale;
+
+        const labelText =
+            node.glyphName || this.glyphCanvas.getCurrentGlyphName();
+        this.drawHoverLabel(
+            labelText,
+            labelX,
+            labelY,
+            1 / this.viewportManager.scale
+        );
     }
 
     /**
