@@ -2836,13 +2836,26 @@ export class TextRunEditor {
         );
     }
     _getGlyphPosition(glyphIndex: number) {
-        let xPosition = 0;
-        for (let i = 0; i < glyphIndex; i++) {
-            xPosition += this.shapedGlyphs[i].ax || 0;
+        if (
+            !Array.isArray(this.shapedGlyphs) ||
+            this.shapedGlyphs.length === 0
+        ) {
+            return { xPosition: 0, xOffset: 0, yOffset: 0 };
         }
-        const glyph = this.shapedGlyphs[glyphIndex];
-        const xOffset = glyph.dx || 0;
-        const yOffset = glyph.dy || 0;
+
+        const safeGlyphIndex = Math.max(0, glyphIndex);
+        let xPosition = 0;
+        const maxAdvanceIndex = Math.min(
+            safeGlyphIndex,
+            this.shapedGlyphs.length
+        );
+        for (let i = 0; i < maxAdvanceIndex; i++) {
+            const previousGlyph = this.shapedGlyphs[i];
+            xPosition += previousGlyph?.ax || 0;
+        }
+        const glyph = this.shapedGlyphs[safeGlyphIndex];
+        const xOffset = glyph?.dx || 0;
+        const yOffset = glyph?.dy || 0;
         return { xPosition, xOffset, yOffset };
     }
 

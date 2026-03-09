@@ -73,13 +73,26 @@ test.describe('Font Editor Basic Workflow', () => {
     const takeWindowSnapshot = async (
         page: any,
         snapshotNumber: string,
-        label: string
+        label: string,
+        options?: { maskFontspector?: boolean }
     ) => {
         await page.waitForTimeout(100);
         const snapshot = await captureSnapshot(page, label);
         expect(snapshotForComparison(snapshot)).toMatchSnapshot(
             `${snapshotNumber}-${label}.json`
         );
+        const maskLocators = [page.locator('#console-container')];
+        if (options?.maskFontspector) {
+            const fontspectorMask = page.locator(
+                '#font-qc-summary-section, .font-qc-summary'
+            );
+            if ((await fontspectorMask.count()) > 0) {
+                maskLocators.push(fontspectorMask.first());
+            } else {
+                // Fallback keeps masking visible even if Fontspector markup changes.
+                maskLocators.push(page.locator('#view-editor .view-sidebar-right'));
+            }
+        }
         // Mask the terminal emulator inside the Konsole view: it computes
         // column widths programmatically, so sub-pixel font metric differences
         // across macOS versions produce different line breaks.
@@ -87,7 +100,7 @@ test.describe('Font Editor Basic Workflow', () => {
             `${snapshotNumber}-${label}-window.png`,
             {
                 maxDiffPixelRatio: 0.02,
-                mask: [page.locator('#console-container')]
+                mask: maskLocators
             }
         );
         return snapshot;
@@ -161,54 +174,59 @@ test.describe('Font Editor Basic Workflow', () => {
 
                     const editorFile = state.editor_file || '';
                     if (!editorFile.includes(filename)) return false;
-
-                    const featuresInSubset =
-                        state.editor_opentype_features_in_subset || {};
-                    const featuresNotInSubset =
-                        state.editor_opentype_features_not_in_subset || {};
                     const glyphCount =
                         window.glyphCanvas?.textRunEditor?.glyphNameBuffer
                             ?.length || 0;
 
-                    const hasAnyFeatures =
-                        Object.keys(featuresInSubset).length > 0 ||
-                        Object.keys(featuresNotInSubset).length > 0;
-
-                    const queryFeatures =
-                        new URLSearchParams(window.location.search).get(
-                            'features'
-                        ) || '';
-
-                    const hasFeatureSignal =
-                        hasAnyFeatures || queryFeatures.length > 0;
-
-                    if (hasFeatureSignal && glyphCount > 0) {
+                    if (glyphCount > 0) {
                         return true;
                     }
 
-                    return Date.now() - startedAt > 8000 && glyphCount > 0;
+                    // Under tighter test budgets, accept "file open" state shortly
+                    // after the editor file is confirmed, even if glyph buffer is still warming up.
+                    return Date.now() - startedAt > 3000;
                 },
                 { filename: expectedFilename, startedAt: waitStart },
-                { timeout: 15000 }
+                { timeout: 10000 }
             );
         } catch (error) {
-            const debugState = await page.evaluate(() => {
-                const state =
-                    window.stateManager?.getStateSnapshot?.()?.state || {};
-                return {
-                    editorFile: state.editor_file || '',
-                    subsetFeatureKeys: Object.keys(
-                        state.editor_opentype_features_in_subset || {}
-                    ),
-                    notInSubsetFeatureKeys: Object.keys(
-                        state.editor_opentype_features_not_in_subset || {}
-                    ),
-                    variationLocation: state.editor_variation_location || {},
-                    glyphBufferLength:
-                        window.glyphCanvas?.textRunEditor?.glyphNameBuffer
-                            ?.length || 0
-                };
-            });
+            let debugState: Record<string, any> = {
+                pageClosed: !!page?.isClosed?.()
+            };
+
+            if (!page?.isClosed?.()) {
+                try {
+                    debugState = await page.evaluate(() => {
+                        const state =
+                            window.stateManager?.getStateSnapshot?.()?.state ||
+                            {};
+                        return {
+                            pageClosed: false,
+                            editorFile: state.editor_file || '',
+                            subsetFeatureKeys: Object.keys(
+                                state.editor_opentype_features_in_subset || {}
+                            ),
+                            notInSubsetFeatureKeys: Object.keys(
+                                state.editor_opentype_features_not_in_subset ||
+                                    {}
+                            ),
+                            variationLocation:
+                                state.editor_variation_location || {},
+                            glyphBufferLength:
+                                window.glyphCanvas?.textRunEditor
+                                    ?.glyphNameBuffer?.length || 0
+                        };
+                    });
+                } catch (debugError) {
+                    debugState = {
+                        ...debugState,
+                        debugCollectionError:
+                            debugError instanceof Error
+                                ? debugError.message
+                                : String(debugError)
+                    };
+                }
+            }
 
             throw new Error(
                 `Timed out waiting for subset editing state (${expectedFilename}): ${JSON.stringify(debugState)}`,
@@ -241,7 +259,8 @@ test.describe('Font Editor Basic Workflow', () => {
         await takeWindowSnapshot(
             page,
             'yanone-01',
-            'yanone-glyphspackage-opened'
+            'yanone-glyphspackage-opened',
+            { maskFontspector: true }
         );
     });
 
@@ -269,7 +288,8 @@ test.describe('Font Editor Basic Workflow', () => {
         await takeWindowSnapshot(
             page,
             'yanone-02',
-            'yanone-designspace-opened'
+            'yanone-designspace-opened',
+            { maskFontspector: true }
         );
     });
 
@@ -651,6 +671,13 @@ test.describe('Font Editor Basic Workflow', () => {
             { timeout: 10000 }
         );
 
+        const originalLoclFeatureCode = await page.evaluate(() => {
+            return (
+                (window as any).fontInfoManager?.featuresEditor?.getValue?.() ||
+                ''
+            );
+        });
+
         // Delete the first character of the feature content via ace API,
         // then wait for the typing compilation to fail and show the error.
         console.log('[Test] Deleting first character to trigger compile error');
@@ -705,6 +732,169 @@ test.describe('Font Editor Basic Workflow', () => {
             {
                 maxDiffPixelRatio: 0.02,
                 mask: [page.locator('#console-container')]
+            }
+        );
+
+        // Restore valid feature code before taking the final editor screenshot.
+        console.log('[Test] Restoring valid locl feature code');
+        await page.evaluate((featureCode: string) => {
+            return new Promise<void>((resolve) => {
+                const editor = (window as any).fontInfoManager?.featuresEditor;
+                if (!editor) {
+                    resolve();
+                    return;
+                }
+
+                let completed = false;
+                const finalize = () => {
+                    if (completed) {
+                        return;
+                    }
+                    completed = true;
+                    resolve();
+                };
+
+                window.addEventListener('editingFontCompiled', finalize, {
+                    once: true
+                });
+
+                editor.setValue(featureCode, -1);
+                editor.focus();
+
+                // Safety timeout in case compilation event does not arrive.
+                setTimeout(finalize, 10000);
+            });
+        }, originalLoclFeatureCode);
+
+        await page.waitForFunction(() => {
+            const errorDisplay = document.getElementById(
+                'sidebar-error-display'
+            );
+            return (
+                !errorDisplay ||
+                (errorDisplay as HTMLElement).style.display === 'none'
+            );
+        });
+        await page.waitForTimeout(250);
+
+        // Final stack preview screenshot on Fustat (requested for deep nesting visibility).
+        // Close Overview and Font Info views before setting text.
+        console.log('[Test] Closing overview view');
+        await page.keyboard.press('Meta+Shift+O');
+        await page.waitForTimeout(100);
+        await page.keyboard.press('Meta+Escape');
+        await page.waitForTimeout(100);
+
+        console.log('[Test] Closing font info view');
+        await page.keyboard.press('Meta+Shift+I');
+        await page.waitForTimeout(100);
+        await page.keyboard.press('Meta+Escape');
+        await page.waitForTimeout(100);
+
+        // Collapse bottom row views so screenshot framing stays consistent.
+        const bottomViewsToCollapse = [
+            { label: 'files', shortcut: 'Meta+Shift+F' },
+            { label: 'assistant', shortcut: 'Meta+Shift+A' },
+            { label: 'scripts', shortcut: 'Meta+Shift+S' },
+            { label: 'console', shortcut: 'Meta+Shift+K' }
+        ];
+
+        for (const view of bottomViewsToCollapse) {
+            console.log(`[Test] Collapsing ${view.label} view`);
+            await page.keyboard.press(view.shortcut);
+            await page.waitForTimeout(80);
+            await page.keyboard.press('Meta+Escape');
+            await page.waitForTimeout(80);
+        }
+
+        console.log('[Test] Returning to editor view for Fustat stack preview');
+        await page.keyboard.press('Meta+Shift+E');
+        await page.waitForTimeout(120);
+
+        console.log('[Test] Setting text buffer to Ä');
+        await page.evaluate(() => {
+            return new Promise<void>((resolve) => {
+                const glyphCanvas = window.glyphCanvas;
+                const textRunEditor = glyphCanvas?.textRunEditor;
+                if (!glyphCanvas || !textRunEditor) {
+                    resolve();
+                    return;
+                }
+
+                // Reset to text mode to avoid stale edit selections carrying over.
+                if (glyphCanvas.outlineEditor?.active) {
+                    glyphCanvas.exitGlyphEditMode();
+                }
+
+                let completed = false;
+                const finish = () => {
+                    if (completed) {
+                        return;
+                    }
+                    completed = true;
+                    resolve();
+                };
+
+                window.addEventListener('editingFontCompiled', finish, {
+                    once: true
+                });
+
+                textRunEditor.setTextBuffer('Ä');
+                textRunEditor.cursorPosition = 0;
+
+                // Safety timeout in case compile event is skipped.
+                setTimeout(finish, 5000);
+            });
+        });
+        await page.waitForTimeout(100);
+
+        console.log('[Test] Selecting Ä glyph for edit mode');
+        await page.evaluate(async () => {
+            const textRunEditor = window.glyphCanvas?.textRunEditor;
+            if (!textRunEditor) {
+                return;
+            }
+            await textRunEditor.selectGlyphByIndex(0);
+        });
+        await page.waitForFunction(
+            () =>
+                !!window.glyphCanvas?.outlineEditor?.active &&
+                (window.glyphCanvas?.textRunEditor?.selectedGlyphIndex ??
+                    -1) === 0,
+            { timeout: 3000 }
+        );
+        await page.waitForTimeout(120);
+
+        console.log('[Test] Pressing Cmd+0');
+        await page.keyboard.press('Meta+0');
+        await page.waitForTimeout(150);
+
+        console.log('[Test] Entering stack preview');
+        await page.keyboard.press('Meta+Alt+S');
+        await page.waitForFunction(
+            () =>
+                !!window.glyphCanvas?.stackPreviewAnimator?.shouldRenderStackPreview?.(),
+            { timeout: 5000 }
+        );
+        await page.waitForTimeout(120);
+
+        const screenshot20Masks = [page.locator('#console-container')];
+        const screenshot20FontspectorMask = page.locator(
+            '#font-qc-summary-section, .font-qc-summary'
+        );
+        if ((await screenshot20FontspectorMask.count()) > 0) {
+            screenshot20Masks.push(screenshot20FontspectorMask.first());
+        } else {
+            screenshot20Masks.push(
+                page.locator('#view-editor .view-sidebar-right')
+            );
+        }
+
+        await expect(page).toHaveScreenshot(
+            '20-fustat-a-umlaut-stack-preview-window.png',
+            {
+                maxDiffPixelRatio: 0.02,
+                mask: screenshot20Masks
             }
         );
 

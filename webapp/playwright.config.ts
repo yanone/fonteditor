@@ -11,8 +11,8 @@ export default defineConfig({
     // Only run Playwright spec files, not Jest test files
     testMatch: '**/*.spec.ts',
 
-    // Maximum time one test can run (5 minutes for complex interactions)
-    timeout: 300000,
+    // Maximum time one test can run
+    timeout: 120000,
 
     // Keep tests in-order for deterministic snapshot timing
     fullyParallel: false,
