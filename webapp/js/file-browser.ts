@@ -91,7 +91,9 @@ function isTransientGlyphsParseError(errorMessage: string): boolean {
     );
 }
 
-function describeBinaryPrefix(contents: string | Uint8Array | undefined): string {
+function describeBinaryPrefix(
+    contents: string | Uint8Array | undefined
+): string {
     if (contents === undefined) {
         return 'contents=undefined';
     }
