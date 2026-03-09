@@ -2333,6 +2333,13 @@ flex-direction: row;
     color: var(--text-secondary);
 }
 
+.plugin-menu-item .plugin-menu-shortcut {
+    margin-left: auto;
+    color: var(--text-faint);
+    font-family: var(--font-families-mono);
+    font-size: 10px;
+}
+
 /* Plugin Menu Backdrop */
 .plugin-menu-backdrop {
     position: fixed;

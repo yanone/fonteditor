@@ -400,6 +400,12 @@ class GlyphCanvas {
                             '[GlyphCanvas] Starting stack preview mode'
                         );
                         this.stackPreviewAnimator.startAnimation();
+                    } else if (
+                        this.stackPreviewAnimator.isActive &&
+                        !this.stackPreviewAnimator.isAnimating
+                    ) {
+                        console.log('[GlyphCanvas] Closing stack preview mode');
+                        this.stackPreviewAnimator.reverseAnimation();
                     } else {
                         console.log(
                             '[GlyphCanvas] Stack preview already active or animating'

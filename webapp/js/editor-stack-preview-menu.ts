@@ -1,0 +1,143 @@
+import tippy, { Instance as TippyInstance } from 'tippy.js';
+import 'tippy.js/dist/tippy.css';
+import {
+    getOrCreateBackdrop,
+    addTippyBackdropSupport,
+    getTheme,
+    setupMenuKeyboardNav
+} from './tippy-utils';
+import { Logger } from './logger';
+
+const console = new Logger('EditorStackPreviewMenu');
+
+let stackPreviewMenuInstance: TippyInstance | null = null;
+
+function updateStackPreviewButtonVisibility(button: HTMLElement): void {
+    const isEditMode = !!window.glyphCanvas?.outlineEditor?.active;
+
+    if (!isEditMode && stackPreviewMenuInstance?.state.isVisible) {
+        stackPreviewMenuInstance.hide();
+    }
+
+    button.style.display = isEditMode ? 'flex' : 'none';
+}
+
+function createStackPreviewMenuHtml(): string {
+    return `
+        <div class="plugin-menu" tabindex="0" role="menu" aria-label="Stack preview menu">
+            <div class="plugin-menu-item" data-action="toggle-stack-preview" role="menuitem" tabindex="-1">
+                <span>Stack Preview</span>
+                <span class="plugin-menu-shortcut">⌘⌥S</span>
+            </div>
+        </div>
+    `;
+}
+
+function toggleStackPreview(): void {
+    const glyphCanvas = window.glyphCanvas;
+    if (!glyphCanvas) {
+        return;
+    }
+
+    const animator = glyphCanvas.stackPreviewAnimator;
+    if (!animator) {
+        return;
+    }
+
+    if (animator.isInputBlocked()) {
+        return;
+    }
+
+    if (animator.isActive && !animator.isAnimating) {
+        animator.reverseAnimation();
+        return;
+    }
+
+    const editorView = document.querySelector('#view-editor');
+    const isEditorFocused =
+        !!editorView && editorView.classList.contains('focused');
+
+    if (isEditorFocused && glyphCanvas.outlineEditor.active) {
+        animator.startAnimation();
+    }
+}
+
+function initEditorStackPreviewMenu(): void {
+    const menuButton = document.getElementById('editor-stack-preview-menu-btn');
+    if (!menuButton) {
+        return;
+    }
+
+    updateStackPreviewButtonVisibility(menuButton);
+
+    const backdrop = getOrCreateBackdrop('editor-stack-preview-menu-backdrop');
+
+    const tippyResult = tippy(menuButton, {
+        content: createStackPreviewMenuHtml(),
+        allowHTML: true,
+        interactive: true,
+        trigger: 'manual',
+        theme: getTheme(),
+        placement: 'bottom-end',
+        arrow: false,
+        offset: [0, 4],
+        appendTo: document.body,
+        hideOnClick: false,
+        zIndex: 9999,
+        onCreate: (instance) => {
+            instance.popper.addEventListener('click', (e) => {
+                const item = (e.target as HTMLElement).closest(
+                    '.plugin-menu-item'
+                );
+                if (!item) {
+                    return;
+                }
+
+                const action = item.getAttribute('data-action');
+                instance.hide();
+
+                if (action === 'toggle-stack-preview') {
+                    toggleStackPreview();
+                }
+            });
+        },
+        onShown: (instance) => {
+            const menu = instance.popper.querySelector('.plugin-menu');
+            if (menu) {
+                setupMenuKeyboardNav(menu);
+            }
+        }
+    });
+
+    stackPreviewMenuInstance = Array.isArray(tippyResult)
+        ? (tippyResult[0] ?? null)
+        : tippyResult;
+
+    addTippyBackdropSupport(stackPreviewMenuInstance, backdrop, {
+        targetElement: menuButton,
+        activeClass: 'editor-stack-preview-menu-active'
+    });
+
+    menuButton.addEventListener('click', (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (stackPreviewMenuInstance?.state.isVisible) {
+            stackPreviewMenuInstance.hide();
+        } else {
+            stackPreviewMenuInstance?.show();
+        }
+    });
+
+    window.addEventListener('editorModeChanged', () => {
+        updateStackPreviewButtonVisibility(menuButton);
+    });
+
+    console.log('Stack preview menu initialized');
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initEditorStackPreviewMenu);
+} else {
+    initEditorStackPreviewMenu();
+}

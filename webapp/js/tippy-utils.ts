@@ -7,6 +7,58 @@ import { Logger } from './logger';
 
 const console = new Logger('TippyUtils');
 
+type EscapeHandler = () => void;
+
+const visibleTippyStack: any[] = [];
+const tippyEscapeHandlers = new WeakMap<any, EscapeHandler>();
+let escapePriorityListenerInstalled = false;
+
+function removeFromVisibleStack(instance: any): void {
+    const idx = visibleTippyStack.lastIndexOf(instance);
+    if (idx >= 0) {
+        visibleTippyStack.splice(idx, 1);
+    }
+}
+
+function installEscapePriorityListener(): void {
+    if (escapePriorityListenerInstalled) {
+        return;
+    }
+
+    document.addEventListener(
+        'keydown',
+        (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') {
+                return;
+            }
+
+            if (visibleTippyStack.length === 0) {
+                return;
+            }
+
+            const topInstance = visibleTippyStack[visibleTippyStack.length - 1];
+            if (!topInstance || !topInstance.state?.isVisible) {
+                removeFromVisibleStack(topInstance);
+                return;
+            }
+
+            // Ensure open tippy menus consume Escape before any app-level handlers.
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+
+            topInstance.hide();
+            const onEscape = tippyEscapeHandlers.get(topInstance);
+            if (onEscape) {
+                onEscape();
+            }
+        },
+        true
+    );
+
+    escapePriorityListenerInstalled = true;
+}
+
 /**
  * Create or get a backdrop element for modal-like menu behavior
  */
@@ -41,9 +93,15 @@ export function addTippyBackdropSupport(
         activeClass?: string;
     }
 ): void {
+    installEscapePriorityListener();
+
     const originalOnShow = tippyInstance.props.onShow;
     const originalOnShown = tippyInstance.props.onShown;
     const originalOnHide = tippyInstance.props.onHide;
+
+    if (options?.onEscape) {
+        tippyEscapeHandlers.set(tippyInstance, options.onEscape);
+    }
 
     // Add backdrop click handler to close menu
     const handleBackdropClick = () => {
@@ -59,23 +117,15 @@ export function addTippyBackdropSupport(
                 options.targetElement.classList.add(options.activeClass);
             }
 
+            removeFromVisibleStack(instance);
+            visibleTippyStack.push(instance);
+
             // Add backdrop click handler
             backdrop.addEventListener('click', handleBackdropClick);
 
             if (originalOnShow) originalOnShow(instance);
         },
         onShown: (instance: any) => {
-            // Add keyboard support
-            const handleKeydown = (e: KeyboardEvent) => {
-                if (e.key === 'Escape') {
-                    instance.hide();
-                    if (options?.onEscape) options.onEscape();
-                    document.removeEventListener('keydown', handleKeydown);
-                }
-            };
-            document.addEventListener('keydown', handleKeydown);
-            (instance as any)._keydownHandler = handleKeydown;
-
             if (originalOnShown) originalOnShown(instance);
         },
         onHide: (instance: any) => {
@@ -84,11 +134,7 @@ export function addTippyBackdropSupport(
                 options.targetElement.classList.remove(options.activeClass);
             }
 
-            // Clean up keyboard listener
-            const handler = (instance as any)._keydownHandler;
-            if (handler) {
-                document.removeEventListener('keydown', handler);
-            }
+            removeFromVisibleStack(instance);
 
             // Remove backdrop click handler
             backdrop.removeEventListener('click', handleBackdropClick);

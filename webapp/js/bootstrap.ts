@@ -417,6 +417,7 @@ import './auto-compile-manager';
 import './cache-manager';
 import './canvas-plugin-manager';
 import './editor-plugins-ui';
+import './editor-stack-preview-menu';
 import './example-loader';
 import './file-browser';
 import './full-font-compile-manager';

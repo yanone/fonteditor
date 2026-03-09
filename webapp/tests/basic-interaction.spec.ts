@@ -90,7 +90,9 @@ test.describe('Font Editor Basic Workflow', () => {
                 maskLocators.push(fontspectorMask.first());
             } else {
                 // Fallback keeps masking visible even if Fontspector markup changes.
-                maskLocators.push(page.locator('#view-editor .view-sidebar-right'));
+                maskLocators.push(
+                    page.locator('#view-editor .view-sidebar-right')
+                );
             }
         }
         // Mask the terminal emulator inside the Konsole view: it computes
