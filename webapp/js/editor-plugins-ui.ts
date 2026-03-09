@@ -60,10 +60,26 @@ class EditorPluginsUI {
         this.init();
     }
 
+    updateButtonVisibility() {
+        if (!this.dropdownBtn) {
+            return;
+        }
+
+        const isEditMode = !!window.glyphCanvas?.outlineEditor?.active;
+
+        if (!isEditMode && this.isOpen) {
+            this.closeDropdown();
+        }
+
+        this.dropdownBtn.style.display = isEditMode ? 'flex' : 'none';
+    }
+
     init() {
         if (!this.dropdownBtn || !this.dropdown) {
             return;
         }
+
+        this.updateButtonVisibility();
 
         // Toggle dropdown on button click
         this.dropdownBtn.addEventListener('click', (e: MouseEvent) => {
@@ -93,6 +109,10 @@ class EditorPluginsUI {
             },
             true
         ); // Use capture phase to intercept before other handlers
+
+        window.addEventListener('editorModeChanged', () => {
+            this.updateButtonVisibility();
+        });
     }
 
     toggleDropdown() {
