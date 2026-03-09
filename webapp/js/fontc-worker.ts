@@ -33,6 +33,14 @@ let lastStoreFontAtMs = 0;
 let dragCompilesSinceStore = 0;
 const PERF_TRACE_CONTEXT_GLOBAL_KEY = '__cpPerfTraceContext';
 
+function payloadDebugPrefix(payload: string): string {
+    const snippet = payload.slice(0, 32).replace(/\n/g, '\\n');
+    const byteCodes = Array.from(payload.slice(0, 16), (ch) =>
+        ch.charCodeAt(0).toString(16).padStart(2, '0')
+    ).join(' ');
+    return `len=${payload.length} prefix="${snippet}" codes=${byteCodes}`;
+}
+
 type TimelineTraceContext = {
     process?: string;
     traceId?: string;
@@ -1548,6 +1556,7 @@ self.onmessage = async (event) => {
             const { id, filename, contents, packageEntries, projectEntries } =
                 data;
             const entryMap = packageEntries || projectEntries;
+            let payloadForDebug: string | null = null;
 
             if (!filename || (!contents && !entryMap)) {
                 self.postMessage({
@@ -1604,6 +1613,8 @@ self.onmessage = async (event) => {
                     }
                 }
 
+                payloadForDebug = payload;
+
                 const babelfontJson = open_font_file(filename, payload);
 
                 // Store in cache (both in WASM and in worker)
@@ -1619,7 +1630,14 @@ self.onmessage = async (event) => {
                 timelineMark('font.worker.openFont.success');
             } catch (e: any) {
                 timelineMark('font.worker.openFont.failed');
-                console.error(`[Fontc Worker] Error opening font:`, e);
+                console.error(`[Fontc Worker] Error opening font:`, e, {
+                    filename,
+                    hasContents: contents !== undefined,
+                    hasEntryMap: !!entryMap,
+                    payloadDebug: payloadForDebug
+                        ? payloadDebugPrefix(payloadForDebug)
+                        : 'payload-unavailable'
+                });
                 self.postMessage({
                     id,
                     type: 'openFont',

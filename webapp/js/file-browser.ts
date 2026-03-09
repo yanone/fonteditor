@@ -84,6 +84,114 @@ type OpenFontOptions = {
     sourcePluginOverride?: FilesystemPlugin;
 };
 
+function isTransientGlyphsParseError(errorMessage: string): boolean {
+    return (
+        errorMessage.includes('Failed to load .glyphs file') &&
+        errorMessage.includes('PlistParse("Missing \'=\' at line 1, column 2")')
+    );
+}
+
+function describeBinaryPrefix(contents: string | Uint8Array | undefined): string {
+    if (contents === undefined) {
+        return 'contents=undefined';
+    }
+
+    if (typeof contents === 'string') {
+        const prefix = contents.slice(0, 32).replace(/\n/g, '\\n');
+        return `contents=string len=${contents.length} prefix="${prefix}"`;
+    }
+
+    const prefixBytes = Array.from(contents.slice(0, 16), (byte) =>
+        byte.toString(16).padStart(2, '0')
+    ).join(' ');
+    return `contents=uint8 len=${contents.length} bytes=${prefixBytes}`;
+}
+
+async function convertSourceToBabelfontViaWorker(
+    path: string,
+    extension: string,
+    contents: string | Uint8Array | undefined,
+    packageEntries: Record<string, Uint8Array> | undefined,
+    projectEntries: Record<string, Uint8Array> | undefined,
+    sourcePlugin: FilesystemPlugin
+): Promise<string> {
+    if (!window.fontCompilation?.worker) {
+        throw new Error('Font compilation worker not initialized');
+    }
+
+    const shouldRetryGlyphsParse = extension === 'glyphs';
+    const maxAttempts = shouldRetryGlyphsParse ? 2 : 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return await new Promise<string>((resolve, reject) => {
+                const id = Math.random().toString(36);
+                const timeout = setTimeout(() => {
+                    reject(
+                        new Error('Font conversion timeout after 30 seconds')
+                    );
+                }, 30000);
+
+                const handleMessage = (e: MessageEvent) => {
+                    if (e.data.id === id && e.data.type === 'openFont') {
+                        clearTimeout(timeout);
+                        window.fontCompilation!.worker!.removeEventListener(
+                            'message',
+                            handleMessage
+                        );
+
+                        if (e.data.error) {
+                            reject(new Error(e.data.error));
+                        } else {
+                            resolve(e.data.babelfontJson);
+                        }
+                    }
+                };
+
+                window.fontCompilation!.worker!.addEventListener(
+                    'message',
+                    handleMessage
+                );
+
+                window.fontCompilation!.worker!.postMessage({
+                    type: 'openFont',
+                    id,
+                    filename: path.split('/').pop() || path,
+                    contents,
+                    packageEntries,
+                    projectEntries
+                });
+            });
+        } catch (error: unknown) {
+            const errorMessage = getErrorMessage(error);
+
+            if (
+                attempt < maxAttempts &&
+                isTransientGlyphsParseError(errorMessage)
+            ) {
+                console.warn(
+                    '[FileBrowser]',
+                    'Transient glyphs parse failure; retrying conversion',
+                    {
+                        attempt,
+                        maxAttempts,
+                        pluginId: sourcePlugin.getId(),
+                        path,
+                        extension,
+                        debugPrefix: describeBinaryPrefix(contents)
+                    }
+                );
+                await new Promise((resolve) => setTimeout(resolve, 150));
+                continue;
+            }
+
+            throw error;
+        }
+    }
+
+    throw new Error('Font conversion failed after retries');
+}
+
 let detachedLaunchFilename: string | null = null;
 let detachedLaunchFileHandle: FileSystemFileHandle | null = null;
 
@@ -940,51 +1048,14 @@ async function openFont(
                     `Detected ${extension} format, converting via Rust...`
                 );
 
-                if (!window.fontCompilation?.worker) {
-                    throw new Error('Font compilation worker not initialized');
-                }
-
-                // Send to worker for conversion
-                babelfontJson = await new Promise<string>((resolve, reject) => {
-                    const id = Math.random().toString(36);
-                    const timeout = setTimeout(() => {
-                        reject(
-                            new Error(
-                                'Font conversion timeout after 30 seconds'
-                            )
-                        );
-                    }, 30000);
-
-                    const handleMessage = (e: MessageEvent) => {
-                        if (e.data.id === id && e.data.type === 'openFont') {
-                            clearTimeout(timeout);
-                            window.fontCompilation!.worker!.removeEventListener(
-                                'message',
-                                handleMessage
-                            );
-
-                            if (e.data.error) {
-                                reject(new Error(e.data.error));
-                            } else {
-                                resolve(e.data.babelfontJson);
-                            }
-                        }
-                    };
-
-                    window.fontCompilation!.worker!.addEventListener(
-                        'message',
-                        handleMessage
-                    );
-
-                    window.fontCompilation!.worker!.postMessage({
-                        type: 'openFont',
-                        id,
-                        filename: path.split('/').pop() || path,
-                        contents,
-                        packageEntries,
-                        projectEntries
-                    });
-                });
+                babelfontJson = await convertSourceToBabelfontViaWorker(
+                    path,
+                    extension,
+                    contents,
+                    packageEntries,
+                    projectEntries,
+                    sourcePlugin
+                );
             } finally {
                 timelineSpanEnd(convertSpan);
             }
