@@ -2831,7 +2831,9 @@ class GlyphCanvas {
             ) {
                 fontManager.lastChangeSource = null;
                 fontManager.lastEditType = null;
-                fontManager.currentFont?.markDirty('text-input-full-compile');
+                // This compile upgrades rendering quality (features/kerning)
+                // without changing source font data, so it must not mark unsaved.
+                fontManager.currentFont?.requestRecompileWithoutDataChange();
                 window.autoCompileManager.checkAndSchedule();
             }
         }, 500);

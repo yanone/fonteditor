@@ -231,19 +231,21 @@ class TabLifecycleManager {
     }
 
     checkUnsavedChanges() {
-        // Check if there are any unsaved fonts
+        // Check model state only to avoid stale UI indicator false positives.
         try {
-            const currentFont = window.fontManager?.currentFont;
-            if (currentFont?.hasUnsavedChanges) {
+            const fontManager = window.fontManager;
+            if (!fontManager) {
+                return false;
+            }
+
+            if (fontManager.currentFont?.hasUnsavedChanges) {
                 return true;
             }
 
-            // Fallback to UI indicator if font state is temporarily unavailable
-            const dirtyIndicator = document.getElementById(
-                'file-dirty-indicator'
-            );
-            if (dirtyIndicator?.classList.contains('visible')) {
-                return true;
+            for (const openedFont of fontManager.openedFonts.values()) {
+                if (openedFont?.hasUnsavedChanges) {
+                    return true;
+                }
             }
 
             return false;
