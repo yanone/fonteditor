@@ -1,5 +1,38 @@
 const hasWindow = typeof window !== 'undefined';
 
+// Mock BroadcastChannel (not available in jsdom)
+if (typeof globalThis.BroadcastChannel === 'undefined') {
+    const channels = new Map(); // channelName → Set<BroadcastChannel>
+    globalThis.BroadcastChannel = class BroadcastChannel {
+        constructor(name) {
+            this.name = name;
+            this.onmessage = null;
+            this._closed = false;
+            if (!channels.has(name)) channels.set(name, new Set());
+            channels.get(name).add(this);
+        }
+        postMessage(data) {
+            if (this._closed) return;
+            const peers = channels.get(this.name);
+            if (!peers) return;
+            for (const peer of peers) {
+                if (peer !== this && !peer._closed && peer.onmessage) {
+                    // Simulate async delivery
+                    const msg = { data };
+                    setTimeout(() => peer.onmessage(msg), 0);
+                }
+            }
+        }
+        close() {
+            this._closed = true;
+            const peers = channels.get(this.name);
+            if (peers) peers.delete(this);
+        }
+    };
+    // Expose for tests that need to inspect/reset
+    globalThis.__broadcastChannels = channels;
+}
+
 if (hasWindow) {
     // Mock isDevelopment/isProduction functions (from index.html)
     // These must be defined BEFORE importing any modules that use them

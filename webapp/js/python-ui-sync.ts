@@ -17,8 +17,7 @@ function beforePythonExecution() {
         '[PythonUISync]',
         '🔒 UI updates paused (Python execution starting)'
     );
-    // TODO: Pause outline editor canvas redraws
-    // TODO: Disable dirty glyph tracking
+    window.changeBridge?.beginTransaction('Python script');
 }
 
 /**
@@ -30,9 +29,7 @@ function afterPythonExecution() {
         '[PythonUISync]',
         '🔓 UI updates resumed (Python execution finished)'
     );
-    // TODO: Resume outline editor canvas redraws
-    // TODO: Check for dirty glyphs and redraw if current glyph was modified
-    // TODO: Call get_and_clear_dirty_glyphs() and update UI accordingly
+    window.changeBridge?.endTransaction();
 
     // Skip dirty checks if we're loading a font or font manager not ready
     if (isLoadingFont || !window.fontManager) {

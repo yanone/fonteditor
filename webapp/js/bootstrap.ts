@@ -416,6 +416,7 @@ import './ai-assistant';
 import './auto-compile-manager';
 import './cache-manager';
 import './canvas-plugin-manager';
+import './change-bridge-init'; // Yjs undo/redo & cross-window sync
 import './editor-plugins-ui';
 import './editor-stack-preview-menu';
 import './example-loader';
@@ -443,6 +444,7 @@ import './script-editor';
 import './share-button';
 import './theme-switcher';
 import './view-settings';
+import './window-buttons';
 import { initViewTitleButtons } from './view-title-buttons';
 
 // Initialize view title buttons after DOM is ready and keyboard navigation is initialized

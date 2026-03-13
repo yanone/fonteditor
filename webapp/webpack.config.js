@@ -39,7 +39,8 @@ module.exports = {
         'glyph-filter-worker': './js/glyph-filter-worker.ts',
         'glyph-overview': './js/glyph-overview.ts',
         'translations': './js/translations.ts',
-        'overview-view': './js/overview-view.ts'
+        'overview-view': './js/overview-view.ts',
+        'undo-manager-app': './js/undo-manager-app.ts'
     },
     output: {
         path: path.resolve(__dirname, 'build'),
@@ -49,7 +50,15 @@ module.exports = {
     plugins: [
         new UnusedWebpackPlugin({
             directories: [path.join(__dirname, 'js')],
-            exclude: ['*.test.js', '*.d.ts'],
+            exclude: [
+                '*.test.js',
+                '*.d.ts',
+                'change-bridge*.ts',
+                'change-log.ts',
+                'window-sync.ts',
+                'window-buttons.ts',
+                'undo-manager-app.ts'
+            ],
             root: __dirname
         }),
         new HtmlWebpackPlugin({
@@ -72,7 +81,8 @@ module.exports = {
                 { from: 'examples', to: 'examples' },
                 { from: 'py', to: 'py' },
                 { from: 'wheels', to: 'wheels' },
-                { from: '_headers', to: '_headers' }
+                { from: '_headers', to: '_headers' },
+                { from: 'undo-manager.html', to: 'undo-manager.html' }
             ]
         })
     ],

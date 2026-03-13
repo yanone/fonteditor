@@ -25,6 +25,8 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     BabelfontModel: false,
     Bootstrap: false,
     CanvasPluginManager: false,
+    ChangeBridge: false,
+    ChangeBridgeInit: false,
     CriticalErrorHandler: false,
     Design: false,
     Features: false,
@@ -57,10 +59,13 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     StateSync: false,
     TextRun: false,
     TippyUtils: false,
+    UndoManager: false,
     URLState: false,
     Variations: false,
     ViewTitleButtons: false,
-    WasmInit: false
+    WasmInit: false,
+    WindowButtons: false,
+    WindowSync: false
 };
 
 export class Logger {

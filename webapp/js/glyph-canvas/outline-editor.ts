@@ -789,6 +789,7 @@ export class OutlineEditor {
                 // If already in selection, keep all selected components, points, and anchors
 
                 this.isDraggingComponent = true;
+                window.changeBridge?.beginTransaction('Drag component');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null;
@@ -828,6 +829,7 @@ export class OutlineEditor {
 
                 // Start dragging (all selected anchors and points)
                 this.isDraggingAnchor = true;
+                window.changeBridge?.beginTransaction('Drag anchor');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null; // Reset for delta calculation
@@ -873,6 +875,7 @@ export class OutlineEditor {
 
                 // Start dragging (all selected points and anchors)
                 this.isDraggingPoint = true;
+                window.changeBridge?.beginTransaction('Drag point');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null; // Reset for delta calculation
@@ -1221,8 +1224,12 @@ export class OutlineEditor {
 
         // Update worker font cache after dragging ends
         if (wasDragging) {
+            window.changeBridge?.endTransaction();
             fontManager.updateWorkerFontCache();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag();
+
+            // Sync modified glyph(s) into Y.Doc for undo + cross-window sync
+            this._syncCurrentGlyphToYDoc('Drag');
         }
     }
 
@@ -1767,6 +1774,7 @@ export class OutlineEditor {
 
         // Save (non-blocking)
         this.saveLayerData('keyboard');
+        this._syncCurrentGlyphToYDoc('Toggle smooth');
         this.glyphCanvas.render();
 
         console.log(
@@ -2065,6 +2073,7 @@ export class OutlineEditor {
             }
 
             if (moved) {
+                this._syncCurrentGlyphToYDoc('Arrow key');
                 return;
             }
         }
@@ -2620,6 +2629,32 @@ export class OutlineEditor {
             console.error('Error fetching layer data via Rust:', error);
             this.layerData = null;
             this.renderVerticalMetrics = null;
+        }
+    }
+
+    /**
+     * Sync the current glyph's data from babelfontData into the Y.Doc.
+     * Called after direct JSON mutations (drag, keyboard edits) that
+     * bypass the babelfont-model setters.
+     */
+    private _syncCurrentGlyphToYDoc(label: string): void {
+        if (!window.changeBridge) return;
+        const parsed = this.parseGlyphStack();
+        const rootGlyphName =
+            parsed.length > 0
+                ? parsed[0].glyphName
+                : this.glyphCanvas.getCurrentGlyphName();
+        if (rootGlyphName) {
+            window.changeBridge.syncGlyphFromJson(rootGlyphName, label);
+        }
+        if (this.isEditingComponent() && parsed.length > 1) {
+            const componentGlyphName = parsed[parsed.length - 1].glyphName;
+            if (componentGlyphName && componentGlyphName !== rootGlyphName) {
+                window.changeBridge.syncGlyphFromJson(
+                    componentGlyphName,
+                    label
+                );
+            }
         }
     }
 

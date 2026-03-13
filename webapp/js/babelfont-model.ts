@@ -20,6 +20,7 @@ import {
     type StrokePath,
     type SkeletonStrokeOptions
 } from './stroke/skeleton-stroke';
+import type { ChangeBridge } from './change-bridge';
 
 const console = new Logger('BabelfontModel');
 
@@ -204,6 +205,34 @@ function markFontDirty(): void {
     }
 }
 
+/**
+ * Record a property change in the ChangeBridge and mark the font dirty.
+ * If no ChangeBridge is available, falls back to just marking dirty.
+ */
+function recordAndMarkDirty(
+    modelObj: ModelBase,
+    prop: string,
+    oldVal: unknown,
+    newVal: unknown
+): void {
+    const bridge = getChangeBridge();
+    if (bridge) {
+        const path = modelObj.getPath();
+        bridge.recordChange(path, prop, oldVal, newVal);
+    }
+    markFontDirty();
+}
+
+/**
+ * Get the global ChangeBridge instance, if available.
+ */
+function getChangeBridge(): ChangeBridge | null {
+    if (typeof window !== 'undefined') {
+        return (window as Unsafe).changeBridge ?? null;
+    }
+    return null;
+}
+
 function isDevelopmentMode(): boolean {
     if (typeof window === 'undefined') {
         return false;
@@ -281,6 +310,33 @@ abstract class ModelBase<TData = Unsafe, TParent = Unsafe> {
     parent(): TParent | null {
         return this._parentObject;
     }
+
+    /**
+     * Get the path segment that identifies this object within its parent.
+     * Override in subclasses. Returns an empty array for root objects.
+     */
+    getPathSegment(): (string | number)[] {
+        return [];
+    }
+
+    /**
+     * Build the full path from the font root to this object by walking
+     * the parent chain.
+     */
+    getPath(): (string | number)[] {
+        const segments: (string | number)[][] = [];
+        let current: ModelBase | null = this as ModelBase;
+        while (current) {
+            const seg = current.getPathSegment();
+            if (seg.length > 0) {
+                segments.push(seg);
+            }
+            const p = current.parent();
+            current = p instanceof ModelBase ? p : null;
+        }
+        segments.reverse();
+        return segments.flat();
+    }
 }
 
 /**
@@ -323,13 +379,18 @@ abstract class ArrayElementBase<
  * Point in a path
  */
 export class Node extends ArrayElementBase<Babelfont.Node, Path> {
+    getPathSegment(): (string | number)[] {
+        return ['nodes', this._index];
+    }
+
     get x(): number {
         return this.data.x;
     }
 
     set x(value: number) {
+        const old = this.data.x;
         this.data.x = value;
-        markFontDirty();
+        recordAndMarkDirty(this, 'x', old, value);
     }
 
     get y(): number {
@@ -337,8 +398,9 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set y(value: number) {
+        const old = this.data.y;
         this.data.y = value;
-        markFontDirty();
+        recordAndMarkDirty(this, 'y', old, value);
     }
 
     get nodetype(): Babelfont.NodeType {
@@ -346,8 +408,9 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set nodetype(value: Babelfont.NodeType) {
+        const old = this.data.nodetype;
         this.data.nodetype = value;
-        markFontDirty();
+        recordAndMarkDirty(this, 'nodetype', old, value);
     }
 
     get smooth(): boolean | undefined {
@@ -355,8 +418,9 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
     }
 
     set smooth(value: boolean | undefined) {
+        const old = this.data.smooth;
         this.data.smooth = value;
-        markFontDirty();
+        recordAndMarkDirty(this, 'smooth', old, value);
     }
 
     toString(): string {
@@ -370,6 +434,12 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
  */
 export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     private _nodeWrappers: Node[] | null = null;
+
+    getPathSegment(): (string | number)[] {
+        // When wrapped by Shape.asPath(), Shape already provides ['shapes', idx]
+        if (this._parentObject instanceof Shape) return [];
+        return ['shapes', this._index];
+    }
 
     private ensureNodesArray(): Babelfont.Node[] {
         if (typeof this.data.nodes === 'string') {
@@ -600,12 +670,20 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
  * Component reference to another glyph
  */
 export class Component extends ArrayElementBase<ComponentData, Shape> {
+    getPathSegment(): (string | number)[] {
+        // When wrapped by Shape.asComponent(), Shape already provides ['shapes', idx]
+        if (this._parentObject instanceof Shape) return [];
+        return ['shapes', this._index];
+    }
+
     get reference(): string {
         return this.data.reference;
     }
 
     set reference(value: string) {
+        const old = this.data.reference;
         this.data.reference = value;
+        recordAndMarkDirty(this, 'reference', old, value);
     }
 
     get transform(): Babelfont.DecomposedAffine {
@@ -613,7 +691,9 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     set transform(value: Babelfont.DecomposedAffine) {
+        const old = this.data.transform;
         this.data.transform = value;
+        recordAndMarkDirty(this, 'transform', old, value);
     }
 
     get location(): Record<string, number> | undefined {
@@ -783,12 +863,18 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
  * Anchor point in a layer
  */
 export class Anchor extends ArrayElementBase<AnchorData, Layer> {
+    getPathSegment(): (string | number)[] {
+        return ['anchors', this._index];
+    }
+
     get x(): number {
         return this.data.x;
     }
 
     set x(value: number) {
+        const old = this.data.x;
         this.data.x = value;
+        recordAndMarkDirty(this, 'x', old, value);
     }
 
     get y(): number {
@@ -796,7 +882,9 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
     }
 
     set y(value: number) {
+        const old = this.data.y;
         this.data.y = value;
+        recordAndMarkDirty(this, 'y', old, value);
     }
 
     get name(): string | undefined {
@@ -804,7 +892,9 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
     }
 
     set name(value: string | undefined) {
+        const old = this.data.name;
         this.data.name = value;
+        recordAndMarkDirty(this, 'name', old, value);
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
@@ -812,7 +902,9 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.format_specific;
         this.data.format_specific = value;
+        recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
     toString(): string {
@@ -825,12 +917,18 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
  * Guideline in a layer or master
  */
 export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
+    getPathSegment(): (string | number)[] {
+        return ['guides', this._index];
+    }
+
     get pos(): Babelfont.Position {
         return this.data.pos;
     }
 
     set pos(value: Babelfont.Position) {
+        const old = this.data.pos;
         this.data.pos = value;
+        recordAndMarkDirty(this, 'pos', old, value);
     }
 
     get name(): string | undefined {
@@ -838,7 +936,9 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     set name(value: string | undefined) {
+        const old = this.data.name;
         this.data.name = value;
+        recordAndMarkDirty(this, 'name', old, value);
     }
 
     get color(): Babelfont.Color | undefined {
@@ -846,7 +946,9 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     set color(value: Babelfont.Color | undefined) {
+        const old = this.data.color;
         this.data.color = value;
+        recordAndMarkDirty(this, 'color', old, value);
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
@@ -854,7 +956,9 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.format_specific;
         this.data.format_specific = value;
+        recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
     toString(): string {
@@ -867,6 +971,10 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
  * Shape wrapper that can contain either a Component or a Path
  */
 export class Shape extends ArrayElementBase {
+    getPathSegment(): (string | number)[] {
+        return ['shapes', this._index];
+    }
+
     /**
      * Check if this shape is a component
      */
@@ -953,6 +1061,11 @@ export class Layer extends ArrayElementBase {
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
 
+    getPathSegment(): (string | number)[] {
+        const layerId = this.data.id;
+        return layerId ? ['layers', layerId] : ['layers', this._index];
+    }
+
     private getMasterId(): string | undefined {
         return this.master?.master;
     }
@@ -981,7 +1094,9 @@ export class Layer extends ArrayElementBase {
     }
 
     set width(value: number) {
+        const old = this.data.width;
         this.data.width = value;
+        recordAndMarkDirty(this, 'width', old, value);
     }
 
     /**
@@ -1008,6 +1123,9 @@ export class Layer extends ArrayElementBase {
         if (offset === 0) {
             return; // No change needed
         }
+
+        const bridge = getChangeBridge();
+        bridge?.beginTransaction('Set LSB');
 
         // Translate all shapes (paths and components)
         if (this.data.shapes) {
@@ -1059,6 +1177,7 @@ export class Layer extends ArrayElementBase {
         this.data.width += offset;
 
         markFontDirty();
+        bridge?.endTransaction();
     }
 
     /**
@@ -1080,12 +1199,13 @@ export class Layer extends ArrayElementBase {
      */
     set rsb(value: number) {
         const bbox = this.getBoundingBox(false);
+        const oldWidth = this.data.width;
         if (!bbox) {
             this.data.width = value;
         } else {
             this.data.width = bbox.maxX + value;
         }
-        markFontDirty();
+        recordAndMarkDirty(this, 'width', oldWidth, this.data.width);
     }
 
     get name(): string | undefined {
@@ -1093,7 +1213,9 @@ export class Layer extends ArrayElementBase {
     }
 
     set name(value: string | undefined) {
+        const old = this.data.name;
         this.data.name = value;
+        recordAndMarkDirty(this, 'name', old, value);
     }
 
     get id(): string | undefined {
@@ -1101,7 +1223,9 @@ export class Layer extends ArrayElementBase {
     }
 
     set id(value: string | undefined) {
+        const old = this.data.id;
         this.data.id = value;
+        recordAndMarkDirty(this, 'id', old, value);
     }
 
     get master(): Babelfont.LayerType | undefined {
@@ -1113,7 +1237,9 @@ export class Layer extends ArrayElementBase {
     set master(value: Babelfont.LayerType | undefined) {
         const layerId = this.data.id || '[no-layer-id]';
         assertTaggedLayerMaster(value, `Layer#${layerId}.master(set)`);
+        const old = this.data.master;
         this.data.master = value;
+        recordAndMarkDirty(this, 'master', old, value);
     }
 
     get smart_component_location(): Record<string, number> | undefined {
@@ -1121,7 +1247,9 @@ export class Layer extends ArrayElementBase {
     }
 
     set smart_component_location(value: Record<string, number> | undefined) {
+        const old = this.data.smart_component_location;
         this.data.smart_component_location = value;
+        recordAndMarkDirty(this, 'smart_component_location', old, value);
     }
 
     get guides(): Guide[] | undefined {
@@ -1168,7 +1296,9 @@ export class Layer extends ArrayElementBase {
     }
 
     set color(value: Babelfont.Color | undefined) {
+        const old = this.data.color;
         this.data.color = value;
+        recordAndMarkDirty(this, 'color', old, value);
     }
 
     get layer_index(): number | undefined {
@@ -1176,7 +1306,9 @@ export class Layer extends ArrayElementBase {
     }
 
     set layer_index(value: number | undefined) {
+        const old = this.data.layer_index;
         this.data.layer_index = value;
+        recordAndMarkDirty(this, 'layer_index', old, value);
     }
 
     get is_background(): boolean | undefined {
@@ -1184,7 +1316,9 @@ export class Layer extends ArrayElementBase {
     }
 
     set is_background(value: boolean | undefined) {
+        const old = this.data.is_background;
         this.data.is_background = value;
+        recordAndMarkDirty(this, 'is_background', old, value);
     }
 
     get background_layer_id(): string | undefined {
@@ -1192,7 +1326,9 @@ export class Layer extends ArrayElementBase {
     }
 
     set background_layer_id(value: string | undefined) {
+        const old = this.data.background_layer_id;
         this.data.background_layer_id = value;
+        recordAndMarkDirty(this, 'background_layer_id', old, value);
     }
 
     get location(): Record<string, number> | undefined {
@@ -1200,7 +1336,9 @@ export class Layer extends ArrayElementBase {
     }
 
     set location(value: Record<string, number> | undefined) {
+        const old = this.data.location;
         this.data.location = value;
+        recordAndMarkDirty(this, 'location', old, value);
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
@@ -1208,7 +1346,9 @@ export class Layer extends ArrayElementBase {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.format_specific;
         this.data.format_specific = value;
+        recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
     /**
@@ -2365,6 +2505,10 @@ export class Layer extends ArrayElementBase {
 export class Glyph extends ArrayElementBase {
     private _layerWrappers: Layer[] | null = null;
 
+    getPathSegment(): (string | number)[] {
+        return ['glyphs', this.data.name || ''];
+    }
+
     private static readonly BUILTIN_CATEGORIES = new Set([
         'Base',
         'Mark',
@@ -2444,7 +2588,9 @@ export class Glyph extends ArrayElementBase {
     }
 
     set name(value: string) {
+        const old = this.data.name;
         this.data.name = value;
+        recordAndMarkDirty(this, 'name', old, value);
     }
 
     get production_name(): string | undefined {
@@ -2452,7 +2598,9 @@ export class Glyph extends ArrayElementBase {
     }
 
     set production_name(value: string | undefined) {
+        const old = this.data.production_name;
         this.data.production_name = value;
+        recordAndMarkDirty(this, 'production_name', old, value);
     }
 
     get category(): Babelfont.GlyphCategory {
@@ -2460,7 +2608,9 @@ export class Glyph extends ArrayElementBase {
     }
 
     set category(value: Babelfont.GlyphCategory | string) {
+        const old = this.data.category;
         this.data.category = Glyph.normalizeCategory(value);
+        recordAndMarkDirty(this, 'category', old, this.data.category);
     }
 
     get codepoints(): number[] | undefined {
@@ -2468,7 +2618,9 @@ export class Glyph extends ArrayElementBase {
     }
 
     set codepoints(value: number[] | undefined) {
+        const old = this.data.codepoints;
         this.data.codepoints = value;
+        recordAndMarkDirty(this, 'codepoints', old, value);
     }
 
     get layers(): Layer[] | undefined {
@@ -2611,7 +2763,9 @@ export class Glyph extends ArrayElementBase {
     }
 
     set exported(value: boolean | undefined) {
+        const old = this.data.exported;
         this.data.exported = value;
+        recordAndMarkDirty(this, 'exported', old, value);
     }
 
     get direction(): Babelfont.Direction | undefined {
@@ -2619,7 +2773,9 @@ export class Glyph extends ArrayElementBase {
     }
 
     set direction(value: Babelfont.Direction | undefined) {
+        const old = this.data.direction;
         this.data.direction = value;
+        recordAndMarkDirty(this, 'direction', old, value);
     }
 
     get formatspecific(): Record<string, Unsafe> | undefined {
@@ -2627,7 +2783,9 @@ export class Glyph extends ArrayElementBase {
     }
 
     set formatspecific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.formatspecific;
         this.data.formatspecific = value;
+        recordAndMarkDirty(this, 'formatspecific', old, value);
     }
 
     /**
@@ -2782,12 +2940,18 @@ export class Glyph extends ArrayElementBase {
  * Variation axis in a variable font
  */
 export class Axis extends ArrayElementBase {
+    getPathSegment(): (string | number)[] {
+        return ['axes', this._index];
+    }
+
     get name(): Babelfont.I18NDictionary {
         return this.data.name;
     }
 
     set name(value: Babelfont.I18NDictionary) {
+        const old = this.data.name;
         this.data.name = value;
+        recordAndMarkDirty(this, 'name', old, value);
     }
 
     get tag(): string {
@@ -2795,7 +2959,9 @@ export class Axis extends ArrayElementBase {
     }
 
     set tag(value: string) {
+        const old = this.data.tag;
         this.data.tag = value;
+        recordAndMarkDirty(this, 'tag', old, value);
     }
 
     get id(): string {
@@ -2803,7 +2969,9 @@ export class Axis extends ArrayElementBase {
     }
 
     set id(value: string) {
+        const old = this.data.id;
         this.data.id = value;
+        recordAndMarkDirty(this, 'id', old, value);
     }
 
     get min(): number | undefined {
@@ -2811,7 +2979,9 @@ export class Axis extends ArrayElementBase {
     }
 
     set min(value: number | undefined) {
+        const old = this.data.min;
         this.data.min = value;
+        recordAndMarkDirty(this, 'min', old, value);
     }
 
     get max(): number | undefined {
@@ -2819,7 +2989,9 @@ export class Axis extends ArrayElementBase {
     }
 
     set max(value: number | undefined) {
+        const old = this.data.max;
         this.data.max = value;
+        recordAndMarkDirty(this, 'max', old, value);
     }
 
     get default(): number | undefined {
@@ -2827,7 +2999,9 @@ export class Axis extends ArrayElementBase {
     }
 
     set default(value: number | undefined) {
+        const old = this.data.default;
         this.data.default = value;
+        recordAndMarkDirty(this, 'default', old, value);
     }
 
     get map(): [number, number][] | undefined {
@@ -2835,7 +3009,9 @@ export class Axis extends ArrayElementBase {
     }
 
     set map(value: [number, number][] | undefined) {
+        const old = this.data.map;
         this.data.map = value;
+        recordAndMarkDirty(this, 'map', old, value);
     }
 
     get hidden(): boolean | undefined {
@@ -2843,7 +3019,9 @@ export class Axis extends ArrayElementBase {
     }
 
     set hidden(value: boolean | undefined) {
+        const old = this.data.hidden;
         this.data.hidden = value;
+        recordAndMarkDirty(this, 'hidden', old, value);
     }
 
     get values(): number[] | undefined {
@@ -2851,7 +3029,9 @@ export class Axis extends ArrayElementBase {
     }
 
     set values(value: number[] | undefined) {
+        const old = this.data.values;
         this.data.values = value;
+        recordAndMarkDirty(this, 'values', old, value);
     }
 
     get formatspecific(): Record<string, Unsafe> | undefined {
@@ -2859,7 +3039,9 @@ export class Axis extends ArrayElementBase {
     }
 
     set formatspecific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.formatspecific;
         this.data.formatspecific = value;
+        recordAndMarkDirty(this, 'formatspecific', old, value);
     }
 
     toString(): string {
@@ -2880,12 +3062,18 @@ export class Axis extends ArrayElementBase {
 export class Master extends ArrayElementBase {
     private _guideWrappers: Guide[] | null = null;
 
+    getPathSegment(): (string | number)[] {
+        return ['masters', this._index];
+    }
+
     get name(): Babelfont.I18NDictionary {
         return this.data.name;
     }
 
     set name(value: Babelfont.I18NDictionary) {
+        const old = this.data.name;
         this.data.name = value;
+        recordAndMarkDirty(this, 'name', old, value);
     }
 
     get id(): string {
@@ -2893,7 +3081,9 @@ export class Master extends ArrayElementBase {
     }
 
     set id(value: string) {
+        const old = this.data.id;
         this.data.id = value;
+        recordAndMarkDirty(this, 'id', old, value);
     }
 
     get location(): Record<string, number> | undefined {
@@ -2901,7 +3091,9 @@ export class Master extends ArrayElementBase {
     }
 
     set location(value: Record<string, number> | undefined) {
+        const old = this.data.location;
         this.data.location = value;
+        recordAndMarkDirty(this, 'location', old, value);
     }
 
     get guides(): Guide[] | undefined {
@@ -2922,7 +3114,9 @@ export class Master extends ArrayElementBase {
     }
 
     set metrics(value: Record<string, number>) {
+        const old = this.data.metrics;
         this.data.metrics = value;
+        recordAndMarkDirty(this, 'metrics', old, value);
     }
 
     get kerning(): Record<string, Record<string, number>> {
@@ -2930,7 +3124,9 @@ export class Master extends ArrayElementBase {
     }
 
     set kerning(value: Record<string, Record<string, number>>) {
+        const old = this.data.kerning;
         this.data.kerning = value;
+        recordAndMarkDirty(this, 'kerning', old, value);
     }
 
     get custom_ot_values(): Unsafe[] | undefined {
@@ -2938,7 +3134,9 @@ export class Master extends ArrayElementBase {
     }
 
     set custom_ot_values(value: Unsafe[] | undefined) {
+        const old = this.data.custom_ot_values;
         this.data.custom_ot_values = value;
+        recordAndMarkDirty(this, 'custom_ot_values', old, value);
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
@@ -2946,7 +3144,9 @@ export class Master extends ArrayElementBase {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.format_specific;
         this.data.format_specific = value;
+        recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
     toString(): string {
@@ -2965,12 +3165,18 @@ export class Master extends ArrayElementBase {
  * Named instance in a variable font
  */
 export class Instance extends ArrayElementBase {
+    getPathSegment(): (string | number)[] {
+        return ['instances', this._index];
+    }
+
     get id(): string {
         return this.data.id;
     }
 
     set id(value: string) {
+        const old = this.data.id;
         this.data.id = value;
+        recordAndMarkDirty(this, 'id', old, value);
     }
 
     get name(): Babelfont.I18NDictionary {
@@ -2978,7 +3184,9 @@ export class Instance extends ArrayElementBase {
     }
 
     set name(value: Babelfont.I18NDictionary) {
+        const old = this.data.name;
         this.data.name = value;
+        recordAndMarkDirty(this, 'name', old, value);
     }
 
     get location(): Record<string, number> | undefined {
@@ -2986,7 +3194,9 @@ export class Instance extends ArrayElementBase {
     }
 
     set location(value: Record<string, number> | undefined) {
+        const old = this.data.location;
         this.data.location = value;
+        recordAndMarkDirty(this, 'location', old, value);
     }
 
     get custom_names(): Babelfont.Names {
@@ -2994,7 +3204,9 @@ export class Instance extends ArrayElementBase {
     }
 
     set custom_names(value: Babelfont.Names) {
+        const old = this.data.custom_names;
         this.data.custom_names = value;
+        recordAndMarkDirty(this, 'custom_names', old, value);
     }
 
     get variable(): boolean | undefined {
@@ -3002,7 +3214,9 @@ export class Instance extends ArrayElementBase {
     }
 
     set variable(value: boolean | undefined) {
+        const old = this.data.variable;
         this.data.variable = value;
+        recordAndMarkDirty(this, 'variable', old, value);
     }
 
     get linked_style(): string | undefined {
@@ -3010,7 +3224,9 @@ export class Instance extends ArrayElementBase {
     }
 
     set linked_style(value: string | undefined) {
+        const old = this.data.linked_style;
         this.data.linked_style = value;
+        recordAndMarkDirty(this, 'linked_style', old, value);
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
@@ -3018,7 +3234,9 @@ export class Instance extends ArrayElementBase {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.format_specific;
         this.data.format_specific = value;
+        recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
     toString(): string {
@@ -3051,7 +3269,9 @@ export class Font extends ModelBase {
     }
 
     set upm(value: number) {
+        const old = this._data.upm;
         this._data.upm = value;
+        recordAndMarkDirty(this, 'upm', old, value);
     }
 
     get version(): [number, number] {
@@ -3059,7 +3279,9 @@ export class Font extends ModelBase {
     }
 
     set version(value: [number, number]) {
+        const old = this._data.version;
         this._data.version = value;
+        recordAndMarkDirty(this, 'version', old, value);
     }
 
     get axes(): Axis[] | undefined {
@@ -3120,7 +3342,9 @@ export class Font extends ModelBase {
     }
 
     set note(value: string | undefined) {
+        const old = this._data.note;
         this._data.note = value;
+        recordAndMarkDirty(this, 'note', old, value);
     }
 
     get date(): string {
@@ -3128,7 +3352,9 @@ export class Font extends ModelBase {
     }
 
     set date(value: string) {
+        const old = this._data.date;
         this._data.date = value;
+        recordAndMarkDirty(this, 'date', old, value);
     }
 
     get names(): Babelfont.Names {
@@ -3136,7 +3362,9 @@ export class Font extends ModelBase {
     }
 
     set names(value: Babelfont.Names) {
+        const old = this._data.names;
         this._data.names = value;
+        recordAndMarkDirty(this, 'names', old, value);
     }
 
     get custom_ot_values(): Unsafe[] | undefined {
@@ -3144,7 +3372,9 @@ export class Font extends ModelBase {
     }
 
     set custom_ot_values(value: Unsafe[] | undefined) {
+        const old = this._data.custom_ot_values;
         this._data.custom_ot_values = value;
+        recordAndMarkDirty(this, 'custom_ot_values', old, value);
     }
 
     get variation_sequences():
@@ -3156,7 +3386,9 @@ export class Font extends ModelBase {
     set variation_sequences(
         value: Record<number, Record<number, string>> | undefined
     ) {
+        const old = this._data.variation_sequences;
         this._data.variation_sequences = value;
+        recordAndMarkDirty(this, 'variation_sequences', old, value);
     }
 
     get features(): Babelfont.Features {
@@ -3164,7 +3396,9 @@ export class Font extends ModelBase {
     }
 
     set features(value: Babelfont.Features) {
+        const old = this._data.features;
         this._data.features = value;
+        recordAndMarkDirty(this, 'features', old, value);
     }
 
     get first_kern_groups(): Record<string, string[]> | undefined {
@@ -3172,7 +3406,9 @@ export class Font extends ModelBase {
     }
 
     set first_kern_groups(value: Record<string, string[]> | undefined) {
+        const old = this._data.first_kern_groups;
         this._data.first_kern_groups = value;
+        recordAndMarkDirty(this, 'first_kern_groups', old, value);
     }
 
     get second_kern_groups(): Record<string, string[]> | undefined {
@@ -3180,7 +3416,9 @@ export class Font extends ModelBase {
     }
 
     set second_kern_groups(value: Record<string, string[]> | undefined) {
+        const old = this._data.second_kern_groups;
         this._data.second_kern_groups = value;
+        recordAndMarkDirty(this, 'second_kern_groups', old, value);
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
@@ -3188,7 +3426,9 @@ export class Font extends ModelBase {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        const old = this._data.format_specific;
         this._data.format_specific = value;
+        recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
     get source(): string | null {
@@ -3196,7 +3436,9 @@ export class Font extends ModelBase {
     }
 
     set source(value: string | null) {
+        const old = this._data.source;
         this._data.source = value;
+        recordAndMarkDirty(this, 'source', old, value);
     }
 
     /**

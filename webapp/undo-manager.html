@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Undo Manager — Counterpunch</title>
+    <link rel="icon" type="image/svg+xml" href="assets/icons/icon.svg" />
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-hover: #1e2d4d;
+            --text: #e0e0e0;
+            --text-muted: #8892a4;
+            --accent: #00d2ff;
+            --border: #2a3a5c;
+            --tag-bg: #1e2d4d;
+            --tag-active-bg: #00d2ff22;
+            --tag-active-border: #00d2ff;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-secondary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+
+        header h1 {
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        #search-input {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            outline: none;
+        }
+
+        #search-input:focus {
+            border-color: var(--accent);
+        }
+
+        #status {
+            font-size: 12px;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .filters {
+            padding: 8px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .tag {
+            padding: 2px 8px;
+            font-size: 11px;
+            border-radius: 3px;
+            border: 1px solid var(--border);
+            background: var(--tag-bg);
+            color: var(--text-muted);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .tag:hover { border-color: var(--accent); color: var(--text); }
+        .tag.active { background: var(--tag-active-bg); border-color: var(--tag-active-border); color: var(--accent); }
+
+        #change-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+        }
+
+        .change-entry {
+            padding: 8px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            cursor: default;
+        }
+
+        .change-entry:hover { background: var(--bg-hover); }
+
+        .change-entry .meta {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 2px;
+        }
+
+        .change-entry .time {
+            color: var(--text-muted);
+            font-size: 11px;
+            min-width: 60px;
+        }
+
+        .change-entry .badge {
+            font-size: 10px;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: var(--tag-bg);
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+        }
+
+        .change-entry .badge.op-set { border-color: #4488cc; color: #6699dd; }
+        .change-entry .badge.op-add { border-color: #44aa66; color: #55bb77; }
+        .change-entry .badge.op-remove { border-color: #cc6644; color: #dd7755; }
+
+        .change-entry .path { color: var(--text); }
+        .change-entry .values { color: var(--text-muted); font-size: 12px; }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 16px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Undo Manager</h1>
+        <input id="search-input" type="text" placeholder="Filter changes..." />
+        <span id="status">Connecting...</span>
+    </header>
+    <div class="filters" id="filters"></div>
+    <div id="change-list">
+        <div class="empty-state">Waiting for font data...</div>
+    </div>
+    <script src="js/undo-manager-app.js"></script>
+</body>
+</html>

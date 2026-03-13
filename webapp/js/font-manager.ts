@@ -913,6 +913,16 @@ class FontManager {
         // Update window title with font file name
         const fileName = path.split('/').pop() || 'Untitled';
         document.title = fileName;
+
+        // Notify ChangeBridge that the font model is ready
+        window.dispatchEvent(
+            new CustomEvent('fontModelReady', {
+                detail: {
+                    path,
+                    babelfontData: newFont.babelfontData
+                }
+            })
+        );
     }
 
     /**

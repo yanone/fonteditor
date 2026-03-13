@@ -11,6 +11,8 @@ import SaveButton from './save-button';
 import { Font } from './babelfont-model';
 import type MCPLogTransport from './mcp-transport';
 import type { StateManager, EditorState } from './state-manager';
+import type { ChangeBridge } from './change-bridge';
+import type { WindowSync } from './window-sync';
 
 declare global {
     var marked: any;
@@ -20,6 +22,10 @@ declare global {
     // Any property augmentation we make to the Window interface
     // should be declared here.
     interface Window {
+        // Undo/redo & collaboration
+        changeBridge: ChangeBridge | undefined;
+        windowSync: WindowSync | undefined;
+
         // From our dependencies
         opentype: any; // OpenType.js
         pyodide: any; // Pyodide

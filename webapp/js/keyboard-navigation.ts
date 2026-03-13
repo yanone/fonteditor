@@ -1478,6 +1478,31 @@
             return;
         }
 
+        // Cmd+Z — Undo, Cmd+Shift+Z — Redo
+        if (cmdKey && key === 'z' && !event.altKey) {
+            // Allow native undo/redo in text input elements
+            if (isInTextInput) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+
+            const bridge = window.changeBridge;
+            if (!bridge) return;
+
+            // Determine scope: per-glyph when outline editor is active
+            const glyphName = window.glyphCanvas?.outlineEditor?.active
+                ? (window.glyphCanvas.getCurrentGlyphName() ?? undefined)
+                : undefined;
+
+            if (shiftKey) {
+                bridge.redo(glyphName);
+            } else {
+                bridge.undo(glyphName);
+            }
+            return;
+        }
+
         const settings = getViewSettings();
         if (!settings) return;
 
