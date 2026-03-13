@@ -25,6 +25,7 @@ declare global {
         // Undo/redo & collaboration
         changeBridge: ChangeBridge | undefined;
         windowSync: WindowSync | undefined;
+        syncRustCacheAndRefreshCanvas: (() => Promise<void>) | undefined;
 
         // From our dependencies
         opentype: any; // OpenType.js

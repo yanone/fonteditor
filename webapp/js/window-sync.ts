@@ -18,6 +18,7 @@ interface YjsUpdateMsg {
     type: 'yjs-update';
     update: number[]; // Uint8Array serialised as number[]
     windowId: string;
+    changeLogEntries?: ChangeLogEntry[];
 }
 
 interface FullStateRequestMsg {
@@ -64,7 +65,8 @@ export class WindowSync {
                 this._send({
                     type: 'yjs-update',
                     update: Array.from(update),
-                    windowId: bridge.windowId
+                    windowId: bridge.windowId,
+                    changeLogEntries: bridge.getNewChangeLogEntries()
                 });
             });
         }
@@ -116,7 +118,10 @@ export class WindowSync {
             case 'yjs-update':
                 if (msg.windowId === this._bridge.windowId) return;
                 this._peers.add(msg.windowId);
-                this._bridge.applyRemoteUpdate(new Uint8Array(msg.update));
+                this._bridge.applyRemoteUpdate(
+                    new Uint8Array(msg.update),
+                    msg.changeLogEntries
+                );
                 break;
 
             case 'full-state-request':
@@ -135,8 +140,11 @@ export class WindowSync {
             case 'full-state-response':
                 if (msg.windowId === this._bridge.windowId) return;
                 this._peers.add(msg.windowId);
-                this._bridge.applyFullState(new Uint8Array(msg.state));
+                // Import change log before applying state so the
+                // onRemoteChange callback (fired by applyFullState)
+                // sees the complete log.
                 this._bridge.importChangeLog(msg.changeLog);
+                this._bridge.applyFullState(new Uint8Array(msg.state));
                 break;
 
             case 'window-closing':

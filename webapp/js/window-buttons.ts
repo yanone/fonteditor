@@ -7,6 +7,7 @@
  */
 
 import { Logger } from './logger';
+import { syncRustCacheAndRefreshCanvas } from './change-bridge-init';
 
 const console = new Logger('WindowButtons');
 
@@ -16,24 +17,28 @@ function initWindowButtons(): void {
     const newWindowBtn = document.getElementById('open-new-window-btn');
 
     if (undoBtn) {
-        undoBtn.addEventListener('click', () => {
+        undoBtn.addEventListener('click', async () => {
             const bridge = window.changeBridge;
             if (!bridge) return;
             const glyphName = window.glyphCanvas?.outlineEditor?.active
                 ? (window.glyphCanvas.getCurrentGlyphName() ?? undefined)
                 : undefined;
-            bridge.undo(glyphName);
+            if (bridge.undo(glyphName)) {
+                await syncRustCacheAndRefreshCanvas();
+            }
         });
     }
 
     if (redoBtn) {
-        redoBtn.addEventListener('click', () => {
+        redoBtn.addEventListener('click', async () => {
             const bridge = window.changeBridge;
             if (!bridge) return;
             const glyphName = window.glyphCanvas?.outlineEditor?.active
                 ? (window.glyphCanvas.getCurrentGlyphName() ?? undefined)
                 : undefined;
-            bridge.redo(glyphName);
+            if (bridge.redo(glyphName)) {
+                await syncRustCacheAndRefreshCanvas();
+            }
         });
     }
 

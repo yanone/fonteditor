@@ -13,9 +13,37 @@
 import { ChangeBridge } from './change-bridge';
 import { Font } from './babelfont-model';
 import { WindowSync } from './window-sync';
+import { fontCompilation } from './font-compilation';
 import { Logger } from './logger';
 
 const console = new Logger('ChangeBridgeInit');
+
+/**
+ * Update the Rust FONT_CACHE with the current babelfontJson and
+ * refresh the outline editor canvas. Call after undo/redo/remote
+ * changes so the Rust interpolation reads up-to-date layer data.
+ */
+export async function syncRustCacheAndRefreshCanvas(): Promise<void> {
+    const currentFont = window.fontManager?.currentFont;
+    if (currentFont?.babelfontJson && fontCompilation?.isInitialized) {
+        try {
+            await fontCompilation.sendMessage({
+                type: 'storeFontJson',
+                babelfontJson: currentFont.babelfontJson
+            });
+        } catch {
+            // Non-fatal — the scheduled compile will update the cache later
+        }
+    }
+    const gc = window.glyphCanvas;
+    if (gc) {
+        await gc.outlineEditor?.fetchLayerData();
+        gc.render();
+    }
+}
+
+// Expose globally for non-module code (keyboard-navigation.ts IIFE)
+window.syncRustCacheAndRefreshCanvas = syncRustCacheAndRefreshCanvas;
 
 function isSyncWindow(): boolean {
     try {
@@ -86,22 +114,31 @@ window.addEventListener('fontModelReady', (event: Event) => {
     // babelfontJson and rebuilt the model, so auto-compile will
     // produce correct output once the dirty flag triggers it.
     bridge.onRemoteChange(() => {
-        const gc = window.glyphCanvas;
-        if (gc) {
-            // Re-fetch outline data so the editor shows updated geometry
-            gc.outlineEditor?.fetchLayerData();
-            gc.render();
-        }
+        syncRustCacheAndRefreshCanvas();
     });
 
     // Derive BroadcastChannel name from font path (or a fallback)
     const channelName = `counterpunch-font:${detail.path || 'unsaved'}`;
 
-    // Always populate the Y.Doc from the loaded font data so the
-    // bridge is never empty (even if a peer later sends its state).
-    bridge.initFromJson(
-        detail.babelfontData as Record<string, ReturnType<typeof JSON.parse>>
-    );
+    if (isSyncWindow()) {
+        // Sync (secondary) window: keep Y.Doc empty — the peer's
+        // full-state response will populate it.  Only store the
+        // babelfontData reference so _syncJsonFromYDoc can patch it.
+        bridge.setFontJson(
+            detail.babelfontData as Record<
+                string,
+                ReturnType<typeof JSON.parse>
+            >
+        );
+    } else {
+        // Primary window: populate Y.Doc from loaded font data.
+        bridge.initFromJson(
+            detail.babelfontData as Record<
+                string,
+                ReturnType<typeof JSON.parse>
+            >
+        );
+    }
 
     const sync = new WindowSync(bridge, channelName);
     window.windowSync = sync;

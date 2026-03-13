@@ -1496,9 +1496,13 @@
                 : undefined;
 
             if (shiftKey) {
-                bridge.redo(glyphName);
+                if (bridge.redo(glyphName)) {
+                    window.syncRustCacheAndRefreshCanvas?.();
+                }
             } else {
-                bridge.undo(glyphName);
+                if (bridge.undo(glyphName)) {
+                    window.syncRustCacheAndRefreshCanvas?.();
+                }
             }
             return;
         }

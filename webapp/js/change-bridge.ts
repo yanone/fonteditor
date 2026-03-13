@@ -39,8 +39,6 @@ type Unsafe = ReturnType<typeof JSON.parse>;
 const LOCAL_ORIGIN = 'local';
 const REMOTE_ORIGIN = 'remote';
 
-let _nextWindowId = 1;
-
 /**
  * Central change processor that keeps Yjs Y.Doc in sync with the
  * babelfont JSON object model.
@@ -83,15 +81,21 @@ export class ChangeBridge {
     private _onAfterSync: (() => void) | null = null;
     /** Suppress recording (used during undo/redo application) */
     private _suppressRecording = false;
+    /** Index into _changeLog marking the last entry broadcast to peers */
+    private _lastBroadcastLogIndex = 0;
 
     constructor(windowId?: string) {
-        this.windowId = windowId ?? `tab-${_nextWindowId++}`;
+        this.windowId =
+            windowId ??
+            `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         this.yDoc = new Y.Doc();
         this.fontMap = this.yDoc.getMap('font');
 
-        // Listen for Y.Doc updates
+        // Listen for Y.Doc updates.
+        // Broadcast all non-remote updates (LOCAL_ORIGIN + UndoManager)
+        // so undo/redo propagates to other windows too.
         this.yDoc.on('update', (update: Uint8Array, origin: unknown) => {
-            if (origin === LOCAL_ORIGIN && !this._isApplyingRemote) {
+            if (origin !== REMOTE_ORIGIN && !this._isApplyingRemote) {
                 this._onLocalUpdate?.(update);
             }
         });
@@ -115,6 +119,15 @@ export class ChangeBridge {
         }, LOCAL_ORIGIN);
         this._isSyncing = false;
         this._setupFontUndoManager();
+    }
+
+    /**
+     * Set the font JSON reference without populating the Y.Doc.
+     * Used by sync (secondary) windows that will receive the Y.Doc
+     * state from a peer via applyFullState().
+     */
+    setFontJson(fontJson: Record<string, Unsafe>): void {
+        this._fontJson = fontJson;
     }
 
     /** Register a callback for when a remote change modifies local JSON. */
@@ -180,13 +193,7 @@ export class ChangeBridge {
             this.getGlyphUndoManager(fullPath[1] as string);
         }
 
-        // Update Y.Doc
-        const yPath = this._toYDocPath(fullPath);
-        this.yDoc.transact(() => {
-            setYPath(this.fontMap, yPath, newVal);
-        }, LOCAL_ORIGIN);
-
-        // Log entry
+        // Log entry (before Y.Doc transaction so it's available for broadcast)
         const entry = createLogEntry({
             timestamp: Date.now(),
             windowId: this.windowId,
@@ -201,6 +208,12 @@ export class ChangeBridge {
             newValue: newVal
         });
         this._changeLog.push(entry);
+
+        // Update Y.Doc
+        const yPath = this._toYDocPath(fullPath);
+        this.yDoc.transact(() => {
+            setYPath(this.fontMap, yPath, newVal);
+        }, LOCAL_ORIGIN);
 
         // Mark dirty
         this._onDirty?.();
@@ -221,11 +234,6 @@ export class ChangeBridge {
             this.getGlyphUndoManager(path[1] as string);
         }
 
-        const yPath = this._toYDocPath(path);
-        this.yDoc.transact(() => {
-            setYPath(this.fontMap, yPath, value);
-        }, LOCAL_ORIGIN);
-
         const entry = createLogEntry({
             timestamp: Date.now(),
             windowId: this.windowId,
@@ -240,6 +248,12 @@ export class ChangeBridge {
             newValue: value
         });
         this._changeLog.push(entry);
+
+        const yPath = this._toYDocPath(path);
+        this.yDoc.transact(() => {
+            setYPath(this.fontMap, yPath, value);
+        }, LOCAL_ORIGIN);
+
         this._onDirty?.();
     }
 
@@ -256,11 +270,6 @@ export class ChangeBridge {
             this.getGlyphUndoManager(path[1] as string);
         }
 
-        const yPath = this._toYDocPath(path);
-        this.yDoc.transact(() => {
-            deleteYPath(this.fontMap, yPath);
-        }, LOCAL_ORIGIN);
-
         const entry = createLogEntry({
             timestamp: Date.now(),
             windowId: this.windowId,
@@ -275,6 +284,12 @@ export class ChangeBridge {
             newValue: undefined
         });
         this._changeLog.push(entry);
+
+        const yPath = this._toYDocPath(path);
+        this.yDoc.transact(() => {
+            deleteYPath(this.fontMap, yPath);
+        }, LOCAL_ORIGIN);
+
         this._onDirty?.();
     }
 
@@ -340,6 +355,23 @@ export class ChangeBridge {
         // Ensure per-glyph UndoManager exists
         this.getGlyphUndoManager(glyphName);
 
+        // Log entry (before Y.Doc transaction so it's available when the
+        // 'update' event fires and WindowSync piggybacks it on the broadcast)
+        const entry = createLogEntry({
+            timestamp: Date.now(),
+            windowId: this.windowId,
+            transactionLabel: label,
+            transactionId: null,
+            op: 'set' as ChangeOp,
+            objectType: 'glyph',
+            objectId: glyphName,
+            property: '',
+            path: `glyphs.${glyphName}`,
+            oldValue: glyphName,
+            newValue: label
+        });
+        this._changeLog.push(entry);
+
         // Update the glyph Y.Map in place
         this.yDoc.transact(() => {
             for (const [gk, gv] of Object.entries(glyphJson)) {
@@ -363,21 +395,6 @@ export class ChangeBridge {
             }
         }, LOCAL_ORIGIN);
 
-        // Log entry
-        const entry = createLogEntry({
-            timestamp: Date.now(),
-            windowId: this.windowId,
-            transactionLabel: label,
-            transactionId: null,
-            op: 'set' as ChangeOp,
-            objectType: 'glyph',
-            objectId: glyphName,
-            property: '',
-            path: `glyphs.${glyphName}`,
-            oldValue: undefined,
-            newValue: undefined
-        });
-        this._changeLog.push(entry);
         this._onDirty?.();
         console.log(`Glyph "${glyphName}" synced to Y.Doc (${label})`);
     }
@@ -395,6 +412,23 @@ export class ChangeBridge {
         if (!um || um.undoStack.length === 0) return false;
         this._suppressRecording = true;
         try {
+            // Log entry before um.undo() so it's available when the
+            // Y.Doc update event fires and WindowSync broadcasts it.
+            const entry = createLogEntry({
+                timestamp: Date.now(),
+                windowId: this.windowId,
+                transactionLabel: 'Undo',
+                transactionId: null,
+                op: 'set' as ChangeOp,
+                objectType: glyphName ? 'glyph' : 'font',
+                objectId: glyphName ?? '',
+                property: '',
+                path: glyphName ? `glyphs.${glyphName}` : 'font',
+                oldValue: undefined,
+                newValue: 'undo'
+            });
+            this._changeLog.push(entry);
+
             um.undo();
             this._syncJsonFromYDoc();
             this._onAfterSync?.();
@@ -415,6 +449,22 @@ export class ChangeBridge {
         if (!um || um.redoStack.length === 0) return false;
         this._suppressRecording = true;
         try {
+            // Log entry before um.redo() so it's available for broadcast.
+            const entry = createLogEntry({
+                timestamp: Date.now(),
+                windowId: this.windowId,
+                transactionLabel: 'Redo',
+                transactionId: null,
+                op: 'set' as ChangeOp,
+                objectType: glyphName ? 'glyph' : 'font',
+                objectId: glyphName ?? '',
+                property: '',
+                path: glyphName ? `glyphs.${glyphName}` : 'font',
+                oldValue: undefined,
+                newValue: 'redo'
+            });
+            this._changeLog.push(entry);
+
             um.redo();
             this._syncJsonFromYDoc();
             this._onAfterSync?.();
@@ -445,8 +495,12 @@ export class ChangeBridge {
 
     /**
      * Apply a remote Y.Doc update from another window.
+     * Optionally import accompanying change log entries.
      */
-    applyRemoteUpdate(update: Uint8Array): void {
+    applyRemoteUpdate(
+        update: Uint8Array,
+        remoteEntries?: ChangeLogEntry[]
+    ): void {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
@@ -454,7 +508,10 @@ export class ChangeBridge {
             this._syncJsonFromYDoc();
             this._onAfterSync?.();
             this._onDirty?.();
-            this._onRemoteChange?.([]);
+            if (remoteEntries && remoteEntries.length > 0) {
+                this._changeLog.push(...remoteEntries);
+            }
+            this._onRemoteChange?.(remoteEntries ?? []);
         } finally {
             this._isApplyingRemote = false;
         }
@@ -478,6 +535,8 @@ export class ChangeBridge {
             if (!this._fontJson) this._fontJson = {};
             Y.applyUpdate(this.yDoc, state, REMOTE_ORIGIN);
             this._syncJsonFromYDoc();
+            // Set up undo managers so this window can undo/redo too
+            this._setupFontUndoManager();
             this._onAfterSync?.();
             this._onRemoteChange?.([]);
         } finally {
@@ -495,11 +554,23 @@ export class ChangeBridge {
     /** Import change log entries (e.g. from another window). */
     importChangeLog(entries: ChangeLogEntry[]): void {
         this._changeLog = [...entries];
+        this._lastBroadcastLogIndex = this._changeLog.length;
+    }
+
+    /**
+     * Get change log entries added since the last call.
+     * Used by WindowSync to piggyback entries on yjs-update messages.
+     */
+    getNewChangeLogEntries(): ChangeLogEntry[] {
+        const entries = this._changeLog.slice(this._lastBroadcastLogIndex);
+        this._lastBroadcastLogIndex = this._changeLog.length;
+        return entries;
     }
 
     /** Reset state (for tests). */
     reset(): void {
         this._changeLog = [];
+        this._lastBroadcastLogIndex = 0;
         this._txDepth = 0;
         this._txLabel = null;
         this._txId = null;

@@ -1259,3 +1259,341 @@ describe('Sequential changes', () => {
         expect(log[1].path).toContain('B');
     });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// 10. syncGlyphFromJson — bulk glyph sync
+// ─────────────────────────────────────────────────────────────────────
+
+describe('syncGlyphFromJson', () => {
+    test('first sync fires Y.Doc local update', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+        const updates = [];
+        bridge.onLocalUpdate((u) => updates.push(u));
+
+        // Mutate babelfontData directly (simulating outline-editor drag)
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Drag');
+
+        expect(updates.length).toBe(1);
+        // Y.Doc should reflect the new width
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+    });
+
+    test('consecutive syncs both fire Y.Doc local updates', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+        const updates = [];
+        bridge.onLocalUpdate((u) => updates.push(u));
+
+        // First drag
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Drag');
+        expect(updates.length).toBe(1);
+
+        // Second drag
+        fontJson.glyphs[0].layers[0].width = 800;
+        bridge.syncGlyphFromJson('A', 'Drag');
+        expect(updates.length).toBe(2);
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(800);
+    });
+
+    test('undo works after syncGlyphFromJson', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Drag');
+
+        expect(bridge.canUndo('A')).toBe(true);
+        bridge.undo('A');
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+    });
+
+    test('undo works after two consecutive syncs', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Drag 1');
+
+        fontJson.glyphs[0].layers[0].width = 800;
+        bridge.syncGlyphFromJson('A', 'Drag 2');
+
+        // Yjs UndoManager merges transactions within captureTimeout (500ms),
+        // so both syncs become a single undo step when called synchronously.
+        expect(bridge.canUndo('A')).toBe(true);
+        bridge.undo('A');
+        // After undo, width reverts to original (600) since both were merged
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+    });
+
+    test('second window receives both consecutive syncs', () => {
+        // Primary
+        const font1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('primary');
+        bridge1.initFromJson(font1);
+        // Secondary bootstraps from primary's state (matching real setup)
+        const bridge2 = new ChangeBridge('secondary');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(bridge1, 'test-sync-consecutive');
+        const sync2 = new WindowSync(bridge2, 'test-sync-consecutive');
+
+        const remoteEntries = [];
+        bridge2.onRemoteChange((entries) => remoteEntries.push('update'));
+
+        // First drag
+        font1.glyphs[0].layers[0].width = 700;
+        bridge1.syncGlyphFromJson('A', 'Drag');
+        flushTimers();
+
+        expect(remoteEntries.length).toBe(1);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+
+        // Second drag
+        font1.glyphs[0].layers[0].width = 800;
+        bridge1.syncGlyphFromJson('A', 'Drag');
+        flushTimers();
+
+        expect(remoteEntries.length).toBe(2);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(800);
+
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+
+    test('change log entry has meaningful values', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Drag');
+
+        const log = bridge.getChangeLog();
+        const entry = log[log.length - 1];
+        expect(entry.objectType).toBe('glyph');
+        expect(entry.objectId).toBe('A');
+        expect(entry.transactionLabel).toBe('Drag');
+        // oldValue = glyph name, newValue = label
+        expect(entry.oldValue).toBe('A');
+        expect(entry.newValue).toBe('Drag');
+    });
+
+    test('change log entries are broadcast to remote window', () => {
+        const font1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('primary');
+        bridge1.initFromJson(font1);
+        const bridge2 = new ChangeBridge('secondary');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(bridge1, 'test-log-sync');
+        const sync2 = new WindowSync(bridge2, 'test-log-sync');
+
+        bridge2.onRemoteChange(() => {});
+
+        // Make an edit
+        font1.glyphs[0].layers[0].width = 700;
+        bridge1.syncGlyphFromJson('A', 'Drag');
+        flushTimers();
+
+        // Remote bridge should have the change log entry
+        const remoteLog = bridge2.getChangeLog();
+        expect(remoteLog.length).toBe(1);
+        expect(remoteLog[0].objectId).toBe('A');
+        expect(remoteLog[0].transactionLabel).toBe('Drag');
+
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+
+    test('undo changes broadcast to remote window', () => {
+        const font1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('primary');
+        bridge1.initFromJson(font1);
+        const bridge2 = new ChangeBridge('secondary');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(bridge1, 'test-undo-sync');
+        const sync2 = new WindowSync(bridge2, 'test-undo-sync');
+
+        const remoteUpdates = [];
+        bridge2.onRemoteChange(() => remoteUpdates.push('update'));
+
+        // Make an edit then undo
+        font1.glyphs[0].layers[0].width = 700;
+        bridge1.syncGlyphFromJson('A', 'Drag');
+        flushTimers();
+
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+
+        bridge1.undo('A');
+        flushTimers();
+
+        // Undo should propagate
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+
+    test('undo/redo add change log entries for undo-manager window', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Drag');
+
+        const logBefore = bridge.getChangeLog().length;
+        bridge.undo('A');
+        const logAfter = bridge.getChangeLog().length;
+
+        // Undo should add a log entry
+        expect(logAfter).toBe(logBefore + 1);
+        const undoEntry = bridge.getChangeLog()[logAfter - 1];
+        expect(undoEntry.transactionLabel).toBe('Undo');
+        expect(undoEntry.objectType).toBe('glyph');
+        expect(undoEntry.objectId).toBe('A');
+
+        bridge.redo('A');
+        const logAfterRedo = bridge.getChangeLog().length;
+        expect(logAfterRedo).toBe(logAfter + 1);
+        const redoEntry = bridge.getChangeLog()[logAfterRedo - 1];
+        expect(redoEntry.transactionLabel).toBe('Redo');
+    });
+
+    test('sync window receives edits without calling initFromJson', () => {
+        // Primary: initialized normally
+        const font1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('primary');
+        bridge1.initFromJson(font1);
+
+        // Secondary: only setFontJson (no initFromJson — no divergent CRDT state)
+        const font2 = makeMinimalFont();
+        const bridge2 = new ChangeBridge('secondary');
+        bridge2.setFontJson(font2);
+
+        const sync1 = new WindowSync(bridge1, 'test-sync-noinit');
+        const sync2 = new WindowSync(bridge2, 'test-sync-noinit');
+
+        // Bootstrap via full state request/response
+        sync2.requestFullState();
+        flushTimers();
+
+        // Secondary should now have the font data from primary's Y.Doc
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+
+        const remoteUpdates = [];
+        bridge2.onRemoteChange(() => remoteUpdates.push('update'));
+
+        // Primary makes edits
+        font1.glyphs[0].layers[0].width = 700;
+        bridge1.syncGlyphFromJson('A', 'Drag 1');
+        flushTimers();
+
+        expect(remoteUpdates.length).toBe(1);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+
+        // Second edit
+        font1.glyphs[0].layers[0].width = 800;
+        bridge1.syncGlyphFromJson('A', 'Drag 2');
+        flushTimers();
+
+        expect(remoteUpdates.length).toBe(2);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(800);
+
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+});
