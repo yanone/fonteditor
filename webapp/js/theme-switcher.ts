@@ -33,8 +33,17 @@
         }
 
         init() {
+            const urlTheme = this.getThemeFromUrl();
+            if (urlTheme) {
+                this.removeThemeParamFromUrl();
+            }
+
             // Load saved theme preference
-            const savedTheme = localStorage.getItem(THEME_KEY) || THEMES.AUTO;
+            const savedTheme =
+                urlTheme || localStorage.getItem(THEME_KEY) || THEMES.AUTO;
+            if (urlTheme) {
+                localStorage.setItem(THEME_KEY, urlTheme);
+            }
             this.applyThemePreference(savedTheme);
             this.updateActiveButton(savedTheme);
 
@@ -79,6 +88,23 @@
                     }
                 }
             );
+
+            // React to theme preference changes made in other windows.
+            window.addEventListener('storage', (e: StorageEvent) => {
+                if (e.key !== THEME_KEY || !e.newValue) {
+                    return;
+                }
+                if (
+                    e.newValue !== THEMES.LIGHT &&
+                    e.newValue !== THEMES.DARK &&
+                    e.newValue !== THEMES.AUTO
+                ) {
+                    return;
+                }
+
+                this.applyThemePreference(e.newValue);
+                this.updateActiveButton(e.newValue);
+            });
 
             // Keyboard shortcut: Cmd/Ctrl + ,
             document.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -141,6 +167,28 @@
             localStorage.setItem(THEME_KEY, preference);
             this.applyThemePreference(preference);
             this.updateActiveButton(preference);
+        }
+
+        getThemeFromUrl(): string | null {
+            const params = new URLSearchParams(window.location.search);
+            const value = params.get('theme');
+            if (
+                value === THEMES.LIGHT ||
+                value === THEMES.DARK ||
+                value === THEMES.AUTO
+            ) {
+                return value;
+            }
+            return null;
+        }
+
+        removeThemeParamFromUrl() {
+            const url = new URL(window.location.href);
+            if (!url.searchParams.has('theme')) {
+                return;
+            }
+            url.searchParams.delete('theme');
+            window.history.replaceState({}, '', url.toString());
         }
 
         applyThemePreference(preference: string) {

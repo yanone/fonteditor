@@ -23,6 +23,56 @@ const searchInput = document.getElementById('search-input') as HTMLInputElement;
 const statusEl = document.getElementById('status')!;
 const filtersEl = document.getElementById('filters')!;
 const listEl = document.getElementById('change-list')!;
+const fontNameEl = document.getElementById('font-name');
+
+function decodePathSegment(segment: string): string {
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
+    }
+}
+
+function extractFontPathFromChannel(channelName: string | null): string {
+    if (!channelName) {
+        return 'unsaved';
+    }
+    return channelName.replace(/^counterpunch-font:/, '') || 'unsaved';
+}
+
+function extractFileNameFromPath(pathValue: string): string {
+    const normalized = pathValue.replace(/\\/g, '/');
+    const rawName = normalized.split('/').pop() || normalized || 'unsaved';
+    return decodePathSegment(rawName);
+}
+
+function applyTheme(theme: 'light' | 'dark'): void {
+    if (theme === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
+}
+
+function applyThemePreference(preference: 'light' | 'dark' | 'auto'): void {
+    if (preference === 'auto') {
+        applyTheme(
+            window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+        );
+        return;
+    }
+    applyTheme(preference);
+}
+
+function updateFontName(pathValue: string): void {
+    if (!fontNameEl) {
+        return;
+    }
+    fontNameEl.textContent = extractFileNameFromPath(pathValue);
+    fontNameEl.setAttribute('title', decodePathSegment(pathValue));
+}
 
 // ── Rendering ────────────────────────────────────────────────────
 
@@ -124,6 +174,20 @@ function connect(): void {
     // Get channel name from URL params
     const params = new URLSearchParams(window.location.search);
     const channelName = params.get('channel');
+    const startupTheme = params.get('theme');
+    if (startupTheme === 'light' || startupTheme === 'dark') {
+        applyTheme(startupTheme);
+    }
+    const storedPreference = localStorage.getItem('preferred-theme');
+    if (
+        storedPreference === 'light' ||
+        storedPreference === 'dark' ||
+        storedPreference === 'auto'
+    ) {
+        applyThemePreference(storedPreference);
+    }
+    updateFontName(extractFontPathFromChannel(channelName));
+
     if (!channelName) {
         statusEl.textContent = 'No channel specified in URL';
         return;
@@ -149,6 +213,66 @@ function connect(): void {
 }
 
 // ── Event wiring ─────────────────────────────────────────────────
+
+window.addEventListener('message', (event: MessageEvent) => {
+    if (event.origin !== window.location.origin) {
+        return;
+    }
+
+    const data = event.data as {
+        type?: string;
+        theme?: 'light' | 'dark';
+        fontPath?: string;
+    } | null;
+
+    if (!data?.type) {
+        return;
+    }
+
+    if (data.type === 'undo-manager-theme' && data.theme) {
+        applyTheme(data.theme);
+        return;
+    }
+
+    if (data.type === 'undo-manager-metadata') {
+        if (data.theme) {
+            applyTheme(data.theme);
+        }
+        if (data.fontPath) {
+            updateFontName(data.fontPath);
+        }
+        return;
+    }
+
+    if (data.type === 'undo-manager-reload') {
+        window.location.reload();
+    }
+});
+
+window.addEventListener('storage', (event: StorageEvent) => {
+    if (event.key !== 'preferred-theme' || !event.newValue) {
+        return;
+    }
+    if (
+        event.newValue !== 'light' &&
+        event.newValue !== 'dark' &&
+        event.newValue !== 'auto'
+    ) {
+        return;
+    }
+    applyThemePreference(event.newValue);
+});
+
+if (window.opener && !window.opener.closed) {
+    try {
+        window.opener.postMessage(
+            { type: 'undo-manager-ready' },
+            window.location.origin
+        );
+    } catch {
+        // Ignore opener messaging failures.
+    }
+}
 
 searchInput.addEventListener('input', () => {
     searchQuery = searchInput.value;
