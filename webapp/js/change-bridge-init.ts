@@ -30,7 +30,9 @@ function enqueueBridgeSync(task: () => Promise<void>): Promise<void> {
  * changes so the Rust interpolation reads up-to-date layer data.
  */
 export async function syncRustCacheAndRefreshCanvas(
-    rootGlyphName?: string
+    rootGlyphName?: string,
+    editedGlyphName?: string,
+    forceFullRustSync: boolean = false
 ): Promise<void> {
     const gc = window.glyphCanvas;
     const oe = gc?.outlineEditor;
@@ -43,12 +45,29 @@ export async function syncRustCacheAndRefreshCanvas(
     if (currentFont?.babelfontJson && fontCompilation?.isInitialized) {
         try {
             let didStoreLayer = false;
-            if (refreshRootGlyphName && selectedLayerId) {
-                didStoreLayer =
-                    (await window.fontManager?.submitLayerToWorkerCache?.(
-                        refreshRootGlyphName,
-                        selectedLayerId
-                    )) === true;
+            if (!forceFullRustSync && selectedLayerId) {
+                const cacheTargets = new Set<string>();
+                if (refreshRootGlyphName) {
+                    cacheTargets.add(refreshRootGlyphName);
+                }
+                if (editedGlyphName) {
+                    cacheTargets.add(editedGlyphName);
+                }
+
+                if (cacheTargets.size > 0) {
+                    didStoreLayer = true;
+                    for (const glyphName of cacheTargets) {
+                        const stored =
+                            (await window.fontManager?.submitLayerToWorkerCache?.(
+                                glyphName,
+                                selectedLayerId
+                            )) === true;
+                        if (!stored) {
+                            didStoreLayer = false;
+                            break;
+                        }
+                    }
+                }
             }
 
             if (!didStoreLayer) {
@@ -100,12 +119,35 @@ export function runBridgeUndoRedo(
             return;
         }
         await window.fontManager?.awaitWorkerCacheUpdate?.();
+        // Always undo/redo the glyph currently being edited.
+        // This is the last glyph in glyph stack, passed as glyphName.
+        const targetGlyph = glyphName;
+
         const didApply =
-            action === 'redo' ? bridge.redo(glyphName) : bridge.undo(glyphName);
+            action === 'redo'
+                ? bridge.redo(targetGlyph)
+                : bridge.undo(targetGlyph);
+
         if (!didApply) {
             return;
         }
-        await syncRustCacheAndRefreshCanvas(refreshRootGlyphName);
+
+        // Ensure undo/redo always triggers a full editing-font recompile path.
+        // This keeps HarfBuzz-rendered text in sync even if dirty scheduling
+        // from upstream callbacks is delayed or coalesced.
+        const fm = window.fontManager;
+        if (fm?.currentFont) {
+            fm.lastChangeSource = 'undo-redo';
+            fm.lastEditType = null;
+            fm.currentFont.requestRecompileWithoutDataChange();
+            window.autoCompileManager?.checkAndSchedule?.();
+        }
+
+        await syncRustCacheAndRefreshCanvas(
+            refreshRootGlyphName,
+            glyphName,
+            true
+        );
     });
 }
 

@@ -26,7 +26,11 @@ declare global {
         changeBridge: ChangeBridge | undefined;
         windowSync: WindowSync | undefined;
         syncRustCacheAndRefreshCanvas:
-            | ((rootGlyphName?: string) => Promise<void>)
+            | ((
+                  rootGlyphName?: string,
+                  editedGlyphName?: string,
+                  forceFullRustSync?: boolean
+              ) => Promise<void>)
             | undefined;
         runBridgeUndoRedo:
             | ((

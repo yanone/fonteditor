@@ -84,6 +84,35 @@ export class ChangeBridge {
     /** Index into _changeLog marking the last entry broadcast to peers */
     private _lastBroadcastLogIndex = 0;
 
+    /**
+     * Produce a deterministic JSON string so deep-equality checks are stable
+     * even when object key insertion order differs.
+     */
+    private _stableStringify(value: unknown): string {
+        const normalize = (input: unknown): unknown => {
+            if (Array.isArray(input)) {
+                return input.map((item) => normalize(item));
+            }
+            if (input && typeof input === 'object') {
+                const entries = Object.entries(
+                    input as Record<string, unknown>
+                ).sort(([a], [b]) => a.localeCompare(b));
+                const result: Record<string, unknown> = {};
+                for (const [key, val] of entries) {
+                    result[key] = normalize(val);
+                }
+                return result;
+            }
+            return input;
+        };
+
+        return JSON.stringify(normalize(value));
+    }
+
+    private _isDeepEqual(a: unknown, b: unknown): boolean {
+        return this._stableStringify(a) === this._stableStringify(b);
+    }
+
     constructor(windowId?: string) {
         this.windowId =
             windowId ??
@@ -340,90 +369,147 @@ export class ChangeBridge {
         oldValue?: string,
         newValue?: string
     ): void {
+        this.syncGlyphsFromJson([glyphName], label, oldValue, newValue);
+    }
+
+    /**
+     * Sync multiple glyph JSON payloads into Y.Doc in one transaction.
+     * This keeps paired root/component edits aligned as a single undo step.
+     */
+    syncGlyphsFromJson(
+        glyphNames: string[],
+        label: string,
+        oldValue?: string,
+        newValue?: string
+    ): void {
         if (!this._fontJson || this._suppressRecording || this._isSyncing)
             return;
 
+        const uniqueGlyphNames = Array.from(
+            new Set(glyphNames.filter((name) => typeof name === 'string'))
+        );
+        if (!uniqueGlyphNames.length) {
+            return;
+        }
+
         const glyphs = (this._fontJson as Unsafe).glyphs;
         if (!Array.isArray(glyphs)) return;
-        const glyphJson = glyphs.find(
-            (g: Record<string, unknown>) => g.name === glyphName
-        ) as Record<string, unknown> | undefined;
-        if (!glyphJson) return;
 
         const glyphsMap = this.fontMap.get('glyphs') as
             | Y.Map<unknown>
             | undefined;
         if (!glyphsMap) return;
-        const glyphMap = glyphsMap.get(glyphName) as Y.Map<unknown> | undefined;
-        if (!glyphMap) return;
 
-        // Ensure per-glyph UndoManager exists
-        const um = this.getGlyphUndoManager(glyphName);
+        const targets: Array<{
+            glyphName: string;
+            glyphJson: Record<string, unknown>;
+            glyphMap: Y.Map<unknown>;
+            um: Y.UndoManager | null;
+        }> = [];
 
-        // Log entry (before Y.Doc transaction so it's available when the
-        // 'update' event fires and WindowSync piggybacks it on the broadcast)
-        const entry = createLogEntry({
-            timestamp: Date.now(),
-            windowId: this.windowId,
-            transactionLabel: label,
-            transactionId: null,
-            op: 'set' as ChangeOp,
-            objectType: 'glyph',
-            objectId: glyphName,
-            property: '',
-            path: `glyphs.${glyphName}`,
-            oldValue: oldValue ?? glyphName,
-            newValue: newValue ?? label
-        });
-        this._changeLog.push(entry);
-
-        // Update the glyph Y.Map in place
-        this.yDoc.transact(() => {
-            const glyphKeys = new Set(Object.keys(glyphJson));
-            for (const [gk, gv] of Object.entries(glyphJson)) {
-                if (gk === 'layers' && Array.isArray(gv)) {
-                    let layersMap = glyphMap.get('layers') as
-                        | Y.Map<unknown>
-                        | undefined;
-                    if (!layersMap) {
-                        layersMap = new Y.Map();
-                        glyphMap.set('layers', layersMap);
-                    }
-                    const nextLayerIds = new Set<string>();
-                    for (const layerJson of gv as Record<string, unknown>[]) {
-                        const layerId = (layerJson.id as string) ?? '';
-                        if (layerId) {
-                            nextLayerIds.add(layerId);
-                            layersMap.set(layerId, toYType(layerJson));
-                        }
-                    }
-                    // Remove layers no longer present in source JSON
-                    layersMap.forEach((_v: unknown, key: string) => {
-                        if (!nextLayerIds.has(key)) {
-                            layersMap?.delete(key);
-                        }
-                    });
-                } else {
-                    glyphMap.set(gk, toYType(gv));
-                }
+        for (const glyphName of uniqueGlyphNames) {
+            const glyphJson = glyphs.find(
+                (g: Record<string, unknown>) => g.name === glyphName
+            ) as Record<string, unknown> | undefined;
+            if (!glyphJson) {
+                continue;
             }
 
-            // Remove glyph keys no longer present in source JSON
-            glyphMap.forEach((_v: unknown, key: string) => {
-                if (!glyphKeys.has(key)) {
-                    glyphMap.delete(key);
-                }
+            const glyphMap = glyphsMap.get(glyphName) as
+                | Y.Map<unknown>
+                | undefined;
+            if (!glyphMap) {
+                continue;
+            }
+
+            const yGlyphJson = yDocToJson(glyphMap);
+            if (this._isDeepEqual(yGlyphJson, glyphJson)) {
+                continue;
+            }
+
+            const um = this.getGlyphUndoManager(glyphName);
+            um?.stopCapturing();
+
+            targets.push({ glyphName, glyphJson, glyphMap, um });
+        }
+
+        if (!targets.length) {
+            return;
+        }
+
+        for (const target of targets) {
+            const entry = createLogEntry({
+                timestamp: Date.now(),
+                windowId: this.windowId,
+                transactionLabel: label,
+                transactionId: null,
+                op: 'set' as ChangeOp,
+                objectType: 'glyph',
+                objectId: target.glyphName,
+                property: '',
+                path: `glyphs.${target.glyphName}`,
+                oldValue: oldValue ?? target.glyphName,
+                newValue: newValue ?? label
             });
+            this._changeLog.push(entry);
+        }
+
+        // Update all target glyph Y.Maps in one transaction.
+        this.yDoc.transact(() => {
+            for (const target of targets) {
+                const { glyphJson, glyphMap } = target;
+                const glyphKeys = new Set(Object.keys(glyphJson));
+
+                for (const [gk, gv] of Object.entries(glyphJson)) {
+                    if (gk === 'layers' && Array.isArray(gv)) {
+                        let layersMap = glyphMap.get('layers') as
+                            | Y.Map<unknown>
+                            | undefined;
+                        if (!layersMap) {
+                            layersMap = new Y.Map();
+                            glyphMap.set('layers', layersMap);
+                        }
+                        const nextLayerIds = new Set<string>();
+                        for (const layerJson of gv as Record<
+                            string,
+                            unknown
+                        >[]) {
+                            const layerId = (layerJson.id as string) ?? '';
+                            if (layerId) {
+                                nextLayerIds.add(layerId);
+                                layersMap.set(layerId, toYType(layerJson));
+                            }
+                        }
+                        // Remove layers no longer present in source JSON
+                        layersMap.forEach((_v: unknown, key: string) => {
+                            if (!nextLayerIds.has(key)) {
+                                layersMap?.delete(key);
+                            }
+                        });
+                    } else {
+                        glyphMap.set(gk, toYType(gv));
+                    }
+                }
+
+                // Remove glyph keys no longer present in source JSON
+                glyphMap.forEach((_v: unknown, key: string) => {
+                    if (!glyphKeys.has(key)) {
+                        glyphMap.delete(key);
+                    }
+                });
+            }
         }, LOCAL_ORIGIN);
 
-        // Stop capturing so the NEXT sync starts a fresh undo step.
-        // Without this, Yjs merges all changes within the 500ms captureTimeout
-        // window into one undo step, making consecutive drags/key presses
-        // appear as a single non-reversible operation.
-        um?.stopCapturing();
+        // Also split after this transaction so the next sync starts a fresh
+        // logical undo step even under rapid consecutive edits.
+        for (const target of targets) {
+            target.um?.stopCapturing();
+        }
 
         this._onDirty?.();
-        console.log(`Glyph "${glyphName}" synced to Y.Doc (${label})`);
+        console.log(
+            `Glyph sync committed for ${targets.map((target) => target.glyphName).join(', ')} (${label})`
+        );
     }
 
     // ── Undo / Redo ──────────────────────────────────────────────
@@ -663,7 +749,8 @@ export class ChangeBridge {
         this._fontUndoManager?.destroy();
         // Track all top-level keys in the font map
         this._fontUndoManager = new Y.UndoManager(this.fontMap, {
-            trackedOrigins: new Set([LOCAL_ORIGIN])
+            trackedOrigins: new Set([LOCAL_ORIGIN]),
+            captureTimeout: 0
         });
     }
 
@@ -680,7 +767,8 @@ export class ChangeBridge {
         if (!(glyphMap instanceof Y.Map)) return null;
 
         const um = new Y.UndoManager(glyphMap, {
-            trackedOrigins: new Set([LOCAL_ORIGIN])
+            trackedOrigins: new Set([LOCAL_ORIGIN]),
+            captureTimeout: 0
         });
         this._undoManagers.set(glyphName, um);
         return um;

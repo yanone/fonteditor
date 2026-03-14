@@ -2854,29 +2854,21 @@ export class OutlineEditor {
     ): void {
         if (!window.changeBridge) return;
         const parsed = this.parseGlyphStack();
-        const rootGlyphName =
+        const editedGlyphName =
             parsed.length > 0
-                ? parsed[0].glyphName
+                ? parsed[parsed.length - 1].glyphName
                 : this.glyphCanvas.getCurrentGlyphName();
-        if (rootGlyphName) {
-            window.changeBridge.syncGlyphFromJson(
-                rootGlyphName,
-                label,
-                oldValue,
-                newValue
-            );
+
+        if (!editedGlyphName) {
+            return;
         }
-        if (this.isEditingComponent() && parsed.length > 1) {
-            const componentGlyphName = parsed[parsed.length - 1].glyphName;
-            if (componentGlyphName && componentGlyphName !== rootGlyphName) {
-                window.changeBridge.syncGlyphFromJson(
-                    componentGlyphName,
-                    label,
-                    oldValue,
-                    newValue
-                );
-            }
-        }
+
+        window.changeBridge.syncGlyphFromJson(
+            editedGlyphName,
+            label,
+            oldValue,
+            newValue
+        );
     }
 
     /**
@@ -2992,32 +2984,34 @@ export class OutlineEditor {
                 parsed.length > 0
                     ? parsed[0].glyphName
                     : this.glyphCanvas.getCurrentGlyphName();
+            const isNestedEditing = this.isEditingComponent();
 
-            // ALWAYS save to ROOT glyph (contains full component tree)
-            // Component modifications are saved as part of the root glyph's component references
-            console.log(
-                `[SaveLayerData] Saving ROOT glyph "${rootGlyphName}" with stack: ${this.glyphStack}`
-            );
-            await fontManager!.saveLayerData(
-                rootGlyphName,
-                this.selectedLayerId,
-                this.layerData,
-                changeSource
-            );
-
-            // If editing a nested component, also save changes to the component glyph definition
-            if (this.isEditingComponent()) {
+            if (!isNestedEditing) {
+                // Root editing mode: persist the root glyph layer.
+                console.log(
+                    `[SaveLayerData] Saving ROOT glyph "${rootGlyphName}" with stack: ${this.glyphStack}`
+                );
+                await fontManager!.saveLayerData(
+                    rootGlyphName,
+                    this.selectedLayerId,
+                    this.layerData,
+                    changeSource
+                );
+            } else {
+                // Nested component editing mode: persist only the glyph that is
+                // actually being edited (last item in glyph stack).
                 const currentLayerData = this.getCurrentLayerDataFromStack();
                 if (currentLayerData) {
-                    // Get the component glyph name from the stack
+                    // Get the currently edited glyph name from the stack
                     const componentGlyphName =
                         parsed[parsed.length - 1].glyphName;
 
                     console.log(
-                        `[SaveLayerData] Also saving component glyph definition "${componentGlyphName}" with layer: ${this.selectedLayerId}`
+                        `[SaveLayerData] Saving nested edited glyph "${componentGlyphName}" with layer: ${this.selectedLayerId}`
                     );
 
-                    // Save the component's layer data to its own glyph definition
+                    // Save only the edited glyph definition; do not also persist
+                    // the root glyph copy in nested mode.
                     await fontManager!.saveLayerData(
                         componentGlyphName,
                         this.selectedLayerId,
