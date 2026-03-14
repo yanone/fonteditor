@@ -35,11 +35,12 @@ function formatTime(ts: number): string {
     });
 }
 
-function truncate(val: unknown, maxLen = 40): string {
-    if (val === undefined) return 'undefined';
-    const s = JSON.stringify(val);
-    if (s === undefined) return 'undefined';
-    return s.length > maxLen ? s.slice(0, maxLen) + '...' : s;
+function truncate(val: unknown, maxLen = 60): string {
+    if (val === undefined) return '';
+    if (val === null) return 'null';
+    const s = typeof val === 'string' ? val : JSON.stringify(val);
+    if (s === undefined) return '';
+    return s.length > maxLen ? s.slice(0, maxLen) + '…' : s;
 }
 
 function renderFilters(): void {
@@ -108,7 +109,7 @@ function renderList(): void {
                 ${e.transactionLabel ? `<span class="badge">${e.transactionLabel}</span>` : ''}
             </div>
             <div class="path">${e.path}${e.property ? '.' + e.property : ''}</div>
-            ${e.op === 'set' ? `<div class="values">${truncate(e.oldValue)} → ${truncate(e.newValue)}</div>` : ''}
+            ${e.op === 'set' && (e.oldValue !== undefined || e.newValue !== undefined) ? `<div class="values">${truncate(e.oldValue)} → ${truncate(e.newValue)}</div>` : ''}
         `;
         frag.appendChild(div);
     }

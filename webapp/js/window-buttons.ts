@@ -7,7 +7,7 @@
  */
 
 import { Logger } from './logger';
-import { syncRustCacheAndRefreshCanvas } from './change-bridge-init';
+import { runBridgeUndoRedo } from './change-bridge-init';
 
 const console = new Logger('WindowButtons');
 
@@ -20,12 +20,18 @@ function initWindowButtons(): void {
         undoBtn.addEventListener('click', async () => {
             const bridge = window.changeBridge;
             if (!bridge) return;
-            const glyphName = window.glyphCanvas?.outlineEditor?.active
-                ? (window.glyphCanvas.getCurrentGlyphName() ?? undefined)
-                : undefined;
-            if (bridge.undo(glyphName)) {
-                await syncRustCacheAndRefreshCanvas();
+            const oe = window.glyphCanvas?.outlineEditor;
+            const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
+            const rootGlyphName = parsedStack[0]?.glyphName;
+            const undoGlyphName =
+                parsedStack[parsedStack.length - 1]?.glyphName;
+            if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
+                console.warn(
+                    'Skipping undo: active outline editor has incomplete glyph stack'
+                );
+                return;
             }
+            await runBridgeUndoRedo('undo', undoGlyphName, rootGlyphName);
         });
     }
 
@@ -33,12 +39,18 @@ function initWindowButtons(): void {
         redoBtn.addEventListener('click', async () => {
             const bridge = window.changeBridge;
             if (!bridge) return;
-            const glyphName = window.glyphCanvas?.outlineEditor?.active
-                ? (window.glyphCanvas.getCurrentGlyphName() ?? undefined)
-                : undefined;
-            if (bridge.redo(glyphName)) {
-                await syncRustCacheAndRefreshCanvas();
+            const oe = window.glyphCanvas?.outlineEditor;
+            const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
+            const rootGlyphName = parsedStack[0]?.glyphName;
+            const undoGlyphName =
+                parsedStack[parsedStack.length - 1]?.glyphName;
+            if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
+                console.warn(
+                    'Skipping redo: active outline editor has incomplete glyph stack'
+                );
+                return;
             }
+            await runBridgeUndoRedo('redo', undoGlyphName, rootGlyphName);
         });
     }
 

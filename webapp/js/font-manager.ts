@@ -370,6 +370,7 @@ class FontManager {
     isExternalReloading: boolean = false;
     pendingDebugEditingFontSaveAfterDrag: boolean;
     pendingBabelfontJsonSyncAfterDrag: boolean;
+    workerCacheUpdatePromise: Promise<void> | null;
 
     constructor() {
         this.fontDisplay = null;
@@ -394,6 +395,7 @@ class FontManager {
         this.isExternalReloading = false;
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
+        this.workerCacheUpdatePromise = null;
     }
     init() {
         this.fontDisplay = document.getElementById('current-font-display');
@@ -2090,127 +2092,189 @@ class FontManager {
      * Also dispatches glyphChanged event to refresh the glyph overview.
      */
     async updateWorkerFontCache(): Promise<void> {
-        if (!this.currentFont) {
-            console.warn('[FontManager] No current font to update cache');
-            return;
-        }
+        const run = async (): Promise<void> => {
+            if (!this.currentFont) {
+                console.warn('[FontManager] No current font to update cache');
+                return;
+            }
 
-        const currentGlyphName =
-            window.glyphCanvas?.outlineEditor?.currentGlyphName;
-        const currentLayerId =
-            window.glyphCanvas?.outlineEditor?.selectedLayerId;
+            const currentGlyphName =
+                window.glyphCanvas?.outlineEditor?.currentGlyphName;
+            const currentLayerId =
+                window.glyphCanvas?.outlineEditor?.selectedLayerId;
 
-        let updatedViaIncrementalLayer = false;
-        if (
-            this.pendingBabelfontJsonSyncAfterDrag &&
-            currentGlyphName &&
-            currentLayerId
-        ) {
-            const currentGlyph = this.currentFont.fontModel?.glyphs?.find(
-                (glyph: any) => glyph?.name === currentGlyphName
-            );
-            const currentLayer = currentGlyph?.layers?.find(
-                (layer: any) => layer?.id === currentLayerId
-            );
+            let updatedViaIncrementalLayer = false;
+            if (
+                this.pendingBabelfontJsonSyncAfterDrag &&
+                currentGlyphName &&
+                currentLayerId
+            ) {
+                const currentGlyph = this.currentFont.fontModel?.glyphs?.find(
+                    (glyph: any) => glyph?.name === currentGlyphName
+                );
+                const currentLayer = currentGlyph?.layers?.find(
+                    (layer: any) => layer?.id === currentLayerId
+                );
 
-            if (currentLayer) {
-                try {
-                    const rawLayerData =
-                        typeof currentLayer.toJSON === 'function'
-                            ? currentLayer.toJSON()
-                            : currentLayer;
-                    const layerDataCopy =
-                        this.normalizeLayerForRust(rawLayerData);
-                    await fontCompilation.sendMessage({
-                        type: 'storeLayerData',
-                        glyphName: currentGlyphName,
-                        layerId: currentLayerId,
-                        layerData: layerDataCopy
-                    });
-                    updatedViaIncrementalLayer = true;
+                if (currentLayer) {
+                    try {
+                        const rawLayerData =
+                            typeof currentLayer.toJSON === 'function'
+                                ? currentLayer.toJSON()
+                                : currentLayer;
+                        const layerDataCopy =
+                            this.normalizeLayerForRust(rawLayerData);
+                        await fontCompilation.sendMessage({
+                            type: 'storeLayerData',
+                            glyphName: currentGlyphName,
+                            layerId: currentLayerId,
+                            layerData: layerDataCopy
+                        });
+                        updatedViaIncrementalLayer = true;
 
+                        if (this.pendingBabelfontJsonSyncAfterDrag) {
+                            if (!this.syncBabelfontJsonFromCurrentModel()) {
+                                return;
+                            }
+                            this.pendingBabelfontJsonSyncAfterDrag = false;
+                        }
+                    } catch (error) {
+                        console.warn(
+                            '[FontManager] Incremental post-drag worker layer update failed, falling back to full store:',
+                            error
+                        );
+                    }
+                }
+            }
+
+            try {
+                if (!updatedViaIncrementalLayer) {
                     if (this.pendingBabelfontJsonSyncAfterDrag) {
                         if (!this.syncBabelfontJsonFromCurrentModel()) {
                             return;
                         }
                         this.pendingBabelfontJsonSyncAfterDrag = false;
                     }
-                } catch (error) {
-                    console.warn(
-                        '[FontManager] Incremental post-drag worker layer update failed, falling back to full store:',
-                        error
+
+                    await fontCompilation.sendMessage({
+                        type: 'storeFontJson',
+                        babelfontJson: this.currentFont.babelfontJson
+                    });
+                    console.log(
+                        '[FontManager] Worker font cache updated after drag'
                     );
                 }
+
+                // After updating the cache, dispatch glyphChanged event for all affected glyphs
+                // This ensures the glyph overview refreshes with the updated outline data
+                const rootGlyphName = window.glyphCanvas?.getCurrentGlyphName();
+
+                // Collect all glyphs that need to be refreshed
+                const glyphsToRefresh = new Set<string>();
+
+                if (currentGlyphName) {
+                    // Add the currently edited glyph
+                    glyphsToRefresh.add(currentGlyphName);
+
+                    // Find all glyphs that use the current glyph as a component
+                    // This handles nested components like "o" inside "ö", "õ", "ø", etc.
+                    const glyphsUsingComponent =
+                        window.currentFontModel?.findGlyphsUsingComponent(
+                            currentGlyphName
+                        );
+                    if (glyphsUsingComponent) {
+                        for (const glyphName of glyphsUsingComponent) {
+                            glyphsToRefresh.add(glyphName);
+                        }
+                    }
+                }
+
+                // Also add the root glyph if different (for nested component editing)
+                if (rootGlyphName && rootGlyphName !== currentGlyphName) {
+                    glyphsToRefresh.add(rootGlyphName);
+                }
+
+                // Dispatch glyphChanged events for all affected glyphs
+                for (const glyphName of glyphsToRefresh) {
+                    console.log(
+                        '[FontManager] Dispatching glyphChanged event for',
+                        glyphName
+                    );
+                    window.dispatchEvent(
+                        new CustomEvent('glyphChanged', {
+                            detail: {
+                                glyphName: glyphName,
+                                layerId: currentLayerId
+                            }
+                        })
+                    );
+                }
+            } catch (error) {
+                console.error(
+                    '[FontManager] Error updating worker font cache:',
+                    error
+                );
             }
+        };
+
+        const cacheUpdatePromise = run();
+        this.workerCacheUpdatePromise = cacheUpdatePromise;
+        try {
+            await cacheUpdatePromise;
+        } finally {
+            if (this.workerCacheUpdatePromise === cacheUpdatePromise) {
+                this.workerCacheUpdatePromise = null;
+            }
+        }
+    }
+
+    async awaitWorkerCacheUpdate(): Promise<void> {
+        if (!this.workerCacheUpdatePromise) {
+            return;
+        }
+        try {
+            await this.workerCacheUpdatePromise;
+        } catch {
+            // Ignore update failures here — undo/redo refresh has its own forced sync path.
+        }
+    }
+
+    async submitLayerToWorkerCache(
+        glyphName: string,
+        layerId: string
+    ): Promise<boolean> {
+        if (!this.currentFont || !fontCompilation?.isInitialized) {
+            return false;
+        }
+
+        const glyph = this.currentFont.fontModel?.glyphs?.find(
+            (entry: any) => entry?.name === glyphName
+        );
+        const layer = glyph?.layers?.find(
+            (entry: any) => entry?.id === layerId
+        );
+        if (!layer) {
+            return false;
         }
 
         try {
-            if (!updatedViaIncrementalLayer) {
-                if (this.pendingBabelfontJsonSyncAfterDrag) {
-                    if (!this.syncBabelfontJsonFromCurrentModel()) {
-                        return;
-                    }
-                    this.pendingBabelfontJsonSyncAfterDrag = false;
-                }
-
-                await fontCompilation.sendMessage({
-                    type: 'storeFontJson',
-                    babelfontJson: this.currentFont.babelfontJson
-                });
-                console.log(
-                    '[FontManager] Worker font cache updated after drag'
-                );
-            }
-
-            // After updating the cache, dispatch glyphChanged event for all affected glyphs
-            // This ensures the glyph overview refreshes with the updated outline data
-            const rootGlyphName = window.glyphCanvas?.getCurrentGlyphName();
-
-            // Collect all glyphs that need to be refreshed
-            const glyphsToRefresh = new Set<string>();
-
-            if (currentGlyphName) {
-                // Add the currently edited glyph
-                glyphsToRefresh.add(currentGlyphName);
-
-                // Find all glyphs that use the current glyph as a component
-                // This handles nested components like "o" inside "ö", "õ", "ø", etc.
-                const glyphsUsingComponent =
-                    window.currentFontModel?.findGlyphsUsingComponent(
-                        currentGlyphName
-                    );
-                if (glyphsUsingComponent) {
-                    for (const glyphName of glyphsUsingComponent) {
-                        glyphsToRefresh.add(glyphName);
-                    }
-                }
-            }
-
-            // Also add the root glyph if different (for nested component editing)
-            if (rootGlyphName && rootGlyphName !== currentGlyphName) {
-                glyphsToRefresh.add(rootGlyphName);
-            }
-
-            // Dispatch glyphChanged events for all affected glyphs
-            for (const glyphName of glyphsToRefresh) {
-                console.log(
-                    '[FontManager] Dispatching glyphChanged event for',
-                    glyphName
-                );
-                window.dispatchEvent(
-                    new CustomEvent('glyphChanged', {
-                        detail: {
-                            glyphName: glyphName,
-                            layerId: currentLayerId
-                        }
-                    })
-                );
-            }
+            const rawLayerData =
+                typeof layer.toJSON === 'function' ? layer.toJSON() : layer;
+            const layerDataCopy = this.normalizeLayerForRust(rawLayerData);
+            await fontCompilation.sendMessage({
+                type: 'storeLayerData',
+                glyphName,
+                layerId,
+                layerData: layerDataCopy
+            });
+            return true;
         } catch (error) {
-            console.error(
-                '[FontManager] Error updating worker font cache:',
+            console.warn(
+                '[FontManager] Failed to submit layer to worker cache:',
+                { glyphName, layerId },
                 error
             );
+            return false;
         }
     }
 }

@@ -50,6 +50,8 @@ export class WindowSync {
     private _channel: BroadcastChannel | null = null;
     private _bridge: ChangeBridge;
     private _peers = new Set<string>();
+    private _awaitingFullState = false;
+    private _hasAppliedFullState = false;
 
     constructor(bridge: ChangeBridge, channelName: string) {
         this._bridge = bridge;
@@ -77,6 +79,8 @@ export class WindowSync {
      * Call this when a new window opens with `sync=true`.
      */
     requestFullState(): void {
+        this._awaitingFullState = true;
+        this._hasAppliedFullState = false;
         this._send({
             type: 'full-state-request',
             windowId: this._bridge.windowId
@@ -140,6 +144,11 @@ export class WindowSync {
             case 'full-state-response':
                 if (msg.windowId === this._bridge.windowId) return;
                 this._peers.add(msg.windowId);
+                if (!this._awaitingFullState || this._hasAppliedFullState) {
+                    return;
+                }
+                this._hasAppliedFullState = true;
+                this._awaitingFullState = false;
                 // Import change log before applying state so the
                 // onRemoteChange callback (fired by applyFullState)
                 // sees the complete log.

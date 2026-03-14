@@ -17,33 +17,101 @@ import { fontCompilation } from './font-compilation';
 import { Logger } from './logger';
 
 const console = new Logger('ChangeBridgeInit');
+let bridgeSyncQueue: Promise<void> = Promise.resolve();
+
+function enqueueBridgeSync(task: () => Promise<void>): Promise<void> {
+    bridgeSyncQueue = bridgeSyncQueue.then(task, task);
+    return bridgeSyncQueue;
+}
 
 /**
  * Update the Rust FONT_CACHE with the current babelfontJson and
  * refresh the outline editor canvas. Call after undo/redo/remote
  * changes so the Rust interpolation reads up-to-date layer data.
  */
-export async function syncRustCacheAndRefreshCanvas(): Promise<void> {
+export async function syncRustCacheAndRefreshCanvas(
+    rootGlyphName?: string
+): Promise<void> {
+    const gc = window.glyphCanvas;
+    const oe = gc?.outlineEditor;
+    const parsedStack = oe?.parseGlyphStack?.() || [];
+    const refreshRootGlyphName =
+        rootGlyphName ?? parsedStack[0]?.glyphName ?? undefined;
+    const selectedLayerId = oe?.selectedLayerId ?? undefined;
+
     const currentFont = window.fontManager?.currentFont;
     if (currentFont?.babelfontJson && fontCompilation?.isInitialized) {
         try {
-            await fontCompilation.sendMessage({
-                type: 'storeFontJson',
-                babelfontJson: currentFont.babelfontJson
-            });
+            let didStoreLayer = false;
+            if (refreshRootGlyphName && selectedLayerId) {
+                didStoreLayer =
+                    (await window.fontManager?.submitLayerToWorkerCache?.(
+                        refreshRootGlyphName,
+                        selectedLayerId
+                    )) === true;
+            }
+
+            if (!didStoreLayer) {
+                // Force this explicit sync to reach Rust even when the JSON text
+                // matches a previously stored payload. This path is used after
+                // undo/redo/remote Yjs updates where Rust may still hold an
+                // incrementally-mutated cache that no longer matches current JSON.
+                fontCompilation.lastStoredFontJson = null;
+                await fontCompilation.sendMessage({
+                    type: 'storeFontJson',
+                    babelfontJson: currentFont.babelfontJson,
+                    forceStore: true
+                });
+            }
         } catch {
             // Non-fatal — the scheduled compile will update the cache later
         }
     }
-    const gc = window.glyphCanvas;
+
     if (gc) {
-        await gc.outlineEditor?.fetchLayerData();
-        gc.render();
+        if (gc.outlineEditor?.runDeterministicRefresh) {
+            await gc.outlineEditor.runDeterministicRefresh(async () => {
+                await gc.outlineEditor?.fetchLayerData(
+                    true,
+                    refreshRootGlyphName
+                );
+            });
+        } else {
+            await gc.outlineEditor?.fetchLayerData(true, refreshRootGlyphName);
+        }
+        gc.requestRepaintAfterCompile();
     }
+}
+
+export function queueRustCacheAndRefreshCanvas(): Promise<void> {
+    return enqueueBridgeSync(async () => {
+        await syncRustCacheAndRefreshCanvas();
+    });
+}
+
+export function runBridgeUndoRedo(
+    action: 'undo' | 'redo',
+    glyphName?: string,
+    refreshRootGlyphName?: string
+): Promise<void> {
+    return enqueueBridgeSync(async () => {
+        const bridge = window.changeBridge;
+        if (!bridge) {
+            return;
+        }
+        await window.fontManager?.awaitWorkerCacheUpdate?.();
+        const didApply =
+            action === 'redo' ? bridge.redo(glyphName) : bridge.undo(glyphName);
+        if (!didApply) {
+            return;
+        }
+        await syncRustCacheAndRefreshCanvas(refreshRootGlyphName);
+    });
 }
 
 // Expose globally for non-module code (keyboard-navigation.ts IIFE)
 window.syncRustCacheAndRefreshCanvas = syncRustCacheAndRefreshCanvas;
+window.runBridgeUndoRedo = runBridgeUndoRedo;
 
 function isSyncWindow(): boolean {
     try {
@@ -67,11 +135,13 @@ function destroyExisting(): void {
     }
 }
 
-window.addEventListener('fontModelReady', (event: Event) => {
-    const detail = (event as CustomEvent).detail as {
-        path: string;
-        babelfontData: Record<string, unknown>;
-    };
+function initializeBridge(detail: {
+    path: string;
+    babelfontData: Record<string, unknown>;
+}): void {
+    if (!detail?.babelfontData) {
+        return;
+    }
 
     destroyExisting();
 
@@ -96,6 +166,13 @@ window.addEventListener('fontModelReady', (event: Event) => {
 
         // Re-serialize babelfontJson so the worker gets correct data
         fm.currentFont.syncJsonFromModel();
+
+        // Invalidate the storeFontJson cache so syncRustCacheAndRefreshCanvas
+        // always sends the updated JSON to Rust after undo/redo/remote-change.
+        // Incremental compiles (update_cached_layer) can modify the Rust
+        // FONT_CACHE without updating lastStoredFontJson, so the identical-JSON
+        // check would otherwise skip the send and leave Rust with stale data.
+        fontCompilation.lastStoredFontJson = null;
     });
 
     // Wire dirty marking: when ChangeBridge records a change, also mark
@@ -114,7 +191,7 @@ window.addEventListener('fontModelReady', (event: Event) => {
     // babelfontJson and rebuilt the model, so auto-compile will
     // produce correct output once the dirty flag triggers it.
     bridge.onRemoteChange(() => {
-        syncRustCacheAndRefreshCanvas();
+        queueRustCacheAndRefreshCanvas();
     });
 
     // Derive BroadcastChannel name from font path (or a fallback)
@@ -156,6 +233,32 @@ window.addEventListener('fontModelReady', (event: Event) => {
     } else {
         console.log('Primary window — ChangeBridge initialised');
     }
+}
+
+window.addEventListener('fontModelReady', (event: Event) => {
+    const detail = (event as CustomEvent).detail as {
+        path: string;
+        babelfontData: Record<string, unknown>;
+    };
+
+    initializeBridge(detail);
+});
+
+// Fallback bootstrap: if a font is already loaded before this module
+// subscribed to fontModelReady, initialize the bridge from currentFont.
+queueMicrotask(() => {
+    if (window.changeBridge && window.windowSync) {
+        return;
+    }
+    const currentFont = window.fontManager?.currentFont;
+    if (!currentFont?.babelfontData) {
+        return;
+    }
+    initializeBridge({
+        path: currentFont.path || 'unsaved',
+        babelfontData: currentFont.babelfontData as Record<string, unknown>
+    });
+    console.log('Recovered ChangeBridge from currentFont fallback');
 });
 
 // Announce when this window is about to close

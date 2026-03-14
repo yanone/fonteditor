@@ -1490,20 +1490,26 @@
             const bridge = window.changeBridge;
             if (!bridge) return;
 
-            // Determine scope: per-glyph when outline editor is active
-            const glyphName = window.glyphCanvas?.outlineEditor?.active
-                ? (window.glyphCanvas.getCurrentGlyphName() ?? undefined)
-                : undefined;
+            // Determine scope: per-glyph when outline editor is active.
+            const oe = window.glyphCanvas?.outlineEditor;
+            const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
+            const rootGlyphName = parsedStack[0]?.glyphName;
+            const undoGlyphName =
+                parsedStack[parsedStack.length - 1]?.glyphName;
 
-            if (shiftKey) {
-                if (bridge.redo(glyphName)) {
-                    window.syncRustCacheAndRefreshCanvas?.();
-                }
-            } else {
-                if (bridge.undo(glyphName)) {
-                    window.syncRustCacheAndRefreshCanvas?.();
-                }
+            if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
+                console.warn(
+                    '[KeyboardNav]',
+                    'Skipping undo/redo: active outline editor has incomplete glyph stack'
+                );
+                return;
             }
+
+            window.runBridgeUndoRedo?.(
+                shiftKey ? 'redo' : 'undo',
+                undoGlyphName,
+                rootGlyphName
+            );
             return;
         }
 

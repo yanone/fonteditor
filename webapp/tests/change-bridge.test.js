@@ -289,6 +289,53 @@ describe('change-bridge-ydoc', () => {
         expect(layersMap.get('layer-1')).toBeInstanceOf(Y.Map);
     });
 
+    test('deep format_specific fields round-trip', () => {
+        const doc = new Y.Doc();
+        const fontMap = doc.getMap('font');
+        const json = makeMinimalFont();
+
+        json.format_specific = {
+            fontMeta: {
+                provenance: {
+                    source: 'glyphs',
+                    flags: [1, 2, 3]
+                }
+            }
+        };
+        json.masters[0].format_specific = {
+            masterMeta: {
+                stems: { h: 80, v: 90 }
+            }
+        };
+        json.glyphs[0].layers[0].format_specific = {
+            layerMeta: {
+                nested: {
+                    foo: 'bar',
+                    arr: [{ k: 1 }, { k: 2 }]
+                }
+            }
+        };
+        json.glyphs[0].layers[0].shapes[0].format_specific = {
+            shapeMeta: {
+                isSpecial: true
+            }
+        };
+
+        doc.transact(() => jsonToYDoc(json, fontMap));
+        const result = yDocToJson(fontMap);
+
+        expect(result.format_specific).toEqual(json.format_specific);
+        expect(result.masters[0].format_specific).toEqual(
+            json.masters[0].format_specific
+        );
+        expect(result.glyphs[0].layers[0].format_specific).toEqual(
+            json.glyphs[0].layers[0].format_specific
+        );
+        expect(result.glyphs[0].layers[0].shapes[0].format_specific).toEqual(
+            json.glyphs[0].layers[0].shapes[0].format_specific
+        );
+    });
+
     test('getYPath reads nested values', () => {
         const doc = new Y.Doc();
         const fontMap = doc.getMap('font');
@@ -1126,6 +1173,47 @@ describe('WindowSync', () => {
         bridge2.destroy();
     });
 
+    test('only first full-state response is applied', () => {
+        const fontA = makeMinimalFont();
+        fontA.glyphs[0].layers[0].width = 710;
+        const bridgeA = new ChangeBridge('win-a');
+        bridgeA.initFromJson(fontA);
+
+        const fontB = makeMinimalFont();
+        fontB.glyphs[0].layers[0].width = 930;
+        const bridgeB = new ChangeBridge('win-b');
+        bridgeB.initFromJson(fontB);
+
+        const receiver = new ChangeBridge('win-rx');
+
+        const syncA = new WindowSync(bridgeA, 'font-channel-first-response');
+        const syncB = new WindowSync(bridgeB, 'font-channel-first-response');
+        const syncRx = new WindowSync(receiver, 'font-channel-first-response');
+
+        syncRx.requestFullState();
+        flushTimers();
+        flushTimers();
+
+        const width = getYPath(receiver.fontMap, [
+            'glyphs',
+            'A',
+            'layers',
+            'layer-1',
+            'width'
+        ]);
+
+        // Response ordering is deterministic in this test setup:
+        // syncA is registered before syncB, so receiver should keep A's snapshot.
+        expect(width).toBe(710);
+
+        syncA.destroy();
+        syncB.destroy();
+        syncRx.destroy();
+        bridgeA.destroy();
+        bridgeB.destroy();
+        receiver.destroy();
+    });
+
     test('window-closing removes peer', () => {
         const fontJson1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('win-1');
@@ -1332,7 +1420,7 @@ describe('syncGlyphFromJson', () => {
         ).toBe(600);
     });
 
-    test('undo works after two consecutive syncs', () => {
+    test('undo works after two consecutive syncs - each sync is a separate undo step', () => {
         const { bridge, fontJson } = createTestBridge('test-1');
 
         fontJson.glyphs[0].layers[0].width = 700;
@@ -1341,11 +1429,24 @@ describe('syncGlyphFromJson', () => {
         fontJson.glyphs[0].layers[0].width = 800;
         bridge.syncGlyphFromJson('A', 'Drag 2');
 
-        // Yjs UndoManager merges transactions within captureTimeout (500ms),
-        // so both syncs become a single undo step when called synchronously.
+        // stopCapturing() is called after each syncGlyphFromJson, so each sync
+        // becomes its own undo step regardless of the 500ms captureTimeout.
         expect(bridge.canUndo('A')).toBe(true);
         bridge.undo('A');
-        // After undo, width reverts to original (600) since both were merged
+        // First undo reverts Drag 2: width goes back to 700
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+
+        // Second undo reverts Drag 1: width goes back to original 600
+        expect(bridge.canUndo('A')).toBe(true);
+        bridge.undo('A');
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -1355,6 +1456,44 @@ describe('syncGlyphFromJson', () => {
                 'width'
             ])
         ).toBe(600);
+    });
+
+    test('syncGlyphFromJson prunes removed layers from Y.Doc', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+
+        // Add an extra layer and sync it first
+        fontJson.glyphs[0].layers.push({
+            id: 'layer-temp',
+            name: 'Temp',
+            width: 500,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-regular'
+            },
+            smart_component_location: {},
+            color: null,
+            layer_index: 1,
+            is_background: false,
+            background_layer_id: null,
+            location: {},
+            format_specific: {},
+            shapes: []
+        });
+        bridge.syncGlyphFromJson('A', 'Add temp layer');
+
+        expect(
+            getYPath(bridge.fontMap, ['glyphs', 'A', 'layers', 'layer-temp'])
+        ).toBeDefined();
+
+        // Remove from source JSON and sync again; Y.Doc should prune it
+        fontJson.glyphs[0].layers = fontJson.glyphs[0].layers.filter(
+            (layer) => layer.id !== 'layer-temp'
+        );
+        bridge.syncGlyphFromJson('A', 'Remove temp layer');
+
+        expect(
+            getYPath(bridge.fontMap, ['glyphs', 'A', 'layers', 'layer-temp'])
+        ).toBeUndefined();
     });
 
     test('second window receives both consecutive syncs', () => {

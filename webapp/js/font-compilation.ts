@@ -494,12 +494,13 @@ class FontCompilation {
         };
 
         if (messageType === 'storeFontJson') {
+            const forceStore = data?.forceStore === true;
             const payload =
                 typeof data.babelfontJson === 'string'
                     ? data.babelfontJson
                     : '';
 
-            if (payload && payload === this.lastStoredFontJson) {
+            if (!forceStore && payload && payload === this.lastStoredFontJson) {
                 timelineMark(
                     'fontCompilation.workerMessage.storeFontJson.skippedCached'
                 );
@@ -512,6 +513,7 @@ class FontCompilation {
             }
 
             if (
+                !forceStore &&
                 payload &&
                 this.pendingStoreFontJsonPromise &&
                 payload === this.pendingStoreFontJsonPayload

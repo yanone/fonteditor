@@ -334,7 +334,12 @@ export class ChangeBridge {
      * Updates the existing Y.Map in-place so per-glyph UndoManagers
      * keep their scope reference.
      */
-    syncGlyphFromJson(glyphName: string, label: string): void {
+    syncGlyphFromJson(
+        glyphName: string,
+        label: string,
+        oldValue?: string,
+        newValue?: string
+    ): void {
         if (!this._fontJson || this._suppressRecording || this._isSyncing)
             return;
 
@@ -353,7 +358,7 @@ export class ChangeBridge {
         if (!glyphMap) return;
 
         // Ensure per-glyph UndoManager exists
-        this.getGlyphUndoManager(glyphName);
+        const um = this.getGlyphUndoManager(glyphName);
 
         // Log entry (before Y.Doc transaction so it's available when the
         // 'update' event fires and WindowSync piggybacks it on the broadcast)
@@ -367,13 +372,14 @@ export class ChangeBridge {
             objectId: glyphName,
             property: '',
             path: `glyphs.${glyphName}`,
-            oldValue: glyphName,
-            newValue: label
+            oldValue: oldValue ?? glyphName,
+            newValue: newValue ?? label
         });
         this._changeLog.push(entry);
 
         // Update the glyph Y.Map in place
         this.yDoc.transact(() => {
+            const glyphKeys = new Set(Object.keys(glyphJson));
             for (const [gk, gv] of Object.entries(glyphJson)) {
                 if (gk === 'layers' && Array.isArray(gv)) {
                     let layersMap = glyphMap.get('layers') as
@@ -383,17 +389,38 @@ export class ChangeBridge {
                         layersMap = new Y.Map();
                         glyphMap.set('layers', layersMap);
                     }
+                    const nextLayerIds = new Set<string>();
                     for (const layerJson of gv as Record<string, unknown>[]) {
                         const layerId = (layerJson.id as string) ?? '';
                         if (layerId) {
+                            nextLayerIds.add(layerId);
                             layersMap.set(layerId, toYType(layerJson));
                         }
                     }
+                    // Remove layers no longer present in source JSON
+                    layersMap.forEach((_v: unknown, key: string) => {
+                        if (!nextLayerIds.has(key)) {
+                            layersMap?.delete(key);
+                        }
+                    });
                 } else {
                     glyphMap.set(gk, toYType(gv));
                 }
             }
+
+            // Remove glyph keys no longer present in source JSON
+            glyphMap.forEach((_v: unknown, key: string) => {
+                if (!glyphKeys.has(key)) {
+                    glyphMap.delete(key);
+                }
+            });
         }, LOCAL_ORIGIN);
+
+        // Stop capturing so the NEXT sync starts a fresh undo step.
+        // Without this, Yjs merges all changes within the 500ms captureTimeout
+        // window into one undo step, making consecutive drags/key presses
+        // appear as a single non-reversible operation.
+        um?.stopCapturing();
 
         this._onDirty?.();
         console.log(`Glyph "${glyphName}" synced to Y.Doc (${label})`);

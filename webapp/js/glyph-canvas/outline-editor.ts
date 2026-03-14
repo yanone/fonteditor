@@ -79,6 +79,12 @@ export class OutlineEditor {
     isDraggingPoint: boolean = false;
     isDraggingComponent: boolean = false;
     isDraggingAnchor: boolean = false;
+    /** True if at least one pixel of actual movement occurred during the current drag. */
+    _hasMoved: boolean = false;
+    /** Pre-drag description for undo log: captured just before dragging starts. */
+    _preDragDesc: string | null = null;
+    /** Drag type for undo log label: 'anchor' | 'point' | 'component'. */
+    _dragType: 'anchor' | 'point' | 'component' | null = null;
     currentGlyphName: string | null = null;
     glyphCanvas: GlyphCanvas;
 
@@ -105,6 +111,7 @@ export class OutlineEditor {
     isInterpolating: boolean = false;
     isLayerSwitchAnimating: boolean = false;
     currentInterpolationId: number = 0; // Counter to track and cancel old interpolations
+    isDeterministicRefreshActive: boolean = false;
     lastGlyphX: number | null = null;
     lastGlyphY: number | null = null;
     canvas: HTMLCanvasElement | null = null;
@@ -155,12 +162,14 @@ export class OutlineEditor {
      * and converts to userspace.
      */
     private getUserspaceLocationForLayer(
-        layerId: string
+        layerId: string,
+        rootGlyphName?: string
     ): Record<string, number> | null {
         const fontModel = fontManager.currentFont?.fontModel;
         if (!fontModel) return null;
 
-        const glyphName = this.glyphCanvas.getCurrentGlyphName();
+        const glyphName = rootGlyphName ?? this.parseGlyphStack()[0]?.glyphName;
+        if (!glyphName) return null;
         const glyph = fontModel.glyphs.find((g: any) => g.name === glyphName);
         if (!glyph?.layers) return null;
 
@@ -196,6 +205,14 @@ export class OutlineEditor {
         }
         this.layerData = normalized;
         this.setRenderVerticalMetrics(rustResult);
+
+        // Validate selection indices against the new layer data so stale
+        // indices from a previous layer (e.g. after undo changes anchor count)
+        // don't cause the wrong anchor to appear selected.
+        const anchorCount = normalized?.anchors?.length ?? 0;
+        this.selectedAnchors = this.selectedAnchors.filter(
+            (idx) => idx < anchorCount
+        );
     }
 
     /**
@@ -789,6 +806,9 @@ export class OutlineEditor {
                 // If already in selection, keep all selected components, points, and anchors
 
                 this.isDraggingComponent = true;
+                this._hasMoved = false;
+                this._dragType = 'component';
+                this._preDragDesc = this._buildComponentDesc();
                 window.changeBridge?.beginTransaction('Drag component');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
@@ -829,6 +849,9 @@ export class OutlineEditor {
 
                 // Start dragging (all selected anchors and points)
                 this.isDraggingAnchor = true;
+                this._hasMoved = false;
+                this._dragType = 'anchor';
+                this._preDragDesc = this._buildAnchorDesc();
                 window.changeBridge?.beginTransaction('Drag anchor');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
@@ -875,6 +898,9 @@ export class OutlineEditor {
 
                 // Start dragging (all selected points and anchors)
                 this.isDraggingPoint = true;
+                this._hasMoved = false;
+                this._dragType = 'point';
+                this._preDragDesc = this._buildNodeDesc();
                 window.changeBridge?.beginTransaction('Drag point');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
@@ -1012,6 +1038,11 @@ export class OutlineEditor {
 
         this.lastGlyphX = glyphX;
         this.lastGlyphY = glyphY;
+
+        // Track whether any actual movement occurred (to avoid spurious undo entries)
+        if (deltaX !== 0 || deltaY !== 0) {
+            this._hasMoved = true;
+        }
 
         // Update all selected items
         this._updateDraggedComponents(deltaX, deltaY);
@@ -1218,6 +1249,10 @@ export class OutlineEditor {
             this.isDraggingAnchor ||
             this.isDraggingComponent;
 
+        // Capture drag state before clearing drag flags
+        const dragType = this._dragType;
+        const preDragDesc = this._preDragDesc;
+
         this.isDraggingPoint = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
@@ -1228,8 +1263,35 @@ export class OutlineEditor {
             fontManager.updateWorkerFontCache();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag();
 
-            // Sync modified glyph(s) into Y.Doc for undo + cross-window sync
-            this._syncCurrentGlyphToYDoc('Drag');
+            // Only sync to Y.Doc if there was actual movement — avoids spurious undo entries
+            // from simple clicks on anchors/points/components that didn't move anything.
+            if (this._hasMoved) {
+                // Build post-drag description (layerData already mutated — use coords-only)
+                let postDragDesc: string | undefined;
+                if (dragType === 'anchor') {
+                    postDragDesc = this._buildAnchorDesc(true);
+                } else if (dragType === 'point') {
+                    postDragDesc = this._buildNodeDesc(true);
+                } else if (dragType === 'component') {
+                    postDragDesc = this._buildComponentDesc(true);
+                }
+                const label =
+                    dragType === 'anchor'
+                        ? 'Drag anchor'
+                        : dragType === 'point'
+                          ? 'Drag point'
+                          : dragType === 'component'
+                            ? 'Drag component'
+                            : 'Drag';
+                this._syncCurrentGlyphToYDoc(
+                    label,
+                    preDragDesc ?? undefined,
+                    postDragDesc
+                );
+            }
+            this._hasMoved = false;
+            this._preDragDesc = null;
+            this._dragType = null;
         }
     }
 
@@ -1287,20 +1349,23 @@ export class OutlineEditor {
         const scaledHitRadius =
             hitRadius / this.glyphCanvas.viewportManager!.scale;
 
-        // Iterate backwards to find the top-most item
-        for (let i = items.length - 1; i >= 0; i--) {
+        // Find the closest item within hit radius (not just the first backwards hit)
+        let bestDist = Infinity;
+        let bestValue: U | null = null;
+        for (let i = 0; i < items.length; i++) {
             const item = items[i];
             const coords = getCoords(item);
             if (coords) {
                 const dist = Math.sqrt(
                     (coords.x - glyphX) ** 2 + (coords.y - glyphY) ** 2
                 );
-                if (dist <= scaledHitRadius) {
-                    return getValue(item);
+                if (dist <= scaledHitRadius && dist < bestDist) {
+                    bestDist = dist;
+                    bestValue = getValue(item);
                 }
             }
         }
-        return null;
+        return bestValue;
     }
 
     updateHoveredComponent(): void {
@@ -1837,6 +1902,10 @@ export class OutlineEditor {
             return;
         }
 
+        if (this.isDeterministicRefreshActive && !force) {
+            return;
+        }
+
         // Allow interpolation during active interpolation OR layer switch animation
         // Unless force=true (e.g., entering edit mode at interpolated position)
         if (!force && !this.isInterpolating && !this.isLayerSwitchAnimating) {
@@ -1960,6 +2029,16 @@ export class OutlineEditor {
         }
     }
 
+    async runDeterministicRefresh<T>(task: () => Promise<T>): Promise<T> {
+        this.currentInterpolationId++;
+        this.isDeterministicRefreshActive = true;
+        try {
+            return await task();
+        } finally {
+            this.isDeterministicRefreshActive = false;
+        }
+    }
+
     onKeyDown(e: KeyboardEvent) {
         if (!this.active) return;
         // Handle space bar press to enter preview mode and enable panning
@@ -2022,6 +2101,16 @@ export class OutlineEditor {
             const multiplier = e.shiftKey ? 10 : 1;
             let moved = false;
 
+            // Capture pre-move state for undo log description
+            let preMoveDesc: string | undefined;
+            if (this.selectedAnchors.length > 0) {
+                preMoveDesc = this._buildAnchorDesc();
+            } else if (this.selectedPoints.length > 0) {
+                preMoveDesc = this._buildNodeDesc();
+            } else if (this.selectedComponents.length > 0) {
+                preMoveDesc = this._buildComponentDesc();
+            }
+
             if (e.key === 'ArrowLeft') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
@@ -2073,7 +2162,20 @@ export class OutlineEditor {
             }
 
             if (moved) {
-                this._syncCurrentGlyphToYDoc('Arrow key');
+                // Build post-move description using coords-only (label already in preMoveDesc)
+                let postMoveDesc: string | undefined;
+                if (this.selectedAnchors.length > 0) {
+                    postMoveDesc = this._buildAnchorDesc(true);
+                } else if (this.selectedPoints.length > 0) {
+                    postMoveDesc = this._buildNodeDesc(true);
+                } else if (this.selectedComponents.length > 0) {
+                    postMoveDesc = this._buildComponentDesc(true);
+                }
+                this._syncCurrentGlyphToYDoc(
+                    'Arrow key',
+                    preMoveDesc,
+                    postMoveDesc
+                );
                 return;
             }
         }
@@ -2145,7 +2247,9 @@ export class OutlineEditor {
         const fontModel = fontManager.currentFont?.fontModel;
         if (!fontModel) return null;
 
-        const glyphName = this.glyphCanvas.getCurrentGlyphName();
+        const glyphName =
+            this.parseGlyphStack()[0]?.glyphName ??
+            this.glyphCanvas.getCurrentGlyphName();
         const glyph = fontModel.glyphs.find((g: any) => g.name === glyphName);
         if (!glyph || !glyph.layers) return null;
 
@@ -2262,7 +2366,8 @@ export class OutlineEditor {
 
         // Find the userspace location for this layer
         const targetUserspaceLocation = this.getUserspaceLocationForLayer(
-            layer.id!
+            layer.id!,
+            this.parseGlyphStack()[0]?.glyphName
         );
 
         if (!targetUserspaceLocation) {
@@ -2557,7 +2662,11 @@ export class OutlineEditor {
         return currentLayerData;
     }
 
-    async fetchLayerData(skipRender: boolean = false): Promise<void> {
+    async fetchLayerData(
+        skipRender: boolean = false,
+        rootGlyphName?: string,
+        retryCount: number = 0
+    ): Promise<void> {
         // Reset interpolation request tracking since we're loading exact layer data
         fontInterpolation.resetRequestTracking();
 
@@ -2571,14 +2680,30 @@ export class OutlineEditor {
 
         try {
             // Always fetch root glyph name - never component reference
-            const glyphName = this.glyphCanvas.getCurrentGlyphName();
+            const parsedStack = this.parseGlyphStack();
+            const glyphName =
+                rootGlyphName ??
+                parsedStack[0]?.glyphName ??
+                this.glyphCanvas.getCurrentGlyphName();
+            if (
+                !glyphName ||
+                glyphName === 'undefined' ||
+                glyphName.startsWith('GID ')
+            ) {
+                console.warn(
+                    '[OutlineEditor] Skipping fetchLayerData due to invalid glyph name',
+                    glyphName
+                );
+                return;
+            }
             console.log(
                 `🔍 Fetching ROOT layer data for glyph: "${glyphName}", layer: ${this.selectedLayerId}`
             );
 
             // Compute the userspace location for this layer
             const userspaceLocation = this.getUserspaceLocationForLayer(
-                this.selectedLayerId
+                this.selectedLayerId,
+                glyphName
             );
             if (!userspaceLocation) {
                 console.warn(
@@ -2624,6 +2749,13 @@ export class OutlineEditor {
                 error instanceof Error &&
                 error.message.includes('Interpolation cancelled')
             ) {
+                if (retryCount < 1) {
+                    await this.fetchLayerData(
+                        skipRender,
+                        rootGlyphName,
+                        retryCount + 1
+                    );
+                }
                 return;
             }
             console.error('Error fetching layer data via Rust:', error);
@@ -2636,8 +2768,14 @@ export class OutlineEditor {
      * Sync the current glyph's data from babelfontData into the Y.Doc.
      * Called after direct JSON mutations (drag, keyboard edits) that
      * bypass the babelfont-model setters.
+     * @param oldValue - Optional pre-change description for the undo log.
+     * @param newValue - Optional post-change description for the undo log.
      */
-    private _syncCurrentGlyphToYDoc(label: string): void {
+    private _syncCurrentGlyphToYDoc(
+        label: string,
+        oldValue?: string,
+        newValue?: string
+    ): void {
         if (!window.changeBridge) return;
         const parsed = this.parseGlyphStack();
         const rootGlyphName =
@@ -2645,17 +2783,112 @@ export class OutlineEditor {
                 ? parsed[0].glyphName
                 : this.glyphCanvas.getCurrentGlyphName();
         if (rootGlyphName) {
-            window.changeBridge.syncGlyphFromJson(rootGlyphName, label);
+            window.changeBridge.syncGlyphFromJson(
+                rootGlyphName,
+                label,
+                oldValue,
+                newValue
+            );
         }
         if (this.isEditingComponent() && parsed.length > 1) {
             const componentGlyphName = parsed[parsed.length - 1].glyphName;
             if (componentGlyphName && componentGlyphName !== rootGlyphName) {
                 window.changeBridge.syncGlyphFromJson(
                     componentGlyphName,
-                    label
+                    label,
+                    oldValue,
+                    newValue
                 );
             }
         }
+    }
+
+    /**
+     * Format a glyph-space coordinate pair as "(X, Y)" with integers.
+     */
+    private _fmtCoord(x: number, y: number): string {
+        return `(${Math.round(x)}, ${Math.round(y)})`;
+    }
+
+    /**
+     * Build a description string for the selected anchors given their
+     * current positions in layerData.
+     * @param coordsOnly - If true, return only "(X, Y)" without the anchor label.
+     */
+    private _buildAnchorDesc(coordsOnly = false): string {
+        const layer = this.getCurrentLayerDataFromStack();
+        if (!layer?.anchors || this.selectedAnchors.length === 0) return '';
+        const first = layer.anchors[this.selectedAnchors[0]];
+        if (!first) return '';
+        const pos = this._fmtCoord(first.x, first.y);
+        if (coordsOnly) return pos;
+        const label = first.name ? `anchor '${first.name}'` : 'anchor';
+        if (this.selectedAnchors.length === 1) {
+            return `${label}: ${pos}`;
+        }
+        return `${label} (+${this.selectedAnchors.length - 1} more): ${pos}`;
+    }
+
+    /**
+     * Build a description string for the selected nodes given their
+     * current positions in layerData.
+     * @param coordsOnly - If true, return only "(X, Y)" without the node label.
+     */
+    private _buildNodeDesc(coordsOnly = false): string {
+        const layer = this.getCurrentLayerDataFromStack();
+        if (!layer?.shapes || this.selectedPoints.length === 0) return '';
+        const first = this.selectedPoints[0];
+        const shape = layer.shapes[first.contourIndex];
+        let nodes: Babelfont.Node[] | null = null;
+        if ('Path' in shape && (shape as any).Path?.nodes) {
+            nodes = (shape as any).Path.nodes;
+        } else if ('nodes' in shape && (shape as any).nodes) {
+            nodes = (shape as any).nodes;
+        }
+        if (!nodes) return '';
+        const node = nodes[first.nodeIndex];
+        if (!node) return '';
+        const pos = this._fmtCoord(node.x, node.y);
+        if (coordsOnly) return pos;
+        const label = `node ${first.contourIndex}.${first.nodeIndex}`;
+        if (this.selectedPoints.length === 1) {
+            return `${label}: ${pos}`;
+        }
+        return `${label} (+${this.selectedPoints.length - 1} more): ${pos}`;
+    }
+
+    /**
+     * Build a description string for the selected components given their
+     * current transforms in layerData.
+     * @param coordsOnly - If true, return only "(X, Y)" without the component label.
+     */
+    private _buildComponentDesc(coordsOnly = false): string {
+        const layer = this.getCurrentLayerDataFromStack();
+        if (!layer?.shapes || this.selectedComponents.length === 0) return '';
+        const idx = this.selectedComponents[0];
+        const shape = layer.shapes[idx];
+        if (!shape || !('reference' in shape || 'Component' in shape))
+            return '';
+        const compData =
+            'Component' in shape ? (shape as any).Component : shape;
+        const ref = compData.reference ?? `component[${idx}]`;
+        const transform = compData.transform;
+        let tx = 0;
+        let ty = 0;
+        if (Array.isArray(transform)) {
+            tx = transform[4] ?? 0;
+            ty = transform[5] ?? 0;
+        } else if (transform?.translation) {
+            tx = transform.translation[0] ?? 0;
+            ty = transform.translation[1] ?? 0;
+        }
+        const pos = this._fmtCoord(tx, ty);
+        if (coordsOnly) return pos;
+        const label = `component '${ref}'`;
+        if (this.selectedComponents.length === 1) {
+            return `${label}: ${pos}`;
+        }
+        return `${label} (+${this.selectedComponents.length - 1} more): ${pos}`;
     }
 
     async saveLayerData(changeSource: string = 'unknown'): Promise<void> {

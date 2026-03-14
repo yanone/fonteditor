@@ -25,7 +25,16 @@ declare global {
         // Undo/redo & collaboration
         changeBridge: ChangeBridge | undefined;
         windowSync: WindowSync | undefined;
-        syncRustCacheAndRefreshCanvas: (() => Promise<void>) | undefined;
+        syncRustCacheAndRefreshCanvas:
+            | ((rootGlyphName?: string) => Promise<void>)
+            | undefined;
+        runBridgeUndoRedo:
+            | ((
+                  action: 'undo' | 'redo',
+                  glyphName?: string,
+                  refreshRootGlyphName?: string
+              ) => Promise<void>)
+            | undefined;
 
         // From our dependencies
         opentype: any; // OpenType.js
