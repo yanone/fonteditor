@@ -155,6 +155,83 @@ export class OutlineEditor {
         );
     }
 
+    private remapSelectedAnchors(
+        previousLayer: Babelfont.Layer | null,
+        nextLayer: Babelfont.Layer | null
+    ): number[] {
+        const previousAnchors = previousLayer?.anchors || [];
+        const nextAnchors = nextLayer?.anchors || [];
+        if (!previousAnchors.length || !nextAnchors.length) {
+            return [];
+        }
+
+        const selectedSignatures = this.selectedAnchors
+            .map((index) => {
+                const anchor = previousAnchors[index];
+                if (!anchor) {
+                    return null;
+                }
+                return {
+                    index,
+                    name: anchor.name || '',
+                    x: anchor.x,
+                    y: anchor.y
+                };
+            })
+            .filter((entry): entry is NonNullable<typeof entry> => !!entry);
+
+        if (!selectedSignatures.length) {
+            return [];
+        }
+
+        const used = new Set<number>();
+        const mapped: number[] = [];
+
+        const reserve = (candidate: number | undefined): number | null => {
+            if (
+                candidate === undefined ||
+                candidate < 0 ||
+                candidate >= nextAnchors.length ||
+                used.has(candidate)
+            ) {
+                return null;
+            }
+            used.add(candidate);
+            return candidate;
+        };
+
+        for (const signature of selectedSignatures) {
+            let match = nextAnchors.findIndex(
+                (anchor, index) =>
+                    !used.has(index) &&
+                    (anchor.name || '') === signature.name &&
+                    anchor.x === signature.x &&
+                    anchor.y === signature.y
+            );
+
+            if (match < 0 && signature.name) {
+                match = nextAnchors.findIndex(
+                    (anchor, index) =>
+                        !used.has(index) &&
+                        (anchor.name || '') === signature.name
+                );
+            }
+
+            const resolved =
+                reserve(match >= 0 ? match : undefined) ??
+                reserve(signature.index) ??
+                reserve(
+                    nextAnchors.findIndex((_anchor, index) => !used.has(index))
+                );
+
+            if (resolved !== null) {
+                mapped.push(resolved);
+            }
+        }
+
+        return mapped;
+    }
+
     /**
      * Look up the userspace location for a layer by its ID.
      * Finds the layer in the current glyph's font model, resolves its
@@ -196,6 +273,7 @@ export class OutlineEditor {
      * Normalizes, parses component nodes, assigns layerData, and sets vertical metrics.
      */
     private applyRustLayerData(rustResult: any, isInterpolated: boolean): void {
+        const previousLayerData = this.getCurrentLayerDataFromStack();
         const normalized = LayerDataNormalizer.normalize(
             rustResult,
             isInterpolated
@@ -206,12 +284,10 @@ export class OutlineEditor {
         this.layerData = normalized;
         this.setRenderVerticalMetrics(rustResult);
 
-        // Validate selection indices against the new layer data so stale
-        // indices from a previous layer (e.g. after undo changes anchor count)
-        // don't cause the wrong anchor to appear selected.
-        const anchorCount = normalized?.anchors?.length ?? 0;
-        this.selectedAnchors = this.selectedAnchors.filter(
-            (idx) => idx < anchorCount
+        const nextLayerData = this.getCurrentLayerDataFromStack();
+        this.selectedAnchors = this.remapSelectedAnchors(
+            previousLayerData,
+            nextLayerData
         );
     }
 
