@@ -342,6 +342,42 @@ def _cp_wrap_js_value(value):
     return _wrap_js_value(value)
 
 
+def _cp_get_active_outline_editor():
+    host = _cp_get_host_object()
+    glyph_canvas = getattr(host, 'glyphCanvas', None)
+    if _is_js_null_or_undefined(glyph_canvas):
+        raise RuntimeError('Glyph canvas is not available')
+
+    outline_editor = getattr(glyph_canvas, 'outlineEditor', None)
+    if _is_js_null_or_undefined(outline_editor) or not bool(outline_editor.active):
+        raise RuntimeError('No glyph is currently active in editing mode')
+
+    return outline_editor
+
+
+def _cp_get_active_stack_entry():
+    outline_editor = _cp_get_active_outline_editor()
+    parsed_stack = outline_editor.parseGlyphStack()
+    if int(parsed_stack.length) == 0:
+        raise RuntimeError('Active glyph stack is empty')
+
+    return parsed_stack[int(parsed_stack.length) - 1]
+
+
+def _cp_get_active_glyph_and_layer_ids():
+    stack_entry = _cp_get_active_stack_entry()
+
+    glyph_name = str(stack_entry.glyphName)
+    if not glyph_name or glyph_name == 'undefined':
+        raise RuntimeError('Active glyph is not available')
+
+    layer_id = str(stack_entry.layerId)
+    if not layer_id or layer_id == 'undefined':
+        raise RuntimeError('Active layer is not available')
+
+    return glyph_name, layer_id
+
+
 def Font():
     """
     Get the currently active font.
@@ -360,6 +396,47 @@ def Font():
     if type(host.currentFontModel) is pyodide.ffi.JsNull:
         raise RuntimeError("No font is currently open")
     return _wrap_js_value(host.currentFontModel)
+
+
+def Glyph():
+    """
+    Get the currently active glyph in outline editing mode.
+
+    Returns:
+        Glyph: The live Glyph object from the current font model
+
+    Raises:
+        RuntimeError: If outline editing is inactive or the glyph cannot be resolved
+    """
+    glyph_name, _layer_id = _cp_get_active_glyph_and_layer_ids()
+    glyph = Font().findGlyph(glyph_name)
+    if glyph is None:
+        raise RuntimeError(f'Active glyph "{glyph_name}" is not available')
+    return glyph
+
+
+def Layer():
+    """
+    Get the currently active layer in outline editing mode.
+
+    Returns:
+        Layer: The live Layer object from the current font model
+
+    Raises:
+        RuntimeError: If outline editing is inactive or the layer cannot be resolved
+    """
+    glyph_name, layer_id = _cp_get_active_glyph_and_layer_ids()
+    glyph = Font().findGlyph(glyph_name)
+    if glyph is None:
+        raise RuntimeError(f'Active glyph "{glyph_name}" is not available')
+
+    for layer in glyph.layers:
+        if layer.id == layer_id:
+            return layer
+
+    raise RuntimeError(
+        f'Active layer "{layer_id}" on glyph "{glyph_name}" is not available'
+    )
 
 
 def Context():
