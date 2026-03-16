@@ -341,6 +341,7 @@ class FontManager {
     fontDisplay: HTMLElement | null;
     fontIconElement: HTMLElement | null;
     fontNameElement: HTMLElement | null;
+    fontRoleBadgeElement: HTMLElement | null;
     dirtyIndicator: HTMLElement | null;
 
     openedFonts: Map<string, OpenedFont>; // Record of fontId to OpenedFont
@@ -376,6 +377,7 @@ class FontManager {
         this.fontDisplay = null;
         this.fontIconElement = null;
         this.fontNameElement = null;
+        this.fontRoleBadgeElement = null;
         this.dirtyIndicator = null;
         this.openedFonts = new Map<string, OpenedFont>();
         this.editingFont = null; // Uint8Array of compiled editing font
@@ -403,7 +405,41 @@ class FontManager {
             this.fontDisplay?.querySelector('.font-icon') || null;
         this.fontNameElement =
             this.fontDisplay?.querySelector('.font-name') || null;
+        this.fontRoleBadgeElement =
+            this.fontDisplay?.querySelector('.font-window-role-badge') || null;
         this.dirtyIndicator = document.getElementById('file-dirty-indicator');
+    }
+
+    private ensureWindowRoleBadge(): HTMLElement | null {
+        if (!this.fontDisplay) {
+            return null;
+        }
+
+        if (!this.fontRoleBadgeElement) {
+            const badge = document.createElement('span');
+            badge.className = 'font-window-role-badge';
+            this.fontDisplay.appendChild(badge);
+            this.fontRoleBadgeElement = badge;
+        }
+
+        return this.fontRoleBadgeElement;
+    }
+
+    private updateWindowTitle() {
+        const baseTitle = 'Counterpunch Editor';
+        const roleSuffix = window.windowRole?.getTitleSuffix() ?? '(Main)';
+        const dirtyPrefix =
+            window.windowRole?.isMainWindow() &&
+            this.currentFont?.hasUnsavedChanges
+                ? '● '
+                : '';
+
+        if (this.currentFont?.name) {
+            document.title = `${dirtyPrefix}${this.currentFont.name} ${roleSuffix} - ${baseTitle}`;
+            return;
+        }
+
+        document.title = `${baseTitle} ${roleSuffix}`;
     }
 
     get currentFont(): OpenedFont | null {
@@ -425,13 +461,20 @@ class FontManager {
         if (!this.fontIconElement || !this.fontNameElement) return;
 
         const shareButton = document.getElementById('share-btn');
+        const roleLabel = window.windowRole?.getRoleLabel() ?? 'Main';
+        const roleBadge = this.ensureWindowRoleBadge();
+
+        if (roleBadge) {
+            roleBadge.textContent = roleLabel;
+            roleBadge.setAttribute('title', `Window role: ${roleLabel}`);
+        }
 
         if (this.openedFonts.size === 0 || !this.currentFontId) {
             // No fonts open
             this.fontIconElement.innerHTML = '';
             this.fontNameElement.textContent = 'No fonts open';
             if (this.fontDisplay) {
-                this.fontDisplay.title = '';
+                this.fontDisplay.title = roleLabel;
             }
             if (shareButton) {
                 shareButton.classList.remove('visible');
@@ -445,32 +488,29 @@ class FontManager {
                 this.fontIconElement.innerHTML = sourceIcon;
                 this.fontNameElement.textContent = currentFont.name;
                 if (this.fontDisplay) {
-                    this.fontDisplay.title = `${currentFont.path} (${sourceName})`;
+                    this.fontDisplay.title = `${currentFont.path} (${sourceName}) — ${roleLabel}`;
                 }
                 if (shareButton) {
                     shareButton.classList.add('visible');
                 }
             }
         }
+
+        this.updateWindowTitle();
     }
 
     async updateDirtyIndicator() {
         // Update visual indicator
-        if (this.currentFont?.hasUnsavedChanges) {
+        if (
+            window.windowRole?.isMainWindow() &&
+            this.currentFont?.hasUnsavedChanges
+        ) {
             this.dirtyIndicator!.classList.add('visible');
         } else {
             this.dirtyIndicator!.classList.remove('visible');
         }
 
-        // Update document title
-        const baseTitle = 'Counterpunch Editor';
-        if (this.currentFont?.hasUnsavedChanges && this.currentFont?.name) {
-            document.title = `● ${this.currentFont.name} - ${baseTitle}`;
-        } else if (this.currentFont?.name) {
-            document.title = `${this.currentFont.name} - ${baseTitle}`;
-        } else {
-            document.title = baseTitle;
-        }
+        this.updateWindowTitle();
     }
 
     async onOpened() {
@@ -480,8 +520,9 @@ class FontManager {
             window.saveButton.updateButtonState();
         }
     }
+
     async onClosed() {
-        await this.onOpened(); // same thing
+        await this.onOpened();
     }
 
     private getParentPath(path: string): string {
@@ -912,9 +953,7 @@ class FontManager {
             window.glyphCanvas.initialFontLoaded = false;
         }
 
-        // Update window title with font file name
-        const fileName = path.split('/').pop() || 'Untitled';
-        document.title = fileName;
+        this.updateWindowTitle();
 
         // Notify ChangeBridge that the font model is ready
         window.dispatchEvent(

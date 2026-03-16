@@ -29,6 +29,7 @@ import {
     resetLogCounter
 } from './change-log';
 import { Logger } from './logger';
+import { windowRole } from './window-role';
 
 const console = new Logger('ChangeBridge');
 
@@ -118,11 +119,12 @@ export class ChangeBridge {
     private _isDeepEqual(a: unknown, b: unknown): boolean {
         return this._stableStringify(a) === this._stableStringify(b);
     }
+    private _getWindowRoleLabel(): string {
+        return window.windowRole?.getRoleLabel() ?? windowRole.getRoleLabel();
+    }
 
     constructor(windowId?: string) {
-        this.windowId =
-            windowId ??
-            `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        this.windowId = windowId ?? windowRole.instanceId;
         this.yDoc = new Y.Doc();
         this.fontMap = this.yDoc.getMap('font');
 
@@ -243,6 +245,7 @@ export class ChangeBridge {
             timestamp: Date.now(),
             windowId: this.windowId,
             transactionLabel: this._txLabel,
+            windowRoleLabel: this._getWindowRoleLabel(),
             transactionId: this._txId,
             op: 'set' as ChangeOp,
             objectType,
@@ -285,6 +288,7 @@ export class ChangeBridge {
             timestamp: Date.now(),
             windowId: this.windowId,
             transactionLabel: this._txLabel,
+            windowRoleLabel: this._getWindowRoleLabel(),
             transactionId: this._txId,
             op: 'add' as ChangeOp,
             objectType,
@@ -323,6 +327,7 @@ export class ChangeBridge {
             timestamp: Date.now(),
             windowId: this.windowId,
             transactionLabel: this._txLabel,
+            windowRoleLabel: this._getWindowRoleLabel(),
             transactionId: this._txId,
             op: 'remove' as ChangeOp,
             objectType,
@@ -462,6 +467,7 @@ export class ChangeBridge {
             const entry = createLogEntry({
                 timestamp: Date.now(),
                 windowId: this.windowId,
+                windowRoleLabel: this._getWindowRoleLabel(),
                 transactionLabel: label,
                 transactionId: null,
                 op: 'set' as ChangeOp,
@@ -552,6 +558,7 @@ export class ChangeBridge {
             const entry = createLogEntry({
                 timestamp: Date.now(),
                 windowId: this.windowId,
+                windowRoleLabel: this._getWindowRoleLabel(),
                 transactionLabel: 'Undo',
                 transactionId: null,
                 op: 'set' as ChangeOp,
@@ -589,6 +596,7 @@ export class ChangeBridge {
             const entry = createLogEntry({
                 timestamp: Date.now(),
                 windowId: this.windowId,
+                windowRoleLabel: this._getWindowRoleLabel(),
                 transactionLabel: 'Redo',
                 transactionId: null,
                 op: 'set' as ChangeOp,

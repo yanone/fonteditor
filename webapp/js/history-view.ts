@@ -231,6 +231,7 @@ class HistoryViewController {
             entry.objectType.toLowerCase().includes(query) ||
             entry.objectId.toLowerCase().includes(query) ||
             (entry.glyphName ?? '').toLowerCase().includes(query) ||
+            entry.windowRoleLabel.toLowerCase().includes(query) ||
             (entry.transactionLabel ?? '').toLowerCase().includes(query) ||
             entry.property.toLowerCase().includes(query)
         );
@@ -382,6 +383,7 @@ class HistoryViewController {
             row.innerHTML = `
                 <div class="history-meta">
                     <span class="history-time">${this.formatTime(entry.timestamp)}</span>
+                    <span class="history-badge history-window-badge">${entry.windowRoleLabel}</span>
                     <span class="history-badge ${opClass}">${entry.op}</span>
                     <span class="history-badge">${entry.objectType}</span>
                     ${entry.transactionLabel ? `<span class="history-badge">${entry.transactionLabel}</span>` : ''}

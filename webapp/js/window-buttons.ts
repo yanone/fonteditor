@@ -3,14 +3,14 @@
  *
  * Wired up after DOM is ready. The undo/redo buttons reflect state from
  * the ChangeBridge; the "new window" button opens the same font URL
- * with a `sync` parameter.
+ * as a linked editor window.
  */
 
 import { Logger } from './logger';
 import { runBridgeUndoRedo } from './change-bridge-init';
+import { windowRole } from './window-role';
 
 const console = new Logger('WindowButtons');
-const undoManagerWindows = new Set<Window>();
 const editorChildWindows = new Set<Window>();
 const editorThemeWindowId =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -45,15 +45,6 @@ function isEditorThemeMessage(data: unknown): data is EditorThemeMessage {
     );
 }
 
-function isUndoManagerReadyMessage(
-    data: unknown
-): data is { type: 'undo-manager-ready' } {
-    if (!data || typeof data !== 'object') {
-        return false;
-    }
-    return (data as { type?: string }).type === 'undo-manager-ready';
-}
-
 function getCurrentEditorTheme(): 'light' | 'dark' {
     return document.documentElement.getAttribute('data-theme') === 'light'
         ? 'light'
@@ -63,20 +54,6 @@ function getCurrentEditorTheme(): 'light' | 'dark' {
 function getCurrentThemePreference(): ThemePreference {
     const preference = window.themeSwitcher?.getCurrentTheme?.();
     return isThemePreference(preference) ? preference : 'auto';
-}
-
-function postUndoManagerMessage(payload: Record<string, unknown>): void {
-    for (const win of Array.from(undoManagerWindows)) {
-        if (win.closed) {
-            undoManagerWindows.delete(win);
-            continue;
-        }
-        try {
-            win.postMessage(payload, window.location.origin);
-        } catch {
-            // Ignore per-window postMessage failures.
-        }
-    }
 }
 
 function postEditorThemeToChildWindows(payload: EditorThemeMessage): void {
@@ -119,49 +96,6 @@ function broadcastEditorTheme(preference: ThemePreference): void {
 
     postEditorThemeToChildWindows(payload);
     postEditorThemeToOpener(payload);
-}
-
-function syncUndoManagerTheme(): void {
-    postUndoManagerMessage({
-        type: 'undo-manager-theme',
-        theme: getCurrentEditorTheme()
-    });
-}
-
-function syncUndoManagerMetadata(): void {
-    const fontPath = window.fontManager?.currentFont?.path ?? 'unsaved';
-    postUndoManagerMessage({
-        type: 'undo-manager-metadata',
-        theme: getCurrentEditorTheme(),
-        fontPath
-    });
-}
-
-function registerUndoManagerWindow(win: Window): void {
-    undoManagerWindows.add(win);
-
-    const pushMetadata = () => {
-        try {
-            if (win.closed) {
-                undoManagerWindows.delete(win);
-                return;
-            }
-            const fontPath = window.fontManager?.currentFont?.path ?? 'unsaved';
-            win.postMessage(
-                {
-                    type: 'undo-manager-metadata',
-                    theme: getCurrentEditorTheme(),
-                    fontPath
-                },
-                window.location.origin
-            );
-        } catch {
-            // Ignore cross-window metadata push failures.
-        }
-    };
-
-    win.addEventListener('load', pushMetadata);
-    window.setTimeout(pushMetadata, 200);
 }
 
 function registerEditorChildWindow(win: Window): void {
@@ -214,11 +148,6 @@ window.addEventListener('message', (event: MessageEvent) => {
         return;
     }
 
-    if (isUndoManagerReadyMessage(event.data)) {
-        syncUndoManagerMetadata();
-        return;
-    }
-
     if (!isEditorThemeMessage(event.data)) {
         return;
     }
@@ -231,12 +160,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     postEditorThemeToChildWindows(event.data);
 });
 
-window.addEventListener('beforeunload', () => {
-    postUndoManagerMessage({ type: 'undo-manager-reload' });
-});
-
 const themeObserver = new MutationObserver(() => {
-    syncUndoManagerTheme();
     if (!suppressEditorThemeBroadcast) {
         broadcastEditorTheme(getCurrentThemePreference());
     }
@@ -244,10 +168,6 @@ const themeObserver = new MutationObserver(() => {
 themeObserver.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ['data-theme']
-});
-
-window.addEventListener('fontModelReady', () => {
-    syncUndoManagerMetadata();
 });
 
 function initWindowButtons(): void {
@@ -296,30 +216,12 @@ function initWindowButtons(): void {
     if (newWindowBtn) {
         newWindowBtn.addEventListener('click', () => {
             const url = new URL(window.location.href);
-            url.searchParams.set('sync', 'true');
+            const fontPath = window.fontManager?.currentFont?.path ?? 'unsaved';
+            windowRole.configureLinkedWindowUrl(url, fontPath);
             url.searchParams.set('theme', getCurrentThemePreference());
             const childWindow = window.open(url.toString(), '_blank');
             if (childWindow) {
                 registerEditorChildWindow(childWindow);
-            }
-        });
-    }
-
-    const undoManagerBtn = document.getElementById('open-undo-manager-btn');
-    if (undoManagerBtn) {
-        undoManagerBtn.addEventListener('click', () => {
-            const fontPath = window.fontManager?.currentFont?.path ?? 'unsaved';
-            const channelName = `counterpunch-font:${fontPath}`;
-            const url = new URL('undo-manager.html', window.location.href);
-            url.searchParams.set('channel', channelName);
-            url.searchParams.set('theme', getCurrentEditorTheme());
-            const undoWindow = window.open(
-                url.toString(),
-                '_blank',
-                'width=500,height=700'
-            );
-            if (undoWindow) {
-                registerUndoManagerWindow(undoWindow);
             }
         });
     }

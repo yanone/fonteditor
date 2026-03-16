@@ -66,6 +66,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     ViewTitleButtons: false,
     WasmInit: false,
     WindowButtons: false,
+    WindowRole: false,
     WindowSync: false
 };
 

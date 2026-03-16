@@ -38,11 +38,17 @@ interface WindowClosingMsg {
     windowId: string;
 }
 
+interface MainWindowClosingMsg {
+    type: 'main-window-closing';
+    windowId: string;
+}
+
 type SyncMessage =
     | YjsUpdateMsg
     | FullStateRequestMsg
     | FullStateResponseMsg
-    | WindowClosingMsg;
+    | WindowClosingMsg
+    | MainWindowClosingMsg;
 
 // ── WindowSync class ────────────────────────────────────────────────
 
@@ -52,6 +58,7 @@ export class WindowSync {
     private _peers = new Set<string>();
     private _awaitingFullState = false;
     private _hasAppliedFullState = false;
+    private _mainWindowClosingListeners = new Set<() => void>();
 
     constructor(bridge: ChangeBridge, channelName: string) {
         this._bridge = bridge;
@@ -93,6 +100,20 @@ export class WindowSync {
             type: 'window-closing',
             windowId: this._bridge.windowId
         });
+    }
+
+    announceMainWindowClosing(): void {
+        this._send({
+            type: 'main-window-closing',
+            windowId: this._bridge.windowId
+        });
+    }
+
+    onMainWindowClosing(callback: () => void): () => void {
+        this._mainWindowClosingListeners.add(callback);
+        return () => {
+            this._mainWindowClosingListeners.delete(callback);
+        };
     }
 
     /** Get the set of known peer window IDs. */
@@ -158,6 +179,13 @@ export class WindowSync {
 
             case 'window-closing':
                 this._peers.delete(msg.windowId);
+                break;
+
+            case 'main-window-closing':
+                if (msg.windowId === this._bridge.windowId) return;
+                for (const callback of this._mainWindowClosingListeners) {
+                    callback();
+                }
                 break;
         }
     }

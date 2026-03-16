@@ -187,7 +187,7 @@ function initializeBridge(detail: {
 
     destroyExisting();
 
-    const bridge = new ChangeBridge();
+    const bridge = new ChangeBridge(window.windowRole?.instanceId);
     window.changeBridge = bridge;
 
     // Called after _syncJsonFromYDoc in undo/redo/remote.
@@ -220,8 +220,11 @@ function initializeBridge(detail: {
     // Wire dirty marking: when ChangeBridge records a change, also mark
     // the font as needing recompilation via fontManager.
     bridge.onDirty(() => {
-        if (window.fontManager?.currentFont) {
-            window.fontManager.currentFont.markDirty();
+        const fontManager = window.fontManager;
+        if (fontManager?.currentFont) {
+            fontManager.currentFont.markDirty();
+            void fontManager.updateDirtyIndicator();
+            window.saveButton?.updateButtonState?.();
         }
         if (window.autoCompileManager) {
             window.autoCompileManager.checkAndSchedule();
@@ -261,10 +264,15 @@ function initializeBridge(detail: {
 
     const sync = new WindowSync(bridge, channelName);
     window.windowSync = sync;
+    sync.onMainWindowClosing(() => {
+        if (window.windowRole?.isLinkedWindow()) {
+            window.close();
+        }
+    });
 
     if (isSyncWindow()) {
-        // Secondary window: also request the full Y.Doc state from the
-        // primary so undo history and pending edits are merged.
+        // Linked window: also request the full Y.Doc state from the
+        // main window so undo history and pending edits are merged.
         sync.requestFullState();
         console.log('Sync window — initialised locally + requested peer state');
 
@@ -273,7 +281,7 @@ function initializeBridge(detail: {
         url.searchParams.delete('sync');
         window.history.replaceState(null, '', url.toString());
     } else {
-        console.log('Primary window — ChangeBridge initialised');
+        console.log('Main window — ChangeBridge initialised');
     }
 }
 
@@ -303,7 +311,19 @@ queueMicrotask(() => {
     console.log('Recovered ChangeBridge from currentFont fallback');
 });
 
-// Announce when this window is about to close
-window.addEventListener('beforeunload', () => {
+let didAnnounceWindowClose = false;
+
+function announceWindowClose(): void {
+    if (didAnnounceWindowClose) {
+        return;
+    }
+    didAnnounceWindowClose = true;
+
+    if (window.windowRole?.isMainWindow()) {
+        window.windowSync?.announceMainWindowClosing();
+    }
     window.windowSync?.announceClose();
-});
+}
+
+window.addEventListener('pagehide', announceWindowClose);
+window.addEventListener('unload', announceWindowClose);

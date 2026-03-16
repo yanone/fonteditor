@@ -13,6 +13,7 @@ import type MCPLogTransport from './mcp-transport';
 import type { StateManager, EditorState } from './state-manager';
 import type { ChangeBridge } from './change-bridge';
 import type { WindowSync } from './window-sync';
+import type { WindowRoleManager } from './window-role';
 
 declare global {
     var marked: any;
@@ -25,6 +26,7 @@ declare global {
         // Undo/redo & collaboration
         changeBridge: ChangeBridge | undefined;
         windowSync: WindowSync | undefined;
+        windowRole: WindowRoleManager | undefined;
         syncRustCacheAndRefreshCanvas:
             | ((
                   rootGlyphName?: string,

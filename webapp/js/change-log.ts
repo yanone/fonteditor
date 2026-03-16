@@ -2,7 +2,7 @@
  * Change Log — Metadata for undo history entries.
  *
  * Each entry records a single property change (or an add/remove operation)
- * with enough context for the undo manager UI to display, filter, and
+ * with enough context for the history UI to display, filter, and
  * selectively revert changes.
  */
 
@@ -32,8 +32,10 @@ export interface ChangeLogEntry {
     id: number;
     /** Unix timestamp (ms) */
     timestamp: number;
-    /** Source window identifier (e.g. "tab-1", "tab-2") */
+    /** Opaque source window instance identifier */
     windowId: string;
+    /** Human-readable source window label */
+    windowRoleLabel: string;
     /** Transaction label, if this change is part of a batch */
     transactionLabel: string | null;
     /** Transaction ID, shared by all entries in the same batch */
@@ -65,9 +67,35 @@ export function createLogEntry(
     return { id: _nextId++, ...fields };
 }
 
-export type ChangeLogEntryLike = Omit<ChangeLogEntry, 'glyphName'> & {
+export type ChangeLogEntryLike = Omit<
+    ChangeLogEntry,
+    'glyphName' | 'windowRoleLabel'
+> & {
     glyphName?: string | null;
+    windowRoleLabel?: string | null;
 };
+
+export function normalizeWindowRoleLabel(
+    windowRoleLabel: string | null | undefined,
+    windowId: string
+): string {
+    if (windowRoleLabel?.trim()) {
+        return windowRoleLabel.trim();
+    }
+
+    if (/^(main|primary)$/i.test(windowId)) {
+        return 'Main';
+    }
+
+    const linkedMatch = windowId.match(
+        /^(?:linked|secondary|remote)[- ]?(\d+)$/i
+    );
+    if (linkedMatch) {
+        return `Linked ${linkedMatch[1]}`;
+    }
+
+    return 'Window';
+}
 
 /** Reset the ID counter (for tests). */
 export function resetLogCounter(): void {
@@ -154,6 +182,10 @@ export function normalizeChangeLogEntry(
 ): ChangeLogEntry {
     return {
         ...entry,
-        glyphName: entry.glyphName ?? deriveGlyphNameFromPath(entry.path)
+        glyphName: entry.glyphName ?? deriveGlyphNameFromPath(entry.path),
+        windowRoleLabel: normalizeWindowRoleLabel(
+            entry.windowRoleLabel,
+            entry.windowId
+        )
     };
 }

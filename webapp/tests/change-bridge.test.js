@@ -504,6 +504,7 @@ describe('change-log', () => {
         const e1 = createLogEntry({
             timestamp: 1,
             windowId: 'w',
+            windowRoleLabel: 'Main',
             transactionLabel: null,
             transactionId: null,
             op: 'set',
@@ -518,6 +519,7 @@ describe('change-log', () => {
         const e2 = createLogEntry({
             timestamp: 2,
             windowId: 'w',
+            windowRoleLabel: 'Main',
             transactionLabel: null,
             transactionId: null,
             op: 'set',
@@ -550,6 +552,7 @@ describe('change-log', () => {
         });
 
         expect(entry.glyphName).toBe('A');
+        expect(entry.windowRoleLabel).toBe('Window');
     });
 });
 
@@ -1708,7 +1711,7 @@ describe('syncGlyphFromJson', () => {
         bridge2.destroy();
     });
 
-    test('undo/redo add change log entries for undo-manager window', () => {
+    test('undo/redo add change log entries for history view', () => {
         const { bridge, fontJson } = createTestBridge('test-1');
 
         fontJson.glyphs[0].layers[0].width = 700;

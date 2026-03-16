@@ -231,6 +231,10 @@ class TabLifecycleManager {
     }
 
     checkUnsavedChanges() {
+        if (window.windowRole?.isLinkedWindow()) {
+            return false;
+        }
+
         // Check model state only to avoid stale UI indicator false positives.
         try {
             const fontManager = window.fontManager;

@@ -620,6 +620,17 @@ kbd + kbd {
     white-space: nowrap;
 }
 
+.current-font-display .font-window-role-badge {
+    flex-shrink: 0;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border: 1px solid var(--border-primary);
+    color: var(--text-faint);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
 .share-button {
     background: transparent;
     border: none;
@@ -1129,6 +1140,10 @@ flex-direction: row;
 .history-badge.op-add,
 .history-badge.op-remove {
     color: var(--text-secondary);
+}
+
+.history-window-badge {
+    color: var(--text-primary);
 }
 
 .history-path {

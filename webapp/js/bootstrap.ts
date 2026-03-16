@@ -416,6 +416,7 @@ import './ai-assistant';
 import './auto-compile-manager';
 import './cache-manager';
 import './canvas-plugin-manager';
+import './window-role';
 import './change-bridge-init'; // Yjs undo/redo & cross-window sync
 import './editor-plugins-ui';
 import './editor-stack-preview-menu';
