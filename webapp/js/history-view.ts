@@ -27,9 +27,7 @@ class HistoryViewController {
     private rootEl: HTMLElement | null = null;
     private breadcrumbEl: HTMLElement | null = null;
     private statusEl: HTMLElement | null = null;
-    private filtersEl: HTMLElement | null = null;
     private listEl: HTMLElement | null = null;
-    private activeTypeFilter: string | null = null;
     private currentGlyphName: string | null = null;
     private currentLayerId: string | null = null;
     private currentLayerDisplayName: string | null = null;
@@ -82,7 +80,6 @@ class HistoryViewController {
                         <span class="history-status" data-role="history-status"></span>
                     </div>
                 </div>
-                <div class="history-filters" data-role="history-filters"></div>
                 <div class="history-change-list" data-role="history-list"></div>
             </div>
         `;
@@ -92,9 +89,6 @@ class HistoryViewController {
         );
         this.statusEl = this.rootEl.querySelector(
             '[data-role="history-status"]'
-        );
-        this.filtersEl = this.rootEl.querySelector(
-            '[data-role="history-filters"]'
         );
         this.listEl = this.rootEl.querySelector('[data-role="history-list"]');
     }
@@ -166,10 +160,6 @@ class HistoryViewController {
             this.currentScope = this.currentLayerId ? 'layer' : 'glyph';
         } else if (this.currentScope === 'layer' && !this.currentLayerId) {
             this.currentScope = 'glyph';
-        }
-
-        if (glyphChanged || layerChanged) {
-            this.activeTypeFilter = null;
         }
 
         this.render();
@@ -285,33 +275,15 @@ class HistoryViewController {
         return buildHistoryStackItems(bridge.getChangeLog());
     }
 
-    private getFilteredItems(items: HistoryStackItem[]): HistoryStackItem[] {
-        return items.filter((item) => {
-            if (
-                this.activeTypeFilter &&
-                !item.entries.some(
-                    (entry) =>
-                        deriveObjectInfoFromPath(entry.path).objectType ===
-                        this.activeTypeFilter
-                )
-            ) {
-                return false;
-            }
-            return true;
-        });
-    }
-
     private render(): void {
         if (!this.initialized) {
             return;
         }
 
         const sourceItems = this.getSourceItems();
-        const filteredItems = this.getFilteredItems(sourceItems);
         this.renderBreadcrumb();
-        this.renderStatus(filteredItems.length, sourceItems.length);
-        this.renderFilters(sourceItems);
-        this.renderList(filteredItems);
+        this.renderStatus(sourceItems.length, sourceItems.length);
+        this.renderList(sourceItems);
     }
 
     private renderBreadcrumb(): void {
@@ -397,58 +369,6 @@ class HistoryViewController {
         this.statusEl.textContent = `${filteredCount} of ${totalCount} history items`;
     }
 
-    private renderFilters(items: HistoryStackItem[]): void {
-        if (!this.filtersEl) {
-            return;
-        }
-
-        const types = new Set<string>();
-        for (const item of items) {
-            for (const entry of item.entries) {
-                types.add(deriveObjectInfoFromPath(entry.path).objectType);
-            }
-        }
-
-        if (this.activeTypeFilter && !types.has(this.activeTypeFilter)) {
-            this.activeTypeFilter = null;
-        }
-
-        const fragment = document.createDocumentFragment();
-        for (const type of [...types].sort()) {
-            const tag = document.createElement('button');
-            tag.type = 'button';
-            tag.className =
-                'history-filter-button' +
-                (this.activeTypeFilter === type ? ' active' : '');
-            tag.textContent = type;
-            tag.addEventListener('click', () => {
-                this.activeTypeFilter =
-                    this.activeTypeFilter === type ? null : type;
-                this.render();
-            });
-            fragment.appendChild(tag);
-        }
-
-        this.filtersEl.innerHTML = '';
-        this.filtersEl.appendChild(fragment);
-    }
-
-    private formatItemPath(item: HistoryStackItem): string {
-        const uniquePaths = [
-            ...new Set(item.entries.map((entry) => entry.path))
-        ];
-        if (!uniquePaths.length) {
-            return '';
-        }
-        if (uniquePaths.length === 1) {
-            return uniquePaths[0];
-        }
-        if (uniquePaths.length === 2) {
-            return `${uniquePaths[0]} and ${uniquePaths[1]}`;
-        }
-        return `${uniquePaths[0]}, ${uniquePaths[1]}, +${uniquePaths.length - 2} more`;
-    }
-
     private formatScopeLabel(item: HistoryStackItem): string {
         return `${item.undoScope} scope`;
     }
@@ -483,6 +403,9 @@ class HistoryViewController {
             const item = items[index];
             const entry = item.entries[item.entries.length - 1];
             const primaryObject = deriveObjectInfoFromPath(entry.path);
+            const changeCountLabel = `${item.entries.length} change${
+                item.entries.length === 1 ? '' : 's'
+            }`;
             const row = document.createElement('div');
             row.className = 'history-entry';
 
@@ -497,12 +420,7 @@ class HistoryViewController {
                 <div class="history-meta">
                     <div class="history-meta-main">
                         <span class="history-time">${this.formatTime(item.timestamp)}</span>
-                        <span class="history-badge history-window-badge">${this.escapeHtml(item.windowRoleLabel)}</span>
-                        <span class="history-badge ${opClass}">${this.escapeHtml(entry.op)}</span>
-                        <span class="history-badge">${this.escapeHtml(this.formatScopeLabel(item))}</span>
-                        <span class="history-badge">${this.escapeHtml(primaryObject.objectType)}</span>
-                        ${item.transactionLabel ? `<span class="history-badge">${this.escapeHtml(item.transactionLabel)}</span>` : ''}
-                        ${item.entries.length > 1 ? `<span class="history-badge">${item.entries.length} changes</span>` : ''}
+                        ${item.transactionLabel ? `<span class="history-transaction-label">${this.escapeHtml(item.transactionLabel)}</span>` : ''}
                     </div>
                     <button
                         type="button"
@@ -511,8 +429,13 @@ class HistoryViewController {
                         aria-label="Show history metadata"
                     >info</button>
                 </div>
-                <div class="history-path">${this.escapeHtml(this.formatItemPath(item))}</div>
-                ${item.entries.length === 1 && entry.op === 'set' && (entry.oldValue !== undefined || entry.newValue !== undefined) ? `<div class="history-values">${this.escapeHtml(this.truncate(entry.oldValue))} → ${this.escapeHtml(this.truncate(entry.newValue))}</div>` : ''}
+                <div class="history-item-tags">
+                        <span class="history-badge history-window-badge">${this.escapeHtml(item.windowRoleLabel)}</span>
+                        <span class="history-badge ${opClass}">${this.escapeHtml(entry.op)}</span>
+                        <span class="history-badge">${this.escapeHtml(this.formatScopeLabel(item))}</span>
+                        <span class="history-badge">${this.escapeHtml(primaryObject.objectType)}</span>
+                    </div>
+                ${item.entries.length === 1 && entry.op === 'set' && (entry.oldValue !== undefined || entry.newValue !== undefined) ? `<div class="history-values">${this.escapeHtml(this.truncate(entry.oldValue))} → ${this.escapeHtml(this.truncate(entry.newValue))}</div>` : `<div class="history-change-count">${changeCountLabel}</div>`}
             `;
 
             const infoButton = row.querySelector(
