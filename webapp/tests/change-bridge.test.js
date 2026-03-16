@@ -684,14 +684,8 @@ describe('change-log', () => {
             transactionLabel: 'Python script',
             transactionId: 1,
             op: 'set',
-            objectType: 'glyph',
-            objectId: 'A',
-            glyphName: 'A',
             undoScope: 'glyph',
-            touchedGlyphNames: ['A'],
-            touchedLayerKeys: ['A@@layer-1'],
-            property: 'note',
-            path: 'glyphs.A.note',
+            path: 'glyphs.A.layers.layer-1.note',
             oldValue: '',
             newValue: 'changed'
         });

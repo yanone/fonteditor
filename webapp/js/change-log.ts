@@ -64,24 +64,8 @@ export interface ChangeLogEntry {
     transactionId: number | null;
     /** Operation type */
     op: ChangeOp;
-    /** High-level object type */
-    objectType: ChangeObjectType;
-    /** Human-readable object identifier (glyph name, layer ID, axis tag…) */
-    objectId: string;
-    /** Glyph scope for local-history filtering, or null for font-level changes */
-    glyphName: string | null;
-    /** Layer scope for local-history filtering, or null for non-layer changes */
-    layerId: string | null;
     /** Effective undo scope for this entry */
     undoScope: UndoScope;
-    /** All touched dot-delimited paths represented by this entry */
-    touchedPaths: string[];
-    /** All touched glyph names represented by this entry */
-    touchedGlyphNames: string[];
-    /** All touched layer keys `${glyphName}@@${layerId}` represented by this entry */
-    touchedLayerKeys: string[];
-    /** Property name that changed (e.g. "x", "width", "name") */
-    property: string;
     /** Full dot-delimited path: "glyphs.A.layers.uuid-1.shapes.0.nodes.2.x" */
     path: string;
     /** Value before the change (undefined for "add" ops) */
@@ -100,65 +84,60 @@ export function createLogEntry(
         | 'historyItemId'
         | 'historyAction'
         | 'targetHistoryItemId'
-        | 'layerId'
         | 'undoScope'
-        | 'touchedPaths'
-        | 'touchedGlyphNames'
-        | 'touchedLayerKeys'
     > & {
         historyItemId?: string;
         historyAction?: HistoryAction;
         targetHistoryItemId?: string | null;
-        layerId?: string | null;
         undoScope?: UndoScope;
+        glyphName?: string | null;
+        layerId?: string | null;
+        objectType?: ChangeObjectType;
+        objectId?: string;
+        property?: string;
         touchedPaths?: string[];
         touchedGlyphNames?: string[];
         touchedLayerKeys?: string[];
     }
 ): ChangeLogEntry {
     const nextId = _nextId++;
-    const glyphName = fields.glyphName ?? null;
-    const layerId = fields.layerId ?? null;
-    const touchedLayerKey = getLayerTouchKey(glyphName, layerId);
-    return {
+    const glyphName = deriveGlyphNameFromPath(fields.path);
+    const layerId = deriveLayerIdFromPath(fields.path);
+    return attachDerivedEntryAccessors({
         id: nextId,
         historyItemId: fields.historyItemId ?? `history-item-${nextId}`,
         historyAction: fields.historyAction ?? 'change',
         targetHistoryItemId: fields.targetHistoryItemId ?? null,
-        layerId,
         undoScope: fields.undoScope ?? deriveUndoScope(glyphName, layerId),
-        touchedPaths: fields.touchedPaths ?? (fields.path ? [fields.path] : []),
-        touchedGlyphNames:
-            fields.touchedGlyphNames ?? (glyphName ? [glyphName] : []),
-        touchedLayerKeys:
-            fields.touchedLayerKeys ??
-            (touchedLayerKey ? [touchedLayerKey] : []),
-        ...fields
-    };
+        timestamp: fields.timestamp,
+        windowId: fields.windowId,
+        windowRoleLabel: fields.windowRoleLabel,
+        transactionLabel: fields.transactionLabel,
+        transactionId: fields.transactionId,
+        op: fields.op,
+        path: fields.path,
+        oldValue: fields.oldValue,
+        newValue: fields.newValue
+    });
 }
 
 export type ChangeLogEntryLike = Omit<
     ChangeLogEntry,
-    | 'glyphName'
-    | 'layerId'
-    | 'windowRoleLabel'
-    | 'historyItemId'
-    | 'historyAction'
-    | 'undoScope'
-    | 'touchedPaths'
-    | 'touchedGlyphNames'
-    | 'touchedLayerKeys'
+    'windowRoleLabel' | 'historyItemId' | 'historyAction' | 'undoScope'
 > & {
-    glyphName?: string | null;
-    layerId?: string | null;
     undoScope?: UndoScope | null;
-    touchedPaths?: string[] | null;
-    touchedGlyphNames?: string[] | null;
-    touchedLayerKeys?: string[] | null;
     windowRoleLabel?: string | null;
     historyItemId?: string | null;
     historyAction?: HistoryAction | null;
     targetHistoryItemId?: string | null;
+    glyphName?: string | null;
+    layerId?: string | null;
+    objectType?: ChangeObjectType | null;
+    objectId?: string | null;
+    property?: string | null;
+    touchedPaths?: string[] | null;
+    touchedGlyphNames?: string[] | null;
+    touchedLayerKeys?: string[] | null;
 };
 
 export interface HistoryStackItem {
@@ -167,15 +146,8 @@ export interface HistoryStackItem {
     timestamp: number;
     windowRoleLabel: string;
     transactionLabel: string | null;
-    primaryObjectType: ChangeObjectType;
-    primaryObjectId: string;
-    glyphNames: string[];
-    layerIds: string[];
-    primaryLayerId: string | null;
     undoScope: UndoScope;
     touchedPaths: string[];
-    touchedGlyphNames: string[];
-    touchedLayerKeys: string[];
     isActive: boolean;
     lastAction: HistoryAction;
 }
@@ -191,6 +163,83 @@ function getLayerScopeKey(
     layerId: string | null
 ): string | null {
     return getLayerTouchKey(glyphName, layerId);
+}
+
+function getPathSegments(path: string): string[] {
+    if (!path || path === 'font') {
+        return [];
+    }
+    return path.split('.');
+}
+
+function derivePropertyFromPath(path: string): string {
+    const segments = getPathSegments(path);
+    if (!segments.length) {
+        return '';
+    }
+
+    const lastSegment = segments[segments.length - 1];
+    if (typeof lastSegment !== 'string') {
+        return '';
+    }
+
+    const fullObject = deriveObjectInfo(segments);
+    const parentObject = deriveObjectInfo(segments.slice(0, -1));
+    if (
+        fullObject.objectType !== parentObject.objectType ||
+        fullObject.objectId !== parentObject.objectId
+    ) {
+        return '';
+    }
+
+    return lastSegment;
+}
+
+function attachDerivedEntryAccessors(entry: ChangeLogEntry): ChangeLogEntry {
+    Object.defineProperties(entry, {
+        glyphName: {
+            configurable: true,
+            enumerable: false,
+            get: () => deriveGlyphNameFromPath(entry.path)
+        },
+        layerId: {
+            configurable: true,
+            enumerable: false,
+            get: () => deriveLayerIdFromPath(entry.path)
+        },
+        objectType: {
+            configurable: true,
+            enumerable: false,
+            get: () => deriveObjectInfoFromPath(entry.path).objectType
+        },
+        objectId: {
+            configurable: true,
+            enumerable: false,
+            get: () => deriveObjectInfoFromPath(entry.path).objectId
+        },
+        property: {
+            configurable: true,
+            enumerable: false,
+            get: () => derivePropertyFromPath(entry.path)
+        },
+        touchedPaths: {
+            configurable: true,
+            enumerable: false,
+            get: () => [entry.path]
+        },
+        touchedGlyphNames: {
+            configurable: true,
+            enumerable: false,
+            get: () => deriveGlyphNamesFromPaths([entry.path])
+        },
+        touchedLayerKeys: {
+            configurable: true,
+            enumerable: false,
+            get: () => deriveLayerTouchKeysFromPaths([entry.path])
+        }
+    });
+
+    return entry;
 }
 
 function normalizeHistoryAction(
@@ -275,7 +324,6 @@ function stripMutableHistoryItem(
         glyphNameSet: _glyphNameSet,
         layerIdSet: _layerIdSet,
         touchedPathSet: _touchedPathSet,
-        touchedGlyphNameSet: _touchedGlyphNameSet,
         touchedLayerKeySet: _touchedLayerKeySet,
         scopeKeys: _scopeKeys,
         ...historyItem
@@ -287,7 +335,6 @@ type MutableHistoryStackItem = HistoryStackItem & {
     glyphNameSet: Set<string>;
     layerIdSet: Set<string>;
     touchedPathSet: Set<string>;
-    touchedGlyphNameSet: Set<string>;
     touchedLayerKeySet: Set<string>;
     scopeKeys: Set<string>;
 };
@@ -312,19 +359,11 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
                 timestamp: entry.timestamp,
                 windowRoleLabel: entry.windowRoleLabel,
                 transactionLabel: entry.transactionLabel,
-                primaryObjectType: entry.objectType,
-                primaryObjectId: entry.objectId,
-                glyphNames: [],
-                layerIds: [],
-                primaryLayerId: entry.layerId,
                 undoScope: entry.undoScope,
                 touchedPaths: [],
-                touchedGlyphNames: [],
-                touchedLayerKeys: [],
                 glyphNameSet: new Set<string>(),
                 layerIdSet: new Set<string>(),
                 touchedPathSet: new Set<string>(),
-                touchedGlyphNameSet: new Set<string>(),
                 touchedLayerKeySet: new Set<string>(),
                 scopeKeys: new Set<string>(),
                 isActive: true,
@@ -337,7 +376,9 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
     };
 
     for (const entry of entries) {
-        const glyphScopeKey = getGlyphScopeKey(entry.glyphName);
+        const entryGlyphName = deriveGlyphNameFromPath(entry.path);
+        const entryLayerId = deriveLayerIdFromPath(entry.path);
+        const glyphScopeKey = getGlyphScopeKey(entryGlyphName);
 
         if (entry.historyAction === 'change') {
             const item = ensureItem(entry);
@@ -345,36 +386,27 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
             item.timestamp = entry.timestamp;
             item.windowRoleLabel = entry.windowRoleLabel;
             item.transactionLabel = entry.transactionLabel;
-            item.primaryObjectType = entry.objectType;
-            item.primaryObjectId = entry.objectId;
-            item.primaryLayerId = entry.layerId;
             item.isActive = true;
             item.lastAction = 'change';
-            if (entry.glyphName && !item.glyphNameSet.has(entry.glyphName)) {
-                item.glyphNameSet.add(entry.glyphName);
-                item.glyphNames = [...item.glyphNameSet];
+            if (entryGlyphName && !item.glyphNameSet.has(entryGlyphName)) {
+                item.glyphNameSet.add(entryGlyphName);
             }
-            if (entry.layerId && !item.layerIdSet.has(entry.layerId)) {
-                item.layerIdSet.add(entry.layerId);
-                item.layerIds = [...item.layerIdSet];
+            if (entryLayerId && !item.layerIdSet.has(entryLayerId)) {
+                item.layerIdSet.add(entryLayerId);
             }
-            for (const touchedPath of entry.touchedPaths) {
-                if (!item.touchedPathSet.has(touchedPath)) {
-                    item.touchedPathSet.add(touchedPath);
-                    item.touchedPaths = [...item.touchedPathSet];
-                }
+            if (!item.touchedPathSet.has(entry.path)) {
+                item.touchedPathSet.add(entry.path);
+                item.touchedPaths = [...item.touchedPathSet];
             }
-            for (const touchedGlyphName of entry.touchedGlyphNames) {
-                if (!item.touchedGlyphNameSet.has(touchedGlyphName)) {
-                    item.touchedGlyphNameSet.add(touchedGlyphName);
-                    item.touchedGlyphNames = [...item.touchedGlyphNameSet];
-                }
-            }
-            for (const touchedLayerKey of entry.touchedLayerKeys) {
-                if (!item.touchedLayerKeySet.has(touchedLayerKey)) {
-                    item.touchedLayerKeySet.add(touchedLayerKey);
-                    item.touchedLayerKeys = [...item.touchedLayerKeySet];
-                }
+            const touchedLayerKey = getLayerTouchKey(
+                entryGlyphName,
+                entryLayerId
+            );
+            if (
+                touchedLayerKey &&
+                !item.touchedLayerKeySet.has(touchedLayerKey)
+            ) {
+                item.touchedLayerKeySet.add(touchedLayerKey);
             }
             item.undoScope = deriveHistoryItemUndoScope(
                 item.entries,
@@ -388,8 +420,8 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
             }
 
             const layerScopeKey = getLayerScopeKey(
-                entry.glyphName,
-                entry.layerId
+                entryGlyphName,
+                entryLayerId
             );
             if (layerScopeKey && !item.scopeKeys.has(layerScopeKey)) {
                 item.scopeKeys.add(layerScopeKey);
@@ -495,7 +527,7 @@ export function buildHistoryStackItems(
         .map((itemId) => state.itemsById.get(itemId))
         .filter((item): item is MutableHistoryStackItem => !!item)
         .filter((item) => {
-            if (glyphName && !item.touchedGlyphNameSet.has(glyphName)) {
+            if (glyphName && !item.glyphNameSet.has(glyphName)) {
                 return false;
             }
             const layerTouchKey = getLayerTouchKey(glyphName, layerId);
@@ -620,51 +652,80 @@ export function deriveGlyphNameFromPath(path: string): string | null {
     if (!path) {
         return null;
     }
-    return deriveGlyphName(path.split('.'));
+    return deriveGlyphName(getPathSegments(path));
 }
 
 export function deriveLayerIdFromPath(path: string): string | null {
     if (!path) {
         return null;
     }
-    return deriveLayerId(path.split('.'));
+    return deriveLayerId(getPathSegments(path));
+}
+
+export function deriveObjectInfoFromPath(path: string): {
+    objectType: ChangeObjectType;
+    objectId: string;
+} {
+    return deriveObjectInfo(getPathSegments(path));
+}
+
+export function deriveGlyphNamesFromPaths(paths: string[]): string[] {
+    const glyphNames = new Set<string>();
+    for (const path of paths) {
+        const glyphName = deriveGlyphNameFromPath(path);
+        if (glyphName) {
+            glyphNames.add(glyphName);
+        }
+    }
+    return [...glyphNames];
+}
+
+export function deriveLayerIdsFromPaths(paths: string[]): string[] {
+    const layerIds = new Set<string>();
+    for (const path of paths) {
+        const layerId = deriveLayerIdFromPath(path);
+        if (layerId) {
+            layerIds.add(layerId);
+        }
+    }
+    return [...layerIds];
+}
+
+export function deriveLayerTouchKeysFromPaths(paths: string[]): string[] {
+    const layerKeys = new Set<string>();
+    for (const path of paths) {
+        const glyphName = deriveGlyphNameFromPath(path);
+        const layerId = deriveLayerIdFromPath(path);
+        const layerKey = getLayerTouchKey(glyphName, layerId);
+        if (layerKey) {
+            layerKeys.add(layerKey);
+        }
+    }
+    return [...layerKeys];
 }
 
 export function normalizeChangeLogEntry(
     entry: ChangeLogEntryLike
 ): ChangeLogEntry {
-    const glyphName = entry.glyphName ?? deriveGlyphNameFromPath(entry.path);
-    const layerId = entry.layerId ?? deriveLayerIdFromPath(entry.path);
-    const touchedLayerKey = getLayerTouchKey(glyphName, layerId);
-    return {
-        ...entry,
+    const glyphName = deriveGlyphNameFromPath(entry.path);
+    const layerId = deriveLayerIdFromPath(entry.path);
+    return attachDerivedEntryAccessors({
+        id: entry.id,
+        timestamp: entry.timestamp,
+        windowId: entry.windowId,
+        transactionLabel: entry.transactionLabel,
+        transactionId: entry.transactionId,
+        op: entry.op,
+        path: entry.path,
+        oldValue: entry.oldValue,
+        newValue: entry.newValue,
         historyItemId: normalizeHistoryItemId(entry.historyItemId, entry.id),
         historyAction: normalizeHistoryAction(entry.historyAction),
-        glyphName,
-        layerId,
         undoScope: entry.undoScope ?? deriveUndoScope(glyphName, layerId),
-        touchedPaths:
-            entry.touchedPaths && entry.touchedPaths.length
-                ? [...entry.touchedPaths]
-                : entry.path
-                  ? [entry.path]
-                  : [],
-        touchedGlyphNames:
-            entry.touchedGlyphNames && entry.touchedGlyphNames.length
-                ? [...entry.touchedGlyphNames]
-                : glyphName
-                  ? [glyphName]
-                  : [],
-        touchedLayerKeys:
-            entry.touchedLayerKeys && entry.touchedLayerKeys.length
-                ? [...entry.touchedLayerKeys]
-                : touchedLayerKey
-                  ? [touchedLayerKey]
-                  : [],
         targetHistoryItemId: entry.targetHistoryItemId ?? null,
         windowRoleLabel: normalizeWindowRoleLabel(
             entry.windowRoleLabel,
             entry.windowId
         )
-    };
+    });
 }

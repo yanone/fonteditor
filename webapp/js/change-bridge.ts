@@ -26,9 +26,12 @@ import {
     type HistoryStackItem,
     type UndoScope,
     createLogEntry,
-    deriveObjectInfo,
     deriveGlyphName,
     deriveLayerId,
+    deriveGlyphNameFromPath,
+    deriveGlyphNamesFromPaths,
+    deriveLayerIdFromPath,
+    deriveLayerIdsFromPaths,
     normalizeChangeLogEntry,
     resolveHistoryTargetItem,
     resetLogCounter
@@ -283,7 +286,6 @@ export class ChangeBridge {
         if (this._suppressRecording || this._isSyncing) return;
 
         const fullPath = [...path, prop];
-        const { objectType, objectId } = deriveObjectInfo(fullPath);
         const glyphName = deriveGlyphName(fullPath);
         const layerId = deriveLayerId(fullPath);
         const undoScope = this._deriveUndoScope(glyphName, layerId);
@@ -305,12 +307,7 @@ export class ChangeBridge {
             historyAction: 'change',
             transactionId: this._txId,
             op: 'set' as ChangeOp,
-            objectType,
-            objectId,
-            glyphName,
-            layerId,
             undoScope,
-            property: prop,
             path: fullPath.join('.'),
             oldValue: oldVal,
             newValue: newVal
@@ -335,7 +332,6 @@ export class ChangeBridge {
     recordAdd(path: (string | number)[], value: unknown): void {
         if (this._suppressRecording || this._isSyncing) return;
 
-        const { objectType, objectId } = deriveObjectInfo(path);
         const glyphName = deriveGlyphName(path);
         const layerId = deriveLayerId(path);
         const undoScope = this._deriveUndoScope(glyphName, layerId);
@@ -356,12 +352,7 @@ export class ChangeBridge {
             historyAction: 'change',
             transactionId: this._txId,
             op: 'add' as ChangeOp,
-            objectType,
-            objectId,
-            glyphName,
-            layerId,
             undoScope,
-            property: '',
             path: path.join('.'),
             oldValue: undefined,
             newValue: value
@@ -382,7 +373,6 @@ export class ChangeBridge {
     recordRemove(path: (string | number)[], oldValue: unknown): void {
         if (this._suppressRecording || this._isSyncing) return;
 
-        const { objectType, objectId } = deriveObjectInfo(path);
         const glyphName = deriveGlyphName(path);
         const layerId = deriveLayerId(path);
         const undoScope = this._deriveUndoScope(glyphName, layerId);
@@ -403,12 +393,7 @@ export class ChangeBridge {
             historyAction: 'change',
             transactionId: this._txId,
             op: 'remove' as ChangeOp,
-            objectType,
-            objectId,
-            glyphName,
-            layerId,
             undoScope,
-            property: '',
             path: path.join('.'),
             oldValue,
             newValue: undefined
@@ -492,15 +477,7 @@ export class ChangeBridge {
         const timestamp = Date.now();
 
         for (const operation of normalizedOperations) {
-            const { objectType, objectId } = deriveObjectInfo(operation.path);
-            const glyphName = deriveGlyphName(operation.path);
-            const layerId = deriveLayerId(operation.path);
             const pathString = operation.path.join('.');
-            const lastSegment = operation.path[operation.path.length - 1];
-            const property =
-                operation.op === 'set' && typeof lastSegment === 'string'
-                    ? lastSegment
-                    : '';
 
             const entry = createLogEntry({
                 timestamp,
@@ -511,12 +488,10 @@ export class ChangeBridge {
                 historyAction: 'change',
                 transactionId: this._txId,
                 op: operation.op,
-                objectType,
-                objectId,
-                glyphName,
-                layerId,
-                undoScope: this._deriveUndoScope(glyphName, layerId),
-                property,
+                undoScope: this._deriveUndoScope(
+                    deriveGlyphName(operation.path),
+                    deriveLayerId(operation.path)
+                ),
                 path: pathString,
                 oldValue: operation.oldValue,
                 newValue: operation.newValue
@@ -706,12 +681,7 @@ export class ChangeBridge {
                 transactionLabel: label,
                 transactionId: null,
                 op: 'set' as ChangeOp,
-                objectType: layerId ? 'layer' : 'glyph',
-                objectId: layerId ?? target.glyphName,
-                glyphName: target.glyphName,
-                layerId: undoScope === 'layer' ? (layerId ?? null) : null,
                 undoScope,
-                property: '',
                 path:
                     undoScope === 'layer' && layerId
                         ? `glyphs.${target.glyphName}.layers.${layerId}`
@@ -836,20 +806,7 @@ export class ChangeBridge {
                 transactionLabel: 'Undo',
                 transactionId: null,
                 op: 'set' as ChangeOp,
-                objectType:
-                    scope === 'layer'
-                        ? 'layer'
-                        : scope === 'glyph'
-                          ? 'glyph'
-                          : 'font',
-                objectId:
-                    scope === 'layer'
-                        ? (target.layerId ?? '')
-                        : (target.glyphName ?? ''),
-                glyphName: target.glyphName,
-                layerId: scope === 'layer' ? target.layerId : null,
                 undoScope: scope,
-                property: '',
                 path:
                     scope === 'layer' && target.glyphName && target.layerId
                         ? `glyphs.${target.glyphName}.layers.${target.layerId}`
@@ -896,20 +853,7 @@ export class ChangeBridge {
                 transactionLabel: 'Redo',
                 transactionId: null,
                 op: 'set' as ChangeOp,
-                objectType:
-                    scope === 'layer'
-                        ? 'layer'
-                        : scope === 'glyph'
-                          ? 'glyph'
-                          : 'font',
-                objectId:
-                    scope === 'layer'
-                        ? (target.layerId ?? '')
-                        : (target.glyphName ?? ''),
-                glyphName: target.glyphName,
-                layerId: scope === 'layer' ? target.layerId : null,
                 undoScope: scope,
-                property: '',
                 path:
                     scope === 'layer' && target.glyphName && target.layerId
                         ? `glyphs.${target.glyphName}.layers.${target.layerId}`
@@ -961,18 +905,17 @@ export class ChangeBridge {
             if (remoteEntries?.length) {
                 const glyphNames = new Set(
                     remoteEntries
-                        .map((entry) => entry.glyphName)
+                        .map((entry) => deriveGlyphNameFromPath(entry.path))
                         .filter((glyphName): glyphName is string => !!glyphName)
                 );
                 for (const glyphName of glyphNames) {
                     this.getGlyphUndoManager(glyphName);
                 }
                 for (const entry of remoteEntries) {
-                    if (entry.glyphName && entry.layerId) {
-                        this.getLayerUndoManager(
-                            entry.glyphName,
-                            entry.layerId
-                        );
+                    const glyphName = deriveGlyphNameFromPath(entry.path);
+                    const layerId = deriveLayerIdFromPath(entry.path);
+                    if (glyphName && layerId) {
+                        this.getLayerUndoManager(glyphName, layerId);
                     }
                 }
             }
@@ -1033,7 +976,9 @@ export class ChangeBridge {
         if (!glyphName) {
             return this._changeLog;
         }
-        return this._changeLog.filter((entry) => entry.glyphName === glyphName);
+        return this._changeLog.filter(
+            (entry) => deriveGlyphNameFromPath(entry.path) === glyphName
+        );
     }
 
     /** Import change log entries (e.g. from another window). */
@@ -1246,20 +1191,20 @@ export class ChangeBridge {
         );
         const glyphNames = new Set(
             remoteEntries
-                .map((entry) => entry.glyphName)
+                .map((entry) => deriveGlyphNameFromPath(entry.path))
                 .filter((glyphName): glyphName is string => !!glyphName)
         );
         const layerKeys = new Set(
             remoteEntries
-                .filter(
-                    (entry) =>
-                        entry.undoScope === 'layer' &&
-                        entry.glyphName &&
-                        entry.layerId
-                )
-                .map((entry) =>
-                    getLayerManagerKey(entry.glyphName!, entry.layerId!)
-                )
+                .filter((entry) => entry.undoScope === 'layer')
+                .map((entry) => {
+                    const glyphName = deriveGlyphNameFromPath(entry.path);
+                    const layerId = deriveLayerIdFromPath(entry.path);
+                    return glyphName && layerId
+                        ? getLayerManagerKey(glyphName, layerId)
+                        : null;
+                })
+                .filter((key): key is string => !!key)
         );
 
         if (remoteEntries.some((entry) => entry.undoScope === 'font')) {
@@ -1269,10 +1214,16 @@ export class ChangeBridge {
             const entry =
                 targetItem ??
                 remoteEntries.find(
-                    (candidate) => candidate.glyphName && candidate.layerId
+                    (candidate) =>
+                        !!deriveGlyphNameFromPath(candidate.path) &&
+                        !!deriveLayerIdFromPath(candidate.path)
                 );
-            if (entry?.glyphName && entry.layerId) {
-                return getLayerEditOrigin(entry.glyphName, entry.layerId);
+            if (entry) {
+                const glyphName = deriveGlyphNameFromPath(entry.path);
+                const layerId = deriveLayerIdFromPath(entry.path);
+                if (glyphName && layerId) {
+                    return getLayerEditOrigin(glyphName, layerId);
+                }
             }
         }
         if (glyphNames.size === 1) {
@@ -1309,16 +1260,17 @@ export class ChangeBridge {
         fallbackGlyphName: string | null,
         fallbackLayerId: string | null
     ): UndoTarget {
+        const glyphNames = deriveGlyphNamesFromPaths(item.touchedPaths);
+        const layerIds = deriveLayerIdsFromPaths(item.touchedPaths);
         if (item.undoScope === 'layer') {
             return {
-                glyphName: item.glyphNames[0] ?? fallbackGlyphName,
-                layerId:
-                    item.primaryLayerId ?? item.layerIds[0] ?? fallbackLayerId
+                glyphName: glyphNames[0] ?? fallbackGlyphName,
+                layerId: layerIds[0] ?? fallbackLayerId
             };
         }
         if (item.undoScope === 'glyph') {
             return {
-                glyphName: item.glyphNames[0] ?? fallbackGlyphName,
+                glyphName: glyphNames[0] ?? fallbackGlyphName,
                 layerId: null
             };
         }

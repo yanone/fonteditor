@@ -1,5 +1,6 @@
 import {
     buildHistoryStackItems,
+    deriveObjectInfoFromPath,
     type ChangeLogEntry,
     type HistoryStackItem
 } from './change-log';
@@ -289,7 +290,9 @@ class HistoryViewController {
             if (
                 this.activeTypeFilter &&
                 !item.entries.some(
-                    (entry) => entry.objectType === this.activeTypeFilter
+                    (entry) =>
+                        deriveObjectInfoFromPath(entry.path).objectType ===
+                        this.activeTypeFilter
                 )
             ) {
                 return false;
@@ -402,7 +405,7 @@ class HistoryViewController {
         const types = new Set<string>();
         for (const item of items) {
             for (const entry of item.entries) {
-                types.add(entry.objectType);
+                types.add(deriveObjectInfoFromPath(entry.path).objectType);
             }
         }
 
@@ -479,6 +482,7 @@ class HistoryViewController {
         for (let index = items.length - 1; index >= 0; index--) {
             const item = items[index];
             const entry = item.entries[item.entries.length - 1];
+            const primaryObject = deriveObjectInfoFromPath(entry.path);
             const row = document.createElement('div');
             row.className = 'history-entry';
 
@@ -496,7 +500,7 @@ class HistoryViewController {
                         <span class="history-badge history-window-badge">${this.escapeHtml(item.windowRoleLabel)}</span>
                         <span class="history-badge ${opClass}">${this.escapeHtml(entry.op)}</span>
                         <span class="history-badge">${this.escapeHtml(this.formatScopeLabel(item))}</span>
-                        <span class="history-badge">${this.escapeHtml(item.primaryObjectType)}</span>
+                        <span class="history-badge">${this.escapeHtml(primaryObject.objectType)}</span>
                         ${item.transactionLabel ? `<span class="history-badge">${this.escapeHtml(item.transactionLabel)}</span>` : ''}
                         ${item.entries.length > 1 ? `<span class="history-badge">${item.entries.length} changes</span>` : ''}
                     </div>
@@ -585,21 +589,8 @@ class HistoryViewController {
             this.buildMetadataRow('Active', item.isActive ? 'Yes' : 'No'),
             this.buildMetadataRow('Window', item.windowRoleLabel),
             this.buildMetadataRow('Undo scope', item.undoScope),
-            this.buildMetadataRow('Primary object', item.primaryObjectType),
-            this.buildMetadataRow('Primary object ID', item.primaryObjectId),
-            this.buildMetadataRow('Primary layer ID', item.primaryLayerId),
             this.buildMetadataRow('Transaction label', item.transactionLabel),
             this.buildMetadataRow('Entry count', String(item.entries.length)),
-            this.buildMetadataRow('Glyphs', this.formatList(item.glyphNames)),
-            this.buildMetadataRow('Layers', this.formatList(item.layerIds)),
-            this.buildMetadataRow(
-                'Touched glyphs',
-                this.formatList(item.touchedGlyphNames)
-            ),
-            this.buildMetadataRow(
-                'Touched layers',
-                this.formatTouchedLayerList(item.touchedLayerKeys)
-            ),
             this.buildMetadataRow(
                 'Touched paths',
                 this.formatList(item.touchedPaths)
@@ -608,8 +599,13 @@ class HistoryViewController {
 
         const entrySections = item.entries
             .map((entry, index) => {
+                const derivedObject = deriveObjectInfoFromPath(entry.path);
                 const entryRows = [
                     this.buildMetadataRow('Entry ID', String(entry.id)),
+                    this.buildMetadataRow(
+                        'Timestamp',
+                        this.formatTimestamp(entry.timestamp)
+                    ),
                     this.buildMetadataRow(
                         'History action',
                         entry.historyAction
@@ -623,26 +619,15 @@ class HistoryViewController {
                         this.formatNullableNumber(entry.transactionId)
                     ),
                     this.buildMetadataRow('Window ID', entry.windowId),
+                    this.buildMetadataRow('Window', entry.windowRoleLabel),
                     this.buildMetadataRow('Operation', entry.op),
-                    this.buildMetadataRow('Object type', entry.objectType),
-                    this.buildMetadataRow('Object ID', entry.objectId),
-                    this.buildMetadataRow('Glyph', entry.glyphName),
-                    this.buildMetadataRow('Layer', entry.layerId),
+                    this.buildMetadataRow(
+                        'Object type',
+                        derivedObject.objectType
+                    ),
+                    this.buildMetadataRow('Object ID', derivedObject.objectId),
                     this.buildMetadataRow('Undo scope', entry.undoScope),
-                    this.buildMetadataRow('Property', entry.property),
                     this.buildMetadataRow('Path', entry.path),
-                    this.buildMetadataRow(
-                        'Touched glyphs',
-                        this.formatList(entry.touchedGlyphNames)
-                    ),
-                    this.buildMetadataRow(
-                        'Touched layers',
-                        this.formatTouchedLayerList(entry.touchedLayerKeys)
-                    ),
-                    this.buildMetadataRow(
-                        'Touched paths',
-                        this.formatList(entry.touchedPaths)
-                    ),
                     this.buildMetadataRow(
                         'Old value',
                         this.formatFullValue(entry.oldValue)
@@ -684,12 +669,6 @@ class HistoryViewController {
 
     private formatList(values: string[]): string {
         return values.length ? values.join(', ') : '—';
-    }
-
-    private formatTouchedLayerList(values: string[]): string {
-        return values.length
-            ? values.map((value) => value.replace('@@', ' / ')).join(', ')
-            : '—';
     }
 
     private formatNullableNumber(value: number | null): string {
