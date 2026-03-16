@@ -78,6 +78,7 @@ class OpenedFont {
     fileHandle?: FileSystemFileHandle;
     directoryHandle?: FileSystemDirectoryHandle;
     changeVersion: number; // Counter incremented on every change to track data freshness
+    compileRequestVersion: number; // Counter incremented on every editing-font compile request
 
     constructor(
         babelfontJson: string,
@@ -192,6 +193,7 @@ class OpenedFont {
         this.needsRecompile = false;
         this.hasUnsavedChanges = false;
         this.changeVersion = 0;
+        this.compileRequestVersion = 0;
     }
 
     /**
@@ -204,6 +206,7 @@ class OpenedFont {
         this.needsRecompile = true;
         this.hasUnsavedChanges = true;
         this.changeVersion++;
+        this.compileRequestVersion++;
         window.fullCompileManager?.checkAndSchedule?.();
     }
 
@@ -214,6 +217,7 @@ class OpenedFont {
      */
     requestRecompileWithoutDataChange(): void {
         this.needsRecompile = true;
+        this.compileRequestVersion++;
     }
 
     /**
@@ -1209,7 +1213,9 @@ class FontManager {
                 `🔨 Compiling editing font, subset_glyphs: ${glyphsToInclude ? glyphsToInclude.length + ' glyphs' : 'none (full font)'}`
             );
             let result;
-            let responseRevisionKey = String(this.currentFont.changeVersion);
+            let responseRevisionKey = String(
+                this.currentFont.compileRequestVersion
+            );
             let compilationMode:
                 | 'full'
                 | 'outline-only'
@@ -1232,7 +1238,7 @@ class FontManager {
                 timelineSpanEnd(normalizeSubsetSpanId);
 
                 const requestedRevisionKey = String(
-                    this.currentFont.changeVersion
+                    this.currentFont.compileRequestVersion
                 );
                 const dragActiveAtRequest =
                     !!window.glyphCanvas?.outlineEditor?.draggingSomething;
@@ -1294,6 +1300,8 @@ class FontManager {
                           produce_varc_table?: boolean;
                       }
                     | undefined;
+                const shouldForceStoreFontJson =
+                    fontCompilation.lastStoredFontJson === null;
                 if (isInteractiveEdit && this.lastEditType === 'outline') {
                     compilationMode = 'outline-only';
                     optionOverrides = {
@@ -1331,12 +1339,13 @@ class FontManager {
                         dirtyGlyphName,
                         dirtyLayerId,
                         dirtyLayerData,
+                        forceStoreFontJson: shouldForceStoreFontJson,
                         optionOverrides
                     }
                 );
 
                 const currentRevisionKey = String(
-                    this.currentFont.changeVersion
+                    this.currentFont.compileRequestVersion
                 );
                 responseRevisionKey = String(
                     result.fontRevisionKey || requestedRevisionKey
@@ -1510,7 +1519,9 @@ class FontManager {
         if (!this.currentFont) return false;
 
         // Capture change version at start of compilation
-        const startVersion = this.currentFont.changeVersion;
+        const startChangeVersion = this.currentFont.changeVersion;
+        const startCompileRequestVersion =
+            this.currentFont.compileRequestVersion;
 
         const changeSource = this.lastChangeSource || 'unknown';
         const isOutlineIncrementalChange =
@@ -1543,12 +1554,15 @@ class FontManager {
         );
 
         // After compilation, check if data changed during the compilation
-        if (this.currentFont.changeVersion !== startVersion) {
-            // Data changed during compilation! Keep compile flag enabled so auto-compile
-            // loop will trigger a fresh compilation with latest data.
-            // Don't clear compile flag - keep it true to trigger another compile.
+        if (
+            this.currentFont.compileRequestVersion !==
+            startCompileRequestVersion
+        ) {
+            // Another compile request arrived while this compile was in flight.
+            // Keep the compile flag enabled so the auto-compile loop produces
+            // a fresh result, even when the new request did not mutate font data.
             console.log(
-                `[FontManager] Data changed during compilation (v${startVersion} → v${this.currentFont.changeVersion}), marking for recompile...`
+                `[FontManager] Compile request changed during compilation (data v${startChangeVersion} → v${this.currentFont.changeVersion}, compile v${startCompileRequestVersion} → v${this.currentFont.compileRequestVersion}), marking for recompile...`
             );
             return true; // Indicates recompilation needed
         } else {

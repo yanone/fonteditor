@@ -11,6 +11,22 @@ import fontManager from './font-manager';
     let loopRunning = false;
     let animationFrameId: number | null = null;
     let isStartupBlocked = false;
+    let triggerQueued = false;
+
+    function queueImmediateTrigger() {
+        if (triggerQueued) {
+            return;
+        }
+
+        triggerQueued = true;
+        queueMicrotask(() => {
+            triggerQueued = false;
+            triggerCompilation().catch((err) => {
+                console.error('Compilation error:', err);
+                isCompiling = false;
+            });
+        });
+    }
 
     /**
      * Continuous check loop using requestAnimationFrame
@@ -147,6 +163,7 @@ import fontManager from './font-manager';
         if (!loopRunning) {
             startLoop();
         }
+        queueImmediateTrigger();
     }
 
     /**

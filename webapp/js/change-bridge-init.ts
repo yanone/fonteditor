@@ -236,7 +236,17 @@ function initializeBridge(detail: {
     // babelfontJson and rebuilt the model, so auto-compile will
     // produce correct output once the dirty flag triggers it.
     bridge.onRemoteChange(() => {
-        queueRustCacheAndRefreshCanvas();
+        void queueRustCacheAndRefreshCanvas().then(() => {
+            const fontManager = window.fontManager;
+            if (!fontManager?.currentFont) {
+                return;
+            }
+
+            fontManager.lastChangeSource = 'remote-change';
+            fontManager.lastEditType = null;
+            fontManager.currentFont.requestRecompileWithoutDataChange();
+            window.autoCompileManager?.checkAndSchedule?.();
+        });
     });
 
     // Derive BroadcastChannel name from font path (or a fallback)

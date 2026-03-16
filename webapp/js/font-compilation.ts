@@ -761,6 +761,7 @@ class FontCompilation {
             dirtyGlyphName?: string;
             dirtyLayerId?: string;
             dirtyLayerData?: unknown;
+            forceStoreFontJson?: boolean;
             optionOverrides?: {
                 skip_features?: boolean;
                 skip_kerning?: boolean;
@@ -835,8 +836,16 @@ class FontCompilation {
                 dirtyGlyphName: requestMeta?.dirtyGlyphName,
                 dirtyLayerId: requestMeta?.dirtyLayerId,
                 dirtyLayerData: requestMeta?.dirtyLayerData,
+                forceStoreFontJson: requestMeta?.forceStoreFontJson === true,
                 filename: 'editing-font.ttf'
             });
+
+            if (
+                requestMeta?.forceStoreFontJson === true &&
+                jsonForWorker !== '__incremental_layer__'
+            ) {
+                this.lastStoredFontJson = babelfontJson;
+            }
 
             this.lastEditingSubsetKey = subsetKey;
 
