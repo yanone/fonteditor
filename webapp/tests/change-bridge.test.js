@@ -1855,6 +1855,107 @@ describe('syncGlyphFromJson', () => {
         ).toBe(600);
     });
 
+    test('synthetic layer edit and later outline sync remain separate undo steps', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+
+        bridge.beginTransaction('Python script');
+        bridge.applySyntheticChangeSet('Python script', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 650
+            }
+        ]);
+        bridge.endTransaction();
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson(
+            'A',
+            'Drag 1',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+
+        expect(bridge.canUndo('A', 'layer-1')).toBe(true);
+        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(650);
+
+        expect(bridge.canUndo('A', 'layer-1')).toBe(true);
+        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+    });
+
+    test('font-scoped synthetic edit does not undo prior layer outline edit', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson(
+            'A',
+            'Drag 1',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+
+        bridge.beginTransaction('Python script');
+        bridge.applySyntheticChangeSet('Python script', [
+            {
+                op: 'set',
+                path: ['format_specific', 'a'],
+                oldValue: undefined,
+                newValue: 'b'
+            }
+        ]);
+        bridge.endTransaction();
+
+        expect(bridge.canUndo()).toBe(true);
+        expect(bridge.undo()).toBe(true);
+
+        expect(
+            getYPath(bridge.fontMap, ['format_specific', 'a'])
+        ).toBeUndefined();
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+
+        expect(bridge.canRedo()).toBe(true);
+        expect(bridge.redo()).toBe(true);
+        expect(getYPath(bridge.fontMap, ['format_specific', 'a'])).toBe('b');
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+    });
+
     test('syncGlyphFromJson prunes removed layers from Y.Doc', () => {
         const { bridge, fontJson } = createTestBridge('test-1');
 

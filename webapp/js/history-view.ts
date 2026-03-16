@@ -22,6 +22,12 @@ type TextRunSelectionEmitter = {
     on(eventName: 'glyphselected', listener: GlyphSelectedListener): void;
 };
 
+type HistoryUndoContext = {
+    scope: HistoryScope;
+    glyphName: string | null;
+    layerId: string | null;
+};
+
 class HistoryViewController {
     private initialized = false;
     private rootEl: HTMLElement | null = null;
@@ -59,6 +65,7 @@ class HistoryViewController {
 
         this.initialized = true;
         this.rootEl = rootEl;
+        window.getHistoryUndoContext = () => this.getUndoContext();
         this.renderShell();
         this.bindWindowEvents();
         this.connectToBridge();
@@ -284,6 +291,30 @@ class HistoryViewController {
         this.renderBreadcrumb();
         this.renderStatus(sourceItems.length, sourceItems.length);
         this.renderList(sourceItems);
+    }
+
+    private getUndoContext(): HistoryUndoContext {
+        if (this.currentScope === 'font') {
+            return {
+                scope: 'font',
+                glyphName: null,
+                layerId: null
+            };
+        }
+
+        if (this.currentScope === 'glyph') {
+            return {
+                scope: 'glyph',
+                glyphName: this.currentGlyphName,
+                layerId: null
+            };
+        }
+
+        return {
+            scope: 'layer',
+            glyphName: this.currentGlyphName,
+            layerId: this.currentLayerId
+        };
     }
 
     private renderBreadcrumb(): void {

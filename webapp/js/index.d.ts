@@ -42,6 +42,13 @@ declare global {
                   layerId?: string | null
               ) => Promise<void>)
             | undefined;
+        getHistoryUndoContext:
+            | (() => {
+                  scope: 'font' | 'glyph' | 'layer';
+                  glyphName: string | null;
+                  layerId: string | null;
+              })
+            | undefined;
 
         // From our dependencies
         opentype: any; // OpenType.js

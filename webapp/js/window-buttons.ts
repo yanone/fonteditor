@@ -27,6 +27,12 @@ interface EditorThemeMessage {
     theme: 'light' | 'dark';
 }
 
+type HistoryUndoContext = {
+    scope: 'font' | 'glyph' | 'layer';
+    glyphName: string | null;
+    layerId: string | null;
+};
+
 function isThemePreference(value: unknown): value is ThemePreference {
     return value === 'light' || value === 'dark' || value === 'auto';
 }
@@ -96,6 +102,53 @@ function broadcastEditorTheme(preference: ThemePreference): void {
 
     postEditorThemeToChildWindows(payload);
     postEditorThemeToOpener(payload);
+}
+
+function getUndoRedoContext(): {
+    rootGlyphName: string | undefined;
+    undoGlyphName: string | undefined;
+    undoLayerId: string | null;
+} {
+    const oe = window.glyphCanvas?.outlineEditor;
+    const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
+    const rootGlyphName = parsedStack[0]?.glyphName;
+    const fallbackUndoGlyphName =
+        parsedStack[parsedStack.length - 1]?.glyphName;
+    const fallbackUndoLayerId = oe?.selectedLayerId ?? null;
+    const historyContext = window.getHistoryUndoContext?.() as
+        | HistoryUndoContext
+        | undefined;
+
+    if (!historyContext) {
+        return {
+            rootGlyphName,
+            undoGlyphName: fallbackUndoGlyphName,
+            undoLayerId: fallbackUndoLayerId
+        };
+    }
+
+    if (historyContext.scope === 'font') {
+        return {
+            rootGlyphName,
+            undoGlyphName: undefined,
+            undoLayerId: null
+        };
+    }
+
+    if (historyContext.scope === 'glyph') {
+        return {
+            rootGlyphName:
+                rootGlyphName ?? historyContext.glyphName ?? undefined,
+            undoGlyphName: historyContext.glyphName ?? fallbackUndoGlyphName,
+            undoLayerId: null
+        };
+    }
+
+    return {
+        rootGlyphName: rootGlyphName ?? historyContext.glyphName ?? undefined,
+        undoGlyphName: historyContext.glyphName ?? fallbackUndoGlyphName,
+        undoLayerId: historyContext.layerId ?? fallbackUndoLayerId
+    };
 }
 
 function registerEditorChildWindow(win: Window): void {
@@ -180,16 +233,15 @@ function initWindowButtons(): void {
             const bridge = window.changeBridge;
             if (!bridge) return;
             const oe = window.glyphCanvas?.outlineEditor;
-            const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
-            const rootGlyphName = parsedStack[0]?.glyphName;
-            const undoGlyphName =
-                parsedStack[parsedStack.length - 1]?.glyphName;
-            const undoLayerId = oe?.selectedLayerId ?? null;
+            const { rootGlyphName, undoGlyphName, undoLayerId } =
+                getUndoRedoContext();
             if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
-                console.warn(
-                    'Skipping undo: active outline editor has incomplete glyph stack'
-                );
-                return;
+                if (undoGlyphName || undoLayerId) {
+                    console.warn(
+                        'Skipping undo: active outline editor has incomplete glyph stack'
+                    );
+                    return;
+                }
             }
             await runBridgeUndoRedo(
                 'undo',
@@ -205,16 +257,15 @@ function initWindowButtons(): void {
             const bridge = window.changeBridge;
             if (!bridge) return;
             const oe = window.glyphCanvas?.outlineEditor;
-            const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
-            const rootGlyphName = parsedStack[0]?.glyphName;
-            const undoGlyphName =
-                parsedStack[parsedStack.length - 1]?.glyphName;
-            const undoLayerId = oe?.selectedLayerId ?? null;
+            const { rootGlyphName, undoGlyphName, undoLayerId } =
+                getUndoRedoContext();
             if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
-                console.warn(
-                    'Skipping redo: active outline editor has incomplete glyph stack'
-                );
-                return;
+                if (undoGlyphName || undoLayerId) {
+                    console.warn(
+                        'Skipping redo: active outline editor has incomplete glyph stack'
+                    );
+                    return;
+                }
             }
             await runBridgeUndoRedo(
                 'redo',

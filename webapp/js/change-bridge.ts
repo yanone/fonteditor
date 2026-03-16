@@ -56,6 +56,7 @@ type SyntheticChangeOperation = {
  */
 const USER_EDIT_ORIGIN = 'user-edit';
 const SYSTEM_REMOTE_ORIGIN = 'system-remote';
+const HISTORY_REPLAY_ORIGIN = 'history-replay';
 const FONT_EDIT_ORIGIN = 'font-edit';
 const GLYPH_EDIT_ORIGIN = 'glyph-edit';
 const LAYER_EDIT_ORIGIN_PREFIX = 'layer-edit:';
@@ -784,16 +785,26 @@ export class ChangeBridge {
      * glyph name is given.
      */
     undo(glyphName?: string, layerId?: string | null): boolean {
-        const target = this._resolveUndoTarget(glyphName, layerId, 'undo');
+        const targetItem = this._resolveUndoHistoryItem(
+            glyphName,
+            layerId,
+            'undo'
+        );
+        const target = this._resolveUndoTarget(
+            glyphName,
+            layerId,
+            'undo',
+            targetItem
+        );
         const { manager: um, scope } = this._getUndoManagerForTarget(target);
-        if (!um || um.undoStack.length === 0) return false;
+        if (scope !== 'font' && (!um || um.undoStack.length === 0)) {
+            return false;
+        }
+        if (scope === 'font' && !targetItem) {
+            return false;
+        }
         this._suppressRecording = true;
         try {
-            const targetItem = resolveHistoryTargetItem(this._changeLog, {
-                glyphName: target.glyphName,
-                layerId: target.layerId,
-                historyAction: 'undo'
-            });
             const targetHistoryItemId = targetItem?.id ?? null;
             // Log entry before um.undo() so it's available when the
             // Y.Doc update event fires and WindowSync broadcasts it.
@@ -818,7 +829,11 @@ export class ChangeBridge {
             });
             this._appendChangeLogEntry(entry);
 
-            um.undo();
+            if (scope === 'font' && targetItem) {
+                this._applyHistoryItem(targetItem, 'undo');
+            } else {
+                um?.undo();
+            }
             this._syncJsonFromYDoc();
             this._onAfterSync?.();
             this._onDirty?.();
@@ -832,16 +847,26 @@ export class ChangeBridge {
      * Redo the last undone change.
      */
     redo(glyphName?: string, layerId?: string | null): boolean {
-        const target = this._resolveUndoTarget(glyphName, layerId, 'redo');
+        const targetItem = this._resolveUndoHistoryItem(
+            glyphName,
+            layerId,
+            'redo'
+        );
+        const target = this._resolveUndoTarget(
+            glyphName,
+            layerId,
+            'redo',
+            targetItem
+        );
         const { manager: um, scope } = this._getUndoManagerForTarget(target);
-        if (!um || um.redoStack.length === 0) return false;
+        if (scope !== 'font' && (!um || um.redoStack.length === 0)) {
+            return false;
+        }
+        if (scope === 'font' && !targetItem) {
+            return false;
+        }
         this._suppressRecording = true;
         try {
-            const targetItem = resolveHistoryTargetItem(this._changeLog, {
-                glyphName: target.glyphName,
-                layerId: target.layerId,
-                historyAction: 'redo'
-            });
             const targetHistoryItemId = targetItem?.id ?? null;
             // Log entry before um.redo() so it's available for broadcast.
             const entry = createLogEntry({
@@ -865,7 +890,11 @@ export class ChangeBridge {
             });
             this._appendChangeLogEntry(entry);
 
-            um.redo();
+            if (scope === 'font' && targetItem) {
+                this._applyHistoryItem(targetItem, 'redo');
+            } else {
+                um?.redo();
+            }
             this._syncJsonFromYDoc();
             this._onAfterSync?.();
             this._onDirty?.();
@@ -877,15 +906,41 @@ export class ChangeBridge {
 
     /** Check if undo is available. */
     canUndo(glyphName?: string, layerId?: string | null): boolean {
-        const target = this._resolveUndoTarget(glyphName, layerId, 'undo');
-        const { manager: um } = this._getUndoManagerForTarget(target);
+        const targetItem = this._resolveUndoHistoryItem(
+            glyphName,
+            layerId,
+            'undo'
+        );
+        const target = this._resolveUndoTarget(
+            glyphName,
+            layerId,
+            'undo',
+            targetItem
+        );
+        const { manager: um, scope } = this._getUndoManagerForTarget(target);
+        if (scope === 'font') {
+            return !!targetItem;
+        }
         return um ? um.undoStack.length > 0 : false;
     }
 
     /** Check if redo is available. */
     canRedo(glyphName?: string, layerId?: string | null): boolean {
-        const target = this._resolveUndoTarget(glyphName, layerId, 'redo');
-        const { manager: um } = this._getUndoManagerForTarget(target);
+        const targetItem = this._resolveUndoHistoryItem(
+            glyphName,
+            layerId,
+            'redo'
+        );
+        const target = this._resolveUndoTarget(
+            glyphName,
+            layerId,
+            'redo',
+            targetItem
+        );
+        const { manager: um, scope } = this._getUndoManagerForTarget(target);
+        if (scope === 'font') {
+            return !!targetItem;
+        }
         return um ? um.redoStack.length > 0 : false;
     }
 
@@ -1232,16 +1287,24 @@ export class ChangeBridge {
         return FONT_EDIT_ORIGIN;
     }
 
-    private _resolveUndoTarget(
+    private _resolveUndoHistoryItem(
         glyphName: string | undefined,
         layerId: string | null | undefined,
         historyAction: 'undo' | 'redo'
-    ): UndoTarget {
-        const targetItem = resolveHistoryTargetItem(this._changeLog, {
+    ): HistoryStackItem | null {
+        return resolveHistoryTargetItem(this._changeLog, {
             glyphName: glyphName ?? null,
             layerId: layerId ?? null,
             historyAction
         });
+    }
+
+    private _resolveUndoTarget(
+        glyphName: string | undefined,
+        layerId: string | null | undefined,
+        historyAction: 'undo' | 'redo',
+        targetItem?: HistoryStackItem | null
+    ): UndoTarget {
         if (targetItem) {
             return this._targetFromHistoryItem(
                 targetItem,
@@ -1253,6 +1316,47 @@ export class ChangeBridge {
             glyphName: glyphName ?? null,
             layerId: layerId ?? null
         };
+    }
+
+    private _parseEntryPath(path: string): (string | number)[] {
+        if (!path || path === 'font') {
+            return [];
+        }
+        return path
+            .split('.')
+            .map((segment) =>
+                /^\d+$/.test(segment) ? Number.parseInt(segment, 10) : segment
+            );
+    }
+
+    private _applyHistoryItem(
+        item: HistoryStackItem,
+        direction: 'undo' | 'redo'
+    ): void {
+        const entries =
+            direction === 'undo' ? [...item.entries].reverse() : item.entries;
+
+        this.yDoc.transact(() => {
+            for (const entry of entries) {
+                const path = this._parseEntryPath(entry.path);
+                if (direction === 'undo') {
+                    if (entry.op === 'add') {
+                        deleteYPath(this.fontMap, path);
+                        continue;
+                    }
+                    if (entry.op === 'remove' || entry.op === 'set') {
+                        setYPath(this.fontMap, path, entry.oldValue);
+                    }
+                    continue;
+                }
+
+                if (entry.op === 'remove') {
+                    deleteYPath(this.fontMap, path);
+                    continue;
+                }
+                setYPath(this.fontMap, path, entry.newValue);
+            }
+        }, HISTORY_REPLAY_ORIGIN);
     }
 
     private _targetFromHistoryItem(

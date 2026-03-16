@@ -1527,15 +1527,35 @@
             const bridge = window.changeBridge;
             if (!bridge) return;
 
-            // Determine scope: per-glyph when outline editor is active.
             const oe = window.glyphCanvas?.outlineEditor;
             const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
             const rootGlyphName = parsedStack[0]?.glyphName;
-            const undoGlyphName =
+            const fallbackUndoGlyphName =
                 parsedStack[parsedStack.length - 1]?.glyphName;
-            const undoLayerId = oe?.selectedLayerId ?? null;
+            const fallbackUndoLayerId = oe?.selectedLayerId ?? null;
+            const historyContext = window.getHistoryUndoContext?.();
 
-            if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
+            const undoGlyphName =
+                historyContext?.scope === 'font'
+                    ? undefined
+                    : (historyContext?.glyphName ?? fallbackUndoGlyphName);
+            const undoLayerId =
+                historyContext?.scope === 'layer'
+                    ? historyContext.layerId
+                    : null;
+            const effectiveRootGlyphName =
+                rootGlyphName ?? historyContext?.glyphName ?? undefined;
+
+            if (oe?.active && (!effectiveRootGlyphName || !undoGlyphName)) {
+                if (!undoGlyphName && !undoLayerId) {
+                    window.runBridgeUndoRedo?.(
+                        shiftKey ? 'redo' : 'undo',
+                        undefined,
+                        effectiveRootGlyphName,
+                        null
+                    );
+                    return;
+                }
                 console.warn(
                     '[KeyboardNav]',
                     'Skipping undo/redo: active outline editor has incomplete glyph stack'
@@ -1546,7 +1566,7 @@
             window.runBridgeUndoRedo?.(
                 shiftKey ? 'redo' : 'undo',
                 undoGlyphName,
-                rootGlyphName,
+                effectiveRootGlyphName,
                 undoLayerId
             );
             return;
