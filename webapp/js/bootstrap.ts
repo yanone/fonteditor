@@ -429,6 +429,7 @@ import './fonteditor';
 import './state-sync'; // URL state synchronization
 import './state-restore'; // URL state restoration
 import './glyph-canvas';
+import './history-view';
 import './keyboard-navigation';
 import './matplotlib-handler';
 import './memory-monitor';

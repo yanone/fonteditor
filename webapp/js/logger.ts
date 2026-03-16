@@ -42,6 +42,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     GlyphOverview: false,
     GlyphOverviewFilters: false,
     GlyphTileRendererFast: false,
+    HistoryView: false,
     LayerDataNormalizer: false,
     Locations: false,
     MeasurementTool: false,

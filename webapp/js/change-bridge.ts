@@ -24,6 +24,8 @@ import {
     type ChangeOp,
     createLogEntry,
     deriveObjectInfo,
+    deriveGlyphName,
+    normalizeChangeLogEntry,
     resetLogCounter
 } from './change-log';
 import { Logger } from './logger';
@@ -83,6 +85,10 @@ export class ChangeBridge {
     private _suppressRecording = false;
     /** Index into _changeLog marking the last entry broadcast to peers */
     private _lastBroadcastLogIndex = 0;
+    /** Subscribers for same-tab history UI updates */
+    private _changeLogListeners = new Set<
+        (entries: ChangeLogEntry[]) => void
+    >();
 
     /**
      * Produce a deterministic JSON string so deep-equality checks are stable
@@ -194,6 +200,15 @@ export class ChangeBridge {
         this._onLocalUpdate = null;
         this._onDirty = null;
         this._onAfterSync = null;
+        this._changeLogListeners.clear();
+    }
+
+    onChangeLogUpdate(cb: (entries: ChangeLogEntry[]) => void): () => void {
+        this._changeLogListeners.add(cb);
+        cb(this.getChangeLog());
+        return () => {
+            this._changeLogListeners.delete(cb);
+        };
     }
 
     // ── Change recording ─────────────────────────────────────────
@@ -216,6 +231,7 @@ export class ChangeBridge {
 
         const fullPath = [...path, prop];
         const { objectType, objectId } = deriveObjectInfo(fullPath);
+        const glyphName = deriveGlyphName(fullPath);
 
         // Ensure per-glyph UndoManager exists for glyph-scoped changes
         if (fullPath[0] === 'glyphs' && typeof fullPath[1] === 'string') {
@@ -231,12 +247,13 @@ export class ChangeBridge {
             op: 'set' as ChangeOp,
             objectType,
             objectId,
+            glyphName,
             property: prop,
             path: fullPath.join('.'),
             oldValue: oldVal,
             newValue: newVal
         });
-        this._changeLog.push(entry);
+        this._appendChangeLogEntry(entry);
 
         // Update Y.Doc
         const yPath = this._toYDocPath(fullPath);
@@ -257,6 +274,7 @@ export class ChangeBridge {
         if (this._suppressRecording || this._isSyncing) return;
 
         const { objectType, objectId } = deriveObjectInfo(path);
+        const glyphName = deriveGlyphName(path);
 
         // Ensure per-glyph UndoManager exists for glyph-scoped changes
         if (path[0] === 'glyphs' && typeof path[1] === 'string') {
@@ -271,12 +289,13 @@ export class ChangeBridge {
             op: 'add' as ChangeOp,
             objectType,
             objectId,
+            glyphName,
             property: '',
             path: path.join('.'),
             oldValue: undefined,
             newValue: value
         });
-        this._changeLog.push(entry);
+        this._appendChangeLogEntry(entry);
 
         const yPath = this._toYDocPath(path);
         this.yDoc.transact(() => {
@@ -293,6 +312,7 @@ export class ChangeBridge {
         if (this._suppressRecording || this._isSyncing) return;
 
         const { objectType, objectId } = deriveObjectInfo(path);
+        const glyphName = deriveGlyphName(path);
 
         // Ensure per-glyph UndoManager exists for glyph-scoped changes
         if (path[0] === 'glyphs' && typeof path[1] === 'string') {
@@ -307,12 +327,13 @@ export class ChangeBridge {
             op: 'remove' as ChangeOp,
             objectType,
             objectId,
+            glyphName,
             property: '',
             path: path.join('.'),
             oldValue,
             newValue: undefined
         });
-        this._changeLog.push(entry);
+        this._appendChangeLogEntry(entry);
 
         const yPath = this._toYDocPath(path);
         this.yDoc.transact(() => {
@@ -446,12 +467,13 @@ export class ChangeBridge {
                 op: 'set' as ChangeOp,
                 objectType: 'glyph',
                 objectId: target.glyphName,
+                glyphName: target.glyphName,
                 property: '',
                 path: `glyphs.${target.glyphName}`,
                 oldValue: oldValue ?? target.glyphName,
                 newValue: newValue ?? label
             });
-            this._changeLog.push(entry);
+            this._appendChangeLogEntry(entry);
         }
 
         // Update all target glyph Y.Maps in one transaction.
@@ -535,12 +557,13 @@ export class ChangeBridge {
                 op: 'set' as ChangeOp,
                 objectType: glyphName ? 'glyph' : 'font',
                 objectId: glyphName ?? '',
+                glyphName: glyphName ?? null,
                 property: '',
                 path: glyphName ? `glyphs.${glyphName}` : 'font',
                 oldValue: undefined,
                 newValue: 'undo'
             });
-            this._changeLog.push(entry);
+            this._appendChangeLogEntry(entry);
 
             um.undo();
             this._syncJsonFromYDoc();
@@ -571,12 +594,13 @@ export class ChangeBridge {
                 op: 'set' as ChangeOp,
                 objectType: glyphName ? 'glyph' : 'font',
                 objectId: glyphName ?? '',
+                glyphName: glyphName ?? null,
                 property: '',
                 path: glyphName ? `glyphs.${glyphName}` : 'font',
                 oldValue: undefined,
                 newValue: 'redo'
             });
-            this._changeLog.push(entry);
+            this._appendChangeLogEntry(entry);
 
             um.redo();
             this._syncJsonFromYDoc();
@@ -622,7 +646,7 @@ export class ChangeBridge {
             this._onAfterSync?.();
             this._onDirty?.();
             if (remoteEntries && remoteEntries.length > 0) {
-                this._changeLog.push(...remoteEntries);
+                this._appendChangeLogEntries(remoteEntries);
             }
             this._onRemoteChange?.(remoteEntries ?? []);
         } finally {
@@ -664,10 +688,20 @@ export class ChangeBridge {
         return this._changeLog;
     }
 
+    getChangeLogForGlyph(glyphName?: string | null): ChangeLogEntry[] {
+        if (!glyphName) {
+            return this._changeLog;
+        }
+        return this._changeLog.filter((entry) => entry.glyphName === glyphName);
+    }
+
     /** Import change log entries (e.g. from another window). */
     importChangeLog(entries: ChangeLogEntry[]): void {
-        this._changeLog = [...entries];
+        this._changeLog = entries.map((entry) =>
+            normalizeChangeLogEntry(entry)
+        );
         this._lastBroadcastLogIndex = this._changeLog.length;
+        this._notifyChangeLogListeners();
     }
 
     /**
@@ -695,6 +729,7 @@ export class ChangeBridge {
         this._undoManagers.clear();
         this._fontUndoManager?.destroy();
         this._fontUndoManager = null;
+        this._notifyChangeLogListeners();
     }
 
     // ── Internal ─────────────────────────────────────────────────
@@ -772,5 +807,27 @@ export class ChangeBridge {
         });
         this._undoManagers.set(glyphName, um);
         return um;
+    }
+
+    private _appendChangeLogEntry(entry: ChangeLogEntry): void {
+        this._changeLog.push(normalizeChangeLogEntry(entry));
+        this._notifyChangeLogListeners();
+    }
+
+    private _appendChangeLogEntries(entries: ChangeLogEntry[]): void {
+        if (!entries.length) {
+            return;
+        }
+        this._changeLog.push(
+            ...entries.map((entry) => normalizeChangeLogEntry(entry))
+        );
+        this._notifyChangeLogListeners();
+    }
+
+    private _notifyChangeLogListeners(): void {
+        const entries = this.getChangeLog();
+        for (const listener of this._changeLogListeners) {
+            listener(entries);
+        }
     }
 }

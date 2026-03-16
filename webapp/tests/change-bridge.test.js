@@ -23,7 +23,9 @@ const {
 const {
     createLogEntry,
     resetLogCounter,
-    deriveObjectInfo
+    deriveGlyphName,
+    deriveObjectInfo,
+    normalizeChangeLogEntry
 } = require('../js/change-log');
 const { Font } = require('../js/babelfont-model');
 
@@ -408,6 +410,26 @@ describe('change-log', () => {
         expect(info.objectId).toBe('A');
     });
 
+    test('deriveGlyphName: glyph child path', () => {
+        expect(
+            deriveGlyphName([
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                2,
+                'x'
+            ])
+        ).toBe('A');
+    });
+
+    test('deriveGlyphName: font path returns null', () => {
+        expect(deriveGlyphName(['upm'])).toBeNull();
+    });
+
     test('deriveObjectInfo: layer-level property', () => {
         const info = deriveObjectInfo([
             'glyphs',
@@ -487,6 +509,7 @@ describe('change-log', () => {
             op: 'set',
             objectType: 'font',
             objectId: '',
+            glyphName: null,
             property: 'upm',
             path: 'upm',
             oldValue: 1000,
@@ -500,6 +523,7 @@ describe('change-log', () => {
             op: 'set',
             objectType: 'font',
             objectId: '',
+            glyphName: null,
             property: 'note',
             path: 'note',
             oldValue: '',
@@ -507,6 +531,25 @@ describe('change-log', () => {
         });
         expect(e1.id).toBe(1);
         expect(e2.id).toBe(2);
+    });
+
+    test('normalizeChangeLogEntry derives missing glyphName from path', () => {
+        const entry = normalizeChangeLogEntry({
+            id: 1,
+            timestamp: 1,
+            windowId: 'w',
+            transactionLabel: null,
+            transactionId: null,
+            op: 'set',
+            objectType: 'layer',
+            objectId: 'layer-1',
+            property: 'width',
+            path: 'glyphs.A.layers.layer-1.width',
+            oldValue: 600,
+            newValue: 700
+        });
+
+        expect(entry.glyphName).toBe('A');
     });
 });
 
@@ -547,6 +590,29 @@ describe('ChangeBridge', () => {
         expect(log[0].oldValue).toBe(600);
         expect(log[0].newValue).toBe(700);
         expect(log[0].path).toBe('glyphs.A.layers.layer-1.width');
+        expect(log[0].glyphName).toBe('A');
+    });
+
+    test('getChangeLogForGlyph returns only entries for that glyph', () => {
+        const { bridge } = createTestBridge('test-1');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            700
+        );
+        bridge.recordChange(
+            ['glyphs', 'B', 'layers', 'layer-2'],
+            'width',
+            650,
+            750
+        );
+        bridge.recordChange([], 'upm', 1000, 1100);
+
+        const glyphAEntries = bridge.getChangeLogForGlyph('A');
+        expect(glyphAEntries).toHaveLength(1);
+        expect(glyphAEntries[0].glyphName).toBe('A');
+        expect(bridge.getChangeLogForGlyph(null)).toHaveLength(3);
     });
 
     test('recordAdd stores new value in Y.Doc', () => {

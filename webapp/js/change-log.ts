@@ -44,6 +44,8 @@ export interface ChangeLogEntry {
     objectType: ChangeObjectType;
     /** Human-readable object identifier (glyph name, layer ID, axis tag…) */
     objectId: string;
+    /** Glyph scope for local-history filtering, or null for font-level changes */
+    glyphName: string | null;
     /** Property name that changed (e.g. "x", "width", "name") */
     property: string;
     /** Full dot-delimited path: "glyphs.A.layers.uuid-1.shapes.0.nodes.2.x" */
@@ -62,6 +64,10 @@ export function createLogEntry(
 ): ChangeLogEntry {
     return { id: _nextId++, ...fields };
 }
+
+export type ChangeLogEntryLike = Omit<ChangeLogEntry, 'glyphName'> & {
+    glyphName?: string | null;
+};
 
 /** Reset the ID counter (for tests). */
 export function resetLogCounter(): void {
@@ -127,4 +133,27 @@ export function deriveObjectInfo(path: (string | number)[]): {
         return { objectType: 'instance', objectId: String(path[1]) };
 
     return { objectType: 'font', objectId: '' };
+}
+
+export function deriveGlyphName(path: (string | number)[]): string | null {
+    if (path[0] === 'glyphs' && typeof path[1] === 'string') {
+        return path[1];
+    }
+    return null;
+}
+
+export function deriveGlyphNameFromPath(path: string): string | null {
+    if (!path) {
+        return null;
+    }
+    return deriveGlyphName(path.split('.'));
+}
+
+export function normalizeChangeLogEntry(
+    entry: ChangeLogEntryLike
+): ChangeLogEntry {
+    return {
+        ...entry,
+        glyphName: entry.glyphName ?? deriveGlyphNameFromPath(entry.path)
+    };
 }
