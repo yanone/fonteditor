@@ -23,11 +23,9 @@ class HistoryViewController {
     private initialized = false;
     private rootEl: HTMLElement | null = null;
     private breadcrumbEl: HTMLElement | null = null;
-    private searchInputEl: HTMLInputElement | null = null;
     private statusEl: HTMLElement | null = null;
     private filtersEl: HTMLElement | null = null;
     private listEl: HTMLElement | null = null;
-    private searchQuery = '';
     private activeTypeFilter: string | null = null;
     private currentGlyphName: string | null = null;
     private currentScope: HistoryScope = 'font';
@@ -58,7 +56,6 @@ class HistoryViewController {
         this.initialized = true;
         this.rootEl = rootEl;
         this.renderShell();
-        this.bindDomEvents();
         this.bindWindowEvents();
         this.connectToBridge();
         this.attachTextRunListener();
@@ -78,12 +75,6 @@ class HistoryViewController {
                         <div class="history-breadcrumb" data-role="history-breadcrumb"></div>
                         <span class="history-status" data-role="history-status"></span>
                     </div>
-                    <input
-                        class="history-search-input"
-                        data-role="history-search"
-                        type="text"
-                        placeholder="Filter changes..."
-                    />
                 </div>
                 <div class="history-filters" data-role="history-filters"></div>
                 <div class="history-change-list" data-role="history-list"></div>
@@ -93,9 +84,6 @@ class HistoryViewController {
         this.breadcrumbEl = this.rootEl.querySelector(
             '[data-role="history-breadcrumb"]'
         );
-        this.searchInputEl = this.rootEl.querySelector(
-            '[data-role="history-search"]'
-        ) as HTMLInputElement | null;
         this.statusEl = this.rootEl.querySelector(
             '[data-role="history-status"]'
         );
@@ -103,13 +91,6 @@ class HistoryViewController {
             '[data-role="history-filters"]'
         );
         this.listEl = this.rootEl.querySelector('[data-role="history-list"]');
-    }
-
-    private bindDomEvents(): void {
-        this.searchInputEl?.addEventListener('input', () => {
-            this.searchQuery = this.searchInputEl?.value ?? '';
-            this.render();
-        });
     }
 
     private bindWindowEvents(): void {
@@ -224,26 +205,8 @@ class HistoryViewController {
             ) {
                 return false;
             }
-            return this.matchesSearch(item);
-        });
-    }
-
-    private matchesSearch(item: HistoryStackItem): boolean {
-        if (!this.searchQuery) {
             return true;
-        }
-
-        const query = this.searchQuery.toLowerCase();
-        return item.entries.some(
-            (entry) =>
-                entry.path.toLowerCase().includes(query) ||
-                entry.objectType.toLowerCase().includes(query) ||
-                entry.objectId.toLowerCase().includes(query) ||
-                (entry.glyphName ?? '').toLowerCase().includes(query) ||
-                entry.windowRoleLabel.toLowerCase().includes(query) ||
-                (entry.transactionLabel ?? '').toLowerCase().includes(query) ||
-                entry.property.toLowerCase().includes(query)
-        );
+        });
     }
 
     private render(): void {

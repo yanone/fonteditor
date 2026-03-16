@@ -1043,21 +1043,6 @@ flex-direction: row;
     height: 24px;
 }
 
-.history-search-input:focus {
-    outline: none;
-    border-color: var(--text-secondary);
-}
-
-.history-status {
-    color: var(--text-faint);
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    white-space: nowrap;
-}
-
-.history-filters {
-    display: flex;
     flex-wrap: wrap;
     gap: 6px;
     padding: 6px 10px;
@@ -1166,7 +1151,6 @@ flex-direction: row;
     letter-spacing: 0.03em;
 }
 
-.view-history:not(.focused) .history-search-input,
 .view-history:not(.focused) .history-filter-button,
 .view-history:not(.focused) .history-entry:hover {
     background-color: transparent;
@@ -1175,8 +1159,7 @@ flex-direction: row;
 .view-history:not(.focused) .history-filter-button,
 .view-history:not(.focused) .history-badge,
 .view-history:not(.focused) .history-values,
-.view-history:not(.focused) .history-path,
-.view-history:not(.focused) .history-search-input {
+.view-history:not(.focused) .history-path {
     color: var(--text-secondary);
 }
 
