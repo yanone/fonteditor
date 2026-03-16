@@ -111,7 +111,8 @@ export function queueRustCacheAndRefreshCanvas(): Promise<void> {
 export function runBridgeUndoRedo(
     action: 'undo' | 'redo',
     glyphName?: string,
-    refreshRootGlyphName?: string
+    refreshRootGlyphName?: string,
+    layerId?: string | null
 ): Promise<void> {
     return enqueueBridgeSync(async () => {
         const bridge = window.changeBridge;
@@ -125,8 +126,8 @@ export function runBridgeUndoRedo(
 
         const didApply =
             action === 'redo'
-                ? bridge.redo(targetGlyph)
-                : bridge.undo(targetGlyph);
+                ? bridge.redo(targetGlyph, layerId)
+                : bridge.undo(targetGlyph, layerId);
 
         if (!didApply) {
             return;

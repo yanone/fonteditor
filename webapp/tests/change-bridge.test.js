@@ -1656,6 +1656,37 @@ describe('syncGlyphFromJson', () => {
         ).toBe(600);
     });
 
+    test('layer-scoped undo and redo work after syncGlyphFromJson', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Drag', undefined, undefined, 'layer-1');
+
+        expect(bridge.canUndo('A', 'layer-1')).toBe(true);
+        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+
+        expect(bridge.canRedo('A', 'layer-1')).toBe(true);
+        expect(bridge.redo('A', 'layer-1')).toBe(true);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+    });
+
     test('undo works after two consecutive syncs - each sync is a separate undo step', () => {
         const { bridge, fontJson } = createTestBridge('test-1');
 

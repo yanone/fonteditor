@@ -38,7 +38,8 @@ declare global {
             | ((
                   action: 'undo' | 'redo',
                   glyphName?: string,
-                  refreshRootGlyphName?: string
+                  refreshRootGlyphName?: string,
+                  layerId?: string | null
               ) => Promise<void>)
             | undefined;
 

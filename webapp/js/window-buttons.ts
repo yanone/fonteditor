@@ -184,13 +184,19 @@ function initWindowButtons(): void {
             const rootGlyphName = parsedStack[0]?.glyphName;
             const undoGlyphName =
                 parsedStack[parsedStack.length - 1]?.glyphName;
+            const undoLayerId = oe?.selectedLayerId ?? null;
             if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
                 console.warn(
                     'Skipping undo: active outline editor has incomplete glyph stack'
                 );
                 return;
             }
-            await runBridgeUndoRedo('undo', undoGlyphName, rootGlyphName);
+            await runBridgeUndoRedo(
+                'undo',
+                undoGlyphName,
+                rootGlyphName,
+                undoLayerId
+            );
         });
     }
 
@@ -203,13 +209,19 @@ function initWindowButtons(): void {
             const rootGlyphName = parsedStack[0]?.glyphName;
             const undoGlyphName =
                 parsedStack[parsedStack.length - 1]?.glyphName;
+            const undoLayerId = oe?.selectedLayerId ?? null;
             if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
                 console.warn(
                     'Skipping redo: active outline editor has incomplete glyph stack'
                 );
                 return;
             }
-            await runBridgeUndoRedo('redo', undoGlyphName, rootGlyphName);
+            await runBridgeUndoRedo(
+                'redo',
+                undoGlyphName,
+                rootGlyphName,
+                undoLayerId
+            );
         });
     }
 

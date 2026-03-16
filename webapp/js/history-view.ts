@@ -443,6 +443,10 @@ class HistoryViewController {
         return `${uniquePaths[0]}, ${uniquePaths[1]}, +${uniquePaths.length - 2} more`;
     }
 
+    private formatScopeLabel(item: HistoryStackItem): string {
+        return `${item.undoScope} scope`;
+    }
+
     private renderList(items: HistoryStackItem[]): void {
         if (!this.listEl) {
             return;
@@ -485,6 +489,7 @@ class HistoryViewController {
                     <span class="history-time">${this.formatTime(item.timestamp)}</span>
                     <span class="history-badge history-window-badge">${item.windowRoleLabel}</span>
                     <span class="history-badge ${opClass}">${entry.op}</span>
+                    <span class="history-badge">${this.formatScopeLabel(item)}</span>
                     <span class="history-badge">${item.primaryObjectType}</span>
                     ${item.transactionLabel ? `<span class="history-badge">${item.transactionLabel}</span>` : ''}
                     ${item.entries.length > 1 ? `<span class="history-badge">${item.entries.length} changes</span>` : ''}

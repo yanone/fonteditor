@@ -23,12 +23,14 @@ import {
     buildHistoryStackItems,
     type ChangeLogEntry,
     type ChangeOp,
+    type HistoryStackItem,
+    type UndoScope,
     createLogEntry,
     deriveObjectInfo,
     deriveGlyphName,
     deriveLayerId,
     normalizeChangeLogEntry,
-    resolveHistoryTargetItemId,
+    resolveHistoryTargetItem,
     resetLogCounter
 } from './change-log';
 import { Logger } from './logger';
@@ -44,6 +46,27 @@ type Unsafe = ReturnType<typeof JSON.parse>;
  */
 const USER_EDIT_ORIGIN = 'user-edit';
 const SYSTEM_REMOTE_ORIGIN = 'system-remote';
+const FONT_EDIT_ORIGIN = 'font-edit';
+const GLYPH_EDIT_ORIGIN = 'glyph-edit';
+const LAYER_EDIT_ORIGIN_PREFIX = 'layer-edit:';
+
+type UndoTarget = {
+    glyphName: string | null;
+    layerId: string | null;
+};
+
+type UndoManagerWithScope = {
+    manager: Y.UndoManager | null;
+    scope: UndoScope;
+};
+
+function getLayerManagerKey(glyphName: string, layerId: string): string {
+    return `${glyphName}@@${layerId}`;
+}
+
+function getLayerEditOrigin(glyphName: string, layerId: string): string {
+    return `${LAYER_EDIT_ORIGIN_PREFIX}${glyphName}@@${layerId}`;
+}
 
 /**
  * Central change processor that keeps Yjs Y.Doc in sync with the
@@ -56,6 +79,8 @@ export class ChangeBridge {
     readonly fontMap: Y.Map<unknown>;
     /** Per-glyph undo managers (keyed by glyph name) */
     private _undoManagers = new Map<string, Y.UndoManager>();
+    /** Per-layer undo managers (keyed by glyph@@layer) */
+    private _layerUndoManagers = new Map<string, Y.UndoManager>();
     /** "Font-level" undo manager for axes/masters/instances/font properties */
     private _fontUndoManager: Y.UndoManager | null = null;
     /** Change log of all recorded changes */
@@ -204,6 +229,10 @@ export class ChangeBridge {
 
     /** Clean up resources. */
     destroy(): void {
+        for (const um of this._layerUndoManagers.values()) {
+            um.destroy();
+        }
+        this._layerUndoManagers.clear();
         for (const um of this._undoManagers.values()) {
             um.destroy();
         }
@@ -250,10 +279,13 @@ export class ChangeBridge {
         const { objectType, objectId } = deriveObjectInfo(fullPath);
         const glyphName = deriveGlyphName(fullPath);
         const layerId = deriveLayerId(fullPath);
+        const undoScope = this._deriveUndoScope(glyphName, layerId);
+        const origin = this._getEditOrigin(glyphName, layerId, undoScope);
 
-        // Ensure per-glyph UndoManager exists for glyph-scoped changes
-        if (fullPath[0] === 'glyphs' && typeof fullPath[1] === 'string') {
-            this.getGlyphUndoManager(fullPath[1] as string);
+        if (undoScope === 'layer' && glyphName && layerId) {
+            this.getLayerUndoManager(glyphName, layerId);
+        } else if (undoScope === 'glyph' && glyphName) {
+            this.getGlyphUndoManager(glyphName);
         }
 
         // Log entry (before Y.Doc transaction so it's available for broadcast)
@@ -270,6 +302,7 @@ export class ChangeBridge {
             objectId,
             glyphName,
             layerId,
+            undoScope,
             property: prop,
             path: fullPath.join('.'),
             oldValue: oldVal,
@@ -281,7 +314,7 @@ export class ChangeBridge {
         const yPath = this._toYDocPath(fullPath);
         this.yDoc.transact(() => {
             setYPath(this.fontMap, yPath, newVal);
-        }, USER_EDIT_ORIGIN);
+        }, origin);
 
         // Mark dirty
         this._onDirty?.();
@@ -298,10 +331,13 @@ export class ChangeBridge {
         const { objectType, objectId } = deriveObjectInfo(path);
         const glyphName = deriveGlyphName(path);
         const layerId = deriveLayerId(path);
+        const undoScope = this._deriveUndoScope(glyphName, layerId);
+        const origin = this._getEditOrigin(glyphName, layerId, undoScope);
 
-        // Ensure per-glyph UndoManager exists for glyph-scoped changes
-        if (path[0] === 'glyphs' && typeof path[1] === 'string') {
-            this.getGlyphUndoManager(path[1] as string);
+        if (undoScope === 'layer' && glyphName && layerId) {
+            this.getLayerUndoManager(glyphName, layerId);
+        } else if (undoScope === 'glyph' && glyphName) {
+            this.getGlyphUndoManager(glyphName);
         }
 
         const entry = createLogEntry({
@@ -317,6 +353,7 @@ export class ChangeBridge {
             objectId,
             glyphName,
             layerId,
+            undoScope,
             property: '',
             path: path.join('.'),
             oldValue: undefined,
@@ -327,7 +364,7 @@ export class ChangeBridge {
         const yPath = this._toYDocPath(path);
         this.yDoc.transact(() => {
             setYPath(this.fontMap, yPath, value);
-        }, USER_EDIT_ORIGIN);
+        }, origin);
 
         this._onDirty?.();
     }
@@ -341,10 +378,13 @@ export class ChangeBridge {
         const { objectType, objectId } = deriveObjectInfo(path);
         const glyphName = deriveGlyphName(path);
         const layerId = deriveLayerId(path);
+        const undoScope = this._deriveUndoScope(glyphName, layerId);
+        const origin = this._getEditOrigin(glyphName, layerId, undoScope);
 
-        // Ensure per-glyph UndoManager exists for glyph-scoped changes
-        if (path[0] === 'glyphs' && typeof path[1] === 'string') {
-            this.getGlyphUndoManager(path[1] as string);
+        if (undoScope === 'layer' && glyphName && layerId) {
+            this.getLayerUndoManager(glyphName, layerId);
+        } else if (undoScope === 'glyph' && glyphName) {
+            this.getGlyphUndoManager(glyphName);
         }
 
         const entry = createLogEntry({
@@ -360,6 +400,7 @@ export class ChangeBridge {
             objectId,
             glyphName,
             layerId,
+            undoScope,
             property: '',
             path: path.join('.'),
             oldValue,
@@ -370,7 +411,7 @@ export class ChangeBridge {
         const yPath = this._toYDocPath(path);
         this.yDoc.transact(() => {
             deleteYPath(this.fontMap, yPath);
-        }, USER_EDIT_ORIGIN);
+        }, origin);
 
         this._onDirty?.();
     }
@@ -467,7 +508,8 @@ export class ChangeBridge {
             glyphName: string;
             glyphJson: Record<string, unknown>;
             glyphMap: Y.Map<unknown>;
-            um: Y.UndoManager | null;
+            glyphUndoManager: Y.UndoManager | null;
+            layerUndoManager: Y.UndoManager | null;
         }> = [];
 
         for (const glyphName of uniqueGlyphNames) {
@@ -490,15 +532,32 @@ export class ChangeBridge {
                 continue;
             }
 
-            const um = this.getGlyphUndoManager(glyphName);
-            um?.stopCapturing();
+            const glyphUndoManager = this.getGlyphUndoManager(glyphName);
+            const layerUndoManager = layerId
+                ? this.getLayerUndoManager(glyphName, layerId)
+                : null;
+            glyphUndoManager?.stopCapturing();
+            layerUndoManager?.stopCapturing();
 
-            targets.push({ glyphName, glyphJson, glyphMap, um });
+            targets.push({
+                glyphName,
+                glyphJson,
+                glyphMap,
+                glyphUndoManager,
+                layerUndoManager
+            });
         }
 
         if (!targets.length) {
             return;
         }
+
+        const undoScope = this._deriveBulkUndoScope(targets, layerId ?? null);
+        const origin = this._getBulkEditOrigin(
+            targets,
+            layerId ?? null,
+            undoScope
+        );
 
         const historyItemId = this._createHistoryItemId();
         for (const target of targets) {
@@ -514,11 +573,13 @@ export class ChangeBridge {
                 objectType: layerId ? 'layer' : 'glyph',
                 objectId: layerId ?? target.glyphName,
                 glyphName: target.glyphName,
-                layerId: layerId ?? null,
+                layerId: undoScope === 'layer' ? (layerId ?? null) : null,
+                undoScope,
                 property: '',
-                path: layerId
-                    ? `glyphs.${target.glyphName}.layers.${layerId}`
-                    : `glyphs.${target.glyphName}`,
+                path:
+                    undoScope === 'layer' && layerId
+                        ? `glyphs.${target.glyphName}.layers.${layerId}`
+                        : `glyphs.${target.glyphName}`,
                 oldValue: oldValue ?? target.glyphName,
                 newValue: newValue ?? label
             });
@@ -545,11 +606,37 @@ export class ChangeBridge {
                             string,
                             unknown
                         >[]) {
-                            const layerId = (layerJson.id as string) ?? '';
-                            if (layerId) {
-                                nextLayerIds.add(layerId);
-                                layersMap.set(layerId, toYType(layerJson));
+                            const nextLayerId = (layerJson.id as string) ?? '';
+                            if (!nextLayerId) {
+                                continue;
                             }
+                            nextLayerIds.add(nextLayerId);
+
+                            const existingLayerMap = layersMap.get(
+                                nextLayerId
+                            ) as Y.Map<unknown> | undefined;
+                            if (!(existingLayerMap instanceof Y.Map)) {
+                                layersMap.set(nextLayerId, toYType(layerJson));
+                                continue;
+                            }
+
+                            const layerKeys = new Set(Object.keys(layerJson));
+                            for (const [layerKey, layerValue] of Object.entries(
+                                layerJson
+                            )) {
+                                existingLayerMap.set(
+                                    layerKey,
+                                    toYType(layerValue)
+                                );
+                            }
+
+                            existingLayerMap.forEach(
+                                (_value: unknown, key: string) => {
+                                    if (!layerKeys.has(key)) {
+                                        existingLayerMap.delete(key);
+                                    }
+                                }
+                            );
                         }
                         // Remove layers no longer present in source JSON
                         layersMap.forEach((_v: unknown, key: string) => {
@@ -569,12 +656,13 @@ export class ChangeBridge {
                     }
                 });
             }
-        }, USER_EDIT_ORIGIN);
+        }, origin);
 
         // Also split after this transaction so the next sync starts a fresh
         // logical undo step even under rapid consecutive edits.
         for (const target of targets) {
-            target.um?.stopCapturing();
+            target.glyphUndoManager?.stopCapturing();
+            target.layerUndoManager?.stopCapturing();
         }
 
         this._onDirty?.();
@@ -589,18 +677,18 @@ export class ChangeBridge {
      * Undo the last change for a specific glyph, or font-level if no
      * glyph name is given.
      */
-    undo(glyphName?: string): boolean {
-        const um = glyphName
-            ? this._undoManagers.get(glyphName)
-            : this._fontUndoManager;
+    undo(glyphName?: string, layerId?: string | null): boolean {
+        const target = this._resolveUndoTarget(glyphName, layerId, 'undo');
+        const { manager: um, scope } = this._getUndoManagerForTarget(target);
         if (!um || um.undoStack.length === 0) return false;
         this._suppressRecording = true;
         try {
-            const targetHistoryItemId = resolveHistoryTargetItemId(
-                this._changeLog,
-                glyphName ?? null,
-                'undo'
-            );
+            const targetItem = resolveHistoryTargetItem(this._changeLog, {
+                glyphName: target.glyphName,
+                layerId: target.layerId,
+                historyAction: 'undo'
+            });
+            const targetHistoryItemId = targetItem?.id ?? null;
             // Log entry before um.undo() so it's available when the
             // Y.Doc update event fires and WindowSync broadcasts it.
             const entry = createLogEntry({
@@ -612,12 +700,26 @@ export class ChangeBridge {
                 transactionLabel: 'Undo',
                 transactionId: null,
                 op: 'set' as ChangeOp,
-                objectType: glyphName ? 'glyph' : 'font',
-                objectId: glyphName ?? '',
-                glyphName: glyphName ?? null,
-                layerId: null,
+                objectType:
+                    scope === 'layer'
+                        ? 'layer'
+                        : scope === 'glyph'
+                          ? 'glyph'
+                          : 'font',
+                objectId:
+                    scope === 'layer'
+                        ? (target.layerId ?? '')
+                        : (target.glyphName ?? ''),
+                glyphName: target.glyphName,
+                layerId: scope === 'layer' ? target.layerId : null,
+                undoScope: scope,
                 property: '',
-                path: glyphName ? `glyphs.${glyphName}` : 'font',
+                path:
+                    scope === 'layer' && target.glyphName && target.layerId
+                        ? `glyphs.${target.glyphName}.layers.${target.layerId}`
+                        : scope === 'glyph' && target.glyphName
+                          ? `glyphs.${target.glyphName}`
+                          : 'font',
                 oldValue: undefined,
                 newValue: 'undo'
             });
@@ -636,18 +738,18 @@ export class ChangeBridge {
     /**
      * Redo the last undone change.
      */
-    redo(glyphName?: string): boolean {
-        const um = glyphName
-            ? this._undoManagers.get(glyphName)
-            : this._fontUndoManager;
+    redo(glyphName?: string, layerId?: string | null): boolean {
+        const target = this._resolveUndoTarget(glyphName, layerId, 'redo');
+        const { manager: um, scope } = this._getUndoManagerForTarget(target);
         if (!um || um.redoStack.length === 0) return false;
         this._suppressRecording = true;
         try {
-            const targetHistoryItemId = resolveHistoryTargetItemId(
-                this._changeLog,
-                glyphName ?? null,
-                'redo'
-            );
+            const targetItem = resolveHistoryTargetItem(this._changeLog, {
+                glyphName: target.glyphName,
+                layerId: target.layerId,
+                historyAction: 'redo'
+            });
+            const targetHistoryItemId = targetItem?.id ?? null;
             // Log entry before um.redo() so it's available for broadcast.
             const entry = createLogEntry({
                 timestamp: Date.now(),
@@ -658,12 +760,26 @@ export class ChangeBridge {
                 transactionLabel: 'Redo',
                 transactionId: null,
                 op: 'set' as ChangeOp,
-                objectType: glyphName ? 'glyph' : 'font',
-                objectId: glyphName ?? '',
-                glyphName: glyphName ?? null,
-                layerId: null,
+                objectType:
+                    scope === 'layer'
+                        ? 'layer'
+                        : scope === 'glyph'
+                          ? 'glyph'
+                          : 'font',
+                objectId:
+                    scope === 'layer'
+                        ? (target.layerId ?? '')
+                        : (target.glyphName ?? ''),
+                glyphName: target.glyphName,
+                layerId: scope === 'layer' ? target.layerId : null,
+                undoScope: scope,
                 property: '',
-                path: glyphName ? `glyphs.${glyphName}` : 'font',
+                path:
+                    scope === 'layer' && target.glyphName && target.layerId
+                        ? `glyphs.${target.glyphName}.layers.${target.layerId}`
+                        : scope === 'glyph' && target.glyphName
+                          ? `glyphs.${target.glyphName}`
+                          : 'font',
                 oldValue: undefined,
                 newValue: 'redo'
             });
@@ -680,18 +796,16 @@ export class ChangeBridge {
     }
 
     /** Check if undo is available. */
-    canUndo(glyphName?: string): boolean {
-        const um = glyphName
-            ? this._undoManagers.get(glyphName)
-            : this._fontUndoManager;
+    canUndo(glyphName?: string, layerId?: string | null): boolean {
+        const target = this._resolveUndoTarget(glyphName, layerId, 'undo');
+        const { manager: um } = this._getUndoManagerForTarget(target);
         return um ? um.undoStack.length > 0 : false;
     }
 
     /** Check if redo is available. */
-    canRedo(glyphName?: string): boolean {
-        const um = glyphName
-            ? this._undoManagers.get(glyphName)
-            : this._fontUndoManager;
+    canRedo(glyphName?: string, layerId?: string | null): boolean {
+        const target = this._resolveUndoTarget(glyphName, layerId, 'redo');
+        const { manager: um } = this._getUndoManagerForTarget(target);
         return um ? um.redoStack.length > 0 : false;
     }
 
@@ -717,10 +831,22 @@ export class ChangeBridge {
                 for (const glyphName of glyphNames) {
                     this.getGlyphUndoManager(glyphName);
                 }
+                for (const entry of remoteEntries) {
+                    if (entry.glyphName && entry.layerId) {
+                        this.getLayerUndoManager(
+                            entry.glyphName,
+                            entry.layerId
+                        );
+                    }
+                }
             }
             // Apply linked-window updates using the shared same-user origin so
             // every window can undo the combined edit history.
-            Y.applyUpdate(this.yDoc, update, USER_EDIT_ORIGIN);
+            Y.applyUpdate(
+                this.yDoc,
+                update,
+                this._getRemoteUpdateOrigin(remoteEntries)
+            );
             this._syncJsonFromYDoc();
             this._onAfterSync?.();
             this._onDirty?.();
@@ -804,6 +930,10 @@ export class ChangeBridge {
         this._nextTxId = 1;
         this._nextHistoryItemId = 1;
         resetLogCounter();
+        for (const um of this._layerUndoManagers.values()) {
+            um.destroy();
+        }
+        this._layerUndoManagers.clear();
         for (const um of this._undoManagers.values()) {
             um.destroy();
         }
@@ -865,7 +995,7 @@ export class ChangeBridge {
         this._fontUndoManager?.destroy();
         // Track all top-level keys in the font map
         this._fontUndoManager = new Y.UndoManager(this.fontMap, {
-            trackedOrigins: new Set([USER_EDIT_ORIGIN]),
+            trackedOrigins: new Set([FONT_EDIT_ORIGIN]),
             captureTimeout: 0
         });
     }
@@ -883,11 +1013,205 @@ export class ChangeBridge {
         if (!(glyphMap instanceof Y.Map)) return null;
 
         const um = new Y.UndoManager(glyphMap, {
-            trackedOrigins: new Set([USER_EDIT_ORIGIN]),
+            trackedOrigins: new Set([GLYPH_EDIT_ORIGIN]),
             captureTimeout: 0
         });
         this._undoManagers.set(glyphName, um);
         return um;
+    }
+
+    getLayerUndoManager(
+        glyphName: string,
+        layerId: string
+    ): Y.UndoManager | null {
+        const managerKey = getLayerManagerKey(glyphName, layerId);
+        if (this._layerUndoManagers.has(managerKey)) {
+            return this._layerUndoManagers.get(managerKey)!;
+        }
+        const glyphsMap = this.fontMap.get('glyphs');
+        if (!(glyphsMap instanceof Y.Map)) return null;
+        const glyphMap = glyphsMap.get(glyphName);
+        if (!(glyphMap instanceof Y.Map)) return null;
+        const layersMap = glyphMap.get('layers');
+        if (!(layersMap instanceof Y.Map)) return null;
+        const layerMap = layersMap.get(layerId);
+        if (!(layerMap instanceof Y.Map)) return null;
+
+        const um = new Y.UndoManager(layerMap, {
+            trackedOrigins: new Set([getLayerEditOrigin(glyphName, layerId)]),
+            captureTimeout: 0
+        });
+        this._layerUndoManagers.set(managerKey, um);
+        return um;
+    }
+
+    private _deriveUndoScope(
+        glyphName: string | null,
+        layerId: string | null
+    ): UndoScope {
+        if (!glyphName) {
+            return 'font';
+        }
+        if (layerId) {
+            return 'layer';
+        }
+        return 'glyph';
+    }
+
+    private _getEditOrigin(
+        glyphName: string | null,
+        layerId: string | null,
+        scope: UndoScope
+    ): string {
+        if (scope === 'layer' && glyphName && layerId) {
+            return getLayerEditOrigin(glyphName, layerId);
+        }
+        if (scope === 'glyph') {
+            return GLYPH_EDIT_ORIGIN;
+        }
+        return FONT_EDIT_ORIGIN;
+    }
+
+    private _deriveBulkUndoScope(
+        targets: Array<{ glyphName: string }>,
+        layerId: string | null
+    ): UndoScope {
+        const glyphNames = new Set(targets.map((target) => target.glyphName));
+        if (glyphNames.size !== 1) {
+            return 'font';
+        }
+        if (layerId) {
+            return 'layer';
+        }
+        return 'glyph';
+    }
+
+    private _getBulkEditOrigin(
+        targets: Array<{ glyphName: string }>,
+        layerId: string | null,
+        scope: UndoScope
+    ): string {
+        if (scope === 'layer' && targets.length === 1 && layerId) {
+            return getLayerEditOrigin(targets[0].glyphName, layerId);
+        }
+        if (scope === 'glyph') {
+            return GLYPH_EDIT_ORIGIN;
+        }
+        return FONT_EDIT_ORIGIN;
+    }
+
+    private _getRemoteUpdateOrigin(remoteEntries?: ChangeLogEntry[]): string {
+        if (!remoteEntries?.length) {
+            return USER_EDIT_ORIGIN;
+        }
+
+        const targetItem = remoteEntries.find(
+            (entry) => entry.historyAction === 'change'
+        );
+        const glyphNames = new Set(
+            remoteEntries
+                .map((entry) => entry.glyphName)
+                .filter((glyphName): glyphName is string => !!glyphName)
+        );
+        const layerKeys = new Set(
+            remoteEntries
+                .filter(
+                    (entry) =>
+                        entry.undoScope === 'layer' &&
+                        entry.glyphName &&
+                        entry.layerId
+                )
+                .map((entry) =>
+                    getLayerManagerKey(entry.glyphName!, entry.layerId!)
+                )
+        );
+
+        if (remoteEntries.some((entry) => entry.undoScope === 'font')) {
+            return FONT_EDIT_ORIGIN;
+        }
+        if (layerKeys.size === 1 && glyphNames.size === 1) {
+            const entry =
+                targetItem ??
+                remoteEntries.find(
+                    (candidate) => candidate.glyphName && candidate.layerId
+                );
+            if (entry?.glyphName && entry.layerId) {
+                return getLayerEditOrigin(entry.glyphName, entry.layerId);
+            }
+        }
+        if (glyphNames.size === 1) {
+            return GLYPH_EDIT_ORIGIN;
+        }
+        return FONT_EDIT_ORIGIN;
+    }
+
+    private _resolveUndoTarget(
+        glyphName: string | undefined,
+        layerId: string | null | undefined,
+        historyAction: 'undo' | 'redo'
+    ): UndoTarget {
+        const targetItem = resolveHistoryTargetItem(this._changeLog, {
+            glyphName: glyphName ?? null,
+            layerId: layerId ?? null,
+            historyAction
+        });
+        if (targetItem) {
+            return this._targetFromHistoryItem(
+                targetItem,
+                glyphName ?? null,
+                layerId ?? null
+            );
+        }
+        return {
+            glyphName: glyphName ?? null,
+            layerId: layerId ?? null
+        };
+    }
+
+    private _targetFromHistoryItem(
+        item: HistoryStackItem,
+        fallbackGlyphName: string | null,
+        fallbackLayerId: string | null
+    ): UndoTarget {
+        if (item.undoScope === 'layer') {
+            return {
+                glyphName: item.glyphNames[0] ?? fallbackGlyphName,
+                layerId:
+                    item.primaryLayerId ?? item.layerIds[0] ?? fallbackLayerId
+            };
+        }
+        if (item.undoScope === 'glyph') {
+            return {
+                glyphName: item.glyphNames[0] ?? fallbackGlyphName,
+                layerId: null
+            };
+        }
+        return {
+            glyphName: null,
+            layerId: null
+        };
+    }
+
+    private _getUndoManagerForTarget(target: UndoTarget): UndoManagerWithScope {
+        if (target.glyphName && target.layerId) {
+            return {
+                manager: this.getLayerUndoManager(
+                    target.glyphName,
+                    target.layerId
+                ),
+                scope: 'layer'
+            };
+        }
+        if (target.glyphName) {
+            return {
+                manager: this.getGlyphUndoManager(target.glyphName),
+                scope: 'glyph'
+            };
+        }
+        return {
+            manager: this._fontUndoManager,
+            scope: 'font'
+        };
     }
 
     private _appendChangeLogEntry(entry: ChangeLogEntry): void {

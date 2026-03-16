@@ -1533,6 +1533,7 @@
             const rootGlyphName = parsedStack[0]?.glyphName;
             const undoGlyphName =
                 parsedStack[parsedStack.length - 1]?.glyphName;
+            const undoLayerId = oe?.selectedLayerId ?? null;
 
             if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
                 console.warn(
@@ -1545,7 +1546,8 @@
             window.runBridgeUndoRedo?.(
                 shiftKey ? 'redo' : 'undo',
                 undoGlyphName,
-                rootGlyphName
+                rootGlyphName,
+                undoLayerId
             );
             return;
         }

@@ -27,6 +27,9 @@ export type ChangeOp = 'set' | 'add' | 'remove';
 /** Logical history action type */
 export type HistoryAction = 'change' | 'undo' | 'redo';
 
+/** Undo scope for a logical history item */
+export type UndoScope = 'font' | 'glyph' | 'layer';
+
 /**
  * A single entry in the change log.
  */
@@ -59,6 +62,8 @@ export interface ChangeLogEntry {
     glyphName: string | null;
     /** Layer scope for local-history filtering, or null for non-layer changes */
     layerId: string | null;
+    /** Effective undo scope for this entry */
+    undoScope: UndoScope;
     /** Property name that changed (e.g. "x", "width", "name") */
     property: string;
     /** Full dot-delimited path: "glyphs.A.layers.uuid-1.shapes.0.nodes.2.x" */
@@ -80,20 +85,25 @@ export function createLogEntry(
         | 'historyAction'
         | 'targetHistoryItemId'
         | 'layerId'
+        | 'undoScope'
     > & {
         historyItemId?: string;
         historyAction?: HistoryAction;
         targetHistoryItemId?: string | null;
         layerId?: string | null;
+        undoScope?: UndoScope;
     }
 ): ChangeLogEntry {
     const nextId = _nextId++;
+    const glyphName = fields.glyphName ?? null;
+    const layerId = fields.layerId ?? null;
     return {
         id: nextId,
         historyItemId: fields.historyItemId ?? `history-item-${nextId}`,
         historyAction: fields.historyAction ?? 'change',
         targetHistoryItemId: fields.targetHistoryItemId ?? null,
-        layerId: fields.layerId ?? null,
+        layerId,
+        undoScope: fields.undoScope ?? deriveUndoScope(glyphName, layerId),
         ...fields
     };
 }
@@ -105,9 +115,11 @@ export type ChangeLogEntryLike = Omit<
     | 'windowRoleLabel'
     | 'historyItemId'
     | 'historyAction'
+    | 'undoScope'
 > & {
     glyphName?: string | null;
     layerId?: string | null;
+    undoScope?: UndoScope | null;
     windowRoleLabel?: string | null;
     historyItemId?: string | null;
     historyAction?: HistoryAction | null;
@@ -125,6 +137,7 @@ export interface HistoryStackItem {
     glyphNames: string[];
     layerIds: string[];
     primaryLayerId: string | null;
+    undoScope: UndoScope;
     isActive: boolean;
     lastAction: HistoryAction;
 }
@@ -184,6 +197,54 @@ function removeFromStack(stack: string[], itemId: string): void {
     }
 }
 
+function deriveUndoScope(
+    glyphName: string | null,
+    layerId: string | null
+): UndoScope {
+    if (!glyphName) {
+        return 'font';
+    }
+    if (layerId) {
+        return 'layer';
+    }
+    return 'glyph';
+}
+
+function deriveHistoryItemUndoScope(
+    entries: ChangeLogEntry[],
+    glyphNames: Set<string>,
+    layerIds: Set<string>
+): UndoScope {
+    if (entries.some((entry) => entry.undoScope === 'font')) {
+        return 'font';
+    }
+    if (glyphNames.size === 0) {
+        return 'font';
+    }
+    if (glyphNames.size > 1) {
+        return 'font';
+    }
+    if (entries.some((entry) => entry.undoScope === 'glyph')) {
+        return 'glyph';
+    }
+    if (layerIds.size !== 1) {
+        return 'glyph';
+    }
+    return 'layer';
+}
+
+function stripMutableHistoryItem(
+    item: MutableHistoryStackItem
+): HistoryStackItem {
+    const {
+        glyphNameSet: _glyphNameSet,
+        layerIdSet: _layerIdSet,
+        scopeKeys: _scopeKeys,
+        ...historyItem
+    } = item;
+    return historyItem;
+}
+
 type MutableHistoryStackItem = HistoryStackItem & {
     glyphNameSet: Set<string>;
     layerIdSet: Set<string>;
@@ -215,6 +276,7 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
                 glyphNames: [],
                 layerIds: [],
                 primaryLayerId: entry.layerId,
+                undoScope: entry.undoScope,
                 glyphNameSet: new Set<string>(),
                 layerIdSet: new Set<string>(),
                 scopeKeys: new Set<string>(),
@@ -249,6 +311,11 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
                 item.layerIdSet.add(entry.layerId);
                 item.layerIds = [...item.layerIdSet];
             }
+            item.undoScope = deriveHistoryItemUndoScope(
+                item.entries,
+                item.glyphNameSet,
+                item.layerIdSet
+            );
 
             if (!item.scopeKeys.has(glyphScopeKey)) {
                 item.scopeKeys.add(glyphScopeKey);
@@ -312,15 +379,38 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
 export function resolveHistoryTargetItemId(
     entries: ChangeLogEntry[],
     glyphName: string | null | undefined,
-    historyAction: 'undo' | 'redo'
+    historyAction: 'undo' | 'redo',
+    layerId?: string | null
 ): string | null {
-    const state = computeHistoryState(entries);
-    const scopeKey = getGlyphScopeKey(glyphName ?? null);
-    const stack =
-        historyAction === 'undo'
-            ? state.activeByScope.get(scopeKey)
-            : state.undoneByScope.get(scopeKey);
-    return stack?.[stack.length - 1] ?? null;
+    return (
+        resolveHistoryTargetItem(entries, {
+            glyphName,
+            layerId,
+            historyAction
+        })?.id ?? null
+    );
+}
+
+export function resolveHistoryTargetItem(
+    entries: ChangeLogEntry[],
+    options: {
+        glyphName?: string | null;
+        layerId?: string | null;
+        historyAction: 'undo' | 'redo';
+    }
+): HistoryStackItem | null {
+    const glyphName = options.glyphName ?? null;
+    const layerId = options.layerId ?? null;
+
+    const visibleItems = buildHistoryStackItems(entries, {
+        glyphName,
+        layerId,
+        includeUndone: true
+    }).filter((item) =>
+        options.historyAction === 'undo' ? item.isActive : !item.isActive
+    );
+
+    return visibleItems.length ? visibleItems[visibleItems.length - 1] : null;
 }
 
 export function buildHistoryStackItems(
@@ -343,7 +433,14 @@ export function buildHistoryStackItems(
             if (glyphName && !item.glyphNameSet.has(glyphName)) {
                 return false;
             }
-            if (layerId && !item.layerIdSet.has(layerId)) {
+            if (
+                layerId &&
+                item.undoScope === 'layer' &&
+                !item.layerIdSet.has(layerId)
+            ) {
+                return false;
+            }
+            if (layerId && item.undoScope === 'font') {
                 return false;
             }
             if (!includeUndone && !item.isActive) {
@@ -351,14 +448,7 @@ export function buildHistoryStackItems(
             }
             return true;
         })
-        .map(
-            ({
-                glyphNameSet: _glyphNameSet,
-                layerIdSet: _layerIdSet,
-                scopeKeys: _scopeKeys,
-                ...item
-            }) => item
-        );
+        .map((item) => stripMutableHistoryItem(item));
 }
 
 export function normalizeWindowRoleLabel(
@@ -484,12 +574,15 @@ export function deriveLayerIdFromPath(path: string): string | null {
 export function normalizeChangeLogEntry(
     entry: ChangeLogEntryLike
 ): ChangeLogEntry {
+    const glyphName = entry.glyphName ?? deriveGlyphNameFromPath(entry.path);
+    const layerId = entry.layerId ?? deriveLayerIdFromPath(entry.path);
     return {
         ...entry,
         historyItemId: normalizeHistoryItemId(entry.historyItemId, entry.id),
         historyAction: normalizeHistoryAction(entry.historyAction),
-        glyphName: entry.glyphName ?? deriveGlyphNameFromPath(entry.path),
-        layerId: entry.layerId ?? deriveLayerIdFromPath(entry.path),
+        glyphName,
+        layerId,
+        undoScope: entry.undoScope ?? deriveUndoScope(glyphName, layerId),
         targetHistoryItemId: entry.targetHistoryItemId ?? null,
         windowRoleLabel: normalizeWindowRoleLabel(
             entry.windowRoleLabel,
