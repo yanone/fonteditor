@@ -70,14 +70,16 @@ class HistoryViewController {
         this.rootEl.innerHTML = `
             <div class="history-panel">
                 <div class="history-toolbar">
-                    <div class="history-breadcrumb" data-role="history-breadcrumb"></div>
+                    <div class="history-breadcrumb-wrap">
+                        <div class="history-breadcrumb" data-role="history-breadcrumb"></div>
+                        <span class="history-status" data-role="history-status"></span>
+                    </div>
                     <input
                         class="history-search-input"
                         data-role="history-search"
                         type="text"
                         placeholder="Filter changes..."
                     />
-                    <span class="history-status" data-role="history-status"></span>
                 </div>
                 <div class="history-filters" data-role="history-filters"></div>
                 <div class="history-change-list" data-role="history-list"></div>
@@ -253,7 +255,7 @@ class HistoryViewController {
         }
 
         const fragment = document.createDocumentFragment();
-        fragment.appendChild(this.createBreadcrumbButton('Font', 'font'));
+        fragment.appendChild(this.createBreadcrumbItem('Font', 'font'));
 
         if (this.currentGlyphName) {
             const separator = document.createElement('span');
@@ -262,7 +264,7 @@ class HistoryViewController {
             separator.textContent = 'chevron_right';
             fragment.appendChild(separator);
             fragment.appendChild(
-                this.createBreadcrumbButton(this.currentGlyphName, 'glyph')
+                this.createBreadcrumbItem(this.currentGlyphName, 'glyph')
             );
         }
 
@@ -270,14 +272,14 @@ class HistoryViewController {
         this.breadcrumbEl.appendChild(fragment);
     }
 
-    private createBreadcrumbButton(
+    private createBreadcrumbItem(
         label: string,
         scope: HistoryScope
     ): HTMLButtonElement {
         const button = document.createElement('button');
         button.type = 'button';
         button.className =
-            'history-breadcrumb-button' +
+            'history-breadcrumb-item' +
             (this.currentScope === scope ? ' active' : '');
         button.textContent = label;
         button.disabled = scope === 'glyph' && !this.currentGlyphName;
@@ -328,7 +330,7 @@ class HistoryViewController {
             const tag = document.createElement('button');
             tag.type = 'button';
             tag.className =
-                'history-tag' +
+                'history-filter-button' +
                 (this.activeTypeFilter === type ? ' active' : '');
             tag.textContent = type;
             tag.addEventListener('click', () => {
