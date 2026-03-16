@@ -17,10 +17,10 @@ There are two separate concepts:
 
 2. Touched scope metadata
    Determines where a history item is shown.
-   This is derived from the actual changed paths and stored as:
-    - `touchedPaths`
-    - `touchedGlyphNames`
-    - `touchedLayerKeys`
+   This is derived from the actual changed paths.
+   Canonically, history items aggregate `touchedPaths`, and glyph or layer
+   visibility is derived from those paths rather than stored as duplicated
+   `touchedGlyphNames` or `touchedLayerKeys` fields.
 
 This separation is important because one logical edit can be glyph-scoped for undo purposes while still needing to appear in multiple layer histories.
 
@@ -35,8 +35,8 @@ History items derive their undo scope from the aggregate entry set, not from dis
 ## History Visibility Rules
 
 - Font history shows all items.
-- Glyph history shows items whose `touchedGlyphNames` contain the active glyph.
-- Layer history shows items whose `touchedLayerKeys` contain the active `glyph@@layer` key.
+- Glyph history shows items whose derived touched glyph set contains the active glyph.
+- Layer history shows items whose derived touched layer set contains the active `glyph@@layer` key.
 
 This replaces the earlier approach where layer history inferred visibility from promoted glyph scope. The earlier model was too approximate because it showed glyph-scoped items in every layer history for that glyph, even if the layer was untouched.
 
@@ -49,6 +49,13 @@ Undo behavior is implemented with separate undo managers:
 - Layer undo managers keyed by `glyph@@layer`.
 
 The transaction origin determines which undo manager captures a change set. Display metadata does not affect this.
+
+One implementation detail is now intentionally asymmetric:
+
+- Layer- and glyph-scoped undo/redo still use their Yjs undo managers directly.
+- Font-scoped undo/redo resolves the target history item from the change log and replays exactly that item, instead of trusting the root Yjs undo-manager capture state.
+
+This avoids a failure mode where one font-level undo could otherwise collapse unrelated edits that happened to share root-manager capture history.
 
 ## Python Execution Strategy
 
@@ -69,8 +76,8 @@ The execution flow is:
     - Let the bridge derive the correct undo scope from the full touched set.
 
 3. Visibility
-    - Each synthetic entry carries touched metadata derived from its changed path.
-    - History items aggregate those touched scopes, so the Python action appears only in the relevant glyph and layer histories.
+    - Each synthetic entry carries a canonical changed path.
+    - History items aggregate touched paths, and glyph/layer visibility is derived from those paths, so the Python action appears only in the relevant glyph and layer histories.
 
 ## Diff Semantics
 
@@ -95,6 +102,14 @@ Remote windows receive the same change-log entries with touched metadata intact.
 
 That preserves correct undo ownership across windows while keeping layer history filtering accurate.
 
+The History panel can also change the effective undo context explicitly:
+
+- when the panel is zoomed to `layer`, undo targets that layer history
+- when zoomed to `glyph`, undo targets that glyph history
+- when zoomed to `font`, undo targets font history even if the outline editor still has a layer selected
+
+Toolbar and keyboard undo/redo should therefore follow the visible history-panel scope, not just the active outline-editor scope.
+
 ## Known Constraints
 
 - Synchronous `runPython` cannot await async post-execution work; it can only trigger it.
@@ -108,4 +123,5 @@ The intended user-visible behavior is:
 - Undo and Redo still target the correct logical scope.
 - Layer history shows only edits that actually touched that layer.
 - Multi-layer Python edits remain one logical undo step.
+- Font-level undo reverts exactly one targeted font-scope history item, even in mixed histories that also contain layer or glyph edits.
 - Linked windows stay in sync without losing undo ownership.
