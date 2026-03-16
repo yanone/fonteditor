@@ -1202,6 +1202,55 @@ describe('WindowSync', () => {
         bridge2.destroy();
     });
 
+    test('linked window can undo a main-window edit', () => {
+        const fontJson1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('win-1');
+        bridge1.initFromJson(fontJson1);
+
+        const bridge2 = new ChangeBridge('win-2');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(bridge1, 'font-channel');
+        const sync2 = new WindowSync(bridge2, 'font-channel');
+
+        bridge1.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            820
+        );
+        flushTimers();
+
+        expect(bridge2.canUndo('A')).toBe(true);
+
+        bridge2.undo('A');
+        flushTimers();
+
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+        expect(
+            getYPath(bridge1.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+
     test('full state request/response bootstraps new window', () => {
         const fontJson1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('win-1');

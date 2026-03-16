@@ -36,11 +36,11 @@ const console = new Logger('ChangeBridge');
 type Unsafe = ReturnType<typeof JSON.parse>;
 
 /**
- * Origin token used by Yjs transactions that originate from
- * the local model. Remote updates use other origin values.
+ * Origin token used by Yjs transactions that represent same-user edits.
+ * Linked windows should all be able to undo these changes.
  */
-const LOCAL_ORIGIN = 'local';
-const REMOTE_ORIGIN = 'remote';
+const USER_EDIT_ORIGIN = 'user-edit';
+const SYSTEM_REMOTE_ORIGIN = 'system-remote';
 
 /**
  * Central change processor that keeps Yjs Y.Doc in sync with the
@@ -129,10 +129,10 @@ export class ChangeBridge {
         this.fontMap = this.yDoc.getMap('font');
 
         // Listen for Y.Doc updates.
-        // Broadcast all non-remote updates (LOCAL_ORIGIN + UndoManager)
+        // Broadcast all non-system-remote updates (user edits + UndoManager)
         // so undo/redo propagates to other windows too.
         this.yDoc.on('update', (update: Uint8Array, origin: unknown) => {
-            if (origin !== REMOTE_ORIGIN && !this._isApplyingRemote) {
+            if (origin !== SYSTEM_REMOTE_ORIGIN && !this._isApplyingRemote) {
                 this._onLocalUpdate?.(update);
             }
         });
@@ -153,7 +153,7 @@ export class ChangeBridge {
                 this.fontMap.delete(k);
             });
             jsonToYDoc(fontJson, this.fontMap);
-        }, LOCAL_ORIGIN);
+        }, USER_EDIT_ORIGIN);
         this._isSyncing = false;
         this._setupFontUndoManager();
     }
@@ -262,7 +262,7 @@ export class ChangeBridge {
         const yPath = this._toYDocPath(fullPath);
         this.yDoc.transact(() => {
             setYPath(this.fontMap, yPath, newVal);
-        }, LOCAL_ORIGIN);
+        }, USER_EDIT_ORIGIN);
 
         // Mark dirty
         this._onDirty?.();
@@ -304,7 +304,7 @@ export class ChangeBridge {
         const yPath = this._toYDocPath(path);
         this.yDoc.transact(() => {
             setYPath(this.fontMap, yPath, value);
-        }, LOCAL_ORIGIN);
+        }, USER_EDIT_ORIGIN);
 
         this._onDirty?.();
     }
@@ -343,7 +343,7 @@ export class ChangeBridge {
         const yPath = this._toYDocPath(path);
         this.yDoc.transact(() => {
             deleteYPath(this.fontMap, yPath);
-        }, LOCAL_ORIGIN);
+        }, USER_EDIT_ORIGIN);
 
         this._onDirty?.();
     }
@@ -526,7 +526,7 @@ export class ChangeBridge {
                     }
                 });
             }
-        }, LOCAL_ORIGIN);
+        }, USER_EDIT_ORIGIN);
 
         // Also split after this transaction so the next sync starts a fresh
         // logical undo step even under rapid consecutive edits.
@@ -649,7 +649,19 @@ export class ChangeBridge {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
-            Y.applyUpdate(this.yDoc, update, REMOTE_ORIGIN);
+            if (remoteEntries?.length) {
+                const glyphNames = new Set(
+                    remoteEntries
+                        .map((entry) => entry.glyphName)
+                        .filter((glyphName): glyphName is string => !!glyphName)
+                );
+                for (const glyphName of glyphNames) {
+                    this.getGlyphUndoManager(glyphName);
+                }
+            }
+            // Apply linked-window updates using the shared same-user origin so
+            // every window can undo the combined edit history.
+            Y.applyUpdate(this.yDoc, update, USER_EDIT_ORIGIN);
             this._syncJsonFromYDoc();
             this._onAfterSync?.();
             this._onDirty?.();
@@ -678,7 +690,7 @@ export class ChangeBridge {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
-            Y.applyUpdate(this.yDoc, state, REMOTE_ORIGIN);
+            Y.applyUpdate(this.yDoc, state, SYSTEM_REMOTE_ORIGIN);
             this._syncJsonFromYDoc();
             // Set up undo managers so this window can undo/redo too
             this._setupFontUndoManager();
@@ -792,7 +804,7 @@ export class ChangeBridge {
         this._fontUndoManager?.destroy();
         // Track all top-level keys in the font map
         this._fontUndoManager = new Y.UndoManager(this.fontMap, {
-            trackedOrigins: new Set([LOCAL_ORIGIN]),
+            trackedOrigins: new Set([USER_EDIT_ORIGIN]),
             captureTimeout: 0
         });
     }
@@ -810,7 +822,7 @@ export class ChangeBridge {
         if (!(glyphMap instanceof Y.Map)) return null;
 
         const um = new Y.UndoManager(glyphMap, {
-            trackedOrigins: new Set([LOCAL_ORIGIN]),
+            trackedOrigins: new Set([USER_EDIT_ORIGIN]),
             captureTimeout: 0
         });
         this._undoManagers.set(glyphName, um);
