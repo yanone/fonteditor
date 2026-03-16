@@ -380,6 +380,11 @@ declare global {
 
         // From keyboard-navigation.js
         focusView: (viewId: string) => void;
+        getViewVisitOrder: () => { top: string[]; bottom: string[] };
+        setViewVisitOrder: (visitOrder: {
+            top?: string[];
+            bottom?: string[];
+        }) => void;
 
         // From bootstrap.ts (loading status)
         updateLoadingStatus: (message: string, isReady?: boolean) => void;

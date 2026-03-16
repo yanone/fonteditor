@@ -4,6 +4,10 @@
     let isFocusing = false; // Prevent recursive focus calls
 
     type ResizeConfig = { width: number; height: number };
+    type ViewRowKey = 'top' | 'bottom';
+    type RowVisitOrder = Record<ViewRowKey, string[]>;
+
+    let rowVisitOrder: RowVisitOrder = { top: [], bottom: [] };
 
     // Get view settings from the global VIEW_SETTINGS object
     function getViewSettings() {
@@ -16,6 +20,223 @@
             return null;
         }
         return window.VIEW_SETTINGS;
+    }
+
+    function getRowKeyForView(view: HTMLElement): ViewRowKey | null {
+        if (view.closest('.top-row')) {
+            return 'top';
+        }
+        if (view.closest('.bottom-row')) {
+            return 'bottom';
+        }
+        return null;
+    }
+
+    function getRowViews(rowKey: ViewRowKey): HTMLElement[] {
+        const selector = rowKey === 'top' ? '.top-row' : '.bottom-row';
+        const row = document.querySelector(selector) as HTMLElement | null;
+        if (!row) {
+            return [];
+        }
+
+        return Array.from(row.querySelectorAll('.view')) as HTMLElement[];
+    }
+
+    function createDefaultRowVisitOrder(): RowVisitOrder {
+        return {
+            top: getRowViews('top')
+                .map((view) => view.id)
+                .filter(Boolean),
+            bottom: getRowViews('bottom')
+                .map((view) => view.id)
+                .filter(Boolean)
+        };
+    }
+
+    function normalizeRowVisitOrder(
+        order: Partial<RowVisitOrder> | null | undefined
+    ): RowVisitOrder {
+        const defaults = createDefaultRowVisitOrder();
+
+        return {
+            top: normalizeRowVisitOrderForKey(order?.top, defaults.top),
+            bottom: normalizeRowVisitOrderForKey(order?.bottom, defaults.bottom)
+        };
+    }
+
+    function normalizeRowVisitOrderForKey(
+        visitIds: string[] | undefined,
+        defaultIds: string[]
+    ): string[] {
+        const filteredIds = (visitIds || []).filter((id) =>
+            defaultIds.includes(id)
+        );
+        const missingIds = defaultIds.filter((id) => !filteredIds.includes(id));
+
+        return [...missingIds, ...filteredIds];
+    }
+
+    function getViewVisitOrder(): RowVisitOrder {
+        return {
+            top: [...rowVisitOrder.top],
+            bottom: [...rowVisitOrder.bottom]
+        };
+    }
+
+    function setViewVisitOrder(order: Partial<RowVisitOrder>) {
+        rowVisitOrder = normalizeRowVisitOrder(order);
+    }
+
+    function recordViewVisit(viewId: string) {
+        const view = document.getElementById(viewId) as HTMLElement | null;
+        if (!view) {
+            return;
+        }
+
+        const rowKey = getRowKeyForView(view);
+        if (!rowKey) {
+            return;
+        }
+
+        rowVisitOrder[rowKey] = rowVisitOrder[rowKey].filter(
+            (id) => id !== viewId
+        );
+        rowVisitOrder[rowKey].push(viewId);
+    }
+
+    function getPreviousVisitedViewId(viewId: string): string | null {
+        const view = document.getElementById(viewId) as HTMLElement | null;
+        if (!view) {
+            return null;
+        }
+
+        const rowKey = getRowKeyForView(view);
+        if (!rowKey) {
+            return null;
+        }
+
+        const previousVisits = rowVisitOrder[rowKey].filter(
+            (id) => id !== viewId
+        );
+        return previousVisits.length > 0
+            ? previousVisits[previousVisits.length - 1]
+            : null;
+    }
+
+    function getViewMinimumWidth(view: HTMLElement): number {
+        if (view.classList.contains('view-editor')) {
+            return 200;
+        }
+        if (
+            view.classList.contains('view-fontinfo') ||
+            view.classList.contains('view-overview')
+        ) {
+            return 24;
+        }
+        return 100;
+    }
+
+    function getActivationMinimumWidth(rowKey: ViewRowKey): number {
+        const settings = getViewSettings();
+        const configuredMinimums = settings?.activation?.minimumWidths;
+
+        if (!configuredMinimums) {
+            return 0;
+        }
+
+        return rowKey === 'top'
+            ? configuredMinimums.topRow
+            : configuredMinimums.bottomRow;
+    }
+
+    function applyRowViewWidths(
+        rowViews: HTMLElement[],
+        widthsByViewId: Record<string, number>
+    ) {
+        const threshold = 5;
+
+        rowViews.forEach((rowView) => {
+            const nextWidth = widthsByViewId[rowView.id];
+            if (nextWidth === undefined) {
+                return;
+            }
+
+            const minWidth = getViewMinimumWidth(rowView);
+            if (nextWidth <= minWidth + threshold) {
+                if (
+                    rowView.classList.contains('view-fontinfo') ||
+                    rowView.classList.contains('view-overview')
+                ) {
+                    rowView.style.flex = `0 0 ${minWidth}px`;
+                    return;
+                }
+            }
+
+            rowView.style.flex = `${nextWidth}`;
+        });
+    }
+
+    function ensureActivationMinimumWidth(viewId: string): boolean {
+        const activeView = document.getElementById(
+            viewId
+        ) as HTMLElement | null;
+        if (!activeView) {
+            return false;
+        }
+
+        const rowKey = getRowKeyForView(activeView);
+        if (!rowKey) {
+            return false;
+        }
+
+        const donorViewId = getPreviousVisitedViewId(viewId);
+        if (!donorViewId) {
+            return false;
+        }
+
+        const donorView = document.getElementById(
+            donorViewId
+        ) as HTMLElement | null;
+        if (!donorView) {
+            return false;
+        }
+
+        const rowViews = getRowViews(rowKey);
+        if (!rowViews.some((rowView) => rowView.id === donorViewId)) {
+            return false;
+        }
+
+        const activeWidth = activeView.offsetWidth;
+        const targetWidth = getActivationMinimumWidth(rowKey);
+        if (activeWidth >= targetWidth) {
+            return false;
+        }
+
+        const donorWidth = donorView.offsetWidth;
+        const donorMinimumWidth = getViewMinimumWidth(donorView);
+        const transferableWidth = Math.max(0, donorWidth - donorMinimumWidth);
+        const widthDelta = Math.min(
+            targetWidth - activeWidth,
+            transferableWidth
+        );
+
+        if (widthDelta <= 0) {
+            return false;
+        }
+
+        const widthsByViewId = rowViews.reduce<Record<string, number>>(
+            (widths, rowView) => {
+                widths[rowView.id] = rowView.offsetWidth;
+                return widths;
+            },
+            {}
+        );
+
+        widthsByViewId[viewId] = activeWidth + widthDelta;
+        widthsByViewId[donorViewId] = donorWidth - widthDelta;
+
+        applyRowViewWidths(rowViews, widthsByViewId);
+        return true;
     }
 
     /**
@@ -42,7 +263,6 @@
         if (!view) return false;
 
         const container = document.querySelector('.container') as HTMLElement;
-        const containerWidth = container.offsetWidth;
         const containerHeight = container.offsetHeight;
         const horizontalDividerHeight = 4;
         const availableHeight = containerHeight - horizontalDividerHeight;
@@ -60,61 +280,15 @@
 
         let expanded = false;
 
+        if (isTopRow || isBottomRow) {
+            expanded = ensureActivationMinimumWidth(viewId) || expanded;
+        }
+
         if (viewId === 'view-editor') {
-            // Editor view - expand if below threshold
             const config = settings.activation.editor;
             const topRow = view.closest('.top-row') as HTMLElement;
-            const topRowViews = Array.from(
-                topRow.querySelectorAll('.view')
-            ) as HTMLElement[];
-            const viewIndex = topRowViews.indexOf(view);
-
-            const currentWidth = view.offsetWidth;
             const currentHeight = topRow.offsetHeight;
-            const widthRatio = currentWidth / containerWidth;
             const heightRatio = currentHeight / availableHeight;
-
-            if (widthRatio < config.widthThreshold) {
-                // Expand width
-                const targetWidth = containerWidth * config.widthTarget;
-                const otherViews = topRowViews.filter(
-                    (v, i) => i !== viewIndex
-                );
-
-                // Separate collapsed and non-collapsed views
-                const collapsedViews = otherViews.filter(
-                    (v) => v.offsetWidth <= 24 + 5
-                ); // 5px tolerance
-                const nonCollapsedViews = otherViews.filter(
-                    (v) => v.offsetWidth > 24 + 5
-                );
-
-                // Reserve width for collapsed views
-                const collapsedWidth = collapsedViews.length * 24;
-                const availableForDistribution =
-                    containerWidth - targetWidth - collapsedWidth;
-                const minWidthPerNonCollapsed = 24;
-
-                if (
-                    availableForDistribution >=
-                    minWidthPerNonCollapsed * nonCollapsedViews.length
-                ) {
-                    const nonCollapsedViewWidth =
-                        nonCollapsedViews.length > 0
-                            ? availableForDistribution /
-                              nonCollapsedViews.length
-                            : 0;
-
-                    view.style.flex = `${targetWidth}`;
-                    collapsedViews.forEach((v) => {
-                        v.style.flex = `0 0 24px`; // Keep collapsed at exactly 24px
-                    });
-                    nonCollapsedViews.forEach((v) => {
-                        v.style.flex = `${nonCollapsedViewWidth}`;
-                    });
-                    expanded = true;
-                }
-            }
 
             if (heightRatio < config.heightThreshold) {
                 // Expand height
@@ -133,144 +307,6 @@
                         topRow.style.flex = `${targetHeight / availableHeight}`;
                         bottomRow.style.flex = `${bottomHeight / availableHeight}`;
                     }
-                    expanded = true;
-                }
-            }
-        } else if (viewId === 'view-fontinfo') {
-            // Font info view - expand by width if below threshold
-            const config = settings.activation.fontinfo;
-            const topRow = view.closest('.top-row') as HTMLElement;
-            const topRowViews = Array.from(
-                topRow.querySelectorAll('.view')
-            ) as HTMLElement[];
-            const viewIndex = topRowViews.indexOf(view);
-
-            const currentWidth = view.offsetWidth;
-            const widthRatio = currentWidth / containerWidth;
-
-            if (widthRatio < config.widthThreshold) {
-                // Determine target width based on whether overview is also open
-                const overviewView = topRow.querySelector(
-                    '.view-overview'
-                ) as HTMLElement | null;
-                const isOverviewOpen =
-                    overviewView && overviewView.offsetWidth > 24 + 5;
-                const targetWidthRatio = isOverviewOpen
-                    ? config.widthTargetBothOpen
-                    : config.widthTargetSingleOpen;
-                const targetWidth = containerWidth * targetWidthRatio;
-
-                const otherViews = topRowViews.filter(
-                    (v, i) => i !== viewIndex
-                );
-
-                // Separate collapsed and non-collapsed views
-                const collapsedViews = otherViews.filter(
-                    (v) => v.offsetWidth <= 24 + 5
-                ); // 5px tolerance
-                const nonCollapsedViews = otherViews.filter(
-                    (v) => v.offsetWidth > 24 + 5
-                );
-
-                // Reserve width for collapsed views
-                const collapsedWidth = collapsedViews.length * 24;
-                const availableForDistribution =
-                    containerWidth - targetWidth - collapsedWidth;
-                const minWidthPerNonCollapsed = 100;
-
-                if (
-                    availableForDistribution >=
-                    minWidthPerNonCollapsed * nonCollapsedViews.length
-                ) {
-                    const nonCollapsedViewWidth =
-                        nonCollapsedViews.length > 0
-                            ? availableForDistribution /
-                              nonCollapsedViews.length
-                            : 0;
-
-                    view.style.flex = `${targetWidth}`;
-                    // If both fontinfo and overview are open, also set overview to 25%
-                    if (isOverviewOpen && overviewView) {
-                        overviewView.style.flex = `${targetWidth}`;
-                    }
-                    collapsedViews.forEach((v) => {
-                        v.style.flex = `0 0 24px`; // Keep collapsed at exactly 24px
-                    });
-                    nonCollapsedViews.forEach((v) => {
-                        // Skip overview if we already set it above
-                        if (!(isOverviewOpen && v === overviewView)) {
-                            v.style.flex = `${nonCollapsedViewWidth}`;
-                        }
-                    });
-                    expanded = true;
-                }
-            }
-        } else if (viewId === 'view-overview') {
-            // Overview view - expand by width if below threshold
-            const config = settings.activation.fontinfo; // Use same config as fontinfo
-            const topRow = view.closest('.top-row') as HTMLElement;
-            const topRowViews = Array.from(
-                topRow.querySelectorAll('.view')
-            ) as HTMLElement[];
-            const viewIndex = topRowViews.indexOf(view);
-
-            const currentWidth = view.offsetWidth;
-            const widthRatio = currentWidth / containerWidth;
-
-            if (widthRatio < config.widthThreshold) {
-                // Determine target width based on whether fontinfo is also open
-                const fontinfoView = topRow.querySelector(
-                    '.view-fontinfo'
-                ) as HTMLElement | null;
-                const isFontinfoOpen =
-                    fontinfoView && fontinfoView.offsetWidth > 24 + 5;
-                const targetWidthRatio = isFontinfoOpen
-                    ? config.widthTargetBothOpen
-                    : config.widthTargetSingleOpen;
-                const targetWidth = containerWidth * targetWidthRatio;
-
-                const otherViews = topRowViews.filter(
-                    (v, i) => i !== viewIndex
-                );
-
-                // Separate collapsed and non-collapsed views
-                const collapsedViews = otherViews.filter(
-                    (v) => v.offsetWidth <= 24 + 5
-                ); // 5px tolerance
-                const nonCollapsedViews = otherViews.filter(
-                    (v) => v.offsetWidth > 24 + 5
-                );
-
-                // Reserve width for collapsed views
-                const collapsedWidth = collapsedViews.length * 24;
-                const availableForDistribution =
-                    containerWidth - targetWidth - collapsedWidth;
-                const minWidthPerNonCollapsed = 100;
-
-                if (
-                    availableForDistribution >=
-                    minWidthPerNonCollapsed * nonCollapsedViews.length
-                ) {
-                    const nonCollapsedViewWidth =
-                        nonCollapsedViews.length > 0
-                            ? availableForDistribution /
-                              nonCollapsedViews.length
-                            : 0;
-
-                    view.style.flex = `${targetWidth}`;
-                    // If both fontinfo and overview are open, also set fontinfo to 25%
-                    if (isFontinfoOpen && fontinfoView) {
-                        fontinfoView.style.flex = `${targetWidth}`;
-                    }
-                    collapsedViews.forEach((v) => {
-                        v.style.flex = `0 0 24px`; // Keep collapsed at exactly 24px
-                    });
-                    nonCollapsedViews.forEach((v) => {
-                        // Skip fontinfo if we already set it above
-                        if (!(isFontinfoOpen && v === fontinfoView)) {
-                            v.style.flex = `${nonCollapsedViewWidth}`;
-                        }
-                    });
                     expanded = true;
                 }
             }
@@ -1120,6 +1156,7 @@
 
             // Expand view if below threshold (auto-expand on activation)
             const wasExpanded = expandViewOnActivation(viewId);
+            recordViewVisit(viewId);
 
             // Determine if we're focusing a top view (editor, fontinfo, or overview)
             const isTopView =
@@ -1613,6 +1650,7 @@
     function init() {
         // Add cursor hiding styles
         addCursorHidingStyles();
+        rowVisitOrder = normalizeRowVisitOrder(null);
 
         // Add keyboard event listener in CAPTURE phase to intercept before Ace Editor
         document.addEventListener('keydown', handleKeyDown, true);
@@ -1655,4 +1693,6 @@
     window.getCurrentFocusedView = () => currentFocusedView;
     window.resizeView = resizeView;
     window.collapseActiveView = collapseActiveView;
+    window.getViewVisitOrder = getViewVisitOrder;
+    window.setViewVisitOrder = setViewVisitOrder;
 })();

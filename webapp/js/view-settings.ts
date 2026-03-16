@@ -58,6 +58,10 @@ const VIEW_SETTINGS = {
     // Thresholds and targets for auto-expansion on view activation
     // All values are fractions of container width/height
     activation: {
+        minimumWidths: {
+            topRow: 400,
+            bottomRow: 300
+        },
         // Secondary views (bottom row) - expand if smaller than threshold
         secondary: {
             heightThreshold: 0.1, // If height < 10% of container

@@ -1,5 +1,16 @@
 console.log('[Resizer]', 'resizer.js loaded');
 
+type RowVisitOrder = {
+    top: string[];
+    bottom: string[];
+};
+
+type SavedViewLayout = {
+    horizontal?: { top: string; bottom: string };
+    vertical?: { top?: string[]; bottom?: string[] };
+    visitOrder?: Partial<RowVisitOrder>;
+};
+
 class ResizableViews {
     // Minimum sizes for different view types
     static TITLE_BAR_HEIGHT = 24;
@@ -272,10 +283,7 @@ class ResizableViews {
                 return;
             }
 
-            const layout = JSON.parse(saved) as {
-                horizontal?: { top: string; bottom: string };
-                vertical?: { top?: string[]; bottom?: string[] };
-            };
+            const layout = JSON.parse(saved) as SavedViewLayout;
             console.log('[Resizer]', 'Loading view layout:', layout);
 
             // Apply horizontal layout
@@ -364,6 +372,10 @@ class ResizableViews {
                 }
             }
 
+            if (layout.visitOrder && window.setViewVisitOrder) {
+                window.setViewVisitOrder(layout.visitOrder);
+            }
+
             console.log(
                 '[Resizer]',
                 '✅ View layout restored from localStorage'
@@ -409,16 +421,7 @@ class ResizableViews {
                 '.bottom-row'
             ) as HTMLElement | null;
 
-            const layout: {
-                horizontal: {
-                    top: string;
-                    bottom: string;
-                };
-                vertical: {
-                    top: string[];
-                    bottom: string[];
-                };
-            } = {
+            const layout: SavedViewLayout = {
                 horizontal: {
                     top: topRow?.style.flex || '1',
                     bottom: bottomRow?.style.flex || '1'
@@ -426,24 +429,29 @@ class ResizableViews {
                 vertical: {
                     top: [],
                     bottom: []
-                }
+                },
+                visitOrder: window.getViewVisitOrder
+                    ? window.getViewVisitOrder()
+                    : undefined
             };
+            const topLayout = layout.vertical?.top;
+            const bottomLayout = layout.vertical?.bottom;
 
             // Save top row views
             const topViews = topRow?.querySelectorAll('.view');
-            topViews?.forEach((view: Element) => {
-                layout.vertical.top.push(
-                    (view as HTMLElement).style.flex || '1'
-                );
-            });
+            if (topLayout) {
+                topViews?.forEach((view: Element) => {
+                    topLayout.push((view as HTMLElement).style.flex || '1');
+                });
+            }
 
             // Save bottom row views
             const bottomViews = bottomRow?.querySelectorAll('.view');
-            bottomViews?.forEach((view: Element) => {
-                layout.vertical.bottom.push(
-                    (view as HTMLElement).style.flex || '1'
-                );
-            });
+            if (bottomLayout) {
+                bottomViews?.forEach((view: Element) => {
+                    bottomLayout.push((view as HTMLElement).style.flex || '1');
+                });
+            }
 
             localStorage.setItem('viewLayout', JSON.stringify(layout));
         } catch (e) {
