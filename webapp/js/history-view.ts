@@ -1,4 +1,8 @@
-import type { ChangeLogEntry } from './change-log';
+import {
+    buildHistoryStackItems,
+    type ChangeLogEntry,
+    type HistoryStackItem
+} from './change-log';
 import { Logger } from './logger';
 
 const console = new Logger('HistoryView');
@@ -195,45 +199,50 @@ class HistoryViewController {
         return null;
     }
 
-    private getSourceEntries(): ChangeLogEntry[] {
+    private getSourceItems(): HistoryStackItem[] {
         const bridge = window.changeBridge;
         if (!bridge) {
             return [];
         }
 
         if (this.currentScope === 'glyph' && this.currentGlyphName) {
-            return bridge.getChangeLogForGlyph(this.currentGlyphName);
+            return buildHistoryStackItems(bridge.getChangeLog(), {
+                glyphName: this.currentGlyphName
+            });
         }
 
-        return bridge.getChangeLog();
+        return buildHistoryStackItems(bridge.getChangeLog());
     }
 
-    private getFilteredEntries(entries: ChangeLogEntry[]): ChangeLogEntry[] {
-        return entries.filter((entry) => {
+    private getFilteredItems(items: HistoryStackItem[]): HistoryStackItem[] {
+        return items.filter((item) => {
             if (
                 this.activeTypeFilter &&
-                entry.objectType !== this.activeTypeFilter
+                !item.entries.some(
+                    (entry) => entry.objectType === this.activeTypeFilter
+                )
             ) {
                 return false;
             }
-            return this.matchesSearch(entry);
+            return this.matchesSearch(item);
         });
     }
 
-    private matchesSearch(entry: ChangeLogEntry): boolean {
+    private matchesSearch(item: HistoryStackItem): boolean {
         if (!this.searchQuery) {
             return true;
         }
 
         const query = this.searchQuery.toLowerCase();
-        return (
-            entry.path.toLowerCase().includes(query) ||
-            entry.objectType.toLowerCase().includes(query) ||
-            entry.objectId.toLowerCase().includes(query) ||
-            (entry.glyphName ?? '').toLowerCase().includes(query) ||
-            entry.windowRoleLabel.toLowerCase().includes(query) ||
-            (entry.transactionLabel ?? '').toLowerCase().includes(query) ||
-            entry.property.toLowerCase().includes(query)
+        return item.entries.some(
+            (entry) =>
+                entry.path.toLowerCase().includes(query) ||
+                entry.objectType.toLowerCase().includes(query) ||
+                entry.objectId.toLowerCase().includes(query) ||
+                (entry.glyphName ?? '').toLowerCase().includes(query) ||
+                entry.windowRoleLabel.toLowerCase().includes(query) ||
+                (entry.transactionLabel ?? '').toLowerCase().includes(query) ||
+                entry.property.toLowerCase().includes(query)
         );
     }
 
@@ -242,12 +251,12 @@ class HistoryViewController {
             return;
         }
 
-        const sourceEntries = this.getSourceEntries();
-        const filteredEntries = this.getFilteredEntries(sourceEntries);
+        const sourceItems = this.getSourceItems();
+        const filteredItems = this.getFilteredItems(sourceItems);
         this.renderBreadcrumb();
-        this.renderStatus(filteredEntries.length, sourceEntries.length);
-        this.renderFilters(sourceEntries);
-        this.renderList(filteredEntries);
+        this.renderStatus(filteredItems.length, sourceItems.length);
+        this.renderFilters(sourceItems);
+        this.renderList(filteredItems);
     }
 
     private renderBreadcrumb(): void {
@@ -305,21 +314,23 @@ class HistoryViewController {
         }
 
         if (this.currentScope === 'glyph' && this.currentGlyphName) {
-            this.statusEl.textContent = `${filteredCount} of ${totalCount} changes in ${this.currentGlyphName}`;
+            this.statusEl.textContent = `${filteredCount} of ${totalCount} history items in ${this.currentGlyphName}`;
             return;
         }
 
-        this.statusEl.textContent = `${filteredCount} of ${totalCount} changes`;
+        this.statusEl.textContent = `${filteredCount} of ${totalCount} history items`;
     }
 
-    private renderFilters(entries: ChangeLogEntry[]): void {
+    private renderFilters(items: HistoryStackItem[]): void {
         if (!this.filtersEl) {
             return;
         }
 
         const types = new Set<string>();
-        for (const entry of entries) {
-            types.add(entry.objectType);
+        for (const item of items) {
+            for (const entry of item.entries) {
+                types.add(entry.objectType);
+            }
         }
 
         if (this.activeTypeFilter && !types.has(this.activeTypeFilter)) {
@@ -346,7 +357,23 @@ class HistoryViewController {
         this.filtersEl.appendChild(fragment);
     }
 
-    private renderList(entries: ChangeLogEntry[]): void {
+    private formatItemPath(item: HistoryStackItem): string {
+        const uniquePaths = [
+            ...new Set(item.entries.map((entry) => entry.path))
+        ];
+        if (!uniquePaths.length) {
+            return '';
+        }
+        if (uniquePaths.length === 1) {
+            return uniquePaths[0];
+        }
+        if (uniquePaths.length === 2) {
+            return `${uniquePaths[0]} and ${uniquePaths[1]}`;
+        }
+        return `${uniquePaths[0]}, ${uniquePaths[1]}, +${uniquePaths.length - 2} more`;
+    }
+
+    private renderList(items: HistoryStackItem[]): void {
         if (!this.listEl) {
             return;
         }
@@ -357,19 +384,20 @@ class HistoryViewController {
             return;
         }
 
-        if (!entries.length) {
+        if (!items.length) {
             const message =
                 this.currentScope === 'glyph' && this.currentGlyphName
-                    ? `No changes for ${this.currentGlyphName}`
-                    : 'No matching changes';
+                    ? `No history items for ${this.currentGlyphName}`
+                    : 'No matching history items';
             this.listEl.innerHTML = `<div class="history-empty-state">${message}</div>`;
             return;
         }
 
         const fragment = document.createDocumentFragment();
 
-        for (let index = entries.length - 1; index >= 0; index--) {
-            const entry = entries[index];
+        for (let index = items.length - 1; index >= 0; index--) {
+            const item = items[index];
+            const entry = item.entries[item.entries.length - 1];
             const row = document.createElement('div');
             row.className = 'history-entry';
 
@@ -382,14 +410,15 @@ class HistoryViewController {
 
             row.innerHTML = `
                 <div class="history-meta">
-                    <span class="history-time">${this.formatTime(entry.timestamp)}</span>
-                    <span class="history-badge history-window-badge">${entry.windowRoleLabel}</span>
+                    <span class="history-time">${this.formatTime(item.timestamp)}</span>
+                    <span class="history-badge history-window-badge">${item.windowRoleLabel}</span>
                     <span class="history-badge ${opClass}">${entry.op}</span>
-                    <span class="history-badge">${entry.objectType}</span>
-                    ${entry.transactionLabel ? `<span class="history-badge">${entry.transactionLabel}</span>` : ''}
+                    <span class="history-badge">${item.primaryObjectType}</span>
+                    ${item.transactionLabel ? `<span class="history-badge">${item.transactionLabel}</span>` : ''}
+                    ${item.entries.length > 1 ? `<span class="history-badge">${item.entries.length} changes</span>` : ''}
                 </div>
-                <div class="history-path">${entry.path}</div>
-                ${entry.op === 'set' && (entry.oldValue !== undefined || entry.newValue !== undefined) ? `<div class="history-values">${this.truncate(entry.oldValue)} → ${this.truncate(entry.newValue)}</div>` : ''}
+                <div class="history-path">${this.formatItemPath(item)}</div>
+                ${item.entries.length === 1 && entry.op === 'set' && (entry.oldValue !== undefined || entry.newValue !== undefined) ? `<div class="history-values">${this.truncate(entry.oldValue)} → ${this.truncate(entry.newValue)}</div>` : ''}
             `;
             fragment.appendChild(row);
         }

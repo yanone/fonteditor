@@ -20,12 +20,14 @@ import {
     getJsonPath
 } from './change-bridge-ydoc';
 import {
+    buildHistoryStackItems,
     type ChangeLogEntry,
     type ChangeOp,
     createLogEntry,
     deriveObjectInfo,
     deriveGlyphName,
     normalizeChangeLogEntry,
+    resolveHistoryTargetItemId,
     resetLogCounter
 } from './change-log';
 import { Logger } from './logger';
@@ -69,6 +71,10 @@ export class ChangeBridge {
     private _txId: number | null = null;
     /** Next transaction ID counter */
     private _nextTxId = 1;
+    /** Next logical history item counter */
+    private _nextHistoryItemId = 1;
+    /** Current transaction-level history item ID */
+    private _txHistoryItemId: string | null = null;
     /** Flag: currently applying remote update (suppress outbound broadcast) */
     private _isApplyingRemote = false;
     /** Flag: suppress Y.Doc sync (during initFromJson) */
@@ -121,6 +127,14 @@ export class ChangeBridge {
     }
     private _getWindowRoleLabel(): string {
         return window.windowRole?.getRoleLabel() ?? windowRole.getRoleLabel();
+    }
+
+    private _createHistoryItemId(): string {
+        return `history-item-${this._nextHistoryItemId++}`;
+    }
+
+    private _getCurrentHistoryItemId(): string {
+        return this._txHistoryItemId ?? this._createHistoryItemId();
     }
 
     constructor(windowId?: string) {
@@ -246,6 +260,8 @@ export class ChangeBridge {
             windowId: this.windowId,
             transactionLabel: this._txLabel,
             windowRoleLabel: this._getWindowRoleLabel(),
+            historyItemId: this._getCurrentHistoryItemId(),
+            historyAction: 'change',
             transactionId: this._txId,
             op: 'set' as ChangeOp,
             objectType,
@@ -289,6 +305,8 @@ export class ChangeBridge {
             windowId: this.windowId,
             transactionLabel: this._txLabel,
             windowRoleLabel: this._getWindowRoleLabel(),
+            historyItemId: this._getCurrentHistoryItemId(),
+            historyAction: 'change',
             transactionId: this._txId,
             op: 'add' as ChangeOp,
             objectType,
@@ -328,6 +346,8 @@ export class ChangeBridge {
             windowId: this.windowId,
             transactionLabel: this._txLabel,
             windowRoleLabel: this._getWindowRoleLabel(),
+            historyItemId: this._getCurrentHistoryItemId(),
+            historyAction: 'change',
             transactionId: this._txId,
             op: 'remove' as ChangeOp,
             objectType,
@@ -359,6 +379,7 @@ export class ChangeBridge {
         if (this._txDepth === 1) {
             this._txLabel = label;
             this._txId = this._nextTxId++;
+            this._txHistoryItemId = this._createHistoryItemId();
         }
     }
 
@@ -371,6 +392,7 @@ export class ChangeBridge {
         if (this._txDepth === 0) {
             this._txLabel = null;
             this._txId = null;
+            this._txHistoryItemId = null;
         }
     }
 
@@ -463,11 +485,14 @@ export class ChangeBridge {
             return;
         }
 
+        const historyItemId = this._createHistoryItemId();
         for (const target of targets) {
             const entry = createLogEntry({
                 timestamp: Date.now(),
                 windowId: this.windowId,
                 windowRoleLabel: this._getWindowRoleLabel(),
+                historyItemId,
+                historyAction: 'change',
                 transactionLabel: label,
                 transactionId: null,
                 op: 'set' as ChangeOp,
@@ -553,12 +578,19 @@ export class ChangeBridge {
         if (!um || um.undoStack.length === 0) return false;
         this._suppressRecording = true;
         try {
+            const targetHistoryItemId = resolveHistoryTargetItemId(
+                this._changeLog,
+                glyphName ?? null,
+                'undo'
+            );
             // Log entry before um.undo() so it's available when the
             // Y.Doc update event fires and WindowSync broadcasts it.
             const entry = createLogEntry({
                 timestamp: Date.now(),
                 windowId: this.windowId,
                 windowRoleLabel: this._getWindowRoleLabel(),
+                historyAction: 'undo',
+                targetHistoryItemId,
                 transactionLabel: 'Undo',
                 transactionId: null,
                 op: 'set' as ChangeOp,
@@ -592,11 +624,18 @@ export class ChangeBridge {
         if (!um || um.redoStack.length === 0) return false;
         this._suppressRecording = true;
         try {
+            const targetHistoryItemId = resolveHistoryTargetItemId(
+                this._changeLog,
+                glyphName ?? null,
+                'redo'
+            );
             // Log entry before um.redo() so it's available for broadcast.
             const entry = createLogEntry({
                 timestamp: Date.now(),
                 windowId: this.windowId,
                 windowRoleLabel: this._getWindowRoleLabel(),
+                historyAction: 'redo',
+                targetHistoryItemId,
                 transactionLabel: 'Redo',
                 transactionId: null,
                 op: 'set' as ChangeOp,
@@ -741,7 +780,9 @@ export class ChangeBridge {
         this._txDepth = 0;
         this._txLabel = null;
         this._txId = null;
+        this._txHistoryItemId = null;
         this._nextTxId = 1;
+        this._nextHistoryItemId = 1;
         resetLogCounter();
         for (const um of this._undoManagers.values()) {
             um.destroy();

@@ -21,11 +21,13 @@ const {
     getJsonPath
 } = require('../js/change-bridge-ydoc');
 const {
+    buildHistoryStackItems,
     createLogEntry,
     resetLogCounter,
     deriveGlyphName,
     deriveObjectInfo,
-    normalizeChangeLogEntry
+    normalizeChangeLogEntry,
+    resolveHistoryTargetItemId
 } = require('../js/change-log');
 const { Font } = require('../js/babelfont-model');
 
@@ -553,6 +555,122 @@ describe('change-log', () => {
 
         expect(entry.glyphName).toBe('A');
         expect(entry.windowRoleLabel).toBe('Window');
+        expect(entry.historyAction).toBe('change');
+        expect(entry.historyItemId).toBe('history-item-1');
+    });
+
+    test('buildHistoryStackItems hides undone item and restores it on redo', () => {
+        resetLogCounter();
+        const changeEntry = createLogEntry({
+            timestamp: 1,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyItemId: 'history-item-1',
+            historyAction: 'change',
+            transactionLabel: 'Drag',
+            transactionId: 1,
+            op: 'set',
+            objectType: 'glyph',
+            objectId: 'A',
+            glyphName: 'A',
+            property: 'width',
+            path: 'glyphs.A.layers.layer-1.width',
+            oldValue: 600,
+            newValue: 700
+        });
+        const undoEntry = createLogEntry({
+            timestamp: 2,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyAction: 'undo',
+            targetHistoryItemId: 'history-item-1',
+            transactionLabel: 'Undo',
+            transactionId: null,
+            op: 'set',
+            objectType: 'glyph',
+            objectId: 'A',
+            glyphName: 'A',
+            property: '',
+            path: 'glyphs.A',
+            oldValue: undefined,
+            newValue: 'undo'
+        });
+
+        expect(buildHistoryStackItems([changeEntry])).toHaveLength(1);
+        expect(buildHistoryStackItems([changeEntry, undoEntry])).toHaveLength(
+            0
+        );
+
+        const redoEntry = createLogEntry({
+            timestamp: 3,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyAction: 'redo',
+            targetHistoryItemId: 'history-item-1',
+            transactionLabel: 'Redo',
+            transactionId: null,
+            op: 'set',
+            objectType: 'glyph',
+            objectId: 'A',
+            glyphName: 'A',
+            property: '',
+            path: 'glyphs.A',
+            oldValue: undefined,
+            newValue: 'redo'
+        });
+
+        const items = buildHistoryStackItems([
+            changeEntry,
+            undoEntry,
+            redoEntry
+        ]);
+        expect(items).toHaveLength(1);
+        expect(items[0].lastAction).toBe('redo');
+    });
+
+    test('resolveHistoryTargetItemId returns latest active or undone item for scope', () => {
+        resetLogCounter();
+        const changeEntry = createLogEntry({
+            timestamp: 1,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyItemId: 'history-item-1',
+            historyAction: 'change',
+            transactionLabel: 'Drag',
+            transactionId: 1,
+            op: 'set',
+            objectType: 'glyph',
+            objectId: 'A',
+            glyphName: 'A',
+            property: 'width',
+            path: 'glyphs.A.layers.layer-1.width',
+            oldValue: 600,
+            newValue: 700
+        });
+        const undoEntry = createLogEntry({
+            timestamp: 2,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyAction: 'undo',
+            targetHistoryItemId: 'history-item-1',
+            transactionLabel: 'Undo',
+            transactionId: null,
+            op: 'set',
+            objectType: 'glyph',
+            objectId: 'A',
+            glyphName: 'A',
+            property: '',
+            path: 'glyphs.A',
+            oldValue: undefined,
+            newValue: 'undo'
+        });
+
+        expect(resolveHistoryTargetItemId([changeEntry], 'A', 'undo')).toBe(
+            'history-item-1'
+        );
+        expect(
+            resolveHistoryTargetItemId([changeEntry, undoEntry], 'A', 'redo')
+        ).toBe('history-item-1');
     });
 });
 

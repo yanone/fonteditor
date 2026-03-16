@@ -24,6 +24,9 @@ export type ChangeObjectType =
 /** Operation type */
 export type ChangeOp = 'set' | 'add' | 'remove';
 
+/** Logical history action type */
+export type HistoryAction = 'change' | 'undo' | 'redo';
+
 /**
  * A single entry in the change log.
  */
@@ -36,6 +39,12 @@ export interface ChangeLogEntry {
     windowId: string;
     /** Human-readable source window label */
     windowRoleLabel: string;
+    /** Logical history stack item identifier */
+    historyItemId: string;
+    /** Whether this row is a change or an undo/redo control action */
+    historyAction: HistoryAction;
+    /** Linked logical history item affected by undo/redo, if known */
+    targetHistoryItemId: string | null;
     /** Transaction label, if this change is part of a batch */
     transactionLabel: string | null;
     /** Transaction ID, shared by all entries in the same batch */
@@ -62,18 +71,233 @@ let _nextId = 1;
 
 /** Create a new ChangeLogEntry with an auto-incremented id. */
 export function createLogEntry(
-    fields: Omit<ChangeLogEntry, 'id'>
+    fields: Omit<
+        ChangeLogEntry,
+        'id' | 'historyItemId' | 'historyAction' | 'targetHistoryItemId'
+    > & {
+        historyItemId?: string;
+        historyAction?: HistoryAction;
+        targetHistoryItemId?: string | null;
+    }
 ): ChangeLogEntry {
-    return { id: _nextId++, ...fields };
+    const nextId = _nextId++;
+    return {
+        id: nextId,
+        historyItemId: fields.historyItemId ?? `history-item-${nextId}`,
+        historyAction: fields.historyAction ?? 'change',
+        targetHistoryItemId: fields.targetHistoryItemId ?? null,
+        ...fields
+    };
 }
 
 export type ChangeLogEntryLike = Omit<
     ChangeLogEntry,
-    'glyphName' | 'windowRoleLabel'
+    'glyphName' | 'windowRoleLabel' | 'historyItemId' | 'historyAction'
 > & {
     glyphName?: string | null;
     windowRoleLabel?: string | null;
+    historyItemId?: string | null;
+    historyAction?: HistoryAction | null;
+    targetHistoryItemId?: string | null;
 };
+
+export interface HistoryStackItem {
+    id: string;
+    entries: ChangeLogEntry[];
+    timestamp: number;
+    windowRoleLabel: string;
+    transactionLabel: string | null;
+    primaryObjectType: ChangeObjectType;
+    primaryObjectId: string;
+    glyphNames: string[];
+    isActive: boolean;
+    lastAction: HistoryAction;
+}
+
+const FONT_SCOPE_KEY = '__font__';
+
+function normalizeHistoryAction(
+    historyAction: HistoryAction | null | undefined
+): HistoryAction {
+    if (
+        historyAction === 'change' ||
+        historyAction === 'undo' ||
+        historyAction === 'redo'
+    ) {
+        return historyAction;
+    }
+    return 'change';
+}
+
+function normalizeHistoryItemId(
+    historyItemId: string | null | undefined,
+    entryId: number
+): string {
+    if (historyItemId?.trim()) {
+        return historyItemId.trim();
+    }
+    return `history-item-${entryId}`;
+}
+
+function getScopeKey(glyphName: string | null): string {
+    return glyphName ?? FONT_SCOPE_KEY;
+}
+
+function getStack(map: Map<string, string[]>, scopeKey: string): string[] {
+    let stack = map.get(scopeKey);
+    if (!stack) {
+        stack = [];
+        map.set(scopeKey, stack);
+    }
+    return stack;
+}
+
+function removeFromStack(stack: string[], itemId: string): void {
+    const index = stack.lastIndexOf(itemId);
+    if (index >= 0) {
+        stack.splice(index, 1);
+    }
+}
+
+type MutableHistoryStackItem = HistoryStackItem & {
+    glyphNameSet: Set<string>;
+    scopeKeys: Set<string>;
+};
+
+function computeHistoryState(entries: ChangeLogEntry[]): {
+    orderedItemIds: string[];
+    itemsById: Map<string, MutableHistoryStackItem>;
+    activeByScope: Map<string, string[]>;
+    undoneByScope: Map<string, string[]>;
+} {
+    const orderedItemIds: string[] = [];
+    const itemsById = new Map<string, MutableHistoryStackItem>();
+    const activeByScope = new Map<string, string[]>();
+    const undoneByScope = new Map<string, string[]>();
+
+    const ensureItem = (entry: ChangeLogEntry): MutableHistoryStackItem => {
+        let item = itemsById.get(entry.historyItemId);
+        if (!item) {
+            item = {
+                id: entry.historyItemId,
+                entries: [],
+                timestamp: entry.timestamp,
+                windowRoleLabel: entry.windowRoleLabel,
+                transactionLabel: entry.transactionLabel,
+                primaryObjectType: entry.objectType,
+                primaryObjectId: entry.objectId,
+                glyphNames: [],
+                glyphNameSet: new Set<string>(),
+                scopeKeys: new Set<string>(),
+                isActive: true,
+                lastAction: 'change'
+            };
+            itemsById.set(entry.historyItemId, item);
+            orderedItemIds.push(entry.historyItemId);
+        }
+        return item;
+    };
+
+    for (const entry of entries) {
+        const scopeKey = getScopeKey(entry.glyphName);
+
+        if (entry.historyAction === 'change') {
+            const item = ensureItem(entry);
+            item.entries.push(entry);
+            item.timestamp = entry.timestamp;
+            item.windowRoleLabel = entry.windowRoleLabel;
+            item.transactionLabel = entry.transactionLabel;
+            item.primaryObjectType = entry.objectType;
+            item.primaryObjectId = entry.objectId;
+            item.isActive = true;
+            item.lastAction = 'change';
+            if (entry.glyphName && !item.glyphNameSet.has(entry.glyphName)) {
+                item.glyphNameSet.add(entry.glyphName);
+                item.glyphNames = [...item.glyphNameSet];
+            }
+
+            if (!item.scopeKeys.has(scopeKey)) {
+                item.scopeKeys.add(scopeKey);
+                getStack(activeByScope, scopeKey).push(item.id);
+            }
+
+            getStack(undoneByScope, scopeKey).length = 0;
+            continue;
+        }
+
+        const sourceStack =
+            entry.historyAction === 'undo'
+                ? getStack(activeByScope, scopeKey)
+                : getStack(undoneByScope, scopeKey);
+        const targetStack =
+            entry.historyAction === 'undo'
+                ? getStack(undoneByScope, scopeKey)
+                : getStack(activeByScope, scopeKey);
+        const targetItemId =
+            entry.targetHistoryItemId ?? sourceStack[sourceStack.length - 1];
+
+        if (!targetItemId) {
+            continue;
+        }
+
+        removeFromStack(sourceStack, targetItemId);
+        targetStack.push(targetItemId);
+
+        const item = itemsById.get(targetItemId);
+        if (item) {
+            item.isActive = entry.historyAction === 'redo';
+            item.lastAction = entry.historyAction;
+            item.timestamp = entry.timestamp;
+        }
+    }
+
+    return {
+        orderedItemIds,
+        itemsById,
+        activeByScope,
+        undoneByScope
+    };
+}
+
+export function resolveHistoryTargetItemId(
+    entries: ChangeLogEntry[],
+    glyphName: string | null | undefined,
+    historyAction: 'undo' | 'redo'
+): string | null {
+    const state = computeHistoryState(entries);
+    const scopeKey = getScopeKey(glyphName ?? null);
+    const stack =
+        historyAction === 'undo'
+            ? state.activeByScope.get(scopeKey)
+            : state.undoneByScope.get(scopeKey);
+    return stack?.[stack.length - 1] ?? null;
+}
+
+export function buildHistoryStackItems(
+    entries: ChangeLogEntry[],
+    options?: { glyphName?: string | null; includeUndone?: boolean }
+): HistoryStackItem[] {
+    const glyphName = options?.glyphName ?? null;
+    const includeUndone = options?.includeUndone ?? false;
+    const state = computeHistoryState(entries);
+
+    return state.orderedItemIds
+        .map((itemId) => state.itemsById.get(itemId))
+        .filter((item): item is MutableHistoryStackItem => !!item)
+        .filter((item) => {
+            if (glyphName && !item.glyphNameSet.has(glyphName)) {
+                return false;
+            }
+            if (!includeUndone && !item.isActive) {
+                return false;
+            }
+            return true;
+        })
+        .map(
+            ({ glyphNameSet: _glyphNameSet, scopeKeys: _scopeKeys, ...item }) =>
+                item
+        );
+}
 
 export function normalizeWindowRoleLabel(
     windowRoleLabel: string | null | undefined,
@@ -182,7 +406,10 @@ export function normalizeChangeLogEntry(
 ): ChangeLogEntry {
     return {
         ...entry,
+        historyItemId: normalizeHistoryItemId(entry.historyItemId, entry.id),
+        historyAction: normalizeHistoryAction(entry.historyAction),
         glyphName: entry.glyphName ?? deriveGlyphNameFromPath(entry.path),
+        targetHistoryItemId: entry.targetHistoryItemId ?? null,
         windowRoleLabel: normalizeWindowRoleLabel(
             entry.windowRoleLabel,
             entry.windowId
