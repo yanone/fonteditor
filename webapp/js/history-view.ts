@@ -7,7 +7,7 @@ import { Logger } from './logger';
 
 const console = new Logger('HistoryView');
 
-type HistoryScope = 'glyph' | 'font';
+type HistoryScope = 'layer' | 'glyph' | 'font';
 
 type GlyphSelectedListener = (
     index: number,
@@ -28,6 +28,8 @@ class HistoryViewController {
     private listEl: HTMLElement | null = null;
     private activeTypeFilter: string | null = null;
     private currentGlyphName: string | null = null;
+    private currentLayerId: string | null = null;
+    private currentLayerDisplayName: string | null = null;
     private currentScope: HistoryScope = 'font';
     private unsubscribeBridge: (() => void) | null = null;
     private attachedTextRunEditor: TextRunSelectionEmitter | null = null;
@@ -143,17 +145,26 @@ class HistoryViewController {
 
     private syncEditingContext(forceGlyphScope: boolean): void {
         const nextGlyphName = this.resolveCurrentGlyphName();
+        const nextLayerId = this.resolveCurrentLayerId();
         const glyphChanged = nextGlyphName !== this.currentGlyphName;
+        const layerChanged = nextLayerId !== this.currentLayerId;
 
         this.currentGlyphName = nextGlyphName;
+        this.currentLayerId = nextLayerId;
+        this.currentLayerDisplayName = this.resolveLayerDisplayName(
+            nextGlyphName,
+            nextLayerId
+        );
 
         if (!this.currentGlyphName) {
             this.currentScope = 'font';
-        } else if (forceGlyphScope || glyphChanged) {
+        } else if (forceGlyphScope || glyphChanged || layerChanged) {
+            this.currentScope = this.currentLayerId ? 'layer' : 'glyph';
+        } else if (this.currentScope === 'layer' && !this.currentLayerId) {
             this.currentScope = 'glyph';
         }
 
-        if (glyphChanged) {
+        if (glyphChanged || layerChanged) {
             this.activeTypeFilter = null;
         }
 
@@ -180,10 +191,85 @@ class HistoryViewController {
         return null;
     }
 
+    private resolveCurrentLayerId(): string | null {
+        const outlineEditor = window.glyphCanvas?.outlineEditor;
+        if (!outlineEditor?.active) {
+            return null;
+        }
+        return outlineEditor.selectedLayerId ?? null;
+    }
+
+    private resolveLayerDisplayName(
+        glyphName: string | null,
+        layerId: string | null
+    ): string | null {
+        if (!glyphName || !layerId) {
+            return null;
+        }
+
+        const fontModel = window.fontManager?.currentFont?.fontModel;
+        const glyph = fontModel?.glyphs?.find(
+            (entry: { name: string }) => entry.name === glyphName
+        );
+        const layer = glyph?.layers?.find(
+            (entry: { id: string }) => entry.id === layerId
+        );
+        if (!layer) {
+            return layerId;
+        }
+
+        const layerMaster = layer.master;
+        const masterId =
+            layerMaster &&
+            typeof layerMaster === 'object' &&
+            'type' in layerMaster
+                ? layerMaster.master
+                : undefined;
+
+        const isBraceLayer =
+            layerMaster &&
+            typeof layerMaster === 'object' &&
+            'type' in layerMaster &&
+            layerMaster.type === 'AssociatedWithMaster' &&
+            !!layer.location &&
+            Object.keys(layer.location).length > 0;
+
+        if (isBraceLayer) {
+            return layer.name && layer.name.trim() !== ''
+                ? layer.name
+                : 'Brace';
+        }
+
+        const master = fontModel?.masters?.find(
+            (entry: { id: string }) => entry.id === masterId
+        );
+        if (typeof master?.name === 'string') {
+            return master.name;
+        }
+        if (master?.name && 'dflt' in master.name) {
+            return master.name.dflt;
+        }
+        if (master?.name && 'en' in master.name) {
+            return master.name.en;
+        }
+        return 'Default';
+    }
+
     private getSourceItems(): HistoryStackItem[] {
         const bridge = window.changeBridge;
         if (!bridge) {
             return [];
+        }
+
+        if (
+            this.currentScope === 'layer' &&
+            this.currentGlyphName &&
+            this.currentLayerId
+        ) {
+            return buildHistoryStackItems(bridge.getChangeLog(), {
+                glyphName: this.currentGlyphName,
+                layerId: this.currentLayerId
+            });
         }
 
         if (this.currentScope === 'glyph' && this.currentGlyphName) {
@@ -241,6 +327,17 @@ class HistoryViewController {
             );
         }
 
+        if (this.currentLayerId && this.currentLayerDisplayName) {
+            const separator = document.createElement('span');
+            separator.className =
+                'history-breadcrumb-separator material-symbols-outlined';
+            separator.textContent = 'chevron_right';
+            fragment.appendChild(separator);
+            fragment.appendChild(
+                this.createBreadcrumbItem(this.currentLayerDisplayName, 'layer')
+            );
+        }
+
         this.breadcrumbEl.innerHTML = '';
         this.breadcrumbEl.appendChild(fragment);
     }
@@ -255,9 +352,14 @@ class HistoryViewController {
             'history-breadcrumb-item' +
             (this.currentScope === scope ? ' active' : '');
         button.textContent = label;
-        button.disabled = scope === 'glyph' && !this.currentGlyphName;
+        button.disabled =
+            (scope === 'glyph' && !this.currentGlyphName) ||
+            (scope === 'layer' && !this.currentLayerId);
         button.addEventListener('click', () => {
             if (scope === 'glyph' && !this.currentGlyphName) {
+                return;
+            }
+            if (scope === 'layer' && !this.currentLayerId) {
                 return;
             }
             this.currentScope = scope;
@@ -273,6 +375,11 @@ class HistoryViewController {
 
         if (!window.changeBridge) {
             this.statusEl.textContent = 'Waiting for font data';
+            return;
+        }
+
+        if (this.currentScope === 'layer' && this.currentLayerDisplayName) {
+            this.statusEl.textContent = `${filteredCount} of ${totalCount} history items in ${this.currentLayerDisplayName}`;
             return;
         }
 
@@ -349,9 +456,11 @@ class HistoryViewController {
 
         if (!items.length) {
             const message =
-                this.currentScope === 'glyph' && this.currentGlyphName
-                    ? `No history items for ${this.currentGlyphName}`
-                    : 'No matching history items';
+                this.currentScope === 'layer' && this.currentLayerDisplayName
+                    ? `No history items for ${this.currentLayerDisplayName}`
+                    : this.currentScope === 'glyph' && this.currentGlyphName
+                      ? `No history items for ${this.currentGlyphName}`
+                      : 'No matching history items';
             this.listEl.innerHTML = `<div class="history-empty-state">${message}</div>`;
             return;
         }

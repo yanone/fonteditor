@@ -57,6 +57,8 @@ export interface ChangeLogEntry {
     objectId: string;
     /** Glyph scope for local-history filtering, or null for font-level changes */
     glyphName: string | null;
+    /** Layer scope for local-history filtering, or null for non-layer changes */
+    layerId: string | null;
     /** Property name that changed (e.g. "x", "width", "name") */
     property: string;
     /** Full dot-delimited path: "glyphs.A.layers.uuid-1.shapes.0.nodes.2.x" */
@@ -73,11 +75,16 @@ let _nextId = 1;
 export function createLogEntry(
     fields: Omit<
         ChangeLogEntry,
-        'id' | 'historyItemId' | 'historyAction' | 'targetHistoryItemId'
+        | 'id'
+        | 'historyItemId'
+        | 'historyAction'
+        | 'targetHistoryItemId'
+        | 'layerId'
     > & {
         historyItemId?: string;
         historyAction?: HistoryAction;
         targetHistoryItemId?: string | null;
+        layerId?: string | null;
     }
 ): ChangeLogEntry {
     const nextId = _nextId++;
@@ -86,15 +93,21 @@ export function createLogEntry(
         historyItemId: fields.historyItemId ?? `history-item-${nextId}`,
         historyAction: fields.historyAction ?? 'change',
         targetHistoryItemId: fields.targetHistoryItemId ?? null,
+        layerId: fields.layerId ?? null,
         ...fields
     };
 }
 
 export type ChangeLogEntryLike = Omit<
     ChangeLogEntry,
-    'glyphName' | 'windowRoleLabel' | 'historyItemId' | 'historyAction'
+    | 'glyphName'
+    | 'layerId'
+    | 'windowRoleLabel'
+    | 'historyItemId'
+    | 'historyAction'
 > & {
     glyphName?: string | null;
+    layerId?: string | null;
     windowRoleLabel?: string | null;
     historyItemId?: string | null;
     historyAction?: HistoryAction | null;
@@ -110,11 +123,27 @@ export interface HistoryStackItem {
     primaryObjectType: ChangeObjectType;
     primaryObjectId: string;
     glyphNames: string[];
+    layerIds: string[];
+    primaryLayerId: string | null;
     isActive: boolean;
     lastAction: HistoryAction;
 }
 
 const FONT_SCOPE_KEY = '__font__';
+
+function getGlyphScopeKey(glyphName: string | null): string {
+    return glyphName ?? FONT_SCOPE_KEY;
+}
+
+function getLayerScopeKey(
+    glyphName: string | null,
+    layerId: string | null
+): string | null {
+    if (!glyphName || !layerId) {
+        return null;
+    }
+    return `${glyphName}@@${layerId}`;
+}
 
 function normalizeHistoryAction(
     historyAction: HistoryAction | null | undefined
@@ -139,10 +168,6 @@ function normalizeHistoryItemId(
     return `history-item-${entryId}`;
 }
 
-function getScopeKey(glyphName: string | null): string {
-    return glyphName ?? FONT_SCOPE_KEY;
-}
-
 function getStack(map: Map<string, string[]>, scopeKey: string): string[] {
     let stack = map.get(scopeKey);
     if (!stack) {
@@ -161,6 +186,7 @@ function removeFromStack(stack: string[], itemId: string): void {
 
 type MutableHistoryStackItem = HistoryStackItem & {
     glyphNameSet: Set<string>;
+    layerIdSet: Set<string>;
     scopeKeys: Set<string>;
 };
 
@@ -187,7 +213,10 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
                 primaryObjectType: entry.objectType,
                 primaryObjectId: entry.objectId,
                 glyphNames: [],
+                layerIds: [],
+                primaryLayerId: entry.layerId,
                 glyphNameSet: new Set<string>(),
+                layerIdSet: new Set<string>(),
                 scopeKeys: new Set<string>(),
                 isActive: true,
                 lastAction: 'change'
@@ -199,7 +228,7 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
     };
 
     for (const entry of entries) {
-        const scopeKey = getScopeKey(entry.glyphName);
+        const glyphScopeKey = getGlyphScopeKey(entry.glyphName);
 
         if (entry.historyAction === 'change') {
             const item = ensureItem(entry);
@@ -209,30 +238,45 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
             item.transactionLabel = entry.transactionLabel;
             item.primaryObjectType = entry.objectType;
             item.primaryObjectId = entry.objectId;
+            item.primaryLayerId = entry.layerId;
             item.isActive = true;
             item.lastAction = 'change';
             if (entry.glyphName && !item.glyphNameSet.has(entry.glyphName)) {
                 item.glyphNameSet.add(entry.glyphName);
                 item.glyphNames = [...item.glyphNameSet];
             }
-
-            if (!item.scopeKeys.has(scopeKey)) {
-                item.scopeKeys.add(scopeKey);
-                getStack(activeByScope, scopeKey).push(item.id);
+            if (entry.layerId && !item.layerIdSet.has(entry.layerId)) {
+                item.layerIdSet.add(entry.layerId);
+                item.layerIds = [...item.layerIdSet];
             }
 
-            getStack(undoneByScope, scopeKey).length = 0;
+            if (!item.scopeKeys.has(glyphScopeKey)) {
+                item.scopeKeys.add(glyphScopeKey);
+                getStack(activeByScope, glyphScopeKey).push(item.id);
+            }
+
+            const layerScopeKey = getLayerScopeKey(
+                entry.glyphName,
+                entry.layerId
+            );
+            if (layerScopeKey && !item.scopeKeys.has(layerScopeKey)) {
+                item.scopeKeys.add(layerScopeKey);
+                getStack(activeByScope, layerScopeKey).push(item.id);
+            }
+
+            getStack(undoneByScope, glyphScopeKey).length = 0;
+            if (layerScopeKey) {
+                getStack(undoneByScope, layerScopeKey).length = 0;
+            }
             continue;
         }
 
-        const sourceStack =
-            entry.historyAction === 'undo'
-                ? getStack(activeByScope, scopeKey)
-                : getStack(undoneByScope, scopeKey);
-        const targetStack =
-            entry.historyAction === 'undo'
-                ? getStack(undoneByScope, scopeKey)
-                : getStack(activeByScope, scopeKey);
+        const sourceMap =
+            entry.historyAction === 'undo' ? activeByScope : undoneByScope;
+        const targetMap =
+            entry.historyAction === 'undo' ? undoneByScope : activeByScope;
+        const sourceStack = getStack(sourceMap, glyphScopeKey);
+        const targetStack = getStack(targetMap, glyphScopeKey);
         const targetItemId =
             entry.targetHistoryItemId ?? sourceStack[sourceStack.length - 1];
 
@@ -240,14 +284,20 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
             continue;
         }
 
-        removeFromStack(sourceStack, targetItemId);
-        targetStack.push(targetItemId);
-
         const item = itemsById.get(targetItemId);
         if (item) {
+            const itemScopeKeys =
+                item.scopeKeys.size > 0 ? [...item.scopeKeys] : [glyphScopeKey];
+            for (const scopeKey of itemScopeKeys) {
+                removeFromStack(getStack(sourceMap, scopeKey), targetItemId);
+                getStack(targetMap, scopeKey).push(targetItemId);
+            }
             item.isActive = entry.historyAction === 'redo';
             item.lastAction = entry.historyAction;
             item.timestamp = entry.timestamp;
+        } else {
+            removeFromStack(sourceStack, targetItemId);
+            targetStack.push(targetItemId);
         }
     }
 
@@ -265,7 +315,7 @@ export function resolveHistoryTargetItemId(
     historyAction: 'undo' | 'redo'
 ): string | null {
     const state = computeHistoryState(entries);
-    const scopeKey = getScopeKey(glyphName ?? null);
+    const scopeKey = getGlyphScopeKey(glyphName ?? null);
     const stack =
         historyAction === 'undo'
             ? state.activeByScope.get(scopeKey)
@@ -275,9 +325,14 @@ export function resolveHistoryTargetItemId(
 
 export function buildHistoryStackItems(
     entries: ChangeLogEntry[],
-    options?: { glyphName?: string | null; includeUndone?: boolean }
+    options?: {
+        glyphName?: string | null;
+        layerId?: string | null;
+        includeUndone?: boolean;
+    }
 ): HistoryStackItem[] {
     const glyphName = options?.glyphName ?? null;
+    const layerId = options?.layerId ?? null;
     const includeUndone = options?.includeUndone ?? false;
     const state = computeHistoryState(entries);
 
@@ -288,14 +343,21 @@ export function buildHistoryStackItems(
             if (glyphName && !item.glyphNameSet.has(glyphName)) {
                 return false;
             }
+            if (layerId && !item.layerIdSet.has(layerId)) {
+                return false;
+            }
             if (!includeUndone && !item.isActive) {
                 return false;
             }
             return true;
         })
         .map(
-            ({ glyphNameSet: _glyphNameSet, scopeKeys: _scopeKeys, ...item }) =>
-                item
+            ({
+                glyphNameSet: _glyphNameSet,
+                layerIdSet: _layerIdSet,
+                scopeKeys: _scopeKeys,
+                ...item
+            }) => item
         );
 }
 
@@ -394,11 +456,29 @@ export function deriveGlyphName(path: (string | number)[]): string | null {
     return null;
 }
 
+export function deriveLayerId(path: (string | number)[]): string | null {
+    if (
+        path[0] === 'glyphs' &&
+        path[2] === 'layers' &&
+        typeof path[3] === 'string'
+    ) {
+        return path[3];
+    }
+    return null;
+}
+
 export function deriveGlyphNameFromPath(path: string): string | null {
     if (!path) {
         return null;
     }
     return deriveGlyphName(path.split('.'));
+}
+
+export function deriveLayerIdFromPath(path: string): string | null {
+    if (!path) {
+        return null;
+    }
+    return deriveLayerId(path.split('.'));
 }
 
 export function normalizeChangeLogEntry(
@@ -409,6 +489,7 @@ export function normalizeChangeLogEntry(
         historyItemId: normalizeHistoryItemId(entry.historyItemId, entry.id),
         historyAction: normalizeHistoryAction(entry.historyAction),
         glyphName: entry.glyphName ?? deriveGlyphNameFromPath(entry.path),
+        layerId: entry.layerId ?? deriveLayerIdFromPath(entry.path),
         targetHistoryItemId: entry.targetHistoryItemId ?? null,
         windowRoleLabel: normalizeWindowRoleLabel(
             entry.windowRoleLabel,

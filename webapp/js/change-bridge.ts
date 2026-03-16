@@ -26,6 +26,7 @@ import {
     createLogEntry,
     deriveObjectInfo,
     deriveGlyphName,
+    deriveLayerId,
     normalizeChangeLogEntry,
     resolveHistoryTargetItemId,
     resetLogCounter
@@ -248,6 +249,7 @@ export class ChangeBridge {
         const fullPath = [...path, prop];
         const { objectType, objectId } = deriveObjectInfo(fullPath);
         const glyphName = deriveGlyphName(fullPath);
+        const layerId = deriveLayerId(fullPath);
 
         // Ensure per-glyph UndoManager exists for glyph-scoped changes
         if (fullPath[0] === 'glyphs' && typeof fullPath[1] === 'string') {
@@ -267,6 +269,7 @@ export class ChangeBridge {
             objectType,
             objectId,
             glyphName,
+            layerId,
             property: prop,
             path: fullPath.join('.'),
             oldValue: oldVal,
@@ -294,6 +297,7 @@ export class ChangeBridge {
 
         const { objectType, objectId } = deriveObjectInfo(path);
         const glyphName = deriveGlyphName(path);
+        const layerId = deriveLayerId(path);
 
         // Ensure per-glyph UndoManager exists for glyph-scoped changes
         if (path[0] === 'glyphs' && typeof path[1] === 'string') {
@@ -312,6 +316,7 @@ export class ChangeBridge {
             objectType,
             objectId,
             glyphName,
+            layerId,
             property: '',
             path: path.join('.'),
             oldValue: undefined,
@@ -335,6 +340,7 @@ export class ChangeBridge {
 
         const { objectType, objectId } = deriveObjectInfo(path);
         const glyphName = deriveGlyphName(path);
+        const layerId = deriveLayerId(path);
 
         // Ensure per-glyph UndoManager exists for glyph-scoped changes
         if (path[0] === 'glyphs' && typeof path[1] === 'string') {
@@ -353,6 +359,7 @@ export class ChangeBridge {
             objectType,
             objectId,
             glyphName,
+            layerId,
             property: '',
             path: path.join('.'),
             oldValue,
@@ -415,9 +422,16 @@ export class ChangeBridge {
         glyphName: string,
         label: string,
         oldValue?: string,
-        newValue?: string
+        newValue?: string,
+        layerId?: string | null
     ): void {
-        this.syncGlyphsFromJson([glyphName], label, oldValue, newValue);
+        this.syncGlyphsFromJson(
+            [glyphName],
+            label,
+            oldValue,
+            newValue,
+            layerId
+        );
     }
 
     /**
@@ -428,7 +442,8 @@ export class ChangeBridge {
         glyphNames: string[],
         label: string,
         oldValue?: string,
-        newValue?: string
+        newValue?: string,
+        layerId?: string | null
     ): void {
         if (!this._fontJson || this._suppressRecording || this._isSyncing)
             return;
@@ -496,11 +511,14 @@ export class ChangeBridge {
                 transactionLabel: label,
                 transactionId: null,
                 op: 'set' as ChangeOp,
-                objectType: 'glyph',
-                objectId: target.glyphName,
+                objectType: layerId ? 'layer' : 'glyph',
+                objectId: layerId ?? target.glyphName,
                 glyphName: target.glyphName,
+                layerId: layerId ?? null,
                 property: '',
-                path: `glyphs.${target.glyphName}`,
+                path: layerId
+                    ? `glyphs.${target.glyphName}.layers.${layerId}`
+                    : `glyphs.${target.glyphName}`,
                 oldValue: oldValue ?? target.glyphName,
                 newValue: newValue ?? label
             });
@@ -597,6 +615,7 @@ export class ChangeBridge {
                 objectType: glyphName ? 'glyph' : 'font',
                 objectId: glyphName ?? '',
                 glyphName: glyphName ?? null,
+                layerId: null,
                 property: '',
                 path: glyphName ? `glyphs.${glyphName}` : 'font',
                 oldValue: undefined,
@@ -642,6 +661,7 @@ export class ChangeBridge {
                 objectType: glyphName ? 'glyph' : 'font',
                 objectId: glyphName ?? '',
                 glyphName: glyphName ?? null,
+                layerId: null,
                 property: '',
                 path: glyphName ? `glyphs.${glyphName}` : 'font',
                 oldValue: undefined,

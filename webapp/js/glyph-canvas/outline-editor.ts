@@ -2867,7 +2867,8 @@ export class OutlineEditor {
             editedGlyphName,
             label,
             oldValue,
-            newValue
+            newValue,
+            this.selectedLayerId
         );
     }
 
