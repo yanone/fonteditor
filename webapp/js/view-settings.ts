@@ -52,6 +52,13 @@ const VIEW_SETTINGS = {
             modifiers: { cmd: true, shift: true },
             displayModifiers: ['⌘', '⇧'],
             secondaryBehavior: 'expandToTarget'
+        },
+        'view-history': {
+            // History view
+            key: 'h',
+            modifiers: { cmd: true, shift: true },
+            displayModifiers: ['⌘', '⇧'],
+            secondaryBehavior: 'expandToTarget'
         }
     },
 
@@ -119,6 +126,11 @@ const VIEW_SETTINGS = {
         },
         'view-console': {
             // Console view (no secondary resize)
+            width: 0.33,
+            height: 0.5
+        },
+        'view-history': {
+            // History view (no secondary resize)
             width: 0.33,
             height: 0.5
         }

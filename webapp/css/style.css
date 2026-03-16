@@ -730,7 +730,8 @@ kbd + kbd {
 .view:not(.view-editor).collapsed #console-container,
 .view:not(.view-editor).collapsed #script-editor,
 .view:not(.view-editor).collapsed #ai-chat-container,
-.view:not(.view-editor).collapsed #file-browser {
+.view:not(.view-editor).collapsed #file-browser,
+.view:not(.view-editor).collapsed #history-view-content {
     display: none;
 }
 
@@ -998,6 +999,10 @@ flex-direction: row;
 
 .view-assistant {
     border-left: 4px solid var(--view-assistant);
+}
+
+.view-history {
+    border-left: 4px solid var(--accent-cyan);
 }
 
 /* View Title Button */
