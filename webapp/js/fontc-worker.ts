@@ -1060,17 +1060,17 @@ self.onmessage = async (event) => {
                     // For incremental layer updates (sentinel JSON), always
                     // apply via update_cached_layer without comparing the
                     // full JSON string.  For full JSON, only re-store when
-                                        // the JSON content has actually changed, unless the main
-                                        // thread explicitly invalidated the worker cache after
-                                        // undo/redo or remote Yjs resync. A revision-key bump from
-                                        // markDirty() (e.g. text-input deferred full compile) must
-                                        // NOT trigger store_font when the underlying font data is
-                                        // identical — store_font parses the full JSON and can take
-                                        // ~600 ms on large fonts.
+                    // the JSON content has actually changed, unless the main
+                    // thread explicitly invalidated the worker cache after
+                    // undo/redo or remote Yjs resync. A revision-key bump from
+                    // markDirty() (e.g. text-input deferred full compile) must
+                    // NOT trigger store_font when the underlying font data is
+                    // identical — store_font parses the full JSON and can take
+                    // ~600 ms on large fonts.
                     const needsStore = isIncrementalSentinel
                         ? true
-                                                : forceStoreFontJson === true ||
-                                                    cachedBabelfontJson !== babelfontJson;
+                        : forceStoreFontJson === true ||
+                          cachedBabelfontJson !== babelfontJson;
 
                     // Always refresh cached font data for editing compiles.
                     // This guarantees each compile reflects latest drag edits.
