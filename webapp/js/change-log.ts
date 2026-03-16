@@ -30,6 +30,16 @@ export type HistoryAction = 'change' | 'undo' | 'redo';
 /** Undo scope for a logical history item */
 export type UndoScope = 'font' | 'glyph' | 'layer';
 
+export function getLayerTouchKey(
+    glyphName: string | null,
+    layerId: string | null
+): string | null {
+    if (!glyphName || !layerId) {
+        return null;
+    }
+    return `${glyphName}@@${layerId}`;
+}
+
 /**
  * A single entry in the change log.
  */
@@ -64,6 +74,12 @@ export interface ChangeLogEntry {
     layerId: string | null;
     /** Effective undo scope for this entry */
     undoScope: UndoScope;
+    /** All touched dot-delimited paths represented by this entry */
+    touchedPaths: string[];
+    /** All touched glyph names represented by this entry */
+    touchedGlyphNames: string[];
+    /** All touched layer keys `${glyphName}@@${layerId}` represented by this entry */
+    touchedLayerKeys: string[];
     /** Property name that changed (e.g. "x", "width", "name") */
     property: string;
     /** Full dot-delimited path: "glyphs.A.layers.uuid-1.shapes.0.nodes.2.x" */
@@ -86,17 +102,24 @@ export function createLogEntry(
         | 'targetHistoryItemId'
         | 'layerId'
         | 'undoScope'
+        | 'touchedPaths'
+        | 'touchedGlyphNames'
+        | 'touchedLayerKeys'
     > & {
         historyItemId?: string;
         historyAction?: HistoryAction;
         targetHistoryItemId?: string | null;
         layerId?: string | null;
         undoScope?: UndoScope;
+        touchedPaths?: string[];
+        touchedGlyphNames?: string[];
+        touchedLayerKeys?: string[];
     }
 ): ChangeLogEntry {
     const nextId = _nextId++;
     const glyphName = fields.glyphName ?? null;
     const layerId = fields.layerId ?? null;
+    const touchedLayerKey = getLayerTouchKey(glyphName, layerId);
     return {
         id: nextId,
         historyItemId: fields.historyItemId ?? `history-item-${nextId}`,
@@ -104,6 +127,12 @@ export function createLogEntry(
         targetHistoryItemId: fields.targetHistoryItemId ?? null,
         layerId,
         undoScope: fields.undoScope ?? deriveUndoScope(glyphName, layerId),
+        touchedPaths: fields.touchedPaths ?? (fields.path ? [fields.path] : []),
+        touchedGlyphNames:
+            fields.touchedGlyphNames ?? (glyphName ? [glyphName] : []),
+        touchedLayerKeys:
+            fields.touchedLayerKeys ??
+            (touchedLayerKey ? [touchedLayerKey] : []),
         ...fields
     };
 }
@@ -116,10 +145,16 @@ export type ChangeLogEntryLike = Omit<
     | 'historyItemId'
     | 'historyAction'
     | 'undoScope'
+    | 'touchedPaths'
+    | 'touchedGlyphNames'
+    | 'touchedLayerKeys'
 > & {
     glyphName?: string | null;
     layerId?: string | null;
     undoScope?: UndoScope | null;
+    touchedPaths?: string[] | null;
+    touchedGlyphNames?: string[] | null;
+    touchedLayerKeys?: string[] | null;
     windowRoleLabel?: string | null;
     historyItemId?: string | null;
     historyAction?: HistoryAction | null;
@@ -138,6 +173,9 @@ export interface HistoryStackItem {
     layerIds: string[];
     primaryLayerId: string | null;
     undoScope: UndoScope;
+    touchedPaths: string[];
+    touchedGlyphNames: string[];
+    touchedLayerKeys: string[];
     isActive: boolean;
     lastAction: HistoryAction;
 }
@@ -152,10 +190,7 @@ function getLayerScopeKey(
     glyphName: string | null,
     layerId: string | null
 ): string | null {
-    if (!glyphName || !layerId) {
-        return null;
-    }
-    return `${glyphName}@@${layerId}`;
+    return getLayerTouchKey(glyphName, layerId);
 }
 
 function normalizeHistoryAction(
@@ -239,6 +274,9 @@ function stripMutableHistoryItem(
     const {
         glyphNameSet: _glyphNameSet,
         layerIdSet: _layerIdSet,
+        touchedPathSet: _touchedPathSet,
+        touchedGlyphNameSet: _touchedGlyphNameSet,
+        touchedLayerKeySet: _touchedLayerKeySet,
         scopeKeys: _scopeKeys,
         ...historyItem
     } = item;
@@ -248,6 +286,9 @@ function stripMutableHistoryItem(
 type MutableHistoryStackItem = HistoryStackItem & {
     glyphNameSet: Set<string>;
     layerIdSet: Set<string>;
+    touchedPathSet: Set<string>;
+    touchedGlyphNameSet: Set<string>;
+    touchedLayerKeySet: Set<string>;
     scopeKeys: Set<string>;
 };
 
@@ -277,8 +318,14 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
                 layerIds: [],
                 primaryLayerId: entry.layerId,
                 undoScope: entry.undoScope,
+                touchedPaths: [],
+                touchedGlyphNames: [],
+                touchedLayerKeys: [],
                 glyphNameSet: new Set<string>(),
                 layerIdSet: new Set<string>(),
+                touchedPathSet: new Set<string>(),
+                touchedGlyphNameSet: new Set<string>(),
+                touchedLayerKeySet: new Set<string>(),
                 scopeKeys: new Set<string>(),
                 isActive: true,
                 lastAction: 'change'
@@ -310,6 +357,24 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
             if (entry.layerId && !item.layerIdSet.has(entry.layerId)) {
                 item.layerIdSet.add(entry.layerId);
                 item.layerIds = [...item.layerIdSet];
+            }
+            for (const touchedPath of entry.touchedPaths) {
+                if (!item.touchedPathSet.has(touchedPath)) {
+                    item.touchedPathSet.add(touchedPath);
+                    item.touchedPaths = [...item.touchedPathSet];
+                }
+            }
+            for (const touchedGlyphName of entry.touchedGlyphNames) {
+                if (!item.touchedGlyphNameSet.has(touchedGlyphName)) {
+                    item.touchedGlyphNameSet.add(touchedGlyphName);
+                    item.touchedGlyphNames = [...item.touchedGlyphNameSet];
+                }
+            }
+            for (const touchedLayerKey of entry.touchedLayerKeys) {
+                if (!item.touchedLayerKeySet.has(touchedLayerKey)) {
+                    item.touchedLayerKeySet.add(touchedLayerKey);
+                    item.touchedLayerKeys = [...item.touchedLayerKeySet];
+                }
             }
             item.undoScope = deriveHistoryItemUndoScope(
                 item.entries,
@@ -430,17 +495,11 @@ export function buildHistoryStackItems(
         .map((itemId) => state.itemsById.get(itemId))
         .filter((item): item is MutableHistoryStackItem => !!item)
         .filter((item) => {
-            if (glyphName && !item.glyphNameSet.has(glyphName)) {
+            if (glyphName && !item.touchedGlyphNameSet.has(glyphName)) {
                 return false;
             }
-            if (
-                layerId &&
-                item.undoScope === 'layer' &&
-                !item.layerIdSet.has(layerId)
-            ) {
-                return false;
-            }
-            if (layerId && item.undoScope === 'font') {
+            const layerTouchKey = getLayerTouchKey(glyphName, layerId);
+            if (layerTouchKey && !item.touchedLayerKeySet.has(layerTouchKey)) {
                 return false;
             }
             if (!includeUndone && !item.isActive) {
@@ -576,6 +635,7 @@ export function normalizeChangeLogEntry(
 ): ChangeLogEntry {
     const glyphName = entry.glyphName ?? deriveGlyphNameFromPath(entry.path);
     const layerId = entry.layerId ?? deriveLayerIdFromPath(entry.path);
+    const touchedLayerKey = getLayerTouchKey(glyphName, layerId);
     return {
         ...entry,
         historyItemId: normalizeHistoryItemId(entry.historyItemId, entry.id),
@@ -583,6 +643,24 @@ export function normalizeChangeLogEntry(
         glyphName,
         layerId,
         undoScope: entry.undoScope ?? deriveUndoScope(glyphName, layerId),
+        touchedPaths:
+            entry.touchedPaths && entry.touchedPaths.length
+                ? [...entry.touchedPaths]
+                : entry.path
+                  ? [entry.path]
+                  : [],
+        touchedGlyphNames:
+            entry.touchedGlyphNames && entry.touchedGlyphNames.length
+                ? [...entry.touchedGlyphNames]
+                : glyphName
+                  ? [glyphName]
+                  : [],
+        touchedLayerKeys:
+            entry.touchedLayerKeys && entry.touchedLayerKeys.length
+                ? [...entry.touchedLayerKeys]
+                : touchedLayerKey
+                  ? [touchedLayerKey]
+                  : [],
         targetHistoryItemId: entry.targetHistoryItemId ?? null,
         windowRoleLabel: normalizeWindowRoleLabel(
             entry.windowRoleLabel,

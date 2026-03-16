@@ -402,6 +402,12 @@ declare global {
 
         // From python-ui-sync.js
         setFontLoadingState: (loading: boolean) => void;
+        pythonExecutionHistoryContext: {
+            beforeFontDataJson: string | null;
+            code: string | null;
+            label: string;
+            startedAt: number;
+        } | null;
 
         // From pyodide-official-console.js
         consoleEcho: (msg: string, ...opts: any[]) => void;

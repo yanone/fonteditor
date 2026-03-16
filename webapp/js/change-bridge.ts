@@ -40,6 +40,13 @@ const console = new Logger('ChangeBridge');
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
+type SyntheticChangeOperation = {
+    op: ChangeOp;
+    path: (string | number)[];
+    oldValue: unknown;
+    newValue: unknown;
+};
+
 /**
  * Origin token used by Yjs transactions that represent same-user edits.
  * Linked windows should all be able to undo these changes.
@@ -416,6 +423,131 @@ export class ChangeBridge {
         this._onDirty?.();
     }
 
+    applySyntheticChangeSet(
+        label: string,
+        operations: SyntheticChangeOperation[]
+    ): void {
+        if (
+            !operations.length ||
+            !this._fontJson ||
+            this._suppressRecording ||
+            this._isSyncing
+        ) {
+            return;
+        }
+
+        const normalizedOperations = operations.filter(
+            (operation) => operation.path.length > 0
+        );
+        if (!normalizedOperations.length) {
+            return;
+        }
+
+        const touchedGlyphNames = new Set<string>();
+        const touchedLayerKeys = new Set<string>();
+        let hasFontScopedChange = false;
+        let hasGlyphScopedChange = false;
+
+        for (const operation of normalizedOperations) {
+            const glyphName = deriveGlyphName(operation.path);
+            const layerId = deriveLayerId(operation.path);
+            if (!glyphName) {
+                hasFontScopedChange = true;
+            }
+            if (glyphName) {
+                touchedGlyphNames.add(glyphName);
+            }
+            if (glyphName && layerId) {
+                touchedLayerKeys.add(getLayerManagerKey(glyphName, layerId));
+            } else if (glyphName) {
+                hasGlyphScopedChange = true;
+            }
+        }
+
+        let overallScope: UndoScope = 'font';
+        let origin = FONT_EDIT_ORIGIN;
+        let glyphUndoManager: Y.UndoManager | null = null;
+        let layerUndoManager: Y.UndoManager | null = null;
+
+        if (!hasFontScopedChange && touchedGlyphNames.size === 1) {
+            const glyphName = [...touchedGlyphNames][0];
+            if (!hasGlyphScopedChange && touchedLayerKeys.size === 1) {
+                const [managerKey] = [...touchedLayerKeys];
+                const [, layerId] = managerKey.split('@@');
+                overallScope = 'layer';
+                origin = getLayerEditOrigin(glyphName, layerId);
+                layerUndoManager = this.getLayerUndoManager(glyphName, layerId);
+                layerUndoManager?.stopCapturing();
+            } else {
+                overallScope = 'glyph';
+                origin = GLYPH_EDIT_ORIGIN;
+                glyphUndoManager = this.getGlyphUndoManager(glyphName);
+                glyphUndoManager?.stopCapturing();
+            }
+        } else {
+            this._fontUndoManager?.stopCapturing();
+        }
+
+        const historyItemId = this._getCurrentHistoryItemId();
+        const timestamp = Date.now();
+
+        for (const operation of normalizedOperations) {
+            const { objectType, objectId } = deriveObjectInfo(operation.path);
+            const glyphName = deriveGlyphName(operation.path);
+            const layerId = deriveLayerId(operation.path);
+            const pathString = operation.path.join('.');
+            const lastSegment = operation.path[operation.path.length - 1];
+            const property =
+                operation.op === 'set' && typeof lastSegment === 'string'
+                    ? lastSegment
+                    : '';
+
+            const entry = createLogEntry({
+                timestamp,
+                windowId: this.windowId,
+                transactionLabel: this._txLabel ?? label,
+                windowRoleLabel: this._getWindowRoleLabel(),
+                historyItemId,
+                historyAction: 'change',
+                transactionId: this._txId,
+                op: operation.op,
+                objectType,
+                objectId,
+                glyphName,
+                layerId,
+                undoScope: this._deriveUndoScope(glyphName, layerId),
+                property,
+                path: pathString,
+                oldValue: operation.oldValue,
+                newValue: operation.newValue
+            });
+            this._appendChangeLogEntry(entry);
+        }
+
+        this.yDoc.transact(() => {
+            for (const operation of normalizedOperations) {
+                if (operation.op === 'remove') {
+                    deleteYPath(this.fontMap, this._toYDocPath(operation.path));
+                    continue;
+                }
+
+                setYPath(
+                    this.fontMap,
+                    this._toYDocPath(operation.path),
+                    operation.newValue
+                );
+            }
+        }, origin);
+
+        glyphUndoManager?.stopCapturing();
+        layerUndoManager?.stopCapturing();
+        if (overallScope === 'font') {
+            this._fontUndoManager?.stopCapturing();
+        }
+
+        this._onDirty?.();
+    }
+
     // ── Transactions ─────────────────────────────────────────────
 
     /**
@@ -447,6 +579,10 @@ export class ChangeBridge {
     /** Whether a transaction is currently open. */
     get inTransaction(): boolean {
         return this._txDepth > 0;
+    }
+
+    setRecordingSuppressed(suppressed: boolean): void {
+        this._suppressRecording = suppressed;
     }
 
     // ── Bulk sync (after drag / external mutation) ───────────────

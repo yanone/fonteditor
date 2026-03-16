@@ -86,7 +86,7 @@
                 // Call after-execution hook (always, even on error)
                 if (window.afterPythonExecution) {
                     const afterHookStart = performance.now();
-                    window.afterPythonExecution();
+                    await window.afterPythonExecution();
                     const afterHookDuration =
                         performance.now() - afterHookStart;
                     if (afterHookDuration > 10) {
@@ -152,7 +152,13 @@
                         '[PythonExec]',
                         `🪝 Calling afterPythonExecution hook for sync #${execId}`
                     );
-                    window.afterPythonExecution();
+                    const hookResult = window.afterPythonExecution();
+                    if (hookResult && typeof hookResult.then === 'function') {
+                        console.warn(
+                            '[PythonExec]',
+                            'afterPythonExecution hook returned a promise in sync context - cannot await'
+                        );
+                    }
                 } else {
                     console.warn(
                         '[PythonExec]',

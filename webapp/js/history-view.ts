@@ -4,6 +4,8 @@ import {
     type HistoryStackItem
 } from './change-log';
 import { Logger } from './logger';
+import tippy, { type Instance as TippyInstance } from 'tippy.js';
+import { getTheme } from './tippy-utils';
 
 const console = new Logger('HistoryView');
 
@@ -33,6 +35,7 @@ class HistoryViewController {
     private currentScope: HistoryScope = 'font';
     private unsubscribeBridge: (() => void) | null = null;
     private attachedTextRunEditor: TextRunSelectionEmitter | null = null;
+    private metadataTooltips: TippyInstance[] = [];
 
     constructor() {
         if (document.readyState === 'loading') {
@@ -452,6 +455,8 @@ class HistoryViewController {
             return;
         }
 
+        this.destroyMetadataTooltips();
+
         if (!window.changeBridge) {
             this.listEl.innerHTML =
                 '<div class="history-empty-state">Waiting for font data...</div>';
@@ -486,17 +491,33 @@ class HistoryViewController {
 
             row.innerHTML = `
                 <div class="history-meta">
-                    <span class="history-time">${this.formatTime(item.timestamp)}</span>
-                    <span class="history-badge history-window-badge">${item.windowRoleLabel}</span>
-                    <span class="history-badge ${opClass}">${entry.op}</span>
-                    <span class="history-badge">${this.formatScopeLabel(item)}</span>
-                    <span class="history-badge">${item.primaryObjectType}</span>
-                    ${item.transactionLabel ? `<span class="history-badge">${item.transactionLabel}</span>` : ''}
-                    ${item.entries.length > 1 ? `<span class="history-badge">${item.entries.length} changes</span>` : ''}
+                    <div class="history-meta-main">
+                        <span class="history-time">${this.formatTime(item.timestamp)}</span>
+                        <span class="history-badge history-window-badge">${this.escapeHtml(item.windowRoleLabel)}</span>
+                        <span class="history-badge ${opClass}">${this.escapeHtml(entry.op)}</span>
+                        <span class="history-badge">${this.escapeHtml(this.formatScopeLabel(item))}</span>
+                        <span class="history-badge">${this.escapeHtml(item.primaryObjectType)}</span>
+                        ${item.transactionLabel ? `<span class="history-badge">${this.escapeHtml(item.transactionLabel)}</span>` : ''}
+                        ${item.entries.length > 1 ? `<span class="history-badge">${item.entries.length} changes</span>` : ''}
+                    </div>
+                    <button
+                        type="button"
+                        class="history-info-button material-symbols-outlined"
+                        data-role="history-info-button"
+                        aria-label="Show history metadata"
+                    >info</button>
                 </div>
-                <div class="history-path">${this.formatItemPath(item)}</div>
-                ${item.entries.length === 1 && entry.op === 'set' && (entry.oldValue !== undefined || entry.newValue !== undefined) ? `<div class="history-values">${this.truncate(entry.oldValue)} → ${this.truncate(entry.newValue)}</div>` : ''}
+                <div class="history-path">${this.escapeHtml(this.formatItemPath(item))}</div>
+                ${item.entries.length === 1 && entry.op === 'set' && (entry.oldValue !== undefined || entry.newValue !== undefined) ? `<div class="history-values">${this.escapeHtml(this.truncate(entry.oldValue))} → ${this.escapeHtml(this.truncate(entry.newValue))}</div>` : ''}
             `;
+
+            const infoButton = row.querySelector(
+                '[data-role="history-info-button"]'
+            ) as HTMLButtonElement | null;
+            if (infoButton) {
+                this.attachMetadataTooltip(infoButton, item);
+            }
+
             fragment.appendChild(row);
         }
 
@@ -527,6 +548,183 @@ class HistoryViewController {
         }
 
         return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+    }
+
+    private destroyMetadataTooltips(): void {
+        for (const tooltip of this.metadataTooltips) {
+            tooltip.destroy();
+        }
+        this.metadataTooltips = [];
+    }
+
+    private attachMetadataTooltip(
+        button: HTMLButtonElement,
+        item: HistoryStackItem
+    ): void {
+        const tooltip = tippy(button, {
+            content: this.buildMetadataTooltip(item),
+            allowHTML: true,
+            interactive: true,
+            trigger: 'click',
+            appendTo: () => document.body,
+            maxWidth: 460,
+            placement: 'left-start',
+            theme: getTheme()
+        });
+        this.metadataTooltips.push(tooltip);
+    }
+
+    private buildMetadataTooltip(item: HistoryStackItem): string {
+        const summaryRows = [
+            this.buildMetadataRow('History item', item.id),
+            this.buildMetadataRow(
+                'Timestamp',
+                this.formatTimestamp(item.timestamp)
+            ),
+            this.buildMetadataRow('Last action', item.lastAction),
+            this.buildMetadataRow('Active', item.isActive ? 'Yes' : 'No'),
+            this.buildMetadataRow('Window', item.windowRoleLabel),
+            this.buildMetadataRow('Undo scope', item.undoScope),
+            this.buildMetadataRow('Primary object', item.primaryObjectType),
+            this.buildMetadataRow('Primary object ID', item.primaryObjectId),
+            this.buildMetadataRow('Primary layer ID', item.primaryLayerId),
+            this.buildMetadataRow('Transaction label', item.transactionLabel),
+            this.buildMetadataRow('Entry count', String(item.entries.length)),
+            this.buildMetadataRow('Glyphs', this.formatList(item.glyphNames)),
+            this.buildMetadataRow('Layers', this.formatList(item.layerIds)),
+            this.buildMetadataRow(
+                'Touched glyphs',
+                this.formatList(item.touchedGlyphNames)
+            ),
+            this.buildMetadataRow(
+                'Touched layers',
+                this.formatTouchedLayerList(item.touchedLayerKeys)
+            ),
+            this.buildMetadataRow(
+                'Touched paths',
+                this.formatList(item.touchedPaths)
+            )
+        ].join('');
+
+        const entrySections = item.entries
+            .map((entry, index) => {
+                const entryRows = [
+                    this.buildMetadataRow('Entry ID', String(entry.id)),
+                    this.buildMetadataRow(
+                        'History action',
+                        entry.historyAction
+                    ),
+                    this.buildMetadataRow(
+                        'Target item',
+                        entry.targetHistoryItemId
+                    ),
+                    this.buildMetadataRow(
+                        'Transaction ID',
+                        this.formatNullableNumber(entry.transactionId)
+                    ),
+                    this.buildMetadataRow('Window ID', entry.windowId),
+                    this.buildMetadataRow('Operation', entry.op),
+                    this.buildMetadataRow('Object type', entry.objectType),
+                    this.buildMetadataRow('Object ID', entry.objectId),
+                    this.buildMetadataRow('Glyph', entry.glyphName),
+                    this.buildMetadataRow('Layer', entry.layerId),
+                    this.buildMetadataRow('Undo scope', entry.undoScope),
+                    this.buildMetadataRow('Property', entry.property),
+                    this.buildMetadataRow('Path', entry.path),
+                    this.buildMetadataRow(
+                        'Touched glyphs',
+                        this.formatList(entry.touchedGlyphNames)
+                    ),
+                    this.buildMetadataRow(
+                        'Touched layers',
+                        this.formatTouchedLayerList(entry.touchedLayerKeys)
+                    ),
+                    this.buildMetadataRow(
+                        'Touched paths',
+                        this.formatList(entry.touchedPaths)
+                    ),
+                    this.buildMetadataRow(
+                        'Old value',
+                        this.formatFullValue(entry.oldValue)
+                    ),
+                    this.buildMetadataRow(
+                        'New value',
+                        this.formatFullValue(entry.newValue)
+                    )
+                ].join('');
+
+                return `
+                    <section class="history-metadata-section">
+                        <h4 class="history-metadata-section-title">Change ${index + 1}</h4>
+                        <dl class="history-metadata-grid">${entryRows}</dl>
+                    </section>
+                `;
+            })
+            .join('');
+
+        return `
+            <div class="history-metadata-tooltip">
+                <section class="history-metadata-section">
+                    <h4 class="history-metadata-section-title">Summary</h4>
+                    <dl class="history-metadata-grid">${summaryRows}</dl>
+                </section>
+                ${entrySections}
+            </div>
+        `;
+    }
+
+    private buildMetadataRow(label: string, value: string | null): string {
+        return `
+            <div class="history-metadata-row">
+                <dt>${this.escapeHtml(label)}</dt>
+                <dd>${this.escapeHtml(value ?? '—')}</dd>
+            </div>
+        `;
+    }
+
+    private formatList(values: string[]): string {
+        return values.length ? values.join(', ') : '—';
+    }
+
+    private formatTouchedLayerList(values: string[]): string {
+        return values.length
+            ? values.map((value) => value.replace('@@', ' / ')).join(', ')
+            : '—';
+    }
+
+    private formatNullableNumber(value: number | null): string {
+        return value === null ? '—' : String(value);
+    }
+
+    private formatFullValue(value: unknown): string {
+        if (value === undefined) {
+            return '—';
+        }
+        if (typeof value === 'string') {
+            return value;
+        }
+        const json = JSON.stringify(value, null, 2);
+        return json ?? String(value);
+    }
+
+    private formatTimestamp(timestamp: number): string {
+        return new Date(timestamp).toLocaleString([], {
+            year: 'numeric',
+            month: 'short',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    }
+
+    private escapeHtml(value: string): string {
+        return value
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
     }
 }
 

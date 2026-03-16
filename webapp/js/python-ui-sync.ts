@@ -1,23 +1,52 @@
 // Python-UI Synchronization Hooks
 // These functions control when UI updates are paused/resumed during Python execution
 
+import { Path } from './babelfont-model';
+
 // Flag to skip dirty checks during font loading operations
 let isLoadingFont = false;
 
 // Debounce timer for dirty indicator updates
 let dirtyCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
+function createNormalizedFontSnapshot(): string | null {
+    const currentFont = window.fontManager?.currentFont;
+    if (!currentFont?.babelfontData) {
+        return null;
+    }
+
+    const snapshot = JSON.parse(JSON.stringify(currentFont.babelfontData));
+    for (const glyph of snapshot.glyphs || []) {
+        for (const layer of glyph.layers || []) {
+            for (const shape of layer.shapes || []) {
+                if (Array.isArray(shape?.nodes)) {
+                    shape.nodes = Path.nodesToString(shape.nodes);
+                }
+            }
+        }
+    }
+
+    return JSON.stringify(snapshot);
+}
+
 /**
  * Called before any Python code execution begins.
  * Use this to pause UI updates and dirty tracking to avoid unnecessary redraws
  * while Python code is modifying font data.
  */
-function beforePythonExecution() {
+function beforePythonExecution(code?: string) {
     console.log(
         '[PythonUISync]',
         '🔒 UI updates paused (Python execution starting)'
     );
+    window.pythonExecutionHistoryContext = {
+        beforeFontDataJson: createNormalizedFontSnapshot(),
+        code: code ?? null,
+        label: 'Python script',
+        startedAt: Date.now()
+    };
     window.changeBridge?.beginTransaction('Python script');
+    window.changeBridge?.setRecordingSuppressed(true);
 }
 
 /**
@@ -29,7 +58,6 @@ function afterPythonExecution() {
         '[PythonUISync]',
         '🔓 UI updates resumed (Python execution finished)'
     );
-    window.changeBridge?.endTransaction();
 
     // Skip dirty checks if we're loading a font or font manager not ready
     if (isLoadingFont || !window.fontManager) {
@@ -57,6 +85,7 @@ function afterPythonExecution() {
 }
 
 // Make functions globally available
+window.pythonExecutionHistoryContext = null;
 window.beforePythonExecution = beforePythonExecution;
 window.afterPythonExecution = afterPythonExecution;
 

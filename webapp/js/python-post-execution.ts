@@ -13,6 +13,154 @@ const console = new Logger('PythonPostExecution');
 let postExecutionSyncInProgress = false;
 let postExecutionSyncQueued = false;
 
+type SyntheticChangeOperation = {
+    op: 'set' | 'add' | 'remove';
+    path: (string | number)[];
+    oldValue: unknown;
+    newValue: unknown;
+};
+
+function cloneJsonValue<T>(value: T): T {
+    if (value === undefined) {
+        return value;
+    }
+    return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function valuesDiffer(a: unknown, b: unknown): boolean {
+    return JSON.stringify(a) !== JSON.stringify(b);
+}
+
+function diffFontData(
+    beforeValue: unknown,
+    afterValue: unknown,
+    path: (string | number)[] = [],
+    collectionKind: 'glyphs' | 'layers' | null = null,
+    operations: SyntheticChangeOperation[] = []
+): SyntheticChangeOperation[] {
+    if (beforeValue === undefined && afterValue === undefined) {
+        return operations;
+    }
+
+    if (beforeValue === undefined) {
+        operations.push({
+            op: 'add',
+            path,
+            oldValue: undefined,
+            newValue: cloneJsonValue(afterValue)
+        });
+        return operations;
+    }
+
+    if (afterValue === undefined) {
+        operations.push({
+            op: 'remove',
+            path,
+            oldValue: cloneJsonValue(beforeValue),
+            newValue: undefined
+        });
+        return operations;
+    }
+
+    if (Array.isArray(beforeValue) && Array.isArray(afterValue)) {
+        if (collectionKind === 'glyphs' || collectionKind === 'layers') {
+            const keyField = collectionKind === 'glyphs' ? 'name' : 'id';
+            const beforeEntries = beforeValue.flatMap((item) => {
+                if (!isPlainObject(item)) {
+                    return [];
+                }
+                const key = String(item[keyField] ?? '');
+                return key
+                    ? ([[key, item]] as Array<
+                          [string, Record<string, unknown>]
+                      >)
+                    : [];
+            });
+            const afterEntries = afterValue.flatMap((item) => {
+                if (!isPlainObject(item)) {
+                    return [];
+                }
+                const key = String(item[keyField] ?? '');
+                return key
+                    ? ([[key, item]] as Array<
+                          [string, Record<string, unknown>]
+                      >)
+                    : [];
+            });
+            const beforeMap = new Map<string, Record<string, unknown>>(
+                beforeEntries
+            );
+            const afterMap = new Map<string, Record<string, unknown>>(
+                afterEntries
+            );
+            const keys = new Set<string>([
+                ...beforeMap.keys(),
+                ...afterMap.keys()
+            ]);
+            for (const key of keys) {
+                diffFontData(
+                    beforeMap.get(key),
+                    afterMap.get(key),
+                    [...path, key],
+                    null,
+                    operations
+                );
+            }
+            return operations;
+        }
+
+        const maxLength = Math.max(beforeValue.length, afterValue.length);
+        for (let index = 0; index < maxLength; index++) {
+            diffFontData(
+                beforeValue[index],
+                afterValue[index],
+                [...path, index],
+                null,
+                operations
+            );
+        }
+        return operations;
+    }
+
+    if (isPlainObject(beforeValue) && isPlainObject(afterValue)) {
+        const keys = new Set([
+            ...Object.keys(beforeValue),
+            ...Object.keys(afterValue)
+        ]);
+        for (const key of keys) {
+            const nextCollectionKind =
+                key === 'glyphs'
+                    ? 'glyphs'
+                    : key === 'layers'
+                      ? 'layers'
+                      : null;
+            diffFontData(
+                beforeValue[key],
+                afterValue[key],
+                [...path, key],
+                nextCollectionKind,
+                operations
+            );
+        }
+        return operations;
+    }
+
+    if (valuesDiffer(beforeValue, afterValue)) {
+        operations.push({
+            op: 'set',
+            path,
+            oldValue: cloneJsonValue(beforeValue),
+            newValue: cloneJsonValue(afterValue)
+        });
+    }
+
+    return operations;
+}
+
 async function syncRustAndRecompileEditingFont(): Promise<void> {
     if (postExecutionSyncInProgress) {
         postExecutionSyncQueued = true;
@@ -92,30 +240,50 @@ function setupHooks() {
      * Triggers font recompilation
      */
     window.afterPythonExecution = async function () {
-        // Call the existing hook first (if any)
-        if (typeof existingHook === 'function') {
-            existingHook();
-        }
+        try {
+            // Sync changes from object model back to JSON string (for compilation)
+            // The babelfontData object is already modified in place by the object model,
+            // we only need to update the JSON string for the compiler
+            if (window.fontManager?.currentFont) {
+                window.fontManager.currentFont.syncJsonFromModel();
 
-        // Sync changes from object model back to JSON string (for compilation)
-        // The babelfontData object is already modified in place by the object model,
-        // we only need to update the JSON string for the compiler
-        if (window.fontManager?.currentFont) {
-            window.fontManager.currentFont.syncJsonFromModel();
+                const beforeFontDataJson =
+                    window.pythonExecutionHistoryContext?.beforeFontDataJson;
+                if (beforeFontDataJson && window.changeBridge) {
+                    const operations = diffFontData(
+                        JSON.parse(beforeFontDataJson),
+                        JSON.parse(window.fontManager.currentFont.babelfontJson)
+                    );
+                    window.changeBridge.setRecordingSuppressed(false);
+                    if (operations.length) {
+                        window.changeBridge.applySyntheticChangeSet(
+                            window.pythonExecutionHistoryContext?.label ??
+                                'Python script',
+                            operations
+                        );
+                    }
+                }
 
-            // Keep Rust-side cache in sync after Python manipulations,
-            // then recompile the editing font from the updated source JSON.
-            // Must complete before fetchLayerData() since it reads from Rust.
-            await syncRustAndRecompileEditingFont();
+                // Keep Rust-side cache in sync after Python manipulations,
+                // then recompile the editing font from the updated source JSON.
+                // Must complete before fetchLayerData() since it reads from Rust.
+                await syncRustAndRecompileEditingFont();
 
-            // Refresh canvas to pick up changes if in edit mode
-            // After syncJsonFromModel, nodes arrays have been converted to strings,
-            // so we need to refetch layer data to get fresh parsed arrays
-            if (window.glyphCanvas?.outlineEditor) {
-                // Refetch layer data from Rust (now synced) to get fresh data
-                await window.glyphCanvas.outlineEditor.fetchLayerData();
-                window.glyphCanvas.render();
+                // Refresh canvas to pick up changes if in edit mode
+                // After syncJsonFromModel, nodes arrays have been converted to strings,
+                // so we need to refetch layer data to get fresh data
+                if (window.glyphCanvas?.outlineEditor) {
+                    // Refetch layer data from Rust (now synced) to get fresh data
+                    await window.glyphCanvas.outlineEditor.fetchLayerData();
+                    window.glyphCanvas.render();
+                }
             }
+        } finally {
+            window.changeBridge?.setRecordingSuppressed(false);
+            if (window.changeBridge?.inTransaction) {
+                window.changeBridge.endTransaction();
+            }
+            window.pythonExecutionHistoryContext = null;
         }
 
         // Trigger font recompilation via auto-compile manager
@@ -126,6 +294,10 @@ function setupHooks() {
 
         if (window.fullCompileManager) {
             window.fullCompileManager.scheduleCompilation();
+        }
+
+        if (typeof existingHook === 'function') {
+            await existingHook();
         }
     };
 

@@ -672,6 +672,43 @@ describe('change-log', () => {
             resolveHistoryTargetItemId([changeEntry, undoEntry], 'A', 'redo')
         ).toBe('history-item-1');
     });
+
+    test('buildHistoryStackItems uses touched layers for layer filtering', () => {
+        resetLogCounter();
+        const changeEntry = createLogEntry({
+            timestamp: 1,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyItemId: 'history-item-1',
+            historyAction: 'change',
+            transactionLabel: 'Python script',
+            transactionId: 1,
+            op: 'set',
+            objectType: 'glyph',
+            objectId: 'A',
+            glyphName: 'A',
+            undoScope: 'glyph',
+            touchedGlyphNames: ['A'],
+            touchedLayerKeys: ['A@@layer-1'],
+            property: 'note',
+            path: 'glyphs.A.note',
+            oldValue: '',
+            newValue: 'changed'
+        });
+
+        expect(
+            buildHistoryStackItems([changeEntry], {
+                glyphName: 'A',
+                layerId: 'layer-1'
+            })
+        ).toHaveLength(1);
+        expect(
+            buildHistoryStackItems([changeEntry], {
+                glyphName: 'A',
+                layerId: 'layer-miss'
+            })
+        ).toHaveLength(0);
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -756,6 +793,105 @@ describe('ChangeBridge', () => {
         const log = bridge.getChangeLog();
         expect(log).toHaveLength(1);
         expect(log[0].op).toBe('remove');
+    });
+
+    test('applySyntheticChangeSet creates one glyph-scoped undo step across layers', () => {
+        const fontJson = makeMinimalFont();
+        fontJson.glyphs[0].layers.push({
+            id: 'layer-1b',
+            name: 'Regular Alt',
+            width: 620,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-regular'
+            },
+            smart_component_location: {},
+            color: null,
+            layer_index: 1,
+            is_background: false,
+            background_layer_id: null,
+            location: {},
+            format_specific: {},
+            shapes: [],
+            anchors: [],
+            guides: []
+        });
+
+        const bridge = new ChangeBridge('test-1');
+        bridge.initFromJson(fontJson);
+
+        bridge.beginTransaction('Python script');
+        bridge.applySyntheticChangeSet('Python script', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 700
+            },
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1b', 'width'],
+                oldValue: 620,
+                newValue: 730
+            }
+        ]);
+        bridge.endTransaction();
+
+        const layer1Items = buildHistoryStackItems(bridge.getChangeLog(), {
+            glyphName: 'A',
+            layerId: 'layer-1'
+        });
+        const layer1bItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            glyphName: 'A',
+            layerId: 'layer-1b'
+        });
+
+        expect(layer1Items).toHaveLength(1);
+        expect(layer1bItems).toHaveLength(1);
+        expect(layer1Items[0].undoScope).toBe('glyph');
+
+        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1b',
+                'width'
+            ])
+        ).toBe(620);
+
+        expect(bridge.redo('A', 'layer-1')).toBe(true);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1b',
+                'width'
+            ])
+        ).toBe(730);
+
+        bridge.destroy();
+        window.changeBridge = undefined;
     });
 
     test('change log is suppressed during initFromJson', () => {

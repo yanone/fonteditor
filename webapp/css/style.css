@@ -1101,7 +1101,15 @@ flex-direction: row;
     align-items: center;
     gap: 8px;
     margin-bottom: 3px;
+    justify-content: space-between;
+}
+
+.history-meta-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     flex-wrap: wrap;
+    min-width: 0;
 }
 
 .history-time {
@@ -1129,6 +1137,86 @@ flex-direction: row;
 
 .history-window-badge {
     color: var(--text-primary);
+}
+
+.history-info-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--border-primary);
+    background-color: transparent;
+    color: var(--text-faint);
+    padding: 0;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    flex: 0 0 auto;
+    transition:
+        color 0.2s ease,
+        border-color 0.2s ease,
+        background-color 0.2s ease;
+}
+
+.history-info-button:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+    background-color: var(--input-bg);
+}
+
+.history-metadata-tooltip {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: min(60vh, 560px);
+    overflow: auto;
+    padding: 2px;
+    font-family: var(--font-families-sans);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.history-metadata-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.history-metadata-section-title {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.history-metadata-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+}
+
+.history-metadata-row {
+    display: grid;
+    grid-template-columns: minmax(96px, 120px) minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+}
+
+.history-metadata-row dt {
+    margin: 0;
+    color: var(--text-faint);
+}
+
+.history-metadata-row dd {
+    margin: 0;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--font-families-mono);
 }
 
 .history-path {
@@ -1173,6 +1261,11 @@ flex-direction: row;
 
 .view-history:not(.focused) .history-breadcrumb-item.active {
     color: var(--text-secondary);
+}
+
+.view-history:not(.focused) .history-info-button {
+    color: var(--text-faint);
+    border-color: var(--border-primary);
 }
 
 .view-history:not(.focused) .history-search-input::placeholder {
