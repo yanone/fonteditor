@@ -1653,9 +1653,13 @@ describe('Model mutable getter change recording', () => {
             const log = bridge.getChangeLog();
 
             expect(log).toHaveLength(1);
-            expect(log[0].property).toBe(spec.property);
-            expect(log[0].oldValue).toEqual(oldValue);
-            expect(log[0].newValue).toEqual(expectedValue);
+            if (spec.className === 'Font' && spec.property === 'features') {
+                expect(log[0].path.startsWith('features.')).toBe(true);
+            } else {
+                expect(log[0].property).toBe(spec.property);
+                expect(log[0].oldValue).toEqual(oldValue);
+                expect(log[0].newValue).toEqual(expectedValue);
+            }
             expect(
                 normalizeYValue(
                     getYPath(
@@ -1681,10 +1685,46 @@ describe('Model mutable getter change recording', () => {
         const log = bridge.getChangeLog();
 
         expect(log).toHaveLength(4);
-        expect(log.every((entry) => entry.property === 'features')).toBe(true);
+        expect(log.map((entry) => entry.path)).toEqual([
+            'features.classes.Lowercase',
+            'features.classes.Uppercase',
+            'features.include_paths.0',
+            'features.include_paths'
+        ]);
         expect(normalizeYValue(getYPath(bridge.fontMap, ['features']))).toEqual(
             cloneValue(font.features)
         );
+    });
+
+    test('feature history target filtering scopes stack items and undo', () => {
+        const { bridge, font } = createTestBridge('feature-history-scope');
+
+        font.note = 'note-changed';
+        font.features.prefixes.global.code = 'lookupflag 7;';
+
+        const scopedItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            historyTargetKey: 'prefix:global'
+        });
+
+        expect(scopedItems).toHaveLength(1);
+        expect(scopedItems[0].entries[0].path).toBe(
+            'features.prefixes.global.code'
+        );
+
+        expect(bridge.undo(undefined, null, 'prefix:global')).toBe(true);
+        expect(normalizeYValue(getYPath(bridge.fontMap, ['note']))).toBe(
+            'note-changed'
+        );
+        expect(
+            normalizeYValue(
+                getYPath(bridge.fontMap, [
+                    'features',
+                    'prefixes',
+                    'global',
+                    'code'
+                ])
+            )
+        ).toBe('lookupflag 0;');
     });
 
     test('python-style item assignment uses owner-aware wrapping rules', () => {

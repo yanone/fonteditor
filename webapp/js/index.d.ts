@@ -39,14 +39,16 @@ declare global {
                   action: 'undo' | 'redo',
                   glyphName?: string,
                   refreshRootGlyphName?: string,
-                  layerId?: string | null
+                  layerId?: string | null,
+                  historyTargetKey?: string | null
               ) => Promise<void>)
             | undefined;
         getHistoryUndoContext:
             | (() => {
-                  scope: 'font' | 'glyph' | 'layer';
+                  scope: 'font' | 'glyph' | 'layer' | 'feature';
                   glyphName: string | null;
                   layerId: string | null;
+                  historyTargetKey: string | null;
               })
             | undefined;
 
@@ -371,6 +373,11 @@ declare global {
         // From font-info.ts
         fontInfoManager: {
             updateEditorTheme: (theme: 'light' | 'dark') => void;
+            getHistoryScopeTarget: () => {
+                type: 'prefix' | 'class' | 'feature';
+                key: string;
+                label: string;
+            } | null;
             showFeatureCompilationError: (errorInput: unknown) => void;
             clearFeatureErrorHighlight: () => void;
             getFeatureCompilationErrorLocation: (errorInput: unknown) => {

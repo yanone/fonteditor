@@ -40,6 +40,12 @@ interface SidebarFeatureErrorTarget {
     message: string;
 }
 
+type FeatureHistoryScopeTarget = {
+    type: FeatureItemType;
+    key: string;
+    label: string;
+};
+
 interface FeatureErrorLocation {
     type: 'prefix' | 'class' | 'feature';
     label: string;
@@ -103,6 +109,7 @@ class FontInfoManager {
     private aceLineWidgetsCtor: any = null;
     private featureErrorTarget: SidebarFeatureErrorTarget | null = null;
     private featureErrorIssue: FeatureErrorSpanIssue | null = null;
+    private pendingModelSyncRefresh = false;
 
     init() {
         const viewContent = document.querySelector(
@@ -130,6 +137,9 @@ class FontInfoManager {
 
         // Listen for font changes - use fontReady which fires after currentFontModel is set
         window.addEventListener('fontReady', () => this.onFontLoaded());
+        window.addEventListener('fontModelSync', () =>
+            this.onFontModelSynced()
+        );
 
         // Set up ResizeObserver to resize the Ace editor continuously during dragging
         this.setupResizeObserver();
@@ -1469,10 +1479,77 @@ class FontInfoManager {
             const featureEntry =
                 typeof key === 'number' ? features[key] : undefined;
             const featureTag = featureEntry?.[0];
-            return featureTag || `#${String(key)}`;
+            if (!featureTag) {
+                return `#${String(key)}`;
+            }
+
+            const occurrence =
+                typeof key === 'number'
+                    ? features
+                          .slice(0, key + 1)
+                          .filter(([tag]) => tag === featureTag).length
+                    : 1;
+            return occurrence > 1 ? `${featureTag} #${occurrence}` : featureTag;
         }
 
         return String(key);
+    }
+
+    getHistoryScopeTarget(): FeatureHistoryScopeTarget | null {
+        if (!this.isViewActive() || this.currentTab !== 'features') {
+            return null;
+        }
+
+        if (!this.selectedItem) {
+            return null;
+        }
+
+        const { type, key } = this.selectedItem;
+        if (type === 'prefix' && typeof key === 'string') {
+            return {
+                type,
+                key: `prefix:${key}`,
+                label: key
+            };
+        }
+
+        if (type === 'class' && typeof key === 'string') {
+            return {
+                type,
+                key: `class:${key}`,
+                label: key
+            };
+        }
+
+        if (type === 'feature' && typeof key === 'number') {
+            const font = window.currentFontModel;
+            const features = font?.features?.features || [];
+            const featureEntry = features[key];
+            const tag = featureEntry?.[0];
+            if (!tag) {
+                return {
+                    type,
+                    key: `feature-index:${key}`,
+                    label: `#${key + 1}`
+                };
+            }
+
+            const occurrence = features
+                .slice(0, key + 1)
+                .filter(([featureTag]) => featureTag === tag).length;
+
+            return {
+                type,
+                key: `feature:${tag}:${occurrence}`,
+                label: occurrence > 1 ? `${tag} #${occurrence}` : String(tag)
+            };
+        }
+
+        return null;
+    }
+
+    private notifyHistoryScopeChange() {
+        window.dispatchEvent(new CustomEvent('featureHistoryContextChanged'));
     }
 
     private createContentContainers(viewContent: HTMLElement) {
@@ -1596,6 +1673,7 @@ class FontInfoManager {
 
     private switchTab(tab: FontInfoTab) {
         this.currentTab = tab;
+        this.notifyHistoryScopeChange();
 
         // Save to localStorage
         localStorage.setItem(FONTINFO_TAB_STORAGE_KEY, tab);
@@ -1636,10 +1714,12 @@ class FontInfoManager {
                 this.featuresEditorInitialized = true;
             }
             // Load font data if available and not already loaded
-            if (window.currentFontModel && !this.fontDataLoaded) {
+            if (
+                window.currentFontModel &&
+                (!this.fontDataLoaded || this.pendingModelSyncRefresh)
+            ) {
                 console.log('[FontInfo] Loading features lists (switchTab)');
-                this.loadAllLists();
-                this.fontDataLoaded = true;
+                this.refreshVisibleFeatureContent();
             }
             // Show search control
             const searchControl = document.getElementById(
@@ -1676,6 +1756,7 @@ class FontInfoManager {
         );
         // Reset font data loaded flag for new font
         this.fontDataLoaded = false;
+        this.pendingModelSyncRefresh = false;
         // Clear editor state
         this.selectedItem = null;
         this.prefixListItems.clear();
@@ -1696,6 +1777,64 @@ class FontInfoManager {
                     this.fontDataLoaded = true;
                 }
             });
+        }
+    }
+
+    private onFontModelSynced() {
+        this.fontDataLoaded = false;
+        this.pendingModelSyncRefresh = true;
+
+        if (this.currentTab !== 'features') {
+            return;
+        }
+
+        requestAnimationFrame(() => this.refreshVisibleFeatureContent());
+    }
+
+    private refreshVisibleFeatureContent() {
+        if (this.currentTab !== 'features' || !window.currentFontModel) {
+            return;
+        }
+
+        if (!this.featuresEditorInitialized) {
+            this.initializeFeaturesEditor();
+            this.featuresEditorInitialized = true;
+        }
+
+        const previousSelection = this.selectedItem
+            ? { ...this.selectedItem }
+            : null;
+        const previousCursor =
+            this.featuresEditor?.getCursorPosition?.() ?? null;
+        const previousScrollTop =
+            this.featuresEditor?.session?.getScrollTop?.() ?? null;
+        const previousScrollLeft =
+            this.featuresEditor?.session?.getScrollLeft?.() ?? null;
+
+        this.loadAllLists();
+        this.fontDataLoaded = true;
+        this.pendingModelSyncRefresh = false;
+
+        if (
+            previousSelection &&
+            this.selectedItem &&
+            previousSelection.type === this.selectedItem.type &&
+            previousSelection.key === this.selectedItem.key
+        ) {
+            if (previousCursor) {
+                this.featuresEditor?.moveCursorTo?.(
+                    previousCursor.row,
+                    previousCursor.column
+                );
+            }
+            if (previousScrollTop !== null) {
+                this.featuresEditor?.session?.setScrollTop?.(previousScrollTop);
+            }
+            if (previousScrollLeft !== null) {
+                this.featuresEditor?.session?.setScrollLeft?.(
+                    previousScrollLeft
+                );
+            }
         }
     }
 
@@ -2565,6 +2704,7 @@ class FontInfoManager {
         }
 
         this.updateFeatureErrorDisplayForSelection();
+        this.notifyHistoryScopeChange();
 
         console.log(`[FontInfo] Selected ${label}`);
     }
@@ -2573,6 +2713,7 @@ class FontInfoManager {
         this.selectedItem = null;
         this.clearFeatureErrorMarker();
         this.featureErrorTarget = null;
+        this.notifyHistoryScopeChange();
         if (this.featuresEditor) {
             this.suppressFeatureEditorChange = true;
             this.featuresEditor.setValue('', -1);

@@ -219,6 +219,23 @@ function recordAndMarkDirty(
     markFontDirty();
 }
 
+function recordPathChangeAndMarkDirty(
+    path: (string | number)[],
+    oldVal: unknown,
+    newVal: unknown
+): void {
+    const bridge = getChangeBridge();
+    if (bridge && path.length > 0) {
+        bridge.recordChange(
+            path.slice(0, -1),
+            String(path[path.length - 1]),
+            oldVal,
+            newVal
+        );
+    }
+    markFontDirty();
+}
+
 function recordAddAndMarkDirty(
     path: (string | number)[],
     value: unknown
@@ -239,6 +256,20 @@ function recordRemoveAndMarkDirty(
         bridge.recordRemove(path, cloneForHistory(oldValue));
     }
     markFontDirty();
+}
+
+function withBridgeTransaction<T>(label: string, fn: () => T): T {
+    const bridge = getChangeBridge();
+    if (!bridge) {
+        return fn();
+    }
+
+    bridge.beginTransaction(label);
+    try {
+        return fn();
+    } finally {
+        bridge.endTransaction();
+    }
 }
 
 const MUTATING_ARRAY_METHODS = new Set([
@@ -368,6 +399,167 @@ function getLiveMutableValue<T>(
     };
 
     return wrap(value) as T;
+}
+
+function getPreciseLiveMutableValue<T>(
+    pathPrefix: (string | number)[],
+    value: T,
+    getCurrentValue: () => T
+): T {
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+
+    const localProxyCache = new WeakMap<object, object>();
+
+    const wrap = (
+        currentValue: unknown,
+        currentPath: (string | number)[]
+    ): unknown => {
+        if (!currentValue || typeof currentValue !== 'object') {
+            return currentValue;
+        }
+
+        const cachedProxy = localProxyCache.get(currentValue as object);
+        if (cachedProxy) {
+            return cachedProxy;
+        }
+
+        const proxy = new Proxy(currentValue as object, {
+            get(target, key, receiver) {
+                const result = Reflect.get(target, key, receiver);
+
+                if (
+                    Array.isArray(target) &&
+                    typeof key === 'string' &&
+                    MUTATING_ARRAY_METHODS.has(key) &&
+                    typeof result === 'function'
+                ) {
+                    return (...args: unknown[]) => {
+                        const nextArgs = args.map(unwrapLiveMutableValue);
+                        return withBridgeTransaction(
+                            `Edit ${String(currentPath[currentPath.length - 1] ?? 'array')}`,
+                            () => {
+                                const oldValue = cloneForHistory(target);
+                                const operationResult = Reflect.apply(
+                                    result,
+                                    target,
+                                    nextArgs
+                                );
+                                recordPathChangeAndMarkDirty(
+                                    currentPath,
+                                    oldValue,
+                                    cloneForHistory(target)
+                                );
+                                return operationResult;
+                            }
+                        );
+                    };
+                }
+
+                if (typeof result === 'function') {
+                    return (...args: unknown[]) =>
+                        Reflect.apply(
+                            result,
+                            receiver,
+                            args.map(unwrapLiveMutableValue)
+                        );
+                }
+
+                const nextPath =
+                    Array.isArray(target) && isArrayIndexKey(key)
+                        ? currentPath.concat(Number(key))
+                        : currentPath.concat(String(key));
+                return wrap(result, nextPath);
+            },
+
+            set(target, key, nextValue, receiver) {
+                const unwrappedValue = unwrapLiveMutableValue(nextValue);
+
+                if (Array.isArray(target)) {
+                    const oldArray = cloneForHistory(target);
+                    const success = Reflect.set(
+                        target,
+                        key,
+                        unwrappedValue,
+                        receiver
+                    );
+
+                    if (key === 'length') {
+                        recordPathChangeAndMarkDirty(
+                            currentPath,
+                            oldArray,
+                            cloneForHistory(target)
+                        );
+                        return success;
+                    }
+
+                    if (isArrayIndexKey(key)) {
+                        const index = Number(key);
+                        recordPathChangeAndMarkDirty(
+                            currentPath.concat(index),
+                            cloneForHistory(oldArray[index]),
+                            cloneForHistory((target as unknown[])[index])
+                        );
+                        return success;
+                    }
+
+                    recordPathChangeAndMarkDirty(
+                        currentPath.concat(String(key)),
+                        cloneForHistory((oldArray as Unsafe)[key]),
+                        cloneForHistory((target as Unsafe)[key])
+                    );
+                    return success;
+                }
+
+                const propPath = currentPath.concat(String(key));
+                const oldValue = cloneForHistory(
+                    Reflect.get(target, key, receiver)
+                );
+                const success = Reflect.set(
+                    target,
+                    key,
+                    unwrappedValue,
+                    receiver
+                );
+                recordPathChangeAndMarkDirty(
+                    propPath,
+                    oldValue,
+                    cloneForHistory(Reflect.get(target, key, receiver))
+                );
+                return success;
+            },
+
+            deleteProperty(target, key) {
+                if (Array.isArray(target)) {
+                    const oldValue = cloneForHistory(target);
+                    const success = Reflect.deleteProperty(target, key);
+                    recordPathChangeAndMarkDirty(
+                        currentPath,
+                        oldValue,
+                        cloneForHistory(target)
+                    );
+                    return success;
+                }
+
+                const propPath = currentPath.concat(String(key));
+                const oldValue = cloneForHistory(Reflect.get(target, key));
+                const success = Reflect.deleteProperty(target, key);
+                const bridge = getChangeBridge();
+                if (bridge) {
+                    bridge.recordRemove(propPath, oldValue);
+                }
+                markFontDirty();
+                return success;
+            }
+        });
+
+        liveMutableProxyTargets.set(proxy, currentValue as object);
+        localProxyCache.set(currentValue as object, proxy);
+        return proxy;
+    };
+
+    return wrap(getCurrentValue(), pathPrefix) as T;
 }
 
 function isArrayIndexKey(key: PropertyKey): boolean {
@@ -3680,9 +3872,8 @@ export class Font extends ModelBase {
     }
 
     get features(): Babelfont.Features {
-        return getLiveMutableValue(
-            this,
-            'features',
+        return getPreciseLiveMutableValue(
+            this.getPath().concat('features'),
             this._data.features,
             () => this._data.features
         );

@@ -1536,12 +1536,17 @@
             const historyContext = window.getHistoryUndoContext?.();
 
             const undoGlyphName =
-                historyContext?.scope === 'font'
+                historyContext?.scope === 'font' ||
+                historyContext?.scope === 'feature'
                     ? undefined
                     : (historyContext?.glyphName ?? fallbackUndoGlyphName);
             const undoLayerId =
                 historyContext?.scope === 'layer'
                     ? historyContext.layerId
+                    : null;
+            const historyTargetKey =
+                historyContext?.scope === 'feature'
+                    ? historyContext.historyTargetKey
                     : null;
             const effectiveRootGlyphName =
                 rootGlyphName ?? historyContext?.glyphName ?? undefined;
@@ -1552,7 +1557,8 @@
                         shiftKey ? 'redo' : 'undo',
                         undefined,
                         effectiveRootGlyphName,
-                        null
+                        null,
+                        historyTargetKey
                     );
                     return;
                 }

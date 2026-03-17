@@ -19,7 +19,12 @@ export type ChangeObjectType =
     | 'axis'
     | 'master'
     | 'instance'
-    | 'shape';
+    | 'shape'
+    | 'feature'
+    | 'class'
+    | 'prefix';
+
+export type HistoryTargetType = 'feature' | 'class' | 'prefix';
 
 /** Operation type */
 export type ChangeOp = 'set' | 'add' | 'remove';
@@ -72,6 +77,12 @@ export interface ChangeLogEntry {
     oldValue: unknown;
     /** Value after the change (undefined for "remove" ops) */
     newValue: unknown;
+    /** Optional features-editor target type for scoped history */
+    historyTargetType: HistoryTargetType | null;
+    /** Optional stable-enough features-editor target key */
+    historyTargetKey: string | null;
+    /** Human-readable target label */
+    historyTargetLabel: string | null;
 }
 
 let _nextId = 1;
@@ -85,6 +96,9 @@ export function createLogEntry(
         | 'historyAction'
         | 'targetHistoryItemId'
         | 'undoScope'
+        | 'historyTargetType'
+        | 'historyTargetKey'
+        | 'historyTargetLabel'
     > & {
         historyItemId?: string;
         historyAction?: HistoryAction;
@@ -98,6 +112,9 @@ export function createLogEntry(
         touchedPaths?: string[];
         touchedGlyphNames?: string[];
         touchedLayerKeys?: string[];
+        historyTargetType?: HistoryTargetType | null;
+        historyTargetKey?: string | null;
+        historyTargetLabel?: string | null;
     }
 ): ChangeLogEntry {
     const nextId = _nextId++;
@@ -117,7 +134,10 @@ export function createLogEntry(
         op: fields.op,
         path: fields.path,
         oldValue: fields.oldValue,
-        newValue: fields.newValue
+        newValue: fields.newValue,
+        historyTargetType: fields.historyTargetType ?? null,
+        historyTargetKey: fields.historyTargetKey ?? null,
+        historyTargetLabel: fields.historyTargetLabel ?? null
     });
 }
 
@@ -138,6 +158,9 @@ export type ChangeLogEntryLike = Omit<
     touchedPaths?: string[] | null;
     touchedGlyphNames?: string[] | null;
     touchedLayerKeys?: string[] | null;
+    historyTargetType?: HistoryTargetType | null;
+    historyTargetKey?: string | null;
+    historyTargetLabel?: string | null;
 };
 
 export interface HistoryStackItem {
@@ -150,6 +173,7 @@ export interface HistoryStackItem {
     touchedPaths: string[];
     isActive: boolean;
     lastAction: HistoryAction;
+    historyTargetKeys: string[];
 }
 
 const FONT_SCOPE_KEY = '__font__';
@@ -326,6 +350,7 @@ function stripMutableHistoryItem(
         touchedPathSet: _touchedPathSet,
         touchedLayerKeySet: _touchedLayerKeySet,
         scopeKeys: _scopeKeys,
+        historyTargetKeySet: _historyTargetKeySet,
         ...historyItem
     } = item;
     return historyItem;
@@ -337,6 +362,7 @@ type MutableHistoryStackItem = HistoryStackItem & {
     touchedPathSet: Set<string>;
     touchedLayerKeySet: Set<string>;
     scopeKeys: Set<string>;
+    historyTargetKeySet: Set<string>;
 };
 
 function computeHistoryState(entries: ChangeLogEntry[]): {
@@ -366,8 +392,10 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
                 touchedPathSet: new Set<string>(),
                 touchedLayerKeySet: new Set<string>(),
                 scopeKeys: new Set<string>(),
+                historyTargetKeySet: new Set<string>(),
                 isActive: true,
-                lastAction: 'change'
+                lastAction: 'change',
+                historyTargetKeys: []
             };
             itemsById.set(entry.historyItemId, item);
             orderedItemIds.push(entry.historyItemId);
@@ -407,6 +435,13 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
                 !item.touchedLayerKeySet.has(touchedLayerKey)
             ) {
                 item.touchedLayerKeySet.add(touchedLayerKey);
+            }
+            if (
+                entry.historyTargetKey &&
+                !item.historyTargetKeySet.has(entry.historyTargetKey)
+            ) {
+                item.historyTargetKeySet.add(entry.historyTargetKey);
+                item.historyTargetKeys = [...item.historyTargetKeySet];
             }
             item.undoScope = deriveHistoryItemUndoScope(
                 item.entries,
@@ -494,15 +529,18 @@ export function resolveHistoryTargetItem(
         glyphName?: string | null;
         layerId?: string | null;
         historyAction: 'undo' | 'redo';
+        historyTargetKey?: string | null;
     }
 ): HistoryStackItem | null {
     const glyphName = options.glyphName ?? null;
     const layerId = options.layerId ?? null;
+    const historyTargetKey = options.historyTargetKey ?? null;
 
     const visibleItems = buildHistoryStackItems(entries, {
         glyphName,
         layerId,
-        includeUndone: true
+        includeUndone: true,
+        historyTargetKey
     }).filter((item) =>
         options.historyAction === 'undo' ? item.isActive : !item.isActive
     );
@@ -516,11 +554,13 @@ export function buildHistoryStackItems(
         glyphName?: string | null;
         layerId?: string | null;
         includeUndone?: boolean;
+        historyTargetKey?: string | null;
     }
 ): HistoryStackItem[] {
     const glyphName = options?.glyphName ?? null;
     const layerId = options?.layerId ?? null;
     const includeUndone = options?.includeUndone ?? false;
+    const historyTargetKey = options?.historyTargetKey ?? null;
     const state = computeHistoryState(entries);
 
     return state.orderedItemIds
@@ -532,6 +572,12 @@ export function buildHistoryStackItems(
             }
             const layerTouchKey = getLayerTouchKey(glyphName, layerId);
             if (layerTouchKey && !item.touchedLayerKeySet.has(layerTouchKey)) {
+                return false;
+            }
+            if (
+                historyTargetKey &&
+                !item.historyTargetKeySet.has(historyTargetKey)
+            ) {
                 return false;
             }
             if (!includeUndone && !item.isActive) {
@@ -626,6 +672,17 @@ export function deriveObjectInfo(path: (string | number)[]): {
         return { objectType: 'master', objectId: String(path[1]) };
     if (first === 'instances' && path.length >= 2)
         return { objectType: 'instance', objectId: String(path[1]) };
+    if (first === 'features' && path.length >= 2) {
+        if (path[1] === 'prefixes' && path.length >= 3) {
+            return { objectType: 'prefix', objectId: String(path[2]) };
+        }
+        if (path[1] === 'classes' && path.length >= 3) {
+            return { objectType: 'class', objectId: String(path[2]) };
+        }
+        if (path[1] === 'features' && path.length >= 3) {
+            return { objectType: 'feature', objectId: String(path[2]) };
+        }
+    }
 
     return { objectType: 'font', objectId: '' };
 }
@@ -723,6 +780,9 @@ export function normalizeChangeLogEntry(
         historyAction: normalizeHistoryAction(entry.historyAction),
         undoScope: entry.undoScope ?? deriveUndoScope(glyphName, layerId),
         targetHistoryItemId: entry.targetHistoryItemId ?? null,
+        historyTargetType: entry.historyTargetType ?? null,
+        historyTargetKey: entry.historyTargetKey ?? null,
+        historyTargetLabel: entry.historyTargetLabel ?? null,
         windowRoleLabel: normalizeWindowRoleLabel(
             entry.windowRoleLabel,
             entry.windowId

@@ -112,7 +112,8 @@ export function runBridgeUndoRedo(
     action: 'undo' | 'redo',
     glyphName?: string,
     refreshRootGlyphName?: string,
-    layerId?: string | null
+    layerId?: string | null,
+    historyTargetKey?: string | null
 ): Promise<void> {
     return enqueueBridgeSync(async () => {
         const bridge = window.changeBridge;
@@ -126,8 +127,8 @@ export function runBridgeUndoRedo(
 
         const didApply =
             action === 'redo'
-                ? bridge.redo(targetGlyph, layerId)
-                : bridge.undo(targetGlyph, layerId);
+                ? bridge.redo(targetGlyph, layerId, historyTargetKey)
+                : bridge.undo(targetGlyph, layerId, historyTargetKey);
 
         if (!didApply) {
             return;
@@ -216,6 +217,8 @@ function initializeBridge(detail: {
         // FONT_CACHE without updating lastStoredFontJson, so the identical-JSON
         // check would otherwise skip the send and leave Rust with stale data.
         fontCompilation.lastStoredFontJson = null;
+
+        window.dispatchEvent(new CustomEvent('fontModelSync'));
     });
 
     // Wire dirty marking: when ChangeBridge records a change, also mark

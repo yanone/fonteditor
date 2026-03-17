@@ -10,7 +10,13 @@ import { getTheme } from './tippy-utils';
 
 const console = new Logger('HistoryView');
 
-type HistoryScope = 'layer' | 'glyph' | 'font';
+type HistoryScope = 'layer' | 'glyph' | 'font' | 'feature';
+
+type FeatureHistoryContext = {
+    type: 'feature' | 'class' | 'prefix';
+    key: string;
+    label: string;
+};
 
 type GlyphSelectedListener = (
     index: number,
@@ -26,6 +32,7 @@ type HistoryUndoContext = {
     scope: HistoryScope;
     glyphName: string | null;
     layerId: string | null;
+    historyTargetKey: string | null;
 };
 
 class HistoryViewController {
@@ -38,6 +45,7 @@ class HistoryViewController {
     private currentLayerId: string | null = null;
     private currentLayerDisplayName: string | null = null;
     private currentScope: HistoryScope = 'font';
+    private currentFeatureContext: FeatureHistoryContext | null = null;
     private unsubscribeBridge: (() => void) | null = null;
     private attachedTextRunEditor: TextRunSelectionEmitter | null = null;
     private metadataTooltips: TippyInstance[] = [];
@@ -72,6 +80,9 @@ class HistoryViewController {
         this.attachTextRunListener();
         this.syncEditingContext(true);
         this.render();
+        requestAnimationFrame(() => {
+            this.syncEditingContext(true);
+        });
     }
 
     private renderShell(): void {
@@ -118,6 +129,14 @@ class HistoryViewController {
         window.addEventListener('editorModeChanged', () => {
             this.syncEditingContext(true);
         });
+
+        window.addEventListener('featureHistoryContextChanged', () => {
+            this.syncEditingContext(true);
+        });
+
+        window.addEventListener('viewFocused', () => {
+            this.syncEditingContext(true);
+        });
     }
 
     private connectToBridge(): void {
@@ -149,6 +168,9 @@ class HistoryViewController {
     }
 
     private syncEditingContext(forceGlyphScope: boolean): void {
+        const featureContext = this.resolveFeatureHistoryContext();
+        this.currentFeatureContext = featureContext;
+
         const nextGlyphName = this.resolveCurrentGlyphName();
         const nextLayerId = this.resolveCurrentLayerId();
         const glyphChanged = nextGlyphName !== this.currentGlyphName;
@@ -161,7 +183,9 @@ class HistoryViewController {
             nextLayerId
         );
 
-        if (!this.currentGlyphName) {
+        if (featureContext) {
+            this.currentScope = 'feature';
+        } else if (!this.currentGlyphName) {
             this.currentScope = 'font';
         } else if (forceGlyphScope || glyphChanged || layerChanged) {
             this.currentScope = this.currentLayerId ? 'layer' : 'glyph';
@@ -170,6 +194,19 @@ class HistoryViewController {
         }
 
         this.render();
+    }
+
+    private resolveFeatureHistoryContext(): FeatureHistoryContext | null {
+        const target = window.fontInfoManager?.getHistoryScopeTarget?.();
+        if (!target) {
+            return null;
+        }
+
+        return {
+            type: target.type,
+            key: target.key,
+            label: target.label
+        };
     }
 
     private resolveCurrentGlyphName(): string | null {
@@ -262,6 +299,12 @@ class HistoryViewController {
             return [];
         }
 
+        if (this.currentScope === 'feature' && this.currentFeatureContext) {
+            return buildHistoryStackItems(bridge.getChangeLog(), {
+                historyTargetKey: this.currentFeatureContext.key
+            });
+        }
+
         if (
             this.currentScope === 'layer' &&
             this.currentGlyphName &&
@@ -298,7 +341,17 @@ class HistoryViewController {
             return {
                 scope: 'font',
                 glyphName: null,
-                layerId: null
+                layerId: null,
+                historyTargetKey: null
+            };
+        }
+
+        if (this.currentScope === 'feature') {
+            return {
+                scope: 'feature',
+                glyphName: null,
+                layerId: null,
+                historyTargetKey: this.currentFeatureContext?.key ?? null
             };
         }
 
@@ -306,14 +359,16 @@ class HistoryViewController {
             return {
                 scope: 'glyph',
                 glyphName: this.currentGlyphName,
-                layerId: null
+                layerId: null,
+                historyTargetKey: null
             };
         }
 
         return {
             scope: 'layer',
             glyphName: this.currentGlyphName,
-            layerId: this.currentLayerId
+            layerId: this.currentLayerId,
+            historyTargetKey: null
         };
     }
 
@@ -324,6 +379,33 @@ class HistoryViewController {
 
         const fragment = document.createDocumentFragment();
         fragment.appendChild(this.createBreadcrumbItem('Font', 'font'));
+
+        if (this.currentFeatureContext) {
+            let separator = document.createElement('span');
+            separator.className =
+                'history-breadcrumb-separator material-symbols-outlined';
+            separator.textContent = 'chevron_right';
+            fragment.appendChild(separator);
+            fragment.appendChild(
+                this.createBreadcrumbItem('Features', 'feature', false)
+            );
+
+            separator = document.createElement('span');
+            separator.className =
+                'history-breadcrumb-separator material-symbols-outlined';
+            separator.textContent = 'chevron_right';
+            fragment.appendChild(separator);
+            fragment.appendChild(
+                this.createBreadcrumbItem(
+                    this.currentFeatureContext.label,
+                    'feature'
+                )
+            );
+
+            this.breadcrumbEl.innerHTML = '';
+            this.breadcrumbEl.appendChild(fragment);
+            return;
+        }
 
         if (this.currentGlyphName) {
             const separator = document.createElement('span');
@@ -353,18 +435,23 @@ class HistoryViewController {
 
     private createBreadcrumbItem(
         label: string,
-        scope: HistoryScope
+        scope: HistoryScope,
+        active: boolean = true
     ): HTMLButtonElement {
         const button = document.createElement('button');
         button.type = 'button';
         button.className =
             'history-breadcrumb-item' +
-            (this.currentScope === scope ? ' active' : '');
+            (active && this.currentScope === scope ? ' active' : '');
         button.textContent = label;
         button.disabled =
+            (scope === 'feature' && !this.currentFeatureContext) ||
             (scope === 'glyph' && !this.currentGlyphName) ||
             (scope === 'layer' && !this.currentLayerId);
         button.addEventListener('click', () => {
+            if (scope === 'feature' && !this.currentFeatureContext) {
+                return;
+            }
             if (scope === 'glyph' && !this.currentGlyphName) {
                 return;
             }
@@ -389,6 +476,11 @@ class HistoryViewController {
 
         if (this.currentScope === 'layer' && this.currentLayerDisplayName) {
             this.statusEl.textContent = `${filteredCount} of ${totalCount} history items in ${this.currentLayerDisplayName}`;
+            return;
+        }
+
+        if (this.currentScope === 'feature' && this.currentFeatureContext) {
+            this.statusEl.textContent = `${filteredCount} of ${totalCount} history items in ${this.currentFeatureContext.label}`;
             return;
         }
 
@@ -421,9 +513,12 @@ class HistoryViewController {
             const message =
                 this.currentScope === 'layer' && this.currentLayerDisplayName
                     ? `No history items for ${this.currentLayerDisplayName}`
-                    : this.currentScope === 'glyph' && this.currentGlyphName
-                      ? `No history items for ${this.currentGlyphName}`
-                      : 'No matching history items';
+                    : this.currentScope === 'feature' &&
+                        this.currentFeatureContext
+                      ? `No history items for ${this.currentFeatureContext.label}`
+                      : this.currentScope === 'glyph' && this.currentGlyphName
+                        ? `No history items for ${this.currentGlyphName}`
+                        : 'No matching history items';
             this.listEl.innerHTML = `<div class="history-empty-state">${message}</div>`;
             return;
         }

@@ -28,9 +28,10 @@ interface EditorThemeMessage {
 }
 
 type HistoryUndoContext = {
-    scope: 'font' | 'glyph' | 'layer';
+    scope: 'font' | 'glyph' | 'layer' | 'feature';
     glyphName: string | null;
     layerId: string | null;
+    historyTargetKey: string | null;
 };
 
 function isThemePreference(value: unknown): value is ThemePreference {
@@ -108,6 +109,7 @@ function getUndoRedoContext(): {
     rootGlyphName: string | undefined;
     undoGlyphName: string | undefined;
     undoLayerId: string | null;
+    historyTargetKey: string | null;
 } {
     const oe = window.glyphCanvas?.outlineEditor;
     const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
@@ -123,7 +125,8 @@ function getUndoRedoContext(): {
         return {
             rootGlyphName,
             undoGlyphName: fallbackUndoGlyphName,
-            undoLayerId: fallbackUndoLayerId
+            undoLayerId: fallbackUndoLayerId,
+            historyTargetKey: null
         };
     }
 
@@ -131,7 +134,17 @@ function getUndoRedoContext(): {
         return {
             rootGlyphName,
             undoGlyphName: undefined,
-            undoLayerId: null
+            undoLayerId: null,
+            historyTargetKey: null
+        };
+    }
+
+    if (historyContext.scope === 'feature') {
+        return {
+            rootGlyphName,
+            undoGlyphName: undefined,
+            undoLayerId: null,
+            historyTargetKey: historyContext.historyTargetKey
         };
     }
 
@@ -140,14 +153,16 @@ function getUndoRedoContext(): {
             rootGlyphName:
                 rootGlyphName ?? historyContext.glyphName ?? undefined,
             undoGlyphName: historyContext.glyphName ?? fallbackUndoGlyphName,
-            undoLayerId: null
+            undoLayerId: null,
+            historyTargetKey: null
         };
     }
 
     return {
         rootGlyphName: rootGlyphName ?? historyContext.glyphName ?? undefined,
         undoGlyphName: historyContext.glyphName ?? fallbackUndoGlyphName,
-        undoLayerId: historyContext.layerId ?? fallbackUndoLayerId
+        undoLayerId: historyContext.layerId ?? fallbackUndoLayerId,
+        historyTargetKey: null
     };
 }
 
@@ -233,8 +248,12 @@ function initWindowButtons(): void {
             const bridge = window.changeBridge;
             if (!bridge) return;
             const oe = window.glyphCanvas?.outlineEditor;
-            const { rootGlyphName, undoGlyphName, undoLayerId } =
-                getUndoRedoContext();
+            const {
+                rootGlyphName,
+                undoGlyphName,
+                undoLayerId,
+                historyTargetKey
+            } = getUndoRedoContext();
             if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
                 if (undoGlyphName || undoLayerId) {
                     console.warn(
@@ -247,7 +266,8 @@ function initWindowButtons(): void {
                 'undo',
                 undoGlyphName,
                 rootGlyphName,
-                undoLayerId
+                undoLayerId,
+                historyTargetKey
             );
         });
     }
@@ -257,8 +277,12 @@ function initWindowButtons(): void {
             const bridge = window.changeBridge;
             if (!bridge) return;
             const oe = window.glyphCanvas?.outlineEditor;
-            const { rootGlyphName, undoGlyphName, undoLayerId } =
-                getUndoRedoContext();
+            const {
+                rootGlyphName,
+                undoGlyphName,
+                undoLayerId,
+                historyTargetKey
+            } = getUndoRedoContext();
             if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
                 if (undoGlyphName || undoLayerId) {
                     console.warn(
@@ -271,7 +295,8 @@ function initWindowButtons(): void {
                 'redo',
                 undoGlyphName,
                 rootGlyphName,
-                undoLayerId
+                undoLayerId,
+                historyTargetKey
             );
         });
     }

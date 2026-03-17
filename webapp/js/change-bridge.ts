@@ -66,6 +66,12 @@ type UndoTarget = {
     layerId: string | null;
 };
 
+type HistoryTarget = {
+    type: 'feature' | 'class' | 'prefix';
+    key: string;
+    label: string;
+};
+
 type UndoManagerWithScope = {
     manager: Y.UndoManager | null;
     scope: UndoScope;
@@ -299,6 +305,7 @@ export class ChangeBridge {
         }
 
         // Log entry (before Y.Doc transaction so it's available for broadcast)
+        const historyTarget = this._deriveHistoryTarget(fullPath);
         const entry = createLogEntry({
             timestamp: Date.now(),
             windowId: this.windowId,
@@ -311,7 +318,10 @@ export class ChangeBridge {
             undoScope,
             path: fullPath.join('.'),
             oldValue: oldVal,
-            newValue: newVal
+            newValue: newVal,
+            historyTargetType: historyTarget?.type ?? null,
+            historyTargetKey: historyTarget?.key ?? null,
+            historyTargetLabel: historyTarget?.label ?? null
         });
         this._appendChangeLogEntry(entry);
 
@@ -344,6 +354,7 @@ export class ChangeBridge {
             this.getGlyphUndoManager(glyphName);
         }
 
+        const historyTarget = this._deriveHistoryTarget(path);
         const entry = createLogEntry({
             timestamp: Date.now(),
             windowId: this.windowId,
@@ -356,7 +367,10 @@ export class ChangeBridge {
             undoScope,
             path: path.join('.'),
             oldValue: undefined,
-            newValue: value
+            newValue: value,
+            historyTargetType: historyTarget?.type ?? null,
+            historyTargetKey: historyTarget?.key ?? null,
+            historyTargetLabel: historyTarget?.label ?? null
         });
         this._appendChangeLogEntry(entry);
 
@@ -385,6 +399,7 @@ export class ChangeBridge {
             this.getGlyphUndoManager(glyphName);
         }
 
+        const historyTarget = this._deriveHistoryTarget(path);
         const entry = createLogEntry({
             timestamp: Date.now(),
             windowId: this.windowId,
@@ -397,7 +412,10 @@ export class ChangeBridge {
             undoScope,
             path: path.join('.'),
             oldValue,
-            newValue: undefined
+            newValue: undefined,
+            historyTargetType: historyTarget?.type ?? null,
+            historyTargetKey: historyTarget?.key ?? null,
+            historyTargetLabel: historyTarget?.label ?? null
         });
         this._appendChangeLogEntry(entry);
 
@@ -479,6 +497,7 @@ export class ChangeBridge {
 
         for (const operation of normalizedOperations) {
             const pathString = operation.path.join('.');
+            const historyTarget = this._deriveHistoryTarget(operation.path);
 
             const entry = createLogEntry({
                 timestamp,
@@ -495,7 +514,10 @@ export class ChangeBridge {
                 ),
                 path: pathString,
                 oldValue: operation.oldValue,
-                newValue: operation.newValue
+                newValue: operation.newValue,
+                historyTargetType: historyTarget?.type ?? null,
+                historyTargetKey: historyTarget?.key ?? null,
+                historyTargetLabel: historyTarget?.label ?? null
             });
             this._appendChangeLogEntry(entry);
         }
@@ -784,11 +806,16 @@ export class ChangeBridge {
      * Undo the last change for a specific glyph, or font-level if no
      * glyph name is given.
      */
-    undo(glyphName?: string, layerId?: string | null): boolean {
+    undo(
+        glyphName?: string,
+        layerId?: string | null,
+        historyTargetKey?: string | null
+    ): boolean {
         const targetItem = this._resolveUndoHistoryItem(
             glyphName,
             layerId,
-            'undo'
+            'undo',
+            historyTargetKey
         );
         const target = this._resolveUndoTarget(
             glyphName,
@@ -846,11 +873,16 @@ export class ChangeBridge {
     /**
      * Redo the last undone change.
      */
-    redo(glyphName?: string, layerId?: string | null): boolean {
+    redo(
+        glyphName?: string,
+        layerId?: string | null,
+        historyTargetKey?: string | null
+    ): boolean {
         const targetItem = this._resolveUndoHistoryItem(
             glyphName,
             layerId,
-            'redo'
+            'redo',
+            historyTargetKey
         );
         const target = this._resolveUndoTarget(
             glyphName,
@@ -905,11 +937,16 @@ export class ChangeBridge {
     }
 
     /** Check if undo is available. */
-    canUndo(glyphName?: string, layerId?: string | null): boolean {
+    canUndo(
+        glyphName?: string,
+        layerId?: string | null,
+        historyTargetKey?: string | null
+    ): boolean {
         const targetItem = this._resolveUndoHistoryItem(
             glyphName,
             layerId,
-            'undo'
+            'undo',
+            historyTargetKey
         );
         const target = this._resolveUndoTarget(
             glyphName,
@@ -925,11 +962,16 @@ export class ChangeBridge {
     }
 
     /** Check if redo is available. */
-    canRedo(glyphName?: string, layerId?: string | null): boolean {
+    canRedo(
+        glyphName?: string,
+        layerId?: string | null,
+        historyTargetKey?: string | null
+    ): boolean {
         const targetItem = this._resolveUndoHistoryItem(
             glyphName,
             layerId,
-            'redo'
+            'redo',
+            historyTargetKey
         );
         const target = this._resolveUndoTarget(
             glyphName,
@@ -1093,9 +1135,22 @@ export class ChangeBridge {
      * numeric array indices remain numbers for Y.Array segments.
      */
     private _toYDocPath(path: (string | number)[]): (string | number)[] {
-        // The path from the model already uses glyph names and layer IDs,
-        // so we can pass it through directly. Y.Map.get() accepts strings,
-        // and Y.Array.get() accepts numbers.
+        if (
+            path[0] === 'features' &&
+            path[1] === 'features' &&
+            typeof path[2] === 'string'
+        ) {
+            const match = String(path[2]).match(/^feature-index:(\d+)$/);
+            if (match) {
+                return [
+                    path[0],
+                    path[1],
+                    Number.parseInt(match[1], 10),
+                    ...path.slice(3)
+                ];
+            }
+        }
+
         return path;
     }
 
@@ -1290,12 +1345,14 @@ export class ChangeBridge {
     private _resolveUndoHistoryItem(
         glyphName: string | undefined,
         layerId: string | null | undefined,
-        historyAction: 'undo' | 'redo'
+        historyAction: 'undo' | 'redo',
+        historyTargetKey?: string | null
     ): HistoryStackItem | null {
         return resolveHistoryTargetItem(this._changeLog, {
             glyphName: glyphName ?? null,
             layerId: layerId ?? null,
-            historyAction
+            historyAction,
+            historyTargetKey: historyTargetKey ?? null
         });
     }
 
@@ -1315,6 +1372,64 @@ export class ChangeBridge {
         return {
             glyphName: glyphName ?? null,
             layerId: layerId ?? null
+        };
+    }
+
+    private _deriveHistoryTarget(
+        path: (string | number)[]
+    ): HistoryTarget | null {
+        if (!this._fontJson || path[0] !== 'features' || path.length < 3) {
+            return null;
+        }
+
+        if (path[1] === 'prefixes' && typeof path[2] === 'string') {
+            return {
+                type: 'prefix',
+                key: `prefix:${path[2]}`,
+                label: String(path[2])
+            };
+        }
+
+        if (path[1] === 'classes' && typeof path[2] === 'string') {
+            return {
+                type: 'class',
+                key: `class:${path[2]}`,
+                label: String(path[2])
+            };
+        }
+
+        if (path[1] !== 'features' || typeof path[2] !== 'number') {
+            return null;
+        }
+
+        const features = ((this._fontJson as Unsafe).features?.features ??
+            []) as Array<[string, unknown]>;
+        const featureIndex = path[2];
+        const featureEntry = features[featureIndex];
+        if (!featureEntry) {
+            return null;
+        }
+
+        const tag = String(featureEntry[0] ?? '');
+        if (!tag) {
+            return {
+                type: 'feature',
+                key: `feature-index:${featureIndex}`,
+                label: `#${featureIndex + 1}`
+            };
+        }
+
+        let occurrence = 0;
+        for (let index = 0; index <= featureIndex; index++) {
+            if (String(features[index]?.[0] ?? '') === tag) {
+                occurrence += 1;
+            }
+        }
+
+        return {
+            type: 'feature',
+            key: `feature:${tag}:${occurrence}`,
+            label: occurrence > 1 ? `${tag} #${occurrence}` : tag
         };
     }
 
@@ -1338,7 +1453,7 @@ export class ChangeBridge {
 
         this.yDoc.transact(() => {
             for (const entry of entries) {
-                const path = this._parseEntryPath(entry.path);
+                const path = this._toYDocPath(this._parseEntryPath(entry.path));
                 if (direction === 'undo') {
                     if (entry.op === 'add') {
                         deleteYPath(this.fontMap, path);
