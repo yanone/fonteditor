@@ -56,12 +56,10 @@ export class SidebarErrorDisplay {
         }
 
         const parsedError = this.parseErrorInput(errorInput);
-        const allowFeatureLocationMapping = source !== 'editing';
-        const featureErrorDetails = allowFeatureLocationMapping
-            ? window.fontInfoManager?.getFeatureCompilationErrorDetails?.(
-                  errorInput
-              ) || null
-            : null;
+        const featureErrorDetails =
+            window.fontInfoManager?.getFeatureCompilationErrorDetails?.(
+                errorInput
+            ) || null;
         const hasResolvedFeatureTarget =
             featureErrorDetails !== null && featureErrorDetails.type !== null;
         const title =
@@ -105,12 +103,11 @@ export class SidebarErrorDisplay {
                         text-align: center;
                     ">${this.escapeHtml(parsedError.fallback)}</div>`;
 
-        const fallbackLocation =
-            !allowFeatureLocationMapping || featureErrorDetails
-                ? null
-                : window.fontInfoManager?.getFeatureCompilationErrorLocation?.(
-                      errorInput
-                  ) || null;
+        const fallbackLocation = featureErrorDetails
+            ? null
+            : window.fontInfoManager?.getFeatureCompilationErrorLocation?.(
+                  errorInput
+              ) || null;
 
         const renderedLocation = fallbackLocation
             ? `<div style="
@@ -138,11 +135,7 @@ export class SidebarErrorDisplay {
                 ">Open in Features</button>`
             : '';
 
-        if (allowFeatureLocationMapping) {
-            window.fontInfoManager?.showFeatureCompilationError?.(errorInput);
-        } else {
-            window.fontInfoManager?.clearFeatureErrorHighlight?.();
-        }
+        window.fontInfoManager?.showFeatureCompilationError?.(errorInput);
 
         console.log('[SidebarError] Showing error in sidebar');
 
