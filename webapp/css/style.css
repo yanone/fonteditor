@@ -1642,6 +1642,22 @@ flex-direction: row;
     border-left-color: var(--text-primary);
 }
 
+.editor-plugins-dropdown-btn:disabled,
+.editor-plugins-dropdown-btn.inactive {
+    color: var(--text-faint);
+    opacity: 0.5;
+    cursor: default;
+    background-color: transparent;
+    border-left-color: var(--border-primary);
+    pointer-events: none;
+}
+
+.editor-plugins-dropdown-btn:disabled:hover,
+.editor-plugins-dropdown-btn.inactive:hover {
+    background-color: transparent;
+    border-left-color: var(--border-primary);
+}
+
 .editor-plugins-dropdown-btn .material-symbols-outlined {
     font-size: 14px;
 }
@@ -2653,6 +2669,17 @@ flex-direction: row;
 .plugin-menu-item .material-symbols-outlined {
     font-size: 16px;
     color: var(--text-secondary);
+}
+
+.plugin-menu-item .plugin-menu-check {
+    display: inline-flex;
+    width: 16px;
+    min-width: 16px;
+    justify-content: center;
+}
+
+.plugin-menu-item .plugin-menu-check.empty {
+    visibility: hidden;
 }
 
 .plugin-menu-item .plugin-menu-shortcut {

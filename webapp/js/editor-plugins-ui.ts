@@ -71,7 +71,12 @@ class EditorPluginsUI {
             this.closeDropdown();
         }
 
-        this.dropdownBtn.style.display = isEditMode ? 'flex' : 'none';
+        if (this.dropdownBtn instanceof HTMLButtonElement) {
+            this.dropdownBtn.disabled = !isEditMode;
+        }
+        this.dropdownBtn.setAttribute('aria-disabled', String(!isEditMode));
+        this.dropdownBtn.classList.toggle('inactive', !isEditMode);
+        this.dropdownBtn.style.display = 'flex';
     }
 
     init() {
@@ -84,6 +89,11 @@ class EditorPluginsUI {
         // Toggle dropdown on button click
         this.dropdownBtn.addEventListener('click', (e: MouseEvent) => {
             e.stopPropagation();
+
+            if ((this.dropdownBtn as HTMLButtonElement).disabled) {
+                return;
+            }
+
             this.toggleDropdown();
         });
 

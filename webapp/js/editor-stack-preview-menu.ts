@@ -19,18 +19,36 @@ function updateStackPreviewButtonVisibility(button: HTMLElement): void {
         stackPreviewMenuInstance.hide();
     }
 
-    button.style.display = isEditMode ? 'flex' : 'none';
+    if (button instanceof HTMLButtonElement) {
+        button.disabled = !isEditMode;
+    }
+    button.setAttribute('aria-disabled', String(!isEditMode));
+    button.classList.toggle('inactive', !isEditMode);
+    button.style.display = 'flex';
 }
 
 function createStackPreviewMenuHtml(): string {
+    const guidelinesVisible =
+        window.glyphCanvas?.outlineEditor?.guidelinesVisible !== false;
+    const guidelinesCheckmark = guidelinesVisible ? 'check' : '';
+
     return `
         <div class="plugin-menu" tabindex="0" role="menu" aria-label="Stack preview menu">
             <div class="plugin-menu-item" data-action="toggle-stack-preview" role="menuitem" tabindex="-1">
                 <span>Stack Preview</span>
                 <span class="plugin-menu-shortcut">⌘⌥S</span>
             </div>
+            <div class="plugin-menu-item" data-action="toggle-guidelines" role="menuitemcheckbox" aria-checked="${guidelinesVisible}" tabindex="-1">
+                <span class="plugin-menu-check material-symbols-outlined${guidelinesVisible ? '' : ' empty'}">${guidelinesCheckmark}</span>
+                <span>Guidelines</span>
+                <span class="plugin-menu-shortcut">⌘⌥G</span>
+            </div>
         </div>
     `;
+}
+
+function refreshStackPreviewMenuContent(): void {
+    stackPreviewMenuInstance?.setContent(createStackPreviewMenuHtml());
 }
 
 function toggleStackPreview(): void {
@@ -98,10 +116,14 @@ function initEditorStackPreviewMenu(): void {
 
                 if (action === 'toggle-stack-preview') {
                     toggleStackPreview();
+                } else if (action === 'toggle-guidelines') {
+                    window.glyphCanvas?.outlineEditor?.toggleGuidelinesVisible();
+                    refreshStackPreviewMenuContent();
                 }
             });
         },
         onShown: (instance) => {
+            refreshStackPreviewMenuContent();
             const menu = instance.popper.querySelector('.plugin-menu');
             if (menu) {
                 setupMenuKeyboardNav(menu);
@@ -122,15 +144,25 @@ function initEditorStackPreviewMenu(): void {
         e.preventDefault();
         e.stopPropagation();
 
+        if ((menuButton as HTMLButtonElement).disabled) {
+            return;
+        }
+
         if (stackPreviewMenuInstance?.state.isVisible) {
             stackPreviewMenuInstance.hide();
         } else {
+            refreshStackPreviewMenuContent();
             stackPreviewMenuInstance?.show();
         }
     });
 
     window.addEventListener('editorModeChanged', () => {
         updateStackPreviewButtonVisibility(menuButton);
+        refreshStackPreviewMenuContent();
+    });
+
+    window.addEventListener('outlineGuidelinesVisibilityChanged', () => {
+        refreshStackPreviewMenuContent();
     });
 
     console.log('Stack preview menu initialized');

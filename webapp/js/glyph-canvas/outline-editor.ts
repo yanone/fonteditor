@@ -13,6 +13,13 @@ import { SavedVariationState } from '../saved-variation-state';
 let console: Logger = new Logger('OutlineEditor');
 
 type Point = { contourIndex: number; nodeIndex: number };
+type GuideHandle = { scope: 'master' | 'layer'; index: number };
+type VisibleGuide = GuideHandle & {
+    guide: Babelfont.Guide;
+    rootX: number;
+    rootY: number;
+    rootAngle: number;
+};
 
 /**
  * Convert affine matrix [a, b, c, d, e, f] to DecomposedAffine
@@ -79,21 +86,25 @@ export class OutlineEditor {
     isDraggingPoint: boolean = false;
     isDraggingComponent: boolean = false;
     isDraggingAnchor: boolean = false;
+    isDraggingGuide: boolean = false;
     /** True if at least one pixel of actual movement occurred during the current drag. */
     _hasMoved: boolean = false;
     /** Pre-drag description for undo log: captured just before dragging starts. */
     _preDragDesc: string | null = null;
-    /** Drag type for undo log label: 'anchor' | 'point' | 'component'. */
-    _dragType: 'anchor' | 'point' | 'component' | null = null;
+    /** Drag type for undo log label: 'anchor' | 'point' | 'component' | 'guide'. */
+    _dragType: 'anchor' | 'point' | 'component' | 'guide' | null = null;
     currentGlyphName: string | null = null;
     glyphCanvas: GlyphCanvas;
+    guidelinesVisible: boolean;
 
     selectedAnchors: number[] = [];
     selectedPoints: Point[] = [];
     selectedComponents: number[] = [];
+    selectedGuideHandle: GuideHandle | null = null;
     hoveredPointIndex: Point | null = null;
     hoveredAnchorIndex: number | null = null;
     hoveredComponentIndex: number | null = null;
+    hoveredGuideHandle: GuideHandle | null = null;
     hoveredGlyphIndex: number = -1;
     selectedPointIndex: any = null;
 
@@ -124,8 +135,247 @@ export class OutlineEditor {
     // Format: {glyph_name}@{layer_ID}>{component_index}:{glyph_name}@{layer_ID}>{component_index}:{glyph_name}@{layer_ID}
     glyphStack: string = '';
 
+    private readonly GUIDELINES_STORAGE_KEY = 'outlineEditorGuidelinesVisible';
+
     constructor(glyphCanvas: GlyphCanvas) {
         this.glyphCanvas = glyphCanvas;
+        this.guidelinesVisible = this.loadGuidelinesVisible();
+    }
+
+    private loadGuidelinesVisible(): boolean {
+        try {
+            return (
+                localStorage.getItem(this.GUIDELINES_STORAGE_KEY) !== 'false'
+            );
+        } catch (_error) {
+            return true;
+        }
+    }
+
+    setGuidelinesVisible(visible: boolean): void {
+        this.guidelinesVisible = visible;
+
+        if (!visible) {
+            this.isDraggingGuide = false;
+            this.selectedGuideHandle = null;
+            this.hoveredGuideHandle = null;
+        }
+
+        try {
+            localStorage.setItem(
+                this.GUIDELINES_STORAGE_KEY,
+                visible ? 'true' : 'false'
+            );
+        } catch (_error) {
+            // Ignore localStorage access failures.
+        }
+
+        window.dispatchEvent(
+            new CustomEvent('outlineGuidelinesVisibilityChanged', {
+                detail: { visible }
+            })
+        );
+
+        this.glyphCanvas.render();
+    }
+
+    toggleGuidelinesVisible(): boolean {
+        const nextVisible = !this.guidelinesVisible;
+        this.setGuidelinesVisible(nextVisible);
+        return nextVisible;
+    }
+
+    private getGlyphModelByName(glyphName: string | null): any | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel || !glyphName) {
+            return null;
+        }
+
+        return fontModel.glyphs.find((glyph: any) => glyph.name === glyphName);
+    }
+
+    private getRootGlyphModel(): any | null {
+        const parsed = this.parseGlyphStack();
+        const glyphName =
+            parsed[0]?.glyphName ?? this.glyphCanvas.getCurrentGlyphName();
+        return this.getGlyphModelByName(glyphName);
+    }
+
+    private getCurrentGlyphModel(): any | null {
+        const parsed = this.parseGlyphStack();
+        const glyphName =
+            parsed.length > 0
+                ? parsed[parsed.length - 1].glyphName
+                : this.glyphCanvas.getCurrentGlyphName();
+        return this.getGlyphModelByName(glyphName);
+    }
+
+    private getRootLayerId(): string | null {
+        const parsed = this.parseGlyphStack();
+        return parsed[0]?.layerId ?? this.selectedLayerId;
+    }
+
+    private getCurrentLayerId(): string | null {
+        const parsed = this.parseGlyphStack();
+        return parsed[parsed.length - 1]?.layerId ?? this.selectedLayerId;
+    }
+
+    private getRootLayerModel(): any | null {
+        const layerId = this.getRootLayerId();
+        if (!layerId) {
+            return null;
+        }
+
+        const glyph = this.getRootGlyphModel();
+        if (!glyph?.layers) {
+            return null;
+        }
+
+        return glyph.layers.find((layer: any) => layer.id === layerId);
+    }
+
+    private getCurrentLayerModel(): any | null {
+        const layerId = this.getCurrentLayerId();
+        if (!layerId) {
+            return null;
+        }
+
+        const glyph = this.getCurrentGlyphModel();
+        if (!glyph?.layers) {
+            return null;
+        }
+
+        return glyph.layers.find((layer: any) => layer.id === layerId);
+    }
+
+    private getCurrentMasterModel(): any | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        const layer = this.getCurrentLayerModel();
+        const masterId = layer?.master?.master;
+
+        if (!fontModel || !masterId) {
+            return null;
+        }
+
+        const masters = fontModel.masters || [];
+        return masters.find((master: any) => master.id === masterId) || null;
+    }
+
+    private getRootMasterModel(): any | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        const layer = this.getRootLayerModel();
+        const masterId = layer?.master?.master;
+
+        if (!fontModel || !masterId) {
+            return null;
+        }
+
+        const masters = fontModel.masters || [];
+        return masters.find((master: any) => master.id === masterId) || null;
+    }
+
+    private transformGuideToRootSpace(
+        x: number,
+        y: number,
+        angle: number,
+        transform: number[]
+    ): { rootX: number; rootY: number; rootAngle: number } {
+        const [a, b, c, d, tx, ty] = transform;
+        const rootX = a * x + c * y + tx;
+        const rootY = b * x + d * y + ty;
+        const angleRad = (angle * Math.PI) / 180;
+        const dirX = Math.cos(angleRad);
+        const dirY = Math.sin(angleRad);
+        const transformedDirX = a * dirX + c * dirY;
+        const transformedDirY = b * dirX + d * dirY;
+        const rootAngle =
+            (Math.atan2(transformedDirY, transformedDirX) * 180) / Math.PI;
+
+        return { rootX, rootY, rootAngle };
+    }
+
+    private transformRootDeltaToGuideSpace(
+        deltaX: number,
+        deltaY: number,
+        transform: number[]
+    ): { localDeltaX: number; localDeltaY: number } {
+        const [a, b, c, d] = transform;
+        const det = a * d - b * c;
+
+        if (Math.abs(det) < 0.0001) {
+            return { localDeltaX: deltaX, localDeltaY: deltaY };
+        }
+
+        return {
+            localDeltaX: (d * deltaX - c * deltaY) / det,
+            localDeltaY: (-b * deltaX + a * deltaY) / det
+        };
+    }
+
+    getVisibleGuides(): VisibleGuide[] {
+        if (!this.guidelinesVisible || !this.selectedLayerId) {
+            return [];
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerModel = this.getCurrentLayerModel();
+        if (!currentLayerData || currentLayerData.isInterpolated) {
+            return [];
+        }
+
+        const guides: VisibleGuide[] = [];
+        const accumulatedTransform = this.getAccumulatedTransform();
+
+        currentLayerModel?.guides?.forEach((guide: any, index: number) => {
+            guides.push({
+                scope: 'layer',
+                index,
+                guide,
+                ...this.transformGuideToRootSpace(
+                    guide.pos.x,
+                    guide.pos.y,
+                    guide.pos.angle ?? 0,
+                    accumulatedTransform
+                )
+            });
+        });
+
+        const master = this.getRootMasterModel();
+        master?.guides?.forEach((guide: any, index: number) => {
+            guides.push({
+                scope: 'master',
+                index,
+                guide,
+                rootX: guide.pos.x,
+                rootY: guide.pos.y,
+                rootAngle: guide.pos.angle ?? 0
+            });
+        });
+
+        return guides;
+    }
+
+    private sameGuideHandle(
+        left: GuideHandle | null,
+        right: GuideHandle | null
+    ): boolean {
+        if (!left || !right) {
+            return left === right;
+        }
+
+        return left.scope === right.scope && left.index === right.index;
+    }
+
+    private getSelectedGuide(): VisibleGuide | null {
+        if (!this.selectedGuideHandle) {
+            return null;
+        }
+
+        return (
+            this.getVisibleGuides().find((guide) =>
+                this.sameGuideHandle(guide, this.selectedGuideHandle)
+            ) || null
+        );
     }
 
     private normalizeAndRoundVerticalMetrics(
@@ -457,6 +707,9 @@ export class OutlineEditor {
         this.selectedPoints = [];
         this.hoveredPointIndex = null;
         this.isDraggingPoint = false;
+        this.isDraggingGuide = false;
+        this.selectedGuideHandle = null;
+        this.hoveredGuideHandle = null;
         this.layerDataDirty = false;
     }
 
@@ -464,9 +717,11 @@ export class OutlineEditor {
         this.selectedPoints = [];
         this.selectedAnchors = [];
         this.selectedComponents = [];
+        this.selectedGuideHandle = null;
         this.hoveredPointIndex = null;
         this.hoveredAnchorIndex = null;
         this.hoveredComponentIndex = null;
+        this.hoveredGuideHandle = null;
         this.hoveredGlyphIndex = -1;
     }
 
@@ -856,8 +1111,27 @@ export class OutlineEditor {
         )
             return;
 
+        if (this.hoveredGuideHandle) {
+            this.selectedGuideHandle = { ...this.hoveredGuideHandle };
+            this.selectedPoints = [];
+            this.selectedAnchors = [];
+            this.selectedComponents = [];
+            this.isDraggingGuide = true;
+            this._hasMoved = false;
+            this._dragType = 'guide';
+            this._preDragDesc = this._buildGuideDesc();
+            window.changeBridge?.beginTransaction('Drag guide');
+            this.glyphCanvas.lastMouseX = e.clientX;
+            this.glyphCanvas.lastMouseY = e.clientY;
+            this.lastGlyphX = null;
+            this.lastGlyphY = null;
+            this.glyphCanvas.render();
+            return;
+        }
+
         // Check if clicking on a component first (components take priority)
         if (this.hoveredComponentIndex !== null) {
+            this.selectedGuideHandle = null;
             if (e.shiftKey) {
                 // Shift-click: add to or remove from selection (keep points and anchors for mixed selection)
                 const existingIndex = this.selectedComponents.indexOf(
@@ -897,6 +1171,7 @@ export class OutlineEditor {
 
         // Check if clicking on an anchor (anchors take priority over points)
         if (this.hoveredAnchorIndex !== null) {
+            this.selectedGuideHandle = null;
             if (e.shiftKey) {
                 // Shift-click: add to or remove from selection (keep points selected for mixed selection)
                 const existingIndex = this.selectedAnchors.indexOf(
@@ -940,6 +1215,7 @@ export class OutlineEditor {
 
         // Check if clicking on a point
         if (this.hoveredPointIndex) {
+            this.selectedGuideHandle = null;
             if (e.shiftKey) {
                 // Shift-click: add to or remove from selection (keep anchors selected for mixed selection)
                 const existingIndex = this.selectedPoints.findIndex(
@@ -990,6 +1266,7 @@ export class OutlineEditor {
             this.selectedPoints = [];
             this.selectedAnchors = [];
             this.selectedComponents = [];
+            this.selectedGuideHandle = null;
             this.glyphCanvas.render();
         }
     }
@@ -1083,6 +1360,7 @@ export class OutlineEditor {
     onMouseMove(e: MouseEvent) {
         // Handle component, anchor, or point dragging in outline editor
         if (
+            (this.isDraggingGuide && this.selectedGuideHandle !== null) ||
             (this.isDraggingComponent && this.selectedComponents.length > 0) ||
             (this.isDraggingAnchor && this.selectedAnchors.length > 0) ||
             (this.isDraggingPoint && this.selectedPoints.length > 0)
@@ -1103,8 +1381,9 @@ export class OutlineEditor {
         this.glyphCanvas.mouseX = mouseX;
         this.glyphCanvas.mouseY = mouseY;
 
-        // Transform to component space (accounts for component transforms)
-        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const { glyphX, glyphY } = this.isDraggingGuide
+            ? this.transformMouseToRootSpace()
+            : this.transformMouseToComponentSpace();
 
         // Calculate delta from last position
         const deltaX =
@@ -1121,18 +1400,85 @@ export class OutlineEditor {
         }
 
         // Update all selected items
+        this._updateDraggedGuide(deltaX, deltaY);
         this._updateDraggedComponents(deltaX, deltaY);
         this._updateDraggedPoints(deltaX, deltaY);
         this._updateDraggedAnchors(deltaX, deltaY);
 
         // Save to Python immediately (non-blocking)
         // Use enriched changeSource to distinguish edit types for compilation optimization
-        const dragChangeSource = this.isDraggingAnchor
-            ? 'mouse-drag-anchor'
-            : 'mouse-drag-outline';
-        this.saveLayerData(dragChangeSource);
+        if (this.isDraggingGuide) {
+            if (this.selectedGuideHandle?.scope === 'layer') {
+                this.saveLayerData('mouse-drag-guide');
+            }
+        } else {
+            const dragChangeSource = this.isDraggingAnchor
+                ? 'mouse-drag-anchor'
+                : 'mouse-drag-outline';
+            this.saveLayerData(dragChangeSource);
+        }
 
         this.glyphCanvas.render();
+    }
+
+    _updateDraggedGuide(deltaX: number, deltaY: number): void {
+        if (!this.isDraggingGuide || !this.selectedGuideHandle) {
+            return;
+        }
+
+        if (this.selectedGuideHandle.scope === 'layer') {
+            const accumulatedTransform = this.getAccumulatedTransform();
+            const { localDeltaX, localDeltaY } =
+                this.transformRootDeltaToGuideSpace(
+                    deltaX,
+                    deltaY,
+                    accumulatedTransform
+                );
+            const currentLayerData = this.getCurrentLayerDataFromStack();
+            const currentLayerModel = this.getCurrentLayerModel();
+            const modelGuide =
+                currentLayerModel?.guides?.[this.selectedGuideHandle.index];
+            if (!modelGuide?.pos) {
+                return;
+            }
+
+            modelGuide.pos.x += localDeltaX;
+            modelGuide.pos.y += localDeltaY;
+
+            if (currentLayerData) {
+                if (!currentLayerData.guides) {
+                    currentLayerData.guides = currentLayerModel?.guides?.map(
+                        (guide: any) => ({
+                            pos: {
+                                x: guide.pos.x,
+                                y: guide.pos.y,
+                                angle: guide.pos.angle
+                            },
+                            ...(guide.name && { name: guide.name }),
+                            ...(guide.color && { color: guide.color })
+                        })
+                    );
+                }
+
+                const dataGuide =
+                    currentLayerData.guides?.[this.selectedGuideHandle.index];
+                if (dataGuide?.pos) {
+                    dataGuide.pos.x = modelGuide.pos.x;
+                    dataGuide.pos.y = modelGuide.pos.y;
+                    dataGuide.pos.angle = modelGuide.pos.angle;
+                }
+            }
+            return;
+        }
+
+        const master = this.getRootMasterModel();
+        const guide = master?.guides?.[this.selectedGuideHandle.index];
+        if (!guide?.pos) {
+            return;
+        }
+
+        guide.pos.x += deltaX;
+        guide.pos.y += deltaY;
     }
 
     _updateDraggedPoints(deltaX: number, deltaY: number): void {
@@ -1323,21 +1669,26 @@ export class OutlineEditor {
         const wasDragging =
             this.isDraggingPoint ||
             this.isDraggingAnchor ||
-            this.isDraggingComponent;
+            this.isDraggingComponent ||
+            this.isDraggingGuide;
 
         // Capture drag state before clearing drag flags
         const dragType = this._dragType;
         const preDragDesc = this._preDragDesc;
+        const draggedGuideScope = this.selectedGuideHandle?.scope ?? null;
 
         this.isDraggingPoint = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
+        this.isDraggingGuide = false;
 
         // Update worker font cache after dragging ends
         if (wasDragging) {
             window.changeBridge?.endTransaction();
-            fontManager.updateWorkerFontCache();
-            fontManager.flushPendingDebugEditingFontSaveAfterDrag();
+            if (dragType !== 'guide') {
+                fontManager.updateWorkerFontCache();
+                fontManager.flushPendingDebugEditingFontSaveAfterDrag();
+            }
 
             // Only sync to Y.Doc if there was actual movement — avoids spurious undo entries
             // from simple clicks on anchors/points/components that didn't move anything.
@@ -1350,6 +1701,8 @@ export class OutlineEditor {
                     postDragDesc = this._buildNodeDesc(true);
                 } else if (dragType === 'component') {
                     postDragDesc = this._buildComponentDesc(true);
+                } else if (dragType === 'guide') {
+                    postDragDesc = this._buildGuideDesc(true);
                 }
                 const label =
                     dragType === 'anchor'
@@ -1358,12 +1711,16 @@ export class OutlineEditor {
                           ? 'Drag point'
                           : dragType === 'component'
                             ? 'Drag component'
-                            : 'Drag';
-                this._syncCurrentGlyphToYDoc(
-                    label,
-                    preDragDesc ?? undefined,
-                    postDragDesc
-                );
+                            : dragType === 'guide'
+                              ? 'Drag guide'
+                              : 'Drag';
+                if (!(dragType === 'guide' && draggedGuideScope === 'master')) {
+                    this._syncCurrentGlyphToYDoc(
+                        label,
+                        preDragDesc ?? undefined,
+                        postDragDesc
+                    );
+                }
             }
             this._hasMoved = false;
             this._preDragDesc = null;
@@ -1376,7 +1733,8 @@ export class OutlineEditor {
             this.active &&
             (this.isDraggingPoint ||
                 this.isDraggingAnchor ||
-                this.isDraggingComponent)
+                this.isDraggingComponent ||
+                this.isDraggingGuide)
         );
     }
 
@@ -1387,6 +1745,7 @@ export class OutlineEditor {
             return;
         }
 
+        this.updateHoveredGuideHandle();
         this.updateHoveredComponent();
         this.updateHoveredAnchor();
         this.updateHoveredPoint();
@@ -1398,7 +1757,8 @@ export class OutlineEditor {
             this.selectedLayerId &&
             this.layerData &&
             !this.isPreviewMode &&
-            (this.hoveredComponentIndex !== null ||
+            (this.hoveredGuideHandle !== null ||
+                this.hoveredComponentIndex !== null ||
                 this.hoveredPointIndex ||
                 this.hoveredAnchorIndex !== null)
         ) {
@@ -1442,6 +1802,43 @@ export class OutlineEditor {
             }
         }
         return bestValue;
+    }
+
+    private transformMouseToRootSpace(): { glyphX: number; glyphY: number } {
+        return this.glyphCanvas.toGlyphLocal(
+            this.glyphCanvas.mouseX,
+            this.glyphCanvas.mouseY
+        );
+    }
+
+    updateHoveredGuideHandle(): void {
+        const visibleGuides = this.getVisibleGuides();
+        const { glyphX: rootGlyphX, glyphY: rootGlyphY } =
+            this.transformMouseToRootSpace();
+        const scaledHitRadius = 20 / this.glyphCanvas.viewportManager!.scale;
+
+        let bestDist = Infinity;
+        let foundGuideHandle: GuideHandle | null = null;
+
+        for (const guide of visibleGuides) {
+            const dist = Math.sqrt(
+                (guide.rootX - rootGlyphX) ** 2 +
+                    (guide.rootY - rootGlyphY) ** 2
+            );
+
+            if (dist <= scaledHitRadius && dist < bestDist) {
+                bestDist = dist;
+                foundGuideHandle = {
+                    scope: guide.scope,
+                    index: guide.index
+                };
+            }
+        }
+
+        if (!this.sameGuideHandle(foundGuideHandle, this.hoveredGuideHandle)) {
+            this.hoveredGuideHandle = foundGuideHandle;
+            this.glyphCanvas.render();
+        }
     }
 
     updateHoveredComponent(): void {
@@ -1786,6 +2183,7 @@ export class OutlineEditor {
     onGlyphSelected() {
         // Perform mouse hit detection for objects at current mouse position
         if (this.active && this.selectedLayerId && this.layerData) {
+            this.updateHoveredGuideHandle();
             this.updateHoveredComponent();
             this.updateHoveredAnchor();
             this.updateHoveredPoint();
@@ -2340,6 +2738,20 @@ export class OutlineEditor {
             location: layer.location,
             width: layer.width,
             shapes: layer.shapes?.map((s: any) => ({ ...s })),
+            anchors: layer.anchors?.map((anchor: any) => ({
+                name: anchor.name,
+                x: anchor.x,
+                y: anchor.y
+            })),
+            guides: layer.guides?.map((guide: any) => ({
+                pos: {
+                    x: guide.pos.x,
+                    y: guide.pos.y,
+                    angle: guide.pos.angle
+                },
+                ...(guide.name && { name: guide.name }),
+                ...(guide.color && { color: guide.color })
+            })),
             isInterpolated: false
         };
     }
@@ -2960,6 +3372,28 @@ export class OutlineEditor {
         return `${label} (+${this.selectedComponents.length - 1} more): ${pos}`;
     }
 
+    /**
+     * Build a description string for the selected guide handle.
+     * @param coordsOnly - If true, return only "(X, Y)" without the guide label.
+     */
+    private _buildGuideDesc(coordsOnly = false): string {
+        const guideEntry = this.getSelectedGuide();
+        if (!guideEntry) return '';
+
+        const pos = this._fmtCoord(
+            guideEntry.guide.pos.x,
+            guideEntry.guide.pos.y
+        );
+        if (coordsOnly) return pos;
+
+        const scopeLabel =
+            guideEntry.scope === 'master' ? 'master guide' : 'layer guide';
+        const nameLabel = guideEntry.guide.name
+            ? ` '${guideEntry.guide.name}'`
+            : '';
+        return `${scopeLabel}${nameLabel}: ${pos}`;
+    }
+
     async saveLayerData(changeSource: string = 'unknown'): Promise<void> {
         // Save layer data back to Python using from_dict()
         if (!window.pyodide || !this.layerData) {
@@ -3006,16 +3440,25 @@ export class OutlineEditor {
                     // Get the currently edited glyph name from the stack
                     const componentGlyphName =
                         parsed[parsed.length - 1].glyphName;
+                    const currentLayerId =
+                        currentLayerData.id || this.getCurrentLayerId();
+
+                    if (!currentLayerId) {
+                        console.warn(
+                            '[SaveLayerData] No current layer ID for nested editing'
+                        );
+                        return;
+                    }
 
                     console.log(
-                        `[SaveLayerData] Saving nested edited glyph "${componentGlyphName}" with layer: ${this.selectedLayerId}`
+                        `[SaveLayerData] Saving nested edited glyph "${componentGlyphName}" with layer: ${currentLayerId}`
                     );
 
                     // Save only the edited glyph definition; do not also persist
                     // the root glyph copy in nested mode.
                     await fontManager!.saveLayerData(
                         componentGlyphName,
-                        this.selectedLayerId,
+                        currentLayerId,
                         currentLayerData,
                         changeSource
                     );

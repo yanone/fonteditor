@@ -1134,6 +1134,179 @@ export class GlyphCanvasRenderer {
         this.ctx.restore();
     }
 
+    private sameGuideHandle(
+        left: { scope: 'master' | 'layer'; index: number } | null,
+        right: { scope: 'master' | 'layer'; index: number } | null
+    ): boolean {
+        if (!left || !right) {
+            return left === right;
+        }
+
+        return left.scope === right.scope && left.index === right.index;
+    }
+
+    private getGuideColor(scope: 'master' | 'layer'): string {
+        return scope === 'master'
+            ? 'rgba(220, 64, 64, 0.95)'
+            : 'rgba(64, 128, 235, 0.95)';
+    }
+
+    private drawGuideLabel(
+        text: string,
+        x: number,
+        y: number,
+        invScale: number,
+        isDarkTheme: boolean
+    ): void {
+        this.ctx.save();
+        this.ctx.translate(x, y);
+        this.ctx.scale(1, -1);
+
+        const fontSize = 11 * invScale;
+        const padding = 2 * invScale;
+        const offsetX = 8 * invScale;
+        const offsetY = 8 * invScale;
+
+        this.ctx.font = `${fontSize}px 'Inter UI', sans-serif`;
+        const metrics = this.ctx.measureText(text);
+        const bgX = offsetX - padding;
+        const bgY = -offsetY - fontSize - padding + 1 * invScale;
+        const bgWidth = metrics.width + padding * 2;
+        const bgHeight = fontSize + padding * 2;
+
+        this.ctx.fillStyle = isDarkTheme
+            ? 'rgba(0, 0, 0, 0.75)'
+            : 'rgba(255, 255, 255, 0.8)';
+        this.ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
+
+        this.ctx.fillStyle = isDarkTheme
+            ? 'rgba(255, 255, 255, 1.0)'
+            : 'rgba(0, 0, 0, 1.0)';
+        this.ctx.textBaseline = 'top';
+        this.ctx.fillText(text, offsetX, -offsetY - fontSize + 1 * invScale);
+        this.ctx.restore();
+    }
+
+    private drawOutlineGuides(
+        guides: Array<{
+            scope: 'master' | 'layer';
+            index: number;
+            guide: Babelfont.Guide;
+            rootX: number;
+            rootY: number;
+            rootAngle: number;
+        }>,
+        invScale: number,
+        isDarkTheme: boolean,
+        phase: 'lines' | 'handles' = 'lines'
+    ): void {
+        if (guides.length === 0) {
+            return;
+        }
+
+        const minZoomForHandles =
+            APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
+        if (this.viewportManager.scale < minZoomForHandles) {
+            return;
+        }
+
+        const viewportExtent =
+            (Math.max(this.canvas.width, this.canvas.height) /
+                window.devicePixelRatio /
+                this.viewportManager.scale) *
+            2;
+        const nodeSizeMax = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM;
+        const nodeSizeMin = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
+        const nodeInterpolationMin =
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MIN;
+        const nodeInterpolationMax =
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MAX;
+
+        let baseHandleRadius;
+        if (this.viewportManager.scale >= nodeInterpolationMax) {
+            baseHandleRadius = nodeSizeMax * invScale;
+        } else {
+            const zoomFactor = Math.max(
+                0,
+                (this.viewportManager.scale - nodeInterpolationMin) /
+                    (nodeInterpolationMax - nodeInterpolationMin)
+            );
+            baseHandleRadius =
+                (nodeSizeMin + (nodeSizeMax - nodeSizeMin) * zoomFactor) *
+                invScale;
+        }
+
+        if (phase !== 'handles') {
+            for (const guideEntry of guides) {
+                const angleRad = (guideEntry.rootAngle * Math.PI) / 180;
+                const dirX = Math.cos(angleRad);
+                const dirY = Math.sin(angleRad);
+                const color = this.getGuideColor(guideEntry.scope);
+
+                this.ctx.save();
+                this.ctx.strokeStyle = color;
+                this.ctx.lineWidth = 1 * invScale;
+                this.ctx.beginPath();
+                this.ctx.moveTo(
+                    guideEntry.rootX - dirX * viewportExtent,
+                    guideEntry.rootY - dirY * viewportExtent
+                );
+                this.ctx.lineTo(
+                    guideEntry.rootX + dirX * viewportExtent,
+                    guideEntry.rootY + dirY * viewportExtent
+                );
+                this.ctx.stroke();
+                this.ctx.restore();
+            }
+        }
+
+        if (phase === 'lines') {
+            return;
+        }
+
+        const hoveredGuideHandle =
+            this.glyphCanvas.outlineEditor.hoveredGuideHandle;
+        const selectedGuideHandle =
+            this.glyphCanvas.outlineEditor.selectedGuideHandle;
+
+        for (const guideEntry of guides) {
+            const isHovered = this.sameGuideHandle(
+                guideEntry,
+                hoveredGuideHandle
+            );
+            const isSelected = this.sameGuideHandle(
+                guideEntry,
+                selectedGuideHandle
+            );
+            const color = this.getGuideColor(guideEntry.scope);
+            const handleRadius =
+                baseHandleRadius * (isSelected ? 1.3 : isHovered ? 1.15 : 1);
+
+            this.ctx.save();
+            this.ctx.translate(guideEntry.rootX, guideEntry.rootY);
+            this.ctx.beginPath();
+            this.ctx.arc(0, 0, handleRadius, 0, Math.PI * 2);
+            this.ctx.fillStyle = color;
+            this.ctx.fill();
+            this.ctx.lineWidth = 1 * invScale;
+            this.ctx.strokeStyle = isDarkTheme
+                ? 'rgba(0, 0, 0, 0.9)'
+                : 'rgba(255, 255, 255, 0.95)';
+            this.ctx.stroke();
+            this.ctx.restore();
+
+            if (guideEntry.guide.name) {
+                this.drawGuideLabel(
+                    guideEntry.guide.name,
+                    guideEntry.rootX,
+                    guideEntry.rootY,
+                    invScale,
+                    isDarkTheme
+                );
+            }
+        }
+    }
+
     drawGlyphTooltip() {
         // Draw glyph name tooltip on hover (in font coordinate space)
         // Don't show tooltip for the selected glyph in glyph edit mode
@@ -1444,17 +1617,18 @@ export class GlyphCanvasRenderer {
         // or the nested component data if we've entered components
         const currentLayerData =
             this.glyphCanvas.outlineEditor.getCurrentLayerDataFromStack();
+        const visibleGuides = this.glyphCanvas.outlineEditor.getVisibleGuides();
 
-        // Skip rendering if layer data is invalid (empty shapes array)
-        // This prevents flicker when interpolation hasn't completed yet
+        // Skip rendering if there is nothing editable to show.
         if (
             !currentLayerData ||
-            !currentLayerData.shapes ||
-            currentLayerData.shapes.length === 0
+            ((!currentLayerData.shapes ||
+                currentLayerData.shapes.length === 0) &&
+                visibleGuides.length === 0)
         ) {
             console.log(
                 '[Renderer]',
-                'Skipping drawOutlineEditor: no shapes at current stack position'
+                'Skipping drawOutlineEditor: no shapes or guides at current stack position'
             );
             return;
         }
@@ -1485,9 +1659,14 @@ export class GlyphCanvasRenderer {
         const yOffset = glyph.dy || 0;
         const x = xPosition + xOffset;
         const y = yOffset;
+        const invScale = 1 / this.viewportManager.scale;
+        const isDarkTheme =
+            document.documentElement.getAttribute('data-theme') !== 'light';
 
         this.ctx.save();
         this.ctx.translate(x, y);
+
+        this.drawOutlineGuides(visibleGuides, invScale, isDarkTheme, 'lines');
 
         // Apply accumulated component transform if editing a component
         // This positions the editor at the component's location in the parent
@@ -1509,10 +1688,6 @@ export class GlyphCanvasRenderer {
                 transform[5]
             );
         }
-
-        const invScale = 1 / this.viewportManager.scale;
-        const isDarkTheme =
-            document.documentElement.getAttribute('data-theme') !== 'light';
 
         // Draw filled glyph background in 3% black before everything else
         // Build a combined path from all contours (not components) to use nonzero winding for counters
@@ -1946,6 +2121,11 @@ export class GlyphCanvasRenderer {
         // Draw bounding box for testing
         this.drawBoundingBox();
 
+        this.ctx.restore();
+
+        this.ctx.save();
+        this.ctx.translate(x, y);
+        this.drawOutlineGuides(visibleGuides, invScale, isDarkTheme, 'handles');
         this.ctx.restore();
     }
 

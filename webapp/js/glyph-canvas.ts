@@ -419,6 +419,22 @@ class GlyphCanvas {
             }
         });
 
+        document.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.altKey && e.code === 'KeyG') {
+                const editorView = document.querySelector('#view-editor');
+                const isEditorFocused =
+                    !!editorView && editorView.classList.contains('focused');
+
+                if (!isEditorFocused) {
+                    return;
+                }
+
+                e.preventDefault();
+                e.stopPropagation();
+                this.outlineEditor.toggleGuidelinesVisible();
+            }
+        });
+
         // Focus/blur for cursor blinking
         this.canvas!.addEventListener('focus', () => this.onFocus());
         this.canvas!.addEventListener('blur', () => this.onBlur());
@@ -1062,11 +1078,13 @@ class GlyphCanvas {
         // Clear all hover states when mouse leaves the canvas
         const hadHover =
             this.outlineEditor.hoveredGlyphIndex >= 0 ||
+            this.outlineEditor.hoveredGuideHandle !== null ||
             this.outlineEditor.hoveredComponentIndex !== null ||
             this.outlineEditor.hoveredAnchorIndex !== null ||
             this.outlineEditor.hoveredPointIndex !== null;
 
         this.outlineEditor.hoveredGlyphIndex = -1;
+        this.outlineEditor.hoveredGuideHandle = null;
         this.outlineEditor.hoveredComponentIndex = null;
         this.outlineEditor.hoveredAnchorIndex = null;
         this.outlineEditor.hoveredPointIndex = null;
