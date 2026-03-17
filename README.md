@@ -225,13 +225,13 @@ Users will see an orange update notification button in the title bar within 10 m
 - ✅ .sfb input
 - ◻️ .vfj input
 - ◻️ .vfb input
-- ◻️ Python scripts I/O
+- ✅ Python scripts I/O
 - ✅ Glyph overview
 - ✅ Grid glyph overview
 - ✅ Glyph search and filtering
 - ✅ Glyph filtering plugins
 - ✅ Insert glyphs into editor text
-- ◻️ Show intermediate masters
+- ✅ Show intermediate masters
 - ✅ OpenType feature code editor
 - ✅ OpenType feature code error display inline
 - ✅ Hot-reloading fonts on external changes (Chrome/Chromium only)
@@ -252,7 +252,8 @@ Users will see an orange update notification button in the title bar within 10 m
 - ◻️ Anchor editing
 - ◻️ Guideline editing
 - ◻️ Layer management UI
-- ◻️ Undo/redo system
+- ◻️ Python script fast UI
+- ✅ Undo/redo system
 - ◻️ Clipboard operations
 - ◻️ Selection tools
 - ◻️ Font info editing
@@ -261,6 +262,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ◻️ Transform tools
 - ◻️ Kerning UI
 - ◻️ Automatic glyph metric updates
+- ◻️ Automatic glyph composition
 
 ### v0.4 (Due: Apr 1, 2026)
 
@@ -271,7 +273,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ◻️ OpenType feature code generator
 - ◻️ Glyph composition UI (OpenType ccmp)
 - ◻️ Contextual kerning/positioning UI
-- ◻️ Multiple font windows
+- ✅ Multiple font windows
 - ◻️ Plugin system architecture complete
 
 ### v0.5 (Due: Apr 21, 2026)
