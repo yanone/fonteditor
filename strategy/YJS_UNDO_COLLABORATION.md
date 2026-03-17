@@ -83,7 +83,7 @@ Y.Doc root (Y.Map "font")
 │       ├── "codepoints" → Y.Array [number, ...]
 │       ├── "exported" → boolean
 │       ├── "direction" → string
-│       ├── "formatspecific" → Y.Map (deep)
+│       ├── "format_specific" → Y.Map (deep)
 │       └── "layers" → Y.Map { layerId → Y.Map }    (keyed by layer UUID)
 │           └── [layerId] → Y.Map
 │               ├── "width" → number

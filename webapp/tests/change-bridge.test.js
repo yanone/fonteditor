@@ -85,7 +85,7 @@ function makeMinimalFont() {
                 map: [[100, 100]],
                 hidden: false,
                 values: [100, 400, 900],
-                formatspecific: { seed: true }
+                format_specific: { seed: true }
             }
         ],
         masters: [
@@ -126,7 +126,7 @@ function makeMinimalFont() {
                 codepoints: [65],
                 exported: true,
                 direction: 'LTR',
-                formatspecific: { seed: true },
+                format_specific: { seed: true },
                 layers: [
                     {
                         id: 'layer-1',
@@ -207,7 +207,7 @@ function makeMinimalFont() {
                 codepoints: [66],
                 exported: true,
                 direction: 'LTR',
-                formatspecific: { seed: true },
+                format_specific: { seed: true },
                 layers: [
                     {
                         id: 'layer-2',

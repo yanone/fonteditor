@@ -3094,19 +3094,19 @@ export class Glyph extends ArrayElementBase {
         recordAndMarkDirty(this, 'direction', old, value);
     }
 
-    get formatspecific(): Record<string, Unsafe> | undefined {
+    get format_specific(): Record<string, Unsafe> | undefined {
         return getLiveMutableValue(
             this,
-            'formatspecific',
-            this.data.formatspecific,
-            () => this.data.formatspecific
+            'format_specific',
+            this.data.format_specific,
+            () => this.data.format_specific
         );
     }
 
-    set formatspecific(value: Record<string, Unsafe> | undefined) {
-        const old = this.data.formatspecific;
-        this.data.formatspecific = value;
-        recordAndMarkDirty(this, 'formatspecific', old, value);
+    set format_specific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.format_specific;
+        this.data.format_specific = value;
+        recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
     /**
@@ -3384,19 +3384,19 @@ export class Axis extends ArrayElementBase {
         recordAndMarkDirty(this, 'values', old, value);
     }
 
-    get formatspecific(): Record<string, Unsafe> | undefined {
+    get format_specific(): Record<string, Unsafe> | undefined {
         return getLiveMutableValue(
             this,
-            'formatspecific',
-            this.data.formatspecific,
-            () => this.data.formatspecific
+            'format_specific',
+            this.data.format_specific,
+            () => this.data.format_specific
         );
     }
 
-    set formatspecific(value: Record<string, Unsafe> | undefined) {
-        const old = this.data.formatspecific;
-        this.data.formatspecific = value;
-        recordAndMarkDirty(this, 'formatspecific', old, value);
+    set format_specific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.format_specific;
+        this.data.format_specific = value;
+        recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
     toString(): string {
