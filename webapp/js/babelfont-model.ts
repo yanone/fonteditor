@@ -15,11 +15,6 @@ import type { Babelfont } from './babelfont';
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
-import {
-    applySkeletonStrokeThickness,
-    type StrokePath,
-    type SkeletonStrokeOptions
-} from './stroke/skeleton-stroke';
 import type { ChangeBridge } from './change-bridge';
 
 const console = new Logger('BabelfontModel');
@@ -469,8 +464,10 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     set nodes(value: Babelfont.Node[]) {
+        const old = this.data.nodes;
         this.data.nodes = value;
         this._nodeWrappers = null; // Invalidate cache
+        recordAndMarkDirty(this, 'nodes', old, value);
     }
 
     /**
@@ -592,7 +589,9 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     set closed(value: boolean) {
+        const old = this.data.closed;
         this.data.closed = value;
+        recordAndMarkDirty(this, 'closed', old, value);
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
@@ -600,7 +599,9 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.format_specific;
         this.data.format_specific = value;
+        recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
     /**
@@ -701,7 +702,9 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     set location(value: Record<string, number> | undefined) {
+        const old = this.data.location;
         this.data.location = value;
+        recordAndMarkDirty(this, 'location', old, value);
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
@@ -709,7 +712,9 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
+        const old = this.data.format_specific;
         this.data.format_specific = value;
+        recordAndMarkDirty(this, 'format_specific', old, value);
     }
 
     /**
@@ -2188,272 +2193,6 @@ export class Layer extends ArrayElementBase {
             left: leftSidebearing,
             right: rightSidebearing
         };
-    }
-
-    /**
-     * Expand/contract stroke thickness with separate horizontal and vertical factors.
-     *
-     * Usage model:
-     * - Required: `horizontalFactor`, `verticalFactor`
-     * - Optional: `options` object
-     *
-     * Factors:
-     * - `1.0` = keep current thickness on that axis
-     * - `>1.0` = expand stroke thickness on that axis
-     * - `<1.0` = contract stroke thickness on that axis
-     *
-     * Behavior:
-     * - Works only on direct paths in this layer (components are ignored).
-     * - Detects opposite-winding contour counterparts to estimate local stroke vectors.
-     * - Preserves straight on-curve/off-curve triplets after transformation.
-     * - Horizontal and vertical straight triplets stay axis-aligned.
-     * - Diagonal straight triplets remain straight, but angle may change.
-     *
-     * Options:
-     * - `maxRayLength` (default: auto from glyph bbox, min 2000):
-     *   maximum distance used to search opposite contour hits.
-     *   Increase for very large/complex glyphs if some strokes are not detected.
-     * - `collinearEpsilon` (default: `0.01`):
-     *   tolerance for detecting straight triplets.
-     *   Increase slightly if nearly-straight handles should be treated as straight.
-     * - `selfHitMinDistance` (default: `2`):
-     *   minimum ray distance when same-contour fallback is used (single-path glyphs).
-     *   Increase if adjacent-edge hits are still preferred over opposite stroke edges.
-     *
-     * @param horizontalFactor Scale factor for horizontal stroke component (X axis), must be > 0
-     * @param verticalFactor Scale factor for vertical stroke component (Y axis), must be > 0
-     * @param options Optional tuning parameters
-     * @returns Number of nodes changed
-     *
-     * @example
-     * // Uniform 10% expansion on both axes
-     * layer.adjustStrokeThickness(1.1, 1.1);
-     *
-     * @example
-     * // Expand horizontal thickness, keep vertical thickness unchanged
-     * layer.adjustStrokeThickness(1.2, 1.0);
-     *
-     * @example
-     * // Contract vertical thickness with custom detection tuning
-     * layer.adjustStrokeThickness(1.0, 0.9, {
-     *     maxRayLength: 5000,
-     *     collinearEpsilon: 0.02
-     * });
-     */
-    adjustStrokeThickness(
-        horizontalFactor: number,
-        verticalFactor: number,
-        options: {
-            maxRayLength?: number;
-            collinearEpsilon?: number;
-            selfHitMinDistance?: number;
-            lineAxisEpsilon?: number;
-            fillProbeDistance?: number;
-            segmentSampleSteps?: number;
-        } = {}
-    ): number {
-        if (
-            !isFinite(horizontalFactor) ||
-            !isFinite(verticalFactor) ||
-            horizontalFactor <= 0 ||
-            verticalFactor <= 0
-        ) {
-            throw new Error(
-                'adjustStrokeThickness requires positive finite factors'
-            );
-        }
-
-        if (!this.shapes || this.shapes.length === 0) {
-            return 0;
-        }
-
-        type MutablePath = {
-            pathData: Unsafe;
-            nodes: StrokePath['nodes'];
-            closed: boolean;
-            wasString: boolean;
-            mirrorShape: Unsafe | null;
-            mirrorWasString: boolean;
-            mirrorUsesNestedPath: boolean;
-        };
-        const mutablePaths: MutablePath[] = [];
-
-        for (const shape of this.shapes) {
-            if (!shape.isPath()) continue;
-
-            const rawShapeData = shape.toJSON() as Unsafe;
-            const pathData = shape.asPath().toJSON() as Unsafe;
-            if (!pathData || !pathData.nodes) continue;
-
-            const hasRawNodes =
-                rawShapeData &&
-                typeof rawShapeData === 'object' &&
-                'nodes' in rawShapeData;
-            const rawHasNestedPath =
-                rawShapeData &&
-                typeof rawShapeData === 'object' &&
-                'Path' in rawShapeData &&
-                rawShapeData.Path &&
-                typeof rawShapeData.Path === 'object';
-
-            const mirrorShape =
-                hasRawNodes && rawShapeData !== pathData ? rawShapeData : null;
-            const mirrorWasString =
-                !!mirrorShape && typeof mirrorShape.nodes === 'string';
-
-            const wasString = typeof pathData.nodes === 'string';
-            if (wasString) {
-                pathData.nodes = LayerDataNormalizer.parseNodes(pathData.nodes);
-            }
-            if (mirrorShape && typeof mirrorShape.nodes === 'string') {
-                mirrorShape.nodes = LayerDataNormalizer.parseNodes(
-                    mirrorShape.nodes
-                );
-            }
-            if (!Array.isArray(pathData.nodes) || pathData.nodes.length < 2) {
-                continue;
-            }
-
-            const nodes = pathData.nodes as StrokePath['nodes'];
-            if (mirrorShape && Array.isArray(mirrorShape.nodes)) {
-                mirrorShape.nodes = nodes;
-            }
-
-            const closed = pathData.closed !== false;
-            if (mirrorShape) {
-                if (mirrorShape.closed === undefined) {
-                    mirrorShape.closed = closed;
-                }
-                if (rawHasNestedPath && rawShapeData.Path) {
-                    rawShapeData.Path.nodes = nodes;
-                    if (rawShapeData.Path.closed === undefined) {
-                        rawShapeData.Path.closed = closed;
-                    }
-                }
-            }
-
-            mutablePaths.push({
-                pathData,
-                nodes,
-                closed,
-                wasString,
-                mirrorShape,
-                mirrorWasString,
-                mirrorUsesNestedPath: rawHasNestedPath
-            });
-        }
-
-        if (mutablePaths.length === 0) {
-            return 0;
-        }
-
-        const bbox = this.getBoundingBox(false);
-        const computedMaxRayLength =
-            options.maxRayLength ??
-            Math.max(2000, bbox ? Math.max(bbox.width, bbox.height) * 4 : 4000);
-
-        const getBounds = (nodes: StrokePath['nodes']) => {
-            let minX = Infinity;
-            let minY = Infinity;
-            let maxX = -Infinity;
-            let maxY = -Infinity;
-
-            for (const node of nodes) {
-                if (node.x < minX) minX = node.x;
-                if (node.y < minY) minY = node.y;
-                if (node.x > maxX) maxX = node.x;
-                if (node.y > maxY) maxY = node.y;
-            }
-
-            return { minX, minY, maxX, maxY };
-        };
-
-        const boundsBefore = mutablePaths.map((path) => getBounds(path.nodes));
-
-        const strokeOptions: SkeletonStrokeOptions = {
-            ...options,
-            maxRayLength: computedMaxRayLength
-        };
-
-        const changedNodes = applySkeletonStrokeThickness(
-            mutablePaths.map((path) => ({
-                nodes: path.nodes,
-                closed: path.closed
-            })),
-            horizontalFactor,
-            verticalFactor,
-            strokeOptions
-        );
-
-        if (changedNodes > 0) {
-            for (let i = 0; i < mutablePaths.length; i++) {
-                const path = mutablePaths[i];
-                if (!path.closed || path.nodes.length < 2) continue;
-
-                const before = boundsBefore[i];
-                const after = getBounds(path.nodes);
-
-                let shiftX = 0;
-                let shiftY = 0;
-
-                if (horizontalFactor !== 1) {
-                    const beforeCenterX = (before.minX + before.maxX) * 0.5;
-                    const afterCenterX = (after.minX + after.maxX) * 0.5;
-                    shiftX = beforeCenterX - afterCenterX;
-                }
-
-                if (verticalFactor !== 1) {
-                    const beforeCenterY = (before.minY + before.maxY) * 0.5;
-                    const afterCenterY = (after.minY + after.maxY) * 0.5;
-                    shiftY = beforeCenterY - afterCenterY;
-                }
-
-                if (Math.abs(shiftX) <= 1e-9 && Math.abs(shiftY) <= 1e-9) {
-                    continue;
-                }
-
-                for (const node of path.nodes) {
-                    node.x += shiftX;
-                    node.y += shiftY;
-                }
-            }
-        }
-
-        for (const path of mutablePaths) {
-            const shouldSerializePrimary = path.wasString;
-            const shouldSerializeMirror = path.mirrorWasString;
-
-            if (shouldSerializePrimary || shouldSerializeMirror) {
-                const serializedNodes = LayerDataNormalizer.serializeNodes(
-                    path.nodes as Unsafe
-                );
-
-                if (shouldSerializePrimary) {
-                    path.pathData.nodes = serializedNodes;
-                }
-
-                if (path.mirrorShape && shouldSerializeMirror) {
-                    path.mirrorShape.nodes = serializedNodes;
-                }
-
-                if (path.mirrorUsesNestedPath && path.mirrorShape?.Path) {
-                    path.mirrorShape.Path.nodes = serializedNodes;
-                }
-            } else {
-                if (path.mirrorShape && Array.isArray(path.mirrorShape.nodes)) {
-                    path.mirrorShape.nodes = path.nodes;
-                }
-                if (path.mirrorUsesNestedPath && path.mirrorShape?.Path) {
-                    path.mirrorShape.Path.nodes = path.nodes;
-                }
-            }
-        }
-
-        if (changedNodes > 0) {
-            markFontDirty();
-        }
-
-        return changedNodes;
     }
 
     /**

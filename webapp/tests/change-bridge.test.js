@@ -41,12 +41,12 @@ function makeMinimalFont() {
         note: '',
         date: '2024-01-01',
         names: { familyName: 'TestFont' },
-        custom_ot_values: [],
-        variation_sequences: {},
+        custom_ot_values: [{ tag: 'head', value: 1 }],
+        variation_sequences: { 65: { 65024: 'A.alt' } },
         features: '',
-        first_kern_groups: {},
-        second_kern_groups: {},
-        format_specific: {},
+        first_kern_groups: { A: ['A'] },
+        second_kern_groups: { V: ['V'] },
+        format_specific: { seed: true },
         source: '',
         axes: [
             {
@@ -56,10 +56,10 @@ function makeMinimalFont() {
                 min: 100,
                 max: 900,
                 default: 400,
-                map: [],
+                map: [[100, 100]],
                 hidden: false,
-                values: [],
-                formatspecific: {}
+                values: [100, 400, 900],
+                formatspecific: { seed: true }
             }
         ],
         masters: [
@@ -67,10 +67,18 @@ function makeMinimalFont() {
                 name: 'Regular',
                 id: 'master-regular',
                 location: { wght: 400 },
-                metrics: {},
-                kerning: {},
-                custom_ot_values: [],
-                format_specific: {}
+                guides: [
+                    {
+                        pos: 500,
+                        name: 'x-height',
+                        color: '#00AA88',
+                        format_specific: { seed: true }
+                    }
+                ],
+                metrics: { xHeight: 500 },
+                kerning: { A: { V: -80 } },
+                custom_ot_values: [{ tag: 'OS/2', value: 1 }],
+                format_specific: { seed: true }
             }
         ],
         instances: [
@@ -78,10 +86,10 @@ function makeMinimalFont() {
                 id: 'instance-regular',
                 name: 'Regular',
                 location: { wght: 400 },
-                custom_names: {},
+                custom_names: { postscriptName: 'TestFont-Regular' },
                 variable: false,
-                linked_style: '',
-                format_specific: {}
+                linked_style: 'Regular',
+                format_specific: { seed: true }
             }
         ],
         glyphs: [
@@ -92,7 +100,7 @@ function makeMinimalFont() {
                 codepoints: [65],
                 exported: true,
                 direction: 'LTR',
-                formatspecific: {},
+                formatspecific: { seed: true },
                 layers: [
                     {
                         id: 'layer-1',
@@ -102,13 +110,13 @@ function makeMinimalFont() {
                             type: 'DefaultForMaster',
                             master: 'master-regular'
                         },
-                        smart_component_location: {},
-                        color: null,
+                        smart_component_location: { wght: 0 },
+                        color: '#112233',
                         layer_index: 0,
                         is_background: false,
-                        background_layer_id: null,
-                        location: {},
-                        format_specific: {},
+                        background_layer_id: 'layer-1-bg',
+                        location: { wght: 400 },
+                        format_specific: { seed: true },
                         shapes: [
                             {
                                 nodes: [
@@ -131,7 +139,20 @@ function makeMinimalFont() {
                                         smooth: false
                                     }
                                 ],
-                                closed: true
+                                closed: true,
+                                format_specific: { seed: true }
+                            },
+                            {
+                                reference: 'B',
+                                transform: {
+                                    translation: [10, 20],
+                                    scale: [1, 1],
+                                    rotation: 0,
+                                    skew: [0, 0],
+                                    order: 'RestOfTheWorld'
+                                },
+                                location: { wght: 400 },
+                                format_specific: { seed: true }
                             }
                         ],
                         anchors: [
@@ -146,8 +167,8 @@ function makeMinimalFont() {
                             {
                                 pos: 700,
                                 name: 'cap-height',
-                                color: null,
-                                format_specific: {}
+                                color: '#AA5500',
+                                format_specific: { seed: true }
                             }
                         ]
                     }
@@ -160,7 +181,7 @@ function makeMinimalFont() {
                 codepoints: [66],
                 exported: true,
                 direction: 'LTR',
-                formatspecific: {},
+                formatspecific: { seed: true },
                 layers: [
                     {
                         id: 'layer-2',
@@ -170,13 +191,13 @@ function makeMinimalFont() {
                             type: 'DefaultForMaster',
                             master: 'master-regular'
                         },
-                        smart_component_location: {},
-                        color: null,
+                        smart_component_location: { wght: 0 },
+                        color: '#334455',
                         layer_index: 0,
                         is_background: false,
-                        background_layer_id: null,
-                        location: {},
-                        format_specific: {},
+                        background_layer_id: 'layer-2-bg',
+                        location: { wght: 400 },
+                        format_specific: { seed: true },
                         shapes: [
                             {
                                 nodes: [
@@ -193,7 +214,8 @@ function makeMinimalFont() {
                                         smooth: false
                                     }
                                 ],
-                                closed: true
+                                closed: true,
+                                format_specific: { seed: true }
                             }
                         ],
                         anchors: [],
@@ -223,6 +245,234 @@ function createTestBridge(windowId) {
 function flushTimers() {
     jest.runAllTimers();
 }
+
+const GENERIC_ACCESSOR_TEST_EXCLUSIONS = new Set(['data', 'lsb', 'rsb']);
+
+function cloneValue(value) {
+    if (value === undefined) {
+        return undefined;
+    }
+    return JSON.parse(JSON.stringify(value));
+}
+
+function isModelObject(value) {
+    return (
+        !!value &&
+        typeof value === 'object' &&
+        typeof value.getPath === 'function' &&
+        typeof value.toJSON === 'function'
+    );
+}
+
+function collectReachableModelObjects(root) {
+    const seen = new Set();
+    const objects = [];
+
+    function visit(value) {
+        if (!isModelObject(value) || seen.has(value)) {
+            return;
+        }
+
+        seen.add(value);
+        objects.push(value);
+
+        let prototype = Object.getPrototypeOf(value);
+        while (prototype && prototype !== Object.prototype) {
+            const descriptors = Object.getOwnPropertyDescriptors(prototype);
+
+            for (const [name, descriptor] of Object.entries(descriptors)) {
+                if (name === 'constructor') {
+                    continue;
+                }
+
+                try {
+                    if (typeof descriptor.get === 'function') {
+                        const result = value[name];
+                        if (Array.isArray(result)) {
+                            result.forEach(visit);
+                        } else {
+                            visit(result);
+                        }
+                    }
+
+                    if (
+                        typeof descriptor.value === 'function' &&
+                        descriptor.value.length === 0 &&
+                        (name.startsWith('as') || name.startsWith('get'))
+                    ) {
+                        const result = descriptor.value.call(value);
+                        if (Array.isArray(result)) {
+                            result.forEach(visit);
+                        } else {
+                            visit(result);
+                        }
+                    }
+                } catch (_error) {
+                    // Some zero-arg methods are computational helpers; they are
+                    // not part of the traversal graph if they throw.
+                }
+            }
+
+            prototype = Object.getPrototypeOf(prototype);
+        }
+    }
+
+    visit(root);
+    return objects;
+}
+
+function collectWritableAccessorSpecs() {
+    const font = Font.fromData(makeMinimalFont());
+    const specs = new Map();
+
+    for (const object of collectReachableModelObjects(font)) {
+        let prototype = Object.getPrototypeOf(object);
+        while (prototype && prototype !== Object.prototype) {
+            const descriptors = Object.getOwnPropertyDescriptors(prototype);
+
+            for (const [name, descriptor] of Object.entries(descriptors)) {
+                if (
+                    !descriptor.get ||
+                    !descriptor.set ||
+                    GENERIC_ACCESSOR_TEST_EXCLUSIONS.has(name)
+                ) {
+                    continue;
+                }
+
+                const path = object.getPath();
+                const className = object.constructor.name;
+                const key = `${className}:${JSON.stringify(path)}:${name}`;
+
+                if (!specs.has(key)) {
+                    specs.set(key, {
+                        className,
+                        property: name,
+                        path,
+                        pathLabel: path.length ? path.join('.') : 'font'
+                    });
+                }
+            }
+
+            prototype = Object.getPrototypeOf(prototype);
+        }
+    }
+
+    return Array.from(specs.values()).sort((left, right) => {
+        return (
+            left.className.localeCompare(right.className) ||
+            left.pathLabel.localeCompare(right.pathLabel) ||
+            left.property.localeCompare(right.property)
+        );
+    });
+}
+
+function mutateValue(value) {
+    if (typeof value === 'number') {
+        return value + 1;
+    }
+
+    if (typeof value === 'string') {
+        return value ? `${value}__changed` : 'changed';
+    }
+
+    if (typeof value === 'boolean') {
+        return !value;
+    }
+
+    if (Array.isArray(value)) {
+        if (value.length === 0) {
+            return [1];
+        }
+
+        const next = cloneValue(value);
+        next[0] = mutateValue(next[0]);
+        return next;
+    }
+
+    if (value && typeof value === 'object') {
+        const keys = Object.keys(value).sort((left, right) => {
+            const leftReserved = left === 'type' || left === 'order';
+            const rightReserved = right === 'type' || right === 'order';
+            if (leftReserved !== rightReserved) {
+                return leftReserved ? 1 : -1;
+            }
+            return left.localeCompare(right);
+        });
+
+        if (keys.length === 0) {
+            return { __test: 1 };
+        }
+
+        const next = cloneValue(value);
+        const key = keys[0];
+        next[key] = mutateValue(next[key]);
+        return next;
+    }
+
+    throw new Error(`Cannot derive mutation for value: ${String(value)}`);
+}
+
+function resolveModelObject(font, spec) {
+    let current = font;
+
+    for (let index = 0; index < spec.path.length; index += 2) {
+        const segment = spec.path[index];
+        const value = spec.path[index + 1];
+
+        switch (segment) {
+            case 'glyphs':
+                current = current.glyphs.find((glyph) => glyph.name === value);
+                break;
+            case 'layers':
+                current = current.layers.find((layer) => layer.id === value);
+                break;
+            case 'axes':
+                current = current.axes[value];
+                break;
+            case 'masters':
+                current = current.masters[value];
+                break;
+            case 'instances':
+                current = current.instances[value];
+                break;
+            case 'shapes':
+                current = current.shapes[value];
+                break;
+            case 'nodes':
+                current = (current.asPath ? current.asPath() : current).nodes[
+                    value
+                ];
+                break;
+            case 'anchors':
+                current = current.anchors[value];
+                break;
+            case 'guides':
+                current = current.guides[value];
+                break;
+            default:
+                throw new Error(`Unsupported path segment: ${segment}`);
+        }
+    }
+
+    if (spec.className === 'Path' && current.asPath) {
+        return current.asPath();
+    }
+
+    if (spec.className === 'Component' && current.asComponent) {
+        return current.asComponent();
+    }
+
+    return current;
+}
+
+function normalizeYValue(value) {
+    if (value && typeof value.toJSON === 'function') {
+        return value.toJSON();
+    }
+    return value;
+}
+
+const GENERIC_ACCESSOR_SPECS = collectWritableAccessorSpecs();
 
 // ── Test setup ───────────────────────────────────────────────────────
 
@@ -993,314 +1243,46 @@ describe('Transactions', () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Model setter change recording', () => {
-    // -- Font properties --
-
-    test('Font.upm setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.upm = 2000;
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('upm');
-        expect(log[0].oldValue).toBe(1000);
-        expect(log[0].newValue).toBe(2000);
-        expect(log[0].objectType).toBe('font');
-        // Y.Doc reflects the new value
-        expect(getYPath(bridge.fontMap, ['upm'])).toBe(2000);
-    });
-
-    test('Font.version setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.version = [2, 0];
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('version');
-    });
-
-    test('Font.note setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.note = 'Hello';
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('note');
-        expect(log[0].newValue).toBe('Hello');
-    });
-
-    test('Font.features setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.features = 'feature liga {}';
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('features');
-    });
-
-    test('Font.source setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.source = '/path/to/font.glyphs';
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('source');
-    });
-
-    // -- Axis properties --
-
-    test('Axis.name setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const axis = font.axes[0];
-        axis.name = 'Width';
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('name');
-        expect(log[0].oldValue).toBe('Weight');
-        expect(log[0].newValue).toBe('Width');
-        expect(log[0].objectType).toBe('axis');
-    });
-
-    test('Axis.tag setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.axes[0].tag = 'wdth';
-        expect(bridge.getChangeLog()[0].property).toBe('tag');
-    });
-
-    test('Axis.min setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.axes[0].min = 50;
-        expect(bridge.getChangeLog()[0].property).toBe('min');
-        expect(bridge.getChangeLog()[0].newValue).toBe(50);
-    });
-
-    test('Axis.max setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.axes[0].max = 1000;
-        expect(bridge.getChangeLog()[0].property).toBe('max');
-    });
-
-    test('Axis.default setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.axes[0].default = 300;
-        expect(bridge.getChangeLog()[0].property).toBe('default');
-    });
-
-    test('Axis.hidden setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.axes[0].hidden = true;
-        expect(bridge.getChangeLog()[0].property).toBe('hidden');
-        expect(bridge.getChangeLog()[0].newValue).toBe(true);
-    });
-
-    // -- Master properties --
-
-    test('Master.name setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.masters[0].name = 'Bold';
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('name');
-        expect(log[0].objectType).toBe('master');
-    });
-
-    test('Master.id setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.masters[0].id = 'new-id';
-        expect(bridge.getChangeLog()[0].property).toBe('id');
-    });
-
-    test('Master.location setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.masters[0].location = { wght: 700 };
-        expect(bridge.getChangeLog()[0].property).toBe('location');
-    });
-
-    // -- Instance properties --
-
-    test('Instance.name setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.instances[0].name = 'Bold';
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('name');
-        expect(log[0].objectType).toBe('instance');
-    });
-
-    test('Instance.location setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.instances[0].location = { wght: 700 };
-        expect(bridge.getChangeLog()[0].property).toBe('location');
-    });
-
-    // -- Glyph properties --
-
-    test('Glyph.name setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const glyph = font.glyphs[0]; // glyph A
-        glyph.name = 'A.alt';
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('name');
-        expect(log[0].objectType).toBe('glyph');
-    });
-
-    test('Glyph.production_name setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const glyph = font.glyphs[0];
-        glyph.production_name = 'uni0041';
-        expect(bridge.getChangeLog()[0].property).toBe('production_name');
-    });
-
-    test('Glyph.exported setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const glyph = font.glyphs[0];
-        glyph.exported = false;
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('exported');
-        expect(log[0].oldValue).toBe(true);
-        expect(log[0].newValue).toBe(false);
-    });
-
-    test('Glyph.direction setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.glyphs[0].direction = 'RTL';
-        expect(bridge.getChangeLog()[0].property).toBe('direction');
-    });
-
-    // -- Layer properties --
-
-    test('Layer.width setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const layer = font.glyphs[0].layers[0];
-        layer.width = 700;
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('width');
-        expect(log[0].oldValue).toBe(600);
-        expect(log[0].newValue).toBe(700);
-        expect(log[0].objectType).toBe('layer');
-    });
-
-    test('Layer.name setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.glyphs[0].layers[0].name = 'Light';
-        expect(bridge.getChangeLog()[0].property).toBe('name');
-    });
-
-    test('Layer.color setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.glyphs[0].layers[0].color = '#FF0000';
-        expect(bridge.getChangeLog()[0].property).toBe('color');
-    });
-
-    test('Layer.is_background setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.glyphs[0].layers[0].is_background = true;
-        expect(bridge.getChangeLog()[0].property).toBe('is_background');
-    });
-
-    test('Layer.format_specific setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.glyphs[0].layers[0].format_specific = { custom: 123 };
-        expect(bridge.getChangeLog()[0].property).toBe('format_specific');
-    });
-
-    // -- Node properties --
-
-    test('Node.x setter records change with correct path', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const node = font.glyphs[0].layers[0].shapes[0].asPath().nodes[0];
-        node.x = 150;
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('x');
-        expect(log[0].oldValue).toBe(100);
-        expect(log[0].newValue).toBe(150);
-        expect(log[0].objectType).toBe('node');
-        // Verify Y.Doc reflects the change
+    test('introspection discovers method-returned wrappers', () => {
         expect(
-            getYPath(bridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'layer-1',
-                'shapes',
-                0,
-                'nodes',
-                0,
-                'x'
-            ])
-        ).toBe(150);
+            GENERIC_ACCESSOR_SPECS.some((spec) => spec.className === 'Path')
+        ).toBe(true);
+        expect(
+            GENERIC_ACCESSOR_SPECS.some(
+                (spec) => spec.className === 'Component'
+            )
+        ).toBe(true);
     });
 
-    test('Node.y setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const node = font.glyphs[0].layers[0].shapes[0].asPath().nodes[1];
-        node.y = 800;
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('y');
-        expect(log[0].oldValue).toBe(700);
-        expect(log[0].newValue).toBe(800);
-    });
+    test.each(GENERIC_ACCESSOR_SPECS)(
+        '$className.$property at $pathLabel records a bridge change and updates Y.Doc',
+        (spec) => {
+            const { bridge, font } = createTestBridge(
+                `introspection-${spec.className}-${spec.property}`
+            );
+            const target = resolveModelObject(font, spec);
+            const oldValue = cloneValue(target[spec.property]);
+            const candidateValue = mutateValue(oldValue);
 
-    test('Node.nodetype setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const node = font.glyphs[0].layers[0].shapes[0].asPath().nodes[0];
-        node.nodetype = 'curve';
-        expect(bridge.getChangeLog()[0].property).toBe('nodetype');
-        expect(bridge.getChangeLog()[0].oldValue).toBe('line');
-        expect(bridge.getChangeLog()[0].newValue).toBe('curve');
-    });
+            target[spec.property] = cloneValue(candidateValue);
 
-    test('Node.smooth setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const node = font.glyphs[0].layers[0].shapes[0].asPath().nodes[0];
-        node.smooth = true;
-        expect(bridge.getChangeLog()[0].property).toBe('smooth');
-    });
+            const expectedValue = cloneValue(target[spec.property]);
+            const log = bridge.getChangeLog();
 
-    // -- Anchor properties --
-
-    test('Anchor.x setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const anchor = font.glyphs[0].layers[0].anchors[0];
-        anchor.x = 350;
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('x');
-        expect(log[0].oldValue).toBe(300);
-        expect(log[0].newValue).toBe(350);
-        expect(log[0].objectType).toBe('anchor');
-    });
-
-    test('Anchor.y setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.glyphs[0].layers[0].anchors[0].y = 800;
-        expect(bridge.getChangeLog()[0].property).toBe('y');
-    });
-
-    test('Anchor.name setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.glyphs[0].layers[0].anchors[0].name = 'bottom';
-        expect(bridge.getChangeLog()[0].property).toBe('name');
-    });
-
-    // -- Guide properties --
-
-    test('Guide.pos setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        const guide = font.glyphs[0].layers[0].guides[0];
-        guide.pos = 800;
-        const log = bridge.getChangeLog();
-        expect(log).toHaveLength(1);
-        expect(log[0].property).toBe('pos');
-        expect(log[0].oldValue).toBe(700);
-        expect(log[0].newValue).toBe(800);
-        expect(log[0].objectType).toBe('guide');
-    });
-
-    test('Guide.name setter records change', () => {
-        const { bridge, font } = createTestBridge('test-1');
-        font.glyphs[0].layers[0].guides[0].name = 'ascender';
-        expect(bridge.getChangeLog()[0].property).toBe('name');
-    });
+            expect(log).toHaveLength(1);
+            expect(log[0].property).toBe(spec.property);
+            expect(log[0].oldValue).toEqual(oldValue);
+            expect(log[0].newValue).toEqual(expectedValue);
+            expect(
+                normalizeYValue(
+                    getYPath(
+                        bridge.fontMap,
+                        target.getPath().concat(spec.property)
+                    )
+                )
+            ).toEqual(expectedValue);
+        }
+    );
 });
 
 // ─────────────────────────────────────────────────────────────────────
