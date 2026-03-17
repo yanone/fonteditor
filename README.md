@@ -239,7 +239,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ✅ Open fonts in PWA directly
 - ◻️ Interactive demo
 - ✅ Basic documentation
-- ◻️ First video
+- ✅ First video
 
 ### v0.3 (Due: Mar 10, 2026)
 
