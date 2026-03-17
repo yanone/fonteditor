@@ -85,6 +85,8 @@ class FontInfoManager {
     private fontDataLoaded = false;
     private selectedShaper: string = 'default';
     private draggedFeatureIndex: number | null = null;
+    private featureDropTargetIndex: number | null = null;
+    private featureDropTargetPlacement: 'before' | 'after' | null = null;
     private featureCodeDirty = false;
 
     // Search-related properties
@@ -2041,6 +2043,8 @@ class FontInfoManager {
         console.log('[FontInfo] loadFeaturesList - container:', listContainer);
         if (!listContainer) return;
 
+        this.clearFeatureDropIndicator();
+
         const font = window.currentFontModel;
         if (!font || !font.features) {
             listContainer.innerHTML =
@@ -2530,11 +2534,14 @@ class FontInfoManager {
         // Add draggable attribute for discretionary features
         if (isDiscretionaryFeature && isUserFeature) {
             item.setAttribute('draggable', 'true');
+            item.dataset.featureIndex = String(key);
             item.classList.add('draggable-feature');
             item.addEventListener('dragstart', (e) =>
                 this.onFeatureDragStart(e, key as number)
             );
-            item.addEventListener('dragover', (e) => this.onFeatureDragOver(e));
+            item.addEventListener('dragover', (e) =>
+                this.onFeatureDragOver(e, key as number)
+            );
             item.addEventListener('drop', (e) =>
                 this.onFeatureDrop(e, key as number)
             );
@@ -2862,6 +2869,7 @@ class FontInfoManager {
 
     private onFeatureDragStart(e: DragEvent, index: number) {
         this.draggedFeatureIndex = index;
+        this.clearFeatureDropIndicator();
         const target = e.target as HTMLElement;
         target.classList.add('dragging');
         if (e.dataTransfer) {
@@ -2869,20 +2877,34 @@ class FontInfoManager {
         }
     }
 
-    private onFeatureDragOver(e: DragEvent) {
+    private onFeatureDragOver(e: DragEvent, targetIndex: number) {
         e.preventDefault();
         if (e.dataTransfer) {
             e.dataTransfer.dropEffect = 'move';
         }
+
+        if (this.draggedFeatureIndex === null) {
+            return;
+        }
+
+        const target = e.currentTarget as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+
+        const rect = target.getBoundingClientRect();
+        const placement =
+            e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+        this.setFeatureDropIndicator(targetIndex, placement);
     }
 
     private onFeatureDrop(e: DragEvent, targetIndex: number) {
         e.preventDefault();
 
-        if (
-            this.draggedFeatureIndex === null ||
-            this.draggedFeatureIndex === targetIndex
-        ) {
+        const insertionIndex = this.getFeatureDropInsertionIndex(targetIndex);
+        this.clearFeatureDropIndicator();
+
+        if (this.draggedFeatureIndex === null || insertionIndex === null) {
             return;
         }
 
@@ -2892,6 +2914,11 @@ class FontInfoManager {
         const features = font.features.features;
         const draggedTag = features[this.draggedFeatureIndex]?.[0];
         const targetTag = features[targetIndex]?.[0];
+        const originalDraggedIndex = this.draggedFeatureIndex;
+        const adjustedTargetIndex =
+            originalDraggedIndex < insertionIndex
+                ? insertionIndex - 1
+                : insertionIndex;
 
         // Only allow reordering discretionary features
         if (
@@ -2903,16 +2930,27 @@ class FontInfoManager {
             return;
         }
 
-        // Reorder features in the font model
-        const [movedFeature] = features.splice(this.draggedFeatureIndex, 1);
+        if (adjustedTargetIndex === originalDraggedIndex) {
+            return;
+        }
 
-        // Adjust target index if moving down
-        const adjustedTargetIndex =
-            this.draggedFeatureIndex < targetIndex
-                ? targetIndex - 1
-                : targetIndex;
+        const bridge = window.changeBridge;
+        bridge?.beginTransaction('Reorder features');
 
-        features.splice(adjustedTargetIndex, 0, movedFeature);
+        let movedFeature;
+
+        try {
+            // Reorder features in the font model
+            [movedFeature] = features.splice(originalDraggedIndex, 1);
+
+            features.splice(adjustedTargetIndex, 0, movedFeature);
+        } finally {
+            bridge?.endTransaction();
+        }
+
+        if (!movedFeature) {
+            return;
+        }
 
         // Mark font as dirty
         if (window.fontManager?.currentFont) {
@@ -2935,6 +2973,7 @@ class FontInfoManager {
     }
 
     private onFeatureDragEnd() {
+        this.clearFeatureDropIndicator();
         this.draggedFeatureIndex = null;
         // Reset dragging class
         document
@@ -2942,6 +2981,60 @@ class FontInfoManager {
             .forEach((item: Element) => {
                 item.classList.remove('dragging');
             });
+    }
+
+    private setFeatureDropIndicator(
+        targetIndex: number,
+        placement: 'before' | 'after'
+    ) {
+        if (
+            this.featureDropTargetIndex === targetIndex &&
+            this.featureDropTargetPlacement === placement
+        ) {
+            return;
+        }
+
+        this.clearFeatureDropIndicator();
+
+        const target = this.featureListItems.get(targetIndex);
+        if (!target) {
+            return;
+        }
+
+        target.classList.add(
+            placement === 'before'
+                ? 'feature-drop-target-before'
+                : 'feature-drop-target-after'
+        );
+        this.featureDropTargetIndex = targetIndex;
+        this.featureDropTargetPlacement = placement;
+    }
+
+    private clearFeatureDropIndicator() {
+        if (this.featureDropTargetIndex !== null) {
+            const previousTarget = this.featureListItems.get(
+                this.featureDropTargetIndex
+            );
+            previousTarget?.classList.remove(
+                'feature-drop-target-before',
+                'feature-drop-target-after'
+            );
+        }
+
+        this.featureDropTargetIndex = null;
+        this.featureDropTargetPlacement = null;
+    }
+
+    private getFeatureDropInsertionIndex(
+        fallbackTargetIndex: number
+    ): number | null {
+        if (this.draggedFeatureIndex === null) {
+            return null;
+        }
+
+        const targetIndex = this.featureDropTargetIndex ?? fallbackTargetIndex;
+        const placement = this.featureDropTargetPlacement ?? 'before';
+        return placement === 'after' ? targetIndex + 1 : targetIndex;
     }
 
     /**

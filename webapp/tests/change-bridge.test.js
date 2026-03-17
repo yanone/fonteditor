@@ -1727,6 +1727,128 @@ describe('Model mutable getter change recording', () => {
         ).toBe('lookupflag 0;');
     });
 
+    test('feature list structural mutations sync Y.Doc for add remove and reorder', () => {
+        const { bridge, font } = createTestBridge('feature-list-structural');
+
+        font.features.features.push([
+            'salt',
+            {
+                code: 'sub a by a.alt;',
+                automatic: false,
+                format_specific: { seed: true }
+            }
+        ]);
+
+        const movedFeature = font.features.features.splice(0, 1)[0];
+        font.features.features.push(movedFeature);
+        font.features.features.splice(0, 1);
+
+        const log = bridge.getChangeLog();
+
+        expect(log).toHaveLength(4);
+        expect(log.map((entry) => entry.path)).toEqual([
+            'features.features',
+            'features.features',
+            'features.features',
+            'features.features'
+        ]);
+        expect(normalizeYValue(getYPath(bridge.fontMap, ['features']))).toEqual(
+            cloneValue(font.features)
+        );
+        expect(font.features.features).toEqual([
+            [
+                'liga',
+                expect.objectContaining({
+                    code: 'sub f i by fi;',
+                    automatic: false
+                })
+            ]
+        ]);
+    });
+
+    test('feature history items persist across feature reordering', () => {
+        const { bridge, font } = createTestBridge('feature-history-reorder');
+
+        font.features.features[0][1].code = 'sub f l by fl;';
+
+        let scopedItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            historyTargetKey: 'feature:liga:1'
+        });
+        expect(scopedItems).toHaveLength(1);
+        const originalHistoryItemId = scopedItems[0].id;
+
+        font.features.features.push([
+            'salt',
+            {
+                code: 'sub a by a.alt;',
+                automatic: false,
+                format_specific: { seed: true }
+            }
+        ]);
+
+        const movedFeature = font.features.features.splice(0, 1)[0];
+        font.features.features.push(movedFeature);
+
+        scopedItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            historyTargetKey: 'feature:liga:1'
+        });
+        expect(scopedItems).toHaveLength(1);
+        expect(scopedItems[0].id).toBe(originalHistoryItemId);
+
+        font.features.features[1][1].code = 'sub f f by ff;';
+
+        scopedItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            historyTargetKey: 'feature:liga:1'
+        });
+        expect(scopedItems).toHaveLength(2);
+        expect(scopedItems.map((item) => item.id)).toContain(
+            originalHistoryItemId
+        );
+        expect(
+            scopedItems.flatMap((item) =>
+                item.entries.map((entry) => entry.historyTargetKey)
+            )
+        ).toEqual(['feature:liga:1', 'feature:liga:1']);
+    });
+
+    test('feature reorder can be grouped into one history item', () => {
+        const { bridge, font } = createTestBridge(
+            'feature-reorder-transaction'
+        );
+
+        font.features.features.push([
+            'salt',
+            {
+                code: 'sub a by a.alt;',
+                automatic: false,
+                format_specific: { seed: true }
+            }
+        ]);
+
+        bridge.beginTransaction('Reorder features');
+        try {
+            const movedFeature = font.features.features.splice(0, 1)[0];
+            font.features.features.splice(1, 0, movedFeature);
+        } finally {
+            bridge.endTransaction();
+        }
+
+        const log = bridge.getChangeLog();
+        const reorderEntries = log.filter(
+            (entry) => entry.transactionLabel === 'Reorder features'
+        );
+        const historyItems = buildHistoryStackItems(log, {
+            includeUndone: true
+        }).filter((item) => item.transactionLabel === 'Reorder features');
+
+        expect(reorderEntries).toHaveLength(2);
+        expect(historyItems).toHaveLength(1);
+        expect(historyItems[0].entries).toHaveLength(2);
+        expect(
+            new Set(reorderEntries.map((entry) => entry.historyItemId))
+        ).toEqual(new Set([historyItems[0].id]));
+    });
+
     test('python-style item assignment uses owner-aware wrapping rules', () => {
         const { bridge, font } = createTestBridge('mutable-python-item-style');
 
@@ -2332,6 +2454,82 @@ describe('Sequential changes', () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe('syncGlyphFromJson', () => {
+    test('syncGlyphsFromJson reverts a multi-glyph transaction as one history item', () => {
+        const { bridge, fontJson } = createTestBridge('test-sync-multi-glyph');
+
+        fontJson.glyphs[0].layers[0].width = 700;
+        fontJson.glyphs[1].layers[0].width = 750;
+
+        bridge.syncGlyphsFromJson(['A', 'B'], 'Drag pair');
+
+        const historyItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            includeUndone: true
+        });
+
+        expect(historyItems).toHaveLength(1);
+        expect(historyItems[0].entries).toHaveLength(2);
+        expect(historyItems[0].undoScope).toBe('font');
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'B',
+                'layers',
+                'layer-2',
+                'width'
+            ])
+        ).toBe(750);
+
+        expect(bridge.undo()).toBe(true);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'B',
+                'layers',
+                'layer-2',
+                'width'
+            ])
+        ).toBe(650);
+
+        expect(bridge.redo()).toBe(true);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(700);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'B',
+                'layers',
+                'layer-2',
+                'width'
+            ])
+        ).toBe(750);
+    });
+
     test('first sync fires Y.Doc local update', () => {
         const { bridge, fontJson } = createTestBridge('test-1');
         const updates = [];

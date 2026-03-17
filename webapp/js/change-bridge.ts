@@ -640,6 +640,7 @@ export class ChangeBridge {
 
         const targets: Array<{
             glyphName: string;
+            previousGlyphJson: Record<string, unknown>;
             glyphJson: Record<string, unknown>;
             glyphMap: Y.Map<unknown>;
             glyphUndoManager: Y.UndoManager | null;
@@ -675,6 +676,7 @@ export class ChangeBridge {
 
             targets.push({
                 glyphName,
+                previousGlyphJson: cloneHistoryValue(yGlyphJson),
                 glyphJson,
                 glyphMap,
                 glyphUndoManager,
@@ -695,6 +697,14 @@ export class ChangeBridge {
 
         const historyItemId = this._createHistoryItemId();
         for (const target of targets) {
+            const replayableOldValue =
+                undoScope === 'font'
+                    ? target.previousGlyphJson
+                    : (oldValue ?? target.glyphName);
+            const replayableNewValue =
+                undoScope === 'font'
+                    ? cloneHistoryValue(target.glyphJson)
+                    : (newValue ?? label);
             const entry = createLogEntry({
                 timestamp: Date.now(),
                 windowId: this.windowId,
@@ -709,8 +719,8 @@ export class ChangeBridge {
                     undoScope === 'layer' && layerId
                         ? `glyphs.${target.glyphName}.layers.${layerId}`
                         : `glyphs.${target.glyphName}`,
-                oldValue: oldValue ?? target.glyphName,
-                newValue: newValue ?? label
+                oldValue: replayableOldValue,
+                newValue: replayableNewValue
             });
             this._appendChangeLogEntry(entry);
         }
@@ -1454,6 +1464,12 @@ export class ChangeBridge {
         this.yDoc.transact(() => {
             for (const entry of entries) {
                 const path = this._toYDocPath(this._parseEntryPath(entry.path));
+                const replayValue =
+                    direction === 'undo' ? entry.oldValue : entry.newValue;
+                if (this._isGlyphRootPath(path) && replayValue) {
+                    this._applyGlyphSnapshot(String(path[1]), replayValue);
+                    continue;
+                }
                 if (direction === 'undo') {
                     if (entry.op === 'add') {
                         deleteYPath(this.fontMap, path);
@@ -1472,6 +1488,71 @@ export class ChangeBridge {
                 setYPath(this.fontMap, path, entry.newValue);
             }
         }, HISTORY_REPLAY_ORIGIN);
+    }
+
+    private _isGlyphRootPath(path: (string | number)[]): boolean {
+        return path.length === 2 && path[0] === 'glyphs' && !!path[1];
+    }
+
+    private _applyGlyphSnapshot(
+        glyphName: string,
+        glyphSnapshot: unknown
+    ): void {
+        if (!glyphSnapshot || typeof glyphSnapshot !== 'object') {
+            setYPath(this.fontMap, ['glyphs', glyphName], glyphSnapshot);
+            return;
+        }
+
+        const glyphsMap = this.fontMap.get('glyphs');
+        if (!(glyphsMap instanceof Y.Map)) {
+            return;
+        }
+
+        let glyphMap = glyphsMap.get(glyphName) as Y.Map<unknown> | undefined;
+        if (!(glyphMap instanceof Y.Map)) {
+            glyphMap = new Y.Map<unknown>();
+            glyphsMap.set(glyphName, glyphMap);
+        }
+
+        const glyphJson = glyphSnapshot as Record<string, unknown>;
+        const glyphKeys = new Set(Object.keys(glyphJson));
+
+        for (const [gk, gv] of Object.entries(glyphJson)) {
+            if (gk === 'layers' && Array.isArray(gv)) {
+                let layersMap = glyphMap.get('layers') as
+                    | Y.Map<unknown>
+                    | undefined;
+                if (!(layersMap instanceof Y.Map)) {
+                    layersMap = new Y.Map<unknown>();
+                    glyphMap.set('layers', layersMap);
+                }
+
+                const nextLayerIds = new Set<string>();
+                for (const layerJson of gv as Record<string, unknown>[]) {
+                    const layerId = (layerJson.id as string) ?? '';
+                    if (!layerId) {
+                        continue;
+                    }
+                    nextLayerIds.add(layerId);
+                    layersMap.set(layerId, toYType(layerJson));
+                }
+
+                layersMap.forEach((_value: unknown, key: string) => {
+                    if (!nextLayerIds.has(key)) {
+                        layersMap?.delete(key);
+                    }
+                });
+                continue;
+            }
+
+            glyphMap.set(gk, toYType(gv));
+        }
+
+        glyphMap.forEach((_value: unknown, key: string) => {
+            if (!glyphKeys.has(key)) {
+                glyphMap?.delete(key);
+            }
+        });
     }
 
     private _targetFromHistoryItem(
@@ -1542,4 +1623,11 @@ export class ChangeBridge {
             listener(entries);
         }
     }
+}
+
+function cloneHistoryValue<T>(value: T): T {
+    if (value === undefined) {
+        return value;
+    }
+    return JSON.parse(JSON.stringify(value)) as T;
 }

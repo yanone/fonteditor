@@ -6001,6 +6001,7 @@ flex-direction: row;
 
 .feature-list-item {
     display: flex;
+    position: relative;
     align-items: center;
     gap: 8px;
     padding: 3px 12px;
@@ -6137,6 +6138,27 @@ flex-direction: row;
 
 .draggable-feature.dragging {
     opacity: 0.5;
+}
+
+.draggable-feature.feature-drop-target-before::before,
+.draggable-feature.feature-drop-target-after::after {
+    content: '';
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    height: 2px;
+    border-radius: 999px;
+    background-color: var(--accent-cyan);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-cyan) 35%, transparent);
+    pointer-events: none;
+}
+
+.draggable-feature.feature-drop-target-before::before {
+    top: -1px;
+}
+
+.draggable-feature.feature-drop-target-after::after {
+    bottom: -1px;
 }
 
 /* Script selector dropdown */
