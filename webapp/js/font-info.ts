@@ -85,13 +85,7 @@ class FontInfoManager {
     private fontDataLoaded = false;
     private selectedShaper: string = 'default';
     private draggedFeatureIndex: number | null = null;
-
-    // Adaptive debounce timing for feature code compilation
-    private featureCodeDebounceTimer: any = null;
-    private featureCodeLastKeystrokeTime: number = 0;
-    private featureCodeBurstThreshold: number = 200; // ms - keystrokes within this window considered "burst typing"
-    private featureCodeFastDelay: number = 50; // ms - delay during fast typing bursts
-    private featureCodeSlowDelay: number = 150; // ms - delay during slow typing
+    private featureCodeDirty = false;
 
     // Search-related properties
     private searchInput: HTMLInputElement | null = null;
@@ -1664,6 +1658,14 @@ class FontInfoManager {
 
         // Set up change handler
         this.featuresEditor.on('change', () => this.onFeatureCodeChanged());
+        this.featuresEditor.on('blur', () => this.commitFeatureCodeChanges());
+        this.featuresEditor.commands.addCommand({
+            name: 'commitFeatureCodeChanges',
+            bindKey: { win: 'Ctrl-Enter', mac: 'Command-Enter' },
+            exec: () => {
+                this.commitFeatureCodeChanges();
+            }
+        });
         this.featuresEditor.renderer.on('afterRender', () => {
             this.refreshFeatureErrorLineWidgetLayout();
         });
@@ -1757,6 +1759,7 @@ class FontInfoManager {
         // Reset font data loaded flag for new font
         this.fontDataLoaded = false;
         this.pendingModelSyncRefresh = false;
+        this.featureCodeDirty = false;
         // Clear editor state
         this.selectedItem = null;
         this.prefixListItems.clear();
@@ -1788,11 +1791,19 @@ class FontInfoManager {
             return;
         }
 
+        if (this.featuresEditor?.isFocused?.() && this.featureCodeDirty) {
+            return;
+        }
+
         requestAnimationFrame(() => this.refreshVisibleFeatureContent());
     }
 
     private refreshVisibleFeatureContent() {
         if (this.currentTab !== 'features' || !window.currentFontModel) {
+            return;
+        }
+
+        if (this.featuresEditor?.isFocused?.() && this.featureCodeDirty) {
             return;
         }
 
@@ -2689,6 +2700,7 @@ class FontInfoManager {
             this.suppressFeatureEditorChange = true;
             this.featuresEditor.setValue(codeData.code || '', -1);
             this.suppressFeatureEditorChange = false;
+            this.featureCodeDirty = false;
             // Enable line wrapping for all cases (prefixes, classes, and features)
             this.featuresEditor.session.setUseWrapMode(true);
             // Highlight search terms in the loaded content
@@ -2718,6 +2730,7 @@ class FontInfoManager {
             this.suppressFeatureEditorChange = true;
             this.featuresEditor.setValue('', -1);
             this.suppressFeatureEditorChange = false;
+            this.featureCodeDirty = false;
             // Clear search markers when editor is cleared
             this.searchMarkers.forEach((id) =>
                 this.featuresEditor.session.removeMarker(id)
@@ -2737,9 +2750,24 @@ class FontInfoManager {
         if (this.suppressFeatureEditorChange) {
             return;
         }
+        this.featureCodeDirty = true;
+        this.clearFeatureErrorMarker();
+        this.featureErrorTarget = null;
+        this.featureErrorIssue = null;
+        this.refreshFeatureErrorIconInSidebar();
+    }
+
+    private commitFeatureCodeChanges() {
+        if (!this.featuresEditor || !this.selectedItem) {
+            this.featureCodeDirty = false;
+            return;
+        }
 
         const font = window.currentFontModel;
-        if (!font || !font.features || !this.selectedItem) return;
+        if (!font || !font.features) {
+            this.featureCodeDirty = false;
+            return;
+        }
 
         const { type, key } = this.selectedItem;
         let codeData: Babelfont.PossiblyAutomaticCode | undefined;
@@ -2755,56 +2783,44 @@ class FontInfoManager {
             }
         }
 
-        if (!codeData) return;
+        if (!codeData) {
+            this.featureCodeDirty = false;
+            return;
+        }
 
         const newCode = this.featuresEditor.getValue();
+        const previousCode = codeData.code || '';
+
+        if (newCode === previousCode) {
+            this.featureCodeDirty = false;
+            if (this.pendingModelSyncRefresh) {
+                requestAnimationFrame(() =>
+                    this.refreshVisibleFeatureContent()
+                );
+            }
+            return;
+        }
+
         codeData.code = newCode;
-        this.clearFeatureErrorMarker();
-        this.featureErrorTarget = null;
-        this.featureErrorIssue = null;
-        this.refreshFeatureErrorIconInSidebar();
+        this.featureCodeDirty = false;
 
         // Mark font as dirty
         if (window.fontManager?.currentFont) {
             window.fontManager.currentFont.markDirty();
         }
 
-        // Calculate adaptive debounce delay based on typing speed
-        const now = Date.now();
-        const timeSinceLastKeystroke = now - this.featureCodeLastKeystrokeTime;
-        this.featureCodeLastKeystrokeTime = now;
-
-        // Determine if user is typing fast (burst) or slow
-        // Fast typing = keystrokes within burst threshold
-        const isBurstTyping =
-            timeSinceLastKeystroke < this.featureCodeBurstThreshold;
-        const debounceDelay = isBurstTyping
-            ? this.featureCodeFastDelay
-            : this.featureCodeSlowDelay;
-
-        // Debounce font recompilation
-        if (this.featureCodeDebounceTimer) {
-            clearTimeout(this.featureCodeDebounceTimer);
-        }
-
-        this.featureCodeDebounceTimer = setTimeout(() => {
-            if (window.fontManager?.isReady()) {
-                // Sync feature code changes to JSON before compilation
-                // The compiler uses babelfontJson, so we must serialize the model changes
-                if (window.fontManager.currentFont) {
-                    window.fontManager.currentFont.syncJsonFromModel();
-                }
-
-                window.fontManager
-                    .recompileEditingFont()
-                    .catch((error: any) => {
-                        console.error(
-                            'Failed to compile font after feature code change:',
-                            error
-                        );
-                    });
+        if (window.fontManager?.isReady()) {
+            if (window.fontManager.currentFont) {
+                window.fontManager.currentFont.syncJsonFromModel();
             }
-        }, debounceDelay);
+
+            window.fontManager.recompileEditingFont().catch((error: any) => {
+                console.error(
+                    'Failed to compile font after feature code change:',
+                    error
+                );
+            });
+        }
     }
 
     private onAutomaticCheckboxChanged() {
