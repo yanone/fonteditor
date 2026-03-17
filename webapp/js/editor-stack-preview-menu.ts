@@ -28,13 +28,18 @@ function updateStackPreviewButtonVisibility(button: HTMLElement): void {
 }
 
 function createStackPreviewMenuHtml(): string {
+    const stackPreviewActive =
+        !!window.glyphCanvas?.stackPreviewAnimator?.isActive &&
+        !window.glyphCanvas?.stackPreviewAnimator?.isReversing;
+    const stackPreviewCheckmark = stackPreviewActive ? 'check' : '';
     const guidelinesVisible =
         window.glyphCanvas?.outlineEditor?.guidelinesVisible !== false;
     const guidelinesCheckmark = guidelinesVisible ? 'check' : '';
 
     return `
         <div class="plugin-menu" tabindex="0" role="menu" aria-label="Stack preview menu">
-            <div class="plugin-menu-item" data-action="toggle-stack-preview" role="menuitem" tabindex="-1">
+            <div class="plugin-menu-item" data-action="toggle-stack-preview" role="menuitemcheckbox" aria-checked="${stackPreviewActive}" tabindex="-1">
+                <span class="plugin-menu-check material-symbols-outlined${stackPreviewActive ? '' : ' empty'}">${stackPreviewCheckmark}</span>
                 <span>Stack Preview</span>
                 <span class="plugin-menu-shortcut">⌘⌥S</span>
             </div>
