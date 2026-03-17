@@ -72,6 +72,12 @@ type HistoryTarget = {
     label: string;
 };
 
+export type TransactionHistoryTarget = {
+    type: 'feature' | 'class' | 'prefix';
+    key: string;
+    label: string;
+};
+
 type UndoManagerWithScope = {
     manager: Y.UndoManager | null;
     scope: UndoScope;
@@ -118,6 +124,8 @@ export class ChangeBridge {
     private _nextHistoryItemId = 1;
     /** Current transaction-level history item ID */
     private _txHistoryItemId: string | null = null;
+    /** Optional explicit history target for the current transaction */
+    private _txHistoryTarget: TransactionHistoryTarget | null = null;
     /** Flag: currently applying remote update (suppress outbound broadcast) */
     private _isApplyingRemote = false;
     /** Flag: suppress Y.Doc sync (during initFromJson) */
@@ -305,7 +313,8 @@ export class ChangeBridge {
         }
 
         // Log entry (before Y.Doc transaction so it's available for broadcast)
-        const historyTarget = this._deriveHistoryTarget(fullPath);
+        const historyTarget =
+            this._txHistoryTarget ?? this._deriveHistoryTarget(fullPath);
         const entry = createLogEntry({
             timestamp: Date.now(),
             windowId: this.windowId,
@@ -354,7 +363,8 @@ export class ChangeBridge {
             this.getGlyphUndoManager(glyphName);
         }
 
-        const historyTarget = this._deriveHistoryTarget(path);
+        const historyTarget =
+            this._txHistoryTarget ?? this._deriveHistoryTarget(path);
         const entry = createLogEntry({
             timestamp: Date.now(),
             windowId: this.windowId,
@@ -399,7 +409,8 @@ export class ChangeBridge {
             this.getGlyphUndoManager(glyphName);
         }
 
-        const historyTarget = this._deriveHistoryTarget(path);
+        const historyTarget =
+            this._txHistoryTarget ?? this._deriveHistoryTarget(path);
         const entry = createLogEntry({
             timestamp: Date.now(),
             windowId: this.windowId,
@@ -497,7 +508,9 @@ export class ChangeBridge {
 
         for (const operation of normalizedOperations) {
             const pathString = operation.path.join('.');
-            const historyTarget = this._deriveHistoryTarget(operation.path);
+            const historyTarget =
+                this._txHistoryTarget ??
+                this._deriveHistoryTarget(operation.path);
 
             const entry = createLogEntry({
                 timestamp,
@@ -552,12 +565,16 @@ export class ChangeBridge {
      * Start a named batch transaction.
      * Nested calls increment a depth counter; only the outermost commits.
      */
-    beginTransaction(label: string): void {
+    beginTransaction(
+        label: string,
+        historyTarget?: TransactionHistoryTarget | null
+    ): void {
         this._txDepth++;
         if (this._txDepth === 1) {
             this._txLabel = label;
             this._txId = this._nextTxId++;
             this._txHistoryItemId = this._createHistoryItemId();
+            this._txHistoryTarget = historyTarget ?? null;
         }
     }
 
@@ -571,6 +588,7 @@ export class ChangeBridge {
             this._txLabel = null;
             this._txId = null;
             this._txHistoryItemId = null;
+            this._txHistoryTarget = null;
         }
     }
 
@@ -1115,6 +1133,7 @@ export class ChangeBridge {
         this._txLabel = null;
         this._txId = null;
         this._txHistoryItemId = null;
+        this._txHistoryTarget = null;
         this._nextTxId = 1;
         this._nextHistoryItemId = 1;
         resetLogCounter();

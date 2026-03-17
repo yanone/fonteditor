@@ -1825,7 +1825,11 @@ describe('Model mutable getter change recording', () => {
             }
         ]);
 
-        bridge.beginTransaction('Reorder features');
+        bridge.beginTransaction('Reorder features', {
+            type: 'feature',
+            key: 'feature:liga:1',
+            label: 'liga'
+        });
         try {
             const movedFeature = font.features.features.splice(0, 1)[0];
             font.features.features.splice(1, 0, movedFeature);
@@ -1847,6 +1851,19 @@ describe('Model mutable getter change recording', () => {
         expect(
             new Set(reorderEntries.map((entry) => entry.historyItemId))
         ).toEqual(new Set([historyItems[0].id]));
+        expect(reorderEntries.map((entry) => entry.historyTargetKey)).toEqual([
+            'feature:liga:1',
+            'feature:liga:1'
+        ]);
+
+        const scopedItems = buildHistoryStackItems(log, {
+            includeUndone: true,
+            historyTargetKey: 'feature:liga:1'
+        });
+
+        expect(scopedItems.some((item) => item.id === historyItems[0].id)).toBe(
+            true
+        );
     });
 
     test('python-style item assignment uses owner-aware wrapping rules', () => {

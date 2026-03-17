@@ -4,6 +4,7 @@
  */
 
 import { Logger } from './logger';
+import type { TransactionHistoryTarget } from './change-bridge';
 import type { Babelfont } from './babelfont';
 import {
     getFeatureDescription,
@@ -2919,6 +2920,10 @@ class FontInfoManager {
             originalDraggedIndex < insertionIndex
                 ? insertionIndex - 1
                 : insertionIndex;
+        const historyTarget = this.getFeatureHistoryTarget(
+            features,
+            originalDraggedIndex
+        );
 
         // Only allow reordering discretionary features
         if (
@@ -2935,7 +2940,7 @@ class FontInfoManager {
         }
 
         const bridge = window.changeBridge;
-        bridge?.beginTransaction('Reorder features');
+        bridge?.beginTransaction('Reorder features', historyTarget);
 
         let movedFeature;
 
@@ -3035,6 +3040,34 @@ class FontInfoManager {
         const targetIndex = this.featureDropTargetIndex ?? fallbackTargetIndex;
         const placement = this.featureDropTargetPlacement ?? 'before';
         return placement === 'after' ? targetIndex + 1 : targetIndex;
+    }
+
+    private getFeatureHistoryTarget(
+        features: Array<[string, Babelfont.PossiblyAutomaticCode]>,
+        featureIndex: number
+    ): TransactionHistoryTarget | null {
+        const featureEntry = features[featureIndex];
+        if (!featureEntry) {
+            return null;
+        }
+
+        const tag = String(featureEntry[0] ?? '');
+        if (!tag) {
+            return null;
+        }
+
+        let occurrence = 0;
+        for (let index = 0; index <= featureIndex; index++) {
+            if (String(features[index]?.[0] ?? '') === tag) {
+                occurrence += 1;
+            }
+        }
+
+        return {
+            type: 'feature',
+            key: `feature:${tag}:${occurrence}`,
+            label: occurrence > 1 ? `${tag} #${occurrence}` : tag
+        };
     }
 
     /**
