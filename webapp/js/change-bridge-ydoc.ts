@@ -222,7 +222,9 @@ export function setYPath(
         current.set(String(lastSeg), yValue);
     } else if (current instanceof Y.Array) {
         const idx = Number(lastSeg);
-        if (idx >= 0 && idx < current.length) {
+        if (idx === current.length) {
+            current.insert(idx, [yValue]);
+        } else if (idx >= 0 && idx < current.length) {
             current.delete(idx, 1);
             current.insert(idx, [yValue]);
         }

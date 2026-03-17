@@ -12,6 +12,7 @@
  */
 
 import type { Babelfont } from './babelfont';
+import { setYPath } from './change-bridge-ydoc';
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
@@ -216,6 +217,233 @@ function recordAndMarkDirty(
         bridge.recordChange(path, prop, oldVal, newVal);
     }
     markFontDirty();
+}
+
+function recordAddAndMarkDirty(
+    path: (string | number)[],
+    value: unknown
+): void {
+    const bridge = getChangeBridge();
+    if (bridge) {
+        bridge.recordAdd(path, cloneForHistory(value));
+    }
+    markFontDirty();
+}
+
+function recordRemoveAndMarkDirty(
+    path: (string | number)[],
+    oldValue: unknown
+): void {
+    const bridge = getChangeBridge();
+    if (bridge) {
+        bridge.recordRemove(path, cloneForHistory(oldValue));
+    }
+    markFontDirty();
+}
+
+const MUTATING_ARRAY_METHODS = new Set([
+    'copyWithin',
+    'fill',
+    'pop',
+    'push',
+    'reverse',
+    'shift',
+    'sort',
+    'splice',
+    'unshift'
+]);
+
+const liveMutableProxyTargets = new WeakMap<object, object>();
+const readOnlyCollectionProxyCache = new WeakMap<object, object>();
+
+function cloneForHistory<T>(value: T): T {
+    if (value === undefined) {
+        return value;
+    }
+    return JSON.parse(JSON.stringify(value));
+}
+
+function unwrapLiveMutableValue<T>(value: T): T {
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+    return (liveMutableProxyTargets.get(value as object) as T) ?? value;
+}
+
+function getLiveMutableValue<T>(
+    modelObj: ModelBase,
+    prop: string,
+    value: T,
+    getCurrentValue: () => T
+): T {
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+
+    const localProxyCache = new WeakMap<object, object>();
+
+    const wrap = (currentValue: unknown): unknown => {
+        if (!currentValue || typeof currentValue !== 'object') {
+            return currentValue;
+        }
+
+        const cachedProxy = localProxyCache.get(currentValue as object);
+        if (cachedProxy) {
+            return cachedProxy;
+        }
+
+        const proxy = new Proxy(currentValue as object, {
+            get(target, key, receiver) {
+                const result = Reflect.get(target, key, receiver);
+
+                if (
+                    Array.isArray(target) &&
+                    typeof key === 'string' &&
+                    MUTATING_ARRAY_METHODS.has(key) &&
+                    typeof result === 'function'
+                ) {
+                    return (...args: unknown[]) => {
+                        const oldValue = cloneForHistory(getCurrentValue());
+                        const nextArgs = args.map(unwrapLiveMutableValue);
+                        const operationResult = Reflect.apply(
+                            result,
+                            target,
+                            nextArgs
+                        );
+                        recordAndMarkDirty(
+                            modelObj,
+                            prop,
+                            oldValue,
+                            cloneForHistory(getCurrentValue())
+                        );
+                        return operationResult;
+                    };
+                }
+
+                if (typeof result === 'function') {
+                    return (...args: unknown[]) =>
+                        Reflect.apply(
+                            result,
+                            receiver,
+                            args.map(unwrapLiveMutableValue)
+                        );
+                }
+
+                return wrap(result);
+            },
+
+            set(target, key, nextValue, receiver) {
+                const oldValue = cloneForHistory(getCurrentValue());
+                const success = Reflect.set(
+                    target,
+                    key,
+                    unwrapLiveMutableValue(nextValue),
+                    receiver
+                );
+                recordAndMarkDirty(
+                    modelObj,
+                    prop,
+                    oldValue,
+                    cloneForHistory(getCurrentValue())
+                );
+                return success;
+            },
+
+            deleteProperty(target, key) {
+                const oldValue = cloneForHistory(getCurrentValue());
+                const success = Reflect.deleteProperty(target, key);
+                recordAndMarkDirty(
+                    modelObj,
+                    prop,
+                    oldValue,
+                    cloneForHistory(getCurrentValue())
+                );
+                return success;
+            }
+        });
+
+        liveMutableProxyTargets.set(proxy, currentValue as object);
+        localProxyCache.set(currentValue as object, proxy);
+        return proxy;
+    };
+
+    return wrap(value) as T;
+}
+
+function isArrayIndexKey(key: PropertyKey): boolean {
+    return typeof key === 'string' && /^\d+$/.test(key);
+}
+
+function getReadOnlyCollectionValue<T>(value: T, errorMessage: string): T {
+    if (!Array.isArray(value)) {
+        return value;
+    }
+
+    const cachedProxy = readOnlyCollectionProxyCache.get(value as object);
+    if (cachedProxy) {
+        return cachedProxy as T;
+    }
+
+    const proxy = new Proxy(value as unknown as object, {
+        get(target, key, receiver) {
+            const result = Reflect.get(target, key, receiver);
+
+            if (
+                typeof key === 'string' &&
+                MUTATING_ARRAY_METHODS.has(key) &&
+                typeof result === 'function'
+            ) {
+                return () => {
+                    throw new TypeError(errorMessage);
+                };
+            }
+
+            if (typeof result === 'function') {
+                return (...args: unknown[]) =>
+                    Reflect.apply(result, target, args);
+            }
+
+            return result;
+        },
+
+        set(target, key, nextValue, receiver) {
+            if (key === 'length' || isArrayIndexKey(key)) {
+                throw new TypeError(errorMessage);
+            }
+
+            return Reflect.set(target, key, nextValue, receiver);
+        },
+
+        deleteProperty(target, key) {
+            if (key === 'length' || isArrayIndexKey(key)) {
+                throw new TypeError(errorMessage);
+            }
+
+            return Reflect.deleteProperty(target, key);
+        }
+    });
+
+    readOnlyCollectionProxyCache.set(value as object, proxy);
+    return proxy as T;
+}
+
+function syncNormalizedModelValue(
+    modelObj: ModelBase,
+    prop: string,
+    value: unknown
+): void {
+    const bridge = getChangeBridge();
+    if (!bridge) {
+        return;
+    }
+
+    bridge.yDoc.transact(() => {
+        setYPath(
+            bridge.fontMap,
+            [...modelObj.getPath(), prop],
+            cloneForHistory(value)
+        );
+    });
 }
 
 /**
@@ -437,8 +665,20 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     private ensureNodesArray(): Babelfont.Node[] {
+        let normalizedNodes: Babelfont.Node[] | null = null;
+
         if (typeof this.data.nodes === 'string') {
-            this.data.nodes = Path.parseNodesString(this.data.nodes);
+            normalizedNodes = Path.parseNodesString(this.data.nodes);
+        }
+
+        if (!normalizedNodes && !Array.isArray(this.data.nodes)) {
+            normalizedNodes = [];
+        }
+
+        if (normalizedNodes) {
+            this.data.nodes = normalizedNodes;
+            this._nodeWrappers = null;
+            syncNormalizedModelValue(this, 'nodes', normalizedNodes);
         }
 
         if (!Array.isArray(this.data.nodes)) {
@@ -460,7 +700,10 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 (_: Babelfont.Node, i: number) => new Node(nodeArray, i, this)
             );
         }
-        return this._nodeWrappers!;
+        return getReadOnlyCollectionValue(
+            this._nodeWrappers!,
+            'Path.nodes is a read-only collection view. Use appendNode(), insertNode(), or removeNode() for structural edits.'
+        );
     }
 
     set nodes(value: Babelfont.Node[]) {
@@ -595,7 +838,12 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
-        return this.data.format_specific;
+        return getLiveMutableValue(
+            this,
+            'format_specific',
+            this.data.format_specific,
+            () => this.data.format_specific
+        );
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
@@ -624,6 +872,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
 
         nodeArray.splice(index, 0, nodeData);
         this._nodeWrappers = null; // Invalidate cache
+        recordAddAndMarkDirty([...this.getPath(), 'nodes', index], nodeData);
         return new Node(nodeArray, index, this);
     }
 
@@ -633,8 +882,18 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      * path.removeNode(0)  # Remove first node
      */
     removeNode(index: number): void {
-        this.ensureNodesArray().splice(index, 1);
+        const nodeArray = this.ensureNodesArray();
+        const removedNode = nodeArray[index];
+        if (removedNode === undefined) {
+            return;
+        }
+
+        nodeArray.splice(index, 1);
         this._nodeWrappers = null; // Invalidate cache
+        recordRemoveAndMarkDirty(
+            [...this.getPath(), 'nodes', index],
+            removedNode
+        );
     }
 
     /**
@@ -688,7 +947,12 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     get transform(): Babelfont.DecomposedAffine {
-        return this.data.transform;
+        return getLiveMutableValue(
+            this,
+            'transform',
+            this.data.transform,
+            () => this.data.transform
+        );
     }
 
     set transform(value: Babelfont.DecomposedAffine) {
@@ -698,7 +962,12 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     get location(): Record<string, number> | undefined {
-        return this.data.location;
+        return getLiveMutableValue(
+            this,
+            'location',
+            this.data.location,
+            () => this.data.location
+        );
     }
 
     set location(value: Record<string, number> | undefined) {
@@ -708,7 +977,12 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
-        return this.data.format_specific;
+        return getLiveMutableValue(
+            this,
+            'format_specific',
+            this.data.format_specific,
+            () => this.data.format_specific
+        );
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
@@ -903,7 +1177,12 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
-        return this.data.format_specific;
+        return getLiveMutableValue(
+            this,
+            'format_specific',
+            this.data.format_specific,
+            () => this.data.format_specific
+        );
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
@@ -927,7 +1206,12 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     get pos(): Babelfont.Position {
-        return this.data.pos;
+        return getLiveMutableValue(
+            this,
+            'pos',
+            this.data.pos,
+            () => this.data.pos
+        );
     }
 
     set pos(value: Babelfont.Position) {
@@ -947,7 +1231,12 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     get color(): Babelfont.Color | undefined {
-        return this.data.color;
+        return getLiveMutableValue(
+            this,
+            'color',
+            this.data.color,
+            () => this.data.color
+        );
     }
 
     set color(value: Babelfont.Color | undefined) {
@@ -957,7 +1246,12 @@ export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
-        return this.data.format_specific;
+        return getLiveMutableValue(
+            this,
+            'format_specific',
+            this.data.format_specific,
+            () => this.data.format_specific
+        );
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
@@ -1132,57 +1426,36 @@ export class Layer extends ArrayElementBase {
         const bridge = getChangeBridge();
         bridge?.beginTransaction('Set LSB');
 
-        // Translate all shapes (paths and components)
-        if (this.data.shapes) {
-            for (const shape of this.data.shapes) {
-                if ('Path' in shape && shape.Path?.nodes) {
-                    // Parse nodes from string format
-                    let nodes = shape.Path.nodes;
-                    if (typeof nodes === 'string') {
-                        nodes = LayerDataNormalizer.parseNodes(nodes);
+        try {
+            for (const shape of this.shapes || []) {
+                if (shape.isPath()) {
+                    for (const node of shape.asPath().nodes) {
+                        node.x += offset;
                     }
+                    continue;
+                }
 
-                    // Move all nodes in paths
-                    if (Array.isArray(nodes)) {
-                        for (const node of nodes) {
-                            node.x += offset;
-                        }
-                        // Serialize back to string format
-                        shape.Path.nodes =
-                            LayerDataNormalizer.serializeNodes(nodes);
-                    }
-                } else if ('Component' in shape && shape.Component) {
-                    // Update component transform translation
-                    if (!shape.Component.transform) {
-                        // Create identity transform in DecomposedAffine format
-                        shape.Component.transform =
+                if (shape.isComponent()) {
+                    const component = shape.asComponent();
+                    if (!component.transform) {
+                        component.transform =
                             DecomposedAffineTransform.identity();
-                    } else if (Array.isArray(shape.Component.transform)) {
-                        // Convert legacy array format to DecomposedAffine
-                        shape.Component.transform =
-                            DecomposedAffineTransform.fromAffine(
-                                shape.Component.transform
-                            );
                     }
-                    const transform = shape.Component.transform;
-                    if (!transform.translation) transform.translation = [0, 0];
-                    transform.translation[0] += offset;
+                    if (!component.transform.translation) {
+                        component.transform.translation = [0, 0];
+                    }
+                    component.transform.translation[0] += offset;
                 }
             }
-        }
 
-        // Translate all anchors
-        if (this.data.anchors) {
-            for (const anchor of this.data.anchors) {
+            for (const anchor of this.anchors || []) {
                 anchor.x += offset;
             }
+
+            this.width += offset;
+        } finally {
+            bridge?.endTransaction();
         }
-
-        // Update width to maintain right sidebearing
-        this.data.width += offset;
-
-        markFontDirty();
-        bridge?.endTransaction();
     }
 
     /**
@@ -1236,7 +1509,14 @@ export class Layer extends ArrayElementBase {
     get master(): Babelfont.LayerType | undefined {
         const layerId = this.data.id || '[no-layer-id]';
         assertTaggedLayerMaster(this.data.master, `Layer#${layerId}.master`);
-        return this.data.master;
+        return getLiveMutableValue(this, 'master', this.data.master, () => {
+            const currentLayerId = this.data.id || '[no-layer-id]';
+            assertTaggedLayerMaster(
+                this.data.master,
+                `Layer#${currentLayerId}.master`
+            );
+            return this.data.master;
+        });
     }
 
     set master(value: Babelfont.LayerType | undefined) {
@@ -1248,7 +1528,12 @@ export class Layer extends ArrayElementBase {
     }
 
     get smart_component_location(): Record<string, number> | undefined {
-        return this.data.smart_component_location;
+        return getLiveMutableValue(
+            this,
+            'smart_component_location',
+            this.data.smart_component_location,
+            () => this.data.smart_component_location
+        );
     }
 
     set smart_component_location(value: Record<string, number> | undefined) {
@@ -1267,7 +1552,10 @@ export class Layer extends ArrayElementBase {
                 (_: Unsafe, i: number) => new Guide(this.data.guides, i, this)
             );
         }
-        return this._guideWrappers!;
+        return getReadOnlyCollectionValue(
+            this._guideWrappers!,
+            'Layer.guides is a read-only collection view. Use addGuide() or removeGuide() for structural edits.'
+        );
     }
 
     get shapes(): Shape[] | undefined {
@@ -1280,7 +1568,10 @@ export class Layer extends ArrayElementBase {
                 (_: Unsafe, i: number) => new Shape(this.data.shapes, i, this)
             );
         }
-        return this._shapeWrappers!;
+        return getReadOnlyCollectionValue(
+            this._shapeWrappers!,
+            'Layer.shapes is a read-only collection view. Use addPath(), addComponent(), addShape(), or removeShape() for structural edits.'
+        );
     }
 
     get anchors(): Anchor[] | undefined {
@@ -1293,7 +1584,10 @@ export class Layer extends ArrayElementBase {
                 (_: Unsafe, i: number) => new Anchor(this.data.anchors, i, this)
             );
         }
-        return this._anchorWrappers!;
+        return getReadOnlyCollectionValue(
+            this._anchorWrappers!,
+            'Layer.anchors is a read-only collection view. Use addAnchor() or removeAnchor() for structural edits.'
+        );
     }
 
     get color(): Babelfont.Color | undefined {
@@ -1337,7 +1631,12 @@ export class Layer extends ArrayElementBase {
     }
 
     get location(): Record<string, number> | undefined {
-        return this.data.location;
+        return getLiveMutableValue(
+            this,
+            'location',
+            this.data.location,
+            () => this.data.location
+        );
     }
 
     set location(value: Record<string, number> | undefined) {
@@ -1347,7 +1646,12 @@ export class Layer extends ArrayElementBase {
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
-        return this.data.format_specific;
+        return getLiveMutableValue(
+            this,
+            'format_specific',
+            this.data.format_specific,
+            () => this.data.format_specific
+        );
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
@@ -1365,7 +1669,9 @@ export class Layer extends ArrayElementBase {
         }
         this.data.shapes.push(shape);
         this._shapeWrappers = null; // Invalidate cache
-        return new Shape(this.data.shapes, this.data.shapes.length - 1);
+        const index = this.data.shapes.length - 1;
+        recordAddAndMarkDirty([...this.getPath(), 'shapes', index], shape);
+        return new Shape(this.data.shapes, index, this);
     }
 
     /**
@@ -1435,8 +1741,17 @@ export class Layer extends ArrayElementBase {
      */
     removeShape(index: number): void {
         if (this.data.shapes) {
+            const removedShape = this.data.shapes[index];
+            if (removedShape === undefined) {
+                return;
+            }
+
             this.data.shapes.splice(index, 1);
             this._shapeWrappers = null; // Invalidate cache
+            recordRemoveAndMarkDirty(
+                [...this.getPath(), 'shapes', index],
+                removedShape
+            );
         }
     }
 
@@ -1455,7 +1770,36 @@ export class Layer extends ArrayElementBase {
         }
         this.data.anchors.push(anchorData);
         this._anchorWrappers = null; // Invalidate cache
-        return new Anchor(this.data.anchors, this.data.anchors.length - 1);
+        const index = this.data.anchors.length - 1;
+        recordAddAndMarkDirty(
+            [...this.getPath(), 'anchors', index],
+            anchorData
+        );
+        return new Anchor(this.data.anchors, index, this);
+    }
+
+    addGuide(
+        pos: Babelfont.Position,
+        name?: string,
+        color?: Babelfont.Color
+    ): Guide {
+        if (!this.data.guides) {
+            this.data.guides = [];
+        }
+
+        const guideData: Babelfont.Guide = { pos };
+        if (name !== undefined) {
+            guideData.name = name;
+        }
+        if (color !== undefined) {
+            guideData.color = color;
+        }
+
+        this.data.guides.push(guideData);
+        this._guideWrappers = null;
+        const index = this.data.guides.length - 1;
+        recordAddAndMarkDirty([...this.getPath(), 'guides', index], guideData);
+        return new Guide(this.data.guides, index, this);
     }
 
     /**
@@ -1463,8 +1807,33 @@ export class Layer extends ArrayElementBase {
      */
     removeAnchor(index: number): void {
         if (this.data.anchors) {
+            const removedAnchor = this.data.anchors[index];
+            if (removedAnchor === undefined) {
+                return;
+            }
+
             this.data.anchors.splice(index, 1);
             this._anchorWrappers = null; // Invalidate cache
+            recordRemoveAndMarkDirty(
+                [...this.getPath(), 'anchors', index],
+                removedAnchor
+            );
+        }
+    }
+
+    removeGuide(index: number): void {
+        if (this.data.guides) {
+            const removedGuide = this.data.guides[index];
+            if (removedGuide === undefined) {
+                return;
+            }
+
+            this.data.guides.splice(index, 1);
+            this._guideWrappers = null;
+            recordRemoveAndMarkDirty(
+                [...this.getPath(), 'guides', index],
+                removedGuide
+            );
         }
     }
 
@@ -2343,7 +2712,12 @@ export class Glyph extends ArrayElementBase {
     }
 
     get category(): Babelfont.GlyphCategory {
-        return Glyph.normalizeCategory(this.data.category);
+        return getLiveMutableValue(
+            this,
+            'category',
+            Glyph.normalizeCategory(this.data.category),
+            () => Glyph.normalizeCategory(this.data.category)
+        );
     }
 
     set category(value: Babelfont.GlyphCategory | string) {
@@ -2353,7 +2727,12 @@ export class Glyph extends ArrayElementBase {
     }
 
     get codepoints(): number[] | undefined {
-        return this.data.codepoints;
+        return getLiveMutableValue(
+            this,
+            'codepoints',
+            this.data.codepoints,
+            () => this.data.codepoints
+        );
     }
 
     set codepoints(value: number[] | undefined) {
@@ -2380,7 +2759,10 @@ export class Glyph extends ArrayElementBase {
                         new Layer(this.data.layers, i, this)
                 );
             }
-            return this._layerWrappers!;
+            return getReadOnlyCollectionValue(
+                this._layerWrappers!,
+                'Glyph.layers is a read-only collection view. Use addLayer() or removeLayer() for structural edits.'
+            );
         }
 
         // Filter: foreground layers that are either
@@ -2494,7 +2876,10 @@ export class Glyph extends ArrayElementBase {
             return 0;
         });
 
-        return wrappers;
+        return getReadOnlyCollectionValue(
+            wrappers,
+            'Glyph.layers is a read-only collection view. Use addLayer() or removeLayer() for structural edits.'
+        );
     }
 
     get exported(): boolean | undefined {
@@ -2518,7 +2903,12 @@ export class Glyph extends ArrayElementBase {
     }
 
     get formatspecific(): Record<string, Unsafe> | undefined {
-        return this.data.formatspecific;
+        return getLiveMutableValue(
+            this,
+            'formatspecific',
+            this.data.formatspecific,
+            () => this.data.formatspecific
+        );
     }
 
     set formatspecific(value: Record<string, Unsafe> | undefined) {
@@ -2552,7 +2942,11 @@ export class Glyph extends ArrayElementBase {
         }
         this.data.layers.push(layerData);
         this._layerWrappers = null; // Invalidate cache
-        return new Layer(this.data.layers, this.data.layers.length - 1);
+        recordAddAndMarkDirty(
+            [...this.getPath(), 'layers', layerId],
+            layerData
+        );
+        return new Layer(this.data.layers, this.data.layers.length - 1, this);
     }
 
     /**
@@ -2560,8 +2954,18 @@ export class Glyph extends ArrayElementBase {
      */
     removeLayer(index: number): void {
         if (this.data.layers) {
+            const removedLayer = this.data.layers[index];
+            if (removedLayer === undefined) {
+                return;
+            }
+
             this.data.layers.splice(index, 1);
             this._layerWrappers = null; // Invalidate cache
+            const layerKey = removedLayer.id ?? index;
+            recordRemoveAndMarkDirty(
+                [...this.getPath(), 'layers', layerKey],
+                removedLayer
+            );
         }
     }
 
@@ -2684,7 +3088,12 @@ export class Axis extends ArrayElementBase {
     }
 
     get name(): Babelfont.I18NDictionary {
-        return this.data.name;
+        return getLiveMutableValue(
+            this,
+            'name',
+            this.data.name,
+            () => this.data.name
+        );
     }
 
     set name(value: Babelfont.I18NDictionary) {
@@ -2744,7 +3153,12 @@ export class Axis extends ArrayElementBase {
     }
 
     get map(): [number, number][] | undefined {
-        return this.data.map;
+        return getLiveMutableValue(
+            this,
+            'map',
+            this.data.map,
+            () => this.data.map
+        );
     }
 
     set map(value: [number, number][] | undefined) {
@@ -2764,7 +3178,12 @@ export class Axis extends ArrayElementBase {
     }
 
     get values(): number[] | undefined {
-        return this.data.values;
+        return getLiveMutableValue(
+            this,
+            'values',
+            this.data.values,
+            () => this.data.values
+        );
     }
 
     set values(value: number[] | undefined) {
@@ -2774,7 +3193,12 @@ export class Axis extends ArrayElementBase {
     }
 
     get formatspecific(): Record<string, Unsafe> | undefined {
-        return this.data.formatspecific;
+        return getLiveMutableValue(
+            this,
+            'formatspecific',
+            this.data.formatspecific,
+            () => this.data.formatspecific
+        );
     }
 
     set formatspecific(value: Record<string, Unsafe> | undefined) {
@@ -2806,7 +3230,12 @@ export class Master extends ArrayElementBase {
     }
 
     get name(): Babelfont.I18NDictionary {
-        return this.data.name;
+        return getLiveMutableValue(
+            this,
+            'name',
+            this.data.name,
+            () => this.data.name
+        );
     }
 
     set name(value: Babelfont.I18NDictionary) {
@@ -2826,7 +3255,12 @@ export class Master extends ArrayElementBase {
     }
 
     get location(): Record<string, number> | undefined {
-        return this.data.location;
+        return getLiveMutableValue(
+            this,
+            'location',
+            this.data.location,
+            () => this.data.location
+        );
     }
 
     set location(value: Record<string, number> | undefined) {
@@ -2845,11 +3279,59 @@ export class Master extends ArrayElementBase {
                 (_: Unsafe, i: number) => new Guide(this.data.guides, i, this)
             );
         }
-        return this._guideWrappers!;
+        return getReadOnlyCollectionValue(
+            this._guideWrappers!,
+            'Master.guides is a read-only collection view. Use addGuide() or removeGuide() for structural edits.'
+        );
+    }
+
+    addGuide(
+        pos: Babelfont.Position,
+        name?: string,
+        color?: Babelfont.Color
+    ): Guide {
+        if (!this.data.guides) {
+            this.data.guides = [];
+        }
+
+        const guideData: Babelfont.Guide = { pos };
+        if (name !== undefined) {
+            guideData.name = name;
+        }
+        if (color !== undefined) {
+            guideData.color = color;
+        }
+
+        this.data.guides.push(guideData);
+        this._guideWrappers = null;
+        const index = this.data.guides.length - 1;
+        recordAddAndMarkDirty([...this.getPath(), 'guides', index], guideData);
+        return new Guide(this.data.guides, index, this);
+    }
+
+    removeGuide(index: number): void {
+        if (this.data.guides) {
+            const removedGuide = this.data.guides[index];
+            if (removedGuide === undefined) {
+                return;
+            }
+
+            this.data.guides.splice(index, 1);
+            this._guideWrappers = null;
+            recordRemoveAndMarkDirty(
+                [...this.getPath(), 'guides', index],
+                removedGuide
+            );
+        }
     }
 
     get metrics(): Record<string, number> {
-        return this.data.metrics;
+        return getLiveMutableValue(
+            this,
+            'metrics',
+            this.data.metrics,
+            () => this.data.metrics
+        );
     }
 
     set metrics(value: Record<string, number>) {
@@ -2859,7 +3341,12 @@ export class Master extends ArrayElementBase {
     }
 
     get kerning(): Record<string, Record<string, number>> {
-        return this.data.kerning;
+        return getLiveMutableValue(
+            this,
+            'kerning',
+            this.data.kerning,
+            () => this.data.kerning
+        );
     }
 
     set kerning(value: Record<string, Record<string, number>>) {
@@ -2869,7 +3356,12 @@ export class Master extends ArrayElementBase {
     }
 
     get custom_ot_values(): Unsafe[] | undefined {
-        return this.data.custom_ot_values;
+        return getLiveMutableValue(
+            this,
+            'custom_ot_values',
+            this.data.custom_ot_values,
+            () => this.data.custom_ot_values
+        );
     }
 
     set custom_ot_values(value: Unsafe[] | undefined) {
@@ -2879,7 +3371,12 @@ export class Master extends ArrayElementBase {
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
-        return this.data.format_specific;
+        return getLiveMutableValue(
+            this,
+            'format_specific',
+            this.data.format_specific,
+            () => this.data.format_specific
+        );
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
@@ -2919,7 +3416,12 @@ export class Instance extends ArrayElementBase {
     }
 
     get name(): Babelfont.I18NDictionary {
-        return this.data.name;
+        return getLiveMutableValue(
+            this,
+            'name',
+            this.data.name,
+            () => this.data.name
+        );
     }
 
     set name(value: Babelfont.I18NDictionary) {
@@ -2929,7 +3431,12 @@ export class Instance extends ArrayElementBase {
     }
 
     get location(): Record<string, number> | undefined {
-        return this.data.location;
+        return getLiveMutableValue(
+            this,
+            'location',
+            this.data.location,
+            () => this.data.location
+        );
     }
 
     set location(value: Record<string, number> | undefined) {
@@ -2939,7 +3446,12 @@ export class Instance extends ArrayElementBase {
     }
 
     get custom_names(): Babelfont.Names {
-        return this.data.custom_names;
+        return getLiveMutableValue(
+            this,
+            'custom_names',
+            this.data.custom_names,
+            () => this.data.custom_names
+        );
     }
 
     set custom_names(value: Babelfont.Names) {
@@ -2969,7 +3481,12 @@ export class Instance extends ArrayElementBase {
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
-        return this.data.format_specific;
+        return getLiveMutableValue(
+            this,
+            'format_specific',
+            this.data.format_specific,
+            () => this.data.format_specific
+        );
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
@@ -3014,7 +3531,12 @@ export class Font extends ModelBase {
     }
 
     get version(): [number, number] {
-        return this._data.version;
+        return getLiveMutableValue(
+            this,
+            'version',
+            this._data.version,
+            () => this._data.version
+        );
     }
 
     set version(value: [number, number]) {
@@ -3033,7 +3555,10 @@ export class Font extends ModelBase {
                 (_: Unsafe, i: number) => new Axis(this._data.axes, i, this)
             );
         }
-        return this._axisWrappers!;
+        return getReadOnlyCollectionValue(
+            this._axisWrappers!,
+            'Font.axes is a read-only collection view. Direct structural mutation is not supported.'
+        );
     }
 
     get instances(): Instance[] | undefined {
@@ -3047,7 +3572,10 @@ export class Font extends ModelBase {
                     new Instance(this._data.instances, i, this)
             );
         }
-        return this._instanceWrappers!;
+        return getReadOnlyCollectionValue(
+            this._instanceWrappers!,
+            'Font.instances is a read-only collection view. Direct structural mutation is not supported.'
+        );
     }
 
     get masters(): Master[] | undefined {
@@ -3061,7 +3589,10 @@ export class Font extends ModelBase {
                     new Master(this._data.masters, i, this)
             );
         }
-        return this._masterWrappers!;
+        return getReadOnlyCollectionValue(
+            this._masterWrappers!,
+            'Font.masters is a read-only collection view. Direct structural mutation is not supported.'
+        );
     }
 
     get glyphs(): Glyph[] {
@@ -3073,7 +3604,10 @@ export class Font extends ModelBase {
                 (_: Unsafe, i: number) => new Glyph(this._data.glyphs, i, this)
             );
         }
-        return this._glyphWrappers!;
+        return getReadOnlyCollectionValue(
+            this._glyphWrappers!,
+            'Font.glyphs is a read-only collection view. Use addGlyph(), removeGlyph(), or duplicateGlyph() for structural edits.'
+        );
     }
 
     get note(): string | undefined {
@@ -3097,7 +3631,12 @@ export class Font extends ModelBase {
     }
 
     get names(): Babelfont.Names {
-        return this._data.names;
+        return getLiveMutableValue(
+            this,
+            'names',
+            this._data.names,
+            () => this._data.names
+        );
     }
 
     set names(value: Babelfont.Names) {
@@ -3107,7 +3646,12 @@ export class Font extends ModelBase {
     }
 
     get custom_ot_values(): Unsafe[] | undefined {
-        return this._data.custom_ot_values;
+        return getLiveMutableValue(
+            this,
+            'custom_ot_values',
+            this._data.custom_ot_values,
+            () => this._data.custom_ot_values
+        );
     }
 
     set custom_ot_values(value: Unsafe[] | undefined) {
@@ -3119,7 +3663,12 @@ export class Font extends ModelBase {
     get variation_sequences():
         | Record<number, Record<number, string>>
         | undefined {
-        return this._data.variation_sequences;
+        return getLiveMutableValue(
+            this,
+            'variation_sequences',
+            this._data.variation_sequences,
+            () => this._data.variation_sequences
+        );
     }
 
     set variation_sequences(
@@ -3131,7 +3680,12 @@ export class Font extends ModelBase {
     }
 
     get features(): Babelfont.Features {
-        return this._data.features;
+        return getLiveMutableValue(
+            this,
+            'features',
+            this._data.features,
+            () => this._data.features
+        );
     }
 
     set features(value: Babelfont.Features) {
@@ -3141,7 +3695,12 @@ export class Font extends ModelBase {
     }
 
     get first_kern_groups(): Record<string, string[]> | undefined {
-        return this._data.first_kern_groups;
+        return getLiveMutableValue(
+            this,
+            'first_kern_groups',
+            this._data.first_kern_groups,
+            () => this._data.first_kern_groups
+        );
     }
 
     set first_kern_groups(value: Record<string, string[]> | undefined) {
@@ -3151,7 +3710,12 @@ export class Font extends ModelBase {
     }
 
     get second_kern_groups(): Record<string, string[]> | undefined {
-        return this._data.second_kern_groups;
+        return getLiveMutableValue(
+            this,
+            'second_kern_groups',
+            this._data.second_kern_groups,
+            () => this._data.second_kern_groups
+        );
     }
 
     set second_kern_groups(value: Record<string, string[]> | undefined) {
@@ -3161,7 +3725,12 @@ export class Font extends ModelBase {
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
-        return this._data.format_specific;
+        return getLiveMutableValue(
+            this,
+            'format_specific',
+            this._data.format_specific,
+            () => this._data.format_specific
+        );
     }
 
     set format_specific(value: Record<string, Unsafe> | undefined) {
@@ -3314,6 +3883,7 @@ export class Font extends ModelBase {
         // Add the cloned glyph to the font
         this._data.glyphs.push(clonedData);
         this._glyphWrappers = null; // Invalidate cache
+        recordAddAndMarkDirty(['glyphs', newName], clonedData);
 
         // Return the newly created glyph
         return new Glyph(this._data.glyphs, this._data.glyphs.length - 1, this);
@@ -3368,7 +3938,8 @@ export class Font extends ModelBase {
         };
         this._data.glyphs.push(glyphData);
         this._glyphWrappers = null; // Invalidate cache
-        return new Glyph(this._data.glyphs, this._data.glyphs.length - 1);
+        recordAddAndMarkDirty(['glyphs', name], glyphData);
+        return new Glyph(this._data.glyphs, this._data.glyphs.length - 1, this);
     }
 
     /**
@@ -3381,8 +3952,10 @@ export class Font extends ModelBase {
             (g: Unsafe) => g.name === name
         );
         if (index >= 0) {
+            const removedGlyph = this._data.glyphs[index];
             this._data.glyphs.splice(index, 1);
             this._glyphWrappers = null; // Invalidate cache
+            recordRemoveAndMarkDirty(['glyphs', name], removedGlyph);
             return true;
         }
         return false;

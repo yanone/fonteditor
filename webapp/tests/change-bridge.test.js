@@ -43,7 +43,33 @@ function makeMinimalFont() {
         names: { familyName: 'TestFont' },
         custom_ot_values: [{ tag: 'head', value: 1 }],
         variation_sequences: { 65: { 65024: 'A.alt' } },
-        features: '',
+        features: {
+            classes: {
+                Uppercase: {
+                    code: '@Uppercase = [A B];',
+                    automatic: false,
+                    format_specific: { seed: true }
+                }
+            },
+            prefixes: {
+                global: {
+                    code: 'lookupflag 0;',
+                    automatic: false,
+                    format_specific: { seed: true }
+                }
+            },
+            features: [
+                [
+                    'liga',
+                    {
+                        code: 'sub f i by fi;',
+                        automatic: false,
+                        format_specific: { seed: true }
+                    }
+                ]
+            ],
+            include_paths: ['features']
+        },
         first_kern_groups: { A: ['A'] },
         second_kern_groups: { V: ['V'] },
         format_specific: { seed: true },
@@ -247,6 +273,20 @@ function flushTimers() {
 }
 
 const GENERIC_ACCESSOR_TEST_EXCLUSIONS = new Set(['data', 'lsb', 'rsb']);
+const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
+    'anchors',
+    'axes',
+    'data',
+    'glyphs',
+    'guides',
+    'instances',
+    'layers',
+    'lsb',
+    'masters',
+    'nodes',
+    'rsb',
+    'shapes'
+]);
 
 function cloneValue(value) {
     if (value === undefined) {
@@ -465,6 +505,304 @@ function resolveModelObject(font, spec) {
     return current;
 }
 
+function isMutablePlainValue(value) {
+    return !!value && typeof value === 'object' && !isModelObject(value);
+}
+
+function isArrayOfModelObjects(value) {
+    return (
+        Array.isArray(value) &&
+        value.length > 0 &&
+        value.every((item) => isModelObject(item))
+    );
+}
+
+function collectMutableGetterSpecs() {
+    const font = Font.fromData(makeMinimalFont());
+    const specs = new Map();
+
+    for (const object of collectReachableModelObjects(font)) {
+        let prototype = Object.getPrototypeOf(object);
+        while (prototype && prototype !== Object.prototype) {
+            const descriptors = Object.getOwnPropertyDescriptors(prototype);
+
+            for (const [name, descriptor] of Object.entries(descriptors)) {
+                if (
+                    !descriptor.get ||
+                    GENERIC_MUTABLE_GETTER_EXCLUSIONS.has(name)
+                ) {
+                    continue;
+                }
+
+                const currentValue = object[name];
+                if (
+                    !isMutablePlainValue(currentValue) ||
+                    isArrayOfModelObjects(currentValue)
+                ) {
+                    continue;
+                }
+
+                const path = object.getPath();
+                const className = object.constructor.name;
+                const key = `${className}:${JSON.stringify(path)}:${name}`;
+
+                if (!specs.has(key)) {
+                    specs.set(key, {
+                        className,
+                        property: name,
+                        path,
+                        pathLabel: path.length ? path.join('.') : 'font'
+                    });
+                }
+            }
+
+            prototype = Object.getPrototypeOf(prototype);
+        }
+    }
+
+    return Array.from(specs.values()).sort((left, right) => {
+        return (
+            left.className.localeCompare(right.className) ||
+            left.pathLabel.localeCompare(right.pathLabel) ||
+            left.property.localeCompare(right.property)
+        );
+    });
+}
+
+const COLLECTION_MUTATOR_TESTS = {
+    'Font.addGlyph': {
+        isApplicable: () => true,
+        invoke: (font) => font.addGlyph('C', 'Base'),
+        expectedOp: 'add',
+        expectedPathFragment: () => 'glyphs.C'
+    },
+    'Font.removeGlyph': {
+        isApplicable: (font) => !!font.findGlyph('B'),
+        invoke: (font) => font.removeGlyph('B'),
+        expectedOp: 'remove',
+        expectedPathFragment: () => 'glyphs.B'
+    },
+    'Font.duplicateGlyph': {
+        isApplicable: (font) =>
+            !!font.findGlyph('A') && !font.findGlyph('A.alt'),
+        invoke: (font) => font.duplicateGlyph(font.findGlyph('A'), 'A.alt'),
+        expectedOp: 'add',
+        expectedPathFragment: () => 'glyphs.A.alt'
+    },
+    'Glyph.addLayer': {
+        isApplicable: (glyph) => glyph.name === 'A',
+        invoke: (glyph) =>
+            glyph.addLayer(700, {
+                type: 'AssociatedWithMaster',
+                master: 'master-regular'
+            }),
+        expectedOp: 'add',
+        expectedPathFragment: (glyph, logEntry) =>
+            `${glyph.getPath().join('.')}.layers.${logEntry.newValue.id}`
+    },
+    'Glyph.removeLayer': {
+        isApplicable: (glyph) => glyph.name === 'A' && glyph.layers?.length > 0,
+        invoke: (glyph) => glyph.removeLayer(0),
+        expectedOp: 'remove',
+        expectedPathFragment: (glyph, logEntry) =>
+            `${glyph.getPath().join('.')}.layers.${logEntry.oldValue.id}`
+    },
+    'Layer.addPath': {
+        isApplicable: (layer) => layer.id === 'layer-1',
+        invoke: (layer) => layer.addPath(false),
+        expectedOp: 'add',
+        expectedPathFragment: (layer, logEntry) =>
+            `${layer.getPath().join('.')}.shapes.${findCollectionEntryIndex(layer.data.shapes, logEntry.newValue)}`
+    },
+    'Layer.addComponent': {
+        isApplicable: (layer) => layer.id === 'layer-1',
+        invoke: (layer) => layer.addComponent('B'),
+        expectedOp: 'add',
+        expectedPathFragment: (layer, logEntry) =>
+            `${layer.getPath().join('.')}.shapes.${findCollectionEntryIndex(layer.data.shapes, logEntry.newValue)}`
+    },
+    'Layer.removeShape': {
+        isApplicable: (layer) =>
+            layer.id === 'layer-1' && layer.shapes?.length > 0,
+        invoke: (layer) => layer.removeShape(0),
+        expectedOp: 'remove',
+        expectedPathFragment: (layer) => `${layer.getPath().join('.')}.shapes.0`
+    },
+    'Layer.addAnchor': {
+        isApplicable: (layer) => layer.id === 'layer-1',
+        invoke: (layer) => layer.addAnchor(250, 100, 'bottom'),
+        expectedOp: 'add',
+        expectedPathFragment: (layer, logEntry) =>
+            `${layer.getPath().join('.')}.anchors.${findCollectionEntryIndex(layer.data.anchors, logEntry.newValue)}`
+    },
+    'Layer.addGuide': {
+        isApplicable: (layer) => layer.id === 'layer-1',
+        invoke: (layer) => layer.addGuide(450, 'waist', '#00AAFF'),
+        expectedOp: 'add',
+        expectedPathFragment: (layer, logEntry) =>
+            `${layer.getPath().join('.')}.guides.${findCollectionEntryIndex(layer.data.guides, logEntry.newValue)}`
+    },
+    'Layer.removeAnchor': {
+        isApplicable: (layer) =>
+            layer.id === 'layer-1' && layer.anchors?.length > 0,
+        invoke: (layer) => layer.removeAnchor(0),
+        expectedOp: 'remove',
+        expectedPathFragment: (layer) =>
+            `${layer.getPath().join('.')}.anchors.0`
+    },
+    'Layer.removeGuide': {
+        isApplicable: (layer) =>
+            layer.id === 'layer-1' && layer.guides?.length > 0,
+        invoke: (layer) => layer.removeGuide(0),
+        expectedOp: 'remove',
+        expectedPathFragment: (layer) => `${layer.getPath().join('.')}.guides.0`
+    },
+    'Master.addGuide': {
+        isApplicable: (master) => master.id === 'master-regular',
+        invoke: (master) => master.addGuide(425, 'mid', '#AA00FF'),
+        expectedOp: 'add',
+        expectedPathFragment: (master, logEntry) =>
+            `${master.getPath().join('.')}.guides.${findCollectionEntryIndex(master.data.guides, logEntry.newValue)}`
+    },
+    'Master.removeGuide': {
+        isApplicable: (master) => master.guides?.length > 0,
+        invoke: (master) => master.removeGuide(0),
+        expectedOp: 'remove',
+        expectedPathFragment: (master) =>
+            `${master.getPath().join('.')}.guides.0`
+    },
+    'Path.insertNode': {
+        isApplicable: (path) => path.nodes?.length > 1,
+        invoke: (path) => path.insertNode(1, 175, 225, 'Line'),
+        expectedOp: 'add',
+        expectedPathFragment: (path) => `${path.getPath().join('.')}.nodes.1`
+    },
+    'Path.removeNode': {
+        isApplicable: (path) => path.nodes?.length > 0,
+        invoke: (path) => path.removeNode(0),
+        expectedOp: 'remove',
+        expectedPathFragment: (path) => `${path.getPath().join('.')}.nodes.0`
+    },
+    'Path.appendNode': {
+        isApplicable: (path) => Array.isArray(path.nodes),
+        invoke: (path) => path.appendNode(610, 10, 'Line'),
+        expectedOp: 'add',
+        expectedPathFragment: (path, logEntry) =>
+            `${path.getPath().join('.')}.nodes.${findCollectionEntryIndex(path.data.nodes, logEntry.newValue)}`
+    }
+};
+
+function findCollectionEntryIndex(collection, entry) {
+    return collection.findIndex(
+        (item) => JSON.stringify(item) === JSON.stringify(entry)
+    );
+}
+
+function collectCollectionMutatorSpecs() {
+    const font = Font.fromData(makeMinimalFont());
+    const specs = new Map();
+
+    for (const object of collectReachableModelObjects(font)) {
+        let prototype = Object.getPrototypeOf(object);
+        while (prototype && prototype !== Object.prototype) {
+            const descriptors = Object.getOwnPropertyDescriptors(prototype);
+
+            for (const [name, descriptor] of Object.entries(descriptors)) {
+                if (typeof descriptor.value !== 'function') {
+                    continue;
+                }
+
+                const className = object.constructor.name;
+                const mutator =
+                    COLLECTION_MUTATOR_TESTS[`${className}.${name}`];
+                if (!mutator || !mutator.isApplicable(object)) {
+                    continue;
+                }
+
+                const path = object.getPath();
+                const key = `${className}:${JSON.stringify(path)}:${name}`;
+
+                if (!specs.has(key)) {
+                    specs.set(key, {
+                        className,
+                        method: name,
+                        path,
+                        pathLabel: path.length ? path.join('.') : 'font'
+                    });
+                }
+            }
+
+            prototype = Object.getPrototypeOf(prototype);
+        }
+    }
+
+    return Array.from(specs.values()).sort((left, right) => {
+        return (
+            left.className.localeCompare(right.className) ||
+            left.pathLabel.localeCompare(right.pathLabel) ||
+            left.method.localeCompare(right.method)
+        );
+    });
+}
+
+function mutateInPlace(value) {
+    if (Array.isArray(value)) {
+        if (value.length === 0) {
+            value.push(1);
+            return;
+        }
+
+        const nestedIndex = value.findIndex(
+            (item) => Array.isArray(item) || isMutablePlainValue(item)
+        );
+        const targetIndex = nestedIndex >= 0 ? nestedIndex : 0;
+        const target = value[targetIndex];
+
+        if (Array.isArray(target) || isMutablePlainValue(target)) {
+            mutateInPlace(target);
+            return;
+        }
+
+        value[targetIndex] = mutateValue(cloneValue(target));
+        return;
+    }
+
+    if (isMutablePlainValue(value)) {
+        const keys = Object.keys(value).sort((left, right) => {
+            const leftReserved = left === 'type' || left === 'order';
+            const rightReserved = right === 'type' || right === 'order';
+            if (leftReserved !== rightReserved) {
+                return leftReserved ? 1 : -1;
+            }
+            return left.localeCompare(right);
+        });
+
+        if (keys.length === 0) {
+            value.__test = 1;
+            return;
+        }
+
+        const nestedKey = keys.find((key) => {
+            const candidate = value[key];
+            return Array.isArray(candidate) || isMutablePlainValue(candidate);
+        });
+        const targetKey = nestedKey || keys[0];
+        const target = value[targetKey];
+
+        if (Array.isArray(target) || isMutablePlainValue(target)) {
+            mutateInPlace(target);
+            return;
+        }
+
+        value[targetKey] = mutateValue(cloneValue(target));
+        return;
+    }
+
+    throw new Error(
+        `Cannot mutate in place for value: ${JSON.stringify(value)}`
+    );
+}
+
 function normalizeYValue(value) {
     if (value && typeof value.toJSON === 'function') {
         return value.toJSON();
@@ -473,6 +811,8 @@ function normalizeYValue(value) {
 }
 
 const GENERIC_ACCESSOR_SPECS = collectWritableAccessorSpecs();
+const GENERIC_MUTABLE_GETTER_SPECS = collectMutableGetterSpecs();
+const COLLECTION_MUTATOR_SPECS = collectCollectionMutatorSpecs();
 
 // ── Test setup ───────────────────────────────────────────────────────
 
@@ -1283,6 +1623,257 @@ describe('Model setter change recording', () => {
             ).toEqual(expectedValue);
         }
     );
+});
+
+describe('Model mutable getter change recording', () => {
+    test('introspection discovers feature model mutable getters', () => {
+        expect(
+            GENERIC_MUTABLE_GETTER_SPECS.some(
+                (spec) =>
+                    spec.className === 'Font' && spec.property === 'features'
+            )
+        ).toBe(true);
+    });
+
+    test.each(GENERIC_MUTABLE_GETTER_SPECS)(
+        '$className.$property at $pathLabel records a bridge change for in-place mutations',
+        (spec) => {
+            const { bridge, font } = createTestBridge(
+                `mutable-${spec.className}-${spec.property}`
+            );
+            const target = resolveModelObject(font, spec);
+            const liveValue = target[spec.property];
+            const oldValue = cloneValue(normalizeYValue(liveValue));
+
+            mutateInPlace(liveValue);
+
+            const expectedValue = cloneValue(
+                normalizeYValue(target[spec.property])
+            );
+            const log = bridge.getChangeLog();
+
+            expect(log).toHaveLength(1);
+            expect(log[0].property).toBe(spec.property);
+            expect(log[0].oldValue).toEqual(oldValue);
+            expect(log[0].newValue).toEqual(expectedValue);
+            expect(
+                normalizeYValue(
+                    getYPath(
+                        bridge.fontMap,
+                        target.getPath().concat(spec.property)
+                    )
+                )
+            ).toEqual(expectedValue);
+        }
+    );
+
+    test('python-style Reflect and splice mutations on live proxies record bridge changes', () => {
+        const { bridge, font } = createTestBridge('mutable-python-style');
+
+        Reflect.set(font.features.classes, 'Lowercase', {
+            code: '@Lowercase = [a b];',
+            automatic: false
+        });
+        Reflect.deleteProperty(font.features.classes, 'Uppercase');
+        Reflect.set(font.features.include_paths, 0, 'features-updated');
+        font.features.include_paths.splice(1, 0, 'features-extra');
+
+        const log = bridge.getChangeLog();
+
+        expect(log).toHaveLength(4);
+        expect(log.every((entry) => entry.property === 'features')).toBe(true);
+        expect(normalizeYValue(getYPath(bridge.fontMap, ['features']))).toEqual(
+            cloneValue(font.features)
+        );
+    });
+
+    test('python-style item assignment uses owner-aware wrapping rules', () => {
+        const { bridge, font } = createTestBridge('mutable-python-item-style');
+
+        Reflect.set(font, 'names', { familyName: 'Renamed' });
+
+        expect(bridge.getChangeLog()).toHaveLength(1);
+        expect(bridge.getChangeLog()[0].property).toBe('names');
+        expect(normalizeYValue(getYPath(bridge.fontMap, ['names']))).toEqual({
+            familyName: 'Renamed'
+        });
+    });
+});
+
+describe('Model collection mutator change recording', () => {
+    test('introspection discovers structural model mutators', () => {
+        expect(
+            COLLECTION_MUTATOR_SPECS.some(
+                (spec) =>
+                    spec.className === 'Font' && spec.method === 'addGlyph'
+            )
+        ).toBe(true);
+        expect(
+            COLLECTION_MUTATOR_SPECS.some(
+                (spec) =>
+                    spec.className === 'Layer' && spec.method === 'addPath'
+            )
+        ).toBe(true);
+    });
+
+    test.each(COLLECTION_MUTATOR_SPECS)(
+        '$className.$method at $pathLabel records a structural bridge change and updates Y.Doc',
+        (spec) => {
+            const { bridge, font } = createTestBridge(
+                `mutator-${spec.className}-${spec.method}`
+            );
+            const target = resolveModelObject(font, spec);
+            const mutator =
+                COLLECTION_MUTATOR_TESTS[`${spec.className}.${spec.method}`];
+            const beforeJson = yDocToJson(bridge.fontMap);
+
+            mutator.invoke(target);
+
+            const log = bridge.getChangeLog();
+            const afterJson = yDocToJson(bridge.fontMap);
+
+            expect(log).toHaveLength(1);
+            expect(log[0].op).toBe(mutator.expectedOp);
+            expect(log[0].path).toContain(
+                mutator.expectedPathFragment(target, log[0])
+            );
+            expect(afterJson).not.toEqual(beforeJson);
+        }
+    );
+
+    test('wrapper collections reject direct structural mutation and keep users on bridge-backed methods', () => {
+        const { font } = createTestBridge('collection-guards');
+        const glyph = font.findGlyph('A');
+        const layer = glyph.layers[0];
+        const path = layer.shapes[0].asPath();
+
+        expect(() => {
+            font.glyphs.push(glyph);
+        }).toThrow(/addGlyph\(\)|removeGlyph\(\)|duplicateGlyph\(\)/);
+
+        expect(() => {
+            Reflect.set(glyph.layers, 0, layer);
+        }).toThrow(/addLayer\(\)|removeLayer\(\)/);
+
+        expect(() => {
+            layer.guides.splice(0, 1);
+        }).toThrow(/addGuide\(\)|removeGuide\(\)/);
+
+        expect(() => {
+            path.nodes.splice(0, 1);
+        }).toThrow(/appendNode\(\)|insertNode\(\)|removeNode\(\)/);
+    });
+
+    test('lsb setter records bridge-visible geometry updates in one transaction', () => {
+        const { bridge, font } = createTestBridge('layer-lsb');
+        const layer = font.findGlyph('A').layers[0];
+
+        layer.lsb = 50;
+
+        const log = bridge.getChangeLog();
+
+        expect(log).toHaveLength(6);
+        expect(new Set(log.map((entry) => entry.transactionLabel))).toEqual(
+            new Set(['Set LSB'])
+        );
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(60);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'anchors',
+                0,
+                'x'
+            ])
+        ).toBe(260);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(560);
+    });
+
+    test('string node normalization syncs Y.Doc before subsequent point edits', () => {
+        const fontJson = makeMinimalFont();
+        fontJson.glyphs[0].layers[0].shapes[0].nodes =
+            '100 0 l 300 700 l 500 0 l';
+
+        const bridge = new ChangeBridge('string-node-normalization');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+        const font = Font.fromData(fontJson);
+        const path = font.findGlyph('A').layers[0].shapes[0].asPath();
+
+        expect(
+            typeof normalizeYValue(
+                getYPath(bridge.fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'shapes',
+                    0,
+                    'nodes'
+                ])
+            )
+        ).toBe('string');
+
+        const nodes = path.nodes;
+
+        expect(bridge.getChangeLog()).toHaveLength(0);
+        expect(
+            normalizeYValue(
+                getYPath(bridge.fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'shapes',
+                    0,
+                    'nodes'
+                ])
+            )
+        ).toEqual([
+            { x: 100, y: 0, nodetype: 'Line' },
+            { x: 300, y: 700, nodetype: 'Line' },
+            { x: 500, y: 0, nodetype: 'Line' }
+        ]);
+
+        nodes[0].x = 120;
+
+        expect(bridge.getChangeLog()).toHaveLength(1);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(120);
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────

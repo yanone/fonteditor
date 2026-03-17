@@ -313,9 +313,14 @@ class ModelObjectProxy:
         setattr(self._js_obj, name, _unwrap_py_value(value))
 
     def __getitem__(self, key):
-        return _wrap_js_value(_js_get(self._js_obj, key))
+        owner_class_name = _get_constructor_name(self._js_obj)
+        attr_name = key if isinstance(key, str) else None
+        return _wrap_js_value(_js_get(self._js_obj, key), owner_class_name, attr_name)
 
     def __setitem__(self, key, value):
+        if isinstance(key, str):
+            self.__setattr__(key, value)
+            return
         _js_set(self._js_obj, key, _unwrap_py_value(value))
 
     def __str__(self):
