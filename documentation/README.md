@@ -53,6 +53,7 @@ This documentation is designed as a practical user guide for real font-productio
 
 - [Glyph Editor Basics](editor/01-glyph-editor-basics.md)
 - [Axes, Masters, and Interpolation](editor/02-axes-masters-interpolation.md)
+- [Sidebearing Arithmetics](editor/03-sidebearing-arithmetics.md)
 
 ### Features
 

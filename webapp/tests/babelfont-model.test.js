@@ -22,6 +22,8 @@ function loadFontFile(filePath) {
 describe('Babelfont Object Model', () => {
     let fontData;
     let font;
+    let metricsKeysData;
+    let metricsKeysFont;
 
     beforeAll(() => {
         // Load Fustat.glyphs as test fixture (converted on-the-fly)
@@ -32,11 +34,20 @@ describe('Babelfont Object Model', () => {
             'Fustat.glyphs'
         );
         fontData = loadFontFile(fixturePath);
+
+        const metricsKeysFixturePath = path.join(
+            __dirname,
+            '..',
+            'examples',
+            'metricskeys.glyphs'
+        );
+        metricsKeysData = loadFontFile(metricsKeysFixturePath);
     });
 
     beforeEach(() => {
         // Create a fresh font instance for each test
         font = Font.fromData(fontData);
+        metricsKeysFont = Font.fromData(metricsKeysData);
     });
 
     describe('parent() method', () => {
@@ -357,6 +368,74 @@ describe('Babelfont Object Model', () => {
             expect(newBbox.minX).toBeCloseTo(originalBbox.minX, 1);
             expect(newBbox.maxX).toBeCloseTo(originalBbox.maxX, 1);
             expect(layer.width).toBeCloseTo(originalWidth + 40, 1);
+        });
+    });
+
+    describe('Metrics key accessors and recomputation', () => {
+        test('exposes imported glyph and layer metrics keys', () => {
+            const glyphA = metricsKeysFont.findGlyph('a');
+            const glyphAring = metricsKeysFont.findGlyph('aring');
+            const glyphN = metricsKeysFont.findGlyph('n');
+            const glyphE = metricsKeysFont.findGlyph('e');
+
+            expect(glyphA.rightMetricsKey).toBe('n');
+            expect(glyphAring.layers[0].rightMetricsKey).toBe('==+20');
+            expect(glyphAring.layers[1].rightMetricsKey).toBeUndefined();
+            expect(glyphN.leftMetricsKey).toBe('=l-5');
+            expect(glyphN.rightMetricsKey).toBe('=l-10');
+            expect(glyphE.rightMetricsKey).toBe('=c@200');
+        });
+
+        test('changing l rsb recomputes dependent glyph metrics', () => {
+            const glyphL = metricsKeysFont.findGlyph('l');
+            const glyphN = metricsKeysFont.findGlyph('n');
+            const glyphA = metricsKeysFont.findGlyph('a');
+            const glyphAdieresis = metricsKeysFont.findGlyph('adieresis');
+            const glyphAring = metricsKeysFont.findGlyph('aring');
+
+            const layerL = glyphL.layers[0];
+            const layerN = glyphN.layers[0];
+            const layerA = glyphA.layers[0];
+            const layerAdieresis = glyphAdieresis.layers[0];
+            const layerAring = glyphAring.layers[0];
+
+            layerL.rsb = layerL.rsb + 17;
+
+            expect(layerN.rsb).toBe(layerL.rsb - 10);
+            expect(layerA.rsb).toBe(layerN.rsb);
+            expect(layerAdieresis.rsb).toBe(layerA.rsb + 10);
+            expect(layerAring.rsb).toBe(layerA.rsb + 20);
+        });
+
+        test('changing c rsb recomputes baseline-offset dependent glyph metrics', () => {
+            const glyphC = metricsKeysFont.findGlyph('c');
+            const glyphE = metricsKeysFont.findGlyph('e');
+            const layerC = glyphC.layers[0];
+            const layerE = glyphE.layers[0];
+            const originalResolvedERsb = layerE.resolveMetricsKey('right');
+            const originalMeasuredERsb = layerE.getSidebearingsAtHeight(200);
+            const originalDirectERsb = layerE.rsb;
+
+            layerC.rsb = layerC.rsb + 19;
+
+            const recomputedResolvedERsb = layerE.resolveMetricsKey('right');
+            const recomputedMeasuredERsb = layerE.getSidebearingsAtHeight(200);
+
+            expect(originalResolvedERsb.error).toBeNull();
+            expect(originalResolvedERsb.value).not.toBeNull();
+            expect(originalMeasuredERsb).not.toBeNull();
+            expect(recomputedResolvedERsb.error).toBeNull();
+            expect(recomputedResolvedERsb.value).not.toBeNull();
+            expect(recomputedMeasuredERsb).not.toBeNull();
+
+            expect(recomputedMeasuredERsb.right).toBeCloseTo(
+                recomputedResolvedERsb.value,
+                3
+            );
+
+            expect(
+                recomputedMeasuredERsb.right - originalMeasuredERsb.right
+            ).toBeCloseTo(layerE.rsb - originalDirectERsb, 3);
         });
     });
 

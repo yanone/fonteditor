@@ -37,6 +37,7 @@ export type QCCanvasMarker = {
 
 class GlyphCanvas {
     container: HTMLElement;
+    canvasHost: HTMLElement | null = null;
     canvas: HTMLCanvasElement | null = null;
     ctx: CanvasRenderingContext2D | null = null;
     outlineEditor: OutlineEditor = new OutlineEditor(this);
@@ -85,6 +86,7 @@ class GlyphCanvas {
     lastContainerHeight: number = 0;
 
     propertiesSection: HTMLElement | null = null;
+    propertyPanel: HTMLElement | null = null;
     leftSidebar: HTMLElement | null = null;
     rightSidebar: HTMLElement | null = null;
     axesSection: HTMLElement | null = null;
@@ -167,6 +169,12 @@ class GlyphCanvas {
     }
 
     init(): void {
+        this.container.replaceChildren();
+
+        this.canvasHost = document.createElement('div');
+        this.canvasHost.className = 'glyph-canvas-viewport';
+        this.container.appendChild(this.canvasHost);
+
         // Create canvas element
         this.canvas = document.createElement('canvas');
         this.canvas.style.width = '100%';
@@ -175,7 +183,11 @@ class GlyphCanvas {
         this.canvas.style.cursor = 'default';
         this.canvas.style.outline = 'none'; // Remove focus outline
         this.canvas.tabIndex = 0; // Make canvas focusable
-        this.container.appendChild(this.canvas);
+        this.canvasHost.appendChild(this.canvas);
+
+        this.propertyPanel = document.createElement('div');
+        this.propertyPanel.className = 'glyph-property-panel';
+        this.container.appendChild(this.propertyPanel);
 
         this.outlineEditor.canvas = this.canvas;
 
@@ -209,8 +221,9 @@ class GlyphCanvas {
         const dpr = window.devicePixelRatio || 1;
 
         // Get the container size (not the canvas bounding rect, which might be stale)
-        const containerWidth = this.container.clientWidth;
-        const containerHeight = this.container.clientHeight;
+        const measurementTarget = this.canvasHost || this.container;
+        const containerWidth = measurementTarget.clientWidth;
+        const containerHeight = measurementTarget.clientHeight;
 
         // Set the canvas size in actual pixels (accounting for DPR)
         this.canvas!.width = containerWidth * dpr;
@@ -2384,6 +2397,7 @@ class GlyphCanvas {
     doUIUpdate(): void {
         this.updateComponentBreadcrumb();
         this.updatePropertiesUI();
+        this.updatePropertyPanel();
 
         // Only render if we're on a layer (not interpolating)
         // If interpolating, render will be called after interpolation completes
@@ -2397,6 +2411,7 @@ class GlyphCanvas {
         // Async version that waits for layer data to be loaded
         this.updateComponentBreadcrumb();
         await this.updatePropertiesUI();
+        this.updatePropertyPanel();
 
         // Only render if we're on a layer (not interpolating)
         // If interpolating, render will be called after interpolation completes
@@ -2410,6 +2425,167 @@ class GlyphCanvas {
         // This function now just calls updateEditorTitleBar
         // Keeping it for backward compatibility with existing calls
         this.outlineEditor.updateEditorTitleBar();
+    }
+
+    private getCurrentLayerModel(): Layer | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel || !this.outlineEditor.selectedLayerId) {
+            return null;
+        }
+
+        const glyphName = this.getCurrentGlyphName();
+        const glyph = fontModel.findGlyph(glyphName);
+        if (!glyph) {
+            return null;
+        }
+
+        return glyph.findLayerById(this.outlineEditor.selectedLayerId) || null;
+    }
+
+    private hasInspectableSelection(): boolean {
+        return (
+            this.outlineEditor.selectedPoints.length > 0 ||
+            this.outlineEditor.selectedAnchors.length > 0 ||
+            this.outlineEditor.selectedComponents.length > 0 ||
+            this.outlineEditor.selectedGuideHandle !== null
+        );
+    }
+
+    private async commitPropertyPanelValue(
+        side: 'left' | 'right',
+        value: string
+    ): Promise<void> {
+        const layer = this.getCurrentLayerModel();
+        if (!layer) {
+            return;
+        }
+
+        const resolution = layer.applySidebearingInput(side, value);
+        const glyphName = this.getCurrentGlyphName();
+        const affectedGlyphNames = Array.from(
+            new Set(
+                resolution.affectedGlyphNames?.length
+                    ? resolution.affectedGlyphNames
+                    : glyphName
+                      ? [glyphName]
+                      : []
+            )
+        );
+
+        try {
+            if (affectedGlyphNames.length > 0) {
+                await window.fontManager?.refreshGlyphsAfterModelBatch?.(
+                    affectedGlyphNames,
+                    this.outlineEditor.selectedLayerId
+                );
+            }
+
+            await this.outlineEditor.fetchLayerData(true);
+        } catch (error) {
+            console.warn(
+                'Failed to refresh layer after property-panel update',
+                error
+            );
+        }
+
+        this.updatePropertyPanel();
+        this.render();
+        this.outlineEditor.performHitDetection(null);
+    }
+
+    updatePropertyPanel(): void {
+        if (!this.propertyPanel) {
+            return;
+        }
+
+        this.propertyPanel.textContent = '';
+
+        if (!this.outlineEditor.active) {
+            this.propertyPanel.classList.add('hidden');
+            return;
+        }
+
+        this.propertyPanel.classList.remove('hidden');
+
+        if (this.hasInspectableSelection()) {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'glyph-property-panel-placeholder';
+            this.propertyPanel.appendChild(placeholder);
+            return;
+        }
+
+        const layer = this.getCurrentLayerModel();
+        if (!layer) {
+            return;
+        }
+
+        const content = document.createElement('div');
+        content.className = 'glyph-property-panel-content';
+
+        const createControl = (side: 'left' | 'right', shortLabel: string) => {
+            const wrapper = document.createElement('label');
+            wrapper.className = 'glyph-property-control';
+
+            const label = document.createElement('span');
+            label.className = 'glyph-property-control-label';
+            label.textContent = shortLabel;
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'glyph-property-input';
+
+            const resolution = layer.resolveMetricsKey(side);
+            const glyph = layer.parent();
+            const metricsKey =
+                side === 'left'
+                    ? (layer.leftMetricsKey ?? glyph?.leftMetricsKey)
+                    : (layer.rightMetricsKey ?? glyph?.rightMetricsKey);
+            const showAutoPlaceholder =
+                !metricsKey && layer.isAutomaticAlignedLayer();
+            const displayedValue = showAutoPlaceholder
+                ? ''
+                : (metricsKey ??
+                  String(side === 'left' ? layer.lsb : layer.rsb));
+            input.value = displayedValue;
+            if (showAutoPlaceholder) {
+                input.placeholder = 'auto';
+            }
+            if (resolution.error) {
+                input.classList.add('invalid');
+            }
+
+            input.addEventListener('change', () => {
+                if (input.dataset.skipNextPropertyCommit === 'true') {
+                    delete input.dataset.skipNextPropertyCommit;
+                    return;
+                }
+
+                void this.commitPropertyPanelValue(side, input.value);
+            });
+            input.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    input.dataset.skipNextPropertyCommit = 'true';
+                    void this.commitPropertyPanelValue(side, input.value);
+                    input.blur();
+                }
+            });
+
+            const valueLabel = document.createElement('span');
+            valueLabel.className = 'glyph-property-value';
+            valueLabel.textContent = String(
+                side === 'left' ? layer.lsb : layer.rsb
+            );
+
+            wrapper.appendChild(label);
+            wrapper.appendChild(input);
+            wrapper.appendChild(valueLabel);
+            return wrapper;
+        };
+
+        content.appendChild(createControl('left', 'LSB'));
+        content.appendChild(createControl('right', 'RSB'));
+        this.propertyPanel.appendChild(content);
     }
 
     getSortedLayers(): any[] {
@@ -3051,6 +3227,10 @@ class GlyphCanvas {
         // Remove canvas
         if (this.canvas && this.canvas.parentNode) {
             this.canvas.parentNode.removeChild(this.canvas);
+        }
+
+        if (this.propertyPanel && this.propertyPanel.parentNode) {
+            this.propertyPanel.parentNode.removeChild(this.propertyPanel);
         }
     }
 

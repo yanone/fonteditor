@@ -1141,6 +1141,18 @@ class FontManager {
         this.currentText = text;
         this.selectedFeatures = features;
 
+        const compileSource = this.lastChangeSource || 'unknown';
+        const isIncrementalEditingCompile =
+            compileSource === 'mouse-drag' || compileSource === 'keyboard';
+
+        if (!isIncrementalEditingCompile) {
+            if (!this.syncBabelfontJsonFromCurrentModel()) {
+                throw new Error(
+                    'Failed to sync font model before editing compile'
+                );
+            }
+        }
+
         const startTime = performance.now();
         const compileEditingSpanId = timelineSpanStart('font.compileEditing', {
             textBuffer: text,
@@ -2289,6 +2301,45 @@ class FontManager {
             await this.workerCacheUpdatePromise;
         } catch {
             // Ignore update failures here — undo/redo refresh has its own forced sync path.
+        }
+    }
+
+    async refreshGlyphsAfterModelBatch(
+        glyphNames: Iterable<string>,
+        layerId?: string | null
+    ): Promise<void> {
+        const currentFont = this.currentFont;
+        const uniqueGlyphNames = Array.from(
+            new Set(
+                Array.from(glyphNames || []).filter(
+                    (glyphName): glyphName is string =>
+                        typeof glyphName === 'string' && glyphName.length > 0
+                )
+            )
+        );
+
+        if (!currentFont || !uniqueGlyphNames.length) {
+            return;
+        }
+
+        if (!this.syncBabelfontJsonFromCurrentModel()) {
+            return;
+        }
+
+        await fontCompilation.sendMessage({
+            type: 'storeFontJson',
+            babelfontJson: currentFont.babelfontJson
+        });
+
+        for (const glyphName of uniqueGlyphNames) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName,
+                        layerId: layerId ?? undefined
+                    }
+                })
+            );
         }
     }
 

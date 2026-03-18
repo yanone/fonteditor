@@ -723,6 +723,7 @@ export class OutlineEditor {
         this.hoveredComponentIndex = null;
         this.hoveredGuideHandle = null;
         this.hoveredGlyphIndex = -1;
+        this.glyphCanvas.updatePropertyPanel();
     }
 
     onEscapeKey(e: KeyboardEvent) {
@@ -1125,6 +1126,7 @@ export class OutlineEditor {
             this.glyphCanvas.lastMouseY = e.clientY;
             this.lastGlyphX = null;
             this.lastGlyphY = null;
+            this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
             return;
         }
@@ -1142,6 +1144,7 @@ export class OutlineEditor {
                 } else {
                     this.selectedComponents.push(this.hoveredComponentIndex);
                 }
+                this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             } else {
                 const isInSelection = this.selectedComponents.includes(
@@ -1164,6 +1167,7 @@ export class OutlineEditor {
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null;
                 this.lastGlyphY = null;
+                this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             }
             return;
@@ -1184,6 +1188,7 @@ export class OutlineEditor {
                     // Add to selection
                     this.selectedAnchors.push(this.hoveredAnchorIndex);
                 }
+                this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             } else {
                 // Check if clicked anchor is already in selection
@@ -1208,6 +1213,7 @@ export class OutlineEditor {
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null; // Reset for delta calculation
                 this.lastGlyphY = null;
+                this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             }
             return; // Don't start canvas panning
@@ -1231,6 +1237,7 @@ export class OutlineEditor {
                     // Add to selection
                     this.selectedPoints.push({ ...this.hoveredPointIndex });
                 }
+                this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             } else {
                 // Check if clicked point is already in selection
@@ -1258,6 +1265,7 @@ export class OutlineEditor {
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null; // Reset for delta calculation
                 this.lastGlyphY = null;
+                this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             }
             return; // Don't start canvas panning
@@ -1267,6 +1275,7 @@ export class OutlineEditor {
             this.selectedAnchors = [];
             this.selectedComponents = [];
             this.selectedGuideHandle = null;
+            this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
         }
     }
@@ -3031,10 +3040,12 @@ export class OutlineEditor {
             this.autoPanAnchorScreen = null;
 
             if (this.active) {
+                this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             }
 
             this.updateLayerSelection();
+            this.glyphCanvas.updatePropertyPanel();
             console.log(
                 `Auto-selected layer: ${matchingLayer.name || 'Default'} (${matchingLayer.id})`
             );
@@ -3051,6 +3062,7 @@ export class OutlineEditor {
             this.selectedPointIndex = null;
             this.hoveredPointIndex = null;
             this.updateLayerSelection();
+            this.glyphCanvas.updatePropertyPanel();
             console.log('No matching layer - deselected');
         }
 
@@ -3226,6 +3238,8 @@ export class OutlineEditor {
 
             console.log('Fetched ROOT layer data:', this.layerData);
             console.log('Current position in stack:', this.glyphStack);
+
+            this.glyphCanvas.updatePropertyPanel();
 
             if (!skipRender) {
                 this.glyphCanvas.render();
@@ -4242,6 +4256,7 @@ export class OutlineEditor {
             }
 
             if (this.active) {
+                this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             }
         }

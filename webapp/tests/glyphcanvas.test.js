@@ -1,3 +1,6 @@
+const { Font } = require('../js/babelfont-model');
+const fontManager = require('../js/font-manager').default;
+
 // ==================== Initialization Tests ====================
 
 describe('GlyphCanvas initialization', () => {
@@ -17,6 +20,12 @@ describe('GlyphCanvas initialization', () => {
         canvas = new GlyphCanvas('test-container');
         const container = document.getElementById('test-container');
         expect(container.querySelector('canvas')).toBeTruthy();
+    });
+
+    test('should create property panel shell in container', () => {
+        canvas = new GlyphCanvas('test-container');
+        const container = document.getElementById('test-container');
+        expect(container.querySelector('.glyph-property-panel')).toBeTruthy();
     });
 
     test('should initialize viewport manager with default values', () => {
@@ -764,6 +773,222 @@ describe('GlyphCanvas cursor management', () => {
 
         expect(canvas.isFocused).toBe(false);
         jest.useRealTimers();
+    });
+});
+
+describe('GlyphCanvas property panel', () => {
+    let canvas;
+    let currentFontSpy;
+
+    function makePanelFont() {
+        return Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'panelGlyph',
+                    category: 'Base',
+                    codepoints: [65],
+                    format_specific: {
+                        metric_right: '=globalKey'
+                    },
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 50, y: 0, nodetype: 'Line' },
+                                        { x: 450, y: 0, nodetype: 'Line' },
+                                        { x: 450, y: 700, nodetype: 'Line' },
+                                        { x: 50, y: 700, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            format_specific: {
+                                'com.schriftgestalt.Glyphs.metricRight': '=+20'
+                            },
+                            shapes: [
+                                {
+                                    reference: 'baseComponent',
+                                    format_specific: {
+                                        'com.schriftgestalt.Glyphs.alignment': 0
+                                    }
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-3',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    reference: 'baseComponent',
+                                    format_specific: {
+                                        'com.schriftgestalt.Glyphs.alignment': 0
+                                    }
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'baseComponent',
+                    category: 'Base',
+                    codepoints: [66],
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 700, nodetype: 'Line' },
+                                        { x: 100, y: 700, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Panel Test' }
+            },
+            note: '',
+            date: '2026-03-18',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+    }
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: makePanelFont() });
+        canvas.getCurrentGlyphName = jest.fn(() => 'panelGlyph');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+    });
+
+    afterEach(() => {
+        currentFontSpy.mockRestore();
+        canvas.destroy();
+    });
+
+    test('shows sidebearing controls when no object is selected', () => {
+        canvas.updatePropertyPanel();
+
+        const inputs = document.querySelectorAll('.glyph-property-input');
+        const values = document.querySelectorAll('.glyph-property-value');
+
+        expect(inputs).toHaveLength(2);
+        expect(values).toHaveLength(2);
+        expect(inputs[0].value).toBe('50');
+        expect(inputs[1].value).toBe('=globalKey');
+    });
+
+    test('updates property panel after layer switch', () => {
+        canvas.outlineEditor.selectedLayerId = 'layer-2';
+        canvas.updatePropertyPanel();
+
+        let inputs = document.querySelectorAll('.glyph-property-input');
+        expect(inputs[1].value).toBe('==+20');
+
+        canvas.outlineEditor.selectedLayerId = 'layer-3';
+        canvas.updatePropertyPanel();
+
+        inputs = document.querySelectorAll('.glyph-property-input');
+        expect(inputs[1].value).toBe('=globalKey');
+    });
+
+    test('shows auto placeholder for automatic layer without explicit key', () => {
+        canvas.outlineEditor.selectedLayerId = 'layer-3';
+        const glyph = fontManager.currentFont.fontModel.findGlyph('panelGlyph');
+        glyph.rightMetricsKey = undefined;
+
+        canvas.updatePropertyPanel();
+
+        const inputs = document.querySelectorAll('.glyph-property-input');
+        expect(inputs[1].value).toBe('');
+        expect(inputs[1].getAttribute('placeholder')).toBe('auto');
+    });
+
+    test('hides sidebearing controls when a guide is selected', () => {
+        canvas.outlineEditor.selectedGuideHandle = {
+            scope: 'layer',
+            index: 0,
+            part: 'origin'
+        };
+
+        canvas.updatePropertyPanel();
+
+        expect(document.querySelectorAll('.glyph-property-input')).toHaveLength(
+            0
+        );
+    });
+
+    test('marks invalid formulas in red', () => {
+        const layer =
+            fontManager.currentFont.fontModel.findGlyph('panelGlyph').layers[0];
+        layer.rightMetricsKey = '==missingGlyph';
+
+        canvas.updatePropertyPanel();
+
+        const inputs = document.querySelectorAll('.glyph-property-input');
+        expect(inputs[1].classList.contains('invalid')).toBe(true);
     });
 });
 

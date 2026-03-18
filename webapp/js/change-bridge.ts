@@ -1037,7 +1037,6 @@ export class ChangeBridge {
 
         if (this._txDepth > 0) {
             this._txBufferedOperations.push(...normalizedOperations);
-            this._onDirty?.();
             return;
         }
 

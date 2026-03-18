@@ -272,7 +272,13 @@ function flushTimers() {
     jest.runAllTimers();
 }
 
-const GENERIC_ACCESSOR_TEST_EXCLUSIONS = new Set(['data', 'lsb', 'rsb']);
+const GENERIC_ACCESSOR_TEST_EXCLUSIONS = new Set([
+    'data',
+    'lsb',
+    'rsb',
+    'leftMetricsKey',
+    'rightMetricsKey'
+]);
 const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
     'anchors',
     'axes',
@@ -407,6 +413,10 @@ function collectWritableAccessorSpecs() {
 }
 
 function mutateValue(value) {
+    if (value === undefined) {
+        return '__test__';
+    }
+
     if (typeof value === 'number') {
         return value + 1;
     }
@@ -1686,6 +1696,32 @@ describe('Transactions', () => {
         const log = bridge.getChangeLog();
         expect(log).toHaveLength(1);
         expect(log[0].transactionLabel).toBe('Outer');
+    });
+
+    test('transaction dirty callback fires once after batch commit', () => {
+        const { bridge } = createTestBridge('test-1');
+        const onDirty = jest.fn();
+
+        bridge.onDirty(onDirty);
+        bridge.beginTransaction('Set sidebearings');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            620
+        );
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'format_specific',
+            {},
+            { metric_right: '=l' }
+        );
+
+        expect(onDirty).toHaveBeenCalledTimes(0);
+
+        bridge.endTransaction();
+
+        expect(onDirty).toHaveBeenCalledTimes(1);
     });
 
     test('inTransaction flag tracks depth', () => {

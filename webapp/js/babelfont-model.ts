@@ -48,6 +48,44 @@ type GuideData = {
     format_specific?: Record<string, Unsafe>;
 };
 
+type SidebearingSide = 'left' | 'right';
+
+type MetricsKeyResolution = {
+    input: string;
+    value: number | null;
+    error: string | null;
+    referencedGlyphNames: string[];
+    isLocal: boolean;
+    affectedGlyphNames?: string[];
+};
+
+type ParsedMetricsKey =
+    | {
+          kind: 'constant';
+          value: number;
+          referencedGlyphNames: string[];
+      }
+    | {
+          kind: 'automatic-offset';
+          delta: number;
+          referencedGlyphNames: string[];
+      }
+    | {
+          kind: 'reference';
+          glyphName: string | null;
+          mirror: boolean;
+          offsetY: number | null;
+          operation: { operator: '+' | '-' | '*' | '/'; value: number } | null;
+          referencedGlyphNames: string[];
+      };
+
+const GLYPHS_GLYPH_METRIC_LEFT_KEY = 'metric_left';
+const GLYPHS_GLYPH_METRIC_RIGHT_KEY = 'metric_right';
+const GLYPHS_LAYER_METRIC_LEFT_KEY = 'com.schriftgestalt.Glyphs.metricLeft';
+const GLYPHS_LAYER_METRIC_RIGHT_KEY = 'com.schriftgestalt.Glyphs.metricRight';
+const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
+const METRIC_UPDATE_EPSILON = 0.01;
+
 /**
  * DecomposedAffine transformation utilities
  * Based on babelfont-ts implementation
@@ -215,6 +253,7 @@ function recordAndMarkDirty(
     if (bridge) {
         const path = modelObj.getPath();
         bridge.recordChange(path, prop, oldVal, newVal);
+        return;
     }
     markFontDirty();
 }
@@ -232,6 +271,7 @@ function recordPathChangeAndMarkDirty(
             oldVal,
             newVal
         );
+        return;
     }
     markFontDirty();
 }
@@ -243,6 +283,7 @@ function recordAddAndMarkDirty(
     const bridge = getChangeBridge();
     if (bridge) {
         bridge.recordAdd(path, cloneForHistory(value));
+        return;
     }
     markFontDirty();
 }
@@ -254,6 +295,7 @@ function recordRemoveAndMarkDirty(
     const bridge = getChangeBridge();
     if (bridge) {
         bridge.recordRemove(path, cloneForHistory(oldValue));
+        return;
     }
     markFontDirty();
 }
@@ -269,6 +311,292 @@ function withBridgeTransaction<T>(label: string, fn: () => T): T {
         return fn();
     } finally {
         bridge.endTransaction();
+    }
+}
+
+function getGlyphMetricFormatSpecificKey(side: SidebearingSide): string {
+    return side === 'left'
+        ? GLYPHS_GLYPH_METRIC_LEFT_KEY
+        : GLYPHS_GLYPH_METRIC_RIGHT_KEY;
+}
+
+function getLayerMetricFormatSpecificKey(side: SidebearingSide): string {
+    return side === 'left'
+        ? GLYPHS_LAYER_METRIC_LEFT_KEY
+        : GLYPHS_LAYER_METRIC_RIGHT_KEY;
+}
+
+function normalizeMetricsKeyValue(
+    value: string | undefined | null
+): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+}
+
+function localMetricsKeyStorageToPublic(
+    value: string | undefined | null
+): string | undefined {
+    const normalized = normalizeMetricsKeyValue(value);
+    if (!normalized) {
+        return undefined;
+    }
+
+    return normalized.startsWith('=') ? `=${normalized}` : `==${normalized}`;
+}
+
+function localMetricsKeyPublicToStorage(
+    value: string | undefined | null,
+    font?: Font
+): string | undefined {
+    const normalized = normalizeMetricsKeyValue(value);
+    if (!normalized) {
+        return undefined;
+    }
+
+    const localBody = normalized.startsWith('==')
+        ? normalized.slice(2)
+        : normalized;
+    if (!localBody) {
+        return undefined;
+    }
+
+    if (localBody.startsWith('=')) {
+        return localBody;
+    }
+
+    if (isPlainNumericText(localBody)) {
+        return localBody;
+    }
+
+    if (font) {
+        const glyphMatch = getGlyphNamePrefixMatch(font, localBody);
+        if (glyphMatch && glyphMatch.rest === '') {
+            return localBody;
+        }
+    }
+
+    return `=${localBody}`;
+}
+
+function isPlainNumericText(value: string): boolean {
+    return /^[+-]?\d+(?:\.\d+)?$/.test(value.trim());
+}
+
+function roundMetricValue(value: number): number {
+    return Math.round(value);
+}
+
+function getModelFormatSpecific(
+    modelObj: ModelBase
+): Record<string, Unsafe> | undefined {
+    return (modelObj.toJSON() as { format_specific?: Record<string, Unsafe> })
+        .format_specific;
+}
+
+function ensureModelFormatSpecific(
+    modelObj: ModelBase
+): Record<string, Unsafe> {
+    const data = modelObj.toJSON() as {
+        format_specific?: Record<string, Unsafe>;
+    };
+
+    if (!data.format_specific) {
+        const oldValue = data.format_specific;
+        data.format_specific = {};
+        recordAndMarkDirty(
+            modelObj,
+            'format_specific',
+            oldValue,
+            data.format_specific
+        );
+    }
+
+    return data.format_specific;
+}
+
+function setFormatSpecificKey(
+    modelObj: ModelBase,
+    key: string,
+    value: string | undefined
+): void {
+    const data = modelObj.toJSON() as {
+        format_specific?: Record<string, Unsafe>;
+    };
+
+    if (value === undefined) {
+        if (!data.format_specific || !(key in data.format_specific)) {
+            return;
+        }
+
+        const oldValue = cloneForHistory(data.format_specific[key]);
+        delete data.format_specific[key];
+
+        const bridge = getChangeBridge();
+        if (bridge) {
+            bridge.recordRemove(
+                [...modelObj.getPath(), 'format_specific', key],
+                oldValue
+            );
+        }
+        markFontDirty();
+        return;
+    }
+
+    const formatSpecific = ensureModelFormatSpecific(modelObj);
+    const oldValue = cloneForHistory(formatSpecific[key]);
+    formatSpecific[key] = value;
+    recordPathChangeAndMarkDirty(
+        [...modelObj.getPath(), 'format_specific', key],
+        oldValue,
+        value
+    );
+}
+
+function getGlyphNamePrefixMatch(
+    font: Font,
+    text: string
+): { glyphName: string; rest: string } | null {
+    const glyphNames = font.glyphs
+        .map((glyph) => glyph.name)
+        .filter(Boolean)
+        .sort((a, b) => b.length - a.length);
+
+    for (const glyphName of glyphNames) {
+        if (text === glyphName) {
+            return { glyphName, rest: '' };
+        }
+
+        const nextChar = text[glyphName.length];
+        if (
+            text.startsWith(glyphName) &&
+            ['@', '+', '-', '*', '/'].includes(nextChar)
+        ) {
+            return { glyphName, rest: text.slice(glyphName.length) };
+        }
+    }
+
+    return null;
+}
+
+function parseMetricsKey(
+    font: Font,
+    rawKey: string
+): ParsedMetricsKey | { error: string } {
+    let input = rawKey.trim();
+    if (!input) {
+        return { error: 'Empty metrics key' };
+    }
+
+    if (input.startsWith('==')) {
+        input = input.slice(1);
+    }
+
+    if (isPlainNumericText(input)) {
+        return {
+            kind: 'constant',
+            value: Number(input),
+            referencedGlyphNames: []
+        };
+    }
+
+    if (/^=[+-]\d+(?:\.\d+)?$/.test(input)) {
+        return {
+            kind: 'automatic-offset',
+            delta: Number(input.slice(1)),
+            referencedGlyphNames: []
+        };
+    }
+
+    let body = input;
+    if (body.startsWith('=')) {
+        body = body.slice(1);
+    }
+
+    let mirror = false;
+    if (body.startsWith('|')) {
+        mirror = true;
+        body = body.slice(1);
+    }
+
+    if (!body) {
+        return {
+            kind: 'reference',
+            glyphName: null,
+            mirror,
+            offsetY: null,
+            operation: null,
+            referencedGlyphNames: []
+        };
+    }
+
+    const prefixMatch = getGlyphNamePrefixMatch(font, body);
+    if (!prefixMatch) {
+        return { error: `Unknown glyph reference in metrics key: ${rawKey}` };
+    }
+
+    let rest = prefixMatch.rest;
+    let offsetY: number | null = null;
+    let operation: { operator: '+' | '-' | '*' | '/'; value: number } | null =
+        null;
+
+    if (rest.startsWith('@')) {
+        const offsetMatch = rest.match(/^@([+-]?\d+(?:\.\d+)?)(.*)$/);
+        if (!offsetMatch) {
+            return {
+                error: `Invalid baseline offset in metrics key: ${rawKey}`
+            };
+        }
+        offsetY = Number(offsetMatch[1]);
+        rest = offsetMatch[2] || '';
+    }
+
+    if (rest) {
+        const operationMatch = rest.match(/^([+\-*/])([+-]?\d+(?:\.\d+)?)$/);
+        if (!operationMatch) {
+            return {
+                error: `Invalid calculation suffix in metrics key: ${rawKey}`
+            };
+        }
+        operation = {
+            operator: operationMatch[1] as '+' | '-' | '*' | '/',
+            value: Number(operationMatch[2])
+        };
+    }
+
+    return {
+        kind: 'reference',
+        glyphName: prefixMatch.glyphName,
+        mirror,
+        offsetY,
+        operation,
+        referencedGlyphNames: [prefixMatch.glyphName]
+    };
+}
+
+function applyMetricOperation(
+    value: number,
+    operation: { operator: '+' | '-' | '*' | '/'; value: number } | null
+): number | null {
+    if (!operation) {
+        return value;
+    }
+
+    switch (operation.operator) {
+        case '+':
+            return value + operation.value;
+        case '-':
+            return value - operation.value;
+        case '*':
+            return value * operation.value;
+        case '/':
+            if (Math.abs(operation.value) < 1e-8) {
+                return null;
+            }
+            return value / operation.value;
     }
 }
 
@@ -1552,6 +1880,487 @@ export class Layer extends ArrayElementBase {
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
 
+    private getFont(): Font | undefined {
+        const glyph = this.parent() as Glyph;
+        return glyph?.parent() as Font | undefined;
+    }
+
+    private getLocalSidebearingKey(side: SidebearingSide): string | undefined {
+        return normalizeMetricsKeyValue(
+            getModelFormatSpecific(this)?.[
+                getLayerMetricFormatSpecificKey(side)
+            ] as string | undefined
+        );
+    }
+
+    private setLocalSidebearingKey(
+        side: SidebearingSide,
+        value: string | undefined
+    ): void {
+        setFormatSpecificKey(
+            this,
+            getLayerMetricFormatSpecificKey(side),
+            value
+        );
+    }
+
+    private hasLocalSidebearingKey(side: SidebearingSide): boolean {
+        return this.getLocalSidebearingKey(side) !== undefined;
+    }
+
+    private getEffectiveSidebearingKey(
+        side: SidebearingSide
+    ): string | undefined {
+        return (
+            this.getLocalSidebearingKey(side) ??
+            this.getGlobalSidebearingKey(side)
+        );
+    }
+
+    private clearEffectiveSidebearingKey(side: SidebearingSide): void {
+        if (this.hasLocalSidebearingKey(side)) {
+            this.setLocalSidebearingKey(side, undefined);
+            return;
+        }
+
+        const glyph = this.parent() as Glyph;
+        if (!glyph) {
+            return;
+        }
+
+        if (side === 'left') {
+            glyph.leftMetricsKey = undefined;
+        } else {
+            glyph.rightMetricsKey = undefined;
+        }
+    }
+
+    private setEffectiveSidebearingKey(
+        side: SidebearingSide,
+        value: string | undefined,
+        forceLocal = false
+    ): void {
+        const normalizedValue = normalizeMetricsKeyValue(value);
+        const glyph = this.parent() as Glyph;
+
+        if (forceLocal) {
+            this.setLocalSidebearingKey(side, normalizedValue);
+            return;
+        }
+
+        if (this.hasLocalSidebearingKey(side)) {
+            this.setLocalSidebearingKey(side, undefined);
+        }
+
+        if (!glyph) {
+            return;
+        }
+
+        if (side === 'left') {
+            glyph.leftMetricsKey = normalizedValue;
+        } else {
+            glyph.rightMetricsKey = normalizedValue;
+        }
+    }
+
+    private getDirectSidebearing(side: SidebearingSide): number {
+        if (side === 'left') {
+            const bbox = this.getBoundingBox(false);
+            if (!bbox) {
+                return 0;
+            }
+            return bbox.minX;
+        }
+
+        const bbox = this.getBoundingBox(false);
+        if (!bbox) {
+            return this.width;
+        }
+        return this.width - bbox.maxX;
+    }
+
+    setDirectSidebearing(side: SidebearingSide, value: number): void {
+        if (side === 'left') {
+            const currentLsb = this.getDirectSidebearing('left');
+            const offset = value - currentLsb;
+
+            if (offset === 0) {
+                return;
+            }
+
+            for (const shape of this.shapes || []) {
+                if (shape.isPath()) {
+                    for (const node of shape.asPath().nodes) {
+                        node.x += offset;
+                    }
+                    continue;
+                }
+
+                if (shape.isComponent()) {
+                    const component = shape.asComponent();
+                    if (!component.transform) {
+                        component.transform =
+                            DecomposedAffineTransform.identity();
+                    }
+                    if (!component.transform.translation) {
+                        component.transform.translation = [0, 0];
+                    }
+                    component.transform.translation[0] += offset;
+                }
+            }
+
+            for (const anchor of this.anchors || []) {
+                anchor.x += offset;
+            }
+
+            this.width += offset;
+            return;
+        }
+
+        const bbox = this.getBoundingBox(false);
+        const oldWidth = this.toJSON().width;
+        if (!bbox) {
+            this.toJSON().width = value;
+        } else {
+            this.toJSON().width = bbox.maxX + value;
+        }
+        recordAndMarkDirty(this, 'width', oldWidth, this.toJSON().width);
+    }
+
+    isAutomaticAlignedLayer(): boolean {
+        const components = (this.shapes || []).filter((shape) =>
+            shape.isComponent()
+        );
+        if (components.length === 0) {
+            return false;
+        }
+
+        return components.every((shape) => {
+            const component = shape.asComponent();
+            return (
+                getModelFormatSpecific(component)?.[
+                    GLYPHS_COMPONENT_ALIGNMENT_KEY
+                ] === 0
+            );
+        });
+    }
+
+    private getPrimaryAutoAlignedComponentLayer(): Layer | undefined {
+        const firstComponentShape = (this.shapes || []).find((shape) =>
+            shape.isComponent()
+        );
+        if (!firstComponentShape) {
+            return undefined;
+        }
+
+        const reference = firstComponentShape.asComponent().reference;
+        if (!reference) {
+            return undefined;
+        }
+
+        return this.getMatchingLayerOnGlyph(reference);
+    }
+
+    resolveMetricsKey(
+        side: SidebearingSide,
+        stack: Set<string> = new Set()
+    ): MetricsKeyResolution {
+        const input = this.getEffectiveSidebearingKey(side);
+        if (!input) {
+            return {
+                input: '',
+                value: this.getDirectSidebearing(side),
+                error: null,
+                referencedGlyphNames: [],
+                isLocal: false
+            };
+        }
+
+        const font = this.getFont();
+        if (!font) {
+            return {
+                input,
+                value: null,
+                error: 'Layer is not attached to a font',
+                referencedGlyphNames: [],
+                isLocal: this.hasLocalSidebearingKey(side)
+            };
+        }
+
+        const cycleKey = `${(this.parent() as Glyph)?.name || ''}:${this.id || ''}:${side}`;
+        if (stack.has(cycleKey)) {
+            return {
+                input,
+                value: null,
+                error: 'Metrics key cycle detected',
+                referencedGlyphNames: [],
+                isLocal: this.hasLocalSidebearingKey(side)
+            };
+        }
+
+        stack.add(cycleKey);
+
+        try {
+            const parsed = parseMetricsKey(font, input);
+            if ('error' in parsed) {
+                return {
+                    input,
+                    value: null,
+                    error: parsed.error,
+                    referencedGlyphNames: [],
+                    isLocal: this.hasLocalSidebearingKey(side)
+                };
+            }
+
+            if (parsed.kind === 'constant') {
+                return {
+                    input,
+                    value: roundMetricValue(parsed.value),
+                    error: null,
+                    referencedGlyphNames: parsed.referencedGlyphNames,
+                    isLocal: this.hasLocalSidebearingKey(side)
+                };
+            }
+
+            if (parsed.kind === 'automatic-offset') {
+                if (!this.isAutomaticAlignedLayer()) {
+                    return {
+                        input,
+                        value: null,
+                        error: 'Automatic offset requires an auto-aligned component layer',
+                        referencedGlyphNames: [],
+                        isLocal: this.hasLocalSidebearingKey(side)
+                    };
+                }
+
+                const baseLayer = this.getPrimaryAutoAlignedComponentLayer();
+                const baseSidebearing = baseLayer
+                    ? (() => {
+                          const componentResolution =
+                              baseLayer.resolveMetricsKey(side, stack);
+                          return componentResolution.error ||
+                              componentResolution.value === null
+                              ? baseLayer.getDirectSidebearing(side)
+                              : componentResolution.value;
+                      })()
+                    : this.getDirectSidebearing(side);
+
+                return {
+                    input,
+                    value: roundMetricValue(baseSidebearing + parsed.delta),
+                    error: null,
+                    referencedGlyphNames: [],
+                    isLocal: this.hasLocalSidebearingKey(side)
+                };
+            }
+
+            let targetLayer: Layer | undefined;
+            if (parsed.glyphName) {
+                targetLayer = this.getMatchingLayerOnGlyph(parsed.glyphName);
+                if (!targetLayer) {
+                    const targetGlyph = font.findGlyph(parsed.glyphName);
+                    targetLayer = targetGlyph?.layers?.[0];
+                }
+
+                if (!targetLayer) {
+                    return {
+                        input,
+                        value: null,
+                        error: `Could not resolve glyph ${parsed.glyphName}`,
+                        referencedGlyphNames: parsed.referencedGlyphNames,
+                        isLocal: this.hasLocalSidebearingKey(side)
+                    };
+                }
+            } else {
+                targetLayer = this;
+            }
+
+            const targetSide = parsed.mirror
+                ? side === 'left'
+                    ? 'right'
+                    : 'left'
+                : side;
+
+            let baseValue: number | null = null;
+            if (parsed.offsetY !== null) {
+                const measured = targetLayer.getSidebearingsAtHeight(
+                    parsed.offsetY
+                );
+                if (!measured) {
+                    return {
+                        input,
+                        value: null,
+                        error: `Could not measure sidebearings at height ${parsed.offsetY}`,
+                        referencedGlyphNames: parsed.referencedGlyphNames,
+                        isLocal: this.hasLocalSidebearingKey(side)
+                    };
+                }
+                baseValue =
+                    targetSide === 'left' ? measured.left : measured.right;
+            } else {
+                const targetKey =
+                    targetLayer.getLocalSidebearingKey(targetSide) ??
+                    targetLayer.getGlobalSidebearingKey(targetSide);
+
+                if (targetKey) {
+                    const nested = targetLayer.resolveMetricsKey(
+                        targetSide,
+                        stack
+                    );
+                    if (nested.error || nested.value === null) {
+                        return {
+                            input,
+                            value: null,
+                            error: nested.error,
+                            referencedGlyphNames: parsed.referencedGlyphNames,
+                            isLocal: this.hasLocalSidebearingKey(side)
+                        };
+                    }
+                    baseValue = nested.value;
+                } else {
+                    baseValue = targetLayer.getDirectSidebearing(targetSide);
+                }
+            }
+
+            const resolvedValue = applyMetricOperation(
+                baseValue,
+                parsed.operation
+            );
+            if (resolvedValue === null || !Number.isFinite(resolvedValue)) {
+                return {
+                    input,
+                    value: null,
+                    error: 'Invalid metrics-key calculation',
+                    referencedGlyphNames: parsed.referencedGlyphNames,
+                    isLocal: this.hasLocalSidebearingKey(side)
+                };
+            }
+
+            return {
+                input,
+                value: roundMetricValue(resolvedValue),
+                error: null,
+                referencedGlyphNames: parsed.referencedGlyphNames,
+                isLocal: this.hasLocalSidebearingKey(side)
+            };
+        } finally {
+            stack.delete(cycleKey);
+        }
+    }
+
+    applySidebearingInput(
+        side: SidebearingSide,
+        rawValue: string
+    ): MetricsKeyResolution {
+        const input = rawValue.trim();
+        const label = side === 'left' ? 'Set LSB' : 'Set RSB';
+        const glyphName = (this.parent() as Glyph)?.name;
+
+        return withBridgeTransaction(label, () => {
+            if (isPlainNumericText(input)) {
+                this.clearEffectiveSidebearingKey(side);
+                this.setDirectSidebearing(side, Number(input));
+                const affectedGlyphNames = new Set<string>(
+                    [glyphName].filter(Boolean) as string[]
+                );
+                for (const dependentGlyphName of this.getFont()?.recomputeMetricsKeys(
+                    affectedGlyphNames
+                ) || []) {
+                    affectedGlyphNames.add(dependentGlyphName);
+                }
+                return {
+                    input,
+                    value: Number(input),
+                    error: null,
+                    referencedGlyphNames: [],
+                    isLocal: false,
+                    affectedGlyphNames: [...affectedGlyphNames]
+                };
+            }
+
+            const forceLocal = input.startsWith('==');
+            if (forceLocal) {
+                if (side === 'left') {
+                    this.leftMetricsKey = input;
+                } else {
+                    this.rightMetricsKey = input;
+                }
+            } else {
+                this.setEffectiveSidebearingKey(side, input, false);
+            }
+            const resolution = this.resolveMetricsKey(side);
+            if (resolution.error || resolution.value === null) {
+                return {
+                    ...resolution,
+                    affectedGlyphNames: glyphName ? [glyphName] : []
+                };
+            }
+
+            const applied = getAppliedMetricsKeySidebearing(
+                this,
+                side,
+                resolution
+            );
+            if (applied.error || applied.value === null) {
+                return {
+                    ...resolution,
+                    value: null,
+                    error: applied.error,
+                    affectedGlyphNames: glyphName ? [glyphName] : []
+                };
+            }
+
+            this.setDirectSidebearing(side, applied.value);
+            const affectedGlyphNames = new Set<string>(
+                [glyphName].filter(Boolean) as string[]
+            );
+            for (const dependentGlyphName of this.getFont()?.recomputeMetricsKeys(
+                affectedGlyphNames
+            ) || []) {
+                affectedGlyphNames.add(dependentGlyphName);
+            }
+            return {
+                ...resolution,
+                affectedGlyphNames: [...affectedGlyphNames]
+            };
+        });
+    }
+
+    private getGlobalSidebearingKey(side: SidebearingSide): string | undefined {
+        const glyph = this.parent() as Glyph;
+        if (!glyph) {
+            return undefined;
+        }
+
+        return side === 'left' ? glyph.leftMetricsKey : glyph.rightMetricsKey;
+    }
+
+    get leftMetricsKey(): string | undefined {
+        return localMetricsKeyStorageToPublic(
+            this.getLocalSidebearingKey('left')
+        );
+    }
+
+    set leftMetricsKey(value: string | undefined) {
+        this.setLocalSidebearingKey(
+            'left',
+            localMetricsKeyPublicToStorage(value, this.getFont())
+        );
+    }
+
+    get rightMetricsKey(): string | undefined {
+        return localMetricsKeyStorageToPublic(
+            this.getLocalSidebearingKey('right')
+        );
+    }
+
+    set rightMetricsKey(value: string | undefined) {
+        this.setLocalSidebearingKey(
+            'right',
+            localMetricsKeyPublicToStorage(value, this.getFont())
+        );
+    }
+
     getPathSegment(): (string | number)[] {
         const layerId = this.data.id;
         return layerId ? ['layers', layerId] : ['layers', this._index];
@@ -1595,11 +2404,7 @@ export class Layer extends ArrayElementBase {
      * @returns The left sidebearing value, or 0 if no geometry
      */
     get lsb(): number {
-        const bbox = this.getBoundingBox(false);
-        if (!bbox) {
-            return 0;
-        }
-        return bbox.minX;
+        return this.getDirectSidebearing('left');
     }
 
     /**
@@ -1608,46 +2413,12 @@ export class Layer extends ArrayElementBase {
      * @param value - The new left sidebearing value
      */
     set lsb(value: number) {
-        const currentLsb = this.lsb;
-        const offset = value - currentLsb;
-
-        if (offset === 0) {
-            return; // No change needed
-        }
-
-        const bridge = getChangeBridge();
-        bridge?.beginTransaction('Set LSB');
-
-        try {
-            for (const shape of this.shapes || []) {
-                if (shape.isPath()) {
-                    for (const node of shape.asPath().nodes) {
-                        node.x += offset;
-                    }
-                    continue;
-                }
-
-                if (shape.isComponent()) {
-                    const component = shape.asComponent();
-                    if (!component.transform) {
-                        component.transform =
-                            DecomposedAffineTransform.identity();
-                    }
-                    if (!component.transform.translation) {
-                        component.transform.translation = [0, 0];
-                    }
-                    component.transform.translation[0] += offset;
-                }
-            }
-
-            for (const anchor of this.anchors || []) {
-                anchor.x += offset;
-            }
-
-            this.width += offset;
-        } finally {
-            bridge?.endTransaction();
-        }
+        withBridgeTransaction('Set LSB', () => {
+            this.setDirectSidebearing('left', value);
+            this.getFont()?.recomputeMetricsKeys(
+                new Set([(this.parent() as Glyph)?.name].filter(Boolean))
+            );
+        });
     }
 
     /**
@@ -1655,11 +2426,7 @@ export class Layer extends ArrayElementBase {
      * @returns The right sidebearing value, or the width if no geometry
      */
     get rsb(): number {
-        const bbox = this.getBoundingBox(false);
-        if (!bbox) {
-            return this.width;
-        }
-        return this.width - bbox.maxX;
+        return this.getDirectSidebearing('right');
     }
 
     /**
@@ -1668,14 +2435,12 @@ export class Layer extends ArrayElementBase {
      * @param value - The new right sidebearing value
      */
     set rsb(value: number) {
-        const bbox = this.getBoundingBox(false);
-        const oldWidth = this.data.width;
-        if (!bbox) {
-            this.data.width = value;
-        } else {
-            this.data.width = bbox.maxX + value;
-        }
-        recordAndMarkDirty(this, 'width', oldWidth, this.data.width);
+        withBridgeTransaction('Set RSB', () => {
+            this.setDirectSidebearing('right', value);
+            this.getFont()?.recomputeMetricsKeys(
+                new Set([(this.parent() as Glyph)?.name].filter(Boolean))
+            );
+        });
     }
 
     get name(): string | undefined {
@@ -3238,11 +4003,92 @@ export class Layer extends ArrayElementBase {
     }
 }
 
+function getAppliedMetricsKeySidebearing(
+    layer: Layer,
+    side: SidebearingSide,
+    resolution: MetricsKeyResolution
+): { value: number | null; error: string | null } {
+    if (resolution.error || resolution.value === null) {
+        return {
+            value: null,
+            error: resolution.error ?? 'Invalid metrics-key calculation'
+        };
+    }
+
+    const font = (layer.parent() as Glyph | undefined)?.parent() as
+        | Font
+        | undefined;
+    if (!font || !resolution.input) {
+        return { value: resolution.value, error: null };
+    }
+
+    const parsed = parseMetricsKey(font, resolution.input);
+    if (
+        'error' in parsed ||
+        parsed.kind !== 'reference' ||
+        parsed.offsetY === null
+    ) {
+        return { value: resolution.value, error: null };
+    }
+
+    const measured = layer.getSidebearingsAtHeight(parsed.offsetY);
+    if (!measured) {
+        return {
+            value: null,
+            error: `Could not measure current sidebearings at height ${parsed.offsetY}`
+        };
+    }
+
+    const measuredSidebearing =
+        side === 'left' ? measured.left : measured.right;
+    const directSidebearing = side === 'left' ? layer.lsb : layer.rsb;
+
+    return {
+        value: directSidebearing + (resolution.value - measuredSidebearing),
+        error: null
+    };
+}
+
 /**
  * Glyph in the font
  */
 export class Glyph extends ArrayElementBase {
     private _layerWrappers: Layer[] | null = null;
+
+    private getGlobalSidebearingKey(side: SidebearingSide): string | undefined {
+        return normalizeMetricsKeyValue(
+            getModelFormatSpecific(this)?.[
+                getGlyphMetricFormatSpecificKey(side)
+            ] as string | undefined
+        );
+    }
+
+    private setGlobalSidebearingKey(
+        side: SidebearingSide,
+        value: string | undefined
+    ): void {
+        setFormatSpecificKey(
+            this,
+            getGlyphMetricFormatSpecificKey(side),
+            value
+        );
+    }
+
+    get leftMetricsKey(): string | undefined {
+        return this.getGlobalSidebearingKey('left');
+    }
+
+    set leftMetricsKey(value: string | undefined) {
+        this.setGlobalSidebearingKey('left', normalizeMetricsKeyValue(value));
+    }
+
+    get rightMetricsKey(): string | undefined {
+        return this.getGlobalSidebearingKey('right');
+    }
+
+    set rightMetricsKey(value: string | undefined) {
+        this.setGlobalSidebearingKey('right', normalizeMetricsKeyValue(value));
+    }
 
     getPathSegment(): (string | number)[] {
         return ['glyphs', this.data.name || ''];
@@ -4146,6 +4992,7 @@ export class Font extends ModelBase {
     private _axisWrappers: Axis[] | null = null;
     private _masterWrappers: Master[] | null = null;
     private _instanceWrappers: Instance[] | null = null;
+    private _isRecomputingMetricsKeys = false;
 
     constructor(data: Babelfont.Font) {
         super(data);
@@ -4239,6 +5086,137 @@ export class Font extends ModelBase {
             this._glyphWrappers!,
             'Font.glyphs is a read-only collection view. Use addGlyph(), removeGlyph(), or duplicateGlyph() for structural edits.'
         );
+    }
+
+    recomputeMetricsKeys(changedGlyphNames?: Set<string>): Set<string> {
+        if (this._isRecomputingMetricsKeys) {
+            return new Set();
+        }
+
+        const layersWithKeys: Layer[] = [];
+        for (const glyph of this.glyphs) {
+            for (const layer of glyph.layers || []) {
+                if (
+                    layer.leftMetricsKey ||
+                    layer.rightMetricsKey ||
+                    glyph.leftMetricsKey ||
+                    glyph.rightMetricsKey
+                ) {
+                    layersWithKeys.push(layer);
+                }
+            }
+        }
+
+        if (layersWithKeys.length === 0) {
+            return new Set();
+        }
+
+        this._isRecomputingMetricsKeys = true;
+        const recomputedGlyphNames = new Set<string>();
+        try {
+            let pendingGlyphNames =
+                changedGlyphNames && changedGlyphNames.size > 0
+                    ? new Set(changedGlyphNames)
+                    : new Set(this.glyphs.map((glyph) => glyph.name));
+
+            const processedGlyphNames = new Set<string>();
+            const maxPasses = Math.max(layersWithKeys.length + 2, 4);
+
+            for (
+                let pass = 0;
+                pass < maxPasses && pendingGlyphNames.size > 0;
+                pass++
+            ) {
+                const autoAlignedDependents = new Set<string>();
+                for (const glyphName of pendingGlyphNames) {
+                    for (const dependentName of this.findGlyphsUsingComponent(
+                        glyphName
+                    )) {
+                        autoAlignedDependents.add(dependentName);
+                    }
+                }
+
+                const nextGlyphNames = new Set<string>();
+
+                for (const layer of layersWithKeys) {
+                    const glyph = layer.parent() as Glyph;
+                    const glyphName = glyph?.name;
+                    let layerChanged = false;
+
+                    for (const side of ['left', 'right'] as SidebearingSide[]) {
+                        const key =
+                            side === 'left'
+                                ? layer.leftMetricsKey || glyph.leftMetricsKey
+                                : layer.rightMetricsKey ||
+                                  glyph.rightMetricsKey;
+                        if (!key) {
+                            continue;
+                        }
+
+                        const parsed = parseMetricsKey(this, key);
+                        if ('error' in parsed) {
+                            continue;
+                        }
+
+                        const shouldRecompute =
+                            (parsed.kind === 'automatic-offset' &&
+                                autoAlignedDependents.has(glyphName)) ||
+                            parsed.referencedGlyphNames.some((name) =>
+                                pendingGlyphNames.has(name)
+                            );
+
+                        if (!shouldRecompute) {
+                            continue;
+                        }
+
+                        const resolution = layer.resolveMetricsKey(side);
+                        const applied = getAppliedMetricsKeySidebearing(
+                            layer,
+                            side,
+                            resolution
+                        );
+                        const currentValue =
+                            side === 'left' ? layer.lsb : layer.rsb;
+                        if (
+                            applied.error ||
+                            applied.value === null ||
+                            Math.abs(currentValue - applied.value) <=
+                                METRIC_UPDATE_EPSILON
+                        ) {
+                            continue;
+                        }
+
+                        layer.setDirectSidebearing(side, applied.value);
+                        layerChanged = true;
+                        if (glyphName) {
+                            recomputedGlyphNames.add(glyphName);
+                        }
+                    }
+
+                    if (
+                        layerChanged &&
+                        glyphName &&
+                        !processedGlyphNames.has(glyphName)
+                    ) {
+                        nextGlyphNames.add(glyphName);
+                    }
+                }
+
+                for (const glyphName of pendingGlyphNames) {
+                    processedGlyphNames.add(glyphName);
+                }
+
+                pendingGlyphNames = new Set(
+                    [...nextGlyphNames].filter(
+                        (glyphName) => !processedGlyphNames.has(glyphName)
+                    )
+                );
+            }
+
+            return recomputedGlyphNames;
+        } finally {
+            this._isRecomputingMetricsKeys = false;
+        }
     }
 
     get note(): string | undefined {
