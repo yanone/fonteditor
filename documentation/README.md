@@ -47,6 +47,7 @@ This documentation is designed as a practical user guide for real font-productio
 - [Files View Basics](files/01-files-view-basics.md)
 - [Local Disk Access](files/02-local-disk-access.md)
 - [Open, Save, and File Formats](files/03-open-save-formats.md)
+- [Editing in Multiple Windows](files/04-editing-in-multiple-windows.md)
 
 ### Editor
 
@@ -78,6 +79,7 @@ This documentation is designed as a practical user guide for real font-productio
 
 - [Keyboard Shortcuts](reference/keyboard-shortcuts.md)
 - [Glossary](reference/glossary.md)
+- [Undo and History Scopes](reference/undo-and-history-scopes.md)
 
 ### Acknowledgements
 
