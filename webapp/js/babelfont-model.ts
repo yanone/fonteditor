@@ -2166,16 +2166,14 @@ export class Layer extends ArrayElementBase {
         minY: number,
         maxX: number,
         maxY: number
-    ):
-        | {
-              minX: number;
-              minY: number;
-              maxX: number;
-              maxY: number;
-              width: number;
-              height: number;
-          }
-        | null {
+    ): {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+        width: number;
+        height: number;
+    } | null {
         if (
             !Number.isFinite(minX) ||
             !Number.isFinite(minY) ||
@@ -2200,16 +2198,14 @@ export class Layer extends ArrayElementBase {
             points: Array<{ x: number; y: number }>;
             type: 'line' | 'quadratic' | 'cubic';
         }>
-    ):
-        | {
-              minX: number;
-              minY: number;
-              maxX: number;
-              maxY: number;
-              width: number;
-              height: number;
-          }
-        | null {
+    ): {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+        width: number;
+        height: number;
+    } | null {
         let minX = Infinity;
         let minY = Infinity;
         let maxX = -Infinity;
@@ -2278,9 +2274,7 @@ export class Layer extends ArrayElementBase {
 
         const normalizedNodes = nodes.filter(
             (node) =>
-                node &&
-                typeof node.x === 'number' &&
-                typeof node.y === 'number'
+                node && typeof node.x === 'number' && typeof node.y === 'number'
         );
         if (!normalizedNodes.length) {
             return null;
