@@ -56,7 +56,7 @@ function getNodesFromOutlineShape(shape: any): Babelfont.Node[] | undefined {
 
 /**
  * Calculate bounding box from SVG path data
- * Parses M, L, C, Q, Z commands to find min/max x and y coordinates
+ * Parses M, L, C, Q, Z commands and resolves curve extrema.
  */
 function calculatePathBounds(pathData: string): {
     minX: number;
@@ -64,42 +64,17 @@ function calculatePathBounds(pathData: string): {
     maxX: number;
     maxY: number;
 } | null {
-    if (!pathData) return null;
-
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    // Parse SVG path commands
-    const commands = pathData.match(/[MLCQZ][^MLCQZ]*/gi);
-    if (!commands) return null;
-
-    for (const cmd of commands) {
-        const type = cmd[0];
-        const coords = cmd
-            .slice(1)
-            .trim()
-            .split(/[\s,]+/)
-            .map(parseFloat)
-            .filter((n) => !isNaN(n));
-
-        // Process coordinates based on command type
-        for (let i = 0; i < coords.length; i += 2) {
-            const x = coords[i];
-            const y = coords[i + 1];
-            if (x !== undefined && y !== undefined) {
-                minX = Math.min(minX, x);
-                maxX = Math.max(maxX, x);
-                minY = Math.min(minY, y);
-                maxY = Math.max(maxY, y);
-            }
-        }
+    const bounds = Layer.calculateSvgPathBounds(pathData);
+    if (!bounds) {
+        return null;
     }
 
-    if (!isFinite(minX)) return null;
-
-    return { minX, minY, maxX, maxY };
+    return {
+        minX: bounds.minX,
+        minY: bounds.minY,
+        maxX: bounds.maxX,
+        maxY: bounds.maxY
+    };
 }
 
 function parseRgbaColor(color: string): {
@@ -384,86 +359,20 @@ export class GlyphCanvasRenderer {
         layerData: Babelfont.Layer,
         parentTransform: number[] = [1, 0, 0, 1, 0, 0]
     ): { minX: number; minY: number; maxX: number; maxY: number } | null {
-        if (!layerData?.shapes || layerData.shapes.length === 0) {
+        const bounds = Layer.calculateShapeBounds(
+            layerData?.shapes,
+            parentTransform
+        );
+        if (!bounds) {
             return null;
         }
 
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-
-        const accumulatePoint = (x: number, y: number) => {
-            const transformed = this.transformPointWithAffine(
-                x,
-                y,
-                parentTransform
-            );
-            minX = Math.min(minX, transformed.x);
-            minY = Math.min(minY, transformed.y);
-            maxX = Math.max(maxX, transformed.x);
-            maxY = Math.max(maxY, transformed.y);
+        return {
+            minX: bounds.minX,
+            minY: bounds.minY,
+            maxX: bounds.maxX,
+            maxY: bounds.maxY
         };
-
-        for (const shape of layerData.shapes) {
-            if ('reference' in shape) {
-                const nestedLayerData = (shape as any).layerData;
-                if (!nestedLayerData?.shapes) {
-                    continue;
-                }
-
-                const transformRaw =
-                    (shape as any).transform ||
-                    DecomposedAffineTransform.identity();
-                const componentTransform = Array.isArray(transformRaw)
-                    ? transformRaw
-                    : DecomposedAffineTransform.toAffine(transformRaw);
-
-                const [a1, b1, c1, d1, tx1, ty1] = parentTransform;
-                const [a2, b2, c2, d2, tx2, ty2] = componentTransform;
-                const composedTransform = [
-                    a1 * a2 + c1 * b2,
-                    b1 * a2 + d1 * b2,
-                    a1 * c2 + c1 * d2,
-                    b1 * c2 + d1 * d2,
-                    a1 * tx2 + c1 * ty2 + tx1,
-                    b1 * tx2 + d1 * ty2 + ty1
-                ];
-
-                const nestedBounds = this.getLayerLocalBounds(
-                    nestedLayerData,
-                    composedTransform
-                );
-                if (nestedBounds) {
-                    minX = Math.min(minX, nestedBounds.minX);
-                    minY = Math.min(minY, nestedBounds.minY);
-                    maxX = Math.max(maxX, nestedBounds.maxX);
-                    maxY = Math.max(maxY, nestedBounds.maxY);
-                }
-                continue;
-            }
-
-            const nodes =
-                getNodesFromShape(shape) || getNodesFromOutlineShape(shape);
-            if (!nodes || nodes.length === 0) {
-                continue;
-            }
-
-            for (const node of nodes) {
-                accumulatePoint(node.x, node.y);
-            }
-        }
-
-        if (
-            !Number.isFinite(minX) ||
-            !Number.isFinite(minY) ||
-            !Number.isFinite(maxX) ||
-            !Number.isFinite(maxY)
-        ) {
-            return null;
-        }
-
-        return { minX, minY, maxX, maxY };
     }
 
     private isPointInLayerShapes(
@@ -1520,74 +1429,24 @@ export class GlyphCanvasRenderer {
         maxY: number;
         hasPoints: boolean;
     } {
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-        let hasPoints = false;
+        const bounds = Layer.calculateShapeBounds(shapes);
+        if (!bounds) {
+            return {
+                minX: Infinity,
+                minY: Infinity,
+                maxX: -Infinity,
+                maxY: -Infinity,
+                hasPoints: false
+            };
+        }
 
-        const expandBounds = (x: number, y: number) => {
-            minX = Math.min(minX, x);
-            minY = Math.min(minY, y);
-            maxX = Math.max(maxX, x);
-            maxY = Math.max(maxY, y);
-            hasPoints = true;
+        return {
+            minX: bounds.minX,
+            minY: bounds.minY,
+            maxX: bounds.maxX,
+            maxY: bounds.maxY,
+            hasPoints: true
         };
-
-        shapes.forEach((shape: any) => {
-            // Handle direct node shapes (most common in components)
-            if (shape.nodes) {
-                const normalizedNodes = Array.isArray(shape.nodes)
-                    ? shape.nodes
-                    : typeof shape.nodes === 'string'
-                      ? LayerDataNormalizer.parseNodes(shape.nodes)
-                      : [];
-                normalizedNodes.forEach((node: any) => {
-                    expandBounds(node.x, node.y);
-                });
-            }
-            // Also handle Contour-wrapped shapes
-            else if ('Contour' in shape && shape.Contour.nodes) {
-                const contourNodes = Array.isArray(shape.Contour.nodes)
-                    ? shape.Contour.nodes
-                    : typeof shape.Contour.nodes === 'string'
-                      ? LayerDataNormalizer.parseNodes(shape.Contour.nodes)
-                      : [];
-                contourNodes.forEach((node: any) => {
-                    expandBounds(node.x, node.y);
-                });
-            }
-            // Handle nested components recursively
-            else if ('reference' in shape && shape.layerData?.shapes) {
-                const nestedBounds = this.getComponentBounds(
-                    shape.layerData.shapes
-                );
-                if (nestedBounds.hasPoints) {
-                    // Apply the nested component's transform to its bounds
-                    const transformRaw = shape.transform || [1, 0, 0, 1, 0, 0];
-                    const transform = Array.isArray(transformRaw)
-                        ? transformRaw
-                        : DecomposedAffineTransform.toAffine(transformRaw);
-                    const [a, b, c, d, tx, ty] = transform;
-
-                    // Transform all four corners of the bounding box
-                    const corners = [
-                        { x: nestedBounds.minX, y: nestedBounds.minY },
-                        { x: nestedBounds.maxX, y: nestedBounds.minY },
-                        { x: nestedBounds.minX, y: nestedBounds.maxY },
-                        { x: nestedBounds.maxX, y: nestedBounds.maxY }
-                    ];
-
-                    corners.forEach((corner) => {
-                        const transformedX = a * corner.x + c * corner.y + tx;
-                        const transformedY = b * corner.x + d * corner.y + ty;
-                        expandBounds(transformedX, transformedY);
-                    });
-                }
-            }
-        });
-
-        return { minX, minY, maxX, maxY, hasPoints };
     }
 
     drawOutlineEditor() {

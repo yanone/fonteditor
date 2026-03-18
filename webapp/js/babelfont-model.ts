@@ -2161,6 +2161,440 @@ export class Layer extends ArrayElementBase {
         return segments;
     }
 
+    private static boundsFromMinMax(
+        minX: number,
+        minY: number,
+        maxX: number,
+        maxY: number
+    ):
+        | {
+              minX: number;
+              minY: number;
+              maxX: number;
+              maxY: number;
+              width: number;
+              height: number;
+          }
+        | null {
+        if (
+            !Number.isFinite(minX) ||
+            !Number.isFinite(minY) ||
+            !Number.isFinite(maxX) ||
+            !Number.isFinite(maxY)
+        ) {
+            return null;
+        }
+
+        return {
+            minX,
+            minY,
+            maxX,
+            maxY,
+            width: maxX - minX,
+            height: maxY - minY
+        };
+    }
+
+    private static boundsFromSegments(
+        segments: Array<{
+            points: Array<{ x: number; y: number }>;
+            type: 'line' | 'quadratic' | 'cubic';
+        }>
+    ):
+        | {
+              minX: number;
+              minY: number;
+              maxX: number;
+              maxY: number;
+              width: number;
+              height: number;
+          }
+        | null {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        const includePoint = (x: number, y: number) => {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        };
+
+        for (const segment of segments) {
+            if (
+                !segment ||
+                !Array.isArray(segment.points) ||
+                segment.points.length < 2
+            ) {
+                continue;
+            }
+
+            if (segment.type === 'line' || segment.points.length < 3) {
+                for (const point of segment.points) {
+                    includePoint(point.x, point.y);
+                }
+                continue;
+            }
+
+            try {
+                const bbox = new Bezier(segment.points).bbox();
+                includePoint(bbox.x.min, bbox.y.min);
+                includePoint(bbox.x.max, bbox.y.max);
+            } catch {
+                for (const point of segment.points) {
+                    includePoint(point.x, point.y);
+                }
+            }
+        }
+
+        return Layer.boundsFromMinMax(minX, minY, maxX, maxY);
+    }
+
+    static calculatePathBounds(pathData: {
+        nodes?: Unsafe[] | string;
+        closed?: boolean;
+    }): {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+        width: number;
+        height: number;
+    } | null {
+        if (!pathData?.nodes) {
+            return null;
+        }
+
+        const nodes =
+            typeof pathData.nodes === 'string'
+                ? LayerDataNormalizer.parseNodes(pathData.nodes)
+                : pathData.nodes;
+
+        if (!Array.isArray(nodes) || nodes.length === 0) {
+            return null;
+        }
+
+        const normalizedNodes = nodes.filter(
+            (node) =>
+                node &&
+                typeof node.x === 'number' &&
+                typeof node.y === 'number'
+        );
+        if (!normalizedNodes.length) {
+            return null;
+        }
+
+        const segmentBounds = Layer.boundsFromSegments(
+            Layer.processPathSegments({
+                nodes: normalizedNodes,
+                closed: pathData.closed
+            })
+        );
+        if (segmentBounds) {
+            return segmentBounds;
+        }
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const node of normalizedNodes) {
+            minX = Math.min(minX, node.x);
+            minY = Math.min(minY, node.y);
+            maxX = Math.max(maxX, node.x);
+            maxY = Math.max(maxY, node.y);
+        }
+
+        return Layer.boundsFromMinMax(minX, minY, maxX, maxY);
+    }
+
+    static calculateShapeBounds(
+        shapes: Unsafe[] | undefined,
+        parentTransform: number[] = [1, 0, 0, 1, 0, 0]
+    ): {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+        width: number;
+        height: number;
+    } | null {
+        if (!Array.isArray(shapes) || shapes.length === 0) {
+            return null;
+        }
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        const includeBounds = (
+            bounds:
+                | {
+                      minX: number;
+                      minY: number;
+                      maxX: number;
+                      maxY: number;
+                  }
+                | null
+                | undefined
+        ) => {
+            if (!bounds) {
+                return;
+            }
+            minX = Math.min(minX, bounds.minX);
+            minY = Math.min(minY, bounds.minY);
+            maxX = Math.max(maxX, bounds.maxX);
+            maxY = Math.max(maxY, bounds.maxY);
+        };
+
+        const composeTransforms = (t1: number[], t2: number[]): number[] => {
+            const [a1, b1, c1, d1, tx1, ty1] = t1;
+            const [a2, b2, c2, d2, tx2, ty2] = t2;
+            return [
+                a1 * a2 + c1 * b2,
+                b1 * a2 + d1 * b2,
+                a1 * c2 + c1 * d2,
+                b1 * c2 + d1 * d2,
+                a1 * tx2 + c1 * ty2 + tx1,
+                b1 * tx2 + d1 * ty2 + ty1
+            ];
+        };
+
+        const transformNode = (node: Unsafe, transform: number[]): Unsafe => {
+            const [a, b, c, d, tx, ty] = transform;
+            return {
+                ...node,
+                x: a * node.x + c * node.y + tx,
+                y: b * node.x + d * node.y + ty
+            };
+        };
+
+        for (const shape of shapes) {
+            if (!shape || typeof shape !== 'object') {
+                continue;
+            }
+
+            const pathData =
+                'nodes' in shape
+                    ? shape
+                    : 'Path' in shape && shape.Path
+                      ? shape.Path
+                      : 'Contour' in shape && shape.Contour
+                        ? shape.Contour
+                        : null;
+
+            if (pathData?.nodes) {
+                const nodes =
+                    typeof pathData.nodes === 'string'
+                        ? LayerDataNormalizer.parseNodes(pathData.nodes)
+                        : pathData.nodes;
+                if (Array.isArray(nodes) && nodes.length > 0) {
+                    const transformedNodes = nodes.map((node: Unsafe) =>
+                        transformNode(node, parentTransform)
+                    );
+                    includeBounds(
+                        Layer.calculatePathBounds({
+                            nodes: transformedNodes,
+                            closed: pathData.closed
+                        })
+                    );
+                }
+                continue;
+            }
+
+            const componentData =
+                'reference' in shape
+                    ? shape
+                    : 'Component' in shape && shape.Component
+                      ? shape.Component
+                      : null;
+
+            if (!componentData?.layerData?.shapes) {
+                continue;
+            }
+
+            const componentTransform = Array.isArray(componentData.transform)
+                ? componentData.transform
+                : Array.from(
+                      DecomposedAffineTransform.toAffine(
+                          componentData.transform ||
+                              DecomposedAffineTransform.identity()
+                      )
+                  );
+            includeBounds(
+                Layer.calculateShapeBounds(
+                    componentData.layerData.shapes,
+                    composeTransforms(parentTransform, componentTransform)
+                )
+            );
+        }
+
+        return Layer.boundsFromMinMax(minX, minY, maxX, maxY);
+    }
+
+    static calculateSvgPathBounds(pathData: string): {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+        width: number;
+        height: number;
+    } | null {
+        if (!pathData) {
+            return null;
+        }
+
+        const tokens = pathData.match(/[MLCQZ]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi);
+        if (!tokens) {
+            return null;
+        }
+
+        const isCommand = (token: string): boolean => /^[MLCQZ]$/i.test(token);
+        const readNumber = (index: number): number | null => {
+            if (index >= tokens.length || isCommand(tokens[index])) {
+                return null;
+            }
+            const value = Number.parseFloat(tokens[index]);
+            return Number.isFinite(value) ? value : null;
+        };
+
+        const segments: Array<{
+            points: Array<{ x: number; y: number }>;
+            type: 'line' | 'quadratic' | 'cubic';
+        }> = [];
+        let currentPoint: { x: number; y: number } | null = null;
+        let subpathStart: { x: number; y: number } | null = null;
+
+        for (let index = 0; index < tokens.length; ) {
+            const command = tokens[index++].toUpperCase();
+
+            if (command === 'M') {
+                const x = readNumber(index);
+                const y = readNumber(index + 1);
+                if (x === null || y === null) {
+                    break;
+                }
+                currentPoint = { x, y };
+                subpathStart = { x, y };
+                index += 2;
+
+                while (index < tokens.length && !isCommand(tokens[index])) {
+                    const nextX = readNumber(index);
+                    const nextY = readNumber(index + 1);
+                    if (
+                        nextX === null ||
+                        nextY === null ||
+                        currentPoint === null
+                    ) {
+                        break;
+                    }
+                    segments.push({
+                        type: 'line',
+                        points: [currentPoint, { x: nextX, y: nextY }]
+                    });
+                    currentPoint = { x: nextX, y: nextY };
+                    index += 2;
+                }
+                continue;
+            }
+
+            if (command === 'L') {
+                while (index < tokens.length && !isCommand(tokens[index])) {
+                    const x = readNumber(index);
+                    const y = readNumber(index + 1);
+                    if (x === null || y === null || currentPoint === null) {
+                        break;
+                    }
+                    segments.push({
+                        type: 'line',
+                        points: [currentPoint, { x, y }]
+                    });
+                    currentPoint = { x, y };
+                    index += 2;
+                }
+                continue;
+            }
+
+            if (command === 'Q') {
+                while (index < tokens.length && !isCommand(tokens[index])) {
+                    const c1x = readNumber(index);
+                    const c1y = readNumber(index + 1);
+                    const x = readNumber(index + 2);
+                    const y = readNumber(index + 3);
+                    if (
+                        c1x === null ||
+                        c1y === null ||
+                        x === null ||
+                        y === null ||
+                        currentPoint === null
+                    ) {
+                        break;
+                    }
+                    segments.push({
+                        type: 'quadratic',
+                        points: [currentPoint, { x: c1x, y: c1y }, { x, y }]
+                    });
+                    currentPoint = { x, y };
+                    index += 4;
+                }
+                continue;
+            }
+
+            if (command === 'C') {
+                while (index < tokens.length && !isCommand(tokens[index])) {
+                    const c1x = readNumber(index);
+                    const c1y = readNumber(index + 1);
+                    const c2x = readNumber(index + 2);
+                    const c2y = readNumber(index + 3);
+                    const x = readNumber(index + 4);
+                    const y = readNumber(index + 5);
+                    if (
+                        c1x === null ||
+                        c1y === null ||
+                        c2x === null ||
+                        c2y === null ||
+                        x === null ||
+                        y === null ||
+                        currentPoint === null
+                    ) {
+                        break;
+                    }
+                    segments.push({
+                        type: 'cubic',
+                        points: [
+                            currentPoint,
+                            { x: c1x, y: c1y },
+                            { x: c2x, y: c2y },
+                            { x, y }
+                        ]
+                    });
+                    currentPoint = { x, y };
+                    index += 6;
+                }
+                continue;
+            }
+
+            if (
+                command === 'Z' &&
+                currentPoint &&
+                subpathStart &&
+                (currentPoint.x !== subpathStart.x ||
+                    currentPoint.y !== subpathStart.y)
+            ) {
+                segments.push({
+                    type: 'line',
+                    points: [currentPoint, subpathStart]
+                });
+                currentPoint = subpathStart;
+            }
+        }
+
+        return Layer.boundsFromSegments(segments);
+    }
+
     /**
      * Flatten all components in the layer to paths with their transforms applied
      * This recursively processes nested components to arbitrary depth
@@ -2427,20 +2861,7 @@ export class Layer extends ArrayElementBase {
         width: number;
         height: number;
     } | null {
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-        let hasPoints = false;
-
-        // Helper function to expand bounding box with a point
-        const expandBounds = (x: number, y: number) => {
-            minX = Math.min(minX, x);
-            minY = Math.min(minY, y);
-            maxX = Math.max(maxX, x);
-            maxY = Math.max(maxY, y);
-            hasPoints = true;
-        };
+        let bounds = null;
 
         // Get all paths (we need to use the static flattenComponents for compatibility)
         // since we're working with raw layer data, not a Layer instance
@@ -2448,21 +2869,45 @@ export class Layer extends ArrayElementBase {
 
         // Process all paths
         for (const path of paths) {
-            if (path.nodes && Array.isArray(path.nodes)) {
-                for (const node of path.nodes) {
-                    expandBounds(node.x, node.y);
-                }
+            const pathBounds = Layer.calculatePathBounds(path);
+            if (pathBounds) {
+                bounds = bounds
+                    ? {
+                          minX: Math.min(bounds.minX, pathBounds.minX),
+                          minY: Math.min(bounds.minY, pathBounds.minY),
+                          maxX: Math.max(bounds.maxX, pathBounds.maxX),
+                          maxY: Math.max(bounds.maxY, pathBounds.maxY),
+                          width: 0,
+                          height: 0
+                      }
+                    : { ...pathBounds };
             }
         }
 
         // Include anchors in bounding box if requested
         if (includeAnchors && layerData.anchors) {
             for (const anchor of layerData.anchors) {
-                expandBounds(anchor.x, anchor.y);
+                bounds = bounds
+                    ? {
+                          minX: Math.min(bounds.minX, anchor.x),
+                          minY: Math.min(bounds.minY, anchor.y),
+                          maxX: Math.max(bounds.maxX, anchor.x),
+                          maxY: Math.max(bounds.maxY, anchor.y),
+                          width: 0,
+                          height: 0
+                      }
+                    : {
+                          minX: anchor.x,
+                          minY: anchor.y,
+                          maxX: anchor.x,
+                          maxY: anchor.y,
+                          width: 0,
+                          height: 0
+                      };
             }
         }
 
-        if (!hasPoints) {
+        if (!bounds) {
             // No points found (e.g., space character) - use glyph width from layer data
             // Create a small bbox: 10 units high, centered on baseline, as wide as the glyph
             const glyphWidth = layerData.width || 250; // Fallback to 250 if no width
@@ -2479,12 +2924,12 @@ export class Layer extends ArrayElementBase {
         }
 
         return {
-            minX,
-            minY,
-            maxX,
-            maxY,
-            width: maxX - minX,
-            height: maxY - minY
+            minX: bounds.minX,
+            minY: bounds.minY,
+            maxX: bounds.maxX,
+            maxY: bounds.maxY,
+            width: bounds.maxX - bounds.minX,
+            height: bounds.maxY - bounds.minY
         };
     }
 

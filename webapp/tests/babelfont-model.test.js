@@ -760,4 +760,30 @@ describe('Babelfont Object Model', () => {
             });
         });
     });
+
+    describe('Curve-aware bounding boxes', () => {
+        test('should measure glyph A from bbox.glyphs as 150x150', () => {
+            const fixturePath = path.join(
+                __dirname,
+                '..',
+                'examples',
+                'bbox.glyphs'
+            );
+            const bboxFont = Font.fromData(loadFontFile(fixturePath));
+
+            const glyphA = bboxFont.findGlyph('A');
+            expect(glyphA).toBeDefined();
+
+            const layer = glyphA.layers[0];
+            const bbox = layer.getBoundingBox(false);
+
+            expect(bbox).not.toBeNull();
+            expect(bbox.minX).toBeCloseTo(0, 5);
+            expect(bbox.minY).toBeCloseTo(0, 5);
+            expect(bbox.maxX).toBeCloseTo(150, 5);
+            expect(bbox.maxY).toBeCloseTo(150, 5);
+            expect(bbox.width).toBeCloseTo(150, 5);
+            expect(bbox.height).toBeCloseTo(150, 5);
+        });
+    });
 });

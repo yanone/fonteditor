@@ -3,7 +3,7 @@
 // Uses a shared offscreen canvas for path building, then draws to target canvases
 
 import { LayerDataNormalizer } from './layer-data-normalizer';
-import { DecomposedAffineTransform } from './babelfont-model';
+import { DecomposedAffineTransform, Layer } from './babelfont-model';
 import { Logger } from './logger';
 import APP_SETTINGS from './settings';
 
@@ -219,74 +219,17 @@ class FastGlyphTileRenderer {
         yMin: number;
         yMax: number;
     } | null {
-        if (!Array.isArray(shapes) || shapes.length === 0) {
+        const bounds = Layer.calculateShapeBounds(shapes, parentTransform);
+        if (!bounds) {
             return null;
         }
 
-        let xMin = Infinity;
-        let xMax = -Infinity;
-        let yMin = Infinity;
-        let yMax = -Infinity;
-
-        const includePoint = (x: number, y: number) => {
-            xMin = Math.min(xMin, x);
-            xMax = Math.max(xMax, x);
-            yMin = Math.min(yMin, y);
-            yMax = Math.max(yMax, y);
+        return {
+            xMin: bounds.minX,
+            xMax: bounds.maxX,
+            yMin: bounds.minY,
+            yMax: bounds.maxY
         };
-
-        for (const shape of shapes) {
-            const normalized = this.normalizeShape(shape);
-            if (!normalized) {
-                continue;
-            }
-
-            if (normalized.kind === 'path') {
-                let nodes = normalized.data.nodes;
-                if (typeof nodes === 'string') {
-                    nodes = LayerDataNormalizer.parseNodes(nodes);
-                }
-                if (!Array.isArray(nodes)) {
-                    continue;
-                }
-                for (const node of nodes) {
-                    if (
-                        !node ||
-                        typeof node.x !== 'number' ||
-                        typeof node.y !== 'number'
-                    ) {
-                        continue;
-                    }
-                    const [a, b, c, d, tx, ty] = parentTransform;
-                    includePoint(
-                        a * node.x + c * node.y + tx,
-                        b * node.x + d * node.y + ty
-                    );
-                }
-                continue;
-            }
-
-            const component = normalized.data;
-            const transform = this.parseTransform(component.transform);
-            const finalTransform = this.multiplyTransforms(
-                parentTransform,
-                transform
-            );
-            const componentBounds = this.getVisualBoundsFromShapes(
-                component.layerData?.shapes || [],
-                finalTransform
-            );
-            if (componentBounds) {
-                includePoint(componentBounds.xMin, componentBounds.yMin);
-                includePoint(componentBounds.xMax, componentBounds.yMax);
-            }
-        }
-
-        if (!Number.isFinite(xMin) || !Number.isFinite(xMax)) {
-            return null;
-        }
-
-        return { xMin, xMax, yMin, yMax };
     }
 
     /**

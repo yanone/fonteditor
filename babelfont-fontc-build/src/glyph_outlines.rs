@@ -6,7 +6,7 @@
 
 use babelfont::{Layer, Node, Shape, Tag};
 use fontdrasil::coords::{DesignCoord, DesignLocation, UserCoord};
-use kurbo::{Affine, Point};
+use kurbo::{Affine, Point, Shape as KurboShape};
 use serde_json::Value as JsonValue;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -469,13 +469,27 @@ fn calculate_bounds(shapes: &[Shape]) -> serde_json::Value {
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
 
+    let mut include_point = |x: f64, y: f64| {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    };
+
     for shape in shapes {
         if let Shape::Path(path) = shape {
-            for node in &path.nodes {
-                min_x = min_x.min(node.x);
-                min_y = min_y.min(node.y);
-                max_x = max_x.max(node.x);
-                max_y = max_y.max(node.y);
+            match path.to_kurbo() {
+                Ok(bez_path) => {
+                    let bbox = bez_path.bounding_box();
+                    include_point(bbox.min_x(), bbox.min_y());
+                    include_point(bbox.max_x(), bbox.max_y());
+                }
+                Err(_) => {
+                    // Fall back to raw node bounds if the path is malformed.
+                    for node in &path.nodes {
+                        include_point(node.x, node.y);
+                    }
+                }
             }
         }
     }
