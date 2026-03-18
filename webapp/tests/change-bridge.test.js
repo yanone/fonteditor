@@ -1544,6 +1544,137 @@ describe('Transactions', () => {
         expect(log[0].transactionId).not.toBeNull();
     });
 
+    test('buffered layer transaction undoes as one layer history item', () => {
+        const { bridge } = createTestBridge('test-1');
+
+        bridge.beginTransaction('Drag node');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
+            'x',
+            100,
+            110
+        );
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
+            'y',
+            0,
+            10
+        );
+        bridge.endTransaction();
+
+        const layerItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            glyphName: 'A',
+            layerId: 'layer-1'
+        });
+
+        expect(layerItems).toHaveLength(1);
+        expect(layerItems[0].undoScope).toBe('layer');
+        expect(layerItems[0].entries).toHaveLength(2);
+
+        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(100);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'y'
+            ])
+        ).toBe(0);
+    });
+
+    test('buffered multi-layer glyph transaction stays glyph-scoped in history panels', () => {
+        const fontJson = makeMinimalFont();
+        fontJson.glyphs[0].layers.push({
+            id: 'layer-1b',
+            name: 'Regular Alt',
+            width: 620,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-regular'
+            },
+            smart_component_location: {},
+            color: null,
+            layer_index: 1,
+            is_background: false,
+            background_layer_id: null,
+            location: {},
+            format_specific: {},
+            shapes: [],
+            anchors: [],
+            guides: []
+        });
+
+        const bridge = new ChangeBridge('test-1');
+        bridge.initFromJson(fontJson);
+
+        bridge.beginTransaction('Set sidebearings');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            700
+        );
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1b'],
+            'width',
+            620,
+            730
+        );
+        bridge.endTransaction();
+
+        const layer1Items = buildHistoryStackItems(bridge.getChangeLog(), {
+            glyphName: 'A',
+            layerId: 'layer-1'
+        });
+        const layer1bItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            glyphName: 'A',
+            layerId: 'layer-1b'
+        });
+
+        expect(layer1Items).toHaveLength(1);
+        expect(layer1bItems).toHaveLength(1);
+        expect(layer1Items[0].undoScope).toBe('glyph');
+        expect(layer1bItems[0].undoScope).toBe('glyph');
+
+        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1b',
+                'width'
+            ])
+        ).toBe(620);
+    });
+
     test('nested transactions share outermost label', () => {
         const { bridge } = createTestBridge('test-1');
         bridge.beginTransaction('Outer');

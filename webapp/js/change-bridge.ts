@@ -50,6 +50,14 @@ type SyntheticChangeOperation = {
     newValue: unknown;
 };
 
+type BatchApplyMode = 'default' | 'glyph-snapshot' | 'layer-snapshot';
+
+type BufferedChangeOperation = SyntheticChangeOperation & {
+    applyPath?: (string | number)[];
+    applyNewValue?: unknown;
+    applyMode?: BatchApplyMode;
+};
+
 /**
  * Origin token used by Yjs transactions that represent same-user edits.
  * Linked windows should all be able to undo these changes.
@@ -126,6 +134,8 @@ export class ChangeBridge {
     private _txHistoryItemId: string | null = null;
     /** Optional explicit history target for the current transaction */
     private _txHistoryTarget: TransactionHistoryTarget | null = null;
+    /** Buffered operations for the current outermost transaction */
+    private _txBufferedOperations: BufferedChangeOperation[] = [];
     /** Flag: currently applying remote update (suppress outbound broadcast) */
     private _isApplyingRemote = false;
     /** Flag: suppress Y.Doc sync (during initFromJson) */
@@ -301,49 +311,14 @@ export class ChangeBridge {
         if (this._suppressRecording || this._isSyncing) return;
 
         const fullPath = [...path, prop];
-        const glyphName = deriveGlyphName(fullPath);
-        const layerId = deriveLayerId(fullPath);
-        const undoScope = this._deriveUndoScope(glyphName, layerId);
-        const origin = this._getEditOrigin(glyphName, layerId, undoScope);
-
-        if (undoScope === 'layer' && glyphName && layerId) {
-            this.getLayerUndoManager(glyphName, layerId);
-        } else if (undoScope === 'glyph' && glyphName) {
-            this.getGlyphUndoManager(glyphName);
-        }
-
-        // Log entry (before Y.Doc transaction so it's available for broadcast)
-        const historyTarget =
-            this._txHistoryTarget ?? this._deriveHistoryTarget(fullPath);
-        const entry = createLogEntry({
-            timestamp: Date.now(),
-            windowId: this.windowId,
-            transactionLabel: this._txLabel,
-            windowRoleLabel: this._getWindowRoleLabel(),
-            historyItemId: this._getCurrentHistoryItemId(),
-            historyAction: 'change',
-            transactionId: this._txId,
-            op: 'set' as ChangeOp,
-            undoScope,
-            path: fullPath.join('.'),
-            oldValue: oldVal,
-            newValue: newVal,
-            historyTargetType: historyTarget?.type ?? null,
-            historyTargetKey: historyTarget?.key ?? null,
-            historyTargetLabel: historyTarget?.label ?? null
-        });
-        this._appendChangeLogEntry(entry);
-
-        // Update Y.Doc
-        const yPath = this._toYDocPath(fullPath);
-        this.yDoc.transact(() => {
-            setYPath(this.fontMap, yPath, newVal);
-        }, origin);
-
-        // Mark dirty
-        this._onDirty?.();
-
-        console.log(`[ChangeBridge] Change recorded: ${entry.path}`);
+        this._queueOrCommitOperations([
+            {
+                op: 'set',
+                path: fullPath,
+                oldValue: cloneHistoryValue(oldVal),
+                newValue: cloneHistoryValue(newVal)
+            }
+        ]);
     }
 
     /**
@@ -352,44 +327,14 @@ export class ChangeBridge {
     recordAdd(path: (string | number)[], value: unknown): void {
         if (this._suppressRecording || this._isSyncing) return;
 
-        const glyphName = deriveGlyphName(path);
-        const layerId = deriveLayerId(path);
-        const undoScope = this._deriveUndoScope(glyphName, layerId);
-        const origin = this._getEditOrigin(glyphName, layerId, undoScope);
-
-        if (undoScope === 'layer' && glyphName && layerId) {
-            this.getLayerUndoManager(glyphName, layerId);
-        } else if (undoScope === 'glyph' && glyphName) {
-            this.getGlyphUndoManager(glyphName);
-        }
-
-        const historyTarget =
-            this._txHistoryTarget ?? this._deriveHistoryTarget(path);
-        const entry = createLogEntry({
-            timestamp: Date.now(),
-            windowId: this.windowId,
-            transactionLabel: this._txLabel,
-            windowRoleLabel: this._getWindowRoleLabel(),
-            historyItemId: this._getCurrentHistoryItemId(),
-            historyAction: 'change',
-            transactionId: this._txId,
-            op: 'add' as ChangeOp,
-            undoScope,
-            path: path.join('.'),
-            oldValue: undefined,
-            newValue: value,
-            historyTargetType: historyTarget?.type ?? null,
-            historyTargetKey: historyTarget?.key ?? null,
-            historyTargetLabel: historyTarget?.label ?? null
-        });
-        this._appendChangeLogEntry(entry);
-
-        const yPath = this._toYDocPath(path);
-        this.yDoc.transact(() => {
-            setYPath(this.fontMap, yPath, value);
-        }, origin);
-
-        this._onDirty?.();
+        this._queueOrCommitOperations([
+            {
+                op: 'add',
+                path,
+                oldValue: undefined,
+                newValue: cloneHistoryValue(value)
+            }
+        ]);
     }
 
     /**
@@ -398,44 +343,14 @@ export class ChangeBridge {
     recordRemove(path: (string | number)[], oldValue: unknown): void {
         if (this._suppressRecording || this._isSyncing) return;
 
-        const glyphName = deriveGlyphName(path);
-        const layerId = deriveLayerId(path);
-        const undoScope = this._deriveUndoScope(glyphName, layerId);
-        const origin = this._getEditOrigin(glyphName, layerId, undoScope);
-
-        if (undoScope === 'layer' && glyphName && layerId) {
-            this.getLayerUndoManager(glyphName, layerId);
-        } else if (undoScope === 'glyph' && glyphName) {
-            this.getGlyphUndoManager(glyphName);
-        }
-
-        const historyTarget =
-            this._txHistoryTarget ?? this._deriveHistoryTarget(path);
-        const entry = createLogEntry({
-            timestamp: Date.now(),
-            windowId: this.windowId,
-            transactionLabel: this._txLabel,
-            windowRoleLabel: this._getWindowRoleLabel(),
-            historyItemId: this._getCurrentHistoryItemId(),
-            historyAction: 'change',
-            transactionId: this._txId,
-            op: 'remove' as ChangeOp,
-            undoScope,
-            path: path.join('.'),
-            oldValue,
-            newValue: undefined,
-            historyTargetType: historyTarget?.type ?? null,
-            historyTargetKey: historyTarget?.key ?? null,
-            historyTargetLabel: historyTarget?.label ?? null
-        });
-        this._appendChangeLogEntry(entry);
-
-        const yPath = this._toYDocPath(path);
-        this.yDoc.transact(() => {
-            deleteYPath(this.fontMap, yPath);
-        }, origin);
-
-        this._onDirty?.();
+        this._queueOrCommitOperations([
+            {
+                op: 'remove',
+                path,
+                oldValue: cloneHistoryValue(oldValue),
+                newValue: undefined
+            }
+        ]);
     }
 
     applySyntheticChangeSet(
@@ -451,112 +366,19 @@ export class ChangeBridge {
             return;
         }
 
-        const normalizedOperations = operations.filter(
-            (operation) => operation.path.length > 0
-        );
-        if (!normalizedOperations.length) {
+        if (!operations.some((operation) => operation.path.length > 0)) {
             return;
         }
 
-        const touchedGlyphNames = new Set<string>();
-        const touchedLayerKeys = new Set<string>();
-        let hasFontScopedChange = false;
-        let hasGlyphScopedChange = false;
-
-        for (const operation of normalizedOperations) {
-            const glyphName = deriveGlyphName(operation.path);
-            const layerId = deriveLayerId(operation.path);
-            if (!glyphName) {
-                hasFontScopedChange = true;
-            }
-            if (glyphName) {
-                touchedGlyphNames.add(glyphName);
-            }
-            if (glyphName && layerId) {
-                touchedLayerKeys.add(getLayerManagerKey(glyphName, layerId));
-            } else if (glyphName) {
-                hasGlyphScopedChange = true;
-            }
-        }
-
-        let overallScope: UndoScope = 'font';
-        let origin = FONT_EDIT_ORIGIN;
-        let glyphUndoManager: Y.UndoManager | null = null;
-        let layerUndoManager: Y.UndoManager | null = null;
-
-        if (!hasFontScopedChange && touchedGlyphNames.size === 1) {
-            const glyphName = [...touchedGlyphNames][0];
-            if (!hasGlyphScopedChange && touchedLayerKeys.size === 1) {
-                const [managerKey] = [...touchedLayerKeys];
-                const [, layerId] = managerKey.split('@@');
-                overallScope = 'layer';
-                origin = getLayerEditOrigin(glyphName, layerId);
-                layerUndoManager = this.getLayerUndoManager(glyphName, layerId);
-                layerUndoManager?.stopCapturing();
-            } else {
-                overallScope = 'glyph';
-                origin = GLYPH_EDIT_ORIGIN;
-                glyphUndoManager = this.getGlyphUndoManager(glyphName);
-                glyphUndoManager?.stopCapturing();
-            }
-        } else {
-            this._fontUndoManager?.stopCapturing();
-        }
-
-        const historyItemId = this._getCurrentHistoryItemId();
-        const timestamp = Date.now();
-
-        for (const operation of normalizedOperations) {
-            const pathString = operation.path.join('.');
-            const historyTarget =
-                this._txHistoryTarget ??
-                this._deriveHistoryTarget(operation.path);
-
-            const entry = createLogEntry({
-                timestamp,
-                windowId: this.windowId,
-                transactionLabel: this._txLabel ?? label,
-                windowRoleLabel: this._getWindowRoleLabel(),
-                historyItemId,
-                historyAction: 'change',
-                transactionId: this._txId,
+        this._queueOrCommitOperations(
+            operations.map((operation) => ({
                 op: operation.op,
-                undoScope: this._deriveUndoScope(
-                    deriveGlyphName(operation.path),
-                    deriveLayerId(operation.path)
-                ),
-                path: pathString,
-                oldValue: operation.oldValue,
-                newValue: operation.newValue,
-                historyTargetType: historyTarget?.type ?? null,
-                historyTargetKey: historyTarget?.key ?? null,
-                historyTargetLabel: historyTarget?.label ?? null
-            });
-            this._appendChangeLogEntry(entry);
-        }
-
-        this.yDoc.transact(() => {
-            for (const operation of normalizedOperations) {
-                if (operation.op === 'remove') {
-                    deleteYPath(this.fontMap, this._toYDocPath(operation.path));
-                    continue;
-                }
-
-                setYPath(
-                    this.fontMap,
-                    this._toYDocPath(operation.path),
-                    operation.newValue
-                );
-            }
-        }, origin);
-
-        glyphUndoManager?.stopCapturing();
-        layerUndoManager?.stopCapturing();
-        if (overallScope === 'font') {
-            this._fontUndoManager?.stopCapturing();
-        }
-
-        this._onDirty?.();
+                path: operation.path,
+                oldValue: cloneHistoryValue(operation.oldValue),
+                newValue: cloneHistoryValue(operation.newValue)
+            })),
+            label
+        );
     }
 
     // ── Transactions ─────────────────────────────────────────────
@@ -585,6 +407,16 @@ export class ChangeBridge {
         if (this._txDepth <= 0) return;
         this._txDepth--;
         if (this._txDepth === 0) {
+            if (this._txBufferedOperations.length) {
+                this._commitOperations(
+                    this._txBufferedOperations,
+                    this._txLabel,
+                    this._txId,
+                    this._txHistoryItemId,
+                    this._txHistoryTarget
+                );
+            }
+            this._txBufferedOperations = [];
             this._txLabel = null;
             this._txId = null;
             this._txHistoryItemId = null;
@@ -660,9 +492,6 @@ export class ChangeBridge {
             glyphName: string;
             previousGlyphJson: Record<string, unknown>;
             glyphJson: Record<string, unknown>;
-            glyphMap: Y.Map<unknown>;
-            glyphUndoManager: Y.UndoManager | null;
-            layerUndoManager: Y.UndoManager | null;
         }> = [];
 
         for (const glyphName of uniqueGlyphNames) {
@@ -685,20 +514,10 @@ export class ChangeBridge {
                 continue;
             }
 
-            const glyphUndoManager = this.getGlyphUndoManager(glyphName);
-            const layerUndoManager = layerId
-                ? this.getLayerUndoManager(glyphName, layerId)
-                : null;
-            glyphUndoManager?.stopCapturing();
-            layerUndoManager?.stopCapturing();
-
             targets.push({
                 glyphName,
                 previousGlyphJson: cloneHistoryValue(yGlyphJson),
-                glyphJson,
-                glyphMap,
-                glyphUndoManager,
-                layerUndoManager
+                glyphJson
             });
         }
 
@@ -707,122 +526,48 @@ export class ChangeBridge {
         }
 
         const undoScope = this._deriveBulkUndoScope(targets, layerId ?? null);
-        const origin = this._getBulkEditOrigin(
-            targets,
-            layerId ?? null,
-            undoScope
+        this._queueOrCommitOperations(
+            targets.map((target) => {
+                const glyphLayers = (target.glyphJson.layers ?? []) as Array<
+                    Record<string, unknown>
+                >;
+                const layerSnapshot = layerId
+                    ? cloneHistoryValue(
+                          glyphLayers.find(
+                              (layer: Record<string, unknown>) =>
+                                  layer.id === layerId
+                          )
+                      )
+                    : undefined;
+                const isLayerScope = undoScope === 'layer' && layerId;
+
+                return {
+                    op: 'set' as ChangeOp,
+                    path: isLayerScope
+                        ? ['glyphs', target.glyphName, 'layers', layerId]
+                        : ['glyphs', target.glyphName],
+                    oldValue:
+                        undoScope === 'font'
+                            ? target.previousGlyphJson
+                            : cloneHistoryValue(oldValue ?? target.glyphName),
+                    newValue:
+                        undoScope === 'font'
+                            ? cloneHistoryValue(target.glyphJson)
+                            : cloneHistoryValue(newValue ?? label),
+                    applyPath: isLayerScope
+                        ? ['glyphs', target.glyphName, 'layers', layerId]
+                        : ['glyphs', target.glyphName],
+                    applyNewValue: isLayerScope
+                        ? layerSnapshot
+                        : cloneHistoryValue(target.glyphJson),
+                    applyMode: isLayerScope
+                        ? 'layer-snapshot'
+                        : 'glyph-snapshot'
+                };
+            }),
+            label
         );
 
-        const historyItemId = this._createHistoryItemId();
-        for (const target of targets) {
-            const replayableOldValue =
-                undoScope === 'font'
-                    ? target.previousGlyphJson
-                    : (oldValue ?? target.glyphName);
-            const replayableNewValue =
-                undoScope === 'font'
-                    ? cloneHistoryValue(target.glyphJson)
-                    : (newValue ?? label);
-            const entry = createLogEntry({
-                timestamp: Date.now(),
-                windowId: this.windowId,
-                windowRoleLabel: this._getWindowRoleLabel(),
-                historyItemId,
-                historyAction: 'change',
-                transactionLabel: label,
-                transactionId: null,
-                op: 'set' as ChangeOp,
-                undoScope,
-                path:
-                    undoScope === 'layer' && layerId
-                        ? `glyphs.${target.glyphName}.layers.${layerId}`
-                        : `glyphs.${target.glyphName}`,
-                oldValue: replayableOldValue,
-                newValue: replayableNewValue
-            });
-            this._appendChangeLogEntry(entry);
-        }
-
-        // Update all target glyph Y.Maps in one transaction.
-        this.yDoc.transact(() => {
-            for (const target of targets) {
-                const { glyphJson, glyphMap } = target;
-                const glyphKeys = new Set(Object.keys(glyphJson));
-
-                for (const [gk, gv] of Object.entries(glyphJson)) {
-                    if (gk === 'layers' && Array.isArray(gv)) {
-                        let layersMap = glyphMap.get('layers') as
-                            | Y.Map<unknown>
-                            | undefined;
-                        if (!layersMap) {
-                            layersMap = new Y.Map();
-                            glyphMap.set('layers', layersMap);
-                        }
-                        const nextLayerIds = new Set<string>();
-                        for (const layerJson of gv as Record<
-                            string,
-                            unknown
-                        >[]) {
-                            const nextLayerId = (layerJson.id as string) ?? '';
-                            if (!nextLayerId) {
-                                continue;
-                            }
-                            nextLayerIds.add(nextLayerId);
-
-                            const existingLayerMap = layersMap.get(
-                                nextLayerId
-                            ) as Y.Map<unknown> | undefined;
-                            if (!(existingLayerMap instanceof Y.Map)) {
-                                layersMap.set(nextLayerId, toYType(layerJson));
-                                continue;
-                            }
-
-                            const layerKeys = new Set(Object.keys(layerJson));
-                            for (const [layerKey, layerValue] of Object.entries(
-                                layerJson
-                            )) {
-                                existingLayerMap.set(
-                                    layerKey,
-                                    toYType(layerValue)
-                                );
-                            }
-
-                            existingLayerMap.forEach(
-                                (_value: unknown, key: string) => {
-                                    if (!layerKeys.has(key)) {
-                                        existingLayerMap.delete(key);
-                                    }
-                                }
-                            );
-                        }
-                        // Remove layers no longer present in source JSON
-                        layersMap.forEach((_v: unknown, key: string) => {
-                            if (!nextLayerIds.has(key)) {
-                                layersMap?.delete(key);
-                            }
-                        });
-                    } else {
-                        glyphMap.set(gk, toYType(gv));
-                    }
-                }
-
-                // Remove glyph keys no longer present in source JSON
-                glyphMap.forEach((_v: unknown, key: string) => {
-                    if (!glyphKeys.has(key)) {
-                        glyphMap.delete(key);
-                    }
-                });
-            }
-        }, origin);
-
-        // Also split after this transaction so the next sync starts a fresh
-        // logical undo step even under rapid consecutive edits.
-        for (const target of targets) {
-            target.glyphUndoManager?.stopCapturing();
-            target.layerUndoManager?.stopCapturing();
-        }
-
-        this._onDirty?.();
         console.log(
             `Glyph sync committed for ${targets.map((target) => target.glyphName).join(', ')} (${label})`
         );
@@ -1134,6 +879,7 @@ export class ChangeBridge {
         this._txId = null;
         this._txHistoryItemId = null;
         this._txHistoryTarget = null;
+        this._txBufferedOperations = [];
         this._nextTxId = 1;
         this._nextHistoryItemId = 1;
         resetLogCounter();
@@ -1278,6 +1024,250 @@ export class ChangeBridge {
         return 'glyph';
     }
 
+    private _queueOrCommitOperations(
+        operations: BufferedChangeOperation[],
+        label?: string | null
+    ): void {
+        const normalizedOperations = operations
+            .filter((operation) => operation.path.length > 0)
+            .map((operation) => this._normalizeBufferedOperation(operation));
+        if (!normalizedOperations.length) {
+            return;
+        }
+
+        if (this._txDepth > 0) {
+            this._txBufferedOperations.push(...normalizedOperations);
+            this._onDirty?.();
+            return;
+        }
+
+        this._commitOperations(normalizedOperations, label ?? null, null, null);
+    }
+
+    private _normalizeBufferedOperation(
+        operation: BufferedChangeOperation
+    ): BufferedChangeOperation {
+        return {
+            op: operation.op,
+            path: [...operation.path],
+            oldValue: cloneHistoryValue(operation.oldValue),
+            newValue: cloneHistoryValue(operation.newValue),
+            applyPath: operation.applyPath
+                ? [...operation.applyPath]
+                : undefined,
+            applyNewValue:
+                operation.applyNewValue === undefined
+                    ? undefined
+                    : cloneHistoryValue(operation.applyNewValue),
+            applyMode: operation.applyMode ?? 'default'
+        };
+    }
+
+    private _commitOperations(
+        operations: BufferedChangeOperation[],
+        label: string | null,
+        transactionId: number | null,
+        historyItemId?: string | null,
+        historyTarget?: TransactionHistoryTarget | null
+    ): void {
+        const normalizedOperations = operations.filter(
+            (operation) => operation.path.length > 0
+        );
+        if (!normalizedOperations.length) {
+            return;
+        }
+
+        const scopeInfo = this._deriveBufferedScope(normalizedOperations);
+        this._prepareBatchUndoManagers(scopeInfo);
+
+        const nextHistoryItemId =
+            historyItemId ?? this._getCurrentHistoryItemId();
+        const timestamp = Date.now();
+
+        for (const operation of normalizedOperations) {
+            const operationHistoryTarget =
+                historyTarget ?? this._deriveHistoryTarget(operation.path);
+            const entry = createLogEntry({
+                timestamp,
+                windowId: this.windowId,
+                windowRoleLabel: this._getWindowRoleLabel(),
+                historyItemId: nextHistoryItemId,
+                historyAction: 'change',
+                transactionLabel: label,
+                transactionId,
+                op: operation.op,
+                undoScope: this._deriveUndoScope(
+                    deriveGlyphName(operation.path),
+                    deriveLayerId(operation.path)
+                ),
+                path: operation.path.join('.'),
+                oldValue: operation.oldValue,
+                newValue: operation.newValue,
+                historyTargetType: operationHistoryTarget?.type ?? null,
+                historyTargetKey: operationHistoryTarget?.key ?? null,
+                historyTargetLabel: operationHistoryTarget?.label ?? null
+            });
+            this._appendChangeLogEntry(entry);
+        }
+
+        this.yDoc.transact(() => {
+            for (const operation of normalizedOperations) {
+                this._applyBufferedOperation(operation);
+            }
+        }, scopeInfo.origin);
+
+        this._finishBatchUndoManagers(scopeInfo);
+        this._onDirty?.();
+
+        if (normalizedOperations.length === 1) {
+            console.log(
+                `[ChangeBridge] Change recorded: ${normalizedOperations[0].path.join('.')}`
+            );
+        }
+    }
+
+    private _applyBufferedOperation(operation: BufferedChangeOperation): void {
+        const applyPath = this._toYDocPath(
+            operation.applyPath ?? operation.path
+        );
+        const applyValue =
+            operation.applyNewValue === undefined
+                ? operation.newValue
+                : operation.applyNewValue;
+
+        if (operation.op === 'remove') {
+            deleteYPath(this.fontMap, applyPath);
+            return;
+        }
+
+        if (
+            operation.applyMode === 'glyph-snapshot' &&
+            operation.op === 'set' &&
+            this._isGlyphRootPath(applyPath)
+        ) {
+            this._applyGlyphSnapshot(String(applyPath[1]), applyValue);
+            return;
+        }
+
+        if (
+            operation.applyMode === 'layer-snapshot' &&
+            operation.op === 'set' &&
+            applyPath.length === 4 &&
+            applyPath[0] === 'glyphs' &&
+            applyPath[2] === 'layers'
+        ) {
+            this._applyLayerSnapshot(
+                String(applyPath[1]),
+                String(applyPath[3]),
+                applyValue
+            );
+            return;
+        }
+
+        setYPath(this.fontMap, applyPath, applyValue);
+    }
+
+    private _deriveBufferedScope(operations: BufferedChangeOperation[]): {
+        scope: UndoScope;
+        origin: string;
+        glyphName: string | null;
+        layerId: string | null;
+    } {
+        const touchedGlyphNames = new Set<string>();
+        const touchedLayerKeys = new Set<string>();
+        let hasFontScopedChange = false;
+        let hasGlyphScopedChange = false;
+
+        for (const operation of operations) {
+            const glyphName = deriveGlyphName(operation.path);
+            const layerId = deriveLayerId(operation.path);
+            if (!glyphName) {
+                hasFontScopedChange = true;
+            }
+            if (glyphName) {
+                touchedGlyphNames.add(glyphName);
+            }
+            if (glyphName && layerId) {
+                touchedLayerKeys.add(getLayerManagerKey(glyphName, layerId));
+            } else if (glyphName) {
+                hasGlyphScopedChange = true;
+            }
+        }
+
+        if (!hasFontScopedChange && touchedGlyphNames.size === 1) {
+            const glyphName = [...touchedGlyphNames][0];
+            if (!hasGlyphScopedChange && touchedLayerKeys.size === 1) {
+                const [managerKey] = [...touchedLayerKeys];
+                const [, layerId] = managerKey.split('@@');
+                return {
+                    scope: 'layer',
+                    origin: this._getEditOrigin(glyphName, layerId, 'layer'),
+                    glyphName,
+                    layerId
+                };
+            }
+            return {
+                scope: 'glyph',
+                origin: this._getEditOrigin(glyphName, null, 'glyph'),
+                glyphName,
+                layerId: null
+            };
+        }
+
+        return {
+            scope: 'font',
+            origin: FONT_EDIT_ORIGIN,
+            glyphName: null,
+            layerId: null
+        };
+    }
+
+    private _prepareBatchUndoManagers(scopeInfo: {
+        scope: UndoScope;
+        glyphName: string | null;
+        layerId: string | null;
+    }): void {
+        if (
+            scopeInfo.scope === 'layer' &&
+            scopeInfo.glyphName &&
+            scopeInfo.layerId
+        ) {
+            this.getLayerUndoManager(
+                scopeInfo.glyphName,
+                scopeInfo.layerId
+            )?.stopCapturing();
+            return;
+        }
+        if (scopeInfo.scope === 'glyph' && scopeInfo.glyphName) {
+            this.getGlyphUndoManager(scopeInfo.glyphName)?.stopCapturing();
+            return;
+        }
+        this._fontUndoManager?.stopCapturing();
+    }
+
+    private _finishBatchUndoManagers(scopeInfo: {
+        scope: UndoScope;
+        glyphName: string | null;
+        layerId: string | null;
+    }): void {
+        if (
+            scopeInfo.scope === 'layer' &&
+            scopeInfo.glyphName &&
+            scopeInfo.layerId
+        ) {
+            this.getLayerUndoManager(
+                scopeInfo.glyphName,
+                scopeInfo.layerId
+            )?.stopCapturing();
+            return;
+        }
+        if (scopeInfo.scope === 'glyph' && scopeInfo.glyphName) {
+            this.getGlyphUndoManager(scopeInfo.glyphName)?.stopCapturing();
+            return;
+        }
+        this._fontUndoManager?.stopCapturing();
+    }
+
     private _getEditOrigin(
         glyphName: string | null,
         layerId: string | null,
@@ -1304,20 +1294,6 @@ export class ChangeBridge {
             return 'layer';
         }
         return 'glyph';
-    }
-
-    private _getBulkEditOrigin(
-        targets: Array<{ glyphName: string }>,
-        layerId: string | null,
-        scope: UndoScope
-    ): string {
-        if (scope === 'layer' && targets.length === 1 && layerId) {
-            return getLayerEditOrigin(targets[0].glyphName, layerId);
-        }
-        if (scope === 'glyph') {
-            return GLYPH_EDIT_ORIGIN;
-        }
-        return FONT_EDIT_ORIGIN;
     }
 
     private _getRemoteUpdateOrigin(remoteEntries?: ChangeLogEntry[]): string {
@@ -1570,6 +1546,52 @@ export class ChangeBridge {
         glyphMap.forEach((_value: unknown, key: string) => {
             if (!glyphKeys.has(key)) {
                 glyphMap?.delete(key);
+            }
+        });
+    }
+
+    private _applyLayerSnapshot(
+        glyphName: string,
+        layerId: string,
+        layerSnapshot: unknown
+    ): void {
+        const glyphsMap = this.fontMap.get('glyphs');
+        if (!(glyphsMap instanceof Y.Map)) {
+            return;
+        }
+
+        const glyphMap = glyphsMap.get(glyphName);
+        if (!(glyphMap instanceof Y.Map)) {
+            return;
+        }
+
+        let layersMap = glyphMap.get('layers') as Y.Map<unknown> | undefined;
+        if (!(layersMap instanceof Y.Map)) {
+            layersMap = new Y.Map<unknown>();
+            glyphMap.set('layers', layersMap);
+        }
+
+        if (!layerSnapshot || typeof layerSnapshot !== 'object') {
+            layersMap.set(layerId, toYType(layerSnapshot));
+            return;
+        }
+
+        let layerMap = layersMap.get(layerId) as Y.Map<unknown> | undefined;
+        if (!(layerMap instanceof Y.Map)) {
+            layerMap = new Y.Map<unknown>();
+            layersMap.set(layerId, layerMap);
+        }
+
+        const layerJson = layerSnapshot as Record<string, unknown>;
+        const layerKeys = new Set(Object.keys(layerJson));
+
+        for (const [key, value] of Object.entries(layerJson)) {
+            layerMap.set(key, toYType(value));
+        }
+
+        layerMap.forEach((_value: unknown, key: string) => {
+            if (!layerKeys.has(key)) {
+                layerMap?.delete(key);
             }
         });
     }
