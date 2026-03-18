@@ -1610,6 +1610,31 @@ describe('Transactions', () => {
         ).toBe(0);
     });
 
+    test('runWithoutRecording skips transient operations inside a transaction', () => {
+        const { bridge } = createTestBridge('test-1');
+
+        bridge.beginTransaction('Drag node');
+        bridge.runWithoutRecording(() => {
+            bridge.recordChange(
+                ['glyphs', 'A', 'layers', 'layer-1'],
+                'width',
+                600,
+                620
+            );
+        });
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            620,
+            630
+        );
+        bridge.endTransaction();
+
+        const log = bridge.getChangeLog();
+        expect(log).toHaveLength(1);
+        expect(log[0].newValue).toBe(630);
+    });
+
     test('buffered multi-layer glyph transaction stays glyph-scoped in history panels', () => {
         const fontJson = makeMinimalFont();
         fontJson.glyphs[0].layers.push({

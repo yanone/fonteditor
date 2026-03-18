@@ -227,11 +227,11 @@ export class OutlineEditor {
         }
 
         const glyph = this.getRootGlyphModel();
-        if (!glyph?.layers) {
+        if (!glyph) {
             return null;
         }
 
-        return glyph.layers.find((layer: any) => layer.id === layerId);
+        return glyph.findLayerById?.(layerId) || null;
     }
 
     private getCurrentLayerModel(): any | null {
@@ -241,11 +241,74 @@ export class OutlineEditor {
         }
 
         const glyph = this.getCurrentGlyphModel();
-        if (!glyph?.layers) {
+        if (!glyph) {
             return null;
         }
 
-        return glyph.layers.find((layer: any) => layer.id === layerId);
+        return glyph.findLayerById?.(layerId) || null;
+    }
+
+    private applyMetricsKeysToCurrentEditedLayer(): void {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerId = this.getCurrentLayerId();
+        if (
+            !currentLayerData ||
+            currentLayerData.isInterpolated ||
+            !currentLayerId
+        ) {
+            return;
+        }
+
+        const parsed = this.parseGlyphStack();
+        const glyphName =
+            parsed.length > 0
+                ? parsed[parsed.length - 1].glyphName
+                : this.glyphCanvas.getCurrentGlyphName();
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!glyphName || !fontModel) {
+            return;
+        }
+
+        const glyph = fontModel.findGlyph(glyphName);
+        const rawLayer = glyph?.findLayerById(currentLayerId)?.toJSON?.();
+        if (!glyph || !rawLayer) {
+            return;
+        }
+
+        rawLayer.width = currentLayerData.width;
+        rawLayer.height = currentLayerData.height;
+        rawLayer.vertWidth = currentLayerData.vertWidth;
+        rawLayer.shapes = currentLayerData.shapes;
+
+        if (currentLayerData.anchors !== undefined) {
+            rawLayer.anchors = currentLayerData.anchors;
+        }
+        if (currentLayerData.guides !== undefined) {
+            rawLayer.guides = currentLayerData.guides;
+        }
+        if (currentLayerData.format_specific !== undefined) {
+            rawLayer.format_specific = currentLayerData.format_specific;
+        }
+
+        const bridge = window.changeBridge;
+        if (bridge) {
+            bridge.runWithoutRecording(() => {
+                fontModel.recomputeMetricsKeys(new Set([glyphName]));
+            });
+        } else {
+            fontModel.recomputeMetricsKeys(new Set([glyphName]));
+        }
+
+        currentLayerData.width = rawLayer.width;
+        currentLayerData.height = rawLayer.height;
+        currentLayerData.vertWidth = rawLayer.vertWidth;
+        currentLayerData.shapes = rawLayer.shapes;
+        if (rawLayer.anchors !== undefined) {
+            currentLayerData.anchors = rawLayer.anchors;
+        }
+        if (rawLayer.guides !== undefined) {
+            currentLayerData.guides = rawLayer.guides;
+        }
     }
 
     private getCurrentMasterModel(): any | null {
@@ -1414,6 +1477,10 @@ export class OutlineEditor {
         this._updateDraggedPoints(deltaX, deltaY);
         this._updateDraggedAnchors(deltaX, deltaY);
 
+        if (this.isDraggingPoint || this.isDraggingComponent) {
+            this.applyMetricsKeysToCurrentEditedLayer();
+        }
+
         // Save to Python immediately (non-blocking)
         // Use enriched changeSource to distinguish edit types for compilation optimization
         if (this.isDraggingGuide) {
@@ -1427,6 +1494,7 @@ export class OutlineEditor {
             this.saveLayerData(dragChangeSource);
         }
 
+        this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }
 
@@ -1693,12 +1761,6 @@ export class OutlineEditor {
 
         // Update worker font cache after dragging ends
         if (wasDragging) {
-            window.changeBridge?.endTransaction();
-            if (dragType !== 'guide') {
-                fontManager.updateWorkerFontCache();
-                fontManager.flushPendingDebugEditingFontSaveAfterDrag();
-            }
-
             // Only sync to Y.Doc if there was actual movement — avoids spurious undo entries
             // from simple clicks on anchors/points/components that didn't move anything.
             if (this._hasMoved) {
@@ -1730,6 +1792,12 @@ export class OutlineEditor {
                         postDragDesc
                     );
                 }
+            }
+
+            window.changeBridge?.endTransaction();
+            if (dragType !== 'guide') {
+                fontManager.updateWorkerFontCache();
+                fontManager.flushPendingDebugEditingFontSaveAfterDrag();
             }
             this._hasMoved = false;
             this._preDragDesc = null;
@@ -2229,8 +2297,11 @@ export class OutlineEditor {
             }
         }
 
+        this.applyMetricsKeysToCurrentEditedLayer();
+
         // Save to object model (non-blocking)
         this.saveLayerData('keyboard-outline');
+        this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }
 
@@ -2287,8 +2358,11 @@ export class OutlineEditor {
             }
         }
 
+        this.applyMetricsKeysToCurrentEditedLayer();
+
         // Save to object model (non-blocking)
         this.saveLayerData('keyboard-outline');
+        this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }
 

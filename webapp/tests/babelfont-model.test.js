@@ -325,6 +325,11 @@ describe('Babelfont Object Model', () => {
             const glyph = font.glyphs.find((g) => g.name === 'A'); // paths only
             const layer = glyph.layers[0];
 
+            glyph.leftMetricsKey = undefined;
+            glyph.rightMetricsKey = undefined;
+            layer.leftMetricsKey = undefined;
+            layer.rightMetricsKey = undefined;
+
             const originalLsb = layer.lsb;
             const originalWidth = layer.width;
 
@@ -335,6 +340,11 @@ describe('Babelfont Object Model', () => {
         test('lsb setter should adjust width for components', () => {
             const glyph = font.glyphs.find((g) => g.name === 'Aacute'); // components only
             const layer = glyph.layers[0];
+
+            glyph.leftMetricsKey = undefined;
+            glyph.rightMetricsKey = undefined;
+            layer.leftMetricsKey = undefined;
+            layer.rightMetricsKey = undefined;
 
             const originalLsb = layer.lsb;
             const originalWidth = layer.width;
@@ -347,6 +357,11 @@ describe('Babelfont Object Model', () => {
             const glyph = font.glyphs.find((g) => g.name === 'AE'); // mixed paths + components
             const layer = glyph.layers[0];
 
+            glyph.leftMetricsKey = undefined;
+            glyph.rightMetricsKey = undefined;
+            layer.leftMetricsKey = undefined;
+            layer.rightMetricsKey = undefined;
+
             const originalLsb = layer.lsb;
             const originalWidth = layer.width;
 
@@ -357,6 +372,11 @@ describe('Babelfont Object Model', () => {
         test('rsb setter should only adjust width without translating geometry', () => {
             const glyph = font.glyphs.find((g) => g.name === 'A');
             const layer = glyph.layers[0];
+
+            glyph.leftMetricsKey = undefined;
+            glyph.rightMetricsKey = undefined;
+            layer.leftMetricsKey = undefined;
+            layer.rightMetricsKey = undefined;
 
             const originalRsb = layer.rsb;
             const originalBbox = layer.getBoundingBox(false);
@@ -436,6 +456,368 @@ describe('Babelfont Object Model', () => {
             expect(
                 recomputedMeasuredERsb.right - originalMeasuredERsb.right
             ).toBeCloseTo(layerE.rsb - originalDirectERsb, 3);
+        });
+
+        test('glyph-wide reference arithmetic key keeps a non-automatic layer at the referenced sidebearing during local edits', () => {
+            const glyphL = metricsKeysFont.findGlyph('l');
+            const glyphN = metricsKeysFont.findGlyph('n');
+            const layerL = glyphL.layers[0];
+            const layerN = glyphN.layers[0];
+            const candidateNodes = (layerN.shapes || [])
+                .filter((shape) => shape.isPath())
+                .flatMap((shape) => shape.asPath().nodes || []);
+            const rightmostNode = candidateNodes.reduce((best, node) =>
+                !best || node.x > best.x ? node : best
+            );
+
+            const originalResolved = layerN.resolveMetricsKey('right');
+
+            rightmostNode.x += 30;
+
+            expect(originalResolved.error).toBeNull();
+            expect(layerN.rsb).toBeCloseTo(layerL.rsb - 10, 1);
+            expect(layerN.rsb).toBeCloseTo(originalResolved.value, 1);
+        });
+
+        test('mirrored reference keys keep sidebearings fixed during local edits', () => {
+            const mirrorFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: 'Regular',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: {}
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'base',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'base-layer',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 120, y: 0, nodetype: 'Line' },
+                                            { x: 360, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 360,
+                                                y: 600,
+                                                nodetype: 'Line'
+                                            },
+                                            { x: 120, y: 600, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'target',
+                        category: 'Base',
+                        exported: true,
+                        format_specific: {
+                            metric_left: '=|base'
+                        },
+                        layers: [
+                            {
+                                id: 'target-layer',
+                                width: 520,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 80, y: 0, nodetype: 'Line' },
+                                            { x: 400, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 400,
+                                                y: 600,
+                                                nodetype: 'Line'
+                                            },
+                                            { x: 80, y: 600, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    }
+                ],
+                names: { family_name: { en: 'Mirror Test' } },
+                note: '',
+                date: '2026-03-18',
+                features: {},
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+            const baseLayer = mirrorFont.findGlyph('base').layers[0];
+            const targetLayer = mirrorFont.findGlyph('target').layers[0];
+            mirrorFont.recomputeMetricsKeys(new Set(['target']));
+            const candidateNodes = (targetLayer.shapes || [])
+                .filter((shape) => shape.isPath())
+                .flatMap((shape) => shape.asPath().nodes || []);
+            const leftmostNode = candidateNodes.reduce((best, node) =>
+                !best || node.x < best.x ? node : best
+            );
+
+            leftmostNode.x -= 35;
+
+            expect(targetLayer.lsb).toBeCloseTo(baseLayer.rsb, 1);
+        });
+
+        test('height-offset reference keys keep measured sidebearings fixed during local edits', () => {
+            const heightFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: 'Regular',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: {}
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'base',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'base-layer',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 110, y: 0, nodetype: 'Line' },
+                                            { x: 380, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 380,
+                                                y: 500,
+                                                nodetype: 'Line'
+                                            },
+                                            { x: 110, y: 500, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'target',
+                        category: 'Base',
+                        exported: true,
+                        format_specific: {
+                            metric_right: '=base@200'
+                        },
+                        layers: [
+                            {
+                                id: 'target-layer',
+                                width: 520,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 70, y: 0, nodetype: 'Line' },
+                                            { x: 420, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 420,
+                                                y: 500,
+                                                nodetype: 'Line'
+                                            },
+                                            { x: 70, y: 500, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    }
+                ],
+                names: { family_name: { en: 'Height Test' } },
+                note: '',
+                date: '2026-03-18',
+                features: {},
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+            const baseLayer = heightFont.findGlyph('base').layers[0];
+            const targetLayer = heightFont.findGlyph('target').layers[0];
+            heightFont.recomputeMetricsKeys(new Set(['target']));
+            const candidateNodes = (targetLayer.shapes || [])
+                .filter((shape) => shape.isPath())
+                .flatMap((shape) => shape.asPath().nodes || []);
+            const rightEdgeNodes = candidateNodes.filter(
+                (node) => node.x === Math.max(...candidateNodes.map((n) => n.x))
+            );
+            const targetMeasuredBefore =
+                targetLayer.getSidebearingsAtHeight(200);
+            const baseMeasured = baseLayer.getSidebearingsAtHeight(200);
+
+            for (const node of rightEdgeNodes) {
+                node.x += 40;
+            }
+
+            const targetMeasuredAfter =
+                targetLayer.getSidebearingsAtHeight(200);
+
+            expect(baseMeasured).not.toBeNull();
+            expect(targetMeasuredBefore).not.toBeNull();
+            expect(targetMeasuredAfter).not.toBeNull();
+            expect(targetMeasuredAfter.right).toBeCloseTo(
+                baseMeasured.right,
+                1
+            );
+            expect(targetMeasuredAfter.right).toBeCloseTo(
+                targetMeasuredBefore.right,
+                1
+            );
+        });
+
+        test('glyph-wide =-20 keeps a non-automatic layer at a constant sidebearing', () => {
+            const glyph = font.findGlyph('A');
+            const layer = glyph.layers[0];
+            const candidateNodes = (layer.shapes || [])
+                .filter((shape) => shape.isPath())
+                .flatMap((shape) => shape.asPath().nodes || []);
+            const rightmostNode = candidateNodes.reduce((best, node) =>
+                !best || node.x > best.x ? node : best
+            );
+
+            layer.applySidebearingInput('right', '=-20');
+
+            expect(glyph.rightMetricsKey).toBe('=-20');
+            expect(layer.rightMetricsKey).toBeUndefined();
+            expect(layer.rsb).toBeCloseTo(-20, 1);
+
+            rightmostNode.x += 30;
+
+            expect(layer.rsb).toBeCloseTo(-20, 1);
+        });
+
+        test('layer-local ==-20 keeps a non-automatic layer at a constant sidebearing', () => {
+            const glyph = font.findGlyph('A');
+            const layer = glyph.layers[0];
+            const candidateNodes = (layer.shapes || [])
+                .filter((shape) => shape.isPath())
+                .flatMap((shape) => shape.asPath().nodes || []);
+            const rightmostNode = candidateNodes.reduce((best, node) =>
+                !best || node.x > best.x ? node : best
+            );
+
+            glyph.rightMetricsKey = undefined;
+            layer.applySidebearingInput('right', '==-20');
+
+            expect(glyph.rightMetricsKey).toBeUndefined();
+            expect(layer.rightMetricsKey).toBe('==-20');
+            expect(layer.rsb).toBeCloseTo(-20, 1);
+
+            rightmostNode.x += 25;
+
+            expect(layer.rsb).toBeCloseTo(-20, 1);
+        });
+
+        test('glyph-wide =20 keeps a non-automatic layer at a constant sidebearing', () => {
+            const glyph = font.findGlyph('A');
+            const layer = glyph.layers[0];
+            const candidateNodes = (layer.shapes || [])
+                .filter((shape) => shape.isPath())
+                .flatMap((shape) => shape.asPath().nodes || []);
+            const rightmostNode = candidateNodes.reduce((best, node) =>
+                !best || node.x > best.x ? node : best
+            );
+
+            layer.applySidebearingInput('right', '=20');
+
+            expect(glyph.rightMetricsKey).toBe('=20');
+            expect(layer.rightMetricsKey).toBeUndefined();
+            expect(layer.rsb).toBeCloseTo(20, 1);
+
+            rightmostNode.x += 30;
+
+            expect(layer.rsb).toBeCloseTo(20, 1);
+        });
+
+        test('layer-local ==20 keeps a non-automatic layer at a constant sidebearing', () => {
+            const glyph = font.findGlyph('A');
+            const layer = glyph.layers[0];
+            const candidateNodes = (layer.shapes || [])
+                .filter((shape) => shape.isPath())
+                .flatMap((shape) => shape.asPath().nodes || []);
+            const rightmostNode = candidateNodes.reduce((best, node) =>
+                !best || node.x > best.x ? node : best
+            );
+
+            glyph.rightMetricsKey = undefined;
+            layer.applySidebearingInput('right', '==20');
+
+            expect(glyph.rightMetricsKey).toBeUndefined();
+            expect(layer.rightMetricsKey).toBe('==20');
+            expect(layer.rsb).toBeCloseTo(20, 1);
+
+            rightmostNode.x += 25;
+
+            expect(layer.rsb).toBeCloseTo(20, 1);
+        });
+
+        test('findLayerById returns associated layers that are not in glyph.layers', () => {
+            const glyphA = metricsKeysFont.findGlyph('a');
+
+            const associatedLayer = glyphA.findLayerById(
+                'D42253C8-C2D4-4376-9630-735954ED741C'
+            );
+
+            expect(associatedLayer).toBeDefined();
+            expect(associatedLayer.id).toBe(
+                'D42253C8-C2D4-4376-9630-735954ED741C'
+            );
+            expect(
+                glyphA.layers.some((layer) => layer.id === associatedLayer.id)
+            ).toBe(false);
+            expect(associatedLayer.rsb).toBeDefined();
         });
     });
 

@@ -23,6 +23,25 @@ Examples:
 
 When you enter a number, Counterpunch clears any existing metrics key for that side and stores the sidebearing directly.
 
+## Self-Updating Constant Formulas
+
+If you want a sidebearing to stay at a fixed value even when the outline changes later, use the formula form with a leading `=`.
+
+Examples:
+
+- `=-20`
+- `=40`
+- `==-20`
+
+On a normal non-automatic layer, these act as self-updating constant metrics keys. The resolved sidebearing is the number itself, but because it is stored as a formula, Counterpunch reapplies it after local outline and component edits.
+
+This is the difference between `-20` and `=-20`:
+
+- `-20` sets the sidebearing to `-20` once.
+- `=-20` keeps it at `-20` when the outline changes later.
+
+The `==` form stores the same behavior as a layer-local override instead of a glyph-wide key.
+
 ## Reference Formulas
 
 Reference formulas start with `=` and derive the sidebearing from another source.
@@ -77,7 +96,9 @@ For fully auto-aligned component layers, you can use automatic offset formulas s
 - `=+10`
 - `=-15`
 
-These start from the auto-aligned component spacing and add or subtract a fixed amount. In the property panel, a fully automatic layer without an explicit metrics key shows an empty field with an `auto` placeholder.
+On fully auto-aligned component layers, these start from the auto-aligned component spacing and add or subtract a fixed amount. On non-automatic layers, the same syntax is treated as a self-updating constant sidebearing formula instead.
+
+In the property panel, a fully automatic layer without an explicit metrics key shows an empty field with an `auto` placeholder.
 
 ## Error Handling
 

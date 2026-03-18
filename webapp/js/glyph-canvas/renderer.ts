@@ -757,17 +757,32 @@ export class GlyphCanvasRenderer {
         let xPosition = 0;
         let minX = Infinity;
         let maxX = -Infinity;
+        const selectedGlyphIndex = this.textRunEditor.selectedGlyphIndex;
+        const liveSelectedLayerWidth =
+            this.glyphCanvas.outlineEditor.active &&
+            this.glyphCanvas.outlineEditor.layerData &&
+            Number.isFinite(this.glyphCanvas.outlineEditor.layerData.width)
+                ? this.glyphCanvas.outlineEditor.layerData.width
+                : null;
+
+        let glyphIndex = 0;
 
         for (const shapedGlyph of this.textRunEditor.shapedGlyphs) {
             const xOffset = shapedGlyph.dx || 0;
             const xAdvance = shapedGlyph.ax || 0;
             const glyphStartX = xPosition + xOffset;
-            const glyphEndX = glyphStartX + xAdvance;
+            const glyphVisualAdvance =
+                glyphIndex === selectedGlyphIndex &&
+                liveSelectedLayerWidth !== null
+                    ? liveSelectedLayerWidth
+                    : xAdvance;
+            const glyphEndX = glyphStartX + glyphVisualAdvance;
 
             minX = Math.min(minX, glyphStartX, glyphEndX);
             maxX = Math.max(maxX, glyphStartX, glyphEndX);
 
             xPosition += xAdvance;
+            glyphIndex += 1;
         }
 
         if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
@@ -2835,8 +2850,8 @@ export class GlyphCanvasRenderer {
             ? (window as any).currentFontModel.findGlyph(glyphName)
             : null;
 
-        // Find the matching Layer wrapper on the glyph that corresponds to the current layerData
-        // This ensures component lookups use the correct master ID
+        // Find the matching Layer wrapper on the glyph to borrow stable metadata such as master.
+        // The intersection math itself must use the live edited layerData so drag updates render immediately.
         let layerWrapper: Layer | null = null;
         if (glyphWrapper && glyphWrapper.layers) {
             const currentLayerId =
@@ -2849,9 +2864,20 @@ export class GlyphCanvasRenderer {
             }
         }
 
-        // Fallback: create temporary wrapper if we couldn't find the layer
-        const tempLayer =
-            layerWrapper || new Layer([layerData], 0, glyphWrapper);
+        const measurementLayerData = {
+            ...(layerWrapper?.toJSON?.() || {}),
+            ...layerData,
+            id: layerData.id || layerWrapper?.id,
+            master: layerData.master || layerWrapper?.master,
+            width: layerData.width ?? layerWrapper?.width ?? layerData.width,
+            shapes: layerData.shapes,
+            anchors: layerData.anchors,
+            guides: layerData.guides,
+            format_specific:
+                layerData.format_specific || layerWrapper?.format_specific
+        };
+
+        const tempLayer = new Layer([measurementLayerData], 0, glyphWrapper);
 
         // Define line endpoints in component-local space
         let horizontalIntersections: Array<{

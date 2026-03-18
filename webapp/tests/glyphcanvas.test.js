@@ -1,4 +1,4 @@
-const { Font } = require('../js/babelfont-model');
+const { Font, Layer } = require('../js/babelfont-model');
 const fontManager = require('../js/font-manager').default;
 
 // ==================== Initialization Tests ====================
@@ -447,6 +447,275 @@ describe('GlyphCanvas point movement', () => {
         canvas.outlineEditor.moveSelectedPoints(10, 20);
         expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(100);
         expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].y).toBe(100);
+    });
+
+    test('preserves layer metadata while recomputing constant metrics keys', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    format_specific: {
+                        metric_right: '=20'
+                    },
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        {
+                                            x: 100,
+                                            y: 0,
+                                            nodetype: 'Line'
+                                        },
+                                        {
+                                            x: 400,
+                                            y: 0,
+                                            nodetype: 'Line'
+                                        },
+                                        {
+                                            x: 400,
+                                            y: 700,
+                                            nodetype: 'Line'
+                                        },
+                                        {
+                                            x: 100,
+                                            y: 700,
+                                            nodetype: 'Line'
+                                        }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Movement Test' }
+            },
+            note: '',
+            date: '2026-03-18',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 100, y: 0, nodetype: 'Line' },
+                        { x: 400, y: 0, nodetype: 'Line' },
+                        { x: 400, y: 700, nodetype: 'Line' },
+                        { x: 100, y: 700, nodetype: 'Line' }
+                    ],
+                    closed: true
+                }
+            ],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+
+        try {
+            canvas.outlineEditor.moveSelectedPoints(10, 0);
+
+            const glyph = font.findGlyph('A');
+            expect(canvas.outlineEditor.layerData.width).toBe(430);
+            expect(glyph.layers.map((layer) => layer.id)).toEqual(['layer-1']);
+            expect(glyph.findLayerById('layer-1').master).toEqual({
+                type: 'DefaultForMaster',
+                master: 'master-1'
+            });
+        } finally {
+            currentFontSpy.mockRestore();
+        }
+    });
+});
+
+describe('GlyphCanvas measurement overlay', () => {
+    let canvas;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+        window.currentFontModel = null;
+    });
+
+    test('uses live edited layer data for measurement intersections', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 700, nodetype: 'Line' },
+                                        { x: 100, y: 700, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Measure Test' }
+            },
+            note: '',
+            date: '2026-03-18',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+        window.currentFontModel = font;
+
+        canvas.outlineEditor.active = true;
+        canvas.shiftKeyPressed = true;
+        canvas.measurementTool.visible = true;
+        canvas.measurementTool.isDragging = false;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 500, dx: 0, dy: 0, g: 0 }];
+        canvas.outlineEditor.transformMouseToComponentSpace = jest.fn(() => ({
+            glyphX: 0,
+            glyphY: 0
+        }));
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 530,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-1'
+            },
+            shapes: [
+                {
+                    nodes: [
+                        { x: 100, y: 0, nodetype: 'Line' },
+                        { x: 430, y: 0, nodetype: 'Line' },
+                        { x: 430, y: 700, nodetype: 'Line' },
+                        { x: 100, y: 700, nodetype: 'Line' }
+                    ],
+                    closed: true
+                }
+            ],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+
+        const intersectionSpy = jest
+            .spyOn(Layer.prototype, 'getIntersectionsOnLine')
+            .mockImplementation(function () {
+                expect(this.toJSON().width).toBe(530);
+                expect(this.toJSON().shapes[0].nodes[1].x).toBe(430);
+                return [];
+            });
+
+        try {
+            canvas.renderer.drawMeasurementIntersections();
+            expect(intersectionSpy).toHaveBeenCalled();
+        } finally {
+            intersectionSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('editing metrics underlay uses live selected layer width for horizontal extents', () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 640,
+            shapes: [],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 500, dx: 0, dy: 0, g: 0 }];
+
+        const extents = canvas.renderer.getTextRunHorizontalExtents();
+
+        expect(extents).toEqual({ minX: 0, maxX: 640 });
     });
 });
 

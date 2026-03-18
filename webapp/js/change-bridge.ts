@@ -433,6 +433,16 @@ export class ChangeBridge {
         this._suppressRecording = suppressed;
     }
 
+    runWithoutRecording<T>(fn: () => T): T {
+        const wasSuppressed = this._suppressRecording;
+        this._suppressRecording = true;
+        try {
+            return fn();
+        } finally {
+            this._suppressRecording = wasSuppressed;
+        }
+    }
+
     // ── Bulk sync (after drag / external mutation) ───────────────
 
     /**
