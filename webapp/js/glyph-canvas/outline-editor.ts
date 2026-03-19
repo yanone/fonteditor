@@ -49,6 +49,35 @@ const getComponentShapeData = (shape: any): any => {
     return shape;
 };
 
+const LAYER_LOCATION_MATCH_EPSILON = 0.01;
+
+function locationsMatchWithinTolerance(
+    left: Record<string, number> | undefined,
+    right: Record<string, number> | undefined,
+    axisTags: string[]
+): boolean {
+    if (!left || !right) {
+        return false;
+    }
+
+    const tags = new Set<string>([
+        ...axisTags,
+        ...Object.keys(left),
+        ...Object.keys(right)
+    ]);
+
+    for (const tag of tags) {
+        if (
+            Math.abs((left[tag] ?? 0) - (right[tag] ?? 0)) >
+            LAYER_LOCATION_MATCH_EPSILON
+        ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 // Recursively parse nodes in component layer data (including nested components)
 const parseComponentNodes = (shapes: Babelfont.Shape[]) => {
     if (!shapes) return;
@@ -3029,6 +3058,7 @@ export class OutlineEditor {
             currentUserspaceLocation,
             fontModel.axes || []
         );
+        const axisTags = (fontModel.axes || []).map((axis) => axis.tag);
 
         for (const layer of currentGlyph.layers) {
             const masterId = layer.master?.master;
@@ -3047,18 +3077,13 @@ export class OutlineEditor {
                 continue;
             }
 
-            // Check if all axis values match exactly (comparing in designspace)
-            let allMatch = true;
-            for (const [tag, value] of Object.entries(
-                effectiveDesignLocation
-            )) {
-                if ((currentDesignspaceLocation[tag] || 0) !== value) {
-                    allMatch = false;
-                    break;
-                }
-            }
-
-            if (allMatch) {
+            if (
+                locationsMatchWithinTolerance(
+                    effectiveDesignLocation,
+                    currentDesignspaceLocation,
+                    axisTags
+                )
+            ) {
                 return layer as Babelfont.Layer;
             }
         }

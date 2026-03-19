@@ -10,7 +10,12 @@ import { get_glyph_order } from '../wasm-dist/babelfont_fontc_web';
 import type { Babelfont } from './babelfont';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation } from './locations';
-import { Font, Path, DecomposedAffineTransform } from './babelfont-model';
+import {
+    Font,
+    Path,
+    DecomposedAffineTransform,
+    withSuppressedModelRecording
+} from './babelfont-model';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
@@ -187,6 +192,10 @@ class OpenedFont {
         }
 
         this.fontModel = Font.fromData(this.babelfontData); // Create object model
+        withSuppressedModelRecording(() => {
+            this.fontModel.recomputeMetricsKeys();
+        });
+        this.babelfontJson = this.fontModel.toJSONString();
         this.path = path;
         this.name =
             this.babelfontData?.names?.family_name?.dflt || 'Untitled Font';
@@ -2036,7 +2045,7 @@ class FontManager {
             width: layerData.width,
             height: layerData.height,
             vertWidth: layerData.vertWidth,
-            name: layerData.name,
+            name: layerData.name ?? originalLayer?.name,
             id: layerId, // Always use the canonical layerId, not Rust's id
             master: originalLayer?.master ?? layerData.master, // Preserve original master type
             shapes: newShapes || [],
@@ -2044,19 +2053,30 @@ class FontManager {
             // Copy other optional properties if they exist
             ...(cleanAnchors && { anchors: cleanAnchors }),
             ...(cleanGuides && { guides: cleanGuides }),
-            ...(layerData.color && { color: layerData.color }),
+            ...((layerData.color ?? originalLayer?.color) && {
+                color: layerData.color ?? originalLayer?.color
+            }),
             ...(layerData.layer_index !== undefined && {
                 layer_index: layerData.layer_index
             }),
             ...(layerData.is_background !== undefined && {
                 is_background: layerData.is_background
             }),
-            ...(layerData.background_layer_id && {
-                background_layer_id: layerData.background_layer_id
+            ...((layerData.background_layer_id ??
+                originalLayer?.background_layer_id) && {
+                background_layer_id:
+                    layerData.background_layer_id ??
+                    originalLayer?.background_layer_id
             }),
-            ...(layerData.location && { location: { ...layerData.location } }),
-            ...(layerData.format_specific && {
-                format_specific: layerData.format_specific
+            ...((layerData.location ?? originalLayer?.location) && {
+                location: {
+                    ...(layerData.location ?? originalLayer?.location)
+                }
+            }),
+            ...((layerData.format_specific ??
+                originalLayer?.format_specific) && {
+                format_specific:
+                    layerData.format_specific ?? originalLayer?.format_specific
             }),
             // Preserve the tagged master property
             ...((layerData as any).master && {

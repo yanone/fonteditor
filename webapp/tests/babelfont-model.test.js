@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const { Font } = require('../js/babelfont-model');
-const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
+const {
+    open_font_file,
+    store_font
+} = require('../wasm-dist/babelfont_fontc_web');
 
 // Helper function to load and convert .glyphs files using WASM
 function loadFontFile(filePath) {
@@ -24,6 +27,8 @@ describe('Babelfont Object Model', () => {
     let font;
     let metricsKeysData;
     let metricsKeysFont;
+    let intermediateLayerData;
+    let intermediateLayerFont;
 
     beforeAll(() => {
         // Load Fustat.glyphs as test fixture (converted on-the-fly)
@@ -42,12 +47,21 @@ describe('Babelfont Object Model', () => {
             'metricskeys.glyphs'
         );
         metricsKeysData = loadFontFile(metricsKeysFixturePath);
+
+        const intermediateLayerFixturePath = path.join(
+            __dirname,
+            '..',
+            'examples',
+            'intermediate_layer_on_a.glyphs'
+        );
+        intermediateLayerData = loadFontFile(intermediateLayerFixturePath);
     });
 
     beforeEach(() => {
         // Create a fresh font instance for each test
         font = Font.fromData(fontData);
         metricsKeysFont = Font.fromData(metricsKeysData);
+        intermediateLayerFont = Font.fromData(intermediateLayerData);
     });
 
     describe('parent() method', () => {
@@ -392,6 +406,71 @@ describe('Babelfont Object Model', () => {
     });
 
     describe('Metrics key accessors and recomputation', () => {
+        test('interpolates referenced glyph metrics for brace layers when no exact layer exists', () => {
+            const glyphA = intermediateLayerFont.findGlyph('a');
+            const glyphN = intermediateLayerFont.findGlyph('n');
+
+            expect(glyphA).toBeDefined();
+            expect(glyphN).toBeDefined();
+            expect(glyphA.rightMetricsKey).toBe('n');
+
+            const braceLayer = glyphA.layers.find(
+                (layer) => layer.location && Object.keys(layer.location).length
+            );
+
+            expect(braceLayer).toBeDefined();
+            expect(braceLayer.rsb).toBe(43);
+            expect(braceLayer.getMatchingLayerOnGlyph('n')).toBeUndefined();
+
+            const resolution = braceLayer.resolveMetricsKey('right');
+            expect(resolution.error).toBeNull();
+            expect(resolution.value).toBe(50);
+
+            intermediateLayerFont.recomputeMetricsKeys(new Set(['n']));
+            expect(braceLayer.rsb).toBe(50);
+        });
+
+        test('keeps brace-layer metric interpolation working after path nodes are materialized', () => {
+            const glyphA = intermediateLayerFont.findGlyph('a');
+            const glyphN = intermediateLayerFont.findGlyph('n');
+            const braceLayer = glyphA.layers.find(
+                (layer) => layer.location && Object.keys(layer.location).length
+            );
+
+            // Simulate edit-time model access that converts stored node strings
+            // into node arrays on the live font model.
+            braceLayer.shapes[0].asPath().nodes;
+            glyphN.layers[0].shapes[0].asPath().nodes;
+            glyphN.layers[1].shapes[0].asPath().nodes;
+            glyphN.layers[2].shapes[0].asPath().nodes;
+
+            const resolution = braceLayer.resolveMetricsKey('right');
+            expect(resolution.error).toBeNull();
+            expect(resolution.value).toBe(50);
+
+            intermediateLayerFont.recomputeMetricsKeys(new Set(['n']));
+            expect(braceLayer.rsb).toBe(50);
+        });
+
+        test('keeps using the last stored interpolation snapshot when refresh fails after an edit', () => {
+            const glyphA = intermediateLayerFont.findGlyph('a');
+            const braceLayer = glyphA.layers.find(
+                (layer) => layer.location && Object.keys(layer.location).length
+            );
+            const pathShape = braceLayer.shapes[0].asPath();
+
+            expect(braceLayer.resolveMetricsKey('right').value).toBe(50);
+
+            pathShape.nodes[0].x += 1;
+            store_font.mockImplementationOnce(() => {
+                throw new Error('store failed');
+            });
+
+            const resolution = braceLayer.resolveMetricsKey('right');
+            expect(resolution.error).toBeNull();
+            expect(resolution.value).toBe(50);
+        });
+
         test('exposes imported glyph and layer metrics keys', () => {
             const glyphA = metricsKeysFont.findGlyph('a');
             const glyphAring = metricsKeysFont.findGlyph('aring');

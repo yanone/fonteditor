@@ -21,6 +21,7 @@ const initBabelfontWasm = jest.fn(() => {
 // Use real conversion via Node child_process + wasm helper for .glyphs files
 const { execFileSync } = require('child_process');
 const os = require('os');
+let storedFontJson = null;
 
 function normalizeLayerMaster(master, isBackground) {
     if (!master || typeof master !== 'object') {
@@ -113,11 +114,40 @@ initBabelfontWasm.compile_babelfont = jest.fn(
 initBabelfontWasm.compile_cached_font = jest.fn(
     (options) => new Uint8Array(100)
 );
-initBabelfontWasm.store_font = jest.fn((json) => {});
-initBabelfontWasm.clear_font_cache = jest.fn(() => {});
-initBabelfontWasm.interpolate_glyph = jest.fn((glyphName, locationJson) =>
-    JSON.stringify({})
-);
+initBabelfontWasm.store_font = jest.fn((json) => {
+    storedFontJson = json;
+});
+initBabelfontWasm.clear_font_cache = jest.fn(() => {
+    storedFontJson = null;
+});
+initBabelfontWasm.interpolate_glyph = jest.fn((glyphName, locationJson) => {
+    if (!storedFontJson) {
+        return JSON.stringify({});
+    }
+
+    const tmpDir = os.tmpdir();
+    const fontPath = path.join(tmpDir, 'jest-interpolate-font.babelfont');
+    const interpolateScript = path.join(
+        __dirname,
+        '../helpers/interpolate-glyph.mjs'
+    );
+
+    try {
+        fs.writeFileSync(fontPath, storedFontJson, 'utf-8');
+        return execFileSync(
+            process.execPath,
+            [interpolateScript, fontPath, glyphName, locationJson],
+            {
+                encoding: 'utf-8',
+                maxBuffer: 20 * 1024 * 1024
+            }
+        ).trim();
+    } finally {
+        try {
+            fs.unlinkSync(fontPath);
+        } catch (e) {}
+    }
+});
 initBabelfontWasm.version = jest.fn(() => '0.1.0');
 
 // Real implementation using wasm module to convert .glyphs files

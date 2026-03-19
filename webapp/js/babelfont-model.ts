@@ -14,9 +14,14 @@
 import type { Babelfont } from './babelfont';
 import { setYPath } from './change-bridge-ydoc';
 import { LayerDataNormalizer } from './layer-data-normalizer';
+import { designspaceToUserspace } from './locations';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
 import type { ChangeBridge } from './change-bridge';
+import {
+    interpolate_glyph,
+    store_font
+} from '../wasm-dist/babelfont_fontc_web';
 
 const console = new Logger('BabelfontModel');
 
@@ -85,6 +90,53 @@ const GLYPHS_LAYER_METRIC_LEFT_KEY = 'com.schriftgestalt.Glyphs.metricLeft';
 const GLYPHS_LAYER_METRIC_RIGHT_KEY = 'com.schriftgestalt.Glyphs.metricRight';
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
 const METRIC_UPDATE_EPSILON = 0.01;
+let suppressModelRecordingDepth = 0;
+
+export function withSuppressedModelRecording<T>(fn: () => T): T {
+    suppressModelRecordingDepth++;
+    try {
+        return fn();
+    } finally {
+        suppressModelRecordingDepth--;
+    }
+}
+const interpolationFontCache = new WeakMap<Font, string>();
+
+function locationsMatch(
+    left: Record<string, number> | undefined,
+    right: Record<string, number> | undefined,
+    axes: Axis[] | undefined
+): boolean {
+    if (!left || !right) {
+        return false;
+    }
+
+    const tags = new Set<string>([
+        ...(axes || []).map((axis) => axis.tag),
+        ...Object.keys(left),
+        ...Object.keys(right)
+    ]);
+    for (const tag of tags) {
+        if ((left[tag] ?? 0) !== (right[tag] ?? 0)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function ensureFontStoredForInterpolation(font: Font): boolean {
+    try {
+        const serializedFont = font.toJSONString();
+        if (interpolationFontCache.get(font) !== serializedFont) {
+            store_font(serializedFont);
+            interpolationFontCache.set(font, serializedFont);
+        }
+        return true;
+    } catch {
+        return interpolationFontCache.has(font);
+    }
+}
 
 /**
  * DecomposedAffine transformation utilities
@@ -249,6 +301,10 @@ function recordAndMarkDirty(
     oldVal: unknown,
     newVal: unknown
 ): void {
+    if (suppressModelRecordingDepth > 0) {
+        return;
+    }
+
     const bridge = getChangeBridge();
     if (bridge) {
         const path = modelObj.getPath();
@@ -265,6 +321,10 @@ function recordPathChangeAndMarkDirty(
     oldVal: unknown,
     newVal: unknown
 ): void {
+    if (suppressModelRecordingDepth > 0) {
+        return;
+    }
+
     const bridge = getChangeBridge();
     if (bridge && path.length > 0) {
         bridge.recordChange(
@@ -284,6 +344,10 @@ function recordAddAndMarkDirty(
     path: (string | number)[],
     value: unknown
 ): void {
+    if (suppressModelRecordingDepth > 0) {
+        return;
+    }
+
     const bridge = getChangeBridge();
     if (bridge) {
         bridge.recordAdd(path, cloneForHistory(value));
@@ -298,6 +362,10 @@ function recordRemoveAndMarkDirty(
     path: (string | number)[],
     oldValue: unknown
 ): void {
+    if (suppressModelRecordingDepth > 0) {
+        return;
+    }
+
     const bridge = getChangeBridge();
     if (bridge) {
         bridge.recordRemove(path, cloneForHistory(oldValue));
@@ -2138,7 +2206,67 @@ export class Layer extends ArrayElementBase {
             return undefined;
         }
 
-        return this.getMatchingLayerOnGlyph(reference);
+        return this.getMetricsReferenceLayerOnGlyph(reference);
+    }
+
+    private getEffectiveDesignspaceLocation():
+        | Record<string, number>
+        | undefined {
+        if (this.location && Object.keys(this.location).length > 0) {
+            return this.location;
+        }
+
+        const font = this.getFont();
+        const masterId = this.getMasterId();
+        if (!font || !masterId) {
+            return undefined;
+        }
+
+        return font.findMaster(masterId)?.location;
+    }
+
+    private getInterpolatedLayerOnGlyph(glyphName: string): Layer | undefined {
+        const font = this.getFont();
+        const targetGlyph = font?.findGlyph(glyphName);
+        const designspaceLocation = this.getEffectiveDesignspaceLocation();
+        if (!font || !targetGlyph || !designspaceLocation) {
+            return undefined;
+        }
+
+        if (!ensureFontStoredForInterpolation(font)) {
+            return undefined;
+        }
+
+        try {
+            const userspaceLocation = designspaceToUserspace(
+                designspaceLocation,
+                (font.axes || []) as unknown as Babelfont.Axis[]
+            );
+            const interpolatedLayer = LayerDataNormalizer.normalize(
+                JSON.parse(
+                    interpolate_glyph(
+                        glyphName,
+                        JSON.stringify(userspaceLocation)
+                    )
+                ),
+                true
+            );
+            if (!interpolatedLayer) {
+                return undefined;
+            }
+            return new Layer([interpolatedLayer] as Unsafe, 0, targetGlyph);
+        } catch {
+            return undefined;
+        }
+    }
+
+    private getMetricsReferenceLayerOnGlyph(
+        glyphName: string
+    ): Layer | undefined {
+        return (
+            this.getMatchingLayerOnGlyph(glyphName) ??
+            this.getInterpolatedLayerOnGlyph(glyphName)
+        );
     }
 
     resolveMetricsKey(
@@ -2236,7 +2364,9 @@ export class Layer extends ArrayElementBase {
 
             let targetLayer: Layer | undefined;
             if (parsed.glyphName) {
-                targetLayer = this.getMatchingLayerOnGlyph(parsed.glyphName);
+                targetLayer = this.getMetricsReferenceLayerOnGlyph(
+                    parsed.glyphName
+                );
                 if (!targetLayer) {
                     const targetGlyph = font.findGlyph(parsed.glyphName);
                     targetLayer = targetGlyph?.layers?.[0];
@@ -4041,34 +4171,29 @@ export class Layer extends ArrayElementBase {
     }
 
     /**
-     * Find the matching layer on another glyph that represents the same master
-     * @param glyphName - The name of the glyph to find the matching layer on
-     * @returns The matching layer on the specified glyph, or undefined if not found
+     * Find the exact matching stored layer on another glyph for this layer's
+     * effective designspace location.
      */
     getMatchingLayerOnGlyph(glyphName: string): Layer | undefined {
-        // Get the master ID of this layer
-        const thisMasterId = this.getMasterId();
-
-        if (!thisMasterId) {
+        const font = this.getFont();
+        const designspaceLocation = this.getEffectiveDesignspaceLocation();
+        if (!font || !designspaceLocation) {
             return undefined;
         }
 
-        // Navigate up to get the Font object
-        const glyph = this.parent() as Glyph;
-        if (!glyph) return undefined;
-
-        const font = glyph.parent() as Font;
-        if (!font) return undefined;
-
-        // Find the target glyph
         const targetGlyph = font.findGlyph(glyphName);
-        if (!targetGlyph || !targetGlyph.layers) return undefined;
+        if (!targetGlyph || !targetGlyph.layers) {
+            return undefined;
+        }
 
-        // Find the layer on the target glyph with the same master ID
         for (const layer of targetGlyph.layers) {
-            const layerMasterId = layer.master?.master;
-
-            if (layerMasterId === thisMasterId) {
+            if (
+                locationsMatch(
+                    designspaceLocation,
+                    layer.getEffectiveDesignspaceLocation(),
+                    font.axes
+                )
+            ) {
                 return layer;
             }
         }

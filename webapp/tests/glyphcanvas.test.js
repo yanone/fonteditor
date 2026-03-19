@@ -1216,11 +1216,25 @@ describe('GlyphCanvas property panel', () => {
         let inputs = document.querySelectorAll('.glyph-property-input');
         expect(inputs[1].value).toBe('==+20');
 
+        let values = document.querySelectorAll('.glyph-property-value');
+        const glyph = fontManager.currentFont.fontModel.findGlyph('panelGlyph');
+        let selectedLayer = glyph.layers.find(
+            (layer) => layer.id === 'layer-2'
+        );
+        expect(values[1].textContent).toBe(
+            String(selectedLayer.resolveMetricsKey('right').value)
+        );
+
         canvas.outlineEditor.selectedLayerId = 'layer-3';
         canvas.updatePropertyPanel();
 
         inputs = document.querySelectorAll('.glyph-property-input');
         expect(inputs[1].value).toBe('=globalKey');
+
+        values = document.querySelectorAll('.glyph-property-value');
+        selectedLayer = glyph.layers.find((layer) => layer.id === 'layer-3');
+        expect(selectedLayer.resolveMetricsKey('right').value).toBeNull();
+        expect(values[1].textContent).toBe(String(selectedLayer.rsb));
     });
 
     test('shows auto placeholder for automatic layer without explicit key', () => {

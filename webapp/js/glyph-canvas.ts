@@ -1587,8 +1587,8 @@ class GlyphCanvas {
 
         const isEditMode = this.outlineEditor.active;
         const preselectedLayerId = isEditMode
-            ? this.outlineEditor.findMatchingLayer()?.id ||
-              this.outlineEditor.selectedLayerId
+            ? this.outlineEditor.selectedLayerId ||
+              this.outlineEditor.findMatchingLayer()?.id
             : null;
         console.log(
             '[GlyphCanvas] Found',
@@ -2574,7 +2574,7 @@ class GlyphCanvas {
             const valueLabel = document.createElement('span');
             valueLabel.className = 'glyph-property-value';
             valueLabel.textContent = String(
-                side === 'left' ? layer.lsb : layer.rsb
+                resolution.value ?? (side === 'left' ? layer.lsb : layer.rsb)
             );
 
             wrapper.appendChild(label);
