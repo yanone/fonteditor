@@ -237,6 +237,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
     let originalOpenedFonts;
     let originalCurrentFontId;
     let originalWindowFontManager;
+    let originalAutoCompileManager;
 
     beforeEach(() => {
         document.body.innerHTML = '<div id="test-container"></div>';
@@ -250,7 +251,11 @@ describe('GlyphCanvas property panel metrics edits', () => {
         originalOpenedFonts = fontManager.openedFonts;
         originalCurrentFontId = fontManager.currentFontId;
         originalWindowFontManager = window.fontManager;
+        originalAutoCompileManager = window.autoCompileManager;
         window.fontManager = fontManager;
+        window.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
     });
 
     afterEach(() => {
@@ -263,10 +268,11 @@ describe('GlyphCanvas property panel metrics edits', () => {
         fontManager.openedFonts = originalOpenedFonts;
         fontManager.currentFontId = originalCurrentFontId;
         window.fontManager = originalWindowFontManager;
+        window.autoCompileManager = originalAutoCompileManager;
         canvas.destroy();
     });
 
-    test('commitPropertyPanelValue treats sidebearing edits as outline keyboard edits', async () => {
+    test('commitPropertyPanelValue keeps layer-local sidebearing keys on the incremental layer path', async () => {
         const layer = {
             width: 500,
             applySidebearingInput: jest.fn(() => {
@@ -274,7 +280,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 layer.width = 640;
                 return {
                     affectedGlyphNames: ['a'],
-                    error: null
+                    error: null,
+                    updateScope: 'layer'
                 };
             })
         };
@@ -304,7 +311,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         canvas.render = jest.fn();
         canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
 
-        await canvas.commitPropertyPanelValue('left', '=50');
+        await canvas.commitPropertyPanelValue('left', '==50');
 
         expect(fontManager.lastChangeSource).toBe('keyboard');
         expect(fontManager.lastEditType).toBe('outline');
@@ -312,11 +319,67 @@ describe('GlyphCanvas property panel metrics edits', () => {
             1
         );
         expect(
+            window.autoCompileManager.checkAndSchedule
+        ).not.toHaveBeenCalled();
+        expect(
             canvas.textRunEditor.refreshGlyphAdvancesLive
         ).toHaveBeenCalledWith({ a: 640 });
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
         ).toHaveBeenCalledWith(['a'], 'layer-1');
+        expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
+    });
+
+    test('commitPropertyPanelValue uses full-font refresh for glyph-wide sidebearing keys', async () => {
+        const layer = {
+            width: 500,
+            applySidebearingInput: jest.fn(() => {
+                fontManager.currentFont.changeVersion = 2;
+                layer.width = 640;
+                return {
+                    affectedGlyphNames: ['a', 'adieresis'],
+                    error: null,
+                    updateScope: 'font'
+                };
+            })
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        fontManager.lastChangeSource = 'previous-source';
+        fontManager.lastEditType = 'outline';
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockResolvedValue();
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+
+        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+
+        await canvas.commitPropertyPanelValue('left', '=50');
+
+        expect(fontManager.lastChangeSource).toBe('metrics-key');
+        expect(fontManager.lastEditType).toBeNull();
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
+        expect(
+            window.fontManager.refreshGlyphsAfterModelBatch
+        ).toHaveBeenCalledWith(['a', 'adieresis'], undefined);
         expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
     });
 
@@ -1330,9 +1393,13 @@ describe('GlyphCanvas property panel', () => {
 
         const inputs = document.querySelectorAll('.glyph-property-input');
         const values = document.querySelectorAll('.glyph-property-value');
+        const widthDisplay = document.querySelector(
+            '.glyph-property-display-value'
+        );
 
         expect(inputs).toHaveLength(2);
         expect(values).toHaveLength(2);
+        expect(widthDisplay.textContent).toBe('600');
         expect(inputs[0].value).toBe('50');
         expect(inputs[1].value).toBe('=globalKey');
     });
@@ -1345,6 +1412,9 @@ describe('GlyphCanvas property panel', () => {
         expect(inputs[1].value).toBe('==+20');
 
         let values = document.querySelectorAll('.glyph-property-value');
+        let widthDisplay = document.querySelector(
+            '.glyph-property-display-value'
+        );
         const glyph = fontManager.currentFont.fontModel.findGlyph('panelGlyph');
         let selectedLayer = glyph.layers.find(
             (layer) => layer.id === 'layer-2'
@@ -1352,6 +1422,7 @@ describe('GlyphCanvas property panel', () => {
         expect(values[1].textContent).toBe(
             String(selectedLayer.resolveMetricsKey('right').value)
         );
+        expect(widthDisplay.textContent).toBe('500');
 
         canvas.outlineEditor.selectedLayerId = 'layer-3';
         canvas.updatePropertyPanel();
@@ -1360,9 +1431,11 @@ describe('GlyphCanvas property panel', () => {
         expect(inputs[1].value).toBe('=globalKey');
 
         values = document.querySelectorAll('.glyph-property-value');
+        widthDisplay = document.querySelector('.glyph-property-display-value');
         selectedLayer = glyph.layers.find((layer) => layer.id === 'layer-3');
         expect(selectedLayer.resolveMetricsKey('right').value).toBeNull();
         expect(values[1].textContent).toBe(String(selectedLayer.rsb));
+        expect(widthDisplay.textContent).toBe('500');
     });
 
     test('shows auto placeholder for automatic layer without explicit key', () => {

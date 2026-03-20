@@ -61,6 +61,7 @@ type MetricsKeyResolution = {
     error: string | null;
     referencedGlyphNames: string[];
     isLocal: boolean;
+    updateScope?: 'layer' | 'font';
     affectedGlyphNames?: string[];
 };
 
@@ -2576,9 +2577,13 @@ export class Layer extends ArrayElementBase {
         const input = rawValue.trim();
         const label = side === 'left' ? 'Set LSB' : 'Set RSB';
         const glyphName = (this.parent() as Glyph)?.name;
+        const isPlainNumericInput = isPlainNumericText(input);
+        const forceLocal = input.startsWith('==');
+        const updateScope: 'layer' | 'font' =
+            !isPlainNumericInput && !forceLocal ? 'font' : 'layer';
 
         return withBridgeTransaction(label, () => {
-            if (isPlainNumericText(input)) {
+            if (isPlainNumericInput) {
                 this.clearEffectiveSidebearingKey(side);
                 this.setDirectSidebearing(side, Number(input));
                 const affectedGlyphNames = new Set<string>(
@@ -2595,11 +2600,11 @@ export class Layer extends ArrayElementBase {
                     error: null,
                     referencedGlyphNames: [],
                     isLocal: false,
+                    updateScope,
                     affectedGlyphNames: [...affectedGlyphNames]
                 };
             }
 
-            const forceLocal = input.startsWith('==');
             if (forceLocal) {
                 if (side === 'left') {
                     this.leftMetricsKey = input;
@@ -2613,6 +2618,7 @@ export class Layer extends ArrayElementBase {
             if (resolution.error || resolution.value === null) {
                 return {
                     ...resolution,
+                    updateScope,
                     affectedGlyphNames: glyphName ? [glyphName] : []
                 };
             }
@@ -2627,6 +2633,7 @@ export class Layer extends ArrayElementBase {
                     ...resolution,
                     value: null,
                     error: applied.error,
+                    updateScope,
                     affectedGlyphNames: glyphName ? [glyphName] : []
                 };
             }
@@ -2642,6 +2649,7 @@ export class Layer extends ArrayElementBase {
             }
             return {
                 ...resolution,
+                updateScope,
                 affectedGlyphNames: [...affectedGlyphNames]
             };
         });

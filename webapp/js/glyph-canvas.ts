@@ -2465,11 +2465,16 @@ class GlyphCanvas {
         const previousEditType = fontManager.lastEditType;
         const previousChangeVersion = fontManager.currentFont?.changeVersion;
 
-        fontManager.lastChangeSource = 'keyboard';
-        fontManager.lastEditType = 'outline';
-
         const resolution = layer.applySidebearingInput(side, value);
         const glyphName = this.getCurrentGlyphName();
+        const usesIncrementalLayerRefresh = resolution.updateScope === 'layer';
+
+        fontManager.lastChangeSource = usesIncrementalLayerRefresh
+            ? 'keyboard'
+            : 'metrics-key';
+        fontManager.lastEditType = usesIncrementalLayerRefresh
+            ? 'outline'
+            : null;
         const modelChanged =
             previousChangeVersion === undefined ||
             fontManager.currentFont?.changeVersion !== previousChangeVersion;
@@ -2477,8 +2482,10 @@ class GlyphCanvas {
         if (!modelChanged) {
             fontManager.lastChangeSource = previousChangeSource;
             fontManager.lastEditType = previousEditType;
-        } else {
+        } else if (usesIncrementalLayerRefresh) {
             fontManager.scheduleFullCompileDebounce();
+        } else {
+            window.autoCompileManager?.checkAndSchedule?.();
         }
 
         if (glyphName && Math.abs(layer.width - previousWidth) > 0.01) {
@@ -2501,7 +2508,9 @@ class GlyphCanvas {
             if (affectedGlyphNames.length > 0) {
                 await window.fontManager?.refreshGlyphsAfterModelBatch?.(
                     affectedGlyphNames,
-                    this.outlineEditor.selectedLayerId
+                    usesIncrementalLayerRefresh
+                        ? this.outlineEditor.selectedLayerId
+                        : undefined
                 );
             }
 
@@ -2608,7 +2617,25 @@ class GlyphCanvas {
             return wrapper;
         };
 
+        const createWidthDisplay = () => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'glyph-property-display';
+
+            const label = document.createElement('span');
+            label.className = 'glyph-property-control-label';
+            label.textContent = 'W';
+
+            const valueLabel = document.createElement('span');
+            valueLabel.className = 'glyph-property-display-value';
+            valueLabel.textContent = String(layer.width);
+
+            wrapper.appendChild(label);
+            wrapper.appendChild(valueLabel);
+            return wrapper;
+        };
+
         content.appendChild(createControl('left', 'LSB'));
+        content.appendChild(createWidthDisplay());
         content.appendChild(createControl('right', 'RSB'));
         this.propertyPanel.appendChild(content);
     }

@@ -493,6 +493,23 @@ describe('Babelfont Object Model', () => {
             serializeSpy.mockRestore();
         });
 
+        test('glyph-wide sidebearing keys update sibling layers on the same glyph', () => {
+            const glyphA = intermediateLayerFont.findGlyph('a');
+            const editableLayers = glyphA.layers.filter(
+                (layer) => !layer.isBackground?.() && !layer.isBackground
+            );
+            const editedLayer = editableLayers[0];
+
+            const resolution = editedLayer.applySidebearingInput('left', '=50');
+
+            expect(resolution.error).toBeNull();
+            expect(resolution.updateScope).toBe('font');
+            expect(glyphA.leftMetricsKey).toBe('=50');
+            for (const layer of editableLayers) {
+                expect(layer.lsb).toBe(50);
+            }
+        });
+
         test('batches geometry history updates during a left-sidebearing translation', () => {
             const glyph = font.findGlyph('A');
             const layer = glyph.layers[0];
