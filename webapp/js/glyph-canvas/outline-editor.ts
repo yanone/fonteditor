@@ -298,6 +298,8 @@ export class OutlineEditor {
             return;
         }
 
+        const previousWidth = currentLayerData.width;
+
         const glyph = fontModel.findGlyph(glyphName);
         const rawLayer = glyph?.findLayerById(currentLayerId)?.toJSON?.();
         if (!glyph || !rawLayer) {
@@ -337,6 +339,12 @@ export class OutlineEditor {
         }
         if (rawLayer.guides !== undefined) {
             currentLayerData.guides = rawLayer.guides;
+        }
+
+        if (Math.abs((currentLayerData.width || 0) - previousWidth) > 0.01) {
+            this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive({
+                [glyphName]: currentLayerData.width
+            });
         }
     }
 

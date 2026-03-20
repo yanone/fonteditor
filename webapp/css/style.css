@@ -4918,7 +4918,7 @@ flex-direction: row;
 .glyph-property-control {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
 
 .glyph-property-control-label {
@@ -4930,9 +4930,9 @@ flex-direction: row;
 }
 
 .glyph-property-input {
-    width: 96px;
+    width: 50px;
     height: 24px;
-    padding: 2px 8px;
+    padding: 2px 6px;
     border: 1px solid var(--border-primary);
     border-radius: 4px;
     background: var(--background-primary);
@@ -4946,7 +4946,6 @@ flex-direction: row;
 }
 
 .glyph-property-value {
-    min-width: 28px;
     color: var(--text-secondary);
     font-family: var(--font-families-mono);
     font-size: 11px;

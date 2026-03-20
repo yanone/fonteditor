@@ -2407,6 +2407,50 @@ export class TextRunEditor {
         return null;
     }
 
+    refreshGlyphAdvancesLive(glyphAdvances: Record<string, number>): boolean {
+        if (!this.shapedGlyphs || this.shapedGlyphs.length === 0) {
+            return false;
+        }
+
+        let metricsChanged = false;
+
+        for (
+            let glyphIndex = 0;
+            glyphIndex < this.shapedGlyphs.length;
+            glyphIndex++
+        ) {
+            const glyph = this.shapedGlyphs[glyphIndex];
+            const glyphName =
+                glyph.explicitGlyphName || this.glyphNameBuffer[glyphIndex];
+
+            if (!glyphName) {
+                continue;
+            }
+
+            const nextAdvance = glyphAdvances[glyphName];
+            if (!Number.isFinite(nextAdvance)) {
+                continue;
+            }
+
+            const previousAdvance = glyph.ax || 0;
+            if (Math.abs(previousAdvance - nextAdvance) <= 0.01) {
+                continue;
+            }
+
+            glyph.ax = nextAdvance;
+            metricsChanged = true;
+        }
+
+        if (!metricsChanged) {
+            return false;
+        }
+
+        this.buildClusterMap();
+        this.updateCursorVisualPosition();
+        this.call('render');
+        return true;
+    }
+
     async prefetchExplicitGlyphOutlinesForCurrentState() {
         if (!this.shapedGlyphs || this.shapedGlyphs.length === 0) {
             return;
