@@ -2204,19 +2204,20 @@ export class Layer extends ArrayElementBase {
             if (!bbox) {
                 return 0;
             }
-            return bbox.minX;
+            return roundMetricValue(bbox.minX);
         }
 
         const bbox = this.getBoundingBox(false);
         if (!bbox) {
-            return this.width;
+            return roundMetricValue(this.width);
         }
-        return this.width - bbox.maxX;
+        return roundMetricValue(this.width - bbox.maxX);
     }
 
     setDirectSidebearing(side: SidebearingSide, value: number): void {
         if (side === 'left') {
             const currentLsb = this.getDirectSidebearing('left');
+            const currentRsb = this.getDirectSidebearing('right');
             const offset = value - currentLsb;
 
             if (offset === 0) {
@@ -2255,7 +2256,12 @@ export class Layer extends ArrayElementBase {
                         anchor.x += offset;
                     }
 
-                    this.width += offset;
+                    const bbox = this.getBoundingBox(false);
+                    this.width = bbox
+                        ? roundMetricValue(
+                              roundMetricValue(bbox.maxX) + currentRsb
+                          )
+                        : roundMetricValue(value + currentRsb);
                 });
 
                 recordAndMarkDirty(
@@ -2280,9 +2286,11 @@ export class Layer extends ArrayElementBase {
         const bbox = this.getBoundingBox(false);
         const oldWidth = this.toJSON().width;
         if (!bbox) {
-            this.toJSON().width = value;
+            this.toJSON().width = roundMetricValue(value);
         } else {
-            this.toJSON().width = bbox.maxX + value;
+            this.toJSON().width = roundMetricValue(
+                roundMetricValue(bbox.maxX) + value
+            );
         }
         recordAndMarkDirty(this, 'width', oldWidth, this.toJSON().width);
     }
@@ -4368,7 +4376,9 @@ function getAppliedMetricsKeySidebearing(
     const directSidebearing = side === 'left' ? layer.lsb : layer.rsb;
 
     return {
-        value: directSidebearing + (resolution.value - measuredSidebearing),
+        value: roundMetricValue(
+            directSidebearing + (resolution.value - measuredSidebearing)
+        ),
         error: null
     };
 }

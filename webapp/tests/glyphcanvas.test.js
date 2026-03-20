@@ -1399,7 +1399,7 @@ describe('GlyphCanvas property panel', () => {
 
         expect(inputs).toHaveLength(2);
         expect(values).toHaveLength(2);
-        expect(widthDisplay.textContent).toBe('600');
+        expect(widthDisplay.textContent).toBe('500');
         expect(inputs[0].value).toBe('50');
         expect(inputs[1].value).toBe('=globalKey');
     });

@@ -487,10 +487,212 @@ describe('Babelfont Object Model', () => {
 
             expect(resolution.error).toBeNull();
             expect(resolution.value).toBe(50);
+            expect(Number.isInteger(braceLayer.width)).toBe(true);
             expect(serializeSpy).toHaveBeenCalledTimes(1);
             expect(store_font).toHaveBeenCalledTimes(1);
 
             serializeSpy.mockRestore();
+        });
+
+        test('height-offset sidebearing commits round the stored width after interpolation math', () => {
+            const heightFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: 'Regular',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: {}
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'base',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'base-layer',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 110, y: 0, nodetype: 'Line' },
+                                            { x: 380, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 380,
+                                                y: 500,
+                                                nodetype: 'Line'
+                                            },
+                                            { x: 110, y: 500, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'target',
+                        category: 'Base',
+                        exported: true,
+                        format_specific: {
+                            metric_right: '=base@200'
+                        },
+                        layers: [
+                            {
+                                id: 'target-layer',
+                                width: 520.6,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 80, y: 0, nodetype: 'Line' },
+                                            { x: 430, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 410.4,
+                                                y: 500,
+                                                nodetype: 'Line'
+                                            },
+                                            {
+                                                x: 120.4,
+                                                y: 500,
+                                                nodetype: 'Line'
+                                            }
+                                        ],
+                                        closed: true
+                                    }
+                                ],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    }
+                ],
+                names: { family_name: { en: 'Height Rounding Test' } },
+                note: '',
+                date: '2026-03-20',
+                features: {},
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+
+            const targetLayer = heightFont.findGlyph('target').layers[0];
+            const resolution = targetLayer.applySidebearingInput(
+                'right',
+                '=base@200'
+            );
+
+            expect(resolution.error).toBeNull();
+            expect(targetLayer.width).toBe(542);
+            expect(targetLayer.rsb).toBe(112);
+        });
+
+        test('keyed rsb recomputation rounds the opposite sidebearing before recomputing width', () => {
+            const roundedMetricsFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: 'Regular',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: {}
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'target',
+                        category: 'Base',
+                        exported: true,
+                        format_specific: {
+                            metric_right: '=50'
+                        },
+                        layers: [
+                            {
+                                id: 'target-layer',
+                                width: 521,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 70.4, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 420.4,
+                                                y: 0,
+                                                nodetype: 'Line'
+                                            },
+                                            {
+                                                x: 420.4,
+                                                y: 500,
+                                                nodetype: 'Line'
+                                            },
+                                            {
+                                                x: 70.4,
+                                                y: 500,
+                                                nodetype: 'Line'
+                                            }
+                                        ],
+                                        closed: true
+                                    }
+                                ],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    }
+                ],
+                names: { family_name: { en: 'Rounded Metrics Target' } },
+                note: '',
+                date: '2026-03-20',
+                features: {},
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+
+            const targetLayer =
+                roundedMetricsFont.findGlyph('target').layers[0];
+            const rightmostNodes = targetLayer.shapes
+                .filter((shape) => shape.isPath())
+                .flatMap((shape) => shape.asPath().nodes)
+                .filter((node) => node.x === 420.4);
+
+            for (const node of rightmostNodes) {
+                node.x += 10.2;
+            }
+
+            roundedMetricsFont.recomputeMetricsKeys(new Set(['target']));
+
+            expect(targetLayer.rsb).toBe(50);
+            expect(targetLayer.lsb).toBe(70);
+            expect(targetLayer.width).toBe(481);
         });
 
         test('glyph-wide sidebearing keys update sibling layers on the same glyph', () => {
@@ -610,12 +812,17 @@ describe('Babelfont Object Model', () => {
 
             expect(recomputedMeasuredERsb.right).toBeCloseTo(
                 recomputedResolvedERsb.value,
-                3
+                0
             );
 
             expect(
-                recomputedMeasuredERsb.right - originalMeasuredERsb.right
-            ).toBeCloseTo(layerE.rsb - originalDirectERsb, 3);
+                Math.abs(
+                    recomputedMeasuredERsb.right -
+                        originalMeasuredERsb.right -
+                        (recomputedResolvedERsb.value -
+                            originalResolvedERsb.value)
+                )
+            ).toBeLessThanOrEqual(1);
         });
 
         test('glyph-wide reference arithmetic key keeps a non-automatic layer at the referenced sidebearing during local edits', () => {

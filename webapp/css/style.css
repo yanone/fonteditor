@@ -4921,6 +4921,14 @@ flex-direction: row;
     gap: 6px;
 }
 
+.glyph-property-display {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 52px;
+    justify-content: center;
+}
+
 .glyph-property-control-label {
     font-size: 10px;
     font-weight: 700;
@@ -4950,6 +4958,13 @@ flex-direction: row;
     font-family: var(--font-families-mono);
     font-size: 11px;
     text-align: right;
+}
+
+.glyph-property-display-value {
+    color: var(--text-primary);
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+    text-align: center;
 }
 
 .glyph-property-panel-placeholder {
