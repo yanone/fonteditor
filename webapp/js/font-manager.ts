@@ -2342,14 +2342,30 @@ class FontManager {
             return;
         }
 
-        if (!this.syncBabelfontJsonFromCurrentModel()) {
-            return;
+        let updatedIncrementally = false;
+        if (layerId && uniqueGlyphNames.length === 1) {
+            updatedIncrementally = await this.submitLayerToWorkerCache(
+                uniqueGlyphNames[0],
+                layerId
+            );
+
+            if (updatedIncrementally) {
+                // storeLayerData mutates the worker's font cache without changing
+                // the main-thread storeFontJson payload tracker.
+                fontCompilation.lastStoredFontJson = null;
+            }
         }
 
-        await fontCompilation.sendMessage({
-            type: 'storeFontJson',
-            babelfontJson: currentFont.babelfontJson
-        });
+        if (!updatedIncrementally) {
+            if (!this.syncBabelfontJsonFromCurrentModel()) {
+                return;
+            }
+
+            await fontCompilation.sendMessage({
+                type: 'storeFontJson',
+                babelfontJson: currentFont.babelfontJson
+            });
+        }
 
         for (const glyphName of uniqueGlyphNames) {
             window.dispatchEvent(

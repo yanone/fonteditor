@@ -228,6 +228,134 @@ describe('GlyphCanvas onMouseUp', () => {
     });
 });
 
+describe('GlyphCanvas property panel metrics edits', () => {
+    let canvas;
+    let originalLastChangeSource;
+    let originalLastEditType;
+    let originalRefreshGlyphsAfterModelBatch;
+    let originalScheduleFullCompileDebounce;
+    let originalOpenedFonts;
+    let originalCurrentFontId;
+    let originalWindowFontManager;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        originalLastChangeSource = fontManager.lastChangeSource;
+        originalLastEditType = fontManager.lastEditType;
+        originalRefreshGlyphsAfterModelBatch =
+            fontManager.refreshGlyphsAfterModelBatch;
+        originalScheduleFullCompileDebounce =
+            fontManager.scheduleFullCompileDebounce;
+        originalOpenedFonts = fontManager.openedFonts;
+        originalCurrentFontId = fontManager.currentFontId;
+        originalWindowFontManager = window.fontManager;
+        window.fontManager = fontManager;
+    });
+
+    afterEach(() => {
+        fontManager.lastChangeSource = originalLastChangeSource;
+        fontManager.lastEditType = originalLastEditType;
+        fontManager.refreshGlyphsAfterModelBatch =
+            originalRefreshGlyphsAfterModelBatch;
+        fontManager.scheduleFullCompileDebounce =
+            originalScheduleFullCompileDebounce;
+        fontManager.openedFonts = originalOpenedFonts;
+        fontManager.currentFontId = originalCurrentFontId;
+        window.fontManager = originalWindowFontManager;
+        canvas.destroy();
+    });
+
+    test('commitPropertyPanelValue treats sidebearing edits as outline keyboard edits', async () => {
+        const layer = {
+            width: 500,
+            applySidebearingInput: jest.fn(() => {
+                fontManager.currentFont.changeVersion = 2;
+                layer.width = 640;
+                return {
+                    affectedGlyphNames: ['a'],
+                    error: null
+                };
+            })
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        fontManager.lastChangeSource = 'previous-source';
+        fontManager.lastEditType = null;
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockResolvedValue();
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+
+        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+
+        await canvas.commitPropertyPanelValue('left', '=50');
+
+        expect(fontManager.lastChangeSource).toBe('keyboard');
+        expect(fontManager.lastEditType).toBe('outline');
+        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
+            1
+        );
+        expect(
+            canvas.textRunEditor.refreshGlyphAdvancesLive
+        ).toHaveBeenCalledWith({ a: 640 });
+        expect(
+            window.fontManager.refreshGlyphsAfterModelBatch
+        ).toHaveBeenCalledWith(['a'], 'layer-1');
+        expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
+    });
+
+    test('editingFontCompiled skips superseded full-compile revisions', async () => {
+        const setFontSpy = jest
+            .spyOn(canvas, 'setFont')
+            .mockResolvedValue(undefined);
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    compileRequestVersion: 5
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        canvas.featuresManager.updateFeaturesUI = jest.fn().mockResolvedValue();
+        canvas.requestRepaintAfterCompile = jest.fn();
+
+        window.dispatchEvent(
+            new CustomEvent('editingFontCompiled', {
+                detail: {
+                    fontBytes: new Uint8Array([1, 2, 3]),
+                    fontRevisionKey: '4',
+                    compilationMode: 'full',
+                    dragActive: false
+                }
+            })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(setFontSpy).not.toHaveBeenCalled();
+        expect(canvas.requestRepaintAfterCompile).not.toHaveBeenCalled();
+    });
+});
+
 // ==================== Hit Testing Tests ====================
 
 describe('GlyphCanvas hit testing', () => {

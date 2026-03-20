@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const fontManager = require('../js/font-manager').default;
+const { fontCompilation } = require('../js/font-compilation');
 const { Font } = require('../js/babelfont-model');
 const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
 
@@ -26,6 +27,9 @@ describe('FontManager saveLayerData', () => {
     let originalPendingBabelfontJsonSyncAfterDrag;
     let updateDirtyIndicatorSpy;
     let intermediateLayerData;
+    let originalFontCompilationInitialized;
+    let originalLastStoredFontJson;
+    let sendMessageSpy;
 
     beforeAll(() => {
         const fixturePath = path.join(
@@ -45,10 +49,14 @@ describe('FontManager saveLayerData', () => {
 
         const fontData = cloneJson(intermediateLayerData);
         const fakeCurrentFont = {
+            babelfontJson: JSON.stringify(fontData),
             babelfontData: fontData,
             fontModel: Font.fromData(fontData),
             name: 'Sukoon',
-            markDirty: jest.fn()
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(function () {
+                this.babelfontJson = this.fontModel.toJSONString();
+            })
         };
 
         fontManager.openedFonts = new Map([['test-font', fakeCurrentFont]]);
@@ -61,14 +69,24 @@ describe('FontManager saveLayerData', () => {
         window.autoCompileManager = {
             checkAndSchedule: jest.fn()
         };
+
+        originalFontCompilationInitialized = fontCompilation.isInitialized;
+        originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
+        fontCompilation.isInitialized = true;
+        sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
     });
 
     afterEach(() => {
         updateDirtyIndicatorSpy?.mockRestore();
+        sendMessageSpy?.mockRestore();
         fontManager.openedFonts = originalOpenedFonts;
         fontManager.currentFontId = originalCurrentFontId;
         fontManager.pendingBabelfontJsonSyncAfterDrag =
             originalPendingBabelfontJsonSyncAfterDrag;
+        fontCompilation.isInitialized = originalFontCompilationInitialized;
+        fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
         delete window.autoCompileManager;
     });
 
@@ -110,6 +128,38 @@ describe('FontManager saveLayerData', () => {
         expect(savedBraceLayer.master).toEqual({
             type: 'AssociatedWithMaster',
             master: '3E7589AA-8194-470F-8E2F-13C1C581BE24'
+        });
+    });
+
+    test('refreshGlyphsAfterModelBatch updates a single edited layer without storing the whole font', async () => {
+        const currentFont = fontManager.currentFont;
+        const syncSpy = jest.spyOn(currentFont, 'syncJsonFromModel');
+        const glyphChangedHandler = jest.fn();
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+
+        fontCompilation.lastStoredFontJson = currentFont.babelfontJson;
+        window.addEventListener('glyphChanged', glyphChangedHandler);
+
+        try {
+            await fontManager.refreshGlyphsAfterModelBatch(['a'], layerId);
+        } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
+            syncSpy.mockRestore();
+        }
+
+        expect(syncSpy).not.toHaveBeenCalled();
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith({
+            type: 'storeLayerData',
+            glyphName: 'a',
+            layerId,
+            layerData: expect.any(Object)
+        });
+        expect(fontCompilation.lastStoredFontJson).toBeNull();
+        expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
+        expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
+            glyphName: 'a',
+            layerId
         });
     });
 });

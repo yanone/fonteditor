@@ -91,6 +91,12 @@ const GLYPHS_LAYER_METRIC_RIGHT_KEY = 'com.schriftgestalt.Glyphs.metricRight';
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
 const METRIC_UPDATE_EPSILON = 0.01;
 let suppressModelRecordingDepth = 0;
+let suppressMetricsKeyRecomputeDepth = 0;
+
+type InterpolationFontCacheEntry = {
+    serializedFont: string;
+    version: number;
+};
 
 export function withSuppressedModelRecording<T>(fn: () => T): T {
     suppressModelRecordingDepth++;
@@ -100,7 +106,57 @@ export function withSuppressedModelRecording<T>(fn: () => T): T {
         suppressModelRecordingDepth--;
     }
 }
-const interpolationFontCache = new WeakMap<Font, string>();
+
+function withSuppressedMetricsKeyRecompute<T>(fn: () => T): T {
+    suppressMetricsKeyRecomputeDepth++;
+    try {
+        return fn();
+    } finally {
+        suppressMetricsKeyRecomputeDepth--;
+    }
+}
+const interpolationFontCache = new WeakMap<Font, InterpolationFontCacheEntry>();
+const interpolationFontVersions = new WeakMap<Font, number>();
+
+function getInterpolationFontVersion(font: Font): number {
+    return interpolationFontVersions.get(font) || 0;
+}
+
+function markInterpolationFontDirty(font: Font | null | undefined): void {
+    if (!font) {
+        return;
+    }
+
+    interpolationFontVersions.set(font, getInterpolationFontVersion(font) + 1);
+}
+
+function getCurrentWindowFontModel(): Font | null {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    const currentFontModel = (window as Unsafe).currentFontModel;
+    return currentFontModel instanceof Font ? currentFontModel : null;
+}
+
+function findFontForModelObject(
+    modelObj: ModelBase | null | undefined
+): Font | null {
+    let current: unknown = modelObj;
+    while (current) {
+        if (current instanceof Font) {
+            return current;
+        }
+
+        if (!(current instanceof ModelBase)) {
+            return null;
+        }
+
+        current = current.parent();
+    }
+
+    return null;
+}
 
 function locationsMatch(
     left: Record<string, number> | undefined,
@@ -126,15 +182,26 @@ function locationsMatch(
 }
 
 function ensureFontStoredForInterpolation(font: Font): boolean {
+    const version = getInterpolationFontVersion(font);
+    const cachedEntry = interpolationFontCache.get(font);
+
+    if (cachedEntry && cachedEntry.version === version) {
+        return true;
+    }
+
     try {
         const serializedFont = font.toJSONString();
-        if (interpolationFontCache.get(font) !== serializedFont) {
+        if (!cachedEntry || cachedEntry.serializedFont !== serializedFont) {
             store_font(serializedFont);
-            interpolationFontCache.set(font, serializedFont);
         }
+
+        interpolationFontCache.set(font, {
+            serializedFont,
+            version
+        });
         return true;
     } catch {
-        return interpolationFontCache.has(font);
+        return Boolean(cachedEntry);
     }
 }
 
@@ -305,6 +372,8 @@ function recordAndMarkDirty(
         return;
     }
 
+    markInterpolationFontDirty(findFontForModelObject(modelObj));
+
     const bridge = getChangeBridge();
     if (bridge) {
         const path = modelObj.getPath();
@@ -324,6 +393,8 @@ function recordPathChangeAndMarkDirty(
     if (suppressModelRecordingDepth > 0) {
         return;
     }
+
+    markInterpolationFontDirty(getCurrentWindowFontModel());
 
     const bridge = getChangeBridge();
     if (bridge && path.length > 0) {
@@ -348,6 +419,8 @@ function recordAddAndMarkDirty(
         return;
     }
 
+    markInterpolationFontDirty(getCurrentWindowFontModel());
+
     const bridge = getChangeBridge();
     if (bridge) {
         bridge.recordAdd(path, cloneForHistory(value));
@@ -365,6 +438,8 @@ function recordRemoveAndMarkDirty(
     if (suppressModelRecordingDepth > 0) {
         return;
     }
+
+    markInterpolationFontDirty(getCurrentWindowFontModel());
 
     const bridge = getChangeBridge();
     if (bridge) {
@@ -395,6 +470,10 @@ function maybeRecomputeMetricsKeysForModelObject(
     modelObj: ModelBase,
     prop: string
 ): void {
+    if (suppressMetricsKeyRecomputeDepth > 0) {
+        return;
+    }
+
     const path = [...modelObj.getPath(), prop];
     if (!shouldRecomputeMetricsKeysForPath(path)) {
         return;
@@ -418,6 +497,10 @@ function maybeRecomputeMetricsKeysForModelObject(
 }
 
 function maybeRecomputeMetricsKeysForPath(path: (string | number)[]): void {
+    if (suppressMetricsKeyRecomputeDepth > 0) {
+        return;
+    }
+
     if (!shouldRecomputeMetricsKeysForPath(path)) {
         return;
     }
@@ -582,6 +665,7 @@ function setFormatSpecificKey(
                 oldValue
             );
         }
+        markInterpolationFontDirty(findFontForModelObject(modelObj));
         markFontDirty();
         return;
     }
@@ -1025,6 +1109,7 @@ function getPreciseLiveMutableValue<T>(
                 if (bridge) {
                     bridge.recordRemove(propPath, oldValue);
                 }
+                markInterpolationFontDirty(getCurrentWindowFontModel());
                 markFontDirty();
                 return success;
             }
@@ -1262,6 +1347,7 @@ abstract class ArrayElementBase<
      */
     protected set data(value: TData) {
         this._parent[this._index] = value;
+        markInterpolationFontDirty(findFontForModelObject(this));
         markFontDirty();
     }
 }
@@ -2136,32 +2222,57 @@ export class Layer extends ArrayElementBase {
                 return;
             }
 
-            for (const shape of this.shapes || []) {
-                if (shape.isPath()) {
-                    for (const node of shape.asPath().nodes) {
-                        node.x += offset;
+            const layerData = this.toJSON();
+            const oldShapes = cloneForHistory(layerData.shapes || []);
+            const oldAnchors = cloneForHistory(layerData.anchors || []);
+            const oldWidth = layerData.width;
+
+            withSuppressedMetricsKeyRecompute(() => {
+                withSuppressedModelRecording(() => {
+                    for (const shape of this.shapes || []) {
+                        if (shape.isPath()) {
+                            for (const node of shape.asPath().nodes) {
+                                node.x += offset;
+                            }
+                            continue;
+                        }
+
+                        if (shape.isComponent()) {
+                            const component = shape.asComponent();
+                            if (!component.transform) {
+                                component.transform =
+                                    DecomposedAffineTransform.identity();
+                            }
+                            if (!component.transform.translation) {
+                                component.transform.translation = [0, 0];
+                            }
+                            component.transform.translation[0] += offset;
+                        }
                     }
-                    continue;
+
+                    for (const anchor of this.anchors || []) {
+                        anchor.x += offset;
+                    }
+
+                    this.width += offset;
+                });
+
+                recordAndMarkDirty(
+                    this,
+                    'shapes',
+                    oldShapes,
+                    cloneForHistory(layerData.shapes || [])
+                );
+                if (oldAnchors.length || (layerData.anchors || []).length) {
+                    recordAndMarkDirty(
+                        this,
+                        'anchors',
+                        oldAnchors,
+                        cloneForHistory(layerData.anchors || [])
+                    );
                 }
-
-                if (shape.isComponent()) {
-                    const component = shape.asComponent();
-                    if (!component.transform) {
-                        component.transform =
-                            DecomposedAffineTransform.identity();
-                    }
-                    if (!component.transform.translation) {
-                        component.transform.translation = [0, 0];
-                    }
-                    component.transform.translation[0] += offset;
-                }
-            }
-
-            for (const anchor of this.anchors || []) {
-                anchor.x += offset;
-            }
-
-            this.width += offset;
+                recordAndMarkDirty(this, 'width', oldWidth, layerData.width);
+            });
             return;
         }
 

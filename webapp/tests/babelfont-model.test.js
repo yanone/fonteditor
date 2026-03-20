@@ -471,6 +471,70 @@ describe('Babelfont Object Model', () => {
             expect(resolution.value).toBe(50);
         });
 
+        test('reuses the interpolation snapshot during an intermediate-layer =50 lsb edit', () => {
+            const glyphA = intermediateLayerFont.findGlyph('a');
+            const braceLayer = glyphA.layers.find(
+                (layer) => layer.location && Object.keys(layer.location).length
+            );
+            const serializeSpy = jest.spyOn(
+                intermediateLayerFont,
+                'toJSONString'
+            );
+
+            store_font.mockClear();
+
+            const resolution = braceLayer.applySidebearingInput('left', '=50');
+
+            expect(resolution.error).toBeNull();
+            expect(resolution.value).toBe(50);
+            expect(serializeSpy).toHaveBeenCalledTimes(1);
+            expect(store_font).toHaveBeenCalledTimes(1);
+
+            serializeSpy.mockRestore();
+        });
+
+        test('batches geometry history updates during a left-sidebearing translation', () => {
+            const glyph = font.findGlyph('A');
+            const layer = glyph.layers[0];
+
+            for (const shape of layer.shapes || []) {
+                if (shape.isPath()) {
+                    shape.asPath().nodes;
+                }
+            }
+
+            const originalBridge = window.changeBridge;
+            const recordChange = jest.fn();
+
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                recordChange
+            };
+
+            try {
+                const resolution = layer.applySidebearingInput(
+                    'left',
+                    String(layer.lsb + 25)
+                );
+
+                expect(resolution.error).toBeNull();
+            } finally {
+                window.changeBridge = originalBridge;
+            }
+
+            const recordedProps = recordChange.mock.calls.map(
+                ([, prop]) => prop
+            );
+
+            expect(recordedProps).toEqual(
+                expect.arrayContaining(['shapes', 'width'])
+            );
+            expect(recordedProps).not.toContain('x');
+            expect(recordedProps).not.toContain('y');
+            expect(recordChange.mock.calls.length).toBeLessThanOrEqual(5);
+        });
+
         test('exposes imported glyph and layer metrics keys', () => {
             const glyphA = metricsKeysFont.findGlyph('a');
             const glyphAring = metricsKeysFont.findGlyph('aring');

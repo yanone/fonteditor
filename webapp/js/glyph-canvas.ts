@@ -2460,8 +2460,33 @@ class GlyphCanvas {
             return;
         }
 
+        const previousWidth = layer.width;
+        const previousChangeSource = fontManager.lastChangeSource;
+        const previousEditType = fontManager.lastEditType;
+        const previousChangeVersion = fontManager.currentFont?.changeVersion;
+
+        fontManager.lastChangeSource = 'keyboard';
+        fontManager.lastEditType = 'outline';
+
         const resolution = layer.applySidebearingInput(side, value);
         const glyphName = this.getCurrentGlyphName();
+        const modelChanged =
+            previousChangeVersion === undefined ||
+            fontManager.currentFont?.changeVersion !== previousChangeVersion;
+
+        if (!modelChanged) {
+            fontManager.lastChangeSource = previousChangeSource;
+            fontManager.lastEditType = previousEditType;
+        } else {
+            fontManager.scheduleFullCompileDebounce();
+        }
+
+        if (glyphName && Math.abs(layer.width - previousWidth) > 0.01) {
+            this.textRunEditor?.refreshGlyphAdvancesLive({
+                [glyphName]: layer.width
+            });
+        }
+
         const affectedGlyphNames = Array.from(
             new Set(
                 resolution.affectedGlyphNames?.length
@@ -4620,6 +4645,20 @@ function setupFontLoadingListener() {
         editingFontApplyQueue = editingFontApplyQueue
             .then(async () => {
                 const incomingRevision = Number(detail?.fontRevisionKey);
+                const latestRequestedRevision = Number(
+                    window.fontManager?.currentFont?.compileRequestVersion
+                );
+                if (
+                    Number.isFinite(incomingRevision) &&
+                    Number.isFinite(latestRequestedRevision) &&
+                    incomingRevision < latestRequestedRevision
+                ) {
+                    timelineMark(
+                        'canvas.editingFontCompiled.skippedSupersededRevision'
+                    );
+                    return;
+                }
+
                 if (
                     Number.isFinite(incomingRevision) &&
                     incomingRevision < latestAppliedEditingRevision
