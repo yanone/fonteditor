@@ -25,6 +25,7 @@ describe('FontManager saveLayerData', () => {
     let originalOpenedFonts;
     let originalCurrentFontId;
     let originalPendingBabelfontJsonSyncAfterDrag;
+    let originalScheduleFullCompileDebounce;
     let updateDirtyIndicatorSpy;
     let intermediateLayerData;
     let originalFontCompilationInitialized;
@@ -46,6 +47,8 @@ describe('FontManager saveLayerData', () => {
         originalCurrentFontId = fontManager.currentFontId;
         originalPendingBabelfontJsonSyncAfterDrag =
             fontManager.pendingBabelfontJsonSyncAfterDrag;
+        originalScheduleFullCompileDebounce =
+            fontManager.scheduleFullCompileDebounce;
 
         const fontData = cloneJson(intermediateLayerData);
         const fakeCurrentFont = {
@@ -62,6 +65,7 @@ describe('FontManager saveLayerData', () => {
         fontManager.openedFonts = new Map([['test-font', fakeCurrentFont]]);
         fontManager.currentFontId = 'test-font';
         fontManager.pendingBabelfontJsonSyncAfterDrag = false;
+        fontManager.scheduleFullCompileDebounce = jest.fn();
         updateDirtyIndicatorSpy = jest
             .spyOn(fontManager, 'updateDirtyIndicator')
             .mockResolvedValue();
@@ -85,6 +89,8 @@ describe('FontManager saveLayerData', () => {
         fontManager.currentFontId = originalCurrentFontId;
         fontManager.pendingBabelfontJsonSyncAfterDrag =
             originalPendingBabelfontJsonSyncAfterDrag;
+        fontManager.scheduleFullCompileDebounce =
+            originalScheduleFullCompileDebounce;
         fontCompilation.isInitialized = originalFontCompilationInitialized;
         fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
         delete window.autoCompileManager;
@@ -129,6 +135,50 @@ describe('FontManager saveLayerData', () => {
             type: 'AssociatedWithMaster',
             master: '3E7589AA-8194-470F-8E2F-13C1C581BE24'
         });
+    });
+
+    test('defers immediate auto-compile for interactive outline saves', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            cloneJson(layer),
+            'mouse-drag-outline'
+        );
+
+        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
+            1
+        );
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).not.toHaveBeenCalled();
+    });
+
+    test('keeps immediate auto-compile for generic keyboard saves', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            cloneJson(layer),
+            'keyboard'
+        );
+
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
     });
 
     test('refreshGlyphsAfterModelBatch updates a single edited layer without storing the whole font', async () => {

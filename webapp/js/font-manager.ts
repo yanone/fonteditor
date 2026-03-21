@@ -2138,13 +2138,18 @@ class FontManager {
             this.lastEditType = null;
         }
 
+        const deferInteractiveCompile =
+            isInteractiveEdit && this.lastEditType !== null;
+
         // Schedule debounced full compile after interactive editing stops
-        if (isInteractiveEdit && this.lastEditType) {
+        if (deferInteractiveCompile) {
             this.scheduleFullCompileDebounce();
         }
 
         this.currentFont!.markDirty(changeSource);
-        window.autoCompileManager.checkAndSchedule();
+        if (!deferInteractiveCompile) {
+            window.autoCompileManager.checkAndSchedule();
+        }
         await this.updateDirtyIndicator();
 
         // Update worker's font cache so glyph overview renders correctly

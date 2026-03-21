@@ -2467,6 +2467,18 @@ class GlyphCanvas {
         side: 'left' | 'right',
         value: string
     ): Promise<void> {
+        const trimmedValue = value.trim();
+
+        if (
+            isPlainNumericInputValue(trimmedValue) &&
+            this.outlineEditor.setSidebearingValue(side, Number(trimmedValue))
+        ) {
+            this.updatePropertyPanel();
+            this.outlineEditor.performHitDetection(null);
+            this.render();
+            return;
+        }
+
         const layer = this.getCurrentLayerModel();
         if (!layer) {
             return;

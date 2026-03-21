@@ -2586,8 +2586,33 @@ export class OutlineEditor {
         this.glyphCanvas.render();
     }
 
-    private adjustSelectedSidebearing(deltaX: number): boolean {
-        if (!this.selectedSidebearingHandle || deltaX === 0) {
+    private getCurrentDirectSidebearing(side: 'left' | 'right'): number | null {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData || currentLayerData.isInterpolated) {
+            return null;
+        }
+
+        const bounds = Layer.calculateBoundingBox(
+            currentLayerData,
+            false,
+            fontManager.currentFont?.fontModel,
+            currentLayerData.master?.master
+        );
+
+        if (side === 'left') {
+            return bounds ? bounds.minX : 0;
+        }
+
+        return bounds
+            ? (currentLayerData.width || 0) - bounds.maxX
+            : currentLayerData.width || 0;
+    }
+
+    private applySidebearingDelta(
+        side: 'left' | 'right',
+        sidebearingDelta: number
+    ): boolean {
+        if (sidebearingDelta === 0) {
             return false;
         }
 
@@ -2596,8 +2621,6 @@ export class OutlineEditor {
             return false;
         }
 
-        const side = this.selectedSidebearingHandle.side;
-        const sidebearingDelta = side === 'left' ? -deltaX : deltaX;
         const previousWidth = currentLayerData.width;
 
         if (side === 'left') {
@@ -2679,6 +2702,38 @@ export class OutlineEditor {
         }
 
         return true;
+    }
+
+    setSidebearingValue(side: 'left' | 'right', targetValue: number): boolean {
+        const currentSidebearing = this.getCurrentDirectSidebearing(side);
+        if (currentSidebearing === null) {
+            return false;
+        }
+
+        if (
+            !this.applySidebearingDelta(side, targetValue - currentSidebearing)
+        ) {
+            return false;
+        }
+
+        this.saveLayerData('keyboard-outline');
+        this._syncCurrentGlyphToYDoc(
+            'Set sidebearing',
+            `${side.toUpperCase()} ${currentSidebearing}`,
+            `${side.toUpperCase()} ${targetValue}`
+        );
+        return true;
+    }
+
+    private adjustSelectedSidebearing(deltaX: number): boolean {
+        if (!this.selectedSidebearingHandle || deltaX === 0) {
+            return false;
+        }
+
+        const side = this.selectedSidebearingHandle.side;
+        const sidebearingDelta = side === 'left' ? -deltaX : deltaX;
+
+        return this.applySidebearingDelta(side, sidebearingDelta);
     }
 
     moveSelectedSidebearing(deltaX: number): void {

@@ -486,7 +486,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         canvas.render = jest.fn();
         canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => false);
 
-        const commitPromise = canvas.commitPropertyPanelValue('left', '20');
+        const commitPromise = canvas.commitPropertyPanelValue('left', '==20');
 
         expect(canvas.viewportManager.panX).toBe(60);
         expect(canvas.outlineEditor.layerData.width).toBe(520);
@@ -494,6 +494,34 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         resolveRefresh();
         await commitPromise;
+    });
+
+    test('commitPropertyPanelValue reuses the direct outline-editor path for plain numeric sidebearings', async () => {
+        const setSidebearingValueSpy = jest
+            .spyOn(canvas.outlineEditor, 'setSidebearingValue')
+            .mockReturnValue(true);
+
+        canvas.getCurrentLayerModel = jest.fn();
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockResolvedValue();
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+
+        await canvas.commitPropertyPanelValue('left', '20');
+
+        expect(setSidebearingValueSpy).toHaveBeenCalledWith('left', 20);
+        expect(canvas.getCurrentLayerModel).not.toHaveBeenCalled();
+        expect(
+            window.fontManager.refreshGlyphsAfterModelBatch
+        ).not.toHaveBeenCalled();
+        expect(canvas.outlineEditor.fetchLayerData).not.toHaveBeenCalled();
+        expect(canvas.updatePropertyPanel).toHaveBeenCalledTimes(1);
+        expect(canvas.render).toHaveBeenCalledTimes(1);
+
+        setSidebearingValueSpy.mockRestore();
     });
 
     test('editingFontCompiled skips superseded full-compile revisions', async () => {
