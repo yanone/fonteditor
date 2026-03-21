@@ -56,3 +56,10 @@ export function getLowestVisibleVerticalMetricValue(
     const metricValues = getVisibleVerticalMetricValues(verticalMetrics);
     return metricValues.length ? Math.min(...metricValues) : null;
 }
+
+export function getHighestVisibleVerticalMetricValue(
+    verticalMetrics: Record<string, number> | null | undefined
+): number | null {
+    const metricValues = getVisibleVerticalMetricValues(verticalMetrics);
+    return metricValues.length ? Math.max(...metricValues) : null;
+}

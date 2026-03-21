@@ -6,7 +6,10 @@ import type { Babelfont } from '../babelfont';
 import { Transform } from '../basictypes';
 import { Logger } from '../logger';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
-import { getLowestVisibleVerticalMetricValue } from './vertical-metrics';
+import {
+    getHighestVisibleVerticalMetricValue,
+    getLowestVisibleVerticalMetricValue
+} from './vertical-metrics';
 import APP_SETTINGS from '../settings';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 import { SavedVariationState } from '../saved-variation-state';
@@ -688,6 +691,9 @@ export class OutlineEditor {
         const lowestMetricY =
             getLowestVisibleVerticalMetricValue(this.renderVerticalMetrics) ??
             0;
+        const highestMetricY =
+            getHighestVisibleVerticalMetricValue(this.renderVerticalMetrics) ??
+            lowestMetricY;
         const panY = this.glyphCanvas.viewportManager!.panY;
         const rawCanvasHeight = this.canvas
             ? this.canvas.height / (window.devicePixelRatio || 1)
@@ -697,17 +703,19 @@ export class OutlineEditor {
                 ? rawCanvasHeight
                 : null;
         const desiredHandleScreenY = -lowestMetricY * scale + panY;
-        const handleRadiusScreen = this.getSidebearingHandleRadiusScreen();
-        const bottomClampPadding = Math.max(1, handleRadiusScreen * 0.15);
-        const clampedHandleScreenY =
+        const highestMetricScreenY = -highestMetricY * scale + panY;
+        const handleViewportInset = 10;
+        const bottomClampedHandleScreenY =
             canvasHeight === null
                 ? desiredHandleScreenY
                 : Math.min(
                       desiredHandleScreenY,
-                      canvasHeight -
-                          APP_SETTINGS.OUTLINE_EDITOR.CANVAS_MARGIN -
-                          bottomClampPadding
+                      canvasHeight - handleViewportInset
                   );
+        const clampedHandleScreenY = Math.max(
+            highestMetricScreenY,
+            bottomClampedHandleScreenY
+        );
         const handleY = -(clampedHandleScreenY - panY) / scale;
         const width = Number(currentLayerData.width);
         const handles: VisibleSidebearingHandle[] = [];

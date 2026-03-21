@@ -820,6 +820,51 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         expect(handle.y).toBeCloseTo(-200, 5);
     });
 
+    test('keeps handles between the highest and lowest visible metric lines when bottom snapping kicks in', () => {
+        canvas.outlineEditor.renderVerticalMetrics = {
+            Ascender: 700,
+            Descender: -200
+        };
+        canvas.outlineEditor.canvas = canvas.canvas;
+        canvas.canvas.height = 600 * (window.devicePixelRatio || 1);
+
+        const originalScale = canvas.viewportManager.scale;
+        const originalPanY = canvas.viewportManager.panY;
+
+        canvas.viewportManager.scale = 1;
+        canvas.viewportManager.panY = 2000;
+
+        const handle = canvas.outlineEditor.getVisibleSidebearingHandles()[0];
+
+        canvas.viewportManager.scale = originalScale;
+        canvas.viewportManager.panY = originalPanY;
+
+        expect(handle.y).toBeCloseTo(700, 5);
+    });
+
+    test('snaps the handle to 10 screen pixels from the viewport edge', () => {
+        canvas.outlineEditor.renderVerticalMetrics = {
+            Ascender: 700,
+            Descender: -200
+        };
+        canvas.outlineEditor.canvas = canvas.canvas;
+        canvas.canvas.height = 600 * (window.devicePixelRatio || 1);
+
+        const originalScale = canvas.viewportManager.scale;
+        const originalPanY = canvas.viewportManager.panY;
+
+        canvas.viewportManager.scale = 1;
+        canvas.viewportManager.panY = 1000;
+
+        const handle = canvas.outlineEditor.getVisibleSidebearingHandles()[0];
+        const handleScreenY = -handle.y + canvas.viewportManager.panY;
+
+        canvas.viewportManager.scale = originalScale;
+        canvas.viewportManager.panY = originalPanY;
+
+        expect(handleScreenY).toBeCloseTo(590, 5);
+    });
+
     test('ignores inactive sidebearing handles for hover interaction', () => {
         const font = Font.fromData({
             upm: 1000,
