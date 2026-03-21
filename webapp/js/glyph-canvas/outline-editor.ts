@@ -6,6 +6,7 @@ import type { Babelfont } from '../babelfont';
 import { Transform } from '../basictypes';
 import { Logger } from '../logger';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
+import { getLowestVisibleVerticalMetricValue } from './vertical-metrics';
 import APP_SETTINGS from '../settings';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 import { SavedVariationState } from '../saved-variation-state';
@@ -14,11 +15,17 @@ let console: Logger = new Logger('OutlineEditor');
 
 type Point = { contourIndex: number; nodeIndex: number };
 type GuideHandle = { scope: 'master' | 'layer'; index: number };
+type SidebearingHandle = { side: 'left' | 'right' };
 type VisibleGuide = GuideHandle & {
     guide: Babelfont.Guide;
     rootX: number;
     rootY: number;
     rootAngle: number;
+};
+type VisibleSidebearingHandle = SidebearingHandle & {
+    x: number;
+    y: number;
+    editable: boolean;
 };
 
 /**
@@ -115,13 +122,20 @@ export class OutlineEditor {
     isDraggingPoint: boolean = false;
     isDraggingComponent: boolean = false;
     isDraggingAnchor: boolean = false;
+    isDraggingSidebearing: boolean = false;
     isDraggingGuide: boolean = false;
     /** True if at least one pixel of actual movement occurred during the current drag. */
     _hasMoved: boolean = false;
     /** Pre-drag description for undo log: captured just before dragging starts. */
     _preDragDesc: string | null = null;
-    /** Drag type for undo log label: 'anchor' | 'point' | 'component' | 'guide'. */
-    _dragType: 'anchor' | 'point' | 'component' | 'guide' | null = null;
+    /** Drag type for undo log label: 'anchor' | 'point' | 'component' | 'sidebearing' | 'guide'. */
+    _dragType:
+        | 'anchor'
+        | 'point'
+        | 'component'
+        | 'sidebearing'
+        | 'guide'
+        | null = null;
     currentGlyphName: string | null = null;
     glyphCanvas: GlyphCanvas;
     guidelinesVisible: boolean;
@@ -129,10 +143,12 @@ export class OutlineEditor {
     selectedAnchors: number[] = [];
     selectedPoints: Point[] = [];
     selectedComponents: number[] = [];
+    selectedSidebearingHandle: SidebearingHandle | null = null;
     selectedGuideHandle: GuideHandle | null = null;
     hoveredPointIndex: Point | null = null;
     hoveredAnchorIndex: number | null = null;
     hoveredComponentIndex: number | null = null;
+    hoveredSidebearingHandle: SidebearingHandle | null = null;
     hoveredGuideHandle: GuideHandle | null = null;
     hoveredGlyphIndex: number = -1;
     selectedPointIndex: any = null;
@@ -618,6 +634,111 @@ export class OutlineEditor {
         return designspaceToUserspace(designLocation, fontAxes as any);
     }
 
+    private sameSidebearingHandle(
+        left: SidebearingHandle | null,
+        right: SidebearingHandle | null
+    ): boolean {
+        return left?.side === right?.side;
+    }
+
+    private getSidebearingHandleRadiusScreen(): number {
+        const scale = this.glyphCanvas.viewportManager!.scale;
+        const anchorSizeMax =
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MAX_ZOOM;
+        const anchorSizeMin =
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM;
+        const anchorInterpolationMin =
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MIN;
+        const anchorInterpolationMax =
+            APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MAX;
+
+        if (scale >= anchorInterpolationMax) {
+            return anchorSizeMax;
+        }
+
+        const zoomFactor =
+            (scale - anchorInterpolationMin) /
+            (anchorInterpolationMax - anchorInterpolationMin);
+        const clampedZoomFactor = Math.max(0, Math.min(1, zoomFactor));
+        return (
+            anchorSizeMin + (anchorSizeMax - anchorSizeMin) * clampedZoomFactor
+        );
+    }
+
+    getVisibleSidebearingHandles(): VisibleSidebearingHandle[] {
+        if (
+            !this.selectedLayerId ||
+            this.glyphCanvas.viewportManager!.scale <
+                APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES
+        ) {
+            return [];
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerModel = this.getCurrentLayerModel();
+        if (
+            !currentLayerData ||
+            currentLayerData.isInterpolated ||
+            !currentLayerModel
+        ) {
+            return [];
+        }
+
+        const scale = this.glyphCanvas.viewportManager!.scale;
+        const lowestMetricY =
+            getLowestVisibleVerticalMetricValue(this.renderVerticalMetrics) ??
+            0;
+        const panY = this.glyphCanvas.viewportManager!.panY;
+        const rawCanvasHeight = this.canvas
+            ? this.canvas.height / (window.devicePixelRatio || 1)
+            : null;
+        const canvasHeight =
+            rawCanvasHeight !== null && rawCanvasHeight > 0
+                ? rawCanvasHeight
+                : null;
+        const desiredHandleScreenY = -lowestMetricY * scale + panY;
+        const handleRadiusScreen = this.getSidebearingHandleRadiusScreen();
+        const bottomClampPadding = Math.max(1, handleRadiusScreen * 0.15);
+        const clampedHandleScreenY =
+            canvasHeight === null
+                ? desiredHandleScreenY
+                : Math.min(
+                      desiredHandleScreenY,
+                      canvasHeight -
+                          APP_SETTINGS.OUTLINE_EDITOR.CANVAS_MARGIN -
+                          bottomClampPadding
+                  );
+        const handleY = -(clampedHandleScreenY - panY) / scale;
+        const width = Number(currentLayerData.width);
+        const handles: VisibleSidebearingHandle[] = [];
+
+        const leftResolution = currentLayerModel.resolveMetricsKey('left');
+        if (!leftResolution.error && leftResolution.value !== null) {
+            handles.push({
+                side: 'left',
+                x: 0,
+                y: handleY,
+                editable: !leftResolution.input
+            });
+        }
+
+        const rightResolution = currentLayerModel.resolveMetricsKey('right');
+        if (
+            !rightResolution.error &&
+            rightResolution.value !== null &&
+            Number.isFinite(width)
+        ) {
+            handles.push({
+                side: 'right',
+                x: width,
+                y: handleY,
+                editable: !rightResolution.input
+            });
+        }
+
+        return handles;
+    }
+
     /**
      * Apply Rust-returned layer data (interpolated or on-layer) to the editor.
      * Normalizes, parses component nodes, assigns layerData, and sets vertical metrics.
@@ -805,8 +926,11 @@ export class OutlineEditor {
     clearState() {
         this.layerData = null;
         this.selectedPoints = [];
+        this.selectedSidebearingHandle = null;
         this.hoveredPointIndex = null;
+        this.hoveredSidebearingHandle = null;
         this.isDraggingPoint = false;
+        this.isDraggingSidebearing = false;
         this.isDraggingGuide = false;
         this.selectedGuideHandle = null;
         this.hoveredGuideHandle = null;
@@ -817,10 +941,12 @@ export class OutlineEditor {
         this.selectedPoints = [];
         this.selectedAnchors = [];
         this.selectedComponents = [];
+        this.selectedSidebearingHandle = null;
         this.selectedGuideHandle = null;
         this.hoveredPointIndex = null;
         this.hoveredAnchorIndex = null;
         this.hoveredComponentIndex = null;
+        this.hoveredSidebearingHandle = null;
         this.hoveredGuideHandle = null;
         this.hoveredGlyphIndex = -1;
         this.glyphCanvas.updatePropertyPanel();
@@ -1217,6 +1343,7 @@ export class OutlineEditor {
             this.selectedPoints = [];
             this.selectedAnchors = [];
             this.selectedComponents = [];
+            this.selectedSidebearingHandle = null;
             this.isDraggingGuide = true;
             this._hasMoved = false;
             this._dragType = 'guide';
@@ -1231,9 +1358,31 @@ export class OutlineEditor {
             return;
         }
 
+        if (this.hoveredSidebearingHandle) {
+            this.selectedGuideHandle = null;
+            this.selectedSidebearingHandle = {
+                ...this.hoveredSidebearingHandle
+            };
+            this.selectedPoints = [];
+            this.selectedAnchors = [];
+            this.selectedComponents = [];
+            this.isDraggingSidebearing = true;
+            this._hasMoved = false;
+            this._dragType = 'sidebearing';
+            window.changeBridge?.beginTransaction('Drag sidebearing');
+            this.glyphCanvas.lastMouseX = e.clientX;
+            this.glyphCanvas.lastMouseY = e.clientY;
+            this.lastGlyphX = null;
+            this.lastGlyphY = null;
+            this.glyphCanvas.updatePropertyPanel();
+            this.glyphCanvas.render();
+            return;
+        }
+
         // Check if clicking on a component first (components take priority)
         if (this.hoveredComponentIndex !== null) {
             this.selectedGuideHandle = null;
+            this.selectedSidebearingHandle = null;
             if (e.shiftKey) {
                 // Shift-click: add to or remove from selection (keep points and anchors for mixed selection)
                 const existingIndex = this.selectedComponents.indexOf(
@@ -1276,6 +1425,7 @@ export class OutlineEditor {
         // Check if clicking on an anchor (anchors take priority over points)
         if (this.hoveredAnchorIndex !== null) {
             this.selectedGuideHandle = null;
+            this.selectedSidebearingHandle = null;
             if (e.shiftKey) {
                 // Shift-click: add to or remove from selection (keep points selected for mixed selection)
                 const existingIndex = this.selectedAnchors.indexOf(
@@ -1322,6 +1472,7 @@ export class OutlineEditor {
         // Check if clicking on a point
         if (this.hoveredPointIndex) {
             this.selectedGuideHandle = null;
+            this.selectedSidebearingHandle = null;
             if (e.shiftKey) {
                 // Shift-click: add to or remove from selection (keep anchors selected for mixed selection)
                 const existingIndex = this.selectedPoints.findIndex(
@@ -1374,6 +1525,7 @@ export class OutlineEditor {
             this.selectedPoints = [];
             this.selectedAnchors = [];
             this.selectedComponents = [];
+            this.selectedSidebearingHandle = null;
             this.selectedGuideHandle = null;
             this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
@@ -1472,6 +1624,7 @@ export class OutlineEditor {
             (this.isDraggingGuide && this.selectedGuideHandle !== null) ||
             (this.isDraggingComponent && this.selectedComponents.length > 0) ||
             (this.isDraggingAnchor && this.selectedAnchors.length > 0) ||
+            (this.isDraggingSidebearing && this.selectedSidebearingHandle) ||
             (this.isDraggingPoint && this.selectedPoints.length > 0)
         ) {
             if (this.layerData) {
@@ -1503,8 +1656,10 @@ export class OutlineEditor {
         this.lastGlyphX = glyphX;
         this.lastGlyphY = glyphY;
 
+        const effectiveDeltaY = this.isDraggingSidebearing ? 0 : deltaY;
+
         // Track whether any actual movement occurred (to avoid spurious undo entries)
-        if (deltaX !== 0 || deltaY !== 0) {
+        if (deltaX !== 0 || effectiveDeltaY !== 0) {
             this._hasMoved = true;
         }
 
@@ -1513,6 +1668,7 @@ export class OutlineEditor {
         this._updateDraggedComponents(deltaX, deltaY);
         this._updateDraggedPoints(deltaX, deltaY);
         this._updateDraggedAnchors(deltaX, deltaY);
+        this._updateDraggedSidebearing(deltaX);
 
         if (this.isDraggingPoint || this.isDraggingComponent) {
             this.applyMetricsKeysToCurrentEditedLayer();
@@ -1784,6 +1940,7 @@ export class OutlineEditor {
             this.isDraggingPoint ||
             this.isDraggingAnchor ||
             this.isDraggingComponent ||
+            this.isDraggingSidebearing ||
             this.isDraggingGuide;
 
         // Capture drag state before clearing drag flags
@@ -1794,6 +1951,7 @@ export class OutlineEditor {
         this.isDraggingPoint = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
+        this.isDraggingSidebearing = false;
         this.isDraggingGuide = false;
 
         // Update worker font cache after dragging ends
@@ -1848,6 +2006,7 @@ export class OutlineEditor {
             (this.isDraggingPoint ||
                 this.isDraggingAnchor ||
                 this.isDraggingComponent ||
+                this.isDraggingSidebearing ||
                 this.isDraggingGuide)
         );
     }
@@ -1860,6 +2019,7 @@ export class OutlineEditor {
         }
 
         this.updateHoveredGuideHandle();
+        this.updateHoveredSidebearingHandle();
         this.updateHoveredComponent();
         this.updateHoveredAnchor();
         this.updateHoveredPoint();
@@ -1872,6 +2032,7 @@ export class OutlineEditor {
             this.layerData &&
             !this.isPreviewMode &&
             (this.hoveredGuideHandle !== null ||
+                this.hoveredSidebearingHandle !== null ||
                 this.hoveredComponentIndex !== null ||
                 this.hoveredPointIndex ||
                 this.hoveredAnchorIndex !== null)
@@ -1951,6 +2112,28 @@ export class OutlineEditor {
 
         if (!this.sameGuideHandle(foundGuideHandle, this.hoveredGuideHandle)) {
             this.hoveredGuideHandle = foundGuideHandle;
+            this.glyphCanvas.render();
+        }
+    }
+
+    updateHoveredSidebearingHandle(): void {
+        const visibleHandles = this.getVisibleSidebearingHandles().filter(
+            (handle) => handle.editable
+        );
+        const foundHandle = this._findHoveredItem(
+            visibleHandles,
+            (handle) => ({ x: handle.x, y: handle.y }),
+            (handle) => ({ side: handle.side }),
+            this.getSidebearingHandleRadiusScreen()
+        );
+
+        if (
+            !this.sameSidebearingHandle(
+                foundHandle,
+                this.hoveredSidebearingHandle
+            )
+        ) {
+            this.hoveredSidebearingHandle = foundHandle;
             this.glyphCanvas.render();
         }
     }
@@ -2403,6 +2586,107 @@ export class OutlineEditor {
         this.glyphCanvas.render();
     }
 
+    private adjustSelectedSidebearing(deltaX: number): boolean {
+        if (!this.selectedSidebearingHandle || deltaX === 0) {
+            return false;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData || currentLayerData.isInterpolated) {
+            return false;
+        }
+
+        const side = this.selectedSidebearingHandle.side;
+        const previousWidth = currentLayerData.width;
+
+        if (side === 'left') {
+            for (const shape of currentLayerData.shapes || []) {
+                const pathData = getPathShapeData(shape);
+                if (
+                    pathData &&
+                    typeof pathData === 'object' &&
+                    'nodes' in pathData &&
+                    pathData.nodes
+                ) {
+                    if (typeof pathData.nodes === 'string') {
+                        pathData.nodes = LayerDataNormalizer.parseNodes(
+                            pathData.nodes
+                        );
+                    }
+
+                    for (const node of pathData.nodes as Babelfont.Node[]) {
+                        node.x += deltaX;
+                    }
+                    continue;
+                }
+
+                const componentData = getComponentShapeData(shape);
+                if (
+                    componentData &&
+                    typeof componentData === 'object' &&
+                    'reference' in componentData
+                ) {
+                    if (!componentData.transform) {
+                        componentData.transform = identityDecomposed();
+                    } else if (Array.isArray(componentData.transform)) {
+                        componentData.transform =
+                            DecomposedAffineTransform.fromAffine(
+                                componentData.transform
+                            );
+                    }
+
+                    const transform =
+                        componentData.transform as Babelfont.DecomposedAffine;
+                    if (!transform.translation) {
+                        transform.translation = [0, 0];
+                    }
+                    transform.translation[0] += deltaX;
+                }
+            }
+
+            for (const anchor of currentLayerData.anchors || []) {
+                anchor.x += deltaX;
+            }
+        }
+
+        currentLayerData.width = (currentLayerData.width || 0) + deltaX;
+
+        const parsed = this.parseGlyphStack();
+        const glyphName =
+            parsed.length > 0
+                ? parsed[parsed.length - 1].glyphName
+                : this.glyphCanvas.getCurrentGlyphName();
+
+        if (
+            glyphName &&
+            Math.abs((currentLayerData.width || 0) - previousWidth) > 0.01
+        ) {
+            this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive({
+                [glyphName]: currentLayerData.width
+            });
+        }
+
+        return true;
+    }
+
+    moveSelectedSidebearing(deltaX: number): void {
+        if (!this.adjustSelectedSidebearing(deltaX)) {
+            return;
+        }
+
+        this.saveLayerData('keyboard-outline');
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+    }
+
+    _updateDraggedSidebearing(deltaX: number): void {
+        if (!this.isDraggingSidebearing) {
+            return;
+        }
+
+        this.adjustSelectedSidebearing(deltaX);
+    }
+
     togglePointSmooth(pointIndex: Point): void {
         // Toggle smooth state of a point
         const currentLayerData = this.getCurrentLayerDataFromStack();
@@ -2690,7 +2974,8 @@ export class OutlineEditor {
             this.selectedLayerId &&
             (this.selectedPoints.length > 0 ||
                 this.selectedAnchors.length > 0 ||
-                this.selectedComponents.length > 0)
+                this.selectedComponents.length > 0 ||
+                this.selectedSidebearingHandle)
         ) {
             const multiplier = e.shiftKey ? 10 : 1;
             let moved = false;
@@ -2703,6 +2988,8 @@ export class OutlineEditor {
                 preMoveDesc = this._buildNodeDesc();
             } else if (this.selectedComponents.length > 0) {
                 preMoveDesc = this._buildComponentDesc();
+            } else if (this.selectedSidebearingHandle) {
+                preMoveDesc = this.selectedSidebearingHandle.side.toUpperCase();
             }
 
             if (e.key === 'ArrowLeft') {
@@ -2716,6 +3003,9 @@ export class OutlineEditor {
                 if (this.selectedComponents.length > 0) {
                     this.moveSelectedComponents(-multiplier, 0);
                 }
+                if (this.selectedSidebearingHandle) {
+                    this.moveSelectedSidebearing(-multiplier);
+                }
                 moved = true;
             } else if (e.key === 'ArrowRight') {
                 e.preventDefault();
@@ -2727,6 +3017,9 @@ export class OutlineEditor {
                 }
                 if (this.selectedComponents.length > 0) {
                     this.moveSelectedComponents(multiplier, 0);
+                }
+                if (this.selectedSidebearingHandle) {
+                    this.moveSelectedSidebearing(multiplier);
                 }
                 moved = true;
             } else if (e.key === 'ArrowUp') {

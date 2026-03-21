@@ -10,6 +10,7 @@ import type { ViewportManager } from './viewport';
 import type { TextRunEditor } from './textrun';
 import { GlyphCanvas, type QCCanvasMarker } from '../glyph-canvas';
 import { LayerDataNormalizer } from '../layer-data-normalizer';
+import { getVisibleVerticalMetricValues } from './vertical-metrics';
 import type { Babelfont } from '../babelfont';
 
 /**
@@ -811,50 +812,12 @@ export class GlyphCanvasRenderer {
             return;
         }
 
-        const relevantMetricKeys = new Set([
-            'Ascender',
-            'Descender',
-            'ascender',
-            'descender',
-            'HheaAscender',
-            'HheaDescender',
-            'TypoAscender',
-            'TypoDescender',
-            'WinAscent',
-            'WinDescent',
-            'xHeight',
-            'XHeight',
-            'CapHeight'
-        ]);
-
-        const metricValues: number[] = [];
-        for (const [metricKey, metricValue] of Object.entries(
-            verticalMetrics
-        )) {
-            if (!relevantMetricKeys.has(metricKey)) {
-                continue;
-            }
-            if (!Number.isFinite(metricValue)) {
-                continue;
-            }
-            metricValues.push(metricValue);
-        }
-
-        const uniqueMetricValues: number[] = [];
-        for (const metricValue of metricValues) {
-            const alreadyPresent = uniqueMetricValues.some(
-                (existingValue) => Math.abs(existingValue - metricValue) < 0.25
-            );
-            if (!alreadyPresent) {
-                uniqueMetricValues.push(metricValue);
-            }
-        }
+        const uniqueMetricValues =
+            getVisibleVerticalMetricValues(verticalMetrics);
 
         if (uniqueMetricValues.length === 0) {
             return;
         }
-
-        uniqueMetricValues.push(0);
 
         const topY = Math.max(...uniqueMetricValues);
         const bottomY = Math.min(...uniqueMetricValues);
@@ -1940,6 +1903,58 @@ export class GlyphCanvasRenderer {
                 if (name && (isSelected || isHovered)) {
                     anchorLabels.push({ name, x, y, anchorSize, fontSize });
                 }
+            });
+        }
+
+        const sidebearingHandles =
+            this.glyphCanvas.outlineEditor.getVisibleSidebearingHandles();
+        if (sidebearingHandles.length > 0) {
+            const anchorSizeMax =
+                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MAX_ZOOM;
+            const anchorSizeMin =
+                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_AT_MIN_ZOOM;
+            const anchorInterpolationMin =
+                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MIN;
+            const anchorInterpolationMax =
+                APP_SETTINGS.OUTLINE_EDITOR.ANCHOR_SIZE_INTERPOLATION_MAX;
+
+            let handleRadius;
+            if (this.viewportManager.scale >= anchorInterpolationMax) {
+                handleRadius = anchorSizeMax * invScale;
+            } else {
+                const zoomFactor =
+                    (this.viewportManager.scale - anchorInterpolationMin) /
+                    (anchorInterpolationMax - anchorInterpolationMin);
+                const clampedZoomFactor = Math.max(0, Math.min(1, zoomFactor));
+                handleRadius =
+                    (anchorSizeMin +
+                        (anchorSizeMax - anchorSizeMin) * clampedZoomFactor) *
+                    invScale;
+            }
+
+            sidebearingHandles.forEach((handle) => {
+                const isHovered =
+                    this.glyphCanvas.outlineEditor.hoveredSidebearingHandle
+                        ?.side === handle.side;
+                const isSelected =
+                    this.glyphCanvas.outlineEditor.selectedSidebearingHandle
+                        ?.side === handle.side;
+                const baseColor = handle.editable
+                    ? 'rgba(118, 234, 226, 0.98)'
+                    : 'rgba(210, 215, 220, 0.95)';
+                const activeColor =
+                    handle.editable && (isHovered || isSelected)
+                        ? 'rgba(156, 247, 240, 1)'
+                        : baseColor;
+
+                this.ctx.save();
+                this.ctx.translate(handle.x, handle.y);
+                this.applyInverseComponentTransform();
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, handleRadius, 0, Math.PI * 2);
+                this.ctx.fillStyle = activeColor;
+                this.ctx.fill();
+                this.ctx.restore();
             });
         }
 

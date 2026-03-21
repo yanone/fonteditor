@@ -517,6 +517,281 @@ describe('GlyphCanvas hit testing', () => {
     });
 });
 
+describe('GlyphCanvas sidebearing handle movement', () => {
+    let canvas;
+    let currentFontSpy;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 700, nodetype: 'Line' },
+                                        { x: 100, y: 700, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Sidebearing Test' }
+            },
+            note: '',
+            date: '2026-03-21',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.renderVerticalMetrics = { Descender: -200 };
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-1'
+            },
+            shapes: [
+                {
+                    nodes: [
+                        { x: 100, y: 0, nodetype: 'Line' },
+                        { x: 400, y: 0, nodetype: 'Line' },
+                        { x: 400, y: 700, nodetype: 'Line' },
+                        { x: 100, y: 700, nodetype: 'Line' }
+                    ],
+                    closed: true
+                }
+            ],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 500, dx: 0, dy: 0, g: 0 }];
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.saveLayerData = jest.fn();
+    });
+
+    afterEach(() => {
+        currentFontSpy.mockRestore();
+        canvas.destroy();
+    });
+
+    test('detects hovered editable sidebearing handles', () => {
+        const handle = canvas.outlineEditor.getVisibleSidebearingHandles()[0];
+        canvas.outlineEditor.transformMouseToComponentSpace = jest.fn(() => ({
+            glyphX: handle.x,
+            glyphY: handle.y
+        }));
+
+        canvas.outlineEditor.updateHoveredSidebearingHandle();
+
+        expect(canvas.outlineEditor.hoveredSidebearingHandle).toEqual({
+            side: 'left'
+        });
+    });
+
+    test('keeps the handle on the lowest metric line at different zoom levels', () => {
+        const originalScale = canvas.viewportManager.scale;
+        const originalPanY = canvas.viewportManager.panY;
+        const metricY = -200;
+
+        canvas.viewportManager.scale = 1;
+        canvas.viewportManager.panY = 0;
+        const handleAtScale1 =
+            canvas.outlineEditor.getVisibleSidebearingHandles()[0];
+        const screenYAtScale1 = -handleAtScale1.y * 1 + 0;
+
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panY = 0;
+        const handleAtScale2 =
+            canvas.outlineEditor.getVisibleSidebearingHandles()[0];
+        const screenYAtScale2 = -handleAtScale2.y * 2 + 0;
+
+        canvas.viewportManager.scale = originalScale;
+        canvas.viewportManager.panY = originalPanY;
+
+        expect(screenYAtScale1).toBeCloseTo(-metricY * 1, 5);
+        expect(screenYAtScale2).toBeCloseTo(-metricY * 2, 5);
+    });
+
+    test('uses the lowest drawn vertical metric line instead of unrelated metric keys', () => {
+        canvas.outlineEditor.renderVerticalMetrics = {
+            Descender: -200,
+            NonRenderedMetric: -450
+        };
+
+        const originalScale = canvas.viewportManager.scale;
+        const originalPanY = canvas.viewportManager.panY;
+        canvas.viewportManager.scale = 1;
+        canvas.viewportManager.panY = 0;
+
+        const handle = canvas.outlineEditor.getVisibleSidebearingHandles()[0];
+        canvas.viewportManager.scale = originalScale;
+        canvas.viewportManager.panY = originalPanY;
+
+        expect(handle.y).toBeCloseTo(-200, 5);
+    });
+
+    test('ignores inactive sidebearing handles for hover interaction', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    format_specific: {
+                        metric_left: '=20'
+                    },
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 700, nodetype: 'Line' },
+                                        { x: 100, y: 700, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Sidebearing Test' }
+            },
+            note: '',
+            date: '2026-03-21',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+
+        const handle = canvas.outlineEditor.getVisibleSidebearingHandles()[0];
+        expect(handle.editable).toBe(false);
+
+        canvas.outlineEditor.transformMouseToComponentSpace = jest.fn(() => ({
+            glyphX: handle.x,
+            glyphY: handle.lineBottomY
+        }));
+
+        canvas.outlineEditor.updateHoveredSidebearingHandle();
+
+        expect(canvas.outlineEditor.hoveredSidebearingHandle).toBe(null);
+    });
+
+    test('moves a selected sidebearing handle with mouse drag', () => {
+        canvas.outlineEditor.selectedSidebearingHandle = { side: 'right' };
+        canvas.outlineEditor.isDraggingSidebearing = true;
+        canvas.outlineEditor.transformMouseToComponentSpace = jest
+            .fn()
+            .mockReturnValueOnce({ glyphX: 10, glyphY: 0 })
+            .mockReturnValueOnce({ glyphX: 25, glyphY: -5 });
+
+        canvas.onMouseMove({ clientX: 10, clientY: 20 });
+        canvas.onMouseMove({ clientX: 25, clientY: 15 });
+
+        expect(canvas.outlineEditor.layerData.width).toBe(515);
+    });
+
+    test('moves a selected sidebearing handle with keyboard arrows', () => {
+        canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+
+        const event = {
+            key: 'ArrowRight',
+            shiftKey: false,
+            metaKey: false,
+            ctrlKey: false,
+            preventDefault: jest.fn()
+        };
+
+        canvas.outlineEditor.onKeyDown(event);
+
+        expect(event.preventDefault).toHaveBeenCalled();
+        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(101);
+        expect(canvas.outlineEditor.layerData.width).toBe(501);
+    });
+});
+
 // ==================== Selection Tests ====================
 
 describe('GlyphCanvas selection handling', () => {
