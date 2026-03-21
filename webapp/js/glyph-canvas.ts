@@ -19,14 +19,26 @@ import { updateUrlState, encodeLocation } from './url-state';
 import { isSyncEnabled } from './state-sync';
 import { timelineMark } from './perf-timeline';
 import { SavedVariationState } from './saved-variation-state';
+import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
+import { LayerDataNormalizer } from './layer-data-normalizer';
 
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
+
+function isPlainNumericInputValue(value: string): boolean {
+    return /^[+-]?\d+(?:\.\d+)?$/.test(value.trim());
+}
 
 type QCGlyphProblem = {
     glyphName: string;
     userspaceLocation: Record<string, number> | null;
     position: [number, number] | null;
+};
+
+type ActivePropertyInputState = {
+    side: 'left' | 'right';
+    selectionStart: number | null;
+    selectionEnd: number | null;
 };
 
 export type QCCanvasMarker = {
@@ -2468,6 +2480,31 @@ class GlyphCanvas {
         const resolution = layer.applySidebearingInput(side, value);
         const glyphName = this.getCurrentGlyphName();
         const usesIncrementalLayerRefresh = resolution.updateScope === 'layer';
+        const widthDelta = layer.width - previousWidth;
+
+        this.syncCurrentOutlineLayerDataFromModel(layer);
+
+        if (
+            side === 'left' &&
+            this.viewportManager &&
+            Math.abs(widthDelta) > 0.01
+        ) {
+            this.viewportManager.panX -=
+                widthDelta * this.viewportManager.scale;
+        }
+
+        this.updatePropertyPanel();
+        const advancesRefreshedImmediately =
+            !!glyphName &&
+            Math.abs(layer.width - previousWidth) > 0.01 &&
+            !!this.textRunEditor?.refreshGlyphAdvancesLive({
+                [glyphName]: layer.width
+            });
+
+        if (!advancesRefreshedImmediately) {
+            this.render();
+        }
+        this.outlineEditor.performHitDetection(null);
 
         fontManager.lastChangeSource = usesIncrementalLayerRefresh
             ? 'keyboard'
@@ -2486,12 +2523,6 @@ class GlyphCanvas {
             fontManager.scheduleFullCompileDebounce();
         } else {
             window.autoCompileManager?.checkAndSchedule?.();
-        }
-
-        if (glyphName && Math.abs(layer.width - previousWidth) > 0.01) {
-            this.textRunEditor?.refreshGlyphAdvancesLive({
-                [glyphName]: layer.width
-            });
         }
 
         const affectedGlyphNames = Array.from(
@@ -2521,16 +2552,88 @@ class GlyphCanvas {
                 error
             );
         }
-
         this.updatePropertyPanel();
-        this.render();
         this.outlineEditor.performHitDetection(null);
+    }
+
+    private syncCurrentOutlineLayerDataFromModel(layer: Layer): void {
+        if (
+            !this.outlineEditor.selectedLayerId ||
+            this.outlineEditor.selectedLayerId !== layer.id ||
+            !this.outlineEditor.layerData ||
+            this.outlineEditor.layerData.isInterpolated
+        ) {
+            return;
+        }
+
+        this.outlineEditor.layerData = LayerDataNormalizer.normalize(
+            layer.toJSON(),
+            false
+        );
+    }
+
+    private getActivePropertyInputState(): ActivePropertyInputState | null {
+        const activeElement = document.activeElement as HTMLElement | null;
+        if (
+            !activeElement ||
+            !(activeElement instanceof HTMLInputElement) ||
+            !activeElement.classList.contains('glyph-property-input')
+        ) {
+            return null;
+        }
+
+        const side = activeElement.dataset.sidebearingSide;
+        if (side !== 'left' && side !== 'right') {
+            return null;
+        }
+
+        return {
+            side,
+            selectionStart: activeElement.selectionStart,
+            selectionEnd: activeElement.selectionEnd
+        };
+    }
+
+    private restoreActivePropertyInput(
+        activeInputState: ActivePropertyInputState | null
+    ): void {
+        if (!activeInputState || !this.propertyPanel) {
+            return;
+        }
+
+        const replacementInput = this.propertyPanel.querySelector(
+            `.glyph-property-input[data-sidebearing-side="${activeInputState.side}"]`
+        ) as HTMLInputElement | null;
+        if (!replacementInput) {
+            return;
+        }
+
+        replacementInput.focus();
+
+        const selectionStart = Math.max(
+            0,
+            Math.min(
+                activeInputState.selectionStart ??
+                    replacementInput.value.length,
+                replacementInput.value.length
+            )
+        );
+        const selectionEnd = Math.max(
+            selectionStart,
+            Math.min(
+                activeInputState.selectionEnd ?? replacementInput.value.length,
+                replacementInput.value.length
+            )
+        );
+        replacementInput.setSelectionRange(selectionStart, selectionEnd);
     }
 
     updatePropertyPanel(): void {
         if (!this.propertyPanel) {
             return;
         }
+
+        const activeInputState = this.getActivePropertyInputState();
 
         this.propertyPanel.textContent = '';
 
@@ -2567,6 +2670,7 @@ class GlyphCanvas {
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'glyph-property-input';
+            input.dataset.sidebearingSide = side;
 
             const resolution = layer.resolveMetricsKey(side);
             const glyph = layer.parent();
@@ -2588,6 +2692,30 @@ class GlyphCanvas {
                 input.classList.add('invalid');
             }
 
+            const getResolvedValue = () =>
+                resolution.value ?? (side === 'left' ? layer.lsb : layer.rsb);
+
+            const arrowInputController = new ArrowAdjustableTextInput({
+                input,
+                getValue: () => {
+                    const trimmedValue = input.value.trim();
+                    return isPlainNumericInputValue(trimmedValue)
+                        ? Number(trimmedValue)
+                        : getResolvedValue();
+                },
+                applyValue: async (nextValue) => {
+                    input.dataset.skipNextPropertyCommit = 'true';
+                    await this.commitPropertyPanelValue(
+                        side,
+                        String(nextValue)
+                    );
+                },
+                findReplacementInput: () =>
+                    this.propertyPanel?.querySelector(
+                        `.glyph-property-input[data-sidebearing-side="${side}"]`
+                    ) as HTMLInputElement | null
+            });
+
             input.addEventListener('change', () => {
                 if (input.dataset.skipNextPropertyCommit === 'true') {
                     delete input.dataset.skipNextPropertyCommit;
@@ -2603,6 +2731,22 @@ class GlyphCanvas {
                     void this.commitPropertyPanelValue(side, input.value);
                     input.blur();
                 }
+            });
+            input.addEventListener('blur', () => {
+                setTimeout(() => {
+                    const activeElement =
+                        document.activeElement as HTMLElement | null;
+                    if (
+                        activeElement &&
+                        this.isTextInputElement(activeElement)
+                    ) {
+                        return;
+                    }
+
+                    if (!arrowInputController.isApplyingStep) {
+                        this.outlineEditor.restoreFocus();
+                    }
+                }, 0);
             });
 
             const valueLabel = document.createElement('span');
@@ -2638,6 +2782,7 @@ class GlyphCanvas {
         content.appendChild(createWidthDisplay());
         content.appendChild(createControl('right', 'RSB'));
         this.propertyPanel.appendChild(content);
+        this.restoreActivePropertyInput(activeInputState);
     }
 
     getSortedLayers(): any[] {

@@ -255,6 +255,15 @@ describe('Babelfont Object Model', () => {
             expect(glyph.name).toBeDefined();
         });
 
+        test('layer width setter rounds fractional values', () => {
+            const glyph = font.glyphs[0];
+            const layer = glyph.layers[0];
+
+            layer.width = 500.6;
+
+            expect(layer.width).toBe(501);
+        });
+
         test('glyph should have layers', () => {
             const glyph = font.glyphs[0];
             expect(glyph.layers).toBeDefined();

@@ -2732,8 +2732,9 @@ export class Layer extends ArrayElementBase {
 
     set width(value: number) {
         const old = this.data.width;
-        this.data.width = value;
-        recordAndMarkDirty(this, 'width', old, value);
+        const roundedValue = roundMetricValue(value);
+        this.data.width = roundedValue;
+        recordAndMarkDirty(this, 'width', old, roundedValue);
     }
 
     /**

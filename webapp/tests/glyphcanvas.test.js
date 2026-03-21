@@ -383,6 +383,119 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
     });
 
+    test('commitPropertyPanelValue pans the viewport for left sidebearing edits', async () => {
+        const layer = {
+            width: 500,
+            applySidebearingInput: jest.fn(() => {
+                fontManager.currentFont.changeVersion = 2;
+                layer.width = 520;
+                return {
+                    affectedGlyphNames: ['a'],
+                    error: null,
+                    updateScope: 'layer'
+                };
+            })
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockResolvedValue();
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 100;
+        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+
+        await canvas.commitPropertyPanelValue('left', '20');
+
+        expect(canvas.viewportManager.panX).toBe(60);
+    });
+
+    test('commitPropertyPanelValue updates the visible outline before async refresh resolves', async () => {
+        let resolveRefresh;
+        const refreshPromise = new Promise((resolve) => {
+            resolveRefresh = resolve;
+        });
+        const layer = {
+            id: 'layer-1',
+            width: 500,
+            toJSON: jest.fn(() => ({
+                id: 'layer-1',
+                width: 520,
+                shapes: [],
+                anchors: [],
+                guides: []
+            })),
+            applySidebearingInput: jest.fn(() => {
+                fontManager.currentFont.changeVersion = 2;
+                layer.width = 520;
+                return {
+                    affectedGlyphNames: ['a'],
+                    error: null,
+                    updateScope: 'layer'
+                };
+            })
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockReturnValue(refreshPromise);
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 100;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => false);
+
+        const commitPromise = canvas.commitPropertyPanelValue('left', '20');
+
+        expect(canvas.viewportManager.panX).toBe(60);
+        expect(canvas.outlineEditor.layerData.width).toBe(520);
+        expect(canvas.render).toHaveBeenCalled();
+
+        resolveRefresh();
+        await commitPromise;
+    });
+
     test('editingFontCompiled skips superseded full-compile revisions', async () => {
         const setFontSpy = jest
             .spyOn(canvas, 'setFont')
@@ -1755,6 +1868,126 @@ describe('GlyphCanvas property panel', () => {
 
         const inputs = document.querySelectorAll('.glyph-property-input');
         expect(inputs[1].classList.contains('invalid')).toBe(true);
+    });
+
+    test('ArrowUp increments the left sidebearing field by 1', async () => {
+        const commitSpy = jest
+            .spyOn(canvas, 'commitPropertyPanelValue')
+            .mockResolvedValue();
+
+        canvas.updatePropertyPanel();
+
+        const inputs = document.querySelectorAll('.glyph-property-input');
+        const leftInput = inputs[0];
+        leftInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowUp',
+                bubbles: true
+            })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(commitSpy).toHaveBeenCalledWith('left', '51');
+
+        commitSpy.mockRestore();
+    });
+
+    test('modifier keys scale sidebearing field arrow increments', async () => {
+        const commitSpy = jest
+            .spyOn(canvas, 'commitPropertyPanelValue')
+            .mockResolvedValue();
+
+        canvas.updatePropertyPanel();
+
+        const inputs = document.querySelectorAll('.glyph-property-input');
+        const leftInput = inputs[0];
+        const rightInput = inputs[1];
+
+        leftInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowDown',
+                shiftKey: true,
+                bubbles: true
+            })
+        );
+        rightInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowUp',
+                metaKey: true,
+                bubbles: true
+            })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(commitSpy).toHaveBeenNthCalledWith(1, 'left', '40');
+        expect(commitSpy).toHaveBeenNthCalledWith(2, 'right', '150');
+
+        commitSpy.mockRestore();
+    });
+
+    test('restores canvas focus when a sidebearing field blurs', async () => {
+        const restoreFocusSpy = jest
+            .spyOn(canvas.outlineEditor, 'restoreFocus')
+            .mockImplementation(() => {});
+
+        canvas.updatePropertyPanel();
+
+        const inputs = document.querySelectorAll('.glyph-property-input');
+        const leftInput = inputs[0];
+        leftInput.dispatchEvent(new FocusEvent('blur'));
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(restoreFocusSpy).toHaveBeenCalled();
+
+        restoreFocusSpy.mockRestore();
+    });
+
+    test('does not restore canvas focus when another text input stays active', async () => {
+        const restoreFocusSpy = jest
+            .spyOn(canvas.outlineEditor, 'restoreFocus')
+            .mockImplementation(() => {});
+
+        canvas.updatePropertyPanel();
+
+        const oldInput = document.querySelectorAll('.glyph-property-input')[0];
+
+        canvas.updatePropertyPanel();
+
+        const replacementInput = document.querySelectorAll(
+            '.glyph-property-input'
+        )[0];
+        replacementInput.focus();
+        oldInput.dispatchEvent(new FocusEvent('blur'));
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(document.activeElement).toBe(replacementInput);
+        expect(restoreFocusSpy).not.toHaveBeenCalled();
+
+        restoreFocusSpy.mockRestore();
+    });
+
+    test('preserves the active sidebearing input across property panel rerenders', () => {
+        canvas.updatePropertyPanel();
+
+        const originalInput = document.querySelector(
+            '.glyph-property-input[data-sidebearing-side="left"]'
+        );
+        originalInput.focus();
+        originalInput.setSelectionRange(1, 1);
+
+        canvas.updatePropertyPanel();
+
+        const replacementInput = document.querySelector(
+            '.glyph-property-input[data-sidebearing-side="left"]'
+        );
+
+        expect(document.activeElement).toBe(replacementInput);
+        expect(replacementInput.selectionStart).toBe(1);
+        expect(replacementInput.selectionEnd).toBe(1);
     });
 });
 
