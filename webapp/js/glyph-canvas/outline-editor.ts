@@ -2597,6 +2597,7 @@ export class OutlineEditor {
         }
 
         const side = this.selectedSidebearingHandle.side;
+        const sidebearingDelta = side === 'left' ? -deltaX : deltaX;
         const previousWidth = currentLayerData.width;
 
         if (side === 'left') {
@@ -2615,7 +2616,7 @@ export class OutlineEditor {
                     }
 
                     for (const node of pathData.nodes as Babelfont.Node[]) {
-                        node.x += deltaX;
+                        node.x += sidebearingDelta;
                     }
                     continue;
                 }
@@ -2640,16 +2641,27 @@ export class OutlineEditor {
                     if (!transform.translation) {
                         transform.translation = [0, 0];
                     }
-                    transform.translation[0] += deltaX;
+                    transform.translation[0] += sidebearingDelta;
                 }
             }
 
             for (const anchor of currentLayerData.anchors || []) {
-                anchor.x += deltaX;
+                anchor.x += sidebearingDelta;
+            }
+
+            const viewportManager = this.glyphCanvas.viewportManager;
+            if (viewportManager) {
+                viewportManager.panX -=
+                    sidebearingDelta * viewportManager.scale;
+
+                if (this.isDraggingSidebearing && this.lastGlyphX !== null) {
+                    this.lastGlyphX += sidebearingDelta;
+                }
             }
         }
 
-        currentLayerData.width = (currentLayerData.width || 0) + deltaX;
+        currentLayerData.width =
+            (currentLayerData.width || 0) + sidebearingDelta;
 
         const parsed = this.parseGlyphStack();
         const glyphName =

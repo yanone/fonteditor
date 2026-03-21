@@ -751,7 +751,7 @@ describe('GlyphCanvas sidebearing handle movement', () => {
 
         canvas.outlineEditor.transformMouseToComponentSpace = jest.fn(() => ({
             glyphX: handle.x,
-            glyphY: handle.lineBottomY
+            glyphY: handle.y
         }));
 
         canvas.outlineEditor.updateHoveredSidebearingHandle();
@@ -759,9 +759,11 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         expect(canvas.outlineEditor.hoveredSidebearingHandle).toBe(null);
     });
 
-    test('moves a selected sidebearing handle with mouse drag', () => {
-        canvas.outlineEditor.selectedSidebearingHandle = { side: 'right' };
+    test('moving the left sidebearing handle right decreases the sidebearing', () => {
+        canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
         canvas.outlineEditor.isDraggingSidebearing = true;
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 100;
         canvas.outlineEditor.transformMouseToComponentSpace = jest
             .fn()
             .mockReturnValueOnce({ glyphX: 10, glyphY: 0 })
@@ -770,11 +772,15 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.onMouseMove({ clientX: 10, clientY: 20 });
         canvas.onMouseMove({ clientX: 25, clientY: 15 });
 
-        expect(canvas.outlineEditor.layerData.width).toBe(515);
+        expect(canvas.outlineEditor.layerData.width).toBe(485);
+        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(85);
+        expect(canvas.viewportManager.panX).toBe(130);
     });
 
-    test('moves a selected sidebearing handle with keyboard arrows', () => {
+    test('pressing ArrowRight on the left sidebearing handle decreases the sidebearing', () => {
         canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 100;
 
         const event = {
             key: 'ArrowRight',
@@ -787,8 +793,9 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.outlineEditor.onKeyDown(event);
 
         expect(event.preventDefault).toHaveBeenCalled();
-        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(101);
-        expect(canvas.outlineEditor.layerData.width).toBe(501);
+        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(99);
+        expect(canvas.outlineEditor.layerData.width).toBe(499);
+        expect(canvas.viewportManager.panX).toBe(102);
     });
 });
 
