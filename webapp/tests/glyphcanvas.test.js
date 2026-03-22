@@ -2019,6 +2019,35 @@ describe('GlyphCanvas property panel', () => {
         restoreFocusSpy.mockRestore();
     });
 
+    test('restores canvas focus when Enter commits a sidebearing field', async () => {
+        const restoreFocusSpy = jest
+            .spyOn(canvas.outlineEditor, 'restoreFocus')
+            .mockImplementation(() => {});
+        const commitSpy = jest
+            .spyOn(canvas, 'commitPropertyPanelValue')
+            .mockResolvedValue();
+
+        canvas.updatePropertyPanel();
+
+        const inputs = document.querySelectorAll('.glyph-property-input');
+        const leftInput = inputs[0];
+        leftInput.focus();
+        leftInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true
+            })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(commitSpy).toHaveBeenCalledWith('left', leftInput.value);
+        expect(restoreFocusSpy).toHaveBeenCalled();
+
+        commitSpy.mockRestore();
+        restoreFocusSpy.mockRestore();
+    });
+
     test('does not restore canvas focus when another text input stays active', async () => {
         const restoreFocusSpy = jest
             .spyOn(canvas.outlineEditor, 'restoreFocus')

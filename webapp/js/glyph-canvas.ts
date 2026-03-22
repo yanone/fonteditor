@@ -103,6 +103,7 @@ class GlyphCanvas {
     rightSidebar: HTMLElement | null = null;
     axesSection: HTMLElement | null = null;
     glyphStackLabel: HTMLElement | null = null;
+    restoreCanvasFocusAfterPropertyCommit: boolean = false;
 
     zoomAnimation: {
         active: boolean;
@@ -2585,6 +2586,10 @@ class GlyphCanvas {
     }
 
     private getActivePropertyInputState(): ActivePropertyInputState | null {
+        if (this.restoreCanvasFocusAfterPropertyCommit) {
+            return null;
+        }
+
         const activeElement = document.activeElement as HTMLElement | null;
         if (
             !activeElement ||
@@ -2739,6 +2744,7 @@ class GlyphCanvas {
             input.addEventListener('keydown', (event) => {
                 if (event.key === 'Enter') {
                     event.preventDefault();
+                    this.restoreCanvasFocusAfterPropertyCommit = true;
                     input.dataset.skipNextPropertyCommit = 'true';
                     void this.commitPropertyPanelValue(side, input.value);
                     input.blur();
@@ -2746,6 +2752,14 @@ class GlyphCanvas {
             });
             input.addEventListener('blur', () => {
                 setTimeout(() => {
+                    if (this.restoreCanvasFocusAfterPropertyCommit) {
+                        this.restoreCanvasFocusAfterPropertyCommit = false;
+                        if (!arrowInputController.isApplyingStep) {
+                            this.outlineEditor.restoreFocus();
+                        }
+                        return;
+                    }
+
                     const activeElement =
                         document.activeElement as HTMLElement | null;
                     if (
