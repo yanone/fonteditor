@@ -1,3 +1,6 @@
+// AUTO-GENERATED FILE. DO NOT EDIT DIRECTLY.
+// Update regenerate-types.sh or companion extension types instead.
+//
 // Type definitions for babelfont
 // Project: https://github.com/simoncozens/babelfont-rs
 // Definitions extracted from babelfont-ts@9ba2ce2
@@ -6,7 +9,7 @@ export namespace Babelfont {
     /** A dictionary for internationalized strings. */
     export type I18NDictionary = Record<string, string>;
     /** An anchor point in a glyph */
-    export type Anchor = {
+    export interface Anchor {
         /** X coordinate */
         x: number;
         /** Y coordinate */
@@ -15,34 +18,39 @@ export namespace Babelfont {
         name?: string;
         /** Format-specific data */
         format_specific?: Record<string, any>;
-    };
+    }
     /** An axis in a variable font */
-    export type Axis = {
+    export interface Axis {
         /** Name of the axis */
         name: I18NDictionary;
         /** 4-character tag of the axis */
         tag: string;
         /** Minimum value of the axis in user space coordinates */
-        min?: number;
+        min?: import('@simoncozens/fonttypes').UserspaceCoordinate;
         /** Maximum value of the axis in user space coordinates */
-        max?: number;
+        max?: import('@simoncozens/fonttypes').UserspaceCoordinate;
         /** Default value of the axis in user space coordinates */
-        default?: number;
+        default?: import('@simoncozens/fonttypes').UserspaceCoordinate;
         /** Mapping of user space coordinates to design space coordinates */
-        map?: Array<[number, number]> | null;
+        map?: Array<
+            [
+                import('@simoncozens/fonttypes').UserspaceCoordinate,
+                import('@simoncozens/fonttypes').DesignspaceCoordinate
+            ]
+        > | null;
         /** Whether the axis is hidden in the font's user interface */
         hidden?: boolean;
         /** Predefined values for the axis in user space coordinates */
-        values?: number[];
+        values?: import('@simoncozens/fonttypes').UserspaceCoordinate[];
         /** Format-specific data */
         format_specific?: Record<string, any>;
-    };
-    export type Color = {
+    }
+    export interface Color {
         r: number;
         g: number;
         b: number;
         a: number;
-    };
+    }
     /** The order in which transform operations should be applied */
     export enum TransformOrder {
         /** Glyphs order: translate → skew → rotate → scale */
@@ -51,36 +59,37 @@ export namespace Babelfont {
         RestOfTheWorld = 'RestOfTheWorld'
     }
     /** A decomposed affine transformation with separate translation, rotation, scale, and skew components */
-    export type DecomposedAffine = {
+    export interface DecomposedAffine {
         translation?: [number, number];
         scale?: [number, number];
         rotation?: number;
         skew?: [number, number];
         order?: TransformOrder;
-    };
+    }
     /** A component in a glyph */
-    export type Component = {
+    export interface Component {
         /** The referenced glyph name */
         reference: string;
         /** The transformation applied to the component */
         transform: DecomposedAffine;
         /** A location for a variable component */
-        location?: Record<string, number>;
+        location?: Record<
+            string,
+            import('@simoncozens/fonttypes').DesignspaceCoordinate
+        >;
         /** Format-specific data */
         format_specific?: Record<string, any>;
-        /** Cached layer data for component reference (custom property) */
-        layerData?: Layer;
-    };
-    export type CrossAxisMapping = {
+    }
+    export interface CrossAxisMapping {
         /** Description */
         description?: string;
         /** Source designspace locations */
-        input: Record<string, number>[];
+        input: import('@simoncozens/fonttypes').DesignspaceLocation[];
         /** Target designspace locations */
-        output: Record<string, number>[];
-    };
+        output: import('@simoncozens/fonttypes').DesignspaceLocation[];
+    }
     /** Custom OpenType values that can be set per-master or per-font */
-    export type CustomOTValues = {
+    export interface CustomOTValues {
         /**
          * Head table flags field
          *
@@ -191,9 +200,9 @@ export namespace Babelfont {
         cff_stem_snap_h?: number[];
         /** CFF table StemSnapV field */
         cff_stem_snap_v?: number[];
-    };
+    }
     /** A wrapper for OpenType feature code that may be automatically generated. */
-    export type PossiblyAutomaticCode = {
+    export interface PossiblyAutomaticCode {
         /** The feature code. */
         code: string;
         /**
@@ -203,9 +212,9 @@ export namespace Babelfont {
         automatic?: boolean;
         /** Format-specific data */
         format_specific?: Record<string, any>;
-    };
+    }
     /** A representation of OpenType features, classes, and prefixes. */
-    export type Features = {
+    export interface Features {
         /**
          * Opentype classes
          *
@@ -231,9 +240,9 @@ export namespace Babelfont {
          * Paths to search for included feature files.
          */
         include_paths?: string[];
-    };
+    }
     /** Name table values for a font or individual master */
-    export type Names = {
+    export interface Names {
         /** Copyright notice (OpenType Name ID 0) */
         copyright?: I18NDictionary;
         /** Font family name (OpenType Name ID 1) */
@@ -280,9 +289,9 @@ export namespace Babelfont {
         wws_subfamily_name?: I18NDictionary;
         /** Variations PostScript Name Prefix. (OpenType Name ID 25) */
         variations_postscript_name_prefix?: I18NDictionary;
-    };
+    }
     /** A font instance */
-    export type Instance = {
+    export interface Instance {
         /**
          * Unique identifier for the instance
          *
@@ -292,7 +301,7 @@ export namespace Babelfont {
         /** Name of the instance */
         name: I18NDictionary;
         /** Location of the instance in design space coordinates */
-        location?: Record<string, number>;
+        location?: import('@simoncozens/fonttypes').DesignspaceLocation;
         /** Any custom names for the instance if it is exported as a static font */
         custom_names: Names;
         /** Whether the instance represents an export of a variable font */
@@ -301,18 +310,18 @@ export namespace Babelfont {
         linked_style?: string;
         /** Format-specific data */
         format_specific?: Record<string, any>;
-    };
+    }
     /** A position in 2D space, with an optional angle */
-    export type Position = {
+    export interface Position {
         /** X coordinate */
         x: number;
         /** Y coordinate */
         y: number;
         /** Angle in degrees */
         angle?: number;
-    };
+    }
     /** A guideline in the font, whether at master or layer level */
-    export type Guide = {
+    export interface Guide {
         /** Position of the guideline */
         pos: Position;
         /** Optional name of the guideline */
@@ -321,15 +330,15 @@ export namespace Babelfont {
         color?: Color;
         /** Format-specific data */
         format_specific?: Record<string, any>;
-    };
+    }
     /** A master/source font in a design space */
-    export type Master = {
+    export interface Master {
         /** Name of the master */
         name: I18NDictionary;
         /** Unique identifier for the master (usually a UUID) */
         id: string;
         /** Location of the master in design space coordinates */
-        location?: Record<string, number>;
+        location?: import('@simoncozens/fonttypes').DesignspaceLocation;
         /** Global guidelines associated with the master */
         guides?: Guide[];
         /** Master-specific metrics */
@@ -346,7 +355,7 @@ export namespace Babelfont {
         custom_ot_values?: CustomOTValues;
         /** Format-specific data */
         format_specific?: Record<string, any>;
-    };
+    }
     /** The category of a glyph */
     export type GlyphCategory =
         /** A base glyph */
@@ -374,7 +383,7 @@ export namespace Babelfont {
         /** A path in a glyph */
         | Path;
     /** A layer of a glyph in a font */
-    export type Layer = {
+    export interface Layer {
         /** The advance width of the layer */
         width: number;
         /** The name of the layer */
@@ -398,18 +407,12 @@ export namespace Babelfont {
         /** The ID of the background layer for this layer, if any */
         background_layer_id?: string;
         /** The location of the layer in design space, if it is not at the default location for a master */
-        location?: Record<string, number>;
+        location?: import('@simoncozens/fonttypes').DesignspaceLocation;
         /** The location of the layer in smart component (glyph-specific axes) space */
-        smart_component_location?: Record<string, number>;
+        smart_component_location?: import('@simoncozens/fonttypes').DesignspaceLocation;
         /** Format-specific data for the layer */
         format_specific?: Record<string, any>;
-        /** Whether this layer is interpolated (custom property) */
-        isInterpolated?: boolean;
-        /** Vertical advance height for vertical writing (custom property) */
-        height?: number;
-        /** Vertical advance width for vertical writing (custom property) */
-        vertWidth?: number;
-    };
+    }
     /** Direction of text flow */
     export enum Direction {
         /** Left to right text flow */
@@ -422,7 +425,7 @@ export namespace Babelfont {
         Bidi = 'Bidi'
     }
     /** A glyph in the font */
-    export type Glyph = {
+    export interface Glyph {
         /** The name of the glyph */
         name: string;
         /** The production name of the glyph, if any */
@@ -446,9 +449,9 @@ export namespace Babelfont {
         component_axes?: Axis[];
         /** Format-specific data */
         format_specific?: Record<string, any>;
-    };
+    }
     /** A representation of a font source file */
-    export type Font = {
+    export interface Font {
         /** Units per em */
         upm: number;
         /** Font version as (major, minor) */
@@ -504,7 +507,7 @@ export namespace Babelfont {
         format_specific?: Record<string, any>;
         /** The source file path, if any, from which this font was loaded */
         source?: string;
-    };
+    }
     /** Types of nodes in a glyph outline */
     export enum NodeType {
         /** Move to a new position without drawing (only defined for open contours) */
@@ -519,7 +522,7 @@ export namespace Babelfont {
         QCurve = 'QCurve'
     }
     /** A node in a glyph outline */
-    export type Node = {
+    export interface Node {
         /** The x-coordinate of the node */
         x: number;
         /** The y-coordinate of the node */
@@ -530,16 +533,16 @@ export namespace Babelfont {
         smooth?: boolean;
         /** Format-specific data */
         format_specific?: Record<string, any>;
-    };
+    }
     /** A path in a glyph */
-    export type Path = {
+    export interface Path {
         /** A list of nodes in the path */
         nodes: Node[];
         /** Whether the path is closed */
         closed: boolean;
         /** Format-specific data */
         format_specific?: Record<string, any>;
-    };
+    }
     /** Type of font metric */
     export type MetricType =
         /** X height */

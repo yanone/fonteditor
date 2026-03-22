@@ -2,6 +2,7 @@
 // Captures all state changes with full stack traces for error reporting
 
 import { Logger } from './logger';
+import type { UserspaceLocation } from './locations';
 import {
     updateUrlState,
     encodeLocation,
@@ -52,7 +53,7 @@ export interface EditorState {
     isAnimating: boolean;
     opentype_features_in_subset: Record<string, boolean>;
     opentype_features_not_in_subset: Record<string, boolean>;
-    variation_location: Record<string, number>;
+    variation_location: UserspaceLocation;
     active_canvas_plugins: string[];
 }
 

@@ -12,6 +12,7 @@ import {
 } from './vertical-metrics';
 import APP_SETTINGS from '../settings';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
+import type { DesignspaceLocation, UserspaceLocation } from '../locations';
 import { SavedVariationState } from '../saved-variation-state';
 
 let console: Logger = new Logger('OutlineEditor');
@@ -62,8 +63,8 @@ const getComponentShapeData = (shape: any): any => {
 const LAYER_LOCATION_MATCH_EPSILON = 0.01;
 
 function locationsMatchWithinTolerance(
-    left: Record<string, number> | undefined,
-    right: Record<string, number> | undefined,
+    left: DesignspaceLocation | undefined,
+    right: DesignspaceLocation | undefined,
     axisTags: string[]
 ): boolean {
     if (!left || !right) {
@@ -78,7 +79,7 @@ function locationsMatchWithinTolerance(
 
     for (const tag of tags) {
         if (
-            Math.abs((left[tag] ?? 0) - (right[tag] ?? 0)) >
+            Math.abs(Number(left[tag] ?? 0) - Number(right[tag] ?? 0)) >
             LAYER_LOCATION_MATCH_EPSILON
         ) {
             return false;
@@ -676,7 +677,7 @@ export class OutlineEditor {
     private getUserspaceLocationForLayer(
         layerId: string,
         rootGlyphName?: string
-    ): Record<string, number> | null {
+    ): UserspaceLocation | null {
         const fontModel = fontManager.currentFont?.fontModel;
         if (!fontModel) return null;
 
@@ -3414,11 +3415,11 @@ export class OutlineEditor {
         );
 
         // Set up animation to all axes at once
-        const newSettings: Record<string, number> = {};
+        const newSettings: UserspaceLocation = {};
         for (const [axisTag, value] of Object.entries(
             targetUserspaceLocation
         )) {
-            newSettings[axisTag] = value as number;
+            newSettings[axisTag] = value;
         }
         this.glyphCanvas.axesManager!._setupAnimation(newSettings);
 

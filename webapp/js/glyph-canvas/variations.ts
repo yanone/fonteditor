@@ -2,25 +2,26 @@ import { get_font_axes } from '../../wasm-dist/babelfont_fontc_web';
 import Babelfont from '../babelfont';
 import { ensureWasmInitialized } from '../wasm-init';
 import { Logger } from '../logger';
+import type { UserspaceCoordinate, UserspaceLocation } from '../locations';
 
 const console = new Logger('Variations');
 
 interface VariationAxis {
     tag: string;
     name: string;
-    min: number;
-    max: number;
-    default: number;
+    min: UserspaceCoordinate;
+    max: UserspaceCoordinate;
+    default: UserspaceCoordinate;
 }
 
 export class AxesManager {
-    variationSettings: Record<string, number>;
+    variationSettings: UserspaceLocation;
     axesSection: HTMLElement | null;
     // Animation state
     animationFrames: number;
     isAnimating: boolean;
-    animationStartValues: Record<string, number>;
-    animationTargetValues: Record<string, number>;
+    animationStartValues: UserspaceLocation;
+    animationTargetValues: UserspaceLocation;
     animationCurrentFrame: number;
     fontBytes: Uint8Array | null;
     callbacks: Record<string, Function[]>; // Support multiple callbacks per event
@@ -159,7 +160,8 @@ export class AxesManager {
     }
 
     getAxisValue(axisTag: string): number | undefined {
-        return this.variationSettings[axisTag];
+        const value = this.variationSettings[axisTag];
+        return value === undefined ? undefined : Number(value);
     }
 
     setAxisValue(axisTag: string, value: number): void {
@@ -230,8 +232,8 @@ export class AxesManager {
                     5000;
 
                 // Calculate phase offset so animation starts from current value
-                const midpoint = (axis.min + axis.max) / 2;
-                const amplitude = (axis.max - axis.min) / 2;
+                const midpoint = (Number(axis.min) + Number(axis.max)) / 2;
+                const amplitude = (Number(axis.max) - Number(axis.min)) / 2;
                 // Find the phase that corresponds to the start value: sin(phase) = (startValue - midpoint) / amplitude
                 const normalizedStart =
                     (animationStartValue - midpoint) / amplitude;
@@ -336,8 +338,8 @@ export class AxesManager {
             // Restore value if it exists, otherwise use default
             const initialValue =
                 this.variationSettings[axis.tag] !== undefined
-                    ? this.variationSettings[axis.tag]
-                    : axis.default;
+                    ? Number(this.variationSettings[axis.tag])
+                    : Number(axis.default);
 
             slider.value = initialValue.toString();
             valueLabel.value = initialValue.toFixed(0);
@@ -373,7 +375,10 @@ export class AxesManager {
                 if (isNaN(value)) {
                     value = initialValue;
                 } else {
-                    value = Math.max(axis.min, Math.min(axis.max, value));
+                    value = Math.max(
+                        Number(axis.min),
+                        Math.min(Number(axis.max), value)
+                    );
                 }
 
                 // @ts-ignore
@@ -524,7 +529,7 @@ export class AxesManager {
         this._setupAnimation({ [axisTag]: value });
     }
 
-    _setupAnimation(newSettings: { [key: string]: number }) {
+    _setupAnimation(newSettings: UserspaceLocation) {
         if (this.isAnimating) {
             this.isAnimating = false;
         }
@@ -554,9 +559,9 @@ export class AxesManager {
         // Interpolate all axes
         for (const axisTag in this.animationTargetValues) {
             const startValue =
-                this.animationStartValues[axisTag] ||
-                this.animationTargetValues[axisTag];
-            const targetValue = this.animationTargetValues[axisTag];
+                Number(this.animationStartValues[axisTag]) ||
+                Number(this.animationTargetValues[axisTag]);
+            const targetValue = Number(this.animationTargetValues[axisTag]);
             this.variationSettings[axisTag] =
                 startValue + (targetValue - startValue) * easedProgress;
         }

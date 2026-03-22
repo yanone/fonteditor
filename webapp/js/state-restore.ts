@@ -4,6 +4,7 @@
 import { readUrlState, decodeLocation, decodeFeatures } from './url-state';
 import { Logger } from './logger';
 import type { GlyphCanvas } from './glyph-canvas';
+import type { UserspaceLocation } from './locations';
 
 const console = new Logger('StateRestore');
 
@@ -58,14 +59,14 @@ export async function restoreStateFromUrl(
             window.stateManager.editor_opentype_features_not_in_subset = {};
         }
 
-        // 2. Restore designspace location
+        // 2. Restore userspace variation location
         if (urlState.location) {
             const location = decodeLocation(urlState.location);
             if (location) {
                 // Round values to integers
-                const roundedLocation: Record<string, number> = {};
+                const roundedLocation: UserspaceLocation = {};
                 for (const [tag, value] of Object.entries(location)) {
-                    roundedLocation[tag] = Math.round(value);
+                    roundedLocation[tag] = Math.round(Number(value));
                 }
                 window.stateManager.editor_variation_location = roundedLocation;
             }
@@ -129,13 +130,13 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
         // calls setTextBuffer() which triggers a debounced subset compile.
     }
 
-    // 2. Apply designspace location
+    // 2. Apply userspace variation location
     const location = window.stateManager.editor_variation_location;
     if (location && glyphCanvas.axesManager) {
         console.log('Applying location:', location);
 
         for (const [tag, value] of Object.entries(location)) {
-            glyphCanvas.axesManager.setAxisValue(tag, value);
+            glyphCanvas.axesManager.setAxisValue(tag, Number(value));
         }
 
         // Update UI and trigger layer selection if in editing mode

@@ -1319,7 +1319,7 @@ export class GlyphCanvasRenderer {
                     return false;
                 }
 
-                if (Math.abs(currentValue - targetValue) > tolerance) {
+                if (Math.abs(currentValue - Number(targetValue)) > tolerance) {
                     return false;
                 }
             }

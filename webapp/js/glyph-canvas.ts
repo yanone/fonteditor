@@ -14,6 +14,7 @@ import { OutlineEditor } from './glyph-canvas/outline-editor';
 import { Logger } from './logger';
 import APP_SETTINGS from './settings';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
+import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import { Glyph, Layer } from './babelfont-model';
 import { updateUrlState, encodeLocation } from './url-state';
 import { isSyncEnabled } from './state-sync';
@@ -31,7 +32,7 @@ function isPlainNumericInputValue(value: string): boolean {
 
 type QCGlyphProblem = {
     glyphName: string;
-    userspaceLocation: Record<string, number> | null;
+    userspaceLocation: UserspaceLocation | null;
     position: [number, number] | null;
 };
 
@@ -44,7 +45,7 @@ type ActivePropertyInputState = {
 export type QCCanvasMarker = {
     glyphName: string;
     position: [number, number];
-    userspaceLocation?: Record<string, number> | null;
+    userspaceLocation?: UserspaceLocation | null;
 };
 
 class GlyphCanvas {
@@ -1665,7 +1666,7 @@ class GlyphCanvas {
         mastersList.className = 'editor-layers-list';
 
         const formatAxisValues = (
-            location: Record<string, number> | undefined
+            location: DesignspaceLocation | undefined
         ): string => {
             if (!location || !fontModel.axes) return '';
             const userspaceLocation = designspaceToUserspace(
@@ -1679,7 +1680,7 @@ class GlyphCanvas {
                 .filter((tag: string) => tag in userspaceLocation)
                 .map(
                     (tag: string) =>
-                        `${tag}:${Math.round(userspaceLocation[tag])}`
+                        `${tag}:${Math.round(Number(userspaceLocation[tag]))}`
                 )
                 .join(', ');
         };
@@ -1854,7 +1855,7 @@ class GlyphCanvas {
 
     async selectMaster(
         masterId: string,
-        masterLocation: Record<string, number>
+        masterLocation: DesignspaceLocation
     ): Promise<void> {
         // Ensure a full compile before layer/master switch
         await fontManager.ensureFullEditingCompile();
@@ -2080,7 +2081,7 @@ class GlyphCanvas {
             return;
         }
 
-        const currentLocationUserspace: Record<string, number> = {};
+        const currentLocationUserspace: UserspaceLocation = {};
 
         // Get current location from axes manager (userspace coordinates)
         if (!this.axesManager) {
@@ -2127,16 +2128,20 @@ class GlyphCanvas {
             // Check if all axes match within tolerance
             let allMatch = true;
             for (const tag in masterLocation) {
-                const masterValue = masterLocation[tag];
-                const currentValue = currentLocation[tag];
+                const masterValue = Number(masterLocation[tag]);
+                const currentValue =
+                    currentLocation[tag] === undefined
+                        ? undefined
+                        : Number(currentLocation[tag]);
+                if (currentValue === undefined) {
+                    allMatch = false;
+                    break;
+                }
                 const diff = Math.abs(masterValue - currentValue);
                 console.log(
                     `[GlyphCanvas]   Axis ${tag}: master=${masterValue}, current=${currentValue}, diff=${diff}, match=${diff <= tolerance}`
                 );
-                if (
-                    currentValue === undefined ||
-                    Math.abs(masterValue - currentValue) > tolerance
-                ) {
+                if (Math.abs(masterValue - currentValue) > tolerance) {
                     allMatch = false;
                     break;
                 }
@@ -2177,11 +2182,11 @@ class GlyphCanvas {
     }
 
     async animateToLocation(
-        targetLocation: Record<string, number>,
+        targetLocation: UserspaceLocation,
         frames: number
     ): Promise<void> {
-        // Animate designspace location from current to target over specified frames
-        const startLocation: Record<string, number> = {};
+        // Animate userspace axis values from current to target over specified frames
+        const startLocation: UserspaceLocation = {};
         const isEditing = this.outlineEditor.active;
         const previousIsAnimating = this.axesManager!.isAnimating;
 
@@ -2207,17 +2212,21 @@ class GlyphCanvas {
         // Animate over frames
         for (let frame = 0; frame <= frames; frame++) {
             const t = frame / frames; // 0 to 1
-            const currentLocation: Record<string, number> = {};
+            const currentLocation: UserspaceLocation = {};
 
             for (const tag in targetLocation) {
+                const startValue = Number(startLocation[tag]);
+                const targetValue = Number(targetLocation[tag]);
                 currentLocation[tag] =
-                    startLocation[tag] +
-                    (targetLocation[tag] - startLocation[tag]) * t;
+                    startValue + (targetValue - startValue) * t;
             }
 
             // Update axes
             for (const tag in currentLocation) {
-                this.axesManager!.setAxisValue(tag, currentLocation[tag]);
+                this.axesManager!.setAxisValue(
+                    tag,
+                    Number(currentLocation[tag])
+                );
             }
 
             // Update axis sliders UI to show the animation
@@ -2240,7 +2249,7 @@ class GlyphCanvas {
 
         // Snap to exact target values at the end to avoid accumulated float drift.
         for (const tag in targetLocation) {
-            this.axesManager!.setAxisValue(tag, targetLocation[tag]);
+            this.axesManager!.setAxisValue(tag, Number(targetLocation[tag]));
         }
         this.axesManager!.updateAxisSliders();
 
@@ -2257,9 +2266,9 @@ class GlyphCanvas {
         this.axesManager!.isAnimating = previousIsAnimating;
 
         // Notify listeners (e.g. glyph overview) about the final location
-        const finalLocation: Record<string, number> = {};
+        const finalLocation: UserspaceLocation = {};
         for (const tag in targetLocation) {
-            finalLocation[tag] = Math.round(targetLocation[tag]);
+            finalLocation[tag] = Math.round(Number(targetLocation[tag]));
         }
         window.dispatchEvent(
             new CustomEvent('variationLocationChanged', {
@@ -3880,12 +3889,12 @@ function initCanvas() {
 
         const parseUserspaceLocation = (
             value: unknown
-        ): Record<string, number> | null => {
+        ): UserspaceLocation | null => {
             if (!isRecord(value)) {
                 return null;
             }
 
-            const location: Record<string, number> = {};
+            const location: UserspaceLocation = {};
             for (const [tag, rawValue] of Object.entries(value)) {
                 if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
                     location[tag] = rawValue;
@@ -4111,7 +4120,7 @@ function initCanvas() {
         };
 
         const serializeUserspaceLocation = (
-            location: Record<string, number> | null
+            location: UserspaceLocation | null
         ): string => {
             if (!location) {
                 return '';

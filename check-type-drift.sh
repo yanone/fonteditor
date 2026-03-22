@@ -65,7 +65,7 @@ else
     echo "  diff webapp/js/babelfont.d.ts <(./regenerate-types.sh)"
     echo ""
     echo "To fix this, run:"
-    echo "  ./regenerate-types.sh > webapp/js/babelfont.d.ts"
+    echo "  ./regenerate-types.sh"
     echo "  git add webapp/js/babelfont.d.ts"
     echo "  git commit -m 'Update type definitions from babelfont-rs@$BABELFONT_RS_COMMIT'"
     echo ""

@@ -1,77 +1,98 @@
+import {
+    designspaceToUserspace as fonttypesDesignspaceToUserspace,
+    normalizeLocation as fonttypesNormalizeLocation,
+    normalizeValue as fonttypesNormalizeValue,
+    piecewiseLinearMap,
+    userspaceToDesignspace as fonttypesUserspaceToDesignspace
+} from '@simoncozens/fonttypes';
+import type {
+    Axis as FonttypesAxis,
+    DesignspaceCoordinate,
+    DesignspaceLocation,
+    NormalizedCoordinate,
+    NormalizedLocation,
+    UserspaceCoordinate,
+    UserspaceLocation,
+    UserspaceToDesignspaceMapping
+} from '@simoncozens/fonttypes';
 import type { Babelfont } from './babelfont';
-import { Logger } from './logger';
 
-const console = new Logger('Locations');
+export {
+    piecewiseLinearMap,
+    type DesignspaceCoordinate,
+    type DesignspaceLocation,
+    type NormalizedCoordinate,
+    type NormalizedLocation,
+    type UserspaceCoordinate,
+    type UserspaceLocation
+};
 
-type Tag = string;
-type DesignspaceCoordinate = number;
-type UserspaceCoordinate = number;
-type NormalizedCoordinate = number;
-export type DesignspaceLocation = Record<Tag, DesignspaceCoordinate>;
-type UserspaceLocation = Record<Tag, UserspaceCoordinate>;
-type NormalizedLocation = Record<Tag, NormalizedCoordinate>;
+export type AxisMap = UserspaceToDesignspaceMapping;
 
-export type AxisMap = [UserspaceCoordinate, DesignspaceCoordinate][];
+function asUserspaceCoordinate(value: number): UserspaceCoordinate {
+    return Number(value) as UserspaceCoordinate;
+}
 
-export function piecewiseLinearMap(
-    input: UserspaceCoordinate,
-    mapping: AxisMap
-): DesignspaceCoordinate {
-    if (mapping.length === 0) {
-        return input;
-    }
+function asDesignspaceCoordinate(value: number): DesignspaceCoordinate {
+    return Number(value) as DesignspaceCoordinate;
+}
 
-    if (input <= mapping[0][0]) {
-        return mapping[0][1];
-    }
-    if (input >= mapping[mapping.length - 1][0]) {
-        return mapping[mapping.length - 1][1];
-    }
+function normalizeAxis(axis: Babelfont.Axis): FonttypesAxis {
+    const defaultValue = asUserspaceCoordinate(
+        Number(axis.default ?? axis.min ?? axis.max ?? 0)
+    );
+    const minValue = asUserspaceCoordinate(
+        Number(axis.min ?? Number(defaultValue))
+    );
+    const maxValue = asUserspaceCoordinate(
+        Number(axis.max ?? Number(defaultValue))
+    );
 
-    for (let i = 0; i < mapping.length - 1; i++) {
-        const [x0, y0] = mapping[i];
-        const [x1, y1] = mapping[i + 1];
-        if (input >= x0 && input <= x1) {
-            const t = (input - x0) / (x1 - x0);
-            return y0 + t * (y1 - y0);
-        }
-    }
+    return {
+        tag: axis.tag,
+        name: axis.name?.en || Object.values(axis.name || {})[0] || axis.tag,
+        min: minValue,
+        max: maxValue,
+        default: defaultValue,
+        map: axis.map
+            ? (axis.map.map(([userspace, designspace]) => [
+                  asUserspaceCoordinate(Number(userspace)),
+                  asDesignspaceCoordinate(Number(designspace))
+              ]) as UserspaceToDesignspaceMapping)
+            : undefined,
+        hidden: axis.hidden
+    };
+}
 
-    return input;
+function normalizeAxes(axes: Babelfont.Axis[]): FonttypesAxis[] {
+    return axes.map(normalizeAxis);
 }
 
 export function userspaceToDesignspace(
     location: UserspaceLocation,
     axes: Babelfont.Axis[]
 ): DesignspaceLocation {
-    const result: DesignspaceLocation = {};
-    console.log('Mapping userspace location to designspace:', location);
-    console.log('Userspace to designspace axes:', axes);
-    for (const axis of axes) {
-        const tag = axis.tag;
-        const userValue = location[tag] ?? axis.default;
-        const mapping = axis.map || []; // Handle undefined map
-        result[tag] = piecewiseLinearMap(userValue, mapping);
-    }
-    console.log('Result:', result);
-    return result;
+    return fonttypesUserspaceToDesignspace(location, normalizeAxes(axes));
 }
 
 export function designspaceToUserspace(
     location: DesignspaceLocation,
     axes: Babelfont.Axis[]
-): DesignspaceLocation {
-    const result: DesignspaceLocation = {};
-    console.log('Mapping userspace location to designspace:', location);
-    console.log('Userspace to designspace axes:', axes);
-    for (const axis of axes) {
-        const tag = axis.tag;
-        const userValue = location[tag] ?? axis.default;
-        const mapping: AxisMap = axis.map
-            ? axis.map.map(([u, d]) => [d, u])
-            : []; // Handle undefined map and invert
-        result[tag] = piecewiseLinearMap(userValue, mapping);
-    }
-    console.log('Result:', result);
-    return result;
+): UserspaceLocation {
+    return fonttypesDesignspaceToUserspace(location, normalizeAxes(axes));
+}
+
+export function normalizeLocation(
+    location: DesignspaceLocation,
+    axes: Babelfont.Axis[]
+): NormalizedLocation {
+    return fonttypesNormalizeLocation(location, normalizeAxes(axes));
+}
+
+export function normalizeValue(
+    value: DesignspaceCoordinate,
+    axis: Babelfont.Axis,
+    extrapolate: boolean = false
+): NormalizedCoordinate {
+    return fonttypesNormalizeValue(value, normalizeAxis(axis), extrapolate);
 }

@@ -108,6 +108,9 @@ fi
 # Copy underlying.ts and convert to .d.ts format
 # Replace imports with simple types and wrap in Babelfont namespace
 {
+    echo "// AUTO-GENERATED FILE. DO NOT EDIT DIRECTLY."
+    echo "// Update regenerate-types.sh or companion extension types instead."
+    echo "//"
     echo "// Type definitions for babelfont"
     echo "// Project: https://github.com/simoncozens/babelfont-rs"
     echo "// Definitions extracted from babelfont-ts@$COMMIT"
@@ -116,16 +119,13 @@ fi
     
     # Process underlying.ts:
     # - Remove imports
-    # - Convert 'export interface Foo {' to 'export type Foo = {'
-    # - Replace fonttypes imports with simple number types
+    # - Preserve upstream interfaces for declaration merging in babelfont-extensions.d.ts
+    # - Preserve fonttypes branded coordinate types
     # - Fix Shape type to match actual serde serialization format
     # - Keep everything else as-is
-    sed 's/import("@simoncozens\/fonttypes")\.UserspaceCoordinate/number/g' "$UNDERLYING_FILE" | \
-    sed 's/import("@simoncozens\/fonttypes")\.DesignspaceCoordinate/number/g' | \
-    sed 's/import("@simoncozens\/fonttypes")\.DesignspaceLocation/Record<string, number>/g' | \
-    sed '/^import /d' | \
+    sed '/^import /d' "$UNDERLYING_FILE" | \
     sed '/^\/\*$/,/^\*\/$/d' | \
-    sed 's/^export interface \([^ ]*\) {/    export type \1 = {/g' | \
+    sed 's/^export interface /    export interface /g' | \
     sed 's/^export enum /    export enum /g' | \
     sed 's/^export type /    export type /g' | \
     sed 's/^}/    }/g' | \
@@ -144,11 +144,11 @@ echo ""
 
 echo "📝 Step 3/3: Installing new type definitions..."
 
-# Add custom properties used in this codebase
-echo "🔧 Adding custom properties..."
+# Apply compatibility patches used in this codebase
+echo "🔧 Applying compatibility patches..."
 # Make DecomposedAffine fields optional (babelfont-rs outputs them with defaults)
 perl -i -pe '
-    $in_decomposed = 1 if /^    export type DecomposedAffine = \{/;
+    $in_decomposed = 1 if /^    export (type|interface) DecomposedAffine(?: =)? \{/;
     if ($in_decomposed) {
         s/translation: \[number, number\];/translation?: [number, number];/;
         s/scale: \[number, number\];/scale?: [number, number];/;
@@ -157,24 +157,6 @@ perl -i -pe '
     }
     $in_decomposed = 0 if $in_decomposed && /^    \}/;
 ' "$OUTPUT_FILE"
-# Add layerData to Component (before closing brace)
-perl -i -pe '
-    $in_component = 1 if /^    export type Component = \{/;
-    if ($in_component && /^    \}/) {
-        $_ = "  /** Cached layer data for component reference (custom property) */\n  layerData?: Layer;\n" . $_;
-        $in_component = 0;
-    }
-' "$OUTPUT_FILE"
-
-# Add custom properties to Layer (before closing brace)
-perl -i -pe '
-    $in_layer = 1 if /^    export type Layer = \{/;
-    if ($in_layer && /^    \}/) {
-        $_ = "  /** Whether this layer is interpolated (custom property) */\n  isInterpolated?: boolean;\n  /** Vertical advance height for vertical writing (custom property) */\n  height?: number;\n  /** Vertical advance width for vertical writing (custom property) */\n  vertWidth?: number;\n" . $_;
-        $in_layer = 0;
-    }
-' "$OUTPUT_FILE"
-
 # Format with prettier
 echo "🎨 Formatting with prettier..."
 cd "$WEBAPP_DIR"

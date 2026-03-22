@@ -9,7 +9,7 @@ import { fontCompilation } from './font-compilation';
 import { get_glyph_order } from '../wasm-dist/babelfont_fontc_web';
 import type { Babelfont } from './babelfont';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
-import type { DesignspaceLocation } from './locations';
+import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import {
     Font,
     Path,
@@ -42,7 +42,7 @@ export type GlyphData = {
     masters: {
         id: string;
         name: string;
-        location: DesignspaceLocation;
+        location: UserspaceLocation;
     }[];
     axesOrder: string[];
 };
@@ -63,7 +63,7 @@ type CapturedGlyphCanvasState = {
     selectedLayerId: string | null;
     cursorPosition: number;
     textBuffer: string;
-    variationSettings: Record<string, number> | null;
+    variationSettings: UserspaceLocation | null;
     viewport: {
         scale: number;
         panX: number;

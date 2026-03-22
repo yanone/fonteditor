@@ -2,6 +2,7 @@
 // Synchronizes application state with URL parameters
 
 import { Logger } from './logger';
+import type { UserspaceLocation } from './locations';
 
 const console = new Logger('URLState');
 
@@ -10,7 +11,7 @@ export interface AppState {
     mode?: 'text' | 'edit' | null;
     text?: string | null;
     cursor?: number | null;
-    location?: string | null; // JSON-encoded designspace location
+    location?: string | null; // JSON-encoded userspace location
     features?: string | null; // Comma-separated list of active features
 }
 
@@ -77,25 +78,25 @@ export function readUrlState(): AppState {
 }
 
 /**
- * Encode designspace location as URL parameter
+ * Encode userspace location as URL parameter
  * Converts {wght: 400, wdth: 100} to "wght:400,wdth:100"
  * Values are rounded to integers
  */
-export function encodeLocation(location: Record<string, number>): string {
+export function encodeLocation(location: UserspaceLocation): string {
     return Object.entries(location)
-        .map(([tag, value]) => `${tag}:${Math.round(value)}`)
+        .map(([tag, value]) => `${tag}:${Math.round(Number(value))}`)
         .join(',');
 }
 
 /**
- * Decode designspace location from URL parameter
+ * Decode userspace location from URL parameter
  * Converts "wght:400,wdth:100" to {wght: 400, wdth: 100}
  */
-export function decodeLocation(encoded: string): Record<string, number> | null {
+export function decodeLocation(encoded: string): UserspaceLocation | null {
     if (!encoded) return null;
 
     try {
-        const result: Record<string, number> = {};
+        const result: UserspaceLocation = {};
         const pairs = encoded.split(',');
 
         for (const pair of pairs) {

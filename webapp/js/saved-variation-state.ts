@@ -1,11 +1,13 @@
+import type { UserspaceLocation } from './locations';
+
 export type SavedVariationStateSnapshot = {
     selectionId: string;
-    variationSettings: Record<string, number> | null;
+    variationSettings: UserspaceLocation | null;
 };
 
 export class SavedVariationState {
     private selectionId: string | null = null;
-    private variationSettings: Record<string, number> | null = null;
+    private variationSettings: UserspaceLocation | null = null;
 
     peek(): SavedVariationStateSnapshot | null {
         if (this.selectionId === null) {
@@ -30,7 +32,7 @@ export class SavedVariationState {
 
     save(
         selectionId: string | null,
-        variationSettings: Record<string, number>
+        variationSettings: UserspaceLocation
     ): boolean {
         if (selectionId === null) {
             return false;
@@ -47,7 +49,7 @@ export class SavedVariationState {
 
     sync(
         selectionId: string | null,
-        variationSettings: Record<string, number> | null
+        variationSettings: UserspaceLocation | null
     ): void {
         if (selectionId === null || variationSettings === null) {
             this.clear();

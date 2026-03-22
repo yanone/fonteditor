@@ -15,6 +15,7 @@ import type { Babelfont } from './babelfont';
 import { setYPath } from './change-bridge-ydoc';
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import { designspaceToUserspace } from './locations';
+import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
 import type { ChangeBridge } from './change-bridge';
@@ -35,7 +36,7 @@ type PathData = {
 type ComponentData = {
     reference: string;
     transform: Babelfont.DecomposedAffine;
-    location?: Record<string, number>;
+    location?: DesignspaceLocation;
     format_specific?: Record<string, Unsafe>;
 };
 
@@ -160,8 +161,8 @@ function findFontForModelObject(
 }
 
 function locationsMatch(
-    left: Record<string, number> | undefined,
-    right: Record<string, number> | undefined,
+    left: DesignspaceLocation | undefined,
+    right: DesignspaceLocation | undefined,
     axes: Axis[] | undefined
 ): boolean {
     if (!left || !right) {
@@ -1716,7 +1717,7 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         recordAndMarkDirty(this, 'transform', old, value);
     }
 
-    get location(): Record<string, number> | undefined {
+    get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
             this,
             'location',
@@ -1725,7 +1726,7 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         );
     }
 
-    set location(value: Record<string, number> | undefined) {
+    set location(value: DesignspaceLocation | undefined) {
         const old = this.data.location;
         this.data.location = value;
         recordAndMarkDirty(this, 'location', old, value);
@@ -2329,9 +2330,7 @@ export class Layer extends ArrayElementBase {
         return this.getMetricsReferenceLayerOnGlyph(reference);
     }
 
-    private getEffectiveDesignspaceLocation():
-        | Record<string, number>
-        | undefined {
+    private getEffectiveDesignspaceLocation(): DesignspaceLocation | undefined {
         if (this.location && Object.keys(this.location).length > 0) {
             return this.location;
         }
@@ -2822,7 +2821,7 @@ export class Layer extends ArrayElementBase {
         recordAndMarkDirty(this, 'master', old, value);
     }
 
-    get smart_component_location(): Record<string, number> | undefined {
+    get smart_component_location(): UserspaceLocation | undefined {
         return getLiveMutableValue(
             this,
             'smart_component_location',
@@ -2831,7 +2830,7 @@ export class Layer extends ArrayElementBase {
         );
     }
 
-    set smart_component_location(value: Record<string, number> | undefined) {
+    set smart_component_location(value: UserspaceLocation | undefined) {
         const old = this.data.smart_component_location;
         this.data.smart_component_location = value;
         recordAndMarkDirty(this, 'smart_component_location', old, value);
@@ -2925,7 +2924,7 @@ export class Layer extends ArrayElementBase {
         recordAndMarkDirty(this, 'background_layer_id', old, value);
     }
 
-    get location(): Record<string, number> | undefined {
+    get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
             this,
             'location',
@@ -2934,7 +2933,7 @@ export class Layer extends ArrayElementBase {
         );
     }
 
-    set location(value: Record<string, number> | undefined) {
+    set location(value: DesignspaceLocation | undefined) {
         const old = this.data.location;
         this.data.location = value;
         recordAndMarkDirty(this, 'location', old, value);
@@ -5066,7 +5065,7 @@ export class Master extends ArrayElementBase {
         recordAndMarkDirty(this, 'id', old, value);
     }
 
-    get location(): Record<string, number> | undefined {
+    get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
             this,
             'location',
@@ -5075,7 +5074,7 @@ export class Master extends ArrayElementBase {
         );
     }
 
-    set location(value: Record<string, number> | undefined) {
+    set location(value: DesignspaceLocation | undefined) {
         const old = this.data.location;
         this.data.location = value;
         recordAndMarkDirty(this, 'location', old, value);
@@ -5242,7 +5241,7 @@ export class Instance extends ArrayElementBase {
         recordAndMarkDirty(this, 'name', old, value);
     }
 
-    get location(): Record<string, number> | undefined {
+    get location(): DesignspaceLocation | undefined {
         return getLiveMutableValue(
             this,
             'location',
@@ -5251,7 +5250,7 @@ export class Instance extends ArrayElementBase {
         );
     }
 
-    set location(value: Record<string, number> | undefined) {
+    set location(value: DesignspaceLocation | undefined) {
         const old = this.data.location;
         this.data.location = value;
         recordAndMarkDirty(this, 'location', old, value);

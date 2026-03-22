@@ -1,6 +1,7 @@
 /**
  * Type extensions for Babelfont types
- * These extend the auto-generated babelfont.d.ts with custom properties used in this codebase
+ * Keep generator-owned upstream types in babelfont.d.ts untouched.
+ * Put app-specific augmentations and helper types here instead.
  */
 
 import type { Babelfont } from './babelfont';
@@ -32,6 +33,16 @@ declare module './babelfont' {
              * Whether this layer is interpolated
              */
             isInterpolated?: boolean;
+
+            /**
+             * Vertical advance height for vertical writing
+             */
+            height?: number;
+
+            /**
+             * Vertical advance width for vertical writing
+             */
+            vertWidth?: number;
         }
     }
 }
@@ -92,3 +103,4 @@ export type RuntimePathData = Omit<Babelfont.Path, 'nodes'> & {
 export type RuntimeComponentData = Babelfont.Component;
 export type RuntimeAnchorData = Babelfont.Anchor;
 export type RuntimeGuideData = Babelfont.Guide;
+export type RuntimeLayerData = Babelfont.Layer;

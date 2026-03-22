@@ -3,6 +3,7 @@
 
 import { Logger } from './logger';
 import type { GlyphCanvas } from './glyph-canvas';
+import type { UserspaceLocation } from './locations';
 
 const console = new Logger('StateSync');
 
@@ -28,9 +29,9 @@ export function enableSync() {
     const axesManager = window.glyphCanvas?.axesManager;
     if (axesManager && window.stateManager) {
         const location = axesManager.variationSettings || {};
-        const roundedLocation: Record<string, number> = {};
+        const roundedLocation: UserspaceLocation = {};
         for (const [tag, value] of Object.entries(location)) {
-            roundedLocation[tag] = Math.round(value);
+            roundedLocation[tag] = Math.round(Number(value));
         }
         window.stateManager.editor_variation_location = roundedLocation;
     }
@@ -163,9 +164,9 @@ export function initStateSync(glyphCanvas: GlyphCanvas) {
                 | 'variation_location_changed'
         ) => {
             const location = glyphCanvas.axesManager!.variationSettings || {};
-            const roundedLocation: Record<string, number> = {};
+            const roundedLocation: UserspaceLocation = {};
             for (const [tag, value] of Object.entries(location)) {
-                roundedLocation[tag] = Math.round(value);
+                roundedLocation[tag] = Math.round(Number(value));
             }
 
             window.stateManager.editor_variation_location = roundedLocation;

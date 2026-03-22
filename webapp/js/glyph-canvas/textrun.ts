@@ -2358,8 +2358,8 @@ export class TextRunEditor {
         return null;
     }
 
-    getCurrentVariationLocationSnapshot(): Record<string, number> {
-        const location: Record<string, number> = {};
+    getCurrentVariationLocationSnapshot(): import('../locations').UserspaceLocation {
+        const location: import('../locations').UserspaceLocation = {};
         const settings = this.axesManager?.variationSettings || {};
         const keys = Object.keys(settings).sort();
 
@@ -2370,11 +2370,13 @@ export class TextRunEditor {
         return location;
     }
 
-    serializeVariationLocation(location: Record<string, number>): string {
+    serializeVariationLocation(
+        location: import('../locations').UserspaceLocation
+    ): string {
         const keys = Object.keys(location).sort();
         const normalized: Record<string, number> = {};
         for (const key of keys) {
-            normalized[key] = location[key];
+            normalized[key] = Number(location[key]);
         }
         return JSON.stringify(normalized);
     }

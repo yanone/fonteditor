@@ -78,7 +78,7 @@ class FontInterpolationManager {
      */
     async interpolateGlyph(
         glyphName: string,
-        location: Record<string, number>
+        location: import('./locations').UserspaceLocation
     ): Promise<any> {
         if (!this.worker) {
             throw new Error(
