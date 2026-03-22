@@ -51,6 +51,14 @@ declare global {
                   historyTargetKey: string | null;
               })
             | undefined;
+        getUndoRedoContext:
+            | (() => {
+                  rootGlyphName: string | undefined;
+                  undoGlyphName: string | undefined;
+                  undoLayerId: string | null;
+                  historyTargetKey: string | null;
+              })
+            | undefined;
 
         // From our dependencies
         opentype: any; // OpenType.js

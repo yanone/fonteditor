@@ -1,4 +1,6 @@
 const { TextRunEditor } = require('../js/glyph-canvas/textrun');
+const { runBridgeUndoRedo } = require('../js/change-bridge-init');
+const { applyLiveSidebearingVisualSync } = require('../js/sidebearing-utils');
 
 describe('TextRunEditor live advance refresh', () => {
     let editor;
@@ -72,5 +74,334 @@ describe('TextRunEditor live advance refresh', () => {
         expect(buildClusterMapSpy).not.toHaveBeenCalled();
         expect(updateCursorSpy).not.toHaveBeenCalled();
         expect(renderCallback).not.toHaveBeenCalled();
+    });
+
+    test('can refresh advances without emitting an immediate render', () => {
+        const buildClusterMapSpy = jest.spyOn(editor, 'buildClusterMap');
+        const updateCursorSpy = jest.spyOn(
+            editor,
+            'updateCursorVisualPosition'
+        );
+        const renderCallback = jest.fn();
+        editor.on('render', renderCallback);
+
+        const changed = editor.refreshGlyphAdvancesLive(
+            { a: 640 },
+            { render: false }
+        );
+
+        expect(changed).toBe(true);
+        expect(editor.shapedGlyphs.map((glyph) => glyph.ax)).toEqual([
+            640, 320, 640
+        ]);
+        expect(buildClusterMapSpy).toHaveBeenCalledTimes(1);
+        expect(updateCursorSpy).toHaveBeenCalledTimes(1);
+        expect(renderCallback).not.toHaveBeenCalled();
+    });
+});
+
+describe('applyLiveSidebearingVisualSync', () => {
+    test('matches editing behavior for left sidebearings without forcing a render', () => {
+        const refreshGlyphAdvancesLive = jest.fn(() => true);
+        const target = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive
+            }
+        };
+
+        const result = applyLiveSidebearingVisualSync(target, {
+            glyphName: 'a',
+            side: 'left',
+            previousWidth: 500,
+            nextWidth: 520,
+            render: false
+        });
+
+        expect(result).toEqual({
+            widthDelta: 20,
+            advancesRefreshed: true
+        });
+        expect(target.viewportManager.panX).toBe(60);
+        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
+            { a: 520 },
+            { render: false }
+        );
+    });
+});
+
+describe('runBridgeUndoRedo sidebearing sync', () => {
+    const originalWindow = global.window;
+    const originalGlyphCanvas = originalWindow.glyphCanvas;
+    const originalFontManager = originalWindow.fontManager;
+    const originalChangeBridge = originalWindow.changeBridge;
+    const originalAutoCompileManager = originalWindow.autoCompileManager;
+
+    afterEach(() => {
+        originalWindow.glyphCanvas = originalGlyphCanvas;
+        originalWindow.fontManager = originalFontManager;
+        originalWindow.changeBridge = originalChangeBridge;
+        originalWindow.autoCompileManager = originalAutoCompileManager;
+        jest.clearAllMocks();
+    });
+
+    test('undoing a left sidebearing change keeps the glyph stationary and refreshes advances before repaint', async () => {
+        const requestRepaintAfterCompile = jest.fn();
+        const refreshGlyphAdvancesLive = jest.fn();
+        const fetchLayerData = jest.fn().mockResolvedValue();
+        const runDeterministicRefresh = jest.fn(async (task) => await task());
+
+        const makeFontModel = (width) => ({
+            findGlyph: jest.fn(() => ({
+                findLayerById: jest.fn(() => ({ width }))
+            }))
+        });
+
+        const currentFont = {
+            fontModel: makeFontModel(500),
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        originalWindow.glyphCanvas = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive
+            },
+            outlineEditor: {
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                fetchLayerData,
+                runDeterministicRefresh
+            },
+            requestRepaintAfterCompile
+        };
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            lastChangeSource: null,
+            lastEditType: null
+        };
+        originalWindow.changeBridge = {
+            undo: jest.fn(() => {
+                currentFont.fontModel = makeFontModel(520);
+                return {
+                    scope: 'layer',
+                    glyphName: 'a',
+                    layerId: 'layer-1',
+                    historyItem: {
+                        transactionLabel: 'Set sidebearing',
+                        entries: [
+                            {
+                                oldValue: 'LEFT 40',
+                                newValue: 'LEFT 60'
+                            }
+                        ]
+                    }
+                };
+            })
+        };
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
+
+        expect(fetchLayerData).toHaveBeenCalledWith(true, 'a');
+        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
+            { a: 520 },
+            { render: false }
+        );
+        expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(60);
+        expect(requestRepaintAfterCompile).toHaveBeenCalledTimes(1);
+    });
+
+    test('undo sidebearing sync refreshes advances for the stack-selected edited glyph name', async () => {
+        const refreshGlyphAdvancesLive = jest.fn();
+
+        const makeFontModel = () => ({
+            findGlyph: jest.fn((glyphName) => {
+                if (glyphName === 'a') {
+                    return {
+                        findLayerById: jest.fn(() => ({ width: 500 }))
+                    };
+                }
+
+                if (glyphName === 'a.alt') {
+                    return {
+                        findLayerById: jest.fn(() => ({ width: 520 }))
+                    };
+                }
+
+                return null;
+            })
+        });
+
+        const currentFont = {
+            fontModel: makeFontModel(),
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        originalWindow.glyphCanvas = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive
+            },
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a.alt' }]),
+                fetchLayerData: jest.fn().mockResolvedValue(),
+                runDeterministicRefresh: jest.fn(async (task) => await task()),
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: jest.fn(() => 'a'),
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            updatePropertyPanel: jest.fn(),
+            render: jest.fn(),
+            requestRepaintAfterCompile: jest.fn()
+        };
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            lastChangeSource: null,
+            lastEditType: null
+        };
+        originalWindow.changeBridge = {
+            undo: jest.fn(() => ({
+                scope: 'layer',
+                glyphName: 'a',
+                layerId: 'layer-1',
+                historyItem: {
+                    transactionLabel: 'Set LSB',
+                    entries: [
+                        {
+                            oldValue: 'LEFT 40',
+                            newValue: 'LEFT 60'
+                        }
+                    ]
+                }
+            }))
+        };
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
+
+        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
+            expect.objectContaining({ 'a.alt': 520 }),
+            { render: false }
+        );
+    });
+
+    test('undo sidebearing sync uses stack-resolved edited glyph width for LSB drags', async () => {
+        const refreshGlyphAdvancesLive = jest.fn();
+        const fontModelBeforeUndo = {
+            findGlyph: jest.fn((glyphName) => {
+                if (glyphName === 'a') {
+                    return {
+                        findLayerById: jest.fn(() => ({ width: 520 }))
+                    };
+                }
+
+                if (glyphName === 'a.alt') {
+                    return {
+                        findLayerById: jest.fn(() => ({ width: 540 }))
+                    };
+                }
+
+                return null;
+            })
+        };
+        const fontModelAfterUndo = {
+            findGlyph: jest.fn((glyphName) => {
+                if (glyphName === 'a') {
+                    return {
+                        findLayerById: jest.fn(() => ({ width: 520 }))
+                    };
+                }
+
+                if (glyphName === 'a.alt') {
+                    return {
+                        findLayerById: jest.fn(() => ({ width: 520 }))
+                    };
+                }
+
+                return null;
+            })
+        };
+
+        const currentFont = {
+            fontModel: fontModelBeforeUndo,
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        originalWindow.glyphCanvas = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive
+            },
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a.alt' }]),
+                fetchLayerData: jest.fn().mockResolvedValue(),
+                runDeterministicRefresh: jest.fn(async (task) => await task()),
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: jest.fn(() => 'a'),
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            updatePropertyPanel: jest.fn(),
+            render: jest.fn(),
+            requestRepaintAfterCompile: jest.fn()
+        };
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            lastChangeSource: null,
+            lastEditType: null
+        };
+        originalWindow.changeBridge = {
+            undo: jest.fn(() => {
+                currentFont.fontModel = fontModelAfterUndo;
+                return {
+                    scope: 'layer',
+                    glyphName: 'a',
+                    layerId: 'layer-1',
+                    historyItem: {
+                        transactionLabel: 'Set LSB',
+                        entries: [
+                            {
+                                oldValue: 'LEFT 40',
+                                newValue: 'LEFT 60'
+                            }
+                        ]
+                    }
+                };
+            })
+        };
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
+
+        expect(refreshGlyphAdvancesLive.mock.calls).toContainEqual([
+            { 'a.alt': 520 },
+            { render: false }
+        ]);
+        expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(140);
     });
 });

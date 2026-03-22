@@ -8,6 +8,7 @@
 
 import { Logger } from './logger';
 import { runBridgeUndoRedo } from './change-bridge-init';
+import { getUndoRedoContext } from './undo-redo-context';
 import { windowRole } from './window-role';
 
 const console = new Logger('WindowButtons');
@@ -26,13 +27,6 @@ interface EditorThemeMessage {
     preference: ThemePreference;
     theme: 'light' | 'dark';
 }
-
-type HistoryUndoContext = {
-    scope: 'font' | 'glyph' | 'layer' | 'feature';
-    glyphName: string | null;
-    layerId: string | null;
-    historyTargetKey: string | null;
-};
 
 function isThemePreference(value: unknown): value is ThemePreference {
     return value === 'light' || value === 'dark' || value === 'auto';
@@ -103,67 +97,6 @@ function broadcastEditorTheme(preference: ThemePreference): void {
 
     postEditorThemeToChildWindows(payload);
     postEditorThemeToOpener(payload);
-}
-
-function getUndoRedoContext(): {
-    rootGlyphName: string | undefined;
-    undoGlyphName: string | undefined;
-    undoLayerId: string | null;
-    historyTargetKey: string | null;
-} {
-    const oe = window.glyphCanvas?.outlineEditor;
-    const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
-    const rootGlyphName = parsedStack[0]?.glyphName;
-    const fallbackUndoGlyphName =
-        parsedStack[parsedStack.length - 1]?.glyphName;
-    const fallbackUndoLayerId = oe?.selectedLayerId ?? null;
-    const historyContext = window.getHistoryUndoContext?.() as
-        | HistoryUndoContext
-        | undefined;
-
-    if (!historyContext) {
-        return {
-            rootGlyphName,
-            undoGlyphName: fallbackUndoGlyphName,
-            undoLayerId: fallbackUndoLayerId,
-            historyTargetKey: null
-        };
-    }
-
-    if (historyContext.scope === 'font') {
-        return {
-            rootGlyphName,
-            undoGlyphName: undefined,
-            undoLayerId: null,
-            historyTargetKey: null
-        };
-    }
-
-    if (historyContext.scope === 'feature') {
-        return {
-            rootGlyphName,
-            undoGlyphName: undefined,
-            undoLayerId: null,
-            historyTargetKey: historyContext.historyTargetKey
-        };
-    }
-
-    if (historyContext.scope === 'glyph') {
-        return {
-            rootGlyphName:
-                rootGlyphName ?? historyContext.glyphName ?? undefined,
-            undoGlyphName: historyContext.glyphName ?? fallbackUndoGlyphName,
-            undoLayerId: null,
-            historyTargetKey: null
-        };
-    }
-
-    return {
-        rootGlyphName: rootGlyphName ?? historyContext.glyphName ?? undefined,
-        undoGlyphName: historyContext.glyphName ?? fallbackUndoGlyphName,
-        undoLayerId: historyContext.layerId ?? fallbackUndoLayerId,
-        historyTargetKey: null
-    };
 }
 
 function registerEditorChildWindow(win: Window): void {

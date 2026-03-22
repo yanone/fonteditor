@@ -14,12 +14,18 @@ import APP_SETTINGS from '../settings';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 import type { DesignspaceLocation, UserspaceLocation } from '../locations';
 import { SavedVariationState } from '../saved-variation-state';
+import {
+    applyLiveSidebearingVisualSync,
+    formatSidebearingHistoryValue,
+    getSidebearingTransactionLabel,
+    type SidebearingSide
+} from '../sidebearing-utils';
 
 let console: Logger = new Logger('OutlineEditor');
 
 type Point = { contourIndex: number; nodeIndex: number };
 type GuideHandle = { scope: 'master' | 'layer'; index: number };
-type SidebearingHandle = { side: 'left' | 'right' };
+type SidebearingHandle = { side: SidebearingSide };
 type VisibleGuide = GuideHandle & {
     guide: Babelfont.Guide;
     rootX: number;
@@ -1433,7 +1439,21 @@ export class OutlineEditor {
             this.isDraggingSidebearing = true;
             this._hasMoved = false;
             this._dragType = 'sidebearing';
-            window.changeBridge?.beginTransaction('Drag sidebearing');
+            const startingSidebearing = this.getCurrentDirectSidebearing(
+                this.hoveredSidebearingHandle.side
+            );
+            this._preDragDesc =
+                startingSidebearing === null
+                    ? null
+                    : formatSidebearingHistoryValue(
+                          this.hoveredSidebearingHandle.side,
+                          startingSidebearing
+                      );
+            window.changeBridge?.beginTransaction(
+                getSidebearingTransactionLabel(
+                    this.hoveredSidebearingHandle.side
+                )
+            );
             this.glyphCanvas.lastMouseX = e.clientX;
             this.glyphCanvas.lastMouseY = e.clientY;
             this.lastGlyphX = null;
@@ -2033,6 +2053,18 @@ export class OutlineEditor {
                     postDragDesc = this._buildComponentDesc(true);
                 } else if (dragType === 'guide') {
                     postDragDesc = this._buildGuideDesc(true);
+                } else if (dragType === 'sidebearing') {
+                    const side = this.selectedSidebearingHandle?.side;
+                    const sidebearingValue = side
+                        ? this.getCurrentDirectSidebearing(side)
+                        : null;
+                    postDragDesc =
+                        side && sidebearingValue !== null
+                            ? formatSidebearingHistoryValue(
+                                  side,
+                                  sidebearingValue
+                              )
+                            : undefined;
                 }
                 const label =
                     dragType === 'anchor'
@@ -2043,7 +2075,12 @@ export class OutlineEditor {
                             ? 'Drag component'
                             : dragType === 'guide'
                               ? 'Drag guide'
-                              : 'Drag';
+                              : dragType === 'sidebearing' &&
+                                  this.selectedSidebearingHandle
+                                ? getSidebearingTransactionLabel(
+                                      this.selectedSidebearingHandle.side
+                                  )
+                                : 'Drag';
                 if (!(dragType === 'guide' && draggedGuideScope === 'master')) {
                     this._syncCurrentGlyphToYDoc(
                         label,
@@ -2735,16 +2772,6 @@ export class OutlineEditor {
             for (const anchor of currentLayerData.anchors || []) {
                 anchor.x += sidebearingDelta;
             }
-
-            const viewportManager = this.glyphCanvas.viewportManager;
-            if (viewportManager) {
-                viewportManager.panX -=
-                    sidebearingDelta * viewportManager.scale;
-
-                if (this.isDraggingSidebearing && this.lastGlyphX !== null) {
-                    this.lastGlyphX += sidebearingDelta;
-                }
-            }
         }
 
         currentLayerData.width =
@@ -2756,13 +2783,23 @@ export class OutlineEditor {
                 ? parsed[parsed.length - 1].glyphName
                 : this.glyphCanvas.getCurrentGlyphName();
 
+        const { widthDelta } = applyLiveSidebearingVisualSync(
+            this.glyphCanvas,
+            {
+                glyphName,
+                side,
+                previousWidth,
+                nextWidth: currentLayerData.width || 0,
+                render: false
+            }
+        );
+
         if (
-            glyphName &&
-            Math.abs((currentLayerData.width || 0) - previousWidth) > 0.01
+            side === 'left' &&
+            this.isDraggingSidebearing &&
+            this.lastGlyphX !== null
         ) {
-            this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive({
-                [glyphName]: currentLayerData.width
-            });
+            this.lastGlyphX += widthDelta;
         }
 
         return true;
@@ -2783,8 +2820,8 @@ export class OutlineEditor {
         this.saveLayerData('keyboard-outline');
         this._syncCurrentGlyphToYDoc(
             'Set sidebearing',
-            `${side.toUpperCase()} ${currentSidebearing}`,
-            `${side.toUpperCase()} ${targetValue}`
+            formatSidebearingHistoryValue(side, currentSidebearing),
+            formatSidebearingHistoryValue(side, targetValue)
         );
         return true;
     }

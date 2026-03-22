@@ -227,6 +227,64 @@ describe('GlyphCanvas onMouseUp', () => {
         expect(canvas.outlineEditor.isDraggingComponent).toBe(false);
         expect(canvas.isDraggingCanvas).toBe(false);
     });
+
+    test('sidebearing drag uses side-specific undo metadata', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const syncSpy = jest.spyOn(
+            canvas.outlineEditor,
+            '_syncCurrentGlyphToYDoc'
+        );
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.hoveredSidebearingHandle = { side: 'left' };
+            canvas.outlineEditor.layerData = {
+                width: 520,
+                shapes: [{ nodes: [{ x: 40, y: 0, type: 'l' }] }],
+                anchors: []
+            };
+
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1
+            });
+
+            expect(window.changeBridge.beginTransaction).toHaveBeenCalledWith(
+                'Set LSB'
+            );
+
+            canvas.outlineEditor.isDraggingSidebearing = true;
+            canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+            canvas.outlineEditor._dragType = 'sidebearing';
+            canvas.outlineEditor._hasMoved = true;
+
+            canvas.outlineEditor.onMouseUp({ clientX: 10, clientY: 20 });
+
+            expect(syncSpy).toHaveBeenCalledWith(
+                'Set LSB',
+                'LEFT 40',
+                'LEFT 40'
+            );
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+        }
+    });
 });
 
 describe('GlyphCanvas property panel metrics edits', () => {
@@ -324,7 +382,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         ).not.toHaveBeenCalled();
         expect(
             canvas.textRunEditor.refreshGlyphAdvancesLive
-        ).toHaveBeenCalledWith({ a: 640 });
+        ).toHaveBeenCalledWith({ a: 640 }, { render: false });
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
         ).toHaveBeenCalledWith(['a'], 'layer-1');
@@ -523,6 +581,24 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.render).toHaveBeenCalledTimes(1);
 
         setSidebearingValueSpy.mockRestore();
+    });
+
+    test('reapplyActiveEditedGlyphAdvanceAfterShape restores the active layer width into the text run', () => {
+        const layer = { width: 494 };
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'a' }
+        ]);
+        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+
+        expect(canvas.reapplyActiveEditedGlyphAdvanceAfterShape()).toBe(true);
+        expect(
+            canvas.textRunEditor.refreshGlyphAdvancesLive
+        ).toHaveBeenCalledWith({ a: 494 }, { render: false });
     });
 
     test('editingFontCompiled skips superseded full-compile revisions', async () => {
@@ -2046,6 +2122,37 @@ describe('GlyphCanvas property panel', () => {
 
         commitSpy.mockRestore();
         restoreFocusSpy.mockRestore();
+    });
+
+    test('routes sidebearing input undo through app undo', () => {
+        const previousRunBridgeUndoRedo = window.runBridgeUndoRedo;
+        window.runBridgeUndoRedo = jest.fn().mockResolvedValue(undefined);
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'panelGlyph' }
+        ]);
+
+        canvas.updatePropertyPanel();
+
+        const leftInput = document.querySelector(
+            '.glyph-property-input[data-sidebearing-side="left"]'
+        );
+        leftInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'z',
+                metaKey: true,
+                bubbles: true
+            })
+        );
+
+        expect(window.runBridgeUndoRedo).toHaveBeenCalledWith(
+            'undo',
+            'panelGlyph',
+            'panelGlyph',
+            'layer-1',
+            null
+        );
+
+        window.runBridgeUndoRedo = previousRunBridgeUndoRedo;
     });
 
     test('does not restore canvas focus when another text input stays active', async () => {

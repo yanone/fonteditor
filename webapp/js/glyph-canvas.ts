@@ -22,6 +22,8 @@ import { timelineMark } from './perf-timeline';
 import { SavedVariationState } from './saved-variation-state';
 import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
 import { LayerDataNormalizer } from './layer-data-normalizer';
+import { applyLiveSidebearingVisualSync } from './sidebearing-utils';
+import { getUndoRedoContext } from './undo-redo-context';
 
 let console: Logger = new Logger('GlyphCanvas');
 let latestOpenSessionId: string | null = null;
@@ -1429,6 +1431,7 @@ class GlyphCanvas {
                 // Shape text with new editing font
                 // (Stage 2 will use the rebuilt name→GID map)
                 this.textRunEditor!.shapeText();
+                this.reapplyActiveEditedGlyphAdvanceAfterShape();
                 console.log(
                     '[GlyphCanvas]',
                     'Shaped text after editing font reload'
@@ -2464,6 +2467,30 @@ class GlyphCanvas {
         return glyph.findLayerById(this.outlineEditor.selectedLayerId) || null;
     }
 
+    reapplyActiveEditedGlyphAdvanceAfterShape(): boolean {
+        if (!this.outlineEditor.active || !this.textRunEditor) {
+            return false;
+        }
+
+        const layer = this.getCurrentLayerModel();
+        if (!layer || !Number.isFinite(layer.width)) {
+            return false;
+        }
+
+        const parsedStack = this.outlineEditor.parseGlyphStack();
+        const glyphName =
+            parsedStack[parsedStack.length - 1]?.glyphName ??
+            this.getCurrentGlyphName();
+        if (!glyphName || glyphName === 'undefined') {
+            return false;
+        }
+
+        return this.textRunEditor.refreshGlyphAdvancesLive(
+            { [glyphName]: layer.width },
+            { render: false }
+        );
+    }
+
     private hasInspectableSelection(): boolean {
         return (
             this.outlineEditor.selectedPoints.length > 0 ||
@@ -2502,28 +2529,20 @@ class GlyphCanvas {
         const resolution = layer.applySidebearingInput(side, value);
         const glyphName = this.getCurrentGlyphName();
         const usesIncrementalLayerRefresh = resolution.updateScope === 'layer';
-        const widthDelta = layer.width - previousWidth;
 
         this.syncCurrentOutlineLayerDataFromModel(layer);
 
-        if (
-            side === 'left' &&
-            this.viewportManager &&
-            Math.abs(widthDelta) > 0.01
-        ) {
-            this.viewportManager.panX -=
-                widthDelta * this.viewportManager.scale;
-        }
+        const { advancesRefreshed } = applyLiveSidebearingVisualSync(this, {
+            glyphName,
+            side,
+            previousWidth,
+            nextWidth: layer.width,
+            render: false
+        });
 
         this.updatePropertyPanel();
-        const advancesRefreshedImmediately =
-            !!glyphName &&
-            Math.abs(layer.width - previousWidth) > 0.01 &&
-            !!this.textRunEditor?.refreshGlyphAdvancesLive({
-                [glyphName]: layer.width
-            });
 
-        if (!advancesRefreshedImmediately) {
+        if (!advancesRefreshed) {
             this.render();
         }
         this.outlineEditor.performHitDetection(null);
@@ -2578,7 +2597,7 @@ class GlyphCanvas {
         this.outlineEditor.performHitDetection(null);
     }
 
-    private syncCurrentOutlineLayerDataFromModel(layer: Layer): void {
+    syncCurrentOutlineLayerDataFromModel(layer: Layer): void {
         if (
             !this.outlineEditor.selectedLayerId ||
             this.outlineEditor.selectedLayerId !== layer.id ||
@@ -2652,6 +2671,51 @@ class GlyphCanvas {
             )
         );
         replacementInput.setSelectionRange(selectionStart, selectionEnd);
+    }
+
+    private handlePropertyInputUndoRedo(event: KeyboardEvent): boolean {
+        const cmdKey = event.metaKey || event.ctrlKey;
+        if (!cmdKey || event.altKey || event.key.toLowerCase() !== 'z') {
+            return false;
+        }
+
+        const parsedStack = this.outlineEditor.active
+            ? this.outlineEditor.parseGlyphStack()
+            : [];
+        const {
+            rootGlyphName: contextRootGlyphName,
+            undoGlyphName: contextUndoGlyphName,
+            undoLayerId: contextUndoLayerId,
+            historyTargetKey
+        } = getUndoRedoContext();
+        const rootGlyphName = contextRootGlyphName ?? parsedStack[0]?.glyphName;
+        const undoGlyphName =
+            contextUndoGlyphName ??
+            parsedStack[parsedStack.length - 1]?.glyphName ??
+            undefined;
+        const undoLayerId =
+            contextUndoLayerId ?? this.outlineEditor.selectedLayerId ?? null;
+
+        if (this.outlineEditor.active && (!rootGlyphName || !undoGlyphName)) {
+            if (undoGlyphName || undoLayerId) {
+                console.warn(
+                    'Skipping property-input undo/redo: active outline editor has incomplete glyph stack'
+                );
+                return true;
+            }
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        void window.runBridgeUndoRedo?.(
+            event.shiftKey ? 'redo' : 'undo',
+            undoGlyphName,
+            rootGlyphName,
+            undoLayerId,
+            historyTargetKey
+        );
+        return true;
     }
 
     updatePropertyPanel(): void {
@@ -2751,6 +2815,10 @@ class GlyphCanvas {
                 void this.commitPropertyPanelValue(side, input.value);
             });
             input.addEventListener('keydown', (event) => {
+                if (this.handlePropertyInputUndoRedo(event)) {
+                    return;
+                }
+
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     this.restoreCanvasFocusAfterPropertyCommit = true;
@@ -4926,6 +4994,7 @@ function setupFontLoadingListener() {
                         gc.axesManager!.fontBytes = fontBytesArray;
                         gc.textRunEditor!.swapFontBlob(fontBytesArray);
                         gc.textRunEditor!.shapeText(true);
+                        gc.reapplyActiveEditedGlyphAdvanceAfterShape();
                         timelineMark(
                             'canvas.editingFontCompiled.anchorOnlySwapped'
                         );
@@ -4990,6 +5059,7 @@ function setupFontLoadingListener() {
                     }
 
                     gc.textRunEditor!.shapeText(true);
+                    gc.reapplyActiveEditedGlyphAdvanceAfterShape();
                     timelineMark('canvas.editingFontCompiled.shapeTextForced');
 
                     if (Number.isFinite(incomingRevision)) {

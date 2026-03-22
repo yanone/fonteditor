@@ -1528,28 +1528,19 @@
             if (!bridge) return;
 
             const oe = window.glyphCanvas?.outlineEditor;
-            const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
-            const rootGlyphName = parsedStack[0]?.glyphName;
-            const fallbackUndoGlyphName =
-                parsedStack[parsedStack.length - 1]?.glyphName;
-            const fallbackUndoLayerId = oe?.selectedLayerId ?? null;
-            const historyContext = window.getHistoryUndoContext?.();
-
-            const undoGlyphName =
-                historyContext?.scope === 'font' ||
-                historyContext?.scope === 'feature'
-                    ? undefined
-                    : (historyContext?.glyphName ?? fallbackUndoGlyphName);
-            const undoLayerId =
-                historyContext?.scope === 'layer'
-                    ? historyContext.layerId
-                    : null;
-            const historyTargetKey =
-                historyContext?.scope === 'feature'
-                    ? historyContext.historyTargetKey
-                    : null;
-            const effectiveRootGlyphName =
-                rootGlyphName ?? historyContext?.glyphName ?? undefined;
+            const {
+                rootGlyphName: effectiveRootGlyphName,
+                undoGlyphName,
+                undoLayerId,
+                historyTargetKey
+            } = window.getUndoRedoContext
+                ? window.getUndoRedoContext()
+                : {
+                      rootGlyphName: undefined,
+                      undoGlyphName: undefined,
+                      undoLayerId: null,
+                      historyTargetKey: null
+                  };
 
             if (oe?.active && (!effectiveRootGlyphName || !undoGlyphName)) {
                 if (!undoGlyphName && !undoLayerId) {
@@ -1573,7 +1564,8 @@
                 shiftKey ? 'redo' : 'undo',
                 undoGlyphName,
                 effectiveRootGlyphName,
-                undoLayerId
+                undoLayerId,
+                historyTargetKey
             );
             return;
         }

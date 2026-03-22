@@ -2409,7 +2409,10 @@ export class TextRunEditor {
         return null;
     }
 
-    refreshGlyphAdvancesLive(glyphAdvances: Record<string, number>): boolean {
+    refreshGlyphAdvancesLive(
+        glyphAdvances: Record<string, number>,
+        options: { render?: boolean } = {}
+    ): boolean {
         if (!this.shapedGlyphs || this.shapedGlyphs.length === 0) {
             return false;
         }
@@ -2449,7 +2452,9 @@ export class TextRunEditor {
 
         this.buildClusterMap();
         this.updateCursorVisualPosition();
-        this.call('render');
+        if (options.render !== false) {
+            this.call('render');
+        }
         return true;
     }
 

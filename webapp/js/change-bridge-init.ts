@@ -15,6 +15,11 @@ import { Font } from './babelfont-model';
 import { WindowSync } from './window-sync';
 import { fontCompilation } from './font-compilation';
 import { Logger } from './logger';
+import type { HistoryStackItem } from './change-log';
+import {
+    applyLiveSidebearingVisualSync,
+    inferSidebearingSideFromHistoryItem
+} from './sidebearing-utils';
 
 const console = new Logger('ChangeBridgeInit');
 let bridgeSyncQueue: Promise<void> = Promise.resolve();
@@ -22,6 +27,76 @@ let bridgeSyncQueue: Promise<void> = Promise.resolve();
 function enqueueBridgeSync(task: () => Promise<void>): Promise<void> {
     bridgeSyncQueue = bridgeSyncQueue.then(task, task);
     return bridgeSyncQueue;
+}
+
+function getLayerWidth(
+    glyphName?: string | null,
+    layerId?: string | null
+): number | null {
+    if (!glyphName || !layerId) {
+        return null;
+    }
+
+    const layer = window.fontManager?.currentFont?.fontModel
+        ?.findGlyph(glyphName)
+        ?.findLayerById(layerId);
+    if (!layer) {
+        return null;
+    }
+
+    return Number.isFinite(layer.width) ? layer.width : null;
+}
+
+function refreshLiveTextRunAdvances(
+    glyphNames: Iterable<string>,
+    layerId?: string
+): void {
+    const gc = window.glyphCanvas;
+    const textRunEditor = gc?.textRunEditor;
+    const fontModel = window.fontManager?.currentFont?.fontModel;
+    if (!textRunEditor || !fontModel || !layerId) {
+        return;
+    }
+
+    const glyphAdvances: Record<string, number> = {};
+
+    for (const glyphName of glyphNames) {
+        if (!glyphName || glyphName in glyphAdvances) {
+            continue;
+        }
+
+        const glyph = fontModel.findGlyph(glyphName);
+        const layer = glyph?.findLayerById(layerId);
+        if (!layer) {
+            continue;
+        }
+
+        glyphAdvances[glyphName] = layer.width;
+    }
+
+    if (Object.keys(glyphAdvances).length === 0) {
+        return;
+    }
+
+    textRunEditor.refreshGlyphAdvancesLive(glyphAdvances, { render: false });
+}
+
+function getActiveEditedGlyphName(): string | null {
+    const gc = window.glyphCanvas;
+    const stackGlyphName = gc?.outlineEditor?.active
+        ? gc.outlineEditor.parseGlyphStack()?.slice(-1)[0]?.glyphName
+        : null;
+    const currentGlyphName = gc?.getCurrentGlyphName?.();
+
+    if (stackGlyphName) {
+        return stackGlyphName;
+    }
+
+    if (currentGlyphName && currentGlyphName !== 'undefined') {
+        return currentGlyphName;
+    }
+
+    return stackGlyphName ?? null;
 }
 
 /**
@@ -94,12 +169,75 @@ export async function syncRustCacheAndRefreshCanvas(
                     true,
                     refreshRootGlyphName
                 );
+
+                refreshLiveTextRunAdvances(
+                    new Set(
+                        [
+                            refreshRootGlyphName,
+                            editedGlyphName,
+                            getActiveEditedGlyphName()
+                        ].filter(
+                            (glyphName): glyphName is string => !!glyphName
+                        )
+                    ),
+                    selectedLayerId
+                );
             });
         } else {
             await gc.outlineEditor?.fetchLayerData(true, refreshRootGlyphName);
+
+            refreshLiveTextRunAdvances(
+                new Set(
+                    [
+                        refreshRootGlyphName,
+                        editedGlyphName,
+                        getActiveEditedGlyphName()
+                    ].filter((glyphName): glyphName is string => !!glyphName)
+                ),
+                selectedLayerId
+            );
         }
         gc.requestRepaintAfterCompile();
     }
+}
+
+function applyImmediateUndoSidebearingSync(
+    glyphName: string | null,
+    layerId: string | null,
+    historyItem: HistoryStackItem | null,
+    previousWidth: number | null
+): void {
+    const gc = window.glyphCanvas;
+    const fontModel = window.fontManager?.currentFont?.fontModel;
+    const side = inferSidebearingSideFromHistoryItem(historyItem);
+    const editedGlyphName = getActiveEditedGlyphName() ?? glyphName;
+    if (
+        !gc ||
+        !fontModel ||
+        !glyphName ||
+        !layerId ||
+        !side ||
+        !editedGlyphName
+    ) {
+        return;
+    }
+
+    const layer = fontModel.findGlyph(editedGlyphName)?.findLayerById(layerId);
+    if (!layer || previousWidth === null) {
+        return;
+    }
+
+    gc.syncCurrentOutlineLayerDataFromModel?.(layer);
+    applyLiveSidebearingVisualSync(gc, {
+        glyphName: editedGlyphName,
+        side,
+        previousWidth,
+        nextWidth: layer.width,
+        render: false
+    });
+    gc.updatePropertyPanel?.();
+    gc.outlineEditor.performHitDetection?.(null);
+    gc.render?.();
 }
 
 export function queueRustCacheAndRefreshCanvas(): Promise<void> {
@@ -124,15 +262,24 @@ export function runBridgeUndoRedo(
         // Always undo/redo the glyph currently being edited.
         // This is the last glyph in glyph stack, passed as glyphName.
         const targetGlyph = glyphName;
+        const editedGlyphName = getActiveEditedGlyphName() ?? targetGlyph;
+        const previousWidth = getLayerWidth(editedGlyphName, layerId ?? null);
 
-        const didApply =
+        const appliedChange =
             action === 'redo'
                 ? bridge.redo(targetGlyph, layerId, historyTargetKey)
                 : bridge.undo(targetGlyph, layerId, historyTargetKey);
 
-        if (!didApply) {
+        if (!appliedChange) {
             return;
         }
+
+        applyImmediateUndoSidebearingSync(
+            appliedChange.glyphName,
+            appliedChange.layerId,
+            appliedChange.historyItem as HistoryStackItem | null,
+            previousWidth
+        );
 
         // Ensure undo/redo always triggers a full editing-font recompile path.
         // This keeps HarfBuzz-rendered text in sync even if dirty scheduling
@@ -154,7 +301,8 @@ export function runBridgeUndoRedo(
 }
 
 // Expose globally for non-module code (keyboard-navigation.ts IIFE)
-window.syncRustCacheAndRefreshCanvas = syncRustCacheAndRefreshCanvas;
+window.syncRustCacheAndRefreshCanvas =
+    syncRustCacheAndRefreshCanvas as Window['syncRustCacheAndRefreshCanvas'];
 window.runBridgeUndoRedo = runBridgeUndoRedo;
 
 function isSyncWindow(): boolean {

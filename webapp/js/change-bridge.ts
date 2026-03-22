@@ -86,6 +86,13 @@ export type TransactionHistoryTarget = {
     label: string;
 };
 
+export type UndoRedoResult = {
+    scope: UndoScope;
+    glyphName: string | null;
+    layerId: string | null;
+    historyItem: HistoryStackItem | null;
+};
+
 type UndoManagerWithScope = {
     manager: Y.UndoManager | null;
     scope: UndoScope;
@@ -593,7 +600,7 @@ export class ChangeBridge {
         glyphName?: string,
         layerId?: string | null,
         historyTargetKey?: string | null
-    ): boolean {
+    ): UndoRedoResult | null {
         const targetItem = this._resolveUndoHistoryItem(
             glyphName,
             layerId,
@@ -608,10 +615,10 @@ export class ChangeBridge {
         );
         const { manager: um, scope } = this._getUndoManagerForTarget(target);
         if (scope !== 'font' && (!um || um.undoStack.length === 0)) {
-            return false;
+            return null;
         }
         if (scope === 'font' && !targetItem) {
-            return false;
+            return null;
         }
         this._suppressRecording = true;
         try {
@@ -647,7 +654,12 @@ export class ChangeBridge {
             this._syncJsonFromYDoc();
             this._onAfterSync?.();
             this._onDirty?.();
-            return true;
+            return {
+                scope,
+                glyphName: target.glyphName,
+                layerId: target.layerId,
+                historyItem: targetItem
+            };
         } finally {
             this._suppressRecording = false;
         }
@@ -660,7 +672,7 @@ export class ChangeBridge {
         glyphName?: string,
         layerId?: string | null,
         historyTargetKey?: string | null
-    ): boolean {
+    ): UndoRedoResult | null {
         const targetItem = this._resolveUndoHistoryItem(
             glyphName,
             layerId,
@@ -675,10 +687,10 @@ export class ChangeBridge {
         );
         const { manager: um, scope } = this._getUndoManagerForTarget(target);
         if (scope !== 'font' && (!um || um.redoStack.length === 0)) {
-            return false;
+            return null;
         }
         if (scope === 'font' && !targetItem) {
-            return false;
+            return null;
         }
         this._suppressRecording = true;
         try {
@@ -713,7 +725,12 @@ export class ChangeBridge {
             this._syncJsonFromYDoc();
             this._onAfterSync?.();
             this._onDirty?.();
-            return true;
+            return {
+                scope,
+                glyphName: target.glyphName,
+                layerId: target.layerId,
+                historyItem: targetItem
+            };
         } finally {
             this._suppressRecording = false;
         }
