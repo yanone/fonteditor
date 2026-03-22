@@ -88,22 +88,18 @@ function locationsMatchWithinTolerance(
     return true;
 }
 
-// Recursively parse nodes in component layer data (including nested components)
 const parseComponentNodes = (shapes: Babelfont.Shape[]) => {
     if (!shapes) return;
 
     shapes.forEach((shape) => {
         const pathData = getPathShapeData(shape);
-        // Parse nodes in Path shapes
         if (pathData && typeof pathData === 'object' && pathData.nodes) {
-            // Parse if string, replace in place so object model and renderer share same reference
             if (typeof pathData.nodes === 'string') {
                 pathData.nodes = LayerDataNormalizer.parseNodes(pathData.nodes);
             }
         }
 
         const componentData = getComponentShapeData(shape);
-        // Recursively parse nested component data
         if (
             componentData &&
             typeof componentData === 'object' &&
@@ -121,17 +117,14 @@ export class OutlineEditor {
     isPreviewMode: boolean = false;
     previewModeBeforeSlider: boolean = false;
     spaceKeyPressed: boolean = false;
-    cursorStyleBeforePreview: string | null = null; // Store cursor before preview mode
+    cursorStyleBeforePreview: string | null = null;
     isDraggingPoint: boolean = false;
     isDraggingComponent: boolean = false;
     isDraggingAnchor: boolean = false;
     isDraggingSidebearing: boolean = false;
     isDraggingGuide: boolean = false;
-    /** True if at least one pixel of actual movement occurred during the current drag. */
     _hasMoved: boolean = false;
-    /** Pre-drag description for undo log: captured just before dragging starts. */
     _preDragDesc: string | null = null;
-    /** Drag type for undo log label: 'anchor' | 'point' | 'component' | 'sidebearing' | 'guide'. */
     _dragType:
         | 'anchor'
         | 'point'
@@ -158,9 +151,6 @@ export class OutlineEditor {
 
     layerDataDirty: boolean = false;
     escapeState: SavedVariationState = new SavedVariationState();
-    // When a brace layer is selected, save the master IDs of adjacent layers so
-    // Cmd+Up/Down navigation can resume from the right position on glyphs that
-    // don't have that brace layer.
     braceLayerNeighborAboveMasterId: string | null = null;
     braceLayerNeighborBelowMasterId: string | null = null;
     layerData: Babelfont.Layer | null = null;
@@ -169,18 +159,14 @@ export class OutlineEditor {
     selectedLayerId: string | null = null;
     isInterpolating: boolean = false;
     isLayerSwitchAnimating: boolean = false;
-    currentInterpolationId: number = 0; // Counter to track and cancel old interpolations
+    currentInterpolationId: number = 0;
     isDeterministicRefreshActive: boolean = false;
     lastGlyphX: number | null = null;
     lastGlyphY: number | null = null;
     canvas: HTMLCanvasElement | null = null;
 
-    // Auto-panning properties to keep glyph centered during animation
-    autoPanAnchorScreen: { x: number; y: number } | null = null; // Screen coordinates of bbox center before animation
-    autoPanEnabled: boolean = true; // Can be toggled by user preference
-
-    // New glyph_stack: Single source of truth for glyph/layer/component navigation
-    // Format: {glyph_name}@{layer_ID}>{component_index}:{glyph_name}@{layer_ID}>{component_index}:{glyph_name}@{layer_ID}
+    autoPanAnchorScreen: { x: number; y: number } | null = null;
+    autoPanEnabled: boolean = true;
     glyphStack: string = '';
 
     private readonly GUIDELINES_STORAGE_KEY = 'outlineEditorGuidelinesVisible';
@@ -601,6 +587,86 @@ export class OutlineEditor {
         return mapped;
     }
 
+    private assignLayerData(
+        layerData: Babelfont.Layer | null,
+        verticalMetricsSource?: any
+    ): void {
+        const previousLayerData = this.getCurrentLayerDataFromStack();
+        if (layerData && layerData.shapes) {
+            parseComponentNodes(layerData.shapes);
+        }
+        this.layerData = layerData;
+        this.setRenderVerticalMetrics(verticalMetricsSource ?? layerData);
+
+        const nextLayerData = this.getCurrentLayerDataFromStack();
+        this.selectedAnchors = this.remapSelectedAnchors(
+            previousLayerData,
+            nextLayerData
+        );
+    }
+
+    private mergeSelectedLayerShapes(
+        exactShapes: Babelfont.Shape[],
+        interpolatedShapes: Babelfont.Shape[]
+    ): Babelfont.Shape[] {
+        return exactShapes.map((exactShape, index) => {
+            const interpolatedShape = interpolatedShapes[index];
+            if (
+                !interpolatedShape ||
+                !('reference' in exactShape) ||
+                !('reference' in interpolatedShape)
+            ) {
+                return exactShape;
+            }
+
+            return {
+                ...exactShape,
+                transform: interpolatedShape.transform ||
+                    exactShape.transform || [1, 0, 0, 1, 0, 0],
+                ...(interpolatedShape.layerData || exactShape.layerData
+                    ? {
+                          layerData:
+                              interpolatedShape.layerData ||
+                              exactShape.layerData
+                      }
+                    : {}),
+                isInterpolated: false
+            };
+        });
+    }
+
+    private applyExactSelectedLayerData(
+        exactLayerData: any,
+        interpolatedResult: any
+    ): void {
+        const exactNormalized = LayerDataNormalizer.normalize(
+            exactLayerData,
+            false
+        );
+        const interpolatedNormalized = LayerDataNormalizer.normalize(
+            interpolatedResult,
+            true
+        );
+
+        if (exactNormalized?.shapes && interpolatedNormalized?.shapes?.length) {
+            exactNormalized.shapes = this.mergeSelectedLayerShapes(
+                exactNormalized.shapes,
+                interpolatedNormalized.shapes
+            );
+        }
+
+        this.assignLayerData(exactNormalized, interpolatedResult);
+    }
+
+    private getExactLayerDataForSelection(
+        glyphName: string,
+        layerId: string
+    ): any | null {
+        const glyph = this.getGlyphModelByName(glyphName);
+        const layer = glyph?.findLayerById?.(layerId);
+        return layer?.toJSON?.() || null;
+    }
+
     /**
      * Look up the userspace location for a layer by its ID.
      * Finds the layer in the current glyph's font model, resolves its
@@ -752,22 +818,11 @@ export class OutlineEditor {
      * Normalizes, parses component nodes, assigns layerData, and sets vertical metrics.
      */
     private applyRustLayerData(rustResult: any, isInterpolated: boolean): void {
-        const previousLayerData = this.getCurrentLayerDataFromStack();
         const normalized = LayerDataNormalizer.normalize(
             rustResult,
             isInterpolated
         );
-        if (normalized && normalized.shapes) {
-            parseComponentNodes(normalized.shapes);
-        }
-        this.layerData = normalized;
-        this.setRenderVerticalMetrics(rustResult);
-
-        const nextLayerData = this.getCurrentLayerDataFromStack();
-        this.selectedAnchors = this.remapSelectedAnchors(
-            previousLayerData,
-            nextLayerData
-        );
+        this.assignLayerData(normalized, rustResult);
     }
 
     /**
@@ -3697,8 +3752,17 @@ export class OutlineEditor {
                 userspaceLocation
             );
 
-            // Apply as non-interpolated (exact layer) data
-            this.applyRustLayerData(rustResult, false);
+            const exactLayerData = this.getExactLayerDataForSelection(
+                glyphName,
+                this.selectedLayerId
+            );
+
+            if (exactLayerData) {
+                this.applyExactSelectedLayerData(exactLayerData, rustResult);
+            } else {
+                // Fallback for unexpected selection/model desync.
+                this.applyRustLayerData(rustResult, false);
+            }
 
             // Update currentGlyphName based on glyph_stack position
             // If we're in a nested component, extract the component name from the stack

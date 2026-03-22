@@ -1,5 +1,6 @@
 const { Font, Layer } = require('../js/babelfont-model');
 const fontManager = require('../js/font-manager').default;
+const { fontInterpolation } = require('../js/font-interpolation');
 
 // ==================== Initialization Tests ====================
 
@@ -2062,6 +2063,217 @@ describe('GlyphCanvas property panel', () => {
         expect(replacementInput.selectionStart).toBe(1);
         expect(replacementInput.selectionEnd).toBe(1);
     });
+});
+
+describe('OutlineEditor exact selected layers', () => {
+    let canvas;
+    let currentFontSpy;
+    let interpolateSpy;
+
+    const makeComponentFont = () =>
+        Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { en: 'Weight' },
+                    tag: 'wght',
+                    min: 0,
+                    default: 0,
+                    max: 100,
+                    map: [
+                        [0, 0],
+                        [100, 100]
+                    ]
+                }
+            ],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: { wght: 0 },
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'componentGlyph',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'component-layer',
+                            width: 300,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 20, y: 0, nodetype: 'Line' },
+                                        { x: 280, y: 0, nodetype: 'Line' },
+                                        { x: 280, y: 400, nodetype: 'Line' },
+                                        { x: 20, y: 400, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'master-layer',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 700, nodetype: 'Line' },
+                                        { x: 100, y: 700, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                },
+                                {
+                                    reference: 'componentGlyph',
+                                    transform: [1, 0, 0, 1, 10, 20]
+                                }
+                            ],
+                            anchors: [{ name: 'top', x: 250, y: 700 }],
+                            guides: [{ pos: { x: 0, y: 600 }, angle: 0 }]
+                        },
+                        {
+                            id: 'brace-layer',
+                            name: '{50}',
+                            width: 520,
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            location: { wght: 50 },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 110, y: 0, nodetype: 'Line' },
+                                        { x: 410, y: 0, nodetype: 'Line' },
+                                        { x: 410, y: 680, nodetype: 'Line' },
+                                        { x: 110, y: 680, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                },
+                                {
+                                    reference: 'componentGlyph',
+                                    transform: [1, 0, 0, 1, 15, 25]
+                                }
+                            ],
+                            anchors: [{ name: 'top', x: 260, y: 680 }],
+                            guides: [{ pos: { x: 0, y: 580 }, angle: 0 }]
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Exact Layer Test' }
+            },
+            note: '',
+            date: '2026-03-22',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: makeComponentFont() });
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        interpolateSpy = jest
+            .spyOn(fontInterpolation, 'interpolateGlyph')
+            .mockResolvedValue({
+                width: 999.75,
+                shapes: [
+                    {
+                        nodes: '150.5 0 l 450.5 0 l 450.5 700 l 150.5 700 l'
+                    },
+                    {
+                        reference: 'componentGlyph',
+                        transform: [1, 0, 0, 1, 55.5, 66.5],
+                        layerData: {
+                            width: 333.5,
+                            shapes: [
+                                {
+                                    nodes: '33.5 0 l 299.5 0 l 299.5 444.5 l 33.5 444.5 l'
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    }
+                ],
+                anchors: [{ name: 'top', x: 999.9, y: 999.9 }],
+                guides: [{ pos: { x: 0, y: 999.9 }, angle: 0 }],
+                _verticalMetrics: { ascender: 800.25 }
+            });
+    });
+
+    afterEach(() => {
+        interpolateSpy.mockRestore();
+        currentFontSpy.mockRestore();
+        canvas.destroy();
+    });
+
+    test.each([
+        ['master-layer', 500, 100, 250],
+        ['brace-layer', 520, 110, 260]
+    ])(
+        'uses exact stored root layer data for selected %s while keeping interpolated component data',
+        async (layerId, expectedWidth, expectedFirstX, expectedAnchorX) => {
+            canvas.outlineEditor.selectedLayerId = layerId;
+            canvas.outlineEditor.glyphStack = `A@${layerId}`;
+
+            await canvas.outlineEditor.fetchLayerData(true);
+
+            expect(interpolateSpy).toHaveBeenCalled();
+            expect(canvas.outlineEditor.layerData.isInterpolated).toBe(false);
+            expect(canvas.outlineEditor.layerData.width).toBe(expectedWidth);
+            expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(
+                expectedFirstX
+            );
+            expect(canvas.outlineEditor.layerData.anchors[0].x).toBe(
+                expectedAnchorX
+            );
+            expect(canvas.outlineEditor.layerData.shapes[1].transform[4]).toBe(
+                55.5
+            );
+            expect(
+                canvas.outlineEditor.layerData.shapes[1].layerData.shapes[0]
+                    .nodes[0].x
+            ).toBe(33.5);
+            expect(canvas.outlineEditor.renderVerticalMetrics).toEqual({
+                ascender: 800.25
+            });
+        }
+    );
 });
 
 // ==================== Keyboard Interaction Tests ====================
