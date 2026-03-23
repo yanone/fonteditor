@@ -931,6 +931,18 @@ class GlyphCanvas {
                     }
                 }
 
+                if (
+                    wasInEditMode &&
+                    previousIndex >= 0 &&
+                    previousIndex !== ix
+                ) {
+                    const nextGlyphName =
+                        ix >= 0 && ix < this.textRunEditor!.shapedGlyphs.length
+                            ? this.getCurrentGlyphName()
+                            : 'undefined';
+                    this.outlineEditor.prepareForGlyphSwitch(nextGlyphName);
+                }
+
                 // Clear layer data immediately to prevent rendering stale outlines
                 this.outlineEditor.layerData = null;
 

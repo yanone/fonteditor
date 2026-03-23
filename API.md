@@ -267,6 +267,7 @@ glyph = font.findGlyph("A")
 
 - **`BUILTIN_CATEGORIES`** (Any)
 - **`layers`** (list[[Layer](#layer)] | None)
+- **`isCompatible`** (bool): Returns True/False based on whether the outline structure (components + paths + anchors) is compatible across all main layers of this glyph.
 
 ### Methods
 
@@ -336,6 +337,9 @@ Assign a node, anchor, component, guide, or a list of them to replace the select
 - **`paths`** (list[[Path](#path)]): Direct path objects in this layer, ready to use without Shape.asPath()
 - **`components`** (list[[Component](#component)]): Direct component objects in this layer, ready to use without Shape.asComponent()
 - **`anchors`** (list[[Anchor](#anchor)] | None)
+- **`fingerprint`** (str): Returns a normalized outline-compatibility fingerprint for this layer.
+The fingerprint includes components, paths, and anchors, with anchors
+sorted by name and guides excluded.
 
 ### Methods
 

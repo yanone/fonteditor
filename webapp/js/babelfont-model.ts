@@ -2532,6 +2532,21 @@ export class Layer extends ArrayElementBase {
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
 
+    private static normalizeSignatureNodeType(
+        nodeType: string | undefined
+    ): string {
+        switch (nodeType) {
+            case 'Move':
+            case 'Line':
+            case 'OffCurve':
+            case 'Curve':
+            case 'QCurve':
+                return nodeType;
+            default:
+                return String(nodeType || 'Unknown');
+        }
+    }
+
     private getSelectionSnapshotFromOutlineEditor(
         outlineEditor: OutlineEditorSelectionController
     ): SelectableLayerObject[] {
@@ -5072,6 +5087,33 @@ export class Layer extends ArrayElementBase {
         return undefined;
     }
 
+    /**
+     * Returns a normalized outline-compatibility fingerprint for this layer.
+     * The fingerprint includes components, paths, and anchors, with anchors
+     * sorted by name and guides excluded.
+     */
+    get fingerprint(): string {
+        const componentSignatures = (this.components || []).map(
+            (component) => `C:${component.reference || ''}`
+        );
+        const pathSignatures = (this.paths || []).map((path) => {
+            const nodeTypes = path.nodes.map((node) =>
+                Layer.normalizeSignatureNodeType(node.nodetype)
+            );
+            const closedFlag = path.closed === false ? '0' : '1';
+            return `P:${closedFlag}:${nodeTypes.length}:${nodeTypes.join(',')}`;
+        });
+        const anchorSignatures = (this.anchors || [])
+            .map((anchor) => `A:${anchor.name || ''}`)
+            .sort((a, b) => a.localeCompare(b));
+
+        return [
+            `components[${componentSignatures.join('|')}]`,
+            `paths[${pathSignatures.join('|')}]`,
+            `anchors[${anchorSignatures.join('|')}]`
+        ].join(';');
+    }
+
     toString(): string {
         const masterId = this.getMasterId() || 'Unsafe';
         const shapesCount = this.shapes?.length || 0;
@@ -5200,50 +5242,8 @@ export class Glyph extends ArrayElementBase {
         return 'Unknown';
     }
 
-    private static normalizeNodeType(nodeType: string | undefined): string {
-        switch (nodeType) {
-            case 'Move':
-            case 'Line':
-            case 'OffCurve':
-            case 'Curve':
-            case 'QCurve':
-                return nodeType;
-            default:
-                return String(nodeType || 'Unknown');
-        }
-    }
-
     private getLayerIdentifier(layer: Layer): string {
         return layer.id || layer.master?.master || '[Unsafe-layer]';
-    }
-
-    private getNormalizedLayerShapeStructure(layer: Layer): string[] {
-        const shapes = layer.shapes || [];
-        const componentSignatures: string[] = [];
-        const pathSignatures: string[] = [];
-
-        for (const shape of shapes) {
-            if (shape.isComponent()) {
-                const component = shape.asComponent();
-                componentSignatures.push(`C:${component.reference || ''}`);
-                continue;
-            }
-
-            if (shape.isPath()) {
-                const path = shape.asPath();
-                const nodeTypes = path.nodes.map((node) =>
-                    Glyph.normalizeNodeType(node.nodetype)
-                );
-                const closedFlag = path.closed === false ? '0' : '1';
-                pathSignatures.push(
-                    `P:${closedFlag}:${nodeTypes.length}:${nodeTypes.join(',')}`
-                );
-            }
-        }
-
-        // Normalize mixed shape ordering by comparing components first,
-        // then paths, while preserving relative order within each type.
-        return [...componentSignatures, ...pathSignatures];
     }
 
     get name(): string {
@@ -5563,6 +5563,13 @@ export class Glyph extends ArrayElementBase {
     }
 
     /**
+     * Returns True/False based on whether the outline structure (components + paths + anchors) is compatible across all main layers of this glyph.
+     */
+    get isCompatible(): boolean {
+        return this.calculateOutlineCompatibility().compatible;
+    }
+
+    /**
      * Compare outline structure across main layers (the same list shown in the UI).
      *
      * For compatibility checks, mixed shape sequences are normalized by moving
@@ -5594,19 +5601,12 @@ export class Glyph extends ArrayElementBase {
 
         const referenceLayer = layers[0];
         const referenceLayerId = this.getLayerIdentifier(referenceLayer);
-        const referenceSignature =
-            this.getNormalizedLayerShapeStructure(referenceLayer);
+        const referenceFingerprint = referenceLayer.fingerprint;
         const incompatibleLayerIds: string[] = [];
 
         for (let i = 1; i < layers.length; i++) {
             const layer = layers[i];
-            const signature = this.getNormalizedLayerShapeStructure(layer);
-
-            const isCompatible =
-                signature.length === referenceSignature.length &&
-                signature.every(
-                    (item, index) => item === referenceSignature[index]
-                );
+            const isCompatible = layer.fingerprint === referenceFingerprint;
 
             if (!isCompatible) {
                 incompatibleLayerIds.push(this.getLayerIdentifier(layer));

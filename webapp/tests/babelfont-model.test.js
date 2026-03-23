@@ -501,6 +501,204 @@ describe('Babelfont Object Model', () => {
         });
     });
 
+    describe('Layer signatures and glyph compatibility', () => {
+        function makeCompatibilityFont(includeIncompatibleLayer = true) {
+            const layers = [
+                {
+                    id: 'default-layer',
+                    width: 500,
+                    master: {
+                        type: 'DefaultForMaster',
+                        master: 'master-1'
+                    },
+                    shapes: [
+                        {
+                            nodes: [
+                                { x: 0, y: 0, nodetype: 'Line' },
+                                { x: 100, y: 100, nodetype: 'Curve' }
+                            ],
+                            closed: false
+                        },
+                        {
+                            reference: 'acutecomb',
+                            transform: [1, 0, 0, 1, 10, 20]
+                        },
+                        {
+                            nodes: [
+                                { x: 20, y: 20, nodetype: 'Line' },
+                                { x: 80, y: 80, nodetype: 'Line' }
+                            ],
+                            closed: true
+                        }
+                    ],
+                    anchors: [
+                        { name: 'top', x: 250, y: 700 },
+                        { name: 'bottom', x: 250, y: 0 }
+                    ],
+                    guides: [{ pos: { x: 0, y: 600 }, angle: 0 }]
+                },
+                {
+                    id: 'compatible-layer',
+                    name: '{50}',
+                    width: 520,
+                    master: {
+                        type: 'AssociatedWithMaster',
+                        master: 'master-1'
+                    },
+                    location: { wght: 50 },
+                    shapes: [
+                        {
+                            reference: 'acutecomb',
+                            transform: [1, 0, 0, 1, 15, 25]
+                        },
+                        {
+                            nodes: [
+                                { x: 10, y: 10, nodetype: 'Line' },
+                                { x: 110, y: 110, nodetype: 'Curve' }
+                            ],
+                            closed: false
+                        },
+                        {
+                            nodes: [
+                                { x: 30, y: 30, nodetype: 'Line' },
+                                { x: 90, y: 90, nodetype: 'Line' }
+                            ],
+                            closed: true
+                        }
+                    ],
+                    anchors: [
+                        { name: 'bottom', x: 260, y: 0 },
+                        { name: 'top', x: 260, y: 680 }
+                    ],
+                    guides: []
+                }
+            ];
+
+            if (includeIncompatibleLayer) {
+                layers.push({
+                    id: 'incompatible-layer',
+                    name: '{75}',
+                    width: 540,
+                    master: {
+                        type: 'AssociatedWithMaster',
+                        master: 'master-1'
+                    },
+                    location: { wght: 75 },
+                    shapes: [
+                        {
+                            reference: 'acutecomb',
+                            transform: [1, 0, 0, 1, 20, 30]
+                        },
+                        {
+                            nodes: [
+                                { x: 15, y: 15, nodetype: 'Line' },
+                                { x: 115, y: 115, nodetype: 'Curve' }
+                            ],
+                            closed: false
+                        },
+                        {
+                            nodes: [
+                                { x: 40, y: 40, nodetype: 'Line' },
+                                { x: 95, y: 95, nodetype: 'Line' }
+                            ],
+                            closed: true
+                        }
+                    ],
+                    anchors: [
+                        { name: 'left', x: 50, y: 300 },
+                        { name: 'top', x: 270, y: 660 }
+                    ],
+                    guides: [{ pos: { x: 0, y: 560 }, angle: 0 }]
+                });
+            }
+
+            return Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [
+                    {
+                        name: { en: 'Weight' },
+                        tag: 'wght',
+                        min: 0,
+                        default: 0,
+                        max: 100,
+                        map: [
+                            [0, 0],
+                            [100, 100]
+                        ]
+                    }
+                ],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: { en: 'Regular' },
+                        location: { wght: 0 },
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers
+                    }
+                ],
+                names: { family_name: { en: 'Compatibility Test' } },
+                note: '',
+                date: '2026-03-23',
+                features: {},
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+        }
+
+        test('layer.fingerprint separates components, paths, and sorted anchors while excluding guides', () => {
+            const compatibilityFont = makeCompatibilityFont();
+            const glyph = compatibilityFont.findGlyph('A');
+
+            expect(glyph.layers[0].fingerprint).toBe(
+                'components[C:acutecomb];paths[P:0:2:Line,Curve|P:1:2:Line,Line];anchors[A:bottom|A:top]'
+            );
+            expect(glyph.layers[0].fingerprint).toBe(
+                glyph.layers[1].fingerprint
+            );
+            expect(glyph.layers[0].fingerprint).not.toContain('guide');
+        });
+
+        test('glyph.isCompatible returns true when all main layers share a signature', () => {
+            const compatibilityFont = makeCompatibilityFont(false);
+            const glyph = compatibilityFont.findGlyph('A');
+
+            expect(glyph.isCompatible).toBe(true);
+            expect(glyph.calculateOutlineCompatibility()).toEqual({
+                compatible: true,
+                layerCount: 2,
+                referenceLayerId: 'default-layer',
+                incompatibleLayerIds: []
+            });
+        });
+
+        test('glyph.calculateOutlineCompatibility reports incompatible layers via signatures', () => {
+            const compatibilityFont = makeCompatibilityFont();
+            const glyph = compatibilityFont.findGlyph('A');
+
+            expect(glyph.isCompatible).toBe(false);
+            expect(glyph.calculateOutlineCompatibility()).toEqual({
+                compatible: false,
+                layerCount: 3,
+                referenceLayerId: 'default-layer',
+                incompatibleLayerIds: ['incompatible-layer']
+            });
+        });
+    });
+
     describe('Sidebearing manipulation (lsb/rsb setters)', () => {
         test('lsb setter should adjust width for paths', () => {
             const glyph = font.glyphs.find((g) => g.name === 'A'); // paths only

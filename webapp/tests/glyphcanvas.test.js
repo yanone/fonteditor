@@ -2596,7 +2596,7 @@ describe('OutlineEditor per-layer selection memory', () => {
     let currentFontSpy;
     let fetchGlyphDataSpy;
 
-    const makeSelectionFont = () =>
+    const makeSelectionFont = (options = {}) =>
         Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -2716,28 +2716,147 @@ describe('OutlineEditor per-layer selection memory', () => {
                             ],
                             guides: [{ pos: { x: 0, y: 580 }, angle: 0 }]
                         },
+                        ...(!options.compatibleOnly
+                            ? [
+                                  {
+                                      id: 'alternate-layer',
+                                      name: '{75}',
+                                      width: 540,
+                                      master: {
+                                          type: 'AssociatedWithMaster',
+                                          master: 'master-1'
+                                      },
+                                      location: { wght: 75 },
+                                      shapes: [
+                                          {
+                                              nodes: [
+                                                  {
+                                                      x: 120,
+                                                      y: 0,
+                                                      nodetype: 'Line'
+                                                  },
+                                                  {
+                                                      x: 420,
+                                                      y: 0,
+                                                      nodetype: 'Line'
+                                                  },
+                                                  {
+                                                      x: 420,
+                                                      y: 660,
+                                                      nodetype: 'Line'
+                                                  },
+                                                  {
+                                                      x: 120,
+                                                      y: 660,
+                                                      nodetype: 'Line'
+                                                  }
+                                              ],
+                                              closed: true
+                                          }
+                                      ],
+                                      anchors: [
+                                          { name: 'top', x: 270, y: 660 }
+                                      ],
+                                      guides: [
+                                          { pos: { x: 0, y: 560 }, angle: 0 }
+                                      ]
+                                  }
+                              ]
+                            : []),
                         {
-                            id: 'alternate-layer',
-                            name: '{75}',
-                            width: 540,
+                            id: 'ui-compatible-layer',
+                            name: '{25}',
+                            width: 510,
                             master: {
                                 type: 'AssociatedWithMaster',
                                 master: 'master-1'
                             },
-                            location: { wght: 75 },
+                            location: { wght: 25 },
                             shapes: [
                                 {
                                     nodes: [
-                                        { x: 120, y: 0, nodetype: 'Line' },
-                                        { x: 420, y: 0, nodetype: 'Line' },
-                                        { x: 420, y: 660, nodetype: 'Line' },
-                                        { x: 120, y: 660, nodetype: 'Line' }
+                                        { x: 105, y: 0, nodetype: 'Line' },
+                                        { x: 405, y: 0, nodetype: 'Line' },
+                                        { x: 405, y: 690, nodetype: 'Line' },
+                                        { x: 105, y: 690, nodetype: 'Line' }
                                     ],
                                     closed: true
+                                },
+                                {
+                                    reference: 'componentGlyph',
+                                    transform: [1, 0, 0, 1, 12, 22]
                                 }
                             ],
-                            anchors: [{ name: 'top', x: 270, y: 660 }],
-                            guides: [{ pos: { x: 0, y: 560 }, angle: 0 }]
+                            anchors: [
+                                { name: 'bottom', x: 255, y: 0 },
+                                { name: 'top', x: 255, y: 690 }
+                            ],
+                            guides: [{ pos: { x: 0, y: 590 }, angle: 0 }]
+                        }
+                    ]
+                },
+                {
+                    name: 'n',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'master-layer',
+                            width: 480,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 90, y: 0, nodetype: 'Line' },
+                                        { x: 390, y: 0, nodetype: 'Line' },
+                                        { x: 390, y: 520, nodetype: 'Line' },
+                                        { x: 90, y: 520, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                },
+                                {
+                                    reference: 'componentGlyph',
+                                    transform: [1, 0, 0, 1, 8, 18]
+                                }
+                            ],
+                            anchors: [
+                                { name: 'top', x: 240, y: 520 },
+                                { name: 'bottom', x: 240, y: 0 }
+                            ],
+                            guides: [{ pos: { x: 0, y: 420 }, angle: 0 }]
+                        },
+                        {
+                            id: 'brace-layer',
+                            name: '{50}',
+                            width: 500,
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            location: { wght: 50 },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 510, nodetype: 'Line' },
+                                        { x: 100, y: 510, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                },
+                                {
+                                    reference: 'componentGlyph',
+                                    transform: [1, 0, 0, 1, 12, 18]
+                                }
+                            ],
+                            anchors: [
+                                { name: 'top', x: 250, y: 510 },
+                                { name: 'bottom', x: 250, y: 0 }
+                            ],
+                            guides: [{ pos: { x: 0, y: 410 }, angle: 0 }]
                         }
                     ]
                 }
@@ -2801,6 +2920,77 @@ describe('OutlineEditor per-layer selection memory', () => {
         expect(canvas.outlineEditor.selectedGuideHandle).toBeNull();
     });
 
+    test('copies selection to a newly selected compatible layer through the UI layer-switch path', async () => {
+        const compatibleFont = makeSelectionFont({ compatibleOnly: true });
+        const glyph = compatibleFont.findGlyph('A');
+        const masterLayer = glyph.findLayerById('master-layer');
+        const targetLayer = glyph.findLayerById('ui-compatible-layer');
+        const cloneLayerData = (layer) =>
+            JSON.parse(JSON.stringify(layer.toJSON()));
+
+        currentFontSpy.mockRestore();
+        fetchGlyphDataSpy.mockRestore();
+
+        font = compatibleFont;
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+        fetchGlyphDataSpy = jest
+            .spyOn(fontManager, 'fetchGlyphData')
+            .mockResolvedValue({
+                glyphName: 'A',
+                layers: font
+                    .findGlyph('A')
+                    .layers.map((layer) => layer.toJSON())
+            });
+
+        expect(glyph.isCompatible).toBe(true);
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.layerData = cloneLayerData(masterLayer);
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.outlineEditor.fetchLayerData = jest.fn(async () => {
+            const currentLayer = font
+                .findGlyph('A')
+                .findLayerById(canvas.outlineEditor.selectedLayerId);
+            canvas.outlineEditor.layerData = cloneLayerData(currentLayer);
+        });
+
+        canvas.outlineEditor.selectedLayerId = masterLayer.id;
+        canvas.outlineEditor.glyphStack = `A@${masterLayer.id}`;
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [1];
+        canvas.outlineEditor.selectedComponents = [1];
+
+        await canvas.outlineEditor.selectLayer({
+            id: targetLayer.id,
+            name: targetLayer.name,
+            master: targetLayer.master,
+            location: targetLayer.location,
+            shapes: targetLayer.shapes || [],
+            width: targetLayer.width,
+            isInterpolated: false
+        });
+        await canvas.outlineEditor.restoreTargetLayerDataAfterAnimating();
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+
+        await canvas.outlineEditor.selectLayer(masterLayer);
+        await canvas.outlineEditor.restoreTargetLayerDataAfterAnimating();
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([1]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+    });
+
     test('restores the target layer stored selection when the previous layer is incompatible', async () => {
         const [masterLayer, , alternateLayer] = font.findGlyph('A').layers;
 
@@ -2828,6 +3018,438 @@ describe('OutlineEditor per-layer selection memory', () => {
             scope: 'layer',
             index: 0
         });
+    });
+
+    test('preserves selection across animated layer switches in active edit mode', async () => {
+        const [masterLayer, braceLayer] = font.findGlyph('A').layers;
+        const cloneLayerData = (layer) =>
+            JSON.parse(JSON.stringify(layer.toJSON()));
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.layerData = cloneLayerData(masterLayer);
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.outlineEditor.fetchLayerData = jest.fn(async () => {
+            const currentLayer = font
+                .findGlyph('A')
+                .findLayerById(canvas.outlineEditor.selectedLayerId);
+            canvas.outlineEditor.layerData = cloneLayerData(currentLayer);
+        });
+
+        canvas.outlineEditor.selectedLayerId = masterLayer.id;
+        canvas.outlineEditor.glyphStack = `A@${masterLayer.id}`;
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [1];
+        canvas.outlineEditor.selectedComponents = [1];
+
+        await canvas.outlineEditor.selectLayer(braceLayer);
+        await canvas.outlineEditor.restoreTargetLayerDataAfterAnimating();
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([1]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+
+        await canvas.outlineEditor.selectLayer(masterLayer);
+        await canvas.outlineEditor.restoreTargetLayerDataAfterAnimating();
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([1]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+    });
+
+    test('does not transfer selection across glyph switches after glyph stack reset and restores glyph-local layer state', async () => {
+        let selectedGlyphName = 'A';
+        const cloneLayerData = (layer) =>
+            JSON.parse(JSON.stringify(layer.toJSON()));
+        const glyphA = font.findGlyph('A');
+        const glyphN = font.findGlyph('n');
+        const masterLayerA = glyphA.findLayerById('master-layer');
+        const masterLayerN = glyphN.findLayerById('master-layer');
+
+        canvas.getCurrentGlyphName = jest.fn(() => selectedGlyphName);
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.outlineEditor.fetchLayerData = jest.fn(async () => {
+            const glyph = font.findGlyph(selectedGlyphName);
+            const currentLayer = glyph.findLayerById(
+                canvas.outlineEditor.selectedLayerId
+            );
+            canvas.outlineEditor.assignLayerData(cloneLayerData(currentLayer));
+            canvas.outlineEditor.currentGlyphName = selectedGlyphName;
+        });
+
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = masterLayerA.id;
+        canvas.outlineEditor.glyphStack = '';
+        canvas.outlineEditor.layerData = cloneLayerData(masterLayerA);
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.selectedComponents = [1];
+
+        selectedGlyphName = 'n';
+        await canvas.outlineEditor.autoSelectMatchingLayer();
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe(masterLayerN.id);
+        expect(canvas.outlineEditor.selectedPoints).toEqual([]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+
+        canvas.outlineEditor.glyphStack = '';
+        selectedGlyphName = 'A';
+        await canvas.outlineEditor.autoSelectMatchingLayer();
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe(masterLayerA.id);
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+    });
+
+    test('glyphselected snapshots the previous glyph layer selection and clears live selection before UI refresh', async () => {
+        const glyphSelectedHandler =
+            canvas.textRunEditor.callbacks.glyphselected[0];
+        const cloneLayerData = (layer) =>
+            JSON.parse(JSON.stringify(layer.toJSON()));
+        const masterLayerA = font.findGlyph('A').findLayerById('master-layer');
+
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 500, dx: 0, dy: 0, g: 0 },
+            { ax: 480, dx: 0, dy: 0, g: 1 }
+        ];
+        canvas.textRunEditor.selectedGlyphIndex = 1;
+        canvas.getCurrentGlyphName = jest.fn(() => 'n');
+        canvas.doUIUpdateAsync = jest.fn(async () => {
+            expect(
+                canvas.outlineEditor.getStoredSelectionStateForLayer(
+                    masterLayerA
+                )
+            ).toEqual({
+                points: [
+                    { contourIndex: 0, nodeIndex: 1 },
+                    { contourIndex: 0, nodeIndex: 2 }
+                ],
+                anchors: [0],
+                components: [1],
+                guideHandle: null
+            });
+            expect(canvas.outlineEditor.selectedPoints).toEqual([]);
+            expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
+            expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+        });
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = masterLayerA.id;
+        canvas.outlineEditor.glyphStack = `A@${masterLayerA.id}`;
+        canvas.outlineEditor.layerData = cloneLayerData(masterLayerA);
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.selectedComponents = [1];
+        canvas.outlineEditor.selectedGuideHandle = null;
+
+        await glyphSelectedHandler(1, 0, true);
+
+        expect(canvas.doUIUpdateAsync).toHaveBeenCalledTimes(1);
+    });
+
+    test('glyphselected restores the original glyph selection after switching to another glyph and back', async () => {
+        const glyphSelectedHandler =
+            canvas.textRunEditor.callbacks.glyphselected[0];
+        const cloneLayerData = (layer) =>
+            JSON.parse(JSON.stringify(layer.toJSON()));
+        const masterLayerA = font.findGlyph('A').findLayerById('master-layer');
+        const masterLayerN = font.findGlyph('n').findLayerById('master-layer');
+        let selectedGlyphName = 'A';
+
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 500, dx: 0, dy: 0, g: 0 },
+            { ax: 480, dx: 0, dy: 0, g: 1 }
+        ];
+        canvas.getCurrentGlyphName = jest.fn(() => selectedGlyphName);
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.outlineEditor.fetchLayerData = jest.fn(async () => {
+            const glyph = font.findGlyph(selectedGlyphName);
+            const currentLayer = glyph.findLayerById(
+                canvas.outlineEditor.selectedLayerId
+            );
+            canvas.outlineEditor.assignLayerData(cloneLayerData(currentLayer));
+            canvas.outlineEditor.currentGlyphName = selectedGlyphName;
+        });
+        canvas.doUIUpdateAsync = jest.fn(async () => {
+            await canvas.outlineEditor.autoSelectMatchingLayer();
+        });
+
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = masterLayerA.id;
+        canvas.outlineEditor.glyphStack = `A@${masterLayerA.id}`;
+        canvas.outlineEditor.layerData = cloneLayerData(masterLayerA);
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.selectedComponents = [1];
+
+        selectedGlyphName = 'n';
+        canvas.textRunEditor.selectedGlyphIndex = 1;
+        await glyphSelectedHandler(1, 0, true);
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe(masterLayerN.id);
+        expect(canvas.outlineEditor.selectedPoints).toEqual([]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+
+        selectedGlyphName = 'A';
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        await glyphSelectedHandler(0, 1, true);
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe(masterLayerA.id);
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+    });
+
+    test('first click of double-clicking another glyph does not clear the current glyph selection', () => {
+        const cloneLayerData = (layer) =>
+            JSON.parse(JSON.stringify(layer.toJSON()));
+        const masterLayerA = font.findGlyph('A').findLayerById('master-layer');
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = masterLayerA.id;
+        canvas.outlineEditor.glyphStack = `A@${masterLayerA.id}`;
+        canvas.outlineEditor.layerData = cloneLayerData(masterLayerA);
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.selectedComponents = [1];
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updateHoveredGlyph = jest.fn(() => {
+            canvas.outlineEditor.hoveredGlyphIndex = 1;
+        });
+
+        canvas.onMouseDown({
+            clientX: 10,
+            clientY: 10,
+            detail: 1,
+            shiftKey: false,
+            ctrlKey: false,
+            metaKey: false
+        });
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+    });
+
+    test('keyboard glyph switching restores the original glyph selection after switching away and back', async () => {
+        const cloneLayerData = (layer) =>
+            JSON.parse(JSON.stringify(layer.toJSON()));
+        const masterLayerA = font.findGlyph('A').findLayerById('master-layer');
+        const masterLayerN = font.findGlyph('n').findLayerById('master-layer');
+        let selectedGlyphName = 'A';
+
+        canvas.getCurrentGlyphName = jest.fn(() => selectedGlyphName);
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updateComponentBreadcrumb = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.outlineEditor.fetchLayerData = jest.fn(async () => {
+            const glyph = font.findGlyph(selectedGlyphName);
+            const currentLayer = glyph.findLayerById(
+                canvas.outlineEditor.selectedLayerId
+            );
+            canvas.outlineEditor.assignLayerData(cloneLayerData(currentLayer));
+            canvas.outlineEditor.currentGlyphName = selectedGlyphName;
+        });
+        canvas.updatePropertiesUI = jest.fn(async () => {
+            await canvas.outlineEditor.autoSelectMatchingLayer();
+        });
+        canvas.textRunEditor.isPositionRTL = jest.fn(() => false);
+        canvas.textRunEditor.textBuffer = 'An';
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 500, dx: 0, dy: 0, g: 0, cl: 0 },
+            { ax: 480, dx: 0, dy: 0, g: 1, cl: 1 }
+        ];
+
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = masterLayerA.id;
+        canvas.outlineEditor.glyphStack = `A@${masterLayerA.id}`;
+        canvas.outlineEditor.layerData = cloneLayerData(masterLayerA);
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.selectedComponents = [1];
+
+        selectedGlyphName = 'n';
+        canvas.onKeyDown({
+            metaKey: true,
+            ctrlKey: false,
+            key: 'ArrowRight',
+            code: 'ArrowRight',
+            shiftKey: false,
+            altKey: false,
+            preventDefault: jest.fn()
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(canvas.textRunEditor.selectedGlyphIndex).toBe(1);
+        expect(canvas.outlineEditor.selectedLayerId).toBe(masterLayerN.id);
+        expect(canvas.outlineEditor.selectedPoints).toEqual([]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+
+        selectedGlyphName = 'A';
+        canvas.onKeyDown({
+            metaKey: true,
+            ctrlKey: false,
+            key: 'ArrowLeft',
+            code: 'ArrowLeft',
+            shiftKey: false,
+            altKey: false,
+            preventDefault: jest.fn()
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(canvas.textRunEditor.selectedGlyphIndex).toBe(0);
+        expect(canvas.outlineEditor.selectedLayerId).toBe(masterLayerA.id);
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+    });
+
+    test('double-click glyph switching restores the original glyph selection after switching away and back', async () => {
+        const cloneLayerData = (layer) =>
+            JSON.parse(JSON.stringify(layer.toJSON()));
+        const masterLayerA = font.findGlyph('A').findLayerById('master-layer');
+        const masterLayerN = font.findGlyph('n').findLayerById('master-layer');
+        let selectedGlyphName = 'A';
+        let hoveredGlyphIndex = 1;
+
+        canvas.getCurrentGlyphName = jest.fn(() => selectedGlyphName);
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updateComponentBreadcrumb = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.updatePropertiesUI = jest.fn(async () => {
+            await canvas.outlineEditor.autoSelectMatchingLayer();
+        });
+        canvas.outlineEditor.fetchLayerData = jest.fn(async () => {
+            const glyph = font.findGlyph(selectedGlyphName);
+            const currentLayer = glyph.findLayerById(
+                canvas.outlineEditor.selectedLayerId
+            );
+            canvas.outlineEditor.assignLayerData(cloneLayerData(currentLayer));
+            canvas.outlineEditor.currentGlyphName = selectedGlyphName;
+        });
+        canvas.updateHoveredGlyph = jest.fn(() => {
+            canvas.outlineEditor.hoveredGlyphIndex = hoveredGlyphIndex;
+        });
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 500, dx: 0, dy: 0, g: 0, cl: 0 },
+            { ax: 480, dx: 0, dy: 0, g: 1, cl: 1 }
+        ];
+
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = masterLayerA.id;
+        canvas.outlineEditor.glyphStack = `A@${masterLayerA.id}`;
+        canvas.outlineEditor.layerData = cloneLayerData(masterLayerA);
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.selectedComponents = [1];
+
+        canvas.onMouseDown({
+            clientX: 10,
+            clientY: 10,
+            detail: 1,
+            shiftKey: false,
+            ctrlKey: false,
+            metaKey: false
+        });
+        selectedGlyphName = 'n';
+        canvas.onMouseDown({
+            clientX: 10,
+            clientY: 10,
+            detail: 2,
+            shiftKey: false,
+            ctrlKey: false,
+            metaKey: false
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(canvas.textRunEditor.selectedGlyphIndex).toBe(1);
+        expect(canvas.outlineEditor.selectedLayerId).toBe(masterLayerN.id);
+        expect(canvas.outlineEditor.selectedPoints).toEqual([]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+
+        hoveredGlyphIndex = 0;
+        canvas.onMouseDown({
+            clientX: 10,
+            clientY: 10,
+            detail: 1,
+            shiftKey: false,
+            ctrlKey: false,
+            metaKey: false
+        });
+        selectedGlyphName = 'A';
+        canvas.onMouseDown({
+            clientX: 10,
+            clientY: 10,
+            detail: 2,
+            shiftKey: false,
+            ctrlKey: false,
+            metaKey: false
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(canvas.textRunEditor.selectedGlyphIndex).toBe(0);
+        expect(canvas.outlineEditor.selectedLayerId).toBe(masterLayerA.id);
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
     });
 });
 
