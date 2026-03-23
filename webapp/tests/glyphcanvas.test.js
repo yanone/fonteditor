@@ -2590,6 +2590,247 @@ describe('OutlineEditor exact selected layers', () => {
     });
 });
 
+describe('OutlineEditor per-layer selection memory', () => {
+    let canvas;
+    let font;
+    let currentFontSpy;
+    let fetchGlyphDataSpy;
+
+    const makeSelectionFont = () =>
+        Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { en: 'Weight' },
+                    tag: 'wght',
+                    min: 0,
+                    default: 0,
+                    max: 100,
+                    map: [
+                        [0, 0],
+                        [100, 100]
+                    ]
+                }
+            ],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: { wght: 0 },
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'componentGlyph',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'component-layer',
+                            width: 300,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 20, y: 0, nodetype: 'Line' },
+                                        { x: 280, y: 0, nodetype: 'Line' },
+                                        { x: 280, y: 400, nodetype: 'Line' },
+                                        { x: 20, y: 400, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'master-layer',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 700, nodetype: 'Line' },
+                                        { x: 100, y: 700, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                },
+                                {
+                                    reference: 'componentGlyph',
+                                    transform: [1, 0, 0, 1, 10, 20]
+                                }
+                            ],
+                            anchors: [
+                                { name: 'top', x: 250, y: 700 },
+                                { name: 'bottom', x: 250, y: 0 }
+                            ],
+                            guides: [{ pos: { x: 0, y: 600 }, angle: 0 }]
+                        },
+                        {
+                            id: 'brace-layer',
+                            name: '{50}',
+                            width: 520,
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            location: { wght: 50 },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 110, y: 0, nodetype: 'Line' },
+                                        { x: 410, y: 0, nodetype: 'Line' },
+                                        { x: 410, y: 680, nodetype: 'Line' },
+                                        { x: 110, y: 680, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                },
+                                {
+                                    reference: 'componentGlyph',
+                                    transform: [1, 0, 0, 1, 15, 25]
+                                }
+                            ],
+                            anchors: [
+                                { name: 'top', x: 260, y: 680 },
+                                { name: 'bottom', x: 260, y: 0 }
+                            ],
+                            guides: [{ pos: { x: 0, y: 580 }, angle: 0 }]
+                        },
+                        {
+                            id: 'alternate-layer',
+                            name: '{75}',
+                            width: 540,
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            location: { wght: 75 },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 120, y: 0, nodetype: 'Line' },
+                                        { x: 420, y: 0, nodetype: 'Line' },
+                                        { x: 420, y: 660, nodetype: 'Line' },
+                                        { x: 120, y: 660, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [{ name: 'top', x: 270, y: 660 }],
+                            guides: [{ pos: { x: 0, y: 560 }, angle: 0 }]
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Selection Memory Test' }
+            },
+            note: '',
+            date: '2026-03-22',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        font = makeSelectionFont();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+        fetchGlyphDataSpy = jest
+            .spyOn(fontManager, 'fetchGlyphData')
+            .mockResolvedValue({
+                glyphName: 'A',
+                layers: font
+                    .findGlyph('A')
+                    .layers.map((layer) => layer.toJSON())
+            });
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.active = false;
+        canvas.axesManager._setupAnimation = jest.fn();
+    });
+
+    afterEach(() => {
+        fetchGlyphDataSpy.mockRestore();
+        currentFontSpy.mockRestore();
+        canvas.destroy();
+    });
+
+    test('copies same-index object selection to a compatible layer', async () => {
+        const [masterLayer, braceLayer] = font.findGlyph('A').layers;
+
+        await canvas.outlineEditor.selectLayer(masterLayer);
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [1];
+        canvas.outlineEditor.selectedComponents = [1];
+
+        await canvas.outlineEditor.selectLayer(braceLayer);
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([1]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+        expect(canvas.outlineEditor.selectedGuideHandle).toBeNull();
+    });
+
+    test('restores the target layer stored selection when the previous layer is incompatible', async () => {
+        const [masterLayer, , alternateLayer] = font.findGlyph('A').layers;
+
+        await canvas.outlineEditor.selectLayer(alternateLayer);
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.selectedGuideHandle = {
+            scope: 'layer',
+            index: 0
+        };
+
+        await canvas.outlineEditor.selectLayer(masterLayer);
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+        canvas.outlineEditor.selectedComponents = [1];
+        canvas.outlineEditor.selectedAnchors = [];
+        canvas.outlineEditor.selectedGuideHandle = null;
+
+        await canvas.outlineEditor.selectLayer(alternateLayer);
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        expect(canvas.outlineEditor.selectedGuideHandle).toEqual({
+            scope: 'layer',
+            index: 0
+        });
+    });
+});
+
 // ==================== Keyboard Interaction Tests ====================
 
 describe('GlyphCanvas keyboard handling', () => {

@@ -27,6 +27,12 @@ let console: Logger = new Logger('OutlineEditor');
 type Point = { contourIndex: number; nodeIndex: number };
 type GuideHandle = { scope: 'master' | 'layer'; index: number };
 type SidebearingHandle = { side: SidebearingSide };
+type LayerSelectionState = {
+    points: Point[];
+    anchors: number[];
+    components: number[];
+    guideHandle: GuideHandle | null;
+};
 type VisibleGuide = GuideHandle & {
     guide: Babelfont.Guide;
     rootX: number;
@@ -176,6 +182,7 @@ export class OutlineEditor {
     autoPanAnchorScreen: { x: number; y: number } | null = null;
     autoPanEnabled: boolean = true;
     glyphStack: string = '';
+    private layerSelectionStateByKey = new Map<string, LayerSelectionState>();
 
     private readonly GUIDELINES_STORAGE_KEY = 'outlineEditorGuidelinesVisible';
 
@@ -593,6 +600,231 @@ export class OutlineEditor {
         }
 
         return mapped;
+    }
+
+    private cloneSelectionState(
+        state: LayerSelectionState | null | undefined
+    ): LayerSelectionState {
+        return {
+            points: (state?.points || []).map((point) => ({ ...point })),
+            anchors: [...(state?.anchors || [])],
+            components: [...(state?.components || [])],
+            guideHandle: state?.guideHandle ? { ...state.guideHandle } : null
+        };
+    }
+
+    private getCurrentSelectionState(): LayerSelectionState {
+        return this.cloneSelectionState({
+            points: this.selectedPoints,
+            anchors: this.selectedAnchors,
+            components: this.selectedComponents,
+            guideHandle: this.selectedGuideHandle
+        });
+    }
+
+    private getLayerSelectionStorageKey(layer: any): string | null {
+        const layerId = layer?.id;
+        if (!layerId) {
+            return null;
+        }
+
+        const parentGlyph =
+            typeof layer.parent === 'function' ? layer.parent() : null;
+        const glyphName = parentGlyph?.name;
+        return glyphName ? `${glyphName}@${layerId}` : String(layerId);
+    }
+
+    private storeSelectionStateForLayer(
+        layer: any,
+        state: LayerSelectionState = this.getCurrentSelectionState()
+    ): void {
+        const key = this.getLayerSelectionStorageKey(layer);
+        if (!key) {
+            return;
+        }
+
+        this.layerSelectionStateByKey.set(key, this.cloneSelectionState(state));
+    }
+
+    private getStoredSelectionStateForLayer(
+        layer: any
+    ): LayerSelectionState | null {
+        const key = this.getLayerSelectionStorageKey(layer);
+        if (!key) {
+            return null;
+        }
+
+        const storedState = this.layerSelectionStateByKey.get(key);
+        return storedState ? this.cloneSelectionState(storedState) : null;
+    }
+
+    private isPathShape(shape: any): boolean {
+        if (!shape) {
+            return false;
+        }
+
+        if (typeof shape.isPath === 'function') {
+            return !!shape.isPath();
+        }
+
+        return 'Path' in shape || 'nodes' in shape;
+    }
+
+    private isComponentShape(shape: any): boolean {
+        if (!shape) {
+            return false;
+        }
+
+        if (typeof shape.isComponent === 'function') {
+            return !!shape.isComponent();
+        }
+
+        return 'Component' in shape || 'reference' in shape;
+    }
+
+    private getNodeCountForShape(shape: any): number {
+        if (!this.isPathShape(shape)) {
+            return 0;
+        }
+
+        if (typeof shape.asPath === 'function') {
+            return shape.asPath().nodes?.length || 0;
+        }
+
+        if ('Path' in shape && Array.isArray(shape.Path?.nodes)) {
+            return shape.Path.nodes.length;
+        }
+
+        return Array.isArray(shape.nodes) ? shape.nodes.length : 0;
+    }
+
+    private getMasterGuideCountForLayer(layer: any): number {
+        const masterId = layer?.master?.master;
+        if (!masterId) {
+            return 0;
+        }
+
+        const master =
+            fontManager.currentFont?.fontModel?.findMaster?.(masterId);
+        return master?.guides?.length || 0;
+    }
+
+    private sanitizeSelectionStateForLayer(
+        state: LayerSelectionState | null | undefined,
+        layer: any
+    ): LayerSelectionState {
+        const shapes = layer?.shapes || [];
+        const anchors = layer?.anchors || [];
+        const guides = layer?.guides || [];
+        const normalizedState = this.cloneSelectionState(state);
+
+        const points = normalizedState.points.filter(
+            ({ contourIndex, nodeIndex }) =>
+                contourIndex >= 0 &&
+                contourIndex < shapes.length &&
+                this.isPathShape(shapes[contourIndex]) &&
+                nodeIndex >= 0 &&
+                nodeIndex < this.getNodeCountForShape(shapes[contourIndex])
+        );
+
+        const anchorSelection = normalizedState.anchors.filter(
+            (index) => index >= 0 && index < anchors.length
+        );
+
+        const componentSelection = normalizedState.components.filter(
+            (index) =>
+                index >= 0 &&
+                index < shapes.length &&
+                this.isComponentShape(shapes[index])
+        );
+
+        let guideHandle = normalizedState.guideHandle;
+        if (guideHandle?.scope === 'layer') {
+            if (guideHandle.index < 0 || guideHandle.index >= guides.length) {
+                guideHandle = null;
+            }
+        } else if (guideHandle?.scope === 'master') {
+            if (
+                guideHandle.index < 0 ||
+                guideHandle.index >= this.getMasterGuideCountForLayer(layer)
+            ) {
+                guideHandle = null;
+            }
+        }
+
+        return {
+            points,
+            anchors: anchorSelection,
+            components: componentSelection,
+            guideHandle: guideHandle ? { ...guideHandle } : null
+        };
+    }
+
+    private isSelectionStateCompatibleWithLayer(
+        state: LayerSelectionState,
+        layer: any
+    ): boolean {
+        const sanitizedState = this.sanitizeSelectionStateForLayer(
+            state,
+            layer
+        );
+
+        if (sanitizedState.points.length !== state.points.length) {
+            return false;
+        }
+
+        if (sanitizedState.anchors.length !== state.anchors.length) {
+            return false;
+        }
+
+        if (sanitizedState.components.length !== state.components.length) {
+            return false;
+        }
+
+        return this.sameGuideHandle(
+            sanitizedState.guideHandle,
+            state.guideHandle
+        );
+    }
+
+    private applySelectionStateForLayer(
+        state: LayerSelectionState | null | undefined,
+        layer: any
+    ): void {
+        const nextState = this.sanitizeSelectionStateForLayer(state, layer);
+
+        this.selectedPoints = nextState.points;
+        this.selectedAnchors = nextState.anchors;
+        this.selectedComponents = nextState.components;
+        this.selectedGuideHandle = nextState.guideHandle;
+        this.selectedSidebearingHandle = null;
+    }
+
+    private getSelectionStateForLayerTransition(
+        previousLayer: any,
+        nextLayer: any
+    ): LayerSelectionState {
+        const emptyState = this.cloneSelectionState(null);
+        if (!nextLayer) {
+            return emptyState;
+        }
+
+        if (!previousLayer) {
+            return (
+                this.getStoredSelectionStateForLayer(nextLayer) || emptyState
+            );
+        }
+
+        const previousState = this.getCurrentSelectionState();
+        this.storeSelectionStateForLayer(previousLayer, previousState);
+
+        if (
+            this.isSelectionStateCompatibleWithLayer(previousState, nextLayer)
+        ) {
+            return previousState;
+        }
+
+        return this.getStoredSelectionStateForLayer(nextLayer) || emptyState;
     }
 
     private assignLayerData(
@@ -3345,6 +3577,11 @@ export class OutlineEditor {
         // Select a layer and update axis sliders to match its master location
         // Clear previous state when explicitly selecting a layer
         this.escapeState.clear();
+        const previousLayer = this.getCurrentLayerModel();
+        const nextSelectionState = this.getSelectionStateForLayerTransition(
+            previousLayer,
+            layer
+        );
 
         console.log(
             `[OutlineEditor] selectLayer called with layer:`,
@@ -3436,6 +3673,8 @@ export class OutlineEditor {
             // Always re-enable rendering after critical section
             this.glyphCanvas.renderSuppressed = false;
         }
+
+        this.applySelectionStateForLayer(nextSelectionState, layer);
 
         // Find the userspace location for this layer
         const targetUserspaceLocation = this.getUserspaceLocationForLayer(
@@ -3566,6 +3805,7 @@ export class OutlineEditor {
 
     async autoSelectMatchingLayer(): Promise<void> {
         const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
+        const previousLayer = this.getCurrentLayerModel();
 
         console.log('[OutlineEditor] autoSelectMatchingLayer called', {
             active: this.active,
@@ -3581,6 +3821,10 @@ export class OutlineEditor {
             console.log(
                 '[OutlineEditor]',
                 `  ✓ MATCH found: layer ${matchingLayer.id}`
+            );
+            const nextSelectionState = this.getSelectionStateForLayerTransition(
+                previousLayer,
+                matchingLayer
             );
             // Found a matching layer - select it
             this.selectedLayerId = matchingLayer.id || null;
@@ -3607,6 +3851,8 @@ export class OutlineEditor {
                 this.performHitDetection(null);
             }
 
+            this.applySelectionStateForLayer(nextSelectionState, matchingLayer);
+
             // Clear the interpolating flag and render to display the new outlines
             this.isInterpolating = false;
             this.autoPanAnchorScreen = null;
@@ -3626,6 +3872,9 @@ export class OutlineEditor {
 
         // No matching layer found - deselect current layer
         if (this.selectedLayerId !== null) {
+            if (previousLayer) {
+                this.storeSelectionStateForLayer(previousLayer);
+            }
             this.selectedLayerId = null;
             // Don't clear layer data during interpolation - keep showing interpolated data
             if (!this.isInterpolating) {
