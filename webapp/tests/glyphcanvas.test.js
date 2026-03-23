@@ -2859,6 +2859,36 @@ describe('OutlineEditor per-layer selection memory', () => {
                             guides: [{ pos: { x: 0, y: 410 }, angle: 0 }]
                         }
                     ]
+                },
+                {
+                    name: 'adieresis',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'master-layer',
+                            width: 540,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    reference: 'A',
+                                    transform: [1, 0, 0, 1, 0, 0]
+                                },
+                                {
+                                    reference: 'componentGlyph',
+                                    transform: [1, 0, 0, 1, 120, 720]
+                                }
+                            ],
+                            anchors: [
+                                { name: 'top', x: 270, y: 900 },
+                                { name: 'bottom', x: 270, y: 0 }
+                            ],
+                            guides: [{ pos: { x: 0, y: 760 }, angle: 0 }]
+                        }
+                    ]
                 }
             ],
             names: {
@@ -3139,6 +3169,7 @@ describe('OutlineEditor per-layer selection memory', () => {
                     { contourIndex: 0, nodeIndex: 2 }
                 ],
                 anchors: [0],
+                anchorNames: ['top'],
                 components: [1],
                 guideHandle: null
             });
@@ -3225,6 +3256,92 @@ describe('OutlineEditor per-layer selection memory', () => {
         ]);
         expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
         expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+    });
+
+    test("entering a nested component restores that glyph's stored selection from earlier root editing", async () => {
+        const glyphSelectedHandler =
+            canvas.textRunEditor.callbacks.glyphselected[0];
+        const cloneLayerData = (layer) =>
+            JSON.parse(JSON.stringify(layer.toJSON()));
+        const masterLayerA = font.findGlyph('A').findLayerById('master-layer');
+        const masterLayerAdieresis = font
+            .findGlyph('adieresis')
+            .findLayerById('master-layer');
+        let selectedGlyphName = 'A';
+        const makeNestedComponentLayerData = () => ({
+            id: masterLayerA.id,
+            width: masterLayerA.width,
+            master: masterLayerA.master,
+            shapes: JSON.parse(JSON.stringify(masterLayerA.shapes)),
+            anchors: [
+                { name: 'bottom', x: 250, y: 0 },
+                { name: 'top', x: 250, y: 700 }
+            ],
+            guides: []
+        });
+
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 500, dx: 0, dy: 0, g: 0 },
+            { ax: 540, dx: 0, dy: 0, g: 2 }
+        ];
+        canvas.getCurrentGlyphName = jest.fn(() => selectedGlyphName);
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.outlineEditor.fetchLayerData = jest.fn(async () => {
+            const glyph = font.findGlyph(selectedGlyphName);
+            const currentLayer = glyph.findLayerById(
+                canvas.outlineEditor.selectedLayerId
+            );
+            const nextLayerData = cloneLayerData(currentLayer);
+            if (selectedGlyphName === 'adieresis') {
+                nextLayerData.shapes[0].layerData =
+                    makeNestedComponentLayerData();
+            }
+            canvas.outlineEditor.assignLayerData(nextLayerData);
+            canvas.outlineEditor.currentGlyphName =
+                canvas.outlineEditor.parseGlyphStack().at(-1)?.glyphName ||
+                selectedGlyphName;
+        });
+        canvas.doUIUpdateAsync = jest.fn(async () => {
+            await canvas.outlineEditor.autoSelectMatchingLayer();
+        });
+        canvas.updateComponentBreadcrumb = jest.fn();
+        canvas.updatePropertiesUI = jest.fn(async () => {
+            await canvas.outlineEditor.autoSelectMatchingLayer();
+        });
+        canvas.render = jest.fn();
+
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = masterLayerA.id;
+        canvas.outlineEditor.glyphStack = `A@${masterLayerA.id}`;
+        canvas.outlineEditor.layerData = cloneLayerData(masterLayerA);
+        canvas.outlineEditor.selectedPoints = [];
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.selectedComponents = [];
+
+        selectedGlyphName = 'adieresis';
+        canvas.textRunEditor.selectedGlyphIndex = 1;
+        await glyphSelectedHandler(1, 0, true);
+        canvas.outlineEditor.layerData.shapes[0].layerData =
+            makeNestedComponentLayerData();
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe(
+            masterLayerAdieresis.id
+        );
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
+
+        await canvas.outlineEditor.enterComponentEditing(0);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(canvas.outlineEditor.glyphStack).toBe(
+            `adieresis@${masterLayerAdieresis.id}>0:A@${masterLayerAdieresis.id}`
+        );
+        expect(canvas.outlineEditor.currentGlyphName).toBe('A');
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([1]);
+        expect(canvas.outlineEditor.selectedPoints).toEqual([]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([]);
     });
 
     test('first click of double-clicking another glyph does not clear the current glyph selection', () => {

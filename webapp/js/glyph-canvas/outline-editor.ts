@@ -30,6 +30,7 @@ type SidebearingHandle = { side: SidebearingSide };
 type LayerSelectionState = {
     points: Point[];
     anchors: number[];
+    anchorNames: string[];
     components: number[];
     guideHandle: GuideHandle | null;
 };
@@ -287,6 +288,19 @@ export class OutlineEditor {
 
     private getCurrentLayerModel(): any | null {
         const layerId = this.getCurrentLayerId();
+        if (!layerId) {
+            return null;
+        }
+
+        const glyph = this.getCurrentGlyphModel();
+        if (!glyph) {
+            return null;
+        }
+
+        return glyph.findLayerById?.(layerId) || null;
+    }
+
+    private getSelectionScopeLayerModel(layerId: string | null): any | null {
         if (!layerId) {
             return null;
         }
@@ -571,11 +585,58 @@ export class OutlineEditor {
         previousLayer: Babelfont.Layer | null,
         nextLayer: Babelfont.Layer | null
     ): number[] {
+        const selectedAnchorNames = this.getAnchorNamesForSelectionIndices(
+            this.selectedAnchors,
+            previousLayer?.anchors || []
+        );
+
+        if (selectedAnchorNames.length) {
+            return this.remapAnchorSelectionNames(
+                selectedAnchorNames,
+                nextLayer?.anchors || []
+            );
+        }
+
         return this.remapAnchorSelectionIndices(
             this.selectedAnchors,
             previousLayer?.anchors || [],
             nextLayer?.anchors || []
         );
+    }
+
+    private getAnchorNamesForSelectionIndices(
+        selectedAnchorIndices: number[],
+        anchors: Array<any>
+    ): string[] {
+        return selectedAnchorIndices
+            .map((index) => anchors[index]?.name)
+            .filter((name): name is string => typeof name === 'string');
+    }
+
+    private remapAnchorSelectionNames(
+        selectedAnchorNames: string[],
+        nextAnchors: Array<any>
+    ): number[] {
+        if (!selectedAnchorNames.length || !nextAnchors.length) {
+            return [];
+        }
+
+        const used = new Set<number>();
+        const mapped: number[] = [];
+
+        for (const anchorName of selectedAnchorNames) {
+            const match = nextAnchors.findIndex(
+                (anchor, index) =>
+                    !used.has(index) && (anchor?.name || '') === anchorName
+            );
+
+            if (match >= 0) {
+                used.add(match);
+                mapped.push(match);
+            }
+        }
+
+        return mapped;
     }
 
     private remapAnchorSelectionIndices(
@@ -676,29 +737,57 @@ export class OutlineEditor {
         return {
             points: (state?.points || []).map((point) => ({ ...point })),
             anchors: [...(state?.anchors || [])],
+            anchorNames: [...(state?.anchorNames || [])],
             components: [...(state?.components || [])],
             guideHandle: state?.guideHandle ? { ...state.guideHandle } : null
         };
     }
 
+    private getCurrentSelectionAnchorSource(): Array<any> {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (Array.isArray(currentLayerData?.anchors)) {
+            return currentLayerData.anchors;
+        }
+
+        return this.getCurrentLayerModel()?.anchors || [];
+    }
+
     private getCurrentSelectionState(): LayerSelectionState {
+        const anchors = this.getCurrentSelectionAnchorSource();
         return this.cloneSelectionState({
             points: this.selectedPoints,
             anchors: this.selectedAnchors,
+            anchorNames: this.getAnchorNamesForSelectionIndices(
+                this.selectedAnchors,
+                anchors
+            ),
             components: this.selectedComponents,
             guideHandle: this.selectedGuideHandle
         });
     }
 
+    private getActiveSelectionScopeGlyphName(): string | null {
+        const parsed = this.parseGlyphStack();
+        if (parsed.length > 0) {
+            return parsed[parsed.length - 1].glyphName;
+        }
+
+        return this.currentGlyphName || this.glyphCanvas.getCurrentGlyphName();
+    }
+
     private getLayerSelectionStorageKey(layer: any): string | null {
-        const layerId = layer?.id;
+        const resolvedLayer = this.resolveLayerModel(layer);
+        const layerId = resolvedLayer?.id || layer?.id;
         if (!layerId) {
             return null;
         }
 
         const parentGlyph =
-            typeof layer.parent === 'function' ? layer.parent() : null;
-        const glyphName = parentGlyph?.name;
+            typeof resolvedLayer?.parent === 'function'
+                ? resolvedLayer.parent()
+                : null;
+        const glyphName =
+            parentGlyph?.name || this.getActiveSelectionScopeGlyphName();
         return glyphName ? `${glyphName}@${layerId}` : String(layerId);
     }
 
@@ -709,6 +798,38 @@ export class OutlineEditor {
                 ? resolvedLayer.parent()
                 : null;
         return parentGlyph?.name || null;
+    }
+
+    private getAnchorsForSelectionLayer(layer: any): Array<any> {
+        const resolvedLayer = this.resolveLayerModel(layer);
+        const currentLayer = this.getCurrentLayerModel();
+        const currentGlyphName = this.getActiveSelectionScopeGlyphName();
+        const targetGlyphName = this.getLayerGlyphName(resolvedLayer);
+
+        if (
+            resolvedLayer?.id &&
+            currentLayer?.id === resolvedLayer.id &&
+            currentGlyphName &&
+            (!targetGlyphName || targetGlyphName === currentGlyphName)
+        ) {
+            const currentLayerData = this.getCurrentLayerDataFromStack();
+            if (Array.isArray(currentLayerData?.anchors)) {
+                return currentLayerData.anchors;
+            }
+        }
+
+        return resolvedLayer?.anchors || layer?.anchors || [];
+    }
+
+    private getSelectionStateAnchorNames(
+        state: LayerSelectionState,
+        anchors: Array<any>
+    ): string[] {
+        if (state.anchorNames?.length) {
+            return [...state.anchorNames];
+        }
+
+        return this.getAnchorNamesForSelectionIndices(state.anchors, anchors);
     }
 
     private canTransferSelectionBetweenLayers(
@@ -811,12 +932,26 @@ export class OutlineEditor {
             return null;
         }
 
+        const previousAnchors = this.getAnchorsForSelectionLayer(previousLayer);
+        const nextAnchors = this.getAnchorsForSelectionLayer(nextLayer);
+        const anchorNames = this.getSelectionStateAnchorNames(
+            state,
+            previousAnchors
+        );
+        const anchors = anchorNames.length
+            ? this.remapAnchorSelectionNames(anchorNames, nextAnchors)
+            : this.remapAnchorSelectionIndices(
+                  state.anchors,
+                  previousAnchors,
+                  nextAnchors
+              );
+
         return this.cloneSelectionState({
             points: state.points,
-            anchors: this.remapAnchorSelectionIndices(
-                state.anchors,
-                previousLayer?.anchors || [],
-                nextLayer?.anchors || []
+            anchors,
+            anchorNames: this.getAnchorNamesForSelectionIndices(
+                anchors,
+                nextAnchors
             ),
             components: state.components,
             guideHandle: state.guideHandle
@@ -839,7 +974,7 @@ export class OutlineEditor {
         layer: any
     ): LayerSelectionState {
         const shapes = layer?.shapes || [];
-        const anchors = layer?.anchors || [];
+        const anchors = this.getAnchorsForSelectionLayer(layer);
         const guides = layer?.guides || [];
         const normalizedState = this.cloneSelectionState(state);
 
@@ -852,9 +987,14 @@ export class OutlineEditor {
                 nodeIndex < this.getNodeCountForShape(shapes[contourIndex])
         );
 
-        const anchorSelection = normalizedState.anchors.filter(
-            (index) => index >= 0 && index < anchors.length
-        );
+        const anchorSelection = normalizedState.anchorNames.length
+            ? this.remapAnchorSelectionNames(
+                  normalizedState.anchorNames,
+                  anchors
+              )
+            : normalizedState.anchors.filter(
+                  (index) => index >= 0 && index < anchors.length
+              );
 
         const componentSelection = normalizedState.components.filter(
             (index) =>
@@ -880,6 +1020,10 @@ export class OutlineEditor {
         return {
             points,
             anchors: anchorSelection,
+            anchorNames: this.getAnchorNamesForSelectionIndices(
+                anchorSelection,
+                anchors
+            ),
             components: componentSelection,
             guideHandle: guideHandle ? { ...guideHandle } : null
         };
@@ -3762,10 +3906,6 @@ export class OutlineEditor {
         // Clear previous state when explicitly selecting a layer
         this.escapeState.clear();
         const previousLayer = this.getCurrentLayerModel();
-        const nextSelectionState = this.getSelectionStateForLayerTransition(
-            previousLayer,
-            layer
-        );
 
         console.log(
             `[OutlineEditor] selectLayer called with layer:`,
@@ -3809,6 +3949,15 @@ export class OutlineEditor {
             const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
             this.buildGlyphStack(rootGlyphName, layer.id!, []);
         }
+
+        const selectionTargetLayer =
+            this.isEditingComponent() && layer.id
+                ? this.getSelectionScopeLayerModel(layer.id) || layer
+                : layer;
+        const nextSelectionState = this.getSelectionStateForLayerTransition(
+            previousLayer,
+            selectionTargetLayer
+        );
 
         // Capture anchor point before layer switch animation begins
         this.captureAutoPanAnchor();
@@ -3858,7 +4007,10 @@ export class OutlineEditor {
             this.glyphCanvas.renderSuppressed = false;
         }
 
-        this.applySelectionStateForLayer(nextSelectionState, layer);
+        this.applySelectionStateForLayer(
+            nextSelectionState,
+            selectionTargetLayer
+        );
 
         // Find the userspace location for this layer
         const targetUserspaceLocation = this.getUserspaceLocationForLayer(
@@ -3989,8 +4141,9 @@ export class OutlineEditor {
 
     async autoSelectMatchingLayer(): Promise<void> {
         const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
-        const previousLayer =
-            this.getTransitionPreviousLayerModel(rootGlyphName);
+        const previousLayer = this.isEditingComponent()
+            ? this.getCurrentLayerModel()
+            : this.getTransitionPreviousLayerModel(rootGlyphName);
 
         console.log('[OutlineEditor] autoSelectMatchingLayer called', {
             active: this.active,
@@ -4006,10 +4159,6 @@ export class OutlineEditor {
             console.log(
                 '[OutlineEditor]',
                 `  ✓ MATCH found: layer ${matchingLayer.id}`
-            );
-            const nextSelectionState = this.getSelectionStateForLayerTransition(
-                previousLayer,
-                matchingLayer
             );
             // Found a matching layer - select it
             this.selectedLayerId = matchingLayer.id || null;
@@ -4030,6 +4179,16 @@ export class OutlineEditor {
                 this.buildGlyphStack(rootGlyphName, matchingLayer.id!, []);
             }
 
+            const selectionTargetLayer =
+                this.isEditingComponent() && matchingLayer.id
+                    ? this.getSelectionScopeLayerModel(matchingLayer.id) ||
+                      matchingLayer
+                    : matchingLayer;
+            const nextSelectionState = this.getSelectionStateForLayerTransition(
+                previousLayer,
+                selectionTargetLayer
+            );
+
             // Don't clear previous state - keep it to allow Escape to restore
             // The previous state is only cleared in selectLayer() when explicitly clicking a layer
             console.log('Keeping previous state for Escape functionality');
@@ -4043,7 +4202,10 @@ export class OutlineEditor {
                 this.performHitDetection(null);
             }
 
-            this.applySelectionStateForLayer(nextSelectionState, matchingLayer);
+            this.applySelectionStateForLayer(
+                nextSelectionState,
+                selectionTargetLayer
+            );
 
             // Clear the interpolating flag and render to display the new outlines
             this.isInterpolating = false;
@@ -4566,6 +4728,11 @@ export class OutlineEditor {
             `[EnterComponent] Entering component: ${componentShape.reference}, index: ${componentIndex}`
         );
 
+        const previousLayer = this.getCurrentLayerModel();
+        if (previousLayer) {
+            this.storeSelectionStateForLayer(previousLayer);
+        }
+
         // Get component transform
         const transform = componentShape.transform || [1, 0, 0, 1, 0, 0];
 
@@ -4612,6 +4779,14 @@ export class OutlineEditor {
         // DON'T set layerData to component data - keep it as root!
         // The renderer will use getCurrentLayerDataFromStack() to get the right data
 
+        const nextLayer = this.getCurrentLayerModel();
+        if (nextLayer) {
+            this.applySelectionStateForLayer(
+                this.getStoredSelectionStateForLayer(nextLayer),
+                nextLayer
+            );
+        }
+
         console.log(
             `[EnterComponent] Entered component: ${editingGlyphName}, stack depth: ${this.getComponentDepth()}`
         );
@@ -4643,6 +4818,11 @@ export class OutlineEditor {
 
         if (!this.isEditingComponent()) {
             return false; // Not in component mode
+        }
+
+        const previousLayer = this.getCurrentLayerModel();
+        if (previousLayer) {
+            this.storeSelectionStateForLayer(previousLayer);
         }
 
         // Update glyph_stack by removing the last component
@@ -4678,6 +4858,14 @@ export class OutlineEditor {
         } else {
             // Back to root level
             this.currentGlyphName = this.glyphCanvas.getCurrentGlyphName();
+        }
+
+        const nextLayer = this.getCurrentLayerModel();
+        if (nextLayer) {
+            this.applySelectionStateForLayer(
+                this.getStoredSelectionStateForLayer(nextLayer),
+                nextLayer
+            );
         }
 
         console.log(
