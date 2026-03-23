@@ -2,6 +2,10 @@ import type { HistoryStackItem } from './change-log';
 
 export type SidebearingSide = 'left' | 'right';
 
+type SidebearingLayerSnapshot = {
+    width: number;
+};
+
 type SidebearingVisualTarget = {
     viewportManager?: {
         panX: number;
@@ -13,6 +17,9 @@ type SidebearingVisualTarget = {
             options?: { render?: boolean }
         ): boolean;
     } | null;
+    syncCurrentOutlineLayerDataFromModel?(
+        layer: SidebearingLayerSnapshot
+    ): void;
 };
 
 export function getSidebearingTransactionLabel(side: SidebearingSide): string {
@@ -96,4 +103,28 @@ export function applyLiveSidebearingVisualSync(
         );
 
     return { widthDelta, advancesRefreshed };
+}
+
+export function syncModelSidebearingEditToCanvas(
+    target: SidebearingVisualTarget,
+    options: {
+        layer: SidebearingLayerSnapshot;
+        glyphName?: string | null;
+        side: SidebearingSide;
+        previousWidth: number;
+        render?: boolean;
+    }
+): {
+    widthDelta: number;
+    advancesRefreshed: boolean;
+} {
+    target.syncCurrentOutlineLayerDataFromModel?.(options.layer);
+
+    return applyLiveSidebearingVisualSync(target, {
+        glyphName: options.glyphName,
+        side: options.side,
+        previousWidth: options.previousWidth,
+        nextWidth: options.layer.width,
+        render: options.render
+    });
 }

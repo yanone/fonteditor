@@ -20,6 +20,7 @@ import {
     getSidebearingTransactionLabel,
     type SidebearingSide
 } from '../sidebearing-utils';
+import { translateLayerContentsX } from '../x-translation-utils';
 
 let console: Logger = new Logger('OutlineEditor');
 
@@ -2725,53 +2726,56 @@ export class OutlineEditor {
         const previousWidth = currentLayerData.width;
 
         if (side === 'left') {
-            for (const shape of currentLayerData.shapes || []) {
-                const pathData = getPathShapeData(shape);
-                if (
-                    pathData &&
-                    typeof pathData === 'object' &&
-                    'nodes' in pathData &&
-                    pathData.nodes
-                ) {
-                    if (typeof pathData.nodes === 'string') {
-                        pathData.nodes = LayerDataNormalizer.parseNodes(
-                            pathData.nodes
-                        );
-                    }
+            translateLayerContentsX(
+                {
+                    shapes: currentLayerData.shapes || [],
+                    anchors: currentLayerData.anchors || [],
+                    getPathNodes: (shape) => {
+                        const pathData = getPathShapeData(shape);
+                        if (
+                            !pathData ||
+                            typeof pathData !== 'object' ||
+                            !('nodes' in pathData) ||
+                            !pathData.nodes
+                        ) {
+                            return null;
+                        }
 
-                    for (const node of pathData.nodes as Babelfont.Node[]) {
-                        node.x += sidebearingDelta;
-                    }
-                    continue;
-                }
-
-                const componentData = getComponentShapeData(shape);
-                if (
-                    componentData &&
-                    typeof componentData === 'object' &&
-                    'reference' in componentData
-                ) {
-                    if (!componentData.transform) {
-                        componentData.transform = identityDecomposed();
-                    } else if (Array.isArray(componentData.transform)) {
-                        componentData.transform =
-                            DecomposedAffineTransform.fromAffine(
-                                componentData.transform
+                        if (typeof pathData.nodes === 'string') {
+                            pathData.nodes = LayerDataNormalizer.parseNodes(
+                                pathData.nodes
                             );
-                    }
+                        }
 
-                    const transform =
-                        componentData.transform as Babelfont.DecomposedAffine;
-                    if (!transform.translation) {
-                        transform.translation = [0, 0];
-                    }
-                    transform.translation[0] += sidebearingDelta;
-                }
-            }
+                        return pathData.nodes as Babelfont.Node[];
+                    },
+                    getOrCreateComponentTransform: (shape) => {
+                        const componentData = getComponentShapeData(shape);
+                        if (
+                            !componentData ||
+                            typeof componentData !== 'object' ||
+                            !('reference' in componentData)
+                        ) {
+                            return null;
+                        }
 
-            for (const anchor of currentLayerData.anchors || []) {
-                anchor.x += sidebearingDelta;
-            }
+                        if (!componentData.transform) {
+                            componentData.transform = identityDecomposed();
+                        } else if (Array.isArray(componentData.transform)) {
+                            componentData.transform =
+                                DecomposedAffineTransform.fromAffine(
+                                    componentData.transform
+                                );
+                        }
+
+                        return componentData.transform as Babelfont.DecomposedAffine;
+                    },
+                    shiftAnchor: (anchor, deltaX) => {
+                        anchor.x += deltaX;
+                    }
+                },
+                sidebearingDelta
+            );
         }
 
         currentLayerData.width =

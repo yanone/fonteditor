@@ -1060,6 +1060,122 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         expect(canvas.outlineEditor.layerData.width).toBe(499);
         expect(canvas.viewportManager.panX).toBe(102);
     });
+
+    test('setSidebearingValue shifts component-backed layers through transform translation', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'base-layer',
+                            width: 300,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Line' },
+                                        { x: 300, y: 0, nodetype: 'Line' },
+                                        { x: 300, y: 700, nodetype: 'Line' },
+                                        { x: 0, y: 700, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'Aacute',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    reference: 'A',
+                                    transform: [1, 0, 0, 1, 100, 0]
+                                }
+                            ],
+                            anchors: [{ x: 120, y: 50 }],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Sidebearing Component Test' }
+            },
+            note: '',
+            date: '2026-03-23',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+
+        canvas.viewportManager.scale = 2;
+        canvas.viewportManager.panX = 100;
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-1'
+            },
+            shapes: [
+                {
+                    reference: 'A',
+                    transform: [1, 0, 0, 1, 100, 0]
+                }
+            ],
+            anchors: [{ x: 120, y: 50 }],
+            guides: [],
+            isInterpolated: false
+        };
+
+        expect(canvas.outlineEditor.setSidebearingValue('left', 80)).toBe(true);
+        expect(
+            canvas.outlineEditor.layerData.shapes[0].transform.translation[0]
+        ).toBe(80);
+        expect(canvas.outlineEditor.layerData.anchors[0].x).toBe(100);
+        expect(canvas.outlineEditor.layerData.width).toBe(480);
+        expect(canvas.viewportManager.panX).toBe(140);
+    });
 });
 
 // ==================== Selection Tests ====================

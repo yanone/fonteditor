@@ -22,7 +22,10 @@ import { timelineMark } from './perf-timeline';
 import { SavedVariationState } from './saved-variation-state';
 import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
 import { LayerDataNormalizer } from './layer-data-normalizer';
-import { applyLiveSidebearingVisualSync } from './sidebearing-utils';
+import {
+    applyLiveSidebearingVisualSync,
+    syncModelSidebearingEditToCanvas
+} from './sidebearing-utils';
 import { getUndoRedoContext } from './undo-redo-context';
 
 let console: Logger = new Logger('GlyphCanvas');
@@ -2530,13 +2533,11 @@ class GlyphCanvas {
         const glyphName = this.getCurrentGlyphName();
         const usesIncrementalLayerRefresh = resolution.updateScope === 'layer';
 
-        this.syncCurrentOutlineLayerDataFromModel(layer);
-
-        const { advancesRefreshed } = applyLiveSidebearingVisualSync(this, {
+        const { advancesRefreshed } = syncModelSidebearingEditToCanvas(this, {
+            layer,
             glyphName,
             side,
             previousWidth,
-            nextWidth: layer.width,
             render: false
         });
 

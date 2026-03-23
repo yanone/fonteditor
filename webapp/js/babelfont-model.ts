@@ -20,6 +20,11 @@ import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
 import type { ChangeBridge } from './change-bridge';
 import {
+    getSidebearingTransactionLabel,
+    type SidebearingSide
+} from './sidebearing-utils';
+import { translateLayerContentsX } from './x-translation-utils';
+import {
     interpolate_glyph,
     store_font
 } from '../wasm-dist/babelfont_fontc_web';
@@ -53,8 +58,6 @@ type GuideData = {
     color?: Babelfont.Color;
     format_specific?: Record<string, Unsafe>;
 };
-
-type SidebearingSide = 'left' | 'right';
 
 type MetricsKeyResolution = {
     input: string;
@@ -2232,30 +2235,30 @@ export class Layer extends ArrayElementBase {
 
             withSuppressedMetricsKeyRecompute(() => {
                 withSuppressedModelRecording(() => {
-                    for (const shape of this.shapes || []) {
-                        if (shape.isPath()) {
-                            for (const node of shape.asPath().nodes) {
-                                node.x += offset;
-                            }
-                            continue;
-                        }
+                    translateLayerContentsX(
+                        {
+                            shapes: this.shapes || [],
+                            anchors: this.anchors || [],
+                            getPathNodes: (shape) =>
+                                shape.isPath() ? shape.asPath().nodes : null,
+                            getOrCreateComponentTransform: (shape) => {
+                                if (!shape.isComponent()) {
+                                    return null;
+                                }
 
-                        if (shape.isComponent()) {
-                            const component = shape.asComponent();
-                            if (!component.transform) {
-                                component.transform =
-                                    DecomposedAffineTransform.identity();
+                                const component = shape.asComponent();
+                                if (!component.transform) {
+                                    component.transform =
+                                        DecomposedAffineTransform.identity();
+                                }
+                                return component.transform;
+                            },
+                            shiftAnchor: (anchor, deltaX) => {
+                                anchor.x += deltaX;
                             }
-                            if (!component.transform.translation) {
-                                component.transform.translation = [0, 0];
-                            }
-                            component.transform.translation[0] += offset;
-                        }
-                    }
-
-                    for (const anchor of this.anchors || []) {
-                        anchor.x += offset;
-                    }
+                        },
+                        offset
+                    );
 
                     const bbox = this.getBoundingBox(false);
                     this.width = bbox
@@ -2582,7 +2585,7 @@ export class Layer extends ArrayElementBase {
         rawValue: string
     ): MetricsKeyResolution {
         const input = rawValue.trim();
-        const label = side === 'left' ? 'Set LSB' : 'Set RSB';
+        const label = getSidebearingTransactionLabel(side);
         const glyphName = (this.parent() as Glyph)?.name;
         const isPlainNumericInput = isPlainNumericText(input);
         const forceLocal = input.startsWith('==');
@@ -2750,7 +2753,7 @@ export class Layer extends ArrayElementBase {
      * @param value - The new left sidebearing value
      */
     set lsb(value: number) {
-        withBridgeTransaction('Set LSB', () => {
+        withBridgeTransaction(getSidebearingTransactionLabel('left'), () => {
             this.setDirectSidebearing('left', value);
             this.getFont()?.recomputeMetricsKeys(
                 new Set([(this.parent() as Glyph)?.name].filter(Boolean))
@@ -2772,7 +2775,7 @@ export class Layer extends ArrayElementBase {
      * @param value - The new right sidebearing value
      */
     set rsb(value: number) {
-        withBridgeTransaction('Set RSB', () => {
+        withBridgeTransaction(getSidebearingTransactionLabel('right'), () => {
             this.setDirectSidebearing('right', value);
             this.getFont()?.recomputeMetricsKeys(
                 new Set([(this.parent() as Glyph)?.name].filter(Boolean))

@@ -17,7 +17,7 @@ import { fontCompilation } from './font-compilation';
 import { Logger } from './logger';
 import type { HistoryStackItem } from './change-log';
 import {
-    applyLiveSidebearingVisualSync,
+    syncModelSidebearingEditToCanvas,
     inferSidebearingSideFromHistoryItem
 } from './sidebearing-utils';
 
@@ -227,12 +227,11 @@ function applyImmediateUndoSidebearingSync(
         return;
     }
 
-    gc.syncCurrentOutlineLayerDataFromModel?.(layer);
-    applyLiveSidebearingVisualSync(gc, {
+    syncModelSidebearingEditToCanvas(gc, {
+        layer,
         glyphName: editedGlyphName,
         side,
         previousWidth,
-        nextWidth: layer.width,
         render: false
     });
     gc.updatePropertyPanel?.();
