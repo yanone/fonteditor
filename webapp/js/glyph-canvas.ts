@@ -278,6 +278,12 @@ class GlyphCanvas {
 
         // Keyboard events for cursor and text input
         this.canvas!.addEventListener('keydown', (e) => {
+            if (this.shouldBlockTextEditingDuringLoopAnimation(e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
             console.log(
                 'keydown:',
                 e.key,
@@ -305,6 +311,12 @@ class GlyphCanvas {
             this.onKeyDown(e);
         });
         this.canvas!.addEventListener('keyup', (e) => {
+            if (this.shouldBlockTextEditingDuringLoopAnimation(e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
             console.log(
                 'keyup:',
                 e.key,
@@ -594,6 +606,27 @@ class GlyphCanvas {
 
         return false;
     }
+
+    shouldBlockTextEditingDuringLoopAnimation(e: KeyboardEvent): boolean {
+        if (!this.axesManager?.isLoopAnimating || this.outlineEditor.active) {
+            return false;
+        }
+
+        if (e.metaKey || e.ctrlKey) {
+            return false;
+        }
+
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+            return true;
+        }
+
+        if (e.code === 'Space') {
+            return true;
+        }
+
+        return e.key.length === 1;
+    }
+
     setupAxesManagerEventHandlers(): void {
         this.axesManager!.on('sliderMouseDown', async () => {
             // Ensure a full compile (with features/kerning) exists before
