@@ -163,6 +163,217 @@ function findFontForModelObject(
     return null;
 }
 
+type SelectableLayerObject = Node | Anchor | Component | Guide;
+
+type OutlineEditorSelectionPoint = {
+    contourIndex: number;
+    nodeIndex: number;
+};
+
+type OutlineEditorGuideHandle = {
+    scope: 'master' | 'layer';
+    index: number;
+};
+
+type OutlineEditorSelectionController = {
+    active?: boolean;
+    selectedPoints?: OutlineEditorSelectionPoint[];
+    selectedAnchors?: number[];
+    selectedComponents?: number[];
+    selectedGuideHandle?: OutlineEditorGuideHandle | null;
+    selectedSidebearingHandle?: unknown;
+    selectedLayerId?: string | null;
+    glyphCanvas?: {
+        updatePropertyPanel?: () => void;
+        render?: () => void;
+    };
+    getCurrentLayerModel?: () => Layer | null;
+    getCurrentGlyphModel?: () => Glyph | null;
+    getCurrentLayerId?: () => string | null;
+    getRootMasterModel?: () => Master | null;
+};
+
+function getOutlineEditorSelectionController(): OutlineEditorSelectionController | null {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    const outlineEditor = (window as Unsafe).glyphCanvas?.outlineEditor;
+    if (!outlineEditor?.active) {
+        return null;
+    }
+
+    return outlineEditor as OutlineEditorSelectionController;
+}
+
+function arePathsEqual(
+    left: (string | number)[],
+    right: (string | number)[]
+): boolean {
+    if (left.length !== right.length) {
+        return false;
+    }
+
+    return left.every((segment, index) => segment === right[index]);
+}
+
+function areSameModelObject(
+    left: ModelBase | null | undefined,
+    right: ModelBase | null | undefined
+): boolean {
+    if (!left || !right) {
+        return left === right;
+    }
+
+    if (left === right) {
+        return true;
+    }
+
+    const leftFont = findFontForModelObject(left);
+    const rightFont = findFontForModelObject(right);
+    if (leftFont && rightFont && leftFont !== rightFont) {
+        return false;
+    }
+
+    return arePathsEqual(left.getPath(), right.getPath());
+}
+
+function getPathIndex(modelObj: ModelBase, segmentName: string): number | null {
+    const path = modelObj.getPath();
+    for (let index = path.length - 2; index >= 0; index--) {
+        if (path[index] !== segmentName) {
+            continue;
+        }
+
+        const nextSegment = path[index + 1];
+        if (typeof nextSegment === 'number') {
+            return nextSegment;
+        }
+    }
+
+    return null;
+}
+
+function getLayerForSelectableObject(value: unknown): Layer | null {
+    if (value instanceof Anchor) {
+        const parent = value.parent();
+        return parent instanceof Layer ? parent : null;
+    }
+
+    if (value instanceof Guide) {
+        const parent = value.parent();
+        return parent instanceof Layer ? parent : null;
+    }
+
+    if (value instanceof Component) {
+        const parentShape = value.parent();
+        const parentLayer =
+            parentShape instanceof Shape ? parentShape.parent() : null;
+        return parentLayer instanceof Layer ? parentLayer : null;
+    }
+
+    if (value instanceof Node) {
+        const parentPath = value.parent();
+        if (parentPath instanceof Path) {
+            const pathParent = parentPath.parent();
+            if (pathParent instanceof Layer) {
+                return pathParent;
+            }
+            if (pathParent instanceof Shape) {
+                const parentLayer = pathParent.parent();
+                return parentLayer instanceof Layer ? parentLayer : null;
+            }
+        }
+    }
+
+    return null;
+}
+
+function getCurrentOutlineEditorLayer(
+    outlineEditor: OutlineEditorSelectionController
+): Layer | null {
+    const currentLayer = outlineEditor.getCurrentLayerModel?.();
+    return currentLayer instanceof Layer ? currentLayer : null;
+}
+
+function getCurrentOutlineEditorGlyph(
+    outlineEditor: OutlineEditorSelectionController
+): Glyph | null {
+    const currentGlyph = outlineEditor.getCurrentGlyphModel?.();
+    return currentGlyph instanceof Glyph ? currentGlyph : null;
+}
+
+function isLayerActiveInOutlineEditor(
+    layer: Layer,
+    outlineEditor: OutlineEditorSelectionController
+): boolean {
+    const currentLayer = getCurrentOutlineEditorLayer(outlineEditor);
+    if (currentLayer) {
+        return areSameModelObject(layer, currentLayer);
+    }
+
+    const currentLayerId =
+        outlineEditor.getCurrentLayerId?.() ??
+        outlineEditor.selectedLayerId ??
+        null;
+    if (!currentLayerId || layer.id !== currentLayerId) {
+        return false;
+    }
+
+    const currentGlyph = getCurrentOutlineEditorGlyph(outlineEditor);
+    const layerGlyph = layer.parent();
+    if (currentGlyph instanceof Glyph && layerGlyph instanceof Glyph) {
+        return areSameModelObject(currentGlyph, layerGlyph);
+    }
+
+    return true;
+}
+
+function isMasterActiveInOutlineEditor(
+    master: Master,
+    outlineEditor: OutlineEditorSelectionController
+): boolean {
+    const rootMaster = outlineEditor.getRootMasterModel?.();
+    return (
+        rootMaster instanceof Master && areSameModelObject(master, rootMaster)
+    );
+}
+
+function refreshOutlineEditorSelectionUi(
+    outlineEditor: OutlineEditorSelectionController
+): void {
+    outlineEditor.glyphCanvas?.updatePropertyPanel?.();
+    outlineEditor.glyphCanvas?.render?.();
+}
+
+function assertOutlineEditorSelectionMutationAllowed(
+    layer: Layer,
+    outlineEditor: OutlineEditorSelectionController | null,
+    nextSelection: SelectableLayerObject[]
+): OutlineEditorSelectionController {
+    if (!outlineEditor) {
+        if (nextSelection.length === 0) {
+            return null as never;
+        }
+
+        throw new Error(
+            'Cannot update UI selection while outline editing is inactive.'
+        );
+    }
+
+    if (!isLayerActiveInOutlineEditor(layer, outlineEditor)) {
+        if (nextSelection.length === 0) {
+            return outlineEditor;
+        }
+
+        throw new Error(
+            'Cannot update selection on a layer that is not the active outline-editor layer.'
+        );
+    }
+
+    return outlineEditor;
+}
+
 function locationsMatch(
     left: DesignspaceLocation | undefined,
     right: DesignspaceLocation | undefined,
@@ -1365,6 +1576,46 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
         return ['nodes', this._index];
     }
 
+    /** Whether this node is selected in the active outline editor. */
+    get selected(): boolean {
+        const outlineEditor = getOutlineEditorSelectionController();
+        const layer = getLayerForSelectableObject(this);
+        const contourIndex = getPathIndex(this, 'shapes');
+        const nodeIndex = getPathIndex(this, 'nodes');
+        if (
+            !outlineEditor ||
+            !layer ||
+            contourIndex === null ||
+            nodeIndex === null ||
+            !isLayerActiveInOutlineEditor(layer, outlineEditor)
+        ) {
+            return false;
+        }
+
+        return (outlineEditor.selectedPoints || []).some(
+            (point) =>
+                point.contourIndex === contourIndex &&
+                point.nodeIndex === nodeIndex
+        );
+    }
+
+    set selected(value: boolean) {
+        const layer = getLayerForSelectableObject(this);
+        if (!layer) {
+            return;
+        }
+
+        const currentSelection = layer.selection;
+        if (value) {
+            layer.selection = [...currentSelection, this];
+            return;
+        }
+
+        layer.selection = currentSelection.filter(
+            (item) => !areSameModelObject(item, this)
+        );
+    }
+
     get x(): number {
         return this.data.x;
     }
@@ -1695,6 +1946,40 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         return ['shapes', this._index];
     }
 
+    /** Whether this component is selected in the active outline editor. */
+    get selected(): boolean {
+        const outlineEditor = getOutlineEditorSelectionController();
+        const layer = getLayerForSelectableObject(this);
+        const shapeIndex = getPathIndex(this, 'shapes');
+        if (
+            !outlineEditor ||
+            !layer ||
+            shapeIndex === null ||
+            !isLayerActiveInOutlineEditor(layer, outlineEditor)
+        ) {
+            return false;
+        }
+
+        return (outlineEditor.selectedComponents || []).includes(shapeIndex);
+    }
+
+    set selected(value: boolean) {
+        const layer = getLayerForSelectableObject(this);
+        if (!layer) {
+            return;
+        }
+
+        const currentSelection = layer.selection;
+        if (value) {
+            layer.selection = [...currentSelection, this];
+            return;
+        }
+
+        layer.selection = currentSelection.filter(
+            (item) => !areSameModelObject(item, this)
+        );
+    }
+
     get reference(): string {
         return this.data.reference;
     }
@@ -1905,6 +2190,40 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
         return ['anchors', this._index];
     }
 
+    /** Whether this anchor is selected in the active outline editor. */
+    get selected(): boolean {
+        const outlineEditor = getOutlineEditorSelectionController();
+        const layer = this.parent();
+        const anchorIndex = getPathIndex(this, 'anchors');
+        if (
+            !outlineEditor ||
+            !(layer instanceof Layer) ||
+            anchorIndex === null ||
+            !isLayerActiveInOutlineEditor(layer, outlineEditor)
+        ) {
+            return false;
+        }
+
+        return (outlineEditor.selectedAnchors || []).includes(anchorIndex);
+    }
+
+    set selected(value: boolean) {
+        const layer = this.parent();
+        if (!(layer instanceof Layer)) {
+            return;
+        }
+
+        const currentSelection = layer.selection;
+        if (value) {
+            layer.selection = [...currentSelection, this];
+            return;
+        }
+
+        layer.selection = currentSelection.filter(
+            (item) => !areSameModelObject(item, this)
+        );
+    }
+
     get x(): number {
         return this.data.x;
     }
@@ -1962,6 +2281,100 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
 export class Guide extends ArrayElementBase<GuideData, Layer | Master> {
     getPathSegment(): (string | number)[] {
         return ['guides', this._index];
+    }
+
+    /** Whether this guide is selected in the active outline editor. */
+    get selected(): boolean {
+        const outlineEditor = getOutlineEditorSelectionController();
+        const guideIndex = getPathIndex(this, 'guides');
+        const parent = this.parent();
+        if (!outlineEditor || guideIndex === null) {
+            return false;
+        }
+
+        const selectedGuide = outlineEditor.selectedGuideHandle;
+        if (!selectedGuide) {
+            return false;
+        }
+
+        if (parent instanceof Layer) {
+            return (
+                selectedGuide.scope === 'layer' &&
+                selectedGuide.index === guideIndex &&
+                isLayerActiveInOutlineEditor(parent, outlineEditor)
+            );
+        }
+
+        if (parent instanceof Master) {
+            return (
+                selectedGuide.scope === 'master' &&
+                selectedGuide.index === guideIndex &&
+                isMasterActiveInOutlineEditor(parent, outlineEditor)
+            );
+        }
+
+        return false;
+    }
+
+    set selected(value: boolean) {
+        const outlineEditor = getOutlineEditorSelectionController();
+        const guideIndex = getPathIndex(this, 'guides');
+        const parent = this.parent();
+
+        if (guideIndex === null) {
+            return;
+        }
+
+        if (!value) {
+            if (this.selected && outlineEditor) {
+                outlineEditor.selectedGuideHandle = null;
+                refreshOutlineEditorSelectionUi(outlineEditor);
+            }
+            return;
+        }
+
+        if (!outlineEditor) {
+            throw new Error(
+                'Cannot update UI selection while outline editing is inactive.'
+            );
+        }
+
+        if (parent instanceof Layer) {
+            if (!isLayerActiveInOutlineEditor(parent, outlineEditor)) {
+                throw new Error(
+                    'Cannot update selection on a layer that is not the active outline-editor layer.'
+                );
+            }
+
+            outlineEditor.selectedPoints = [];
+            outlineEditor.selectedAnchors = [];
+            outlineEditor.selectedComponents = [];
+            outlineEditor.selectedSidebearingHandle = null;
+            outlineEditor.selectedGuideHandle = {
+                scope: 'layer',
+                index: guideIndex
+            };
+            refreshOutlineEditorSelectionUi(outlineEditor);
+            return;
+        }
+
+        if (parent instanceof Master) {
+            if (!isMasterActiveInOutlineEditor(parent, outlineEditor)) {
+                throw new Error(
+                    'Cannot update selection on a master guide that is not active in the outline editor.'
+                );
+            }
+
+            outlineEditor.selectedPoints = [];
+            outlineEditor.selectedAnchors = [];
+            outlineEditor.selectedComponents = [];
+            outlineEditor.selectedSidebearingHandle = null;
+            outlineEditor.selectedGuideHandle = {
+                scope: 'master',
+                index: guideIndex
+            };
+            refreshOutlineEditorSelectionUi(outlineEditor);
+        }
     }
 
     get pos(): Babelfont.Position {
@@ -2118,6 +2531,200 @@ export class Layer extends ArrayElementBase {
     private _shapeWrappers: Shape[] | null = null;
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
+
+    private getSelectionSnapshotFromOutlineEditor(
+        outlineEditor: OutlineEditorSelectionController
+    ): SelectableLayerObject[] {
+        if (!isLayerActiveInOutlineEditor(this, outlineEditor)) {
+            return [];
+        }
+
+        const selection: SelectableLayerObject[] = [];
+        const shapes = this.shapes || [];
+        const anchors = this.anchors || [];
+        const guides = this.guides || [];
+
+        for (const point of outlineEditor.selectedPoints || []) {
+            const shape = shapes[point.contourIndex];
+            if (!shape?.isPath()) {
+                continue;
+            }
+
+            const node = shape.asPath().nodes[point.nodeIndex];
+            if (node) {
+                selection.push(node);
+            }
+        }
+
+        for (const anchorIndex of outlineEditor.selectedAnchors || []) {
+            const anchor = anchors[anchorIndex];
+            if (anchor) {
+                selection.push(anchor);
+            }
+        }
+
+        for (const componentIndex of outlineEditor.selectedComponents || []) {
+            const shape = shapes[componentIndex];
+            if (shape?.isComponent()) {
+                selection.push(shape.asComponent());
+            }
+        }
+
+        if (outlineEditor.selectedGuideHandle?.scope === 'layer') {
+            const guide = guides[outlineEditor.selectedGuideHandle.index];
+            if (guide) {
+                selection.push(guide);
+            }
+        }
+
+        return selection;
+    }
+
+    private normalizeSelectionInput(
+        value:
+            | SelectableLayerObject
+            | SelectableLayerObject[]
+            | null
+            | undefined
+    ): SelectableLayerObject[] {
+        const normalized =
+            value === null || value === undefined
+                ? []
+                : Array.isArray(value)
+                  ? value
+                  : [value];
+
+        const dedupedSelection: SelectableLayerObject[] = [];
+        const seenPaths = new Set<string>();
+
+        for (const item of normalized) {
+            if (
+                !(item instanceof Node) &&
+                !(item instanceof Anchor) &&
+                !(item instanceof Component) &&
+                !(item instanceof Guide)
+            ) {
+                throw new Error(
+                    'Layer.selection only accepts nodes, anchors, components, and layer guides.'
+                );
+            }
+
+            const objectLayer = getLayerForSelectableObject(item);
+            if (!objectLayer || !areSameModelObject(objectLayer, this)) {
+                throw new Error(
+                    'Layer.selection can only contain objects that belong to this layer.'
+                );
+            }
+
+            if (item instanceof Guide && !(item.parent() instanceof Layer)) {
+                throw new Error(
+                    'Layer.selection only accepts layer guides, not master guides.'
+                );
+            }
+
+            const objectPath = item.getPath().join('/');
+            if (seenPaths.has(objectPath)) {
+                continue;
+            }
+
+            seenPaths.add(objectPath);
+            dedupedSelection.push(item);
+        }
+
+        const guideCount = dedupedSelection.filter(
+            (item) => item instanceof Guide
+        ).length;
+        if (guideCount > 1) {
+            throw new Error('Layer.selection can contain at most one guide.');
+        }
+
+        if (guideCount === 1 && dedupedSelection.length > 1) {
+            throw new Error(
+                'Guide selection cannot be combined with nodes, anchors, or components.'
+            );
+        }
+
+        return dedupedSelection;
+    }
+
+    private applySelectionToOutlineEditor(
+        selection: SelectableLayerObject[]
+    ): void {
+        const outlineEditor = assertOutlineEditorSelectionMutationAllowed(
+            this,
+            getOutlineEditorSelectionController(),
+            selection
+        );
+
+        if (!outlineEditor) {
+            return;
+        }
+
+        const selectedPoints: OutlineEditorSelectionPoint[] = [];
+        const selectedAnchors: number[] = [];
+        const selectedComponents: number[] = [];
+        let selectedGuideHandle: OutlineEditorGuideHandle | null = null;
+
+        for (const item of selection) {
+            if (item instanceof Node) {
+                const contourIndex = getPathIndex(item, 'shapes');
+                const nodeIndex = getPathIndex(item, 'nodes');
+                if (contourIndex === null || nodeIndex === null) {
+                    continue;
+                }
+
+                selectedPoints.push({ contourIndex, nodeIndex });
+                continue;
+            }
+
+            if (item instanceof Anchor) {
+                const anchorIndex = getPathIndex(item, 'anchors');
+                if (anchorIndex !== null) {
+                    selectedAnchors.push(anchorIndex);
+                }
+                continue;
+            }
+
+            if (item instanceof Component) {
+                const componentIndex = getPathIndex(item, 'shapes');
+                if (componentIndex !== null) {
+                    selectedComponents.push(componentIndex);
+                }
+                continue;
+            }
+
+            if (item instanceof Guide) {
+                const guideIndex = getPathIndex(item, 'guides');
+                if (guideIndex !== null) {
+                    selectedGuideHandle = { scope: 'layer', index: guideIndex };
+                }
+            }
+        }
+
+        outlineEditor.selectedPoints = selectedPoints;
+        outlineEditor.selectedAnchors = selectedAnchors;
+        outlineEditor.selectedComponents = selectedComponents;
+        outlineEditor.selectedGuideHandle = selectedGuideHandle;
+        outlineEditor.selectedSidebearingHandle = null;
+        refreshOutlineEditorSelectionUi(outlineEditor);
+    }
+
+    _getSelectionSnapshotForPython(): SelectableLayerObject[] {
+        const outlineEditor = getOutlineEditorSelectionController();
+        return outlineEditor
+            ? this.getSelectionSnapshotFromOutlineEditor(outlineEditor)
+            : [];
+    }
+
+    _setSelectionFromPython(
+        value:
+            | SelectableLayerObject
+            | SelectableLayerObject[]
+            | null
+            | undefined
+    ): void {
+        this.applySelectionToOutlineEditor(this.normalizeSelectionInput(value));
+    }
 
     private getFilteredShapes<T extends Path | Component>(
         predicate: (shape: Shape) => boolean,
@@ -2895,6 +3502,32 @@ export class Layer extends ArrayElementBase {
             this._guideWrappers!,
             'Layer.guides is a read-only collection view. Use addGuide() or removeGuide() for structural edits.'
         );
+    }
+
+    /**
+     * Current UI selection on this layer.
+     * Assign a node, anchor, component, guide, or a list of them to replace the selection.
+     */
+    get selection(): SelectableLayerObject[] {
+        const outlineEditor = getOutlineEditorSelectionController();
+        const selection = outlineEditor
+            ? this.getSelectionSnapshotFromOutlineEditor(outlineEditor)
+            : [];
+
+        return getReadOnlyCollectionValue(
+            selection,
+            'Layer.selection is a derived UI selection view. Assign a new selection list to change it.'
+        );
+    }
+
+    set selection(
+        value:
+            | SelectableLayerObject
+            | SelectableLayerObject[]
+            | null
+            | undefined
+    ) {
+        this._setSelectionFromPython(value);
     }
 
     get shapes(): Shape[] | undefined {

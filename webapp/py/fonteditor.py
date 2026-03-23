@@ -177,6 +177,26 @@ def _wrap_js_value(value, owner_class_name=None, attr_name=None):
     return value
 
 
+def _unwrap_layer_selection_value(value):
+    if value is None:
+        items = []
+    elif isinstance(value, LayerSelectionProxy):
+        items = [item for item in value]
+    elif isinstance(value, LiveListProxy):
+        items = [value[i] for i in range(len(value))]
+    elif isinstance(value, pyodide.ffi.JsProxy) and _is_js_array(value):
+        return value
+    elif isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
+        items = [value]
+
+    return pyodide.ffi.to_js(
+        [_unwrap_py_value(item) for item in items],
+        dict_converter=js.Object.fromEntries,
+    )
+
+
 class LiveDictProxy(MutableMapping):
     def __init__(self, js_obj):
         object.__setattr__(self, '_js_obj', js_obj)
@@ -298,11 +318,109 @@ class LiveListProxy(MutableSequence):
         return self.__repr__()
 
 
+class LayerSelectionProxy:
+    def __init__(self, layer_js_obj):
+        self._layer_js_obj = layer_js_obj
+
+    def _get_selection(self):
+        getter = getattr(self._layer_js_obj, '_getSelectionSnapshotForPython', None)
+        if getter is not None:
+            return getter()
+        return getattr(self._layer_js_obj, 'selection')
+
+    def _replace(self, items):
+        setter = getattr(self._layer_js_obj, '_setSelectionFromPython', None)
+        unwrapped_items = _unwrap_layer_selection_value(items)
+        if setter is not None:
+            setter(unwrapped_items)
+            return
+        setattr(self._layer_js_obj, 'selection', unwrapped_items)
+
+    def __len__(self):
+        return int(self._get_selection().length)
+
+    def __getitem__(self, index):
+        selection = self._get_selection()
+        if isinstance(index, slice):
+            start, stop, step = index.indices(len(self))
+            return [self[i] for i in range(start, stop, step)]
+        return _wrap_js_value(_js_get(selection, index))
+
+    def __setitem__(self, index, value):
+        current = self[:]
+        if isinstance(index, slice):
+            current[index] = list(value)
+        else:
+            current[index] = value
+        self._replace(current)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
+    def __delitem__(self, index):
+        current = self[:]
+        del current[index]
+        self._replace(current)
+
+    def insert(self, index, value):
+        current = self[:]
+        current.insert(index, value)
+        self._replace(current)
+
+    def append(self, value):
+        self.insert(len(self), value)
+
+    def extend(self, values):
+        current = self[:]
+        current.extend(list(values))
+        self._replace(current)
+
+    def clear(self):
+        self._replace([])
+
+    def pop(self, index=-1):
+        current = self[:]
+        value = current.pop(index)
+        self._replace(current)
+        return value
+
+    def remove(self, value):
+        current = self[:]
+        for index, item in enumerate(current):
+            same_object = (
+                item is value
+                or (
+                    isinstance(item, ModelObjectProxy)
+                    and isinstance(value, ModelObjectProxy)
+                    and item._js_obj is value._js_obj
+                )
+            )
+            if same_object:
+                del current[index]
+                self._replace(current)
+                return
+        raise ValueError('LayerSelectionProxy.remove(x): x not in selection')
+
+    def to_py(self):
+        return list(self)
+
+    def __repr__(self):
+        return repr(list(self))
+
+    def __str__(self):
+        return self.__repr__()
+
+
 class ModelObjectProxy:
     def __init__(self, js_obj):
         object.__setattr__(self, '_js_obj', js_obj)
 
     def __getattr__(self, name):
+        owner_class_name = _get_constructor_name(self._js_obj)
+        if owner_class_name == 'Layer' and name == 'selection':
+            return LayerSelectionProxy(self._js_obj)
+
         raw = getattr(self._js_obj, name)
         if callable(raw):
             def method(*args, **kwargs):
@@ -313,12 +431,14 @@ class ModelObjectProxy:
                 return _wrap_js_value(result)
 
             return method
-
-        owner_class_name = _get_constructor_name(self._js_obj)
         return _wrap_js_value(raw, owner_class_name, name)
 
     def __setattr__(self, name, value):
         owner_class_name = _get_constructor_name(self._js_obj)
+        if owner_class_name == 'Layer' and name == 'selection':
+            setattr(self._js_obj, name, _unwrap_layer_selection_value(value))
+            return
+
         dict_fields = _DICT_LIKE_FIELDS_BY_CLASS.get(owner_class_name, set())
         if name in dict_fields and not _is_mapping_assignment_value(value):
             value_type = type(value).__name__
@@ -331,6 +451,9 @@ class ModelObjectProxy:
 
     def __getitem__(self, key):
         owner_class_name = _get_constructor_name(self._js_obj)
+        if owner_class_name == 'Layer' and key == 'selection':
+            return LayerSelectionProxy(self._js_obj)
+
         attr_name = key if isinstance(key, str) else None
         return _wrap_js_value(_js_get(self._js_obj, key), owner_class_name, attr_name)
 

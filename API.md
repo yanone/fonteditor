@@ -321,6 +321,8 @@ layer = glyph.layers[0]
 - **`id`** (str | None)
 - **`master`** (Babelfont.LayerType | None)
 - **`smart_component_location`** (UserspaceLocation | None)
+- **`selection`** (list[SelectableLayerObject]): Current UI selection on this layer.
+Assign a node, anchor, component, guide, or a list of them to replace the selection.
 - **`color`** (Babelfont.Color | None)
 - **`layer_index`** (float | int | None)
 - **`is_background`** (bool | None)
@@ -368,7 +370,7 @@ component = layer.addComponent("A")
 component = layer.addComponent("acutecomb", [1, 0, 0, 1, 250, 500])
 ```
 
-#### `removeShape(index: float | int) -> None`
+#### `removeShape(shapeOrIndex: float | int | [Shape](#shape) | [Path](#path) | [Component](#component)) -> None`
 Remove a shape at the specified index
 
 #### `addAnchor(x: float | int, y: float | int, name: str | None = None) -> [Anchor](#anchor)`
@@ -519,6 +521,7 @@ node = path.nodes[0]
 
 All properties are read/write:
 
+- **`selected`** (bool): Whether this node is selected in the active outline editor.
 - **`x`** (float | int)
 - **`y`** (float | int)
 - **`nodetype`** (Babelfont.NodeType)
@@ -544,6 +547,7 @@ component = layer.components[0]
 
 All properties are read/write:
 
+- **`selected`** (bool): Whether this component is selected in the active outline editor.
 - **`reference`** (str)
 - **`transform`** (Babelfont.DecomposedAffine)
 - **`location`** (DesignspaceLocation | None)
@@ -577,6 +581,7 @@ anchor = layer.anchors[0]
 
 All properties are read/write:
 
+- **`selected`** (bool): Whether this anchor is selected in the active outline editor.
 - **`x`** (float | int)
 - **`y`** (float | int)
 - **`name`** (str | None)
@@ -604,6 +609,7 @@ guide = master.guides[0]
 
 All properties are read/write:
 
+- **`selected`** (bool): Whether this guide is selected in the active outline editor.
 - **`pos`** (Babelfont.Position)
 - **`name`** (str | None)
 - **`color`** (Babelfont.Color | None)

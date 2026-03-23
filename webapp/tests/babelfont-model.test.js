@@ -1781,4 +1781,278 @@ describe('Babelfont Object Model', () => {
             expect(bbox.height).toBeCloseTo(150, 5);
         });
     });
+
+    describe('Layer selection accessors', () => {
+        let selectionFont;
+        let selectionLayer;
+        let otherLayer;
+        let selectionGlyph;
+        let outlineEditor;
+        let originalGlyphCanvas;
+        let originalCurrentFontModel;
+
+        function makeSelectionTestFont() {
+            return Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: { en: 'Regular' },
+                        location: {},
+                        guides: [
+                            {
+                                pos: { x: 50, y: 60, angle: 0 },
+                                name: 'master-guide'
+                            }
+                        ],
+                        metrics: {},
+                        kerning: {}
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'layer-1',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        Component: {
+                                            reference: 'B',
+                                            transform: {
+                                                translation: [10, 20],
+                                                scale: [1, 1],
+                                                rotation: 0,
+                                                skew: [0, 0],
+                                                order: 'RestOfTheWorld'
+                                            }
+                                        }
+                                    },
+                                    {
+                                        nodes: [
+                                            {
+                                                x: 100,
+                                                y: 200,
+                                                nodetype: 'Line'
+                                            }
+                                        ],
+                                        closed: false
+                                    }
+                                ],
+                                anchors: [
+                                    { x: 300, y: 400, name: 'top' },
+                                    { x: 320, y: 420, name: 'bottom' }
+                                ],
+                                guides: [
+                                    {
+                                        pos: { x: 15, y: 25, angle: 0 },
+                                        name: 'layer-guide'
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        name: 'B',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'layer-2',
+                                width: 400,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            {
+                                                x: 10,
+                                                y: 20,
+                                                nodetype: 'Line'
+                                            }
+                                        ],
+                                        closed: false
+                                    }
+                                ],
+                                anchors: [{ x: 40, y: 50, name: 'other' }],
+                                guides: [
+                                    {
+                                        pos: { x: 5, y: 10, angle: 0 },
+                                        name: 'other-guide'
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                names: { family_name: { en: 'Selection Test' } },
+                note: '',
+                date: '2026-03-23',
+                features: {},
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+        }
+
+        beforeEach(() => {
+            selectionFont = makeSelectionTestFont();
+            selectionGlyph = selectionFont.findGlyph('A');
+            selectionLayer = selectionGlyph.layers[0];
+            otherLayer = selectionFont.findGlyph('B').layers[0];
+
+            originalGlyphCanvas = window.glyphCanvas;
+            originalCurrentFontModel = window.currentFontModel;
+            window.currentFontModel = selectionFont;
+
+            outlineEditor = {
+                active: true,
+                selectedPoints: [{ contourIndex: 1, nodeIndex: 0 }],
+                selectedAnchors: [0],
+                selectedComponents: [0],
+                selectedGuideHandle: null,
+                selectedSidebearingHandle: { side: 'left' },
+                glyphCanvas: {
+                    updatePropertyPanel: jest.fn(),
+                    render: jest.fn()
+                },
+                getCurrentLayerModel: jest.fn(() => selectionLayer),
+                getCurrentGlyphModel: jest.fn(() => selectionGlyph),
+                getCurrentLayerId: jest.fn(() => selectionLayer.id),
+                getRootMasterModel: jest.fn(() =>
+                    selectionFont.findMaster('master-1')
+                )
+            };
+
+            window.glyphCanvas = { outlineEditor };
+        });
+
+        afterEach(() => {
+            window.glyphCanvas = originalGlyphCanvas;
+            window.currentFontModel = originalCurrentFontModel;
+        });
+
+        test('reflects selected state for nodes, anchors, and components', () => {
+            const node = selectionLayer.paths[0].nodes[0];
+            const anchor = selectionLayer.anchors[0];
+            const component = selectionLayer.components[0];
+
+            expect(node.selected).toBe(true);
+            expect(anchor.selected).toBe(true);
+            expect(component.selected).toBe(true);
+
+            outlineEditor.selectedAnchors = [1];
+
+            expect(anchor.selected).toBe(false);
+            expect(selectionLayer.anchors[1].selected).toBe(true);
+        });
+
+        test('updates outline-editor selection arrays when toggling object.selected', () => {
+            const node = selectionLayer.paths[0].nodes[0];
+            const anchor = selectionLayer.anchors[1];
+
+            outlineEditor.selectedPoints = [];
+            outlineEditor.selectedAnchors = [];
+            outlineEditor.selectedComponents = [];
+            outlineEditor.selectedSidebearingHandle = { side: 'right' };
+
+            node.selected = true;
+
+            expect(outlineEditor.selectedPoints).toEqual([
+                { contourIndex: 1, nodeIndex: 0 }
+            ]);
+            expect(outlineEditor.selectedSidebearingHandle).toBeNull();
+            expect(
+                outlineEditor.glyphCanvas.updatePropertyPanel
+            ).toHaveBeenCalled();
+            expect(outlineEditor.glyphCanvas.render).toHaveBeenCalled();
+
+            outlineEditor.glyphCanvas.updatePropertyPanel.mockClear();
+            outlineEditor.glyphCanvas.render.mockClear();
+
+            anchor.selected = true;
+            expect(outlineEditor.selectedAnchors).toEqual([1]);
+
+            anchor.selected = false;
+            expect(outlineEditor.selectedAnchors).toEqual([]);
+            expect(
+                outlineEditor.glyphCanvas.updatePropertyPanel
+            ).toHaveBeenCalled();
+            expect(outlineEditor.glyphCanvas.render).toHaveBeenCalled();
+        });
+
+        test('maps guide selection through the outline editor and clears incompatible selection state', () => {
+            const guide = selectionLayer.guides[0];
+
+            guide.selected = true;
+
+            expect(outlineEditor.selectedPoints).toEqual([]);
+            expect(outlineEditor.selectedAnchors).toEqual([]);
+            expect(outlineEditor.selectedComponents).toEqual([]);
+            expect(outlineEditor.selectedGuideHandle).toEqual({
+                scope: 'layer',
+                index: 0
+            });
+            expect(guide.selected).toBe(true);
+
+            guide.selected = false;
+            expect(outlineEditor.selectedGuideHandle).toBeNull();
+        });
+
+        test('exposes and replaces layer.selection as the current UI selection snapshot', () => {
+            const node = selectionLayer.paths[0].nodes[0];
+            const anchor = selectionLayer.anchors[1];
+            const component = selectionLayer.components[0];
+
+            const initialSelection = selectionLayer.selection;
+            expect(initialSelection).toHaveLength(3);
+            expect(initialSelection[0].selected).toBe(true);
+            expect(initialSelection[1]).toBe(selectionLayer.anchors[0]);
+            expect(initialSelection[2].reference).toBe(component.reference);
+            expect(initialSelection[2].selected).toBe(true);
+
+            selectionLayer.selection = [anchor, component];
+
+            expect(outlineEditor.selectedPoints).toEqual([]);
+            expect(outlineEditor.selectedAnchors).toEqual([1]);
+            expect(outlineEditor.selectedComponents).toEqual([0]);
+            expect(outlineEditor.selectedGuideHandle).toBeNull();
+
+            selectionLayer.selection = node;
+            expect(outlineEditor.selectedPoints).toEqual([
+                { contourIndex: 1, nodeIndex: 0 }
+            ]);
+            expect(outlineEditor.selectedAnchors).toEqual([]);
+            expect(outlineEditor.selectedComponents).toEqual([]);
+        });
+
+        test('rejects selection objects that do not belong to this layer', () => {
+            expect(() => {
+                selectionLayer.selection = [otherLayer.anchors[0]];
+            }).toThrow(/belong to this layer/);
+        });
+
+        test('rejects guide combinations that the UI cannot represent', () => {
+            const guide = selectionLayer.guides[0];
+            const anchor = selectionLayer.anchors[0];
+
+            expect(() => {
+                selectionLayer.selection = [guide, anchor];
+            }).toThrow(/Guide selection cannot be combined/);
+        });
+    });
 });
