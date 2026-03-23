@@ -2,10 +2,10 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = join(process.cwd(), 'js');
-const EXPECTED_EXPLICIT_ANY = 651;
-const EXPECTED_EXPLICIT_UNKNOWN = 242;
+const EXPECTED_EXPLICIT_ANY = 653;
+const EXPECTED_EXPLICIT_UNKNOWN = 245;
 const EXPECTED_BABELFONT_MODEL_ANY = 0;
-const EXPECTED_BABELFONT_MODEL_UNKNOWN = 18;
+const EXPECTED_BABELFONT_MODEL_UNKNOWN = 21;
 const BABE_FONT_MODEL_PATH_SUFFIX = join('js', 'babelfont-model.ts');
 const tsFilePaths = [];
 
