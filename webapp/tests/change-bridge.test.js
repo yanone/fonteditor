@@ -282,6 +282,7 @@ const GENERIC_ACCESSOR_TEST_EXCLUSIONS = new Set([
 const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
     'anchors',
     'axes',
+    'components',
     'data',
     'glyphs',
     'guides',
@@ -290,6 +291,7 @@ const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
     'lsb',
     'masters',
     'nodes',
+    'paths',
     'rsb',
     'shapes'
 ]);
