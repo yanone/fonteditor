@@ -2728,6 +2728,38 @@ export class Layer extends ArrayElementBase {
         return font.findMaster(layerMaster.master);
     }
 
+    getComputedName(): string {
+        const isIntermediateLayer =
+            this.master?.type === 'AssociatedWithMaster' &&
+            !!this.location &&
+            Object.keys(this.location).length > 0;
+
+        if (isIntermediateLayer) {
+            return 'Intermediate Layer';
+        }
+
+        const master = this.getMaster();
+        if (!master) {
+            return this.name && this.name.trim() !== '' ? this.name : 'Default';
+        }
+
+        const masterName = master.toJSON().name;
+        if (typeof masterName === 'string') {
+            return masterName;
+        }
+        if (masterName?.dflt) {
+            return masterName.dflt;
+        }
+        if (masterName?.en) {
+            return masterName.en;
+        }
+
+        const firstName = Object.values(masterName || {}).find(
+            (value) => typeof value === 'string'
+        );
+        return typeof firstName === 'string' ? firstName : 'Default';
+    }
+
     get width(): number {
         return this.data.width;
     }

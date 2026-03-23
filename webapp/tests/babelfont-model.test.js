@@ -315,6 +315,86 @@ describe('Babelfont Object Model', () => {
             expect(typeof layer.width).toBe('number');
         });
 
+        test('getComputedName returns Intermediate Layer for intermediate layers', () => {
+            const testFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [
+                    {
+                        name: { en: 'Weight' },
+                        tag: 'wght',
+                        min: 0,
+                        default: 0,
+                        max: 100,
+                        map: [
+                            [0, 0],
+                            [100, 100]
+                        ]
+                    }
+                ],
+                instances: [],
+                masters: [
+                    {
+                        id: 'master-1',
+                        name: { en: 'Regular' },
+                        location: { wght: 0 },
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'A',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                id: 'default-layer',
+                                width: 500,
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [],
+                                anchors: [],
+                                guides: []
+                            },
+                            {
+                                id: 'intermediate-layer',
+                                name: '{50}',
+                                width: 520,
+                                master: {
+                                    type: 'AssociatedWithMaster',
+                                    master: 'master-1'
+                                },
+                                location: { wght: 50 },
+                                shapes: [],
+                                anchors: [],
+                                guides: []
+                            }
+                        ]
+                    }
+                ],
+                names: { family_name: { en: 'Computed Layer Name Test' } },
+                note: '',
+                date: '2026-03-23',
+                features: {},
+                first_kern_groups: {},
+                second_kern_groups: {},
+                custom_ot_values: [],
+                variation_sequences: [],
+                format_specific: {}
+            });
+
+            const glyph = testFont.findGlyph('A');
+
+            expect(glyph.layers[0].getComputedName()).toBe('Regular');
+            expect(glyph.layers[1].getComputedName()).toBe(
+                'Intermediate Layer'
+            );
+        });
+
         test('should have shapes array', () => {
             if (layer.shapes) {
                 expect(Array.isArray(layer.shapes)).toBe(true);

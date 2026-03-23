@@ -5107,6 +5107,10 @@ flex-direction: row;
     color: var(--text-primary);
 }
 
+.master-item-name-intermediate {
+    font-style: italic;
+}
+
 .master-item-location {
     font-family: var(--font-families-mono);
     font-size: 9px;

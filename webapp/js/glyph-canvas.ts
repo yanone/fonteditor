@@ -1739,7 +1739,8 @@ class GlyphCanvas {
             layer: Layer | undefined,
             displayName: string,
             axisValues: string,
-            inactiveIfMissing: boolean
+            inactiveIfMissing: boolean,
+            italicizeName: boolean = false
         ): HTMLDivElement => {
             const item = document.createElement('div');
             item.className = 'editor-layer-item sidebar-item';
@@ -1761,6 +1762,9 @@ class GlyphCanvas {
 
             const nameSpan = document.createElement('div');
             nameSpan.className = 'master-item-name';
+            if (italicizeName) {
+                nameSpan.classList.add('master-item-name-intermediate');
+            }
             nameSpan.textContent = displayName;
             item.appendChild(nameSpan);
 
@@ -1809,7 +1813,7 @@ class GlyphCanvas {
                         : null;
 
             let defaultLayer: Layer | undefined;
-            let braceLayers: Layer[] = [];
+            let intermediateLayers: Layer[] = [];
 
             if (isEditMode) {
                 defaultLayer = glyphLayers.find((layer) => {
@@ -1823,7 +1827,7 @@ class GlyphCanvas {
                     );
                 });
 
-                braceLayers = glyphLayers.filter((layer) => {
+                intermediateLayers = glyphLayers.filter((layer) => {
                     const layerMaster = layer.master;
                     return (
                         layerMaster &&
@@ -1846,18 +1850,15 @@ class GlyphCanvas {
             );
             mastersList.appendChild(masterItem);
 
-            if (isEditMode && braceLayers.length > 0) {
-                for (const braceLayer of braceLayers) {
-                    const braceName =
-                        braceLayer.name && braceLayer.name.trim() !== ''
-                            ? braceLayer.name
-                            : 'Brace';
+            if (isEditMode && intermediateLayers.length > 0) {
+                for (const intermediateLayer of intermediateLayers) {
                     const braceItem = createLayerItem(
                         master,
-                        braceLayer,
-                        braceName,
-                        formatAxisValues(braceLayer.location),
-                        false
+                        intermediateLayer,
+                        intermediateLayer.getComputedName(),
+                        formatAxisValues(intermediateLayer.location),
+                        false,
+                        true
                     );
                     mastersList.appendChild(braceItem);
                 }

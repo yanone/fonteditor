@@ -2320,6 +2320,7 @@ describe('GlyphCanvas property panel', () => {
 describe('OutlineEditor exact selected layers', () => {
     let canvas;
     let currentFontSpy;
+    let fetchGlyphDataSpy;
     let interpolateSpy;
 
     const makeComponentFont = () =>
@@ -2458,6 +2459,14 @@ describe('OutlineEditor exact selected layers', () => {
         currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue({ fontModel: makeComponentFont() });
+        fetchGlyphDataSpy = jest
+            .spyOn(fontManager, 'fetchGlyphData')
+            .mockResolvedValue({
+                glyphName: 'A',
+                layers: makeComponentFont()
+                    .findGlyph('A')
+                    .layers.map((layer) => layer.toJSON())
+            });
         canvas.getCurrentGlyphName = jest.fn(() => 'A');
         interpolateSpy = jest
             .spyOn(fontInterpolation, 'interpolateGlyph')
@@ -2490,6 +2499,7 @@ describe('OutlineEditor exact selected layers', () => {
 
     afterEach(() => {
         interpolateSpy.mockRestore();
+        fetchGlyphDataSpy.mockRestore();
         currentFontSpy.mockRestore();
         canvas.destroy();
     });
@@ -2526,6 +2536,29 @@ describe('OutlineEditor exact selected layers', () => {
             });
         }
     );
+
+    test('renders intermediate layers as italic Intermediate Layer labels in the layers list', async () => {
+        const targetContainer = document.createElement('div');
+        canvas.outlineEditor.active = true;
+
+        await canvas.displayMastersList(targetContainer);
+
+        const intermediateName = targetContainer.querySelector(
+            '.editor-layer-item[data-layer-id="brace-layer"] .master-item-name'
+        );
+        const defaultName = targetContainer.querySelector(
+            '.editor-layer-item[data-layer-id="master-layer"] .master-item-name'
+        );
+
+        expect(intermediateName).toBeTruthy();
+        expect(intermediateName.textContent).toBe('Intermediate Layer');
+        expect(
+            intermediateName.classList.contains('master-item-name-intermediate')
+        ).toBe(true);
+        expect(
+            defaultName.classList.contains('master-item-name-intermediate')
+        ).toBe(false);
+    });
 });
 
 // ==================== Keyboard Interaction Tests ====================
