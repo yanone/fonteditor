@@ -1444,7 +1444,13 @@ describe('ChangeBridge', () => {
         expect(layer1bItems).toHaveLength(1);
         expect(layer1Items[0].undoScope).toBe('glyph');
 
-        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'glyph',
+                glyphName: 'A',
+                layerId: null
+            })
+        );
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -1464,7 +1470,13 @@ describe('ChangeBridge', () => {
             ])
         ).toBe(620);
 
-        expect(bridge.redo('A', 'layer-1')).toBe(true);
+        expect(bridge.redo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'glyph',
+                glyphName: 'A',
+                layerId: null
+            })
+        );
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -1581,7 +1593,13 @@ describe('Transactions', () => {
         expect(layerItems[0].undoScope).toBe('layer');
         expect(layerItems[0].entries).toHaveLength(2);
 
-        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'layer',
+                glyphName: 'A',
+                layerId: 'layer-1'
+            })
+        );
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -1689,7 +1707,13 @@ describe('Transactions', () => {
         expect(layer1Items[0].undoScope).toBe('glyph');
         expect(layer1bItems[0].undoScope).toBe('glyph');
 
-        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'glyph',
+                glyphName: 'A',
+                layerId: null
+            })
+        );
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -1903,7 +1927,13 @@ describe('Model mutable getter change recording', () => {
             'features.prefixes.global.code'
         );
 
-        expect(bridge.undo(undefined, null, 'prefix:global')).toBe(true);
+        expect(bridge.undo(undefined, null, 'prefix:global')).toEqual(
+            expect.objectContaining({
+                scope: 'font',
+                glyphName: null,
+                layerId: null
+            })
+        );
         expect(normalizeYValue(getYPath(bridge.fontMap, ['note']))).toBe(
             'note-changed'
         );
@@ -2143,10 +2173,15 @@ describe('Model collection mutator change recording', () => {
 
         const log = bridge.getChangeLog();
 
-        expect(log).toHaveLength(6);
+        expect(log).toHaveLength(3);
         expect(new Set(log.map((entry) => entry.transactionLabel))).toEqual(
             new Set(['Set LSB'])
         );
+        expect(log.map((entry) => entry.path)).toEqual([
+            'glyphs.A.layers.layer-1.shapes',
+            'glyphs.A.layers.layer-1.anchors',
+            'glyphs.A.layers.layer-1.width'
+        ]);
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -2313,13 +2348,13 @@ describe('Undo / Redo', () => {
 
     test('undo returns false when nothing to undo', () => {
         const { bridge } = createTestBridge('test-1');
-        expect(bridge.undo()).toBe(false);
-        expect(bridge.undo('nonexistent')).toBe(false);
+        expect(bridge.undo()).toBeNull();
+        expect(bridge.undo('nonexistent')).toBeNull();
     });
 
     test('redo returns false when nothing to redo', () => {
         const { bridge } = createTestBridge('test-1');
-        expect(bridge.redo()).toBe(false);
+        expect(bridge.redo()).toBeNull();
     });
 });
 
@@ -2698,7 +2733,13 @@ describe('syncGlyphFromJson', () => {
             ])
         ).toBe(750);
 
-        expect(bridge.undo()).toBe(true);
+        expect(bridge.undo()).toEqual(
+            expect.objectContaining({
+                scope: 'font',
+                glyphName: null,
+                layerId: null
+            })
+        );
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -2718,7 +2759,13 @@ describe('syncGlyphFromJson', () => {
             ])
         ).toBe(650);
 
-        expect(bridge.redo()).toBe(true);
+        expect(bridge.redo()).toEqual(
+            expect.objectContaining({
+                scope: 'font',
+                glyphName: null,
+                layerId: null
+            })
+        );
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -2813,7 +2860,13 @@ describe('syncGlyphFromJson', () => {
         bridge.syncGlyphFromJson('A', 'Drag', undefined, undefined, 'layer-1');
 
         expect(bridge.canUndo('A', 'layer-1')).toBe(true);
-        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'layer',
+                glyphName: 'A',
+                layerId: 'layer-1'
+            })
+        );
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -2825,7 +2878,13 @@ describe('syncGlyphFromJson', () => {
         ).toBe(600);
 
         expect(bridge.canRedo('A', 'layer-1')).toBe(true);
-        expect(bridge.redo('A', 'layer-1')).toBe(true);
+        expect(bridge.redo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'layer',
+                glyphName: 'A',
+                layerId: 'layer-1'
+            })
+        );
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -2899,7 +2958,13 @@ describe('syncGlyphFromJson', () => {
         );
 
         expect(bridge.canUndo('A', 'layer-1')).toBe(true);
-        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'layer',
+                glyphName: 'A',
+                layerId: 'layer-1'
+            })
+        );
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -2911,7 +2976,13 @@ describe('syncGlyphFromJson', () => {
         ).toBe(650);
 
         expect(bridge.canUndo('A', 'layer-1')).toBe(true);
-        expect(bridge.undo('A', 'layer-1')).toBe(true);
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'layer',
+                glyphName: 'A',
+                layerId: 'layer-1'
+            })
+        );
         expect(
             getYPath(bridge.fontMap, [
                 'glyphs',
@@ -2947,7 +3018,13 @@ describe('syncGlyphFromJson', () => {
         bridge.endTransaction();
 
         expect(bridge.canUndo()).toBe(true);
-        expect(bridge.undo()).toBe(true);
+        expect(bridge.undo()).toEqual(
+            expect.objectContaining({
+                scope: 'font',
+                glyphName: null,
+                layerId: null
+            })
+        );
 
         expect(
             getYPath(bridge.fontMap, ['format_specific', 'a'])
@@ -2963,7 +3040,13 @@ describe('syncGlyphFromJson', () => {
         ).toBe(700);
 
         expect(bridge.canRedo()).toBe(true);
-        expect(bridge.redo()).toBe(true);
+        expect(bridge.redo()).toEqual(
+            expect.objectContaining({
+                scope: 'font',
+                glyphName: null,
+                layerId: null
+            })
+        );
         expect(getYPath(bridge.fontMap, ['format_specific', 'a'])).toBe('b');
         expect(
             getYPath(bridge.fontMap, [

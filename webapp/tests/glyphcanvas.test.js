@@ -2240,6 +2240,35 @@ describe('GlyphCanvas property panel', () => {
         restoreFocusSpy.mockRestore();
     });
 
+    test('Escape returns focus to canvas before outline escape handling', () => {
+        const restoreFocusSpy = jest
+            .spyOn(canvas.outlineEditor, 'restoreFocus')
+            .mockImplementation(() => {});
+        const outlineEscapeSpy = jest
+            .spyOn(canvas.outlineEditor, 'onEscapeKey')
+            .mockImplementation(() => {});
+
+        canvas.updatePropertyPanel();
+
+        const leftInput = document.querySelector(
+            '.glyph-property-input[data-sidebearing-side="left"]'
+        );
+        leftInput.focus();
+        leftInput.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Escape',
+                bubbles: true,
+                cancelable: true
+            })
+        );
+
+        expect(restoreFocusSpy).toHaveBeenCalled();
+        expect(outlineEscapeSpy).not.toHaveBeenCalled();
+
+        outlineEscapeSpy.mockRestore();
+        restoreFocusSpy.mockRestore();
+    });
+
     test('routes sidebearing input undo through app undo', () => {
         const previousRunBridgeUndoRedo = window.runBridgeUndoRedo;
         window.runBridgeUndoRedo = jest.fn().mockResolvedValue(undefined);

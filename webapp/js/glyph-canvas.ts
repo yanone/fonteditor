@@ -2854,6 +2854,13 @@ class GlyphCanvas {
                     return;
                 }
 
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.outlineEditor.restoreFocus();
+                    return;
+                }
+
                 if (event.key === 'Enter') {
                     event.preventDefault();
                     this.restoreCanvasFocusAfterPropertyCommit = true;

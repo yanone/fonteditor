@@ -2,7 +2,8 @@
     "$schema": "./node_modules/knip/schema.json",
     "entry": [
         "compilation-test/compile-test.mjs",
-        "tests/helpers/convert-glyphs-to-babelfont.mjs"
+        "tests/helpers/convert-glyphs-to-babelfont.mjs",
+        "tests/helpers/interpolate-glyph.mjs"
     ],
     "project": [
         "compilation-test/**/*.mjs",
