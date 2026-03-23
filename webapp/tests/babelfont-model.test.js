@@ -401,6 +401,84 @@ describe('Babelfont Object Model', () => {
             }
         });
 
+        test('should expose filtered paths and components views', () => {
+            const pathLayer = font.findGlyph('A').layers[0];
+            expect(Array.isArray(pathLayer.paths)).toBe(true);
+            expect(pathLayer.paths.length).toBeGreaterThan(0);
+            expect(pathLayer.components).toEqual([]);
+            expect(
+                pathLayer.paths.every((path) => path.parent().isPath())
+            ).toBe(true);
+
+            let componentLayer = null;
+            for (const glyph of font.glyphs) {
+                const candidateLayer = glyph.layers?.[0];
+                if (candidateLayer?.components.length) {
+                    componentLayer = candidateLayer;
+                    break;
+                }
+            }
+
+            expect(componentLayer).not.toBeNull();
+            expect(Array.isArray(componentLayer.components)).toBe(true);
+            expect(componentLayer.components.length).toBeGreaterThan(0);
+            expect(
+                componentLayer.paths.every((path) => path.parent().isPath())
+            ).toBe(true);
+            expect(
+                componentLayer.components.every((component) =>
+                    component.parent().isComponent()
+                )
+            ).toBe(true);
+        });
+
+        test('should return empty filtered views for layers without shapes', () => {
+            const testGlyph = font.addGlyph('FilteredEmptyGlyph', 'Base');
+            const testLayer = testGlyph.addLayer(500);
+
+            expect(testLayer.shapes).toBeUndefined();
+            expect(testLayer.paths).toEqual([]);
+            expect(testLayer.components).toEqual([]);
+
+            font.removeGlyph('FilteredEmptyGlyph');
+        });
+
+        test('removeShape should accept a path object from layer.paths', () => {
+            const pathLayer = font.findGlyph('A').layers[0];
+            const initialShapeCount = pathLayer.shapes.length;
+            const initialPathCount = pathLayer.paths.length;
+            const path = pathLayer.paths[0];
+
+            pathLayer.removeShape(path);
+
+            expect(pathLayer.shapes.length).toBe(initialShapeCount - 1);
+            expect(pathLayer.paths.length).toBe(initialPathCount - 1);
+        });
+
+        test('removeShape should accept a component object from layer.components', () => {
+            let componentLayer = null;
+            for (const glyph of font.glyphs) {
+                const candidateLayer = glyph.layers?.[0];
+                if (candidateLayer?.components.length) {
+                    componentLayer = candidateLayer;
+                    break;
+                }
+            }
+
+            expect(componentLayer).not.toBeNull();
+
+            const initialShapeCount = componentLayer.shapes.length;
+            const initialComponentCount = componentLayer.components.length;
+            const component = componentLayer.components[0];
+
+            componentLayer.removeShape(component);
+
+            expect(componentLayer.shapes.length).toBe(initialShapeCount - 1);
+            expect(componentLayer.components.length).toBe(
+                initialComponentCount - 1
+            );
+        });
+
         test('should calculate lsb', () => {
             const lsb = layer.lsb;
             expect(typeof lsb).toBe('number');

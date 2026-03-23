@@ -80,7 +80,7 @@ allowing navigation up the object tree to the root Font object.
 **Example:**
 ```python
 # Navigate from node up to font
-node = font.glyphs[0].layers[0].shapes[0].asPath().nodes[0]
+node = font.glyphs[0].layers[0].paths[0].nodes[0]
 path = node.parent()      # Path object
 shape = path.parent()     # Shape object
 layer = shape.parent()    # Layer object
@@ -320,18 +320,19 @@ layer = glyph.layers[0]
 - **`name`** (str | None)
 - **`id`** (str | None)
 - **`master`** (Babelfont.LayerType | None)
-- **`smart_component_location`** (dict | None)
+- **`smart_component_location`** (UserspaceLocation | None)
 - **`color`** (Babelfont.Color | None)
 - **`layer_index`** (float | int | None)
 - **`is_background`** (bool | None)
 - **`background_layer_id`** (str | None)
-- **`location`** (dict | None)
+- **`location`** (DesignspaceLocation | None)
 - **`format_specific`** (dict | None)
 
 #### Read-Only Properties
 
 - **`guides`** (list[[Guide](#guide)] | None)
-- **`shapes`** (list[[Shape](#shape)] | None)
+- **`paths`** (list[[Path](#path)]): Direct path objects in this layer, ready to use without Shape.asPath()
+- **`components`** (list[[Component](#component)]): Direct component objects in this layer, ready to use without Shape.asComponent()
 - **`anchors`** (list[[Anchor](#anchor)] | None)
 
 ### Methods
@@ -345,6 +346,7 @@ layer = glyph.layers[0]
 Get the resolved master object for this layer.
 Returns a Master only when this layer is a DefaultForMaster layer.
 
+#### `getComputedName() -> str`
 #### `addShape(shape: Babelfont.Shape) -> [Shape](#shape)`
 Add a new shape to the layer
 
@@ -408,7 +410,8 @@ Calculate intersections between a line segment and all paths in this layer
 Calculate sidebearings at a given Y height by measuring distance from glyph edges to first/last outline intersections
 
 #### `getMatchingLayerOnGlyph(glyphName: str) -> [Layer](#layer) | None`
-Find the matching layer on another glyph that represents the same master
+Find the exact matching stored layer on another glyph for this layer's
+effective designspace location.
 
 #### `toString() -> str`
 ---
@@ -420,7 +423,8 @@ Shape wrapper that can contain either a Component or a Path
 
 **Access:**
 ```python
-shape = layer.shapes[0]
+path = layer.paths[0]
+shape = path.parent()
 ```
 
 ### Methods
@@ -448,9 +452,7 @@ Path (contour) in a layer
 
 **Access:**
 ```python
-shape = layer.shapes[0]
-if shape.isPath():
-    path = shape.asPath()
+path = layer.paths[0]
 ```
 
 ### Properties
@@ -535,9 +537,7 @@ Component reference to another glyph
 
 **Access:**
 ```python
-shape = layer.shapes[0]
-if shape.isComponent():
-    component = shape.asComponent()
+component = layer.components[0]
 ```
 
 ### Properties
@@ -546,7 +546,7 @@ All properties are read/write:
 
 - **`reference`** (str)
 - **`transform`** (Babelfont.DecomposedAffine)
-- **`location`** (dict | None)
+- **`location`** (DesignspaceLocation | None)
 - **`format_specific`** (dict | None)
 
 ### Methods
@@ -666,7 +666,7 @@ master = font.findMaster("master-id")
 
 - **`name`** (dict[str, str])
 - **`id`** (str)
-- **`location`** (dict | None)
+- **`location`** (DesignspaceLocation | None)
 - **`metrics`** (dict)
 - **`kerning`** (dict)
 - **`custom_ot_values`** (list[Unsafe] | None)
@@ -700,7 +700,7 @@ All properties are read/write:
 
 - **`id`** (str)
 - **`name`** (dict[str, str])
-- **`location`** (dict | None)
+- **`location`** (DesignspaceLocation | None)
 - **`custom_names`** (dict[str, dict[str, str] | None])
 - **`variable`** (bool | None)
 - **`linked_style`** (str | None)
@@ -748,13 +748,10 @@ if glyph_a:
     layer = glyph_a.layers[0]
     
     # Modify all nodes
-    if layer.shapes:
-        for shape in layer.shapes:
-            if shape.isPath():
-                path = shape.asPath()
-                for node in path.nodes:
-                    node.x += 10  # Shift 10 units right
-                    node.y += 5   # Shift 5 units up
+    for path in layer.paths:
+        for node in path.nodes:
+            node.x += 10  # Shift 10 units right
+            node.y += 5   # Shift 5 units up
     
     # Add an anchor
     layer.addAnchor(250, 700, "top")
@@ -791,11 +788,8 @@ total_nodes = 0
 for glyph in font.glyphs:
     if glyph.layers:
         for layer in glyph.layers:
-            if layer.shapes:
-                for shape in layer.shapes:
-                    if shape.isPath():
-                        path = shape.asPath()
-                        total_nodes += len(path.nodes)
+            for path in layer.paths:
+                total_nodes += len(path.nodes)
 
 print(f"Total nodes in font: {total_nodes}")
 ```
@@ -833,14 +827,11 @@ for glyph in font.glyphs:
             # Scale width
             layer.width *= scale_factor
             
-            # Scale all shapes
-            if layer.shapes:
-                for shape in layer.shapes:
-                    if shape.isPath():
-                        path = shape.asPath()
-                        for node in path.nodes:
-                            node.x *= scale_factor
-                            node.y *= scale_factor
+            # Scale all outline paths
+            for path in layer.paths:
+                for node in path.nodes:
+                    node.x *= scale_factor
+                    node.y *= scale_factor
             
             # Scale anchors
             if layer.anchors:
@@ -911,14 +902,12 @@ del feature_items[0]
 ### Type Checking
 
 ```python
-# Always check shape type before accessing
-for shape in layer.shapes:
-    if shape.isPath():
-        path = shape.asPath()
-        # Work with path
-    elif shape.isComponent():
-        component = shape.asComponent()
-        # Work with component
+# Use the filtered convenience collections when you know what you want
+for path in layer.paths:
+    # Work with path
+
+for component in layer.components:
+    # Work with component
 ```
 
 ### Safe Property Access
@@ -927,13 +916,9 @@ for shape in layer.shapes:
 # Check for optional properties
 if glyph.layers:
     for layer in glyph.layers:
-        if layer.shapes:
-            for shape in layer.shapes:
-                if shape.isPath():
-                    path = shape.asPath()
-                    # Now you can access nodes
-                    for node in path.nodes:
-                        print(f"Node at ({node.x}, {node.y})")
+        for path in layer.paths:
+            for node in path.nodes:
+                print(f"Node at ({node.x}, {node.y})")
 ```
 
 ### Guardrails for Dictionary Fields
@@ -958,16 +943,14 @@ font.names.familyName = {
 
 ```python
 # Direct access (may fail if properties are None)
-# glyph.layers[0].shapes[0].asPath().nodes  # DON'T DO THIS
+# glyph.layers[0].paths[0].nodes  # DON'T DO THIS
 
 # Safe access with checks:
 layer = glyph.layers[0] if glyph.layers else None
-if layer and layer.shapes:
-    shape = layer.shapes[0]
-    if shape.isPath():
-        path = shape.asPath()
-        nodes = path.nodes
-        print(f"Path has {len(nodes)} nodes")
+if layer and layer.paths:
+    path = layer.paths[0]
+    nodes = path.nodes
+    print(f"Path has {len(nodes)} nodes")
 ```
 
 ### Coordinate System
@@ -978,29 +961,27 @@ if layer and layer.shapes:
 
 ### Common Issues
 
-**Q: Why does `glyph.layers[0].shapes[0].asPath().nodes` fail?**
+**Q: Why does `glyph.layers[0].paths[0].nodes` fail?**
 
 A: Optional properties may be `None`. Use safe access:
 ```python
 # Check each step
 if glyph.layers and len(glyph.layers) > 0:
     layer = glyph.layers[0]
-    if layer.shapes and len(layer.shapes) > 0:
-        shape = layer.shapes[0]
-        if shape.isPath():
-            path = shape.asPath()
-            nodes = path.nodes  # Now safe to access
+    if layer.paths and len(layer.paths) > 0:
+        path = layer.paths[0]
+        nodes = path.nodes  # Now safe to access
 ```
 
-**Q: How do I know if a shape is a path or component?**
+**Q: How do I access only paths or only components in a layer?**
 
-A: Always check with `isPath()` or `isComponent()` before calling `asPath()` or `asComponent()`:
+A: Use `layer.paths` and `layer.components` directly:
 ```python
-for shape in layer.shapes:
-    if shape.isPath():
-        path = shape.asPath()
-    elif shape.isComponent():
-        component = shape.asComponent()
+for path in layer.paths:
+    print(len(path.nodes))
+
+for component in layer.components:
+    print(component.reference)
 ```
 
 ---

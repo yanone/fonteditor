@@ -43,6 +43,7 @@ _DICT_LIKE_FIELDS_BY_CLASS = {
         'second_kern_groups',
         'variation_sequences',
     },
+    'Glyph': set(),
     'Guide': {'color', 'format_specific', 'pos'},
     'Instance': {'custom_names', 'format_specific', 'location', 'name'},
     'Layer': {
@@ -61,6 +62,7 @@ _DICT_LIKE_FIELDS_BY_CLASS = {
     },
     'Node': {'format_specific'},
     'Path': {'format_specific'},
+    'Shape': set(),
 }
 
 
@@ -80,7 +82,19 @@ def _get_constructor_name(value):
 
 
 def _is_js_array(value):
-    return isinstance(value, pyodide.ffi.JsProxy) and bool(js.Array.isArray(value))
+    try:
+        if bool(js.Array.isArray(value)):
+            return True
+    except Exception:
+        pass
+
+    try:
+        if str(js.Object.prototype.toString.call(value)) == '[object Array]':
+            return True
+    except Exception:
+        pass
+
+    return _get_constructor_name(value) == 'Array'
 
 
 def _is_plain_js_object(value):
@@ -141,11 +155,11 @@ def _wrap_js_value(value, owner_class_name=None, attr_name=None):
     if isinstance(value, (ModelObjectProxy, LiveDictProxy, LiveListProxy)):
         return value
 
-    if not isinstance(value, pyodide.ffi.JsProxy):
-        return value
-
     if _is_js_array(value):
         return LiveListProxy(value)
+
+    if not isinstance(value, pyodide.ffi.JsProxy):
+        return value
 
     constructor_name = _get_constructor_name(value)
     dict_fields = _DICT_LIKE_FIELDS_BY_CLASS.get(owner_class_name, set())
@@ -279,6 +293,9 @@ class LiveListProxy(MutableSequence):
 
     def __repr__(self):
         return repr(self.to_py())
+
+    def __str__(self):
+        return self.__repr__()
 
 
 class ModelObjectProxy:

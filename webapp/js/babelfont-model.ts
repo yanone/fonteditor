@@ -2119,6 +2119,16 @@ export class Layer extends ArrayElementBase {
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
 
+    private getFilteredShapes<T extends Path | Component>(
+        predicate: (shape: Shape) => boolean,
+        mapper: (shape: Shape) => T,
+        errorMessage: string
+    ): T[] {
+        const shapes = this.shapes || [];
+        const filteredShapes = shapes.filter(predicate).map(mapper);
+        return getReadOnlyCollectionValue(filteredShapes, errorMessage);
+    }
+
     private getFont(): Font | undefined {
         const glyph = this.parent() as Glyph;
         return glyph?.parent() as Font | undefined;
@@ -2903,6 +2913,32 @@ export class Layer extends ArrayElementBase {
         );
     }
 
+    /**
+     * Direct path objects in this layer, ready to use without Shape.asPath()
+     * @example
+     * path = layer.paths[0]
+     */
+    get paths(): Path[] {
+        return this.getFilteredShapes(
+            (shape) => shape.isPath(),
+            (shape) => shape.asPath(),
+            'Layer.paths is a read-only collection view. Use addPath() or removeShape() for structural edits.'
+        );
+    }
+
+    /**
+     * Direct component objects in this layer, ready to use without Shape.asComponent()
+     * @example
+     * component = layer.components[0]
+     */
+    get components(): Component[] {
+        return this.getFilteredShapes(
+            (shape) => shape.isComponent(),
+            (shape) => shape.asComponent(),
+            'Layer.components is a read-only collection view. Use addComponent() or removeShape() for structural edits.'
+        );
+    }
+
     get anchors(): Anchor[] | undefined {
         if (!this.data.anchors) return undefined;
         if (
@@ -3065,23 +3101,63 @@ export class Layer extends ArrayElementBase {
         return transform;
     }
 
+    private resolveShapeIndex(
+        shapeOrIndex: number | Shape | Path | Component
+    ): number | null {
+        if (typeof shapeOrIndex === 'number') {
+            return shapeOrIndex;
+        }
+
+        const shapes = this.shapes || [];
+
+        if (shapeOrIndex instanceof Shape) {
+            const parentLayer = shapeOrIndex.parent();
+            if (parentLayer !== this) {
+                return null;
+            }
+            const index = shapes.indexOf(shapeOrIndex);
+            return index >= 0 ? index : null;
+        }
+
+        if (shapeOrIndex instanceof Path || shapeOrIndex instanceof Component) {
+            const parentShape = shapeOrIndex.parent();
+            if (
+                !(parentShape instanceof Shape) ||
+                parentShape.parent() !== this
+            ) {
+                return null;
+            }
+            const index = shapes.indexOf(parentShape);
+            return index >= 0 ? index : null;
+        }
+
+        return null;
+    }
+
     /**
      * Remove a shape at the specified index
      */
-    removeShape(index: number): void {
-        if (this.data.shapes) {
-            const removedShape = this.data.shapes[index];
-            if (removedShape === undefined) {
-                return;
-            }
-
-            this.data.shapes.splice(index, 1);
-            this._shapeWrappers = null; // Invalidate cache
-            recordRemoveAndMarkDirty(
-                [...this.getPath(), 'shapes', index],
-                removedShape
-            );
+    removeShape(shapeOrIndex: number | Shape | Path | Component): void {
+        if (!this.data.shapes) {
+            return;
         }
+
+        const index = this.resolveShapeIndex(shapeOrIndex);
+        if (index === null) {
+            return;
+        }
+
+        const removedShape = this.data.shapes[index];
+        if (removedShape === undefined) {
+            return;
+        }
+
+        this.data.shapes.splice(index, 1);
+        this._shapeWrappers = null; // Invalidate cache
+        recordRemoveAndMarkDirty(
+            [...this.getPath(), 'shapes', index],
+            removedShape
+        );
     }
 
     /**
