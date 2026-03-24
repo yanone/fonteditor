@@ -8,7 +8,7 @@ The Editor view is where you draw and refine outlines with direct visual feedbac
 
 ## Core Actions for Beginners
 
-The editor offers several fundamental operations. You can select points and contours to modify them, move points and handles with precision, and adjust your zoom level to balance detailed work with overall rhythm assessment. Hold `Alt` to temporarily inspect sidebearings and other distances without leaving the canvas. Saving after each successful change helps build confidence and provides natural checkpoints.
+The editor offers several fundamental operations. You can select points and contours to modify them, move points and handles with precision, and adjust your zoom level to balance detailed work with overall rhythm assessment. Hold `Tab` to immediately inspect sidebearings and other distances without leaving the canvas. In text mode this takes over the normal tab character, which keeps the shortcut immediate and predictable. Saving after each successful change helps build confidence and provides natural checkpoints.
 
 ## A Safe First Practice
 

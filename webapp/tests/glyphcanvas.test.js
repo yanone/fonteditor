@@ -200,6 +200,38 @@ describe('GlyphCanvas onMouseDown', () => {
         canvas.onMouseDown({ clientX: 10, clientY: 20, detail: 1 });
         expect(canvas.isDraggingCanvas).toBe(true);
     });
+
+    test('measurement drag takes precedence over marquee selection', () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [],
+            anchors: [],
+            guides: []
+        };
+        canvas.measurementKeyPressed = true;
+        canvas.measurementTool.visible = true;
+        canvas.outlineEditor.hoveredPointIndex = null;
+        canvas.outlineEditor.hoveredAnchorIndex = null;
+        canvas.outlineEditor.hoveredComponentIndex = null;
+        canvas.outlineEditor.hoveredGuideHandle = null;
+        canvas.outlineEditor.hoveredSidebearingHandle = null;
+
+        canvas.onMouseDown({
+            clientX: 10,
+            clientY: 20,
+            detail: 1,
+            shiftKey: false,
+            altKey: false,
+            ctrlKey: false,
+            metaKey: false
+        });
+
+        expect(canvas.measurementTool.isDragging).toBe(true);
+        expect(canvas.outlineEditor.isMarqueeSelecting).toBe(false);
+    });
 });
 
 describe('GlyphCanvas onMouseUp', () => {
@@ -3751,6 +3783,157 @@ describe('GlyphCanvas keyboard handling', () => {
         canvas.onKeyDown(downEvent);
 
         expect(canvas.outlineEditor.isPreviewMode).toBe(true);
+    });
+
+    test('Tab activates measurement immediately and suppresses default focus navigation', () => {
+        const downEvent = new KeyboardEvent('keydown', {
+            key: 'Tab',
+            code: 'Tab',
+            bubbles: true,
+            cancelable: true
+        });
+
+        canvas.canvas.dispatchEvent(downEvent);
+
+        expect(downEvent.defaultPrevented).toBe(true);
+        expect(canvas.measurementKeyPressed).toBe(true);
+        expect(canvas.measurementTool.visible).toBe(true);
+
+        const upEvent = new KeyboardEvent('keyup', {
+            key: 'Tab',
+            code: 'Tab',
+            bubbles: true,
+            cancelable: true
+        });
+
+        canvas.canvas.dispatchEvent(upEvent);
+
+        expect(upEvent.defaultPrevented).toBe(true);
+        expect(canvas.measurementKeyPressed).toBe(false);
+        expect(canvas.measurementTool.visible).toBe(false);
+    });
+
+    test('holding Tab does not re-enable native focus traversal on key repeat', () => {
+        const downEvent = new KeyboardEvent('keydown', {
+            key: 'Tab',
+            code: 'Tab',
+            bubbles: true,
+            cancelable: true
+        });
+
+        canvas.canvas.dispatchEvent(downEvent);
+
+        const repeatEvent = new KeyboardEvent('keydown', {
+            key: 'Tab',
+            code: 'Tab',
+            bubbles: true,
+            cancelable: true,
+            repeat: true
+        });
+
+        canvas.canvas.dispatchEvent(repeatEvent);
+
+        expect(repeatEvent.defaultPrevented).toBe(true);
+        expect(canvas.measurementKeyPressed).toBe(true);
+        expect(canvas.measurementTool.visible).toBe(true);
+    });
+
+    test('Tab is suppressed globally while the editor view is focused in text mode', () => {
+        const editorView = document.createElement('div');
+        editorView.id = 'view-editor';
+        editorView.className = 'focused';
+        document.body.appendChild(editorView);
+        window.glyphCanvas = canvas;
+
+        const downEvent = new KeyboardEvent('keydown', {
+            key: 'Tab',
+            code: 'Tab',
+            bubbles: true,
+            cancelable: true
+        });
+
+        document.dispatchEvent(downEvent);
+
+        expect(downEvent.defaultPrevented).toBe(true);
+        expect(canvas.measurementKeyPressed).toBe(true);
+        expect(canvas.measurementTool.visible).toBe(true);
+
+        const upEvent = new KeyboardEvent('keyup', {
+            key: 'Tab',
+            code: 'Tab',
+            bubbles: true,
+            cancelable: true
+        });
+
+        document.dispatchEvent(upEvent);
+
+        expect(upEvent.defaultPrevented).toBe(true);
+        expect(canvas.measurementKeyPressed).toBe(false);
+    });
+
+    test('Tab suppression pulls focus back to the canvas inside the active editor view', () => {
+        const editorView = document.createElement('div');
+        editorView.id = 'view-editor';
+        editorView.className = 'focused';
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        editorView.appendChild(button);
+        document.body.appendChild(editorView);
+        document.body.appendChild(canvas.canvas);
+        window.glyphCanvas = canvas;
+
+        button.focus();
+        expect(document.activeElement).toBe(button);
+
+        const downEvent = new KeyboardEvent('keydown', {
+            key: 'Tab',
+            code: 'Tab',
+            bubbles: true,
+            cancelable: true
+        });
+
+        button.dispatchEvent(downEvent);
+
+        expect(downEvent.defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(canvas.canvas);
+        expect(canvas.measurementKeyPressed).toBe(true);
+        expect(canvas.measurementTool.visible).toBe(true);
+    });
+
+    test('holding Tab stays suppressed globally while the editor view is focused', () => {
+        const editorView = document.createElement('div');
+        editorView.id = 'view-editor';
+        editorView.className = 'focused';
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        editorView.appendChild(button);
+        document.body.appendChild(editorView);
+        window.glyphCanvas = canvas;
+
+        button.focus();
+
+        const downEvent = new KeyboardEvent('keydown', {
+            key: 'Tab',
+            code: 'Tab',
+            bubbles: true,
+            cancelable: true
+        });
+        button.dispatchEvent(downEvent);
+
+        const repeatEvent = new KeyboardEvent('keydown', {
+            key: 'Tab',
+            code: 'Tab',
+            bubbles: true,
+            cancelable: true,
+            repeat: true
+        });
+        canvas.canvas.dispatchEvent(repeatEvent);
+
+        expect(repeatEvent.defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(canvas.canvas);
+        expect(canvas.measurementKeyPressed).toBe(true);
     });
 });
 

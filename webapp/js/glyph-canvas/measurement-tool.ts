@@ -1,5 +1,5 @@
 // Measurement tool for measuring distances in glyph canvas
-// Activated by holding Alt in text mode or editing mode
+// Activated immediately by holding Tab in text mode or editing mode
 
 import APP_SETTINGS from '../settings';
 import type { GlyphCanvas } from '../glyph-canvas';
@@ -16,7 +16,6 @@ export class MeasurementTool {
     originY: number = 0; // Canvas coordinates
 
     // Visibility state
-    private delayTimer: number | null = null;
     visible: boolean = false;
     private cancelledByZoom: boolean = false;
     private disabledForTyping: boolean = false;
@@ -26,10 +25,12 @@ export class MeasurementTool {
     }
 
     /**
-     * Handle the measurement key press and start the delay timer.
+     * Handle the measurement key press and show the tool immediately.
      */
     handleMeasurementKeyPress(): void {
-        this.startDelayTimer();
+        this.cancelledByZoom = false;
+        this.showImmediately();
+        this.glyphCanvas.updateCursorStyle();
     }
 
     /**
@@ -37,7 +38,6 @@ export class MeasurementTool {
      */
     handleMeasurementKeyRelease(): void {
         const wasVisible = this.visible;
-        this.cancelDelayTimer();
         this.visible = false;
         this.cancelledByZoom = false;
         this.isDragging = false;
@@ -45,7 +45,12 @@ export class MeasurementTool {
 
         // Perform hit-testing when measurement tool turns off
         if (wasVisible) {
-            this.glyphCanvas.outlineEditor.performHitDetection(null);
+            if (
+                this.glyphCanvas.outlineEditor.active &&
+                document.activeElement === this.glyphCanvas.canvas
+            ) {
+                this.glyphCanvas.outlineEditor.performHitDetection(null);
+            }
             this.glyphCanvas.updateHoveredGlyph();
             this.glyphCanvas.updateCursorStyle();
             this.glyphCanvas.render();
@@ -57,13 +62,17 @@ export class MeasurementTool {
      */
     handleWheel(): void {
         const wasVisible = this.visible;
-        this.cancelDelayTimer();
         this.visible = false;
         this.cancelledByZoom = true;
 
         // Perform hit-testing when measurement tool turns off
         if (wasVisible) {
-            this.glyphCanvas.outlineEditor.performHitDetection(null);
+            if (
+                this.glyphCanvas.outlineEditor.active &&
+                document.activeElement === this.glyphCanvas.canvas
+            ) {
+                this.glyphCanvas.outlineEditor.performHitDetection(null);
+            }
             this.glyphCanvas.updateHoveredGlyph();
             this.glyphCanvas.updateCursorStyle();
         }
@@ -146,44 +155,9 @@ export class MeasurementTool {
     }
 
     /**
-     * Start delay timer before showing measurement tool
-     */
-    private startDelayTimer(): void {
-        this.cancelDelayTimer();
-        this.cancelledByZoom = false;
-
-        const delay =
-            APP_SETTINGS.OUTLINE_EDITOR.MEASUREMENT_TOOL_DISPLAY_DELAY;
-        this.delayTimer = window.setTimeout(() => {
-            if (!this.cancelledByZoom && !this.disabledForTyping) {
-                this.visible = true;
-                // Clear hover states when measurement tool turns on
-                this.glyphCanvas.outlineEditor.hoveredGlyphIndex = -1;
-                this.glyphCanvas.outlineEditor.hoveredComponentIndex = null;
-                this.glyphCanvas.outlineEditor.hoveredPointIndex = null;
-                this.glyphCanvas.outlineEditor.hoveredAnchorIndex = null;
-                this.glyphCanvas.updateCursorStyle();
-            }
-            this.delayTimer = null;
-            this.glyphCanvas.render();
-        }, delay);
-    }
-
-    /**
-     * Cancel delay timer
-     */
-    private cancelDelayTimer(): void {
-        if (this.delayTimer !== null) {
-            window.clearTimeout(this.delayTimer);
-            this.delayTimer = null;
-        }
-    }
-
-    /**
      * Show measurement tool immediately (when dragging starts)
      */
     private showImmediately(): void {
-        this.cancelDelayTimer();
         this.visible = true;
         // Clear hover states when measurement tool turns on
         this.glyphCanvas.outlineEditor.hoveredGlyphIndex = -1;

@@ -2505,7 +2505,7 @@ export class GlyphCanvasRenderer {
             this.ctx.fillText(fpsText, 10, 65);
         }
 
-        // Draw crosshair or user-defined line when alt key is pressed in editing mode
+        // Draw crosshair or a user-defined line when the measurement key is pressed in editing mode
         if (this.glyphCanvas.measurementTool.shouldDrawVisuals()) {
             const isDarkTheme =
                 document.documentElement.getAttribute('data-theme') !== 'light';
@@ -2859,7 +2859,7 @@ export class GlyphCanvasRenderer {
     }
 
     drawMeasurementIntersections() {
-        // Only draw when alt key is pressed, in editing mode, and we have layer data
+        // Only draw when the measurement key is pressed, in editing mode, and we have layer data
         if (
             !this.glyphCanvas.measurementTool.shouldDrawVisuals() ||
             !this.glyphCanvas.outlineEditor.layerData

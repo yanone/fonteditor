@@ -293,11 +293,14 @@ class GlyphCanvas {
                 'spaceKeyPressed:',
                 this.outlineEditor.spaceKeyPressed
             );
-            // Track Alt key for the measurement tool
-            if (e.key === 'Alt' && !e.repeat) {
-                this.measurementKeyPressed = true;
-                this.measurementTool.handleMeasurementKeyPress();
-                this.render();
+            // Track Tab for the measurement tool and keep focus on the canvas
+            if (e.key === 'Tab' && !e.defaultPrevented) {
+                e.preventDefault();
+                if (!this.measurementKeyPressed) {
+                    this.measurementKeyPressed = true;
+                    this.measurementTool.handleMeasurementKeyPress();
+                    this.render();
+                }
             }
             this.onKeyDown(e);
         });
@@ -318,8 +321,9 @@ class GlyphCanvas {
                 this.outlineEditor.spaceKeyPressed
             );
 
-            // Track Alt key release
-            if (e.key === 'Alt') {
+            // Track Tab release
+            if (e.key === 'Tab' && !e.defaultPrevented) {
+                e.preventDefault();
                 this.measurementKeyPressed = false;
                 this.measurementTool.handleMeasurementKeyRelease();
                 this.updateCursorStyle(); // Update cursor immediately
@@ -366,6 +370,69 @@ class GlyphCanvas {
             // (e.g., clicking sliders). Preview mode will be managed by slider events.
             // Only exit preview mode on true blur events (window blur, etc.)
         });
+
+        // Capture Tab at the document level while the editor view is focused so
+        // browser focus traversal cannot move to other HTML elements first.
+        document.addEventListener(
+            'keydown',
+            (e) => {
+                if (window.glyphCanvas !== this) {
+                    return;
+                }
+
+                if (!this.shouldHandleMeasurementTabGlobally(e)) {
+                    return;
+                }
+
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                this.focusCanvasForMeasurementTab();
+
+                if (!this.measurementKeyPressed) {
+                    this.measurementKeyPressed = true;
+                    this.measurementTool.handleMeasurementKeyPress();
+                    this.updateCursorStyle();
+                    this.render();
+                }
+            },
+            true
+        );
+
+        document.addEventListener(
+            'keyup',
+            (e) => {
+                if (window.glyphCanvas !== this) {
+                    return;
+                }
+
+                if (e.key !== 'Tab' || !this.measurementKeyPressed) {
+                    return;
+                }
+
+                const editorView = document.querySelector('#view-editor');
+                const isEditorFocused =
+                    !!editorView && editorView.classList.contains('focused');
+                const activeElement =
+                    document.activeElement as HTMLElement | null;
+                const isCanvasActive = activeElement === this.canvas;
+
+                if (!isCanvasActive && !isEditorFocused) {
+                    return;
+                }
+
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                this.focusCanvasForMeasurementTab();
+                this.measurementKeyPressed = false;
+                this.measurementTool.handleMeasurementKeyRelease();
+                this.updateCursorStyle();
+                this.render();
+            },
+            true
+        );
 
         // Global Escape key handler (works even when sliders have focus)
         // Only active when editor view is focused
@@ -596,6 +663,33 @@ class GlyphCanvas {
         }
 
         return false;
+    }
+
+    private shouldHandleMeasurementTabGlobally(event: KeyboardEvent): boolean {
+        if (event.key !== 'Tab') {
+            return false;
+        }
+
+        const target = event.target as HTMLElement | null;
+        if (target && this.isTextInputElement(target)) {
+            return false;
+        }
+
+        const editorView = document.querySelector('#view-editor');
+        const isEditorFocused =
+            !!editorView && editorView.classList.contains('focused');
+        const activeElement = document.activeElement as HTMLElement | null;
+        const isCanvasActive = activeElement === this.canvas;
+
+        return isCanvasActive || isEditorFocused;
+    }
+
+    private focusCanvasForMeasurementTab(): void {
+        if (!this.canvas || document.activeElement === this.canvas) {
+            return;
+        }
+
+        this.canvas.focus({ preventScroll: true });
     }
 
     shouldBlockTextEditingDuringLoopAnimation(e: KeyboardEvent): boolean {
@@ -1039,6 +1133,13 @@ class GlyphCanvas {
             }
         }
 
+        // Let the measurement tool claim the click before edit-mode selection logic.
+        if (this.measurementTool.handleMouseDown(e.clientX, e.clientY, rect)) {
+            this.updateCursorStyle();
+            this.render();
+            return;
+        }
+
         this.outlineEditor.onSingleClick(e);
 
         // Check if clicking on text to position cursor (only in text edit mode, not on double-click or glyph)
@@ -1062,13 +1163,6 @@ class GlyphCanvas {
                 this.canvas!.style.cursor = 'text';
                 return; // Don't start dragging if clicking on text
             }
-        }
-
-        // Start measurement drag when Alt is pressed in editing mode
-        if (this.measurementTool.handleMouseDown(e.clientX, e.clientY, rect)) {
-            this.updateCursorStyle(); // Update cursor immediately
-            this.render();
-            return;
         }
 
         // Start canvas panning when Space key is pressed
@@ -1166,7 +1260,7 @@ class GlyphCanvas {
     onWheel(e: WheelEvent): void {
         e.preventDefault();
 
-        // If Alt is pressed, turn off the measurement tool (cancel delay or hide if visible)
+        // If Tab is pressed, turn off the measurement tool (cancel delay or hide if visible)
         if (this.measurementKeyPressed) {
             this.measurementTool.handleWheel();
             this.updateCursorStyle(); // Update cursor immediately
@@ -1219,7 +1313,7 @@ class GlyphCanvas {
     }
 
     updateCursorStyle(e?: MouseEvent | KeyboardEvent): void {
-        // Alt key pressed in editing mode with measurement tool visible = crosshair cursor
+        // Tab pressed in editing mode with measurement tool visible = crosshair cursor
         if (this.measurementTool.shouldShowCrosshair()) {
             this.canvas!.style.cursor = 'crosshair';
             return;
