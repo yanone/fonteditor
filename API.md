@@ -318,6 +318,8 @@ layer = glyph.layers[0]
 - **`width`** (float | int)
 - **`lsb`** (float | int): Get the left sidebearing (LSB) - the distance from x=0 to the left edge of the bounding box
 - **`rsb`** (float | int): Get the right sidebearing (RSB) - the distance from the right edge of the bounding box to the advance width
+- **`linked`** (bool): Whether this layer is linked for editor multi-layer operations.
+This is editor-only runtime state keyed by glyph and layer ID; it is not persisted into font data.
 - **`name`** (str | None)
 - **`id`** (str | None)
 - **`master`** (Babelfont.LayerType | None)

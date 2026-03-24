@@ -1986,6 +1986,7 @@ describe('Babelfont Object Model', () => {
         let otherLayer;
         let selectionGlyph;
         let outlineEditor;
+        let layerLinkStateByGlyph;
         let originalGlyphCanvas;
         let originalCurrentFontModel;
 
@@ -2117,6 +2118,39 @@ describe('Babelfont Object Model', () => {
             originalCurrentFontModel = window.currentFontModel;
             window.currentFontModel = selectionFont;
 
+            layerLinkStateByGlyph = new Map();
+
+            const isLayerLinked = (layerId, glyphName = null) => {
+                if (!layerId || !glyphName) {
+                    return true;
+                }
+
+                return !layerLinkStateByGlyph.get(glyphName)?.has(layerId);
+            };
+
+            const setLayerLinked = (layerId, linked, glyphName = null) => {
+                if (!layerId || !glyphName) {
+                    return;
+                }
+
+                const nextUnlinked = new Set(
+                    layerLinkStateByGlyph.get(glyphName) || []
+                );
+
+                if (linked) {
+                    nextUnlinked.delete(layerId);
+                } else {
+                    nextUnlinked.add(layerId);
+                }
+
+                if (nextUnlinked.size === 0) {
+                    layerLinkStateByGlyph.delete(glyphName);
+                    return;
+                }
+
+                layerLinkStateByGlyph.set(glyphName, nextUnlinked);
+            };
+
             outlineEditor = {
                 active: true,
                 selectedPoints: [{ contourIndex: 1, nodeIndex: 0 }],
@@ -2128,6 +2162,8 @@ describe('Babelfont Object Model', () => {
                     updatePropertyPanel: jest.fn(),
                     render: jest.fn()
                 },
+                isLayerLinked: jest.fn(isLayerLinked),
+                setLayerLinked: jest.fn(setLayerLinked),
                 getCurrentLayerModel: jest.fn(() => selectionLayer),
                 getCurrentGlyphModel: jest.fn(() => selectionGlyph),
                 getCurrentLayerId: jest.fn(() => selectionLayer.id),
@@ -2136,7 +2172,11 @@ describe('Babelfont Object Model', () => {
                 )
             };
 
-            window.glyphCanvas = { outlineEditor };
+            window.glyphCanvas = {
+                outlineEditor,
+                updatePropertiesUI: jest.fn(),
+                render: jest.fn()
+            };
         });
 
         afterEach(() => {
@@ -2251,6 +2291,42 @@ describe('Babelfont Object Model', () => {
             expect(() => {
                 selectionLayer.selection = [guide, anchor];
             }).toThrow(/Guide selection cannot be combined/);
+        });
+
+        test('exposes layer.linked as editor-only per-glyph runtime state', () => {
+            expect(selectionLayer.linked).toBe(true);
+            expect(otherLayer.linked).toBe(true);
+
+            otherLayer.linked = false;
+
+            expect(selectionLayer.linked).toBe(true);
+            expect(otherLayer.linked).toBe(false);
+            expect(outlineEditor.setLayerLinked).toHaveBeenCalledWith(
+                'layer-2',
+                false,
+                'B'
+            );
+        });
+
+        test('refreshes the layer UI when layer.linked is changed from the object model', () => {
+            const dispatchSpy = jest.spyOn(window, 'dispatchEvent');
+
+            selectionLayer.linked = false;
+
+            expect(window.glyphCanvas.updatePropertiesUI).toHaveBeenCalled();
+            expect(window.glyphCanvas.render).toHaveBeenCalled();
+            expect(dispatchSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'layerLinkageChanged',
+                    detail: {
+                        glyphName: 'A',
+                        layerId: 'layer-1',
+                        linked: false
+                    }
+                })
+            );
+
+            dispatchSpy.mockRestore();
         });
     });
 });

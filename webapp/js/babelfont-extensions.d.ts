@@ -24,6 +24,12 @@ declare module './babelfont' {
          */
         export interface Layer {
             /**
+             * Editor-only linked-layer flag used by scripting and outline-edit workflows.
+             * This is runtime state only and is not saved into the font file.
+             */
+            linked?: boolean;
+
+            /**
              * Legacy master reference (use `master` instead)
              * @deprecated Use `master` property instead
              */

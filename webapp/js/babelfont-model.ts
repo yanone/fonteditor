@@ -193,6 +193,18 @@ type OutlineEditorSelectionController = {
     getRootMasterModel?: () => Master | null;
 };
 
+type OutlineEditorLayerLinkController = {
+    isLayerLinked?: (
+        layerId: string | null | undefined,
+        glyphName?: string | null
+    ) => boolean;
+    setLayerLinked?: (
+        layerId: string | null | undefined,
+        linked: boolean,
+        glyphName?: string | null
+    ) => void;
+};
+
 function getOutlineEditorSelectionController(): OutlineEditorSelectionController | null {
     if (typeof window === 'undefined') {
         return null;
@@ -204,6 +216,43 @@ function getOutlineEditorSelectionController(): OutlineEditorSelectionController
     }
 
     return outlineEditor as OutlineEditorSelectionController;
+}
+
+function getOutlineEditorLayerLinkController(): OutlineEditorLayerLinkController | null {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    const outlineEditor = (window as Unsafe).glyphCanvas?.outlineEditor;
+    if (
+        !outlineEditor ||
+        typeof outlineEditor.isLayerLinked !== 'function' ||
+        typeof outlineEditor.setLayerLinked !== 'function'
+    ) {
+        return null;
+    }
+
+    return outlineEditor as OutlineEditorLayerLinkController;
+}
+
+function refreshLayerLinkageUi(
+    glyphName: string | null,
+    layerId: string | null | undefined,
+    linked: boolean
+): void {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    window.dispatchEvent(
+        new CustomEvent('layerLinkageChanged', {
+            detail: { glyphName, layerId: layerId ?? null, linked }
+        })
+    );
+
+    const glyphCanvas = (window as Unsafe).glyphCanvas;
+    void glyphCanvas?.updatePropertiesUI?.();
+    glyphCanvas?.render?.();
 }
 
 function arePathsEqual(
@@ -2756,6 +2805,10 @@ export class Layer extends ArrayElementBase {
         return glyph?.parent() as Font | undefined;
     }
 
+    private getGlyphName(): string | null {
+        return (this.parent() as Glyph | undefined)?.name || null;
+    }
+
     private getLocalSidebearingKey(side: SidebearingSide): string | undefined {
         return normalizeMetricsKeyValue(
             getModelFormatSpecific(this)?.[
@@ -3445,6 +3498,38 @@ export class Layer extends ArrayElementBase {
                 new Set([(this.parent() as Glyph)?.name].filter(Boolean))
             );
         });
+    }
+
+    /**
+     * Whether this layer is linked for editor multi-layer operations.
+     * This is editor-only runtime state keyed by glyph and layer ID; it is not persisted into font data.
+     */
+    get linked(): boolean {
+        if (!this.id) {
+            return true;
+        }
+
+        const outlineEditor = getOutlineEditorLayerLinkController();
+        if (!outlineEditor) {
+            return true;
+        }
+
+        return outlineEditor.isLayerLinked!(this.id, this.getGlyphName());
+    }
+
+    set linked(value: boolean) {
+        if (!this.id) {
+            return;
+        }
+
+        const outlineEditor = getOutlineEditorLayerLinkController();
+        if (!outlineEditor) {
+            return;
+        }
+
+        const linked = Boolean(value);
+        outlineEditor.setLayerLinked!(this.id, linked, this.getGlyphName());
+        refreshLayerLinkageUi(this.getGlyphName(), this.id, linked);
     }
 
     get name(): string | undefined {

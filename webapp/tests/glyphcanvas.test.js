@@ -2808,6 +2808,89 @@ describe('OutlineEditor exact selected layers', () => {
             defaultName.classList.contains('master-item-name-intermediate')
         ).toBe(false);
     });
+
+    test('tracks unlinked layers per glyph and updates the summary toggle in the layers list', async () => {
+        const targetContainer = document.createElement('div');
+        const selectLayerSpy = jest
+            .spyOn(canvas.outlineEditor, 'selectLayer')
+            .mockResolvedValue();
+        canvas.outlineEditor.active = true;
+
+        await canvas.displayMastersList(targetContainer);
+
+        const summaryToggle = targetContainer.querySelector(
+            '.editor-layers-header .editor-layer-link-toggle'
+        );
+        const masterToggle = targetContainer.querySelector(
+            '.editor-layer-item[data-layer-id="master-layer"] .editor-layer-link-toggle'
+        );
+        const braceToggle = targetContainer.querySelector(
+            '.editor-layer-item[data-layer-id="brace-layer"] .editor-layer-link-toggle'
+        );
+
+        expect(summaryToggle).toBeTruthy();
+        expect(masterToggle).toBeTruthy();
+        expect(braceToggle).toBeTruthy();
+        expect(summaryToggle.getAttribute('data-linked')).toBe('true');
+        expect(masterToggle.getAttribute('data-linked')).toBe('true');
+        expect(braceToggle.getAttribute('data-linked')).toBe('true');
+
+        masterToggle.click();
+
+        expect(selectLayerSpy).not.toHaveBeenCalled();
+        expect(canvas.outlineEditor.getUnlinkedLayerIdsForGlyph('A')).toEqual(
+            new Set(['master-layer'])
+        );
+        expect(summaryToggle.getAttribute('data-linked')).toBe('false');
+        expect(masterToggle.getAttribute('data-linked')).toBe('false');
+        expect(braceToggle.getAttribute('data-linked')).toBe('true');
+
+        summaryToggle.click();
+
+        expect(canvas.outlineEditor.getUnlinkedLayerIdsForGlyph('A')).toEqual(
+            new Set()
+        );
+        expect(summaryToggle.getAttribute('data-linked')).toBe('true');
+        expect(masterToggle.getAttribute('data-linked')).toBe('true');
+        expect(braceToggle.getAttribute('data-linked')).toBe('true');
+
+        summaryToggle.click();
+
+        expect(canvas.outlineEditor.getUnlinkedLayerIdsForGlyph('A')).toEqual(
+            new Set(['master-layer', 'brace-layer'])
+        );
+        expect(summaryToggle.getAttribute('data-linked')).toBe('false');
+        expect(masterToggle.getAttribute('data-linked')).toBe('false');
+        expect(braceToggle.getAttribute('data-linked')).toBe('false');
+
+        selectLayerSpy.mockRestore();
+    });
+
+    test('reuses the same linkage state for a glyph in nested component editing as at root level', async () => {
+        const targetContainer = document.createElement('div');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.setLayerLinked(
+            'component-layer',
+            false,
+            'componentGlyph'
+        );
+        canvas.outlineEditor.glyphStack =
+            'A@master-layer>componentGlyph@component-layer';
+        canvas.outlineEditor.currentGlyphName = 'componentGlyph';
+
+        await canvas.displayMastersList(targetContainer);
+
+        const nestedLayerToggle = targetContainer.querySelector(
+            '.editor-layer-item[data-layer-id="component-layer"] .editor-layer-link-toggle'
+        );
+        const summaryToggle = targetContainer.querySelector(
+            '.editor-layers-header .editor-layer-link-toggle'
+        );
+
+        expect(nestedLayerToggle).toBeTruthy();
+        expect(nestedLayerToggle.getAttribute('data-linked')).toBe('false');
+        expect(summaryToggle.getAttribute('data-linked')).toBe('false');
+    });
 });
 
 describe('OutlineEditor per-layer selection memory', () => {
@@ -3148,6 +3231,27 @@ describe('OutlineEditor per-layer selection memory', () => {
         fetchGlyphDataSpy.mockRestore();
         currentFontSpy.mockRestore();
         canvas.destroy();
+    });
+
+    test('stores layer linkage per glyph and defaults unknown layers to linked', () => {
+        canvas.outlineEditor.setLayerLinked('layer-1', false, 'A');
+        canvas.outlineEditor.setLayerLinked('layer-2', false, 'B');
+
+        expect(canvas.outlineEditor.isLayerLinked('layer-1', 'A')).toBe(false);
+        expect(canvas.outlineEditor.isLayerLinked('layer-2', 'A')).toBe(true);
+        expect(canvas.outlineEditor.getUnlinkedLayerIdsForGlyph('A')).toEqual(
+            new Set(['layer-1'])
+        );
+        expect(canvas.outlineEditor.getUnlinkedLayerIdsForGlyph('B')).toEqual(
+            new Set(['layer-2'])
+        );
+
+        canvas.outlineEditor.setLayerLinked('layer-1', true, 'A');
+
+        expect(canvas.outlineEditor.getUnlinkedLayerIdsForGlyph('A')).toEqual(
+            new Set()
+        );
+        expect(canvas.outlineEditor.isLayerLinked('layer-3', 'A')).toBe(true);
     });
 
     test('copies same-index object selection to a compatible layer', async () => {

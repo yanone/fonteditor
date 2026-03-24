@@ -1779,7 +1779,9 @@ class GlyphCanvas {
                 );
             }
 
-            const glyphName = this.getCurrentGlyphName();
+            const glyphName =
+                this.outlineEditor.getLayerLinkGlyphName() ||
+                this.getCurrentGlyphName();
             glyph = fontModel.glyphs.find((g) => g.name === glyphName);
             glyphLayers = glyph?.layers || [];
             console.log(
@@ -1791,11 +1793,113 @@ class GlyphCanvas {
             );
         }
 
+        const layersWidget = document.createElement('div');
+        layersWidget.className = 'editor-layers-widget';
+
         // Add section title
         const sectionTitle = document.createElement('div');
-        sectionTitle.className = 'editor-section-title';
-        sectionTitle.textContent = isEditMode ? 'Layers' : 'Masters';
-        targetContainer.appendChild(sectionTitle);
+        sectionTitle.className = 'editor-section-title editor-layers-header';
+
+        const sectionTitleText = document.createElement('span');
+        sectionTitleText.className = 'editor-section-title-text';
+        sectionTitleText.textContent = isEditMode ? 'Layers' : 'Masters';
+        sectionTitle.appendChild(sectionTitleText);
+
+        const glyphNameForLinkState =
+            this.outlineEditor.getLayerLinkGlyphName() ||
+            glyph?.name ||
+            this.getCurrentGlyphName();
+        const displayedLayerIds: string[] = [];
+        const layerLinkButtons: HTMLButtonElement[] = [];
+
+        const setLinkButtonState = (
+            button: HTMLButtonElement,
+            linked: boolean,
+            linkedTitle: string,
+            unlinkedTitle: string
+        ): void => {
+            button.setAttribute('data-linked', linked ? 'true' : 'false');
+            button.setAttribute('aria-pressed', linked ? 'true' : 'false');
+            button.setAttribute('title', linked ? linkedTitle : unlinkedTitle);
+            const icon = button.querySelector('.material-symbols-outlined');
+            if (icon) {
+                icon.textContent = linked ? 'link' : 'link_off';
+            }
+        };
+
+        const createLinkButton = (
+            onClick: (event: MouseEvent) => void,
+            extraClassName: string = ''
+        ): HTMLButtonElement => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className =
+                `editor-layer-link-toggle ${extraClassName}`.trim();
+
+            const icon = document.createElement('span');
+            icon.className = 'material-symbols-outlined';
+            button.appendChild(icon);
+
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onClick(event);
+            });
+
+            return button;
+        };
+
+        let summaryLinkButton: HTMLButtonElement | null = null;
+        const refreshLayerLinkControls = (): void => {
+            if (!isEditMode || !summaryLinkButton) {
+                return;
+            }
+
+            const allLinked = this.outlineEditor.areAllLayersLinked(
+                displayedLayerIds,
+                glyphNameForLinkState
+            );
+
+            summaryLinkButton.disabled = displayedLayerIds.length === 0;
+            setLinkButtonState(
+                summaryLinkButton,
+                allLinked,
+                'Unlink all layers',
+                'Link all layers'
+            );
+
+            for (const button of layerLinkButtons) {
+                const layerId = button.getAttribute('data-layer-id');
+                const linked = this.outlineEditor.isLayerLinked(
+                    layerId,
+                    glyphNameForLinkState
+                );
+                setLinkButtonState(
+                    button,
+                    linked,
+                    'Unlink layer',
+                    'Link layer'
+                );
+            }
+        };
+
+        if (isEditMode) {
+            summaryLinkButton = createLinkButton(() => {
+                const linkAll = !this.outlineEditor.areAllLayersLinked(
+                    displayedLayerIds,
+                    glyphNameForLinkState
+                );
+                this.outlineEditor.setAllLayersLinked(
+                    displayedLayerIds,
+                    linkAll,
+                    glyphNameForLinkState
+                );
+                refreshLayerLinkControls();
+            }, 'editor-layer-link-summary-toggle');
+            sectionTitle.appendChild(summaryLinkButton);
+        }
+
+        layersWidget.appendChild(sectionTitle);
 
         // Create masters/layers list
         const mastersList = document.createElement('div');
@@ -1857,19 +1961,45 @@ class GlyphCanvas {
                 item.classList.add('selected');
             }
 
+            const itemContent = document.createElement('div');
+            itemContent.className = 'editor-layer-item-content';
+
             const nameSpan = document.createElement('div');
             nameSpan.className = 'master-item-name';
             if (italicizeName) {
                 nameSpan.classList.add('master-item-name-intermediate');
             }
             nameSpan.textContent = displayName;
-            item.appendChild(nameSpan);
+            itemContent.appendChild(nameSpan);
 
             if (axisValues) {
                 const axisSpan = document.createElement('div');
                 axisSpan.className = 'master-item-location';
                 axisSpan.textContent = axisValues;
-                item.appendChild(axisSpan);
+                itemContent.appendChild(axisSpan);
+            }
+
+            item.appendChild(itemContent);
+
+            if (isEditMode && layer?.id) {
+                displayedLayerIds.push(layer.id);
+
+                const linkButton = createLinkButton(() => {
+                    const nextLinked = !this.outlineEditor.isLayerLinked(
+                        layer.id,
+                        glyphNameForLinkState
+                    );
+                    this.outlineEditor.setLayerLinked(
+                        layer.id,
+                        nextLinked,
+                        glyphNameForLinkState
+                    );
+                    refreshLayerLinkControls();
+                });
+
+                linkButton.setAttribute('data-layer-id', layer.id);
+                layerLinkButtons.push(linkButton);
+                item.appendChild(linkButton);
             }
 
             item.addEventListener('click', () => {
@@ -1962,7 +2092,9 @@ class GlyphCanvas {
             }
         }
 
-        targetContainer.appendChild(mastersList);
+        layersWidget.appendChild(mastersList);
+        refreshLayerLinkControls();
+        targetContainer.appendChild(layersWidget);
 
         // In edit mode, add glyph_stack debug label (development mode only, not in test mode)
         if (isEditMode && window.isDevelopment?.() && !window.isTestMode?.()) {

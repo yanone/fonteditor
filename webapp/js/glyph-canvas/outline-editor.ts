@@ -764,6 +764,7 @@ export class OutlineEditor {
     marqueeToggleMode: boolean = false;
     marqueeInitialPoints: Point[] = [];
     private layerSelectionStateByKey = new Map<string, LayerSelectionState>();
+    private unlinkedLayerIdsByGlyphName = new Map<string, Set<string>>();
     private pendingGlyphSwitchSourceLayerKey: string | null = null;
     private pendingGlyphSwitchSourceLayer: any | null = null;
 
@@ -772,6 +773,155 @@ export class OutlineEditor {
     constructor(glyphCanvas: GlyphCanvas) {
         this.glyphCanvas = glyphCanvas;
         this.guidelinesVisible = this.loadGuidelinesVisible();
+    }
+
+    getLayerLinkGlyphName(glyphName: string | null = null): string | null {
+        const parsed = this.parseGlyphStack();
+        const stackGlyphName = parsed.length
+            ? parsed[parsed.length - 1].glyphName
+            : null;
+
+        const resolvedName =
+            glyphName ||
+            stackGlyphName ||
+            this.currentGlyphName ||
+            this.glyphCanvas.getCurrentGlyphName();
+
+        if (!resolvedName || resolvedName === 'undefined') {
+            return null;
+        }
+
+        return resolvedName;
+    }
+
+    private resolveLayerLinkGlyphName(
+        glyphName: string | null = null
+    ): string | null {
+        return this.getLayerLinkGlyphName(glyphName);
+    }
+
+    isLayerLinked(
+        layerId: string | null | undefined,
+        glyphName: string | null = null
+    ): boolean {
+        if (!layerId) {
+            return true;
+        }
+
+        const resolvedGlyphName = this.resolveLayerLinkGlyphName(glyphName);
+        if (!resolvedGlyphName) {
+            return true;
+        }
+
+        return !this.unlinkedLayerIdsByGlyphName
+            .get(resolvedGlyphName)
+            ?.has(layerId);
+    }
+
+    getUnlinkedLayerIdsForGlyph(glyphName: string | null = null): Set<string> {
+        const resolvedGlyphName = this.resolveLayerLinkGlyphName(glyphName);
+        if (!resolvedGlyphName) {
+            return new Set<string>();
+        }
+
+        return new Set(
+            this.unlinkedLayerIdsByGlyphName.get(resolvedGlyphName) || []
+        );
+    }
+
+    areAllLayersLinked(
+        layerIds: string[],
+        glyphName: string | null = null
+    ): boolean {
+        return layerIds.every((layerId) =>
+            this.isLayerLinked(layerId, glyphName)
+        );
+    }
+
+    setLayerLinked(
+        layerId: string | null | undefined,
+        linked: boolean,
+        glyphName: string | null = null
+    ): void {
+        if (!layerId) {
+            return;
+        }
+
+        const resolvedGlyphName = this.resolveLayerLinkGlyphName(glyphName);
+        if (!resolvedGlyphName) {
+            return;
+        }
+
+        const unlinkedLayerIds = new Set(
+            this.unlinkedLayerIdsByGlyphName.get(resolvedGlyphName) || []
+        );
+
+        if (linked) {
+            unlinkedLayerIds.delete(layerId);
+        } else {
+            unlinkedLayerIds.add(layerId);
+        }
+
+        if (unlinkedLayerIds.size === 0) {
+            this.unlinkedLayerIdsByGlyphName.delete(resolvedGlyphName);
+            return;
+        }
+
+        this.unlinkedLayerIdsByGlyphName.set(
+            resolvedGlyphName,
+            unlinkedLayerIds
+        );
+    }
+
+    setAllLayersLinked(
+        layerIds: string[],
+        linked: boolean,
+        glyphName: string | null = null
+    ): void {
+        const resolvedGlyphName = this.resolveLayerLinkGlyphName(glyphName);
+        if (!resolvedGlyphName) {
+            return;
+        }
+
+        const uniqueLayerIds = Array.from(
+            new Set(layerIds.filter((layerId): layerId is string => !!layerId))
+        );
+
+        if (uniqueLayerIds.length === 0) {
+            return;
+        }
+
+        if (linked) {
+            const unlinkedLayerIds = new Set(
+                this.unlinkedLayerIdsByGlyphName.get(resolvedGlyphName) || []
+            );
+
+            uniqueLayerIds.forEach((layerId) =>
+                unlinkedLayerIds.delete(layerId)
+            );
+
+            if (unlinkedLayerIds.size === 0) {
+                this.unlinkedLayerIdsByGlyphName.delete(resolvedGlyphName);
+                return;
+            }
+
+            this.unlinkedLayerIdsByGlyphName.set(
+                resolvedGlyphName,
+                unlinkedLayerIds
+            );
+            return;
+        }
+
+        const unlinkedLayerIds = new Set(
+            this.unlinkedLayerIdsByGlyphName.get(resolvedGlyphName) || []
+        );
+
+        uniqueLayerIds.forEach((layerId) => unlinkedLayerIds.add(layerId));
+
+        this.unlinkedLayerIdsByGlyphName.set(
+            resolvedGlyphName,
+            unlinkedLayerIds
+        );
     }
 
     private loadGuidelinesVisible(): boolean {
