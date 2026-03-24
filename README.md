@@ -245,7 +245,6 @@ Users will see an orange update notification button in the title bar within 10 m
 
 **Counterpunch becomes a simple font editor**
 
-- ◻️ Multi-line text
 - ◻️ Basic layer/glyph operations
 - ◻️ Edit outlines
 - ◻️ Edit components
@@ -260,15 +259,18 @@ Users will see an orange update notification button in the title bar within 10 m
 - ◻️ Edit Font Info
 - ◻️ Master/instance management
 - ◻️ Path operations (boolean)
-- ◻️ Transform tools
 - ◻️ Kerning
-- ◻️ Automatic glyph metric updates
+- ✅ Automatic glyph metric updates
 - ◻️ Automatic glyph composition
+- ◻️ Font export
+- ◻️ Source saving
 
 ### v0.4 (Due: ?, 2026)
 
 **Extended features — Counterpunch becomes a full-featured font editor**
 
+- ◻️ Transform tools
+- ◻️ Multi-line text
 - ◻️ avar2 editor
 - ◻️ Variable components
 - ◻️ OpenType feature code generator
