@@ -1061,6 +1061,60 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         expect(canvas.viewportManager.panX).toBe(102);
     });
 
+    test('Cmd+A selects all points, anchors, and components in the active layer', () => {
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-1'
+            },
+            shapes: [
+                {
+                    nodes: [
+                        { x: 100, y: 0, nodetype: 'Line' },
+                        { x: 400, y: 0, nodetype: 'Line' }
+                    ],
+                    closed: false
+                },
+                {
+                    reference: 'acutecomb',
+                    transform: [1, 0, 0, 1, 0, 0]
+                }
+            ],
+            anchors: [{ name: 'top', x: 250, y: 700 }],
+            guides: [],
+            isInterpolated: false
+        };
+        canvas.outlineEditor.selectedGuideHandle = {
+            scope: 'layer',
+            index: 0
+        };
+        canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+
+        const event = {
+            key: 'a',
+            shiftKey: false,
+            altKey: false,
+            metaKey: true,
+            ctrlKey: false,
+            code: 'KeyA',
+            preventDefault: jest.fn()
+        };
+
+        canvas.outlineEditor.onKeyDown(event);
+
+        expect(event.preventDefault).toHaveBeenCalled();
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 0 },
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+        expect(canvas.outlineEditor.selectedGuideHandle).toBe(null);
+        expect(canvas.outlineEditor.selectedSidebearingHandle).toBe(null);
+    });
+
     test('setSidebearingValue shifts component-backed layers through transform translation', () => {
         const font = Font.fromData({
             upm: 1000,

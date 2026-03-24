@@ -1192,6 +1192,57 @@ export class OutlineEditor {
         return Array.isArray(shape.nodes) ? shape.nodes.length : 0;
     }
 
+    private selectAllCurrentLayerObjects(): boolean {
+        if (!this.selectedLayerId) {
+            return false;
+        }
+
+        const layer =
+            this.getCurrentLayerDataFromStack() || this.getCurrentLayerModel();
+        if (!layer) {
+            return false;
+        }
+
+        const shapes = layer.shapes || [];
+        const points: Point[] = [];
+        const components: number[] = [];
+
+        shapes.forEach((shape: any, shapeIndex: number) => {
+            if (this.isPathShape(shape)) {
+                const nodeCount = this.getNodeCountForShape(shape);
+                for (let nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++) {
+                    points.push({ contourIndex: shapeIndex, nodeIndex });
+                }
+                return;
+            }
+
+            if (this.isComponentShape(shape)) {
+                components.push(shapeIndex);
+            }
+        });
+
+        const anchorSource = this.getAnchorsForSelectionLayer(layer);
+        const anchors = anchorSource.map((_anchor, index) => index);
+
+        this.applySelectionStateForLayer(
+            {
+                points,
+                anchors,
+                anchorNames: this.getAnchorNamesForSelectionIndices(
+                    anchors,
+                    anchorSource
+                ),
+                components,
+                guideHandle: null
+            },
+            layer
+        );
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+
+        return points.length > 0 || anchors.length > 0 || components.length > 0;
+    }
+
     private getLayerFingerprint(layer: any): string | null {
         const resolvedLayer = this.resolveLayerModel(layer);
         return typeof resolvedLayer?.fingerprint === 'string'
@@ -3993,6 +4044,18 @@ export class OutlineEditor {
                 this.cycleLayers(e.key === 'ArrowUp');
                 return;
             }
+        }
+
+        if (
+            (e.metaKey || e.ctrlKey) &&
+            e.key.toLowerCase() === 'a' &&
+            !e.shiftKey &&
+            !e.altKey
+        ) {
+            if (this.selectAllCurrentLayerObjects()) {
+                e.preventDefault();
+            }
+            return;
         }
 
         // Handle arrow keys for point/anchor/component movement

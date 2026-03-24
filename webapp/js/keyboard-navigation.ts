@@ -1477,6 +1477,14 @@
                 window.glyphCanvas?.canvas === activeElement
             ) {
                 const glyphCanvas = window.glyphCanvas;
+                if (glyphCanvas?.outlineEditor?.active) {
+                    console.log(
+                        '[KeyboardNav]',
+                        'Allowing Cmd+A in canvas outline mode'
+                    );
+                    return;
+                }
+
                 if (glyphCanvas && !glyphCanvas.outlineEditor?.active) {
                     // In text mode - handle select all ourselves
                     console.log(
