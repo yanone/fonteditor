@@ -364,7 +364,39 @@ describe('OutlineEditor marquee selection', () => {
         canvas.destroy();
     });
 
-    test('dragging on empty space replaces selection with nodes inside the rectangle', () => {
+    test('clicking empty canvas clears selection of all object types', () => {
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.selectedComponents = [1];
+        canvas.outlineEditor.selectedGuideHandle = {
+            scope: 'layer',
+            index: 0
+        };
+        canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+
+        jest.spyOn(
+            canvas.outlineEditor,
+            'transformMouseToComponentSpace'
+        ).mockReturnValueOnce({ glyphX: 0, glyphY: 0 });
+
+        canvas.outlineEditor.onSingleClick({
+            shiftKey: false,
+            altKey: false,
+            metaKey: false,
+            ctrlKey: false
+        });
+        canvas.outlineEditor.onMouseUp({ clientX: 0, clientY: 0 });
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+        expect(canvas.outlineEditor.selectedGuideHandle).toBe(null);
+        expect(canvas.outlineEditor.selectedSidebearingHandle).toBe(null);
+    });
+
+    test('dragging on empty space replaces only node selection inside the rectangle', () => {
         canvas.outlineEditor.selectedAnchors = [0];
         canvas.outlineEditor.selectedComponents = [1];
         canvas.outlineEditor.selectedGuideHandle = {
@@ -388,9 +420,12 @@ describe('OutlineEditor marquee selection', () => {
             { contourIndex: 0, nodeIndex: 0 },
             { contourIndex: 0, nodeIndex: 1 }
         ]);
-        expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
-        expect(canvas.outlineEditor.selectedComponents).toEqual([]);
-        expect(canvas.outlineEditor.selectedGuideHandle).toBe(null);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([0]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+        expect(canvas.outlineEditor.selectedGuideHandle).toEqual({
+            scope: 'layer',
+            index: 0
+        });
     });
 
     test('shift-drag toggles nodes inside the rectangle and keeps unaffected nodes selected', () => {

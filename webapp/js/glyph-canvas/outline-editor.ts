@@ -1323,6 +1323,15 @@ export class OutlineEditor {
         };
     }
 
+    private hasMarqueeDragged(): boolean {
+        const rect = this.getMarqueeSelectionBox();
+        if (!rect) {
+            return false;
+        }
+
+        return rect.width !== 0 || rect.height !== 0;
+    }
+
     getVisibleMarqueeSelectionBox(): {
         minX: number;
         minY: number;
@@ -1412,7 +1421,7 @@ export class OutlineEditor {
             ? this.getToggledMarqueeSelection(pointsInRect)
             : pointsInRect;
 
-        this.applySelectionStateForLayer(
+        const sanitizedPoints = this.sanitizeSelectionStateForLayer(
             {
                 points: nextPoints,
                 anchors: [],
@@ -1421,8 +1430,10 @@ export class OutlineEditor {
                 guideHandle: null
             },
             layer
-        );
-        this.selectedSidebearingHandle = null;
+        ).points;
+
+        this.selectedPoints = sanitizedPoints;
+        this.storeSelectionStateForLayer(layer);
         this.glyphCanvas.updatePropertyPanel();
     }
 
@@ -2678,15 +2689,6 @@ export class OutlineEditor {
                 this.glyphCanvas.render();
             }
             return; // Don't start canvas panning
-        } else if (!e.shiftKey) {
-            // Clicked on empty space without shift: clear selection
-            this.selectedPoints = [];
-            this.selectedAnchors = [];
-            this.selectedComponents = [];
-            this.selectedSidebearingHandle = null;
-            this.selectedGuideHandle = null;
-            this.glyphCanvas.updatePropertyPanel();
-            this.glyphCanvas.render();
         }
 
         this.beginMarqueeSelection(e);
@@ -2973,6 +2975,10 @@ export class OutlineEditor {
 
     onMouseUp(e: MouseEvent): void {
         if (this.isMarqueeSelecting) {
+            if (!this.marqueeToggleMode && !this.hasMarqueeDragged()) {
+                this.clearAllSelections();
+                this.glyphCanvas.render();
+            }
             this.resetMarqueeSelection();
             return;
         }
