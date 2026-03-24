@@ -2058,6 +2058,44 @@ describe('Babelfont Object Model', () => {
                                         name: 'layer-guide'
                                     }
                                 ]
+                            },
+                            {
+                                id: 'layer-1b',
+                                width: 500,
+                                master: {
+                                    type: 'AssociatedWithMaster',
+                                    master: 'master-1'
+                                },
+                                location: { wght: 50 },
+                                shapes: [
+                                    {
+                                        Component: {
+                                            reference: 'B',
+                                            transform: {
+                                                translation: [10, 20],
+                                                scale: [1, 1],
+                                                rotation: 0,
+                                                skew: [0, 0],
+                                                order: 'RestOfTheWorld'
+                                            }
+                                        }
+                                    },
+                                    {
+                                        nodes: [
+                                            {
+                                                x: 100,
+                                                y: 200,
+                                                nodetype: 'Line'
+                                            }
+                                        ],
+                                        closed: false
+                                    }
+                                ],
+                                anchors: [
+                                    { x: 300, y: 400, name: 'top' },
+                                    { x: 320, y: 420, name: 'bottom' }
+                                ],
+                                guides: []
                             }
                         ]
                     },
@@ -2327,6 +2365,26 @@ describe('Babelfont Object Model', () => {
             );
 
             dispatchSpy.mockRestore();
+        });
+
+        test('returns linked sibling layers with matching fingerprints after link toggles', () => {
+            const siblingLayer = selectionGlyph.findLayerById('layer-1b');
+
+            expect(
+                selectionLayer._getLinkedLayers().map((layer) => layer.id)
+            ).toEqual(['layer-1b']);
+
+            siblingLayer.linked = false;
+            expect(selectionLayer._getLinkedLayers()).toEqual([]);
+
+            siblingLayer.linked = true;
+            selectionLayer.linked = false;
+            expect(selectionLayer._getLinkedLayers()).toEqual([]);
+
+            selectionLayer.linked = true;
+            expect(
+                selectionLayer._getLinkedLayers().map((layer) => layer.id)
+            ).toEqual(['layer-1b']);
         });
     });
 });

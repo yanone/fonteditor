@@ -5199,6 +5199,31 @@ export class Layer extends ArrayElementBase {
         ].join(';');
     }
 
+    /**
+     * Internal helper for multi-layer editing workflows.
+     * Returns sibling layers on the same glyph that are currently linked and
+     * structurally compatible with this layer via matching fingerprints.
+     */
+    _getLinkedLayers(): Layer[] {
+        const glyph = this.parent() as Glyph | null;
+        if (!glyph || !this.linked) {
+            return [];
+        }
+
+        const referenceFingerprint = this.fingerprint;
+        const linkedLayers = (glyph.layers || []).filter(
+            (layer) =>
+                !areSameModelObject(layer, this) &&
+                layer.linked !== false &&
+                layer.fingerprint === referenceFingerprint
+        );
+
+        return getReadOnlyCollectionValue(
+            linkedLayers,
+            'Layer._getLinkedLayers() returns a read-only collection view.'
+        );
+    }
+
     toString(): string {
         const masterId = this.getMasterId() || 'Unsafe';
         const shapesCount = this.shapes?.length || 0;
