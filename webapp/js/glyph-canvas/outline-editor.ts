@@ -4008,36 +4008,38 @@ export class OutlineEditor {
                 smoothAnchorsToRealign.add(`${contourIndex}:${nodeIndex}`);
             }
 
-            const prevIndexForAlignment = getNeighborNodeIndex(
-                nodeIndex,
-                -1,
-                contour.nodes.length,
-                contour.closed
-            );
-            const nextIndexForAlignment = getNeighborNodeIndex(
-                nodeIndex,
-                1,
-                contour.nodes.length,
-                contour.closed
-            );
+            if (!isOffCurveNode(node)) {
+                const prevIndexForAlignment = getNeighborNodeIndex(
+                    nodeIndex,
+                    -1,
+                    contour.nodes.length,
+                    contour.closed
+                );
+                const nextIndexForAlignment = getNeighborNodeIndex(
+                    nodeIndex,
+                    1,
+                    contour.nodes.length,
+                    contour.closed
+                );
 
-            if (
-                prevIndexForAlignment !== null &&
-                isCurveNode(contour.nodes[prevIndexForAlignment]) &&
-                contour.nodes[prevIndexForAlignment].smooth
-            ) {
-                smoothAnchorsToRealign.add(
-                    `${contourIndex}:${prevIndexForAlignment}`
-                );
-            }
-            if (
-                nextIndexForAlignment !== null &&
-                isCurveNode(contour.nodes[nextIndexForAlignment]) &&
-                contour.nodes[nextIndexForAlignment].smooth
-            ) {
-                smoothAnchorsToRealign.add(
-                    `${contourIndex}:${nextIndexForAlignment}`
-                );
+                if (
+                    prevIndexForAlignment !== null &&
+                    isCurveNode(contour.nodes[prevIndexForAlignment]) &&
+                    contour.nodes[prevIndexForAlignment].smooth
+                ) {
+                    smoothAnchorsToRealign.add(
+                        `${contourIndex}:${prevIndexForAlignment}`
+                    );
+                }
+                if (
+                    nextIndexForAlignment !== null &&
+                    isCurveNode(contour.nodes[nextIndexForAlignment]) &&
+                    contour.nodes[nextIndexForAlignment].smooth
+                ) {
+                    smoothAnchorsToRealign.add(
+                        `${contourIndex}:${nextIndexForAlignment}`
+                    );
+                }
             }
 
             if (!isCurveNode(node) || preserveHandlePositions) {
