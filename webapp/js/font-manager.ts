@@ -5,7 +5,7 @@
 // "editing" font: Recompiled on demand with subset of glyphs for display in canvas
 
 import APP_SETTINGS from './settings';
-import { fontCompilation } from './font-compilation';
+import { fontCompilation, requestOpenFontConversion } from './font-compilation';
 import { get_glyph_order } from '../wasm-dist/babelfont_fontc_web';
 import type { Babelfont } from './babelfont';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
@@ -705,45 +705,11 @@ class FontManager {
             return contents as string;
         }
 
-        if (!window.fontCompilation?.worker) {
-            throw new Error('Font compilation worker not initialized');
-        }
-
-        return await new Promise<string>((resolve, reject) => {
-            const id = Math.random().toString(36);
-            const timeout = setTimeout(() => {
-                reject(new Error('Font conversion timeout after 30 seconds'));
-            }, 30000);
-
-            const handleMessage = (e: MessageEvent) => {
-                if (e.data.id === id && e.data.type === 'openFont') {
-                    clearTimeout(timeout);
-                    window.fontCompilation!.worker!.removeEventListener(
-                        'message',
-                        handleMessage
-                    );
-
-                    if (e.data.error) {
-                        reject(new Error(e.data.error));
-                    } else {
-                        resolve(e.data.babelfontJson);
-                    }
-                }
-            };
-
-            window.fontCompilation!.worker!.addEventListener(
-                'message',
-                handleMessage
-            );
-
-            window.fontCompilation!.worker!.postMessage({
-                type: 'openFont',
-                id,
-                filename: font.path.split('/').pop() || font.path,
-                contents,
-                packageEntries,
-                projectEntries
-            });
+        return await requestOpenFontConversion({
+            filename: font.path.split('/').pop() || font.path,
+            contents,
+            packageEntries,
+            projectEntries
         });
     }
 
@@ -2439,25 +2405,21 @@ document.addEventListener('DOMContentLoaded', () => {
 export default fontManager;
 
 // Wait for font compilation system to be ready
-async function fontCompilationReady() {
-    if (!fontCompilation || !fontCompilation.isInitialized) {
-        // Wait up to 30 seconds for initialization
-        let attempts = 0;
-        while (
-            attempts < 300 &&
-            (!fontCompilation || !fontCompilation.isInitialized)
-        ) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            attempts++;
-        }
-        if (!fontCompilation || !fontCompilation.isInitialized) {
-            console.error(
-                '[FontManager]',
-                '❌ Font compilation system not ready after 30 seconds'
-            );
-            return;
-        }
+async function fontCompilationReady(): Promise<boolean> {
+    if (fontCompilation?.isInitialized) {
+        return true;
     }
+
+    const initialized = await fontCompilation.initialize();
+    if (!initialized) {
+        console.error(
+            '[FontManager]',
+            '❌ Font compilation system not ready after initialization'
+        );
+        return false;
+    }
+
+    return true;
 }
 
 function createOpenSessionId(): string {
@@ -2484,7 +2446,9 @@ function emitOpenLifecycle(
 
 // Listen for font loaded events from file browser
 window.addEventListener('fontLoaded', async (event: Event) => {
-    await fontCompilationReady();
+    if (!(await fontCompilationReady())) {
+        return;
+    }
 
     const openSessionSpanId = timelineSpanStart('font.openSession');
 

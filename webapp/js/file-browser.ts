@@ -22,6 +22,7 @@ import {
     setupMenuKeyboardNav
 } from './tippy-utils';
 import { Logger } from './logger';
+import { requestOpenFontConversion } from './font-compilation';
 import {
     timelineMark,
     timelineSpanEnd,
@@ -117,52 +118,16 @@ async function convertSourceToBabelfontViaWorker(
     projectEntries: Record<string, Uint8Array> | undefined,
     sourcePlugin: FilesystemPlugin
 ): Promise<string> {
-    if (!window.fontCompilation?.worker) {
-        throw new Error('Font compilation worker not initialized');
-    }
-
     const shouldRetryGlyphsParse = extension === 'glyphs';
     const maxAttempts = shouldRetryGlyphsParse ? 2 : 1;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-            return await new Promise<string>((resolve, reject) => {
-                const id = Math.random().toString(36);
-                const timeout = setTimeout(() => {
-                    reject(
-                        new Error('Font conversion timeout after 30 seconds')
-                    );
-                }, 30000);
-
-                const handleMessage = (e: MessageEvent) => {
-                    if (e.data.id === id && e.data.type === 'openFont') {
-                        clearTimeout(timeout);
-                        window.fontCompilation!.worker!.removeEventListener(
-                            'message',
-                            handleMessage
-                        );
-
-                        if (e.data.error) {
-                            reject(new Error(e.data.error));
-                        } else {
-                            resolve(e.data.babelfontJson);
-                        }
-                    }
-                };
-
-                window.fontCompilation!.worker!.addEventListener(
-                    'message',
-                    handleMessage
-                );
-
-                window.fontCompilation!.worker!.postMessage({
-                    type: 'openFont',
-                    id,
-                    filename: path.split('/').pop() || path,
-                    contents,
-                    packageEntries,
-                    projectEntries
-                });
+            return await requestOpenFontConversion({
+                filename: path.split('/').pop() || path,
+                contents,
+                packageEntries,
+                projectEntries
             });
         } catch (error: unknown) {
             const errorMessage = getErrorMessage(error);

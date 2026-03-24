@@ -164,6 +164,7 @@ async function shapeTextWithFont(
 class FontCompilation {
     worker: Worker | null;
     isInitialized: boolean;
+    initializationPromise: Promise<boolean> | null;
     connectInterpolation: boolean;
     pendingCompilations: Map<
         number,
@@ -184,6 +185,7 @@ class FontCompilation {
     constructor(options?: { connectInterpolation?: boolean }) {
         this.worker = null;
         this.isInitialized = false;
+        this.initializationPromise = null;
         this.connectInterpolation = options?.connectInterpolation ?? true;
         this.pendingCompilations = new Map();
         this.compilationId = 0;
@@ -199,6 +201,21 @@ class FontCompilation {
             return true;
         }
 
+        if (this.initializationPromise) {
+            timelineMark('fontCompilation.initialize.joinInFlight');
+            return await this.initializationPromise;
+        }
+
+        this.initializationPromise = this.performInitialize();
+
+        try {
+            return await this.initializationPromise;
+        } finally {
+            this.initializationPromise = null;
+        }
+    }
+
+    private async performInitialize(): Promise<boolean> {
         const initializeSpanId = timelineSpanStart(
             'fontCompilation.initialize'
         );
@@ -969,6 +986,98 @@ async function initFontCompilation() {
     await fontCompilation.initialize();
 }
 
+type OpenFontWorkerRequest = {
+    filename: string;
+    contents?: string | Uint8Array;
+    packageEntries?: Record<string, Uint8Array>;
+    projectEntries?: Record<string, Uint8Array>;
+    timeoutMs?: number;
+};
+
+async function getReadyFontCompilationWorker(): Promise<Worker> {
+    const initialized = await fontCompilation.initialize();
+
+    if (!initialized || !fontCompilation.worker) {
+        throw new Error('Font compilation worker not initialized');
+    }
+
+    return fontCompilation.worker;
+}
+
+async function requestOpenFontConversion({
+    filename,
+    contents,
+    packageEntries,
+    projectEntries,
+    timeoutMs = 30000
+}: OpenFontWorkerRequest): Promise<string> {
+    const worker = await getReadyFontCompilationWorker();
+
+    return await new Promise<string>((resolve, reject) => {
+        const id = Math.random().toString(36);
+        let settled = false;
+
+        const cleanup = () => {
+            clearTimeout(timeout);
+            worker.removeEventListener('message', handleMessage);
+        };
+
+        const resolveOnce = (babelfontJson: string) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            resolve(babelfontJson);
+        };
+
+        const rejectOnce = (error: unknown) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            reject(error instanceof Error ? error : new Error(String(error)));
+        };
+
+        const handleMessage = (e: MessageEvent) => {
+            if (e.data.id !== id || e.data.type !== 'openFont') {
+                return;
+            }
+
+            if (e.data.error) {
+                rejectOnce(new Error(e.data.error));
+                return;
+            }
+
+            resolveOnce(e.data.babelfontJson);
+        };
+
+        const timeout = setTimeout(() => {
+            rejectOnce(
+                new Error(
+                    `Font conversion timeout after ${Math.round(timeoutMs / 1000)} seconds`
+                )
+            );
+        }, timeoutMs);
+
+        worker.addEventListener('message', handleMessage);
+
+        try {
+            worker.postMessage({
+                type: 'openFont',
+                id,
+                filename,
+                contents,
+                packageEntries,
+                projectEntries
+            });
+        } catch (error) {
+            rejectOnce(error);
+        }
+    });
+}
+
 // Auto-initialize - wait for service worker to be active
 // Only run in browser environment
 if (typeof document !== 'undefined') {
@@ -1014,5 +1123,6 @@ export {
     fontCompilation,
     fullFontCompilation,
     COMPILATION_TARGETS,
-    shapeTextWithFont
+    shapeTextWithFont,
+    requestOpenFontConversion
 };
