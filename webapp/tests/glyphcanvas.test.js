@@ -287,6 +287,105 @@ describe('GlyphCanvas onMouseUp', () => {
     });
 });
 
+describe('OutlineEditor marquee selection', () => {
+    let canvas;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 500, dx: 0, dy: 0, g: 0 }];
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-1'
+            },
+            shapes: [
+                {
+                    nodes: [
+                        { x: 10, y: 10, nodetype: 'Line' },
+                        { x: 40, y: 40, nodetype: 'Line' },
+                        { x: 80, y: 80, nodetype: 'Line' }
+                    ],
+                    closed: false
+                },
+                {
+                    reference: 'acutecomb',
+                    transform: [1, 0, 0, 1, 20, 20]
+                }
+            ],
+            anchors: [{ name: 'top', x: 30, y: 90 }],
+            guides: []
+        };
+        canvas.outlineEditor.hoveredPointIndex = null;
+        canvas.outlineEditor.hoveredAnchorIndex = null;
+        canvas.outlineEditor.hoveredComponentIndex = null;
+        canvas.outlineEditor.hoveredGuideHandle = null;
+        canvas.outlineEditor.hoveredSidebearingHandle = null;
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+    });
+
+    test('dragging on empty space replaces selection with nodes inside the rectangle', () => {
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.selectedComponents = [1];
+        canvas.outlineEditor.selectedGuideHandle = {
+            scope: 'layer',
+            index: 0
+        };
+
+        jest.spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValueOnce({ glyphX: 0, glyphY: 0 })
+            .mockReturnValueOnce({ glyphX: 50, glyphY: 50 });
+
+        canvas.outlineEditor.onSingleClick({
+            shiftKey: false,
+            altKey: false,
+            metaKey: false,
+            ctrlKey: false
+        });
+        canvas.outlineEditor.onMouseMove({ clientX: 50, clientY: 50 });
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 0 },
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
+        expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
+        expect(canvas.outlineEditor.selectedComponents).toEqual([]);
+        expect(canvas.outlineEditor.selectedGuideHandle).toBe(null);
+    });
+
+    test('shift-drag toggles nodes inside the rectangle and keeps unaffected nodes selected', () => {
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+
+        jest.spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValueOnce({ glyphX: 0, glyphY: 0 })
+            .mockReturnValueOnce({ glyphX: 50, glyphY: 50 });
+
+        canvas.outlineEditor.onSingleClick({
+            shiftKey: true,
+            altKey: false,
+            metaKey: false,
+            ctrlKey: false
+        });
+        canvas.outlineEditor.onMouseMove({ clientX: 50, clientY: 50 });
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 2 },
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
+    });
+});
+
 describe('GlyphCanvas property panel metrics edits', () => {
     let canvas;
     let originalLastChangeSource;

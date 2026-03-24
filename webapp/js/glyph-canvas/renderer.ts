@@ -2010,6 +2010,8 @@ export class GlyphCanvasRenderer {
         // Draw bounding box for testing
         this.drawBoundingBox();
 
+        this.drawMarqueeSelectionRect();
+
         this.ctx.restore();
 
         this.ctx.save();
@@ -2440,6 +2442,31 @@ export class GlyphCanvasRenderer {
         const maxText = `(${Math.round(bbox.maxX)}, ${Math.round(bbox.maxY)})`;
         const maxMetrics = this.ctx.measureText(maxText);
         this.ctx.fillText(maxText, -maxMetrics.width, -5 * invScale);
+        this.ctx.restore();
+    }
+
+    drawMarqueeSelectionRect() {
+        const rect =
+            this.glyphCanvas.outlineEditor.getVisibleMarqueeSelectionBox();
+        if (!rect) {
+            return;
+        }
+
+        const invScale = 1 / this.viewportManager.scale;
+        const isDarkTheme =
+            document.documentElement.getAttribute('data-theme') !== 'light';
+
+        this.ctx.save();
+        this.ctx.fillStyle = isDarkTheme
+            ? 'rgba(96, 165, 250, 0.05)'
+            : 'rgba(37, 99, 235, 0.05)';
+        this.ctx.strokeStyle = isDarkTheme
+            ? 'rgba(147, 197, 253, 0.4)'
+            : 'rgba(29, 78, 216, 0.35)';
+        this.ctx.lineWidth = 1 * invScale;
+        this.ctx.setLineDash([4 * invScale, 4 * invScale]);
+        this.ctx.fillRect(rect.minX, rect.minY, rect.width, rect.height);
+        this.ctx.strokeRect(rect.minX, rect.minY, rect.width, rect.height);
         this.ctx.restore();
     }
 

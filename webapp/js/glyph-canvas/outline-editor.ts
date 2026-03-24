@@ -420,6 +420,7 @@ export class OutlineEditor {
     isDraggingAnchor: boolean = false;
     isDraggingSidebearing: boolean = false;
     isDraggingGuide: boolean = false;
+    isMarqueeSelecting: boolean = false;
     _hasMoved: boolean = false;
     _preDragDesc: string | null = null;
     _dragType:
@@ -465,6 +466,10 @@ export class OutlineEditor {
     autoPanAnchorScreen: { x: number; y: number } | null = null;
     autoPanEnabled: boolean = true;
     glyphStack: string = '';
+    marqueeSelectionStart: { glyphX: number; glyphY: number } | null = null;
+    marqueeSelectionCurrent: { glyphX: number; glyphY: number } | null = null;
+    marqueeToggleMode: boolean = false;
+    marqueeInitialPoints: Point[] = [];
     private layerSelectionStateByKey = new Map<string, LayerSelectionState>();
     private pendingGlyphSwitchSourceLayerKey: string | null = null;
     private pendingGlyphSwitchSourceLayer: any | null = null;
@@ -1243,6 +1248,184 @@ export class OutlineEditor {
         return points.length > 0 || anchors.length > 0 || components.length > 0;
     }
 
+    private resetMarqueeSelection(): void {
+        this.isMarqueeSelecting = false;
+        this.marqueeSelectionStart = null;
+        this.marqueeSelectionCurrent = null;
+        this.marqueeToggleMode = false;
+        this.marqueeInitialPoints = [];
+    }
+
+    private cloneSelectedPoints(
+        points: Point[] = this.selectedPoints
+    ): Point[] {
+        return points.map((point) => ({ ...point }));
+    }
+
+    private getPointSelectionKey(point: Point): string {
+        return `${point.contourIndex}:${point.nodeIndex}`;
+    }
+
+    private getCurrentLayerSelectablePoints(layer: any): Point[] {
+        const shapes = layer?.shapes || [];
+        const points: Point[] = [];
+
+        shapes.forEach((shape: any, contourIndex: number) => {
+            const contour = getEditableContour(shape);
+            if (!contour) {
+                return;
+            }
+
+            contour.nodes.forEach((_node, nodeIndex) => {
+                points.push({ contourIndex, nodeIndex });
+            });
+        });
+
+        return points;
+    }
+
+    private getMarqueeSelectionBox(): {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+        width: number;
+        height: number;
+    } | null {
+        if (!this.marqueeSelectionStart || !this.marqueeSelectionCurrent) {
+            return null;
+        }
+
+        const minX = Math.min(
+            this.marqueeSelectionStart.glyphX,
+            this.marqueeSelectionCurrent.glyphX
+        );
+        const minY = Math.min(
+            this.marqueeSelectionStart.glyphY,
+            this.marqueeSelectionCurrent.glyphY
+        );
+        const maxX = Math.max(
+            this.marqueeSelectionStart.glyphX,
+            this.marqueeSelectionCurrent.glyphX
+        );
+        const maxY = Math.max(
+            this.marqueeSelectionStart.glyphY,
+            this.marqueeSelectionCurrent.glyphY
+        );
+
+        return {
+            minX,
+            minY,
+            maxX,
+            maxY,
+            width: maxX - minX,
+            height: maxY - minY
+        };
+    }
+
+    getVisibleMarqueeSelectionBox(): {
+        minX: number;
+        minY: number;
+        width: number;
+        height: number;
+    } | null {
+        if (!this.isMarqueeSelecting) {
+            return null;
+        }
+
+        const rect = this.getMarqueeSelectionBox();
+        if (!rect) {
+            return null;
+        }
+
+        return {
+            minX: rect.minX,
+            minY: rect.minY,
+            width: rect.width,
+            height: rect.height
+        };
+    }
+
+    private beginMarqueeSelection(e: MouseEvent): boolean {
+        if (e.altKey || e.metaKey || e.ctrlKey) {
+            return false;
+        }
+
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        this.isMarqueeSelecting = true;
+        this.marqueeSelectionStart = { glyphX, glyphY };
+        this.marqueeSelectionCurrent = { glyphX, glyphY };
+        this.marqueeToggleMode = e.shiftKey;
+        this.marqueeInitialPoints = this.cloneSelectedPoints();
+        return true;
+    }
+
+    private getToggledMarqueeSelection(pointsInRect: Point[]): Point[] {
+        const initialKeys = new Set(
+            this.marqueeInitialPoints.map((point) =>
+                this.getPointSelectionKey(point)
+            )
+        );
+        const rectKeys = new Set(
+            pointsInRect.map((point) => this.getPointSelectionKey(point))
+        );
+
+        const nextPoints = this.marqueeInitialPoints.filter(
+            (point) => !rectKeys.has(this.getPointSelectionKey(point))
+        );
+
+        pointsInRect.forEach((point) => {
+            if (!initialKeys.has(this.getPointSelectionKey(point))) {
+                nextPoints.push(point);
+            }
+        });
+
+        return nextPoints;
+    }
+
+    private updateMarqueeSelection(): void {
+        const layer = this.getCurrentLayerDataFromStack();
+        const rect = this.getMarqueeSelectionBox();
+        if (!layer || !rect) {
+            return;
+        }
+
+        const pointsInRect = this.getCurrentLayerSelectablePoints(layer).filter(
+            (point) => {
+                const shape = layer.shapes?.[point.contourIndex];
+                const contour = getEditableContour(shape);
+                const node = contour?.nodes?.[point.nodeIndex];
+                if (!node) {
+                    return false;
+                }
+
+                return (
+                    node.x >= rect.minX &&
+                    node.x <= rect.maxX &&
+                    node.y >= rect.minY &&
+                    node.y <= rect.maxY
+                );
+            }
+        );
+
+        const nextPoints = this.marqueeToggleMode
+            ? this.getToggledMarqueeSelection(pointsInRect)
+            : pointsInRect;
+
+        this.applySelectionStateForLayer(
+            {
+                points: nextPoints,
+                anchors: [],
+                anchorNames: [],
+                components: [],
+                guideHandle: null
+            },
+            layer
+        );
+        this.selectedSidebearingHandle = null;
+        this.glyphCanvas.updatePropertyPanel();
+    }
+
     private getLayerFingerprint(layer: any): string | null {
         const resolvedLayer = this.resolveLayerModel(layer);
         return typeof resolvedLayer?.fingerprint === 'string'
@@ -1887,10 +2070,12 @@ export class OutlineEditor {
         this.isDraggingGuide = false;
         this.selectedGuideHandle = null;
         this.hoveredGuideHandle = null;
+        this.resetMarqueeSelection();
         this.layerDataDirty = false;
     }
 
     clearAllSelections() {
+        this.resetMarqueeSelection();
         this.selectedPoints = [];
         this.selectedAnchors = [];
         this.selectedComponents = [];
@@ -2503,6 +2688,8 @@ export class OutlineEditor {
             this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
         }
+
+        this.beginMarqueeSelection(e);
     }
 
     private async ensureLayerSelectedForEditing(): Promise<boolean> {
@@ -2592,6 +2779,17 @@ export class OutlineEditor {
     }
 
     onMouseMove(e: MouseEvent) {
+        if (this.isMarqueeSelecting) {
+            const rect = this.canvas!.getBoundingClientRect();
+            this.glyphCanvas.mouseX = e.clientX - rect.left;
+            this.glyphCanvas.mouseY = e.clientY - rect.top;
+            const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+            this.marqueeSelectionCurrent = { glyphX, glyphY };
+            this.updateMarqueeSelection();
+            this.glyphCanvas.render();
+            return;
+        }
+
         // Handle component, anchor, or point dragging in outline editor
         if (
             (this.isDraggingGuide && this.selectedGuideHandle !== null) ||
@@ -2774,6 +2972,11 @@ export class OutlineEditor {
     }
 
     onMouseUp(e: MouseEvent): void {
+        if (this.isMarqueeSelecting) {
+            this.resetMarqueeSelection();
+            return;
+        }
+
         const wasDragging =
             this.isDraggingPoint ||
             this.isDraggingAnchor ||
@@ -2858,7 +3061,8 @@ export class OutlineEditor {
     get draggingSomething() {
         return (
             this.active &&
-            (this.isDraggingPoint ||
+            (this.isMarqueeSelecting ||
+                this.isDraggingPoint ||
                 this.isDraggingAnchor ||
                 this.isDraggingComponent ||
                 this.isDraggingSidebearing ||
