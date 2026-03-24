@@ -213,7 +213,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ✅ Website design
 - ✅ Canvas plugin system
 
-### v0.2 (Due: Feb 15, 2026)
+### v0.2 (Due: Mar 3, 2026)
 
 **`babelfont-ts` object model integration — Counterpunch becomes an analysis tool**
 
@@ -241,7 +241,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ✅ Basic documentation
 - ✅ First video
 
-### v0.3 (Due: Mar 10, 2026)
+### v0.3 (Due: April 20, 2026)
 
 **Counterpunch becomes a simple font editor**
 
@@ -265,7 +265,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ◻️ Automatic glyph metric updates
 - ◻️ Automatic glyph composition
 
-### v0.4 (Due: Apr 1, 2026)
+### v0.4 (Due: ?, 2026)
 
 **Extended features — Counterpunch becomes a full-featured font editor**
 
@@ -277,7 +277,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ✅ Multiple font windows
 - ◻️ Plugin system architecture complete
 
-### v0.5 (Due: Apr 21, 2026)
+### v0.5 (Due: ?, 2026)
 
 Cleanup, documentation, testing, videos
 
@@ -291,7 +291,7 @@ Cleanup, documentation, testing, videos
 - ◻️ Load testing
 - ◻️ User guide completion
 
-### v0.6 Public Beta (Due: May 10, 2026)
+### v0.6 Public Beta (Due: ?, 2026)
 
 - ◻️ Monitoring and analytics setup
 - ◻️ Security and penetration testing
