@@ -394,6 +394,90 @@ function realignSmoothHandles(
     return false;
 }
 
+function getAxisAlignedHandleDirection(
+    anchor: Babelfont.Node,
+    handle: Babelfont.Node
+): { directionX: number; directionY: number } | null {
+    const deltaX = handle.x - anchor.x;
+    const deltaY = handle.y - anchor.y;
+
+    if (deltaX !== 0 && deltaY === 0) {
+        return { directionX: deltaX < 0 ? -1 : 1, directionY: 0 };
+    }
+
+    if (deltaY !== 0 && deltaX === 0) {
+        return { directionX: 0, directionY: deltaY < 0 ? -1 : 1 };
+    }
+
+    return null;
+}
+
+function realignSmoothHandlesForToggle(
+    contour: EditableContour,
+    anchorIndex: number
+): boolean {
+    const anchor = contour.nodes[anchorIndex];
+    if (!anchor || !isCurveNode(anchor)) {
+        return false;
+    }
+
+    const prevIndex = getNeighborNodeIndex(
+        anchorIndex,
+        -1,
+        contour.nodes.length,
+        contour.closed
+    );
+    const nextIndex = getNeighborNodeIndex(
+        anchorIndex,
+        1,
+        contour.nodes.length,
+        contour.closed
+    );
+
+    const prevHandleIndex =
+        prevIndex !== null && isOffCurveNode(contour.nodes[prevIndex])
+            ? prevIndex
+            : null;
+    const nextHandleIndex =
+        nextIndex !== null && isOffCurveNode(contour.nodes[nextIndex])
+            ? nextIndex
+            : null;
+
+    if (prevHandleIndex !== null && nextHandleIndex !== null) {
+        const prevHandle = contour.nodes[prevHandleIndex];
+        const nextHandle = contour.nodes[nextHandleIndex];
+        const prevAxisDirection = getAxisAlignedHandleDirection(
+            anchor,
+            prevHandle
+        );
+        if (prevAxisDirection) {
+            alignHandleAlongDirection(
+                anchor,
+                nextHandle,
+                -prevAxisDirection.directionX,
+                -prevAxisDirection.directionY
+            );
+            return true;
+        }
+
+        const nextAxisDirection = getAxisAlignedHandleDirection(
+            anchor,
+            nextHandle
+        );
+        if (nextAxisDirection) {
+            alignHandleAlongDirection(
+                anchor,
+                prevHandle,
+                -nextAxisDirection.directionX,
+                -nextAxisDirection.directionY
+            );
+            return true;
+        }
+    }
+
+    return realignSmoothHandles(contour, anchorIndex);
+}
+
 function realignOppositeSmoothHandle(
     contour: EditableContour,
     offcurveIndex: number
@@ -508,6 +592,115 @@ function realignOppositeSmoothHandle(
     return false;
 }
 
+function snapSmoothHandleTripletToAxis(
+    contour: EditableContour,
+    offcurveIndex: number,
+    pointerX: number,
+    pointerY: number
+): boolean {
+    const offcurve = contour.nodes[offcurveIndex];
+    if (!isOffCurveNode(offcurve)) {
+        return false;
+    }
+
+    const nextIndex = getNeighborNodeIndex(
+        offcurveIndex,
+        1,
+        contour.nodes.length,
+        contour.closed
+    );
+    if (nextIndex !== null) {
+        const nextNode = contour.nodes[nextIndex];
+        if (isCurveNode(nextNode) && nextNode.smooth) {
+            const otherHandleIndex = getNeighborNodeIndex(
+                nextIndex,
+                1,
+                contour.nodes.length,
+                contour.closed
+            );
+            if (
+                otherHandleIndex !== null &&
+                otherHandleIndex !== offcurveIndex &&
+                isOffCurveNode(contour.nodes[otherHandleIndex])
+            ) {
+                return snapSmoothHandlePairToAxis(
+                    nextNode,
+                    offcurve,
+                    contour.nodes[otherHandleIndex],
+                    pointerX,
+                    pointerY
+                );
+            }
+        }
+    }
+
+    const prevIndex = getNeighborNodeIndex(
+        offcurveIndex,
+        -1,
+        contour.nodes.length,
+        contour.closed
+    );
+    if (prevIndex !== null) {
+        const prevNode = contour.nodes[prevIndex];
+        if (isCurveNode(prevNode) && prevNode.smooth) {
+            const otherHandleIndex = getNeighborNodeIndex(
+                prevIndex,
+                -1,
+                contour.nodes.length,
+                contour.closed
+            );
+            if (
+                otherHandleIndex !== null &&
+                otherHandleIndex !== offcurveIndex &&
+                isOffCurveNode(contour.nodes[otherHandleIndex])
+            ) {
+                return snapSmoothHandlePairToAxis(
+                    prevNode,
+                    offcurve,
+                    contour.nodes[otherHandleIndex],
+                    pointerX,
+                    pointerY
+                );
+            }
+        }
+    }
+
+    return false;
+}
+
+function snapSmoothHandlePairToAxis(
+    anchor: Babelfont.Node,
+    draggedHandle: Babelfont.Node,
+    oppositeHandle: Babelfont.Node,
+    pointerX: number,
+    pointerY: number
+): boolean {
+    const deltaX = pointerX - anchor.x;
+    const deltaY = pointerY - anchor.y;
+
+    if (deltaX === 0 && deltaY === 0) {
+        return false;
+    }
+
+    const horizontal = Math.abs(deltaX) >= Math.abs(deltaY);
+    if (horizontal) {
+        draggedHandle.x = pointerX;
+        draggedHandle.y = anchor.y;
+        alignHandleAlongDirection(
+            anchor,
+            oppositeHandle,
+            deltaX < 0 ? 1 : -1,
+            0
+        );
+        return true;
+    }
+
+    draggedHandle.x = anchor.x;
+    draggedHandle.y = pointerY;
+    alignHandleAlongDirection(anchor, oppositeHandle, 0, deltaY < 0 ? 1 : -1);
+    return true;
+}
+
 export class OutlineEditor {
     active: boolean = false;
     isPreviewMode: boolean = false;
@@ -560,6 +753,7 @@ export class OutlineEditor {
     isDeterministicRefreshActive: boolean = false;
     lastGlyphX: number | null = null;
     lastGlyphY: number | null = null;
+    lastPointDragShiftKey: boolean | null = null;
     canvas: HTMLCanvasElement | null = null;
 
     autoPanAnchorScreen: { x: number; y: number } | null = null;
@@ -2784,6 +2978,7 @@ export class OutlineEditor {
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null; // Reset for delta calculation
                 this.lastGlyphY = null;
+                this.lastPointDragShiftKey = e.shiftKey;
                 this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             }
@@ -2919,14 +3114,38 @@ export class OutlineEditor {
             ? this.transformMouseToRootSpace()
             : this.transformMouseToComponentSpace();
 
+        let previousGlyphX = this.lastGlyphX;
+        let previousGlyphY = this.lastGlyphY;
+        if (
+            this.isDraggingPoint &&
+            this.selectedPoints.length === 1 &&
+            this.lastPointDragShiftKey !== null &&
+            this.lastPointDragShiftKey !== e.shiftKey
+        ) {
+            const currentLayerData = this.getCurrentLayerDataFromStack();
+            const { contourIndex, nodeIndex } = this.selectedPoints[0];
+            const contour = getEditableContour(
+                currentLayerData?.shapes?.[contourIndex]
+            );
+            const node = contour?.nodes[nodeIndex];
+
+            if (node) {
+                previousGlyphX = node.x;
+                previousGlyphY = node.y;
+            }
+        }
+
         // Calculate delta from last position
         const deltaX =
-            Math.round(glyphX) - Math.round(this.lastGlyphX || glyphX);
+            Math.round(glyphX) - Math.round(previousGlyphX ?? glyphX);
         const deltaY =
-            Math.round(glyphY) - Math.round(this.lastGlyphY || glyphY);
+            Math.round(glyphY) - Math.round(previousGlyphY ?? glyphY);
 
         this.lastGlyphX = glyphX;
         this.lastGlyphY = glyphY;
+        if (this.isDraggingPoint) {
+            this.lastPointDragShiftKey = e.shiftKey;
+        }
 
         const effectiveDeltaY = this.isDraggingSidebearing ? 0 : deltaY;
 
@@ -2938,7 +3157,14 @@ export class OutlineEditor {
         // Update all selected items
         this._updateDraggedGuide(deltaX, deltaY);
         this._updateDraggedComponents(deltaX, deltaY);
-        this._updateDraggedPoints(deltaX, deltaY, e.altKey);
+        this._updateDraggedPoints(
+            deltaX,
+            deltaY,
+            e.altKey,
+            e.shiftKey,
+            glyphX,
+            glyphY
+        );
         this._updateDraggedAnchors(deltaX, deltaY);
         this._updateDraggedSidebearing(deltaX);
 
@@ -3026,7 +3252,10 @@ export class OutlineEditor {
     _updateDraggedPoints(
         deltaX: number,
         deltaY: number,
-        preserveHandlePositions: boolean = false
+        preserveHandlePositions: boolean = false,
+        snapSmoothHandleTriplet: boolean = false,
+        pointerX?: number,
+        pointerY?: number
     ): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData || !currentLayerData.shapes) return;
@@ -3035,7 +3264,10 @@ export class OutlineEditor {
             currentLayerData,
             deltaX,
             deltaY,
-            preserveHandlePositions
+            preserveHandlePositions,
+            snapSmoothHandleTriplet,
+            pointerX,
+            pointerY
         );
     }
 
@@ -3108,6 +3340,7 @@ export class OutlineEditor {
         this.isDraggingComponent = false;
         this.isDraggingSidebearing = false;
         this.isDraggingGuide = false;
+        this.lastPointDragShiftKey = null;
 
         // Update worker font cache after dragging ends
         if (wasDragging) {
@@ -3926,7 +4159,10 @@ export class OutlineEditor {
         currentLayerData: Babelfont.Layer,
         deltaX: number,
         deltaY: number,
-        preserveHandlePositions: boolean = false
+        preserveHandlePositions: boolean = false,
+        snapSmoothHandleTriplet: boolean = false,
+        pointerX?: number,
+        pointerY?: number
     ): void {
         const contourCache = new Map<number, EditableContour | null>();
         const getContourData = (
@@ -4097,6 +4333,18 @@ export class OutlineEditor {
             const contour = getContourData(contourIndex);
             if (contour) {
                 realignOppositeSmoothHandle(contour, nodeIndex);
+                if (
+                    snapSmoothHandleTriplet &&
+                    pointerX !== undefined &&
+                    pointerY !== undefined
+                ) {
+                    snapSmoothHandleTripletToAxis(
+                        contour,
+                        nodeIndex,
+                        pointerX,
+                        pointerY
+                    );
+                }
             }
         }
     }
@@ -4130,7 +4378,7 @@ export class OutlineEditor {
 
             node.smooth = !node.smooth;
             if (node.smooth) {
-                realignSmoothHandles(contour, point.nodeIndex);
+                realignSmoothHandlesForToggle(contour, point.nodeIndex);
             }
             changed = true;
         }
