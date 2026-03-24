@@ -73,7 +73,7 @@ const APP_SETTINGS = {
         INTERPOLATION_ANIMATION_DELAY: 0, // ms - delay between animation frames for debugging (0 = no delay)
 
         // Measurement tool
-        MEASUREMENT_TOOL_DISPLAY_DELAY: 400, // ms - delay before showing measurement tool when Shift key is pressed
+        MEASUREMENT_TOOL_DISPLAY_DELAY: 400, // ms - delay before showing measurement tool when Alt is pressed
         MEASUREMENT_TOOL_GUIDE_LINES_OPACITY: 0.4, // opacity for horizontal/vertical guide lines when dragging measurement line
 
         // Preview mode

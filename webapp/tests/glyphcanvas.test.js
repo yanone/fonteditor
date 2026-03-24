@@ -1501,7 +1501,7 @@ describe('GlyphCanvas measurement overlay', () => {
         window.currentFontModel = font;
 
         canvas.outlineEditor.active = true;
-        canvas.shiftKeyPressed = true;
+        canvas.measurementKeyPressed = true;
         canvas.measurementTool.visible = true;
         canvas.measurementTool.isDragging = false;
         canvas.outlineEditor.currentGlyphName = 'A';

@@ -1,5 +1,5 @@
 // Measurement tool for measuring distances in glyph canvas
-// Activated by holding Shift key in text mode or editing mode
+// Activated by holding Alt in text mode or editing mode
 
 import APP_SETTINGS from '../settings';
 import type { GlyphCanvas } from '../glyph-canvas';
@@ -26,16 +26,16 @@ export class MeasurementTool {
     }
 
     /**
-     * Handle Shift key press - start delay timer
+     * Handle the measurement key press and start the delay timer.
      */
-    handleShiftKeyPress(): void {
+    handleMeasurementKeyPress(): void {
         this.startDelayTimer();
     }
 
     /**
-     * Handle Shift key release - reset all state
+     * Handle the measurement key release and reset all state.
      */
-    handleShiftKeyRelease(): void {
+    handleMeasurementKeyRelease(): void {
         const wasVisible = this.visible;
         this.cancelDelayTimer();
         this.visible = false;
@@ -70,15 +70,6 @@ export class MeasurementTool {
     }
 
     /**
-     * Handle typing while Shift is held - disable measurement until Shift is released
-     */
-    handleTypingWithShift(): void {
-        this.cancelDelayTimer();
-        this.visible = false;
-        this.disabledForTyping = true;
-    }
-
-    /**
      * Handle mouse down to start dragging measurement line
      */
     handleMouseDown(
@@ -87,7 +78,7 @@ export class MeasurementTool {
         canvasRect: DOMRect
     ): boolean {
         if (
-            !this.glyphCanvas.shiftKeyPressed ||
+            !this.glyphCanvas.measurementKeyPressed ||
             !this.glyphCanvas.outlineEditor.active
         ) {
             return false;
@@ -112,7 +103,8 @@ export class MeasurementTool {
      */
     shouldBlockHitDetection(): boolean {
         return (
-            (this.glyphCanvas.shiftKeyPressed && !this.disabledForTyping) ||
+            (this.glyphCanvas.measurementKeyPressed &&
+                !this.disabledForTyping) ||
             this.isDragging
         );
     }
@@ -122,7 +114,7 @@ export class MeasurementTool {
      */
     shouldShowCrosshair(): boolean {
         return (
-            this.glyphCanvas.shiftKeyPressed &&
+            this.glyphCanvas.measurementKeyPressed &&
             this.glyphCanvas.outlineEditor.active &&
             this.visible &&
             !this.disabledForTyping
@@ -134,7 +126,7 @@ export class MeasurementTool {
      */
     shouldDrawVisuals(): boolean {
         return (
-            this.glyphCanvas.shiftKeyPressed &&
+            this.glyphCanvas.measurementKeyPressed &&
             this.visible &&
             this.glyphCanvas.outlineEditor.active &&
             !this.disabledForTyping
@@ -146,7 +138,7 @@ export class MeasurementTool {
      */
     shouldDrawTextModeMeasurements(): boolean {
         return (
-            this.glyphCanvas.shiftKeyPressed &&
+            this.glyphCanvas.measurementKeyPressed &&
             this.visible &&
             !this.glyphCanvas.outlineEditor.active &&
             !this.disabledForTyping

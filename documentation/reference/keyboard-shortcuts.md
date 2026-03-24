@@ -25,9 +25,14 @@ When working with Python, these shortcuts streamline common operations:
 - `Cmd/Ctrl + Alt + R` runs the current script or executes the primary action in the active context
 - `Cmd/Ctrl + K` clears the Konsole output for a fresh start
 
+## Editor Measurement
+
+- Hold `Alt` to show the measurement overlay in Editor text mode
+- Hold `Alt` to show the measurement tool in outline editing mode, then click and drag to define a custom measurement line
+
 ## Notes for Beginners
 
-Keep in mind that some shortcuts may only be available when certain views are active or have focus. Additionally, keyboard conventions differ between platforms: macOS uses `Cmd` while Windows and Linux use `Ctrl`.
+Keep in mind that some shortcuts may only be available when certain views are active or have focus. Additionally, keyboard conventions differ between platforms: macOS uses `Cmd` while Windows and Linux use `Ctrl`. The measurement overlay uses the dedicated `Alt` key rather than `Cmd/Ctrl`.
 
 ## Suggested Screenshots
 

@@ -3583,8 +3583,8 @@ export class GlyphCanvasRenderer {
      * Shows horizontal line at mouse Y position with distance measurements from glyph edges to outline intersections
      */
     drawTextModeMeasurements() {
-        // Only draw when alt key is pressed, in text mode, and we have a font
-        if (!this.glyphCanvas.shiftKeyPressed) return;
+        // Only draw when the measurement key is pressed, in text mode, and we have a font
+        if (!this.glyphCanvas.measurementKeyPressed) return;
 
         if (!this.glyphCanvas.measurementTool.shouldDrawTextModeMeasurements())
             return;
