@@ -1600,7 +1600,10 @@ describe('GlyphCanvas point movement', () => {
         });
         const currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
-            .mockReturnValue({ fontModel: font });
+            .mockReturnValue({
+                fontModel: font,
+                markDirty: jest.fn()
+            });
 
         canvas.getCurrentGlyphName = jest.fn(() => 'A');
         canvas.outlineEditor.selectedLayerId = 'layer-1';
@@ -1717,7 +1720,19 @@ describe('GlyphCanvas measurement overlay', () => {
 
         const currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
-            .mockReturnValue({ fontModel: font });
+            .mockReturnValue({
+                fontModel: font,
+                markDirty: jest.fn(),
+                syncJsonFromModel: jest.fn()
+            });
+        const originalDirtyIndicator = fontManager.dirtyIndicator;
+        fontManager.dirtyIndicator = document.createElement('div');
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
         window.currentFontModel = font;
 
         canvas.outlineEditor.active = true;
@@ -1788,6 +1803,169 @@ describe('GlyphCanvas measurement overlay', () => {
         const extents = canvas.renderer.getTextRunHorizontalExtents();
 
         expect(extents).toEqual({ minX: 0, maxX: 640 });
+    });
+});
+
+describe('GlyphCanvas deleteSelectedNodes', () => {
+    let canvas;
+
+    beforeEach(() => {
+        document.body.innerHTML =
+            '<div id="test-container"></div><div id="file-dirty-indicator"></div>';
+        fontManager.dirtyIndicator = document.getElementById(
+            'file-dirty-indicator'
+        );
+        canvas = new GlyphCanvas('test-container');
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+        window.currentFontModel = null;
+    });
+
+    test('propagates point deletion to linked sibling layers via _getLinkedLayers', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Move' },
+                                        { x: 50, y: 0, nodetype: 'OffCurve' },
+                                        {
+                                            x: 100,
+                                            y: 50,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 100,
+                                            y: 100,
+                                            nodetype: 'Curve'
+                                        }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 10, y: 10, nodetype: 'Move' },
+                                        { x: 60, y: 10, nodetype: 'OffCurve' },
+                                        {
+                                            x: 110,
+                                            y: 60,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 110,
+                                            y: 110,
+                                            nodetype: 'Curve'
+                                        }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Delete Test' }
+            },
+            note: '',
+            date: '2026-03-24',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                fontModel: font,
+                markDirty: jest.fn(),
+                syncJsonFromModel: jest.fn(),
+                hasUnsavedChanges: false
+            });
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+
+        try {
+            await canvas.outlineEditor.deleteSelectedNodes();
+
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(
+                currentLayer.paths[0].nodes.map((node) => node.nodetype)
+            ).toEqual(['Move', 'Line']);
+            expect(
+                linkedLayer.paths[0].nodes.map((node) => node.nodetype)
+            ).toEqual(['Move', 'Line']);
+        } finally {
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            linkedLayersSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
     });
 });
 

@@ -203,6 +203,66 @@ function lerpPoint(
     };
 }
 
+function subtractPoints(left: SegmentPoint, right: SegmentPoint): SegmentPoint {
+    return {
+        x: left.x - right.x,
+        y: left.y - right.y
+    };
+}
+
+function scalePoint(point: SegmentPoint, scalar: number): SegmentPoint {
+    return {
+        x: point.x * scalar,
+        y: point.y * scalar
+    };
+}
+
+function addPoints(left: SegmentPoint, right: SegmentPoint): SegmentPoint {
+    return {
+        x: left.x + right.x,
+        y: left.y + right.y
+    };
+}
+
+function pointLengthSquared(point: SegmentPoint): number {
+    return point.x * point.x + point.y * point.y;
+}
+
+function dotPoints(left: SegmentPoint, right: SegmentPoint): number {
+    return left.x * right.x + left.y * right.y;
+}
+
+function crossPoints(left: SegmentPoint, right: SegmentPoint): number {
+    return left.x * right.y - left.y * right.x;
+}
+
+function pointDistanceSquared(left: SegmentPoint, right: SegmentPoint): number {
+    return pointLengthSquared(subtractPoints(left, right));
+}
+
+function normalizePoint(
+    point: SegmentPoint,
+    fallback: SegmentPoint
+): SegmentPoint {
+    const pointLength = Math.hypot(point.x, point.y);
+    if (pointLength > 0.000001) {
+        return {
+            x: point.x / pointLength,
+            y: point.y / pointLength
+        };
+    }
+
+    const fallbackLength = Math.hypot(fallback.x, fallback.y);
+    if (fallbackLength > 0.000001) {
+        return {
+            x: fallback.x / fallbackLength,
+            y: fallback.y / fallbackLength
+        };
+    }
+
+    return { x: 1, y: 0 };
+}
+
 function getNodePoint(node: Unsafe): SegmentPoint {
     return { x: node.x, y: node.y };
 }
@@ -582,6 +642,655 @@ function buildInsertedSegmentNodeArray(
         targetPairIndex + 1,
         closed
     );
+}
+
+function buildLineCollapsedSegmentNodeArray(
+    nodes: Babelfont.Node[],
+    descriptor: PathSegmentDescriptor,
+    closed: boolean
+): Babelfont.Node[] {
+    const clonedNodes = nodes.map((node) => cloneNodeData(node));
+    clonedNodes[descriptor.runStartNodeIndex] = cloneNodeData(
+        clonedNodes[descriptor.runStartNodeIndex],
+        {
+            smooth: false
+        }
+    );
+
+    if (descriptor.type === 'cubic') {
+        return replaceSegmentRunInNodeArray(
+            clonedNodes,
+            descriptor,
+            [
+                cloneNodeData(clonedNodes[descriptor.runEndNodeIndex], {
+                    x: descriptor.points[3].x,
+                    y: descriptor.points[3].y,
+                    nodetype: 'Line' as Babelfont.NodeType,
+                    smooth: false
+                })
+            ],
+            0,
+            closed
+        ).nodes;
+    }
+
+    const runControlPoints = descriptor.runControlNodeIndices.map((index) =>
+        getNodePoint(clonedNodes[index])
+    );
+    const explicitRunEndPoints = runControlPoints.map((controlPoint, index) =>
+        index === runControlPoints.length - 1
+            ? getNodePoint(clonedNodes[descriptor.runEndNodeIndex])
+            : midpoint(controlPoint, runControlPoints[index + 1])
+    );
+
+    const explicitRunNodes: Babelfont.Node[] = [];
+    for (let index = 0; index < runControlPoints.length; index++) {
+        explicitRunNodes.push({
+            x: runControlPoints[index].x,
+            y: runControlPoints[index].y,
+            nodetype: 'OffCurve' as Babelfont.NodeType
+        });
+        explicitRunNodes.push(
+            index === runControlPoints.length - 1
+                ? cloneNodeData(clonedNodes[descriptor.runEndNodeIndex], {
+                      x: explicitRunEndPoints[index].x,
+                      y: explicitRunEndPoints[index].y,
+                      nodetype: 'QCurve' as Babelfont.NodeType
+                  })
+                : {
+                      x: explicitRunEndPoints[index].x,
+                      y: explicitRunEndPoints[index].y,
+                      nodetype: 'QCurve' as Babelfont.NodeType,
+                      smooth: true
+                  }
+        );
+    }
+
+    const targetPairIndex = descriptor.segmentIndexInRun * 2;
+    const segmentEndNode = explicitRunNodes[targetPairIndex + 1];
+    if (targetPairIndex > 0) {
+        explicitRunNodes[targetPairIndex - 1] = cloneNodeData(
+            explicitRunNodes[targetPairIndex - 1],
+            {
+                smooth: false
+            }
+        );
+    }
+
+    explicitRunNodes.splice(
+        targetPairIndex,
+        2,
+        cloneNodeData(segmentEndNode, {
+            x: descriptor.points[2].x,
+            y: descriptor.points[2].y,
+            nodetype: 'Line' as Babelfont.NodeType,
+            smooth: false
+        })
+    );
+
+    return replaceSegmentRunInNodeArray(
+        clonedNodes,
+        descriptor,
+        explicitRunNodes,
+        0,
+        closed
+    ).nodes;
+}
+
+function intersectLines(
+    originA: SegmentPoint,
+    targetA: SegmentPoint,
+    originB: SegmentPoint,
+    targetB: SegmentPoint
+): SegmentPoint | null {
+    const directionA = subtractPoints(targetA, originA);
+    const directionB = subtractPoints(targetB, originB);
+    const denominator = crossPoints(directionA, directionB);
+
+    if (Math.abs(denominator) < 0.000001) {
+        return null;
+    }
+
+    const delta = subtractPoints(originB, originA);
+    const ratio = crossPoints(delta, directionB) / denominator;
+
+    return addPoints(originA, scalePoint(directionA, ratio));
+}
+
+function computeCollinearRatio(
+    start: SegmentPoint,
+    end: SegmentPoint,
+    point: SegmentPoint
+): number | null {
+    const direction = subtractPoints(end, start);
+    const lengthSquared = pointLengthSquared(direction);
+    if (lengthSquared < 0.000001) {
+        return null;
+    }
+
+    return dotPoints(subtractPoints(point, start), direction) / lengthSquared;
+}
+
+function pointsAreClose(
+    left: SegmentPoint,
+    right: SegmentPoint,
+    epsilon = 0.0001
+): boolean {
+    return pointDistanceSquared(left, right) <= epsilon * epsilon;
+}
+
+function curveHasInteriorInflection(points: SegmentPoint[]): boolean {
+    const inflections = new Bezier(points).inflections();
+    return inflections.some((t) => t > 0.000001 && t < 0.999999);
+}
+
+function sanitizeMergedCubicWithFixedDirections(
+    start: SegmentPoint,
+    end: SegmentPoint,
+    startDirection: SegmentPoint,
+    endDirection: SegmentPoint,
+    startHandleLength: number,
+    endHandleLength: number
+): SegmentPoint[] {
+    const minimumHandleLength = 0.0001;
+    const baseStartHandleLength = Math.max(
+        startHandleLength,
+        minimumHandleLength
+    );
+    const baseEndHandleLength = Math.max(endHandleLength, minimumHandleLength);
+    const scales = [1, 0.9, 0.75, 0.6, 0.45, 0.3, 0.2, 0.1, 0.05, 0.01];
+    let bestCandidate: SegmentPoint[] | null = null;
+    let bestScore = -Infinity;
+
+    for (const startScale of scales) {
+        for (const endScale of scales) {
+            const nextStartHandleLength = Math.max(
+                baseStartHandleLength * startScale,
+                minimumHandleLength
+            );
+            const nextEndHandleLength = Math.max(
+                baseEndHandleLength * endScale,
+                minimumHandleLength
+            );
+            const candidate = [
+                start,
+                addPoints(
+                    start,
+                    scalePoint(startDirection, nextStartHandleLength)
+                ),
+                addPoints(end, scalePoint(endDirection, nextEndHandleLength)),
+                end
+            ];
+
+            const startHandle = candidate[1];
+            const endHandle = candidate[2];
+            const hasBadEndpointCollision =
+                pointsAreClose(startHandle, end) ||
+                pointsAreClose(endHandle, start);
+
+            if (
+                !hasBadEndpointCollision &&
+                !curveHasInteriorInflection(candidate)
+            ) {
+                const score = nextStartHandleLength + nextEndHandleLength;
+                if (score > bestScore) {
+                    bestCandidate = candidate;
+                    bestScore = score;
+                }
+            }
+        }
+    }
+
+    if (bestCandidate) {
+        return bestCandidate;
+    }
+
+    return [
+        start,
+        addPoints(start, scalePoint(startDirection, minimumHandleLength)),
+        addPoints(end, scalePoint(endDirection, minimumHandleLength)),
+        end
+    ];
+}
+
+function tryInvertCubicSplit(
+    leftPoints: SegmentPoint[],
+    rightPoints: SegmentPoint[]
+): { points: SegmentPoint[]; t: number } | null {
+    const start = leftPoints[0];
+    const leftHandle = leftPoints[1];
+    const leftBridge = leftPoints[2];
+    const rightBridge = rightPoints[1];
+    const rightHandle = rightPoints[2];
+    const end = rightPoints[3];
+
+    const midpointHandle = intersectLines(
+        leftHandle,
+        leftBridge,
+        rightHandle,
+        rightBridge
+    );
+    if (!midpointHandle) {
+        return null;
+    }
+
+    const tCandidates = [
+        computeCollinearRatio(leftHandle, midpointHandle, leftBridge),
+        computeCollinearRatio(midpointHandle, rightHandle, rightBridge)
+    ].filter(
+        (value): value is number => value !== null && Number.isFinite(value)
+    );
+
+    if (!tCandidates.length) {
+        return null;
+    }
+
+    const t = clampUnitInterval(
+        tCandidates.reduce((sum, value) => sum + value, 0) / tCandidates.length
+    );
+    if (t <= 0.000001 || t >= 0.999999) {
+        return null;
+    }
+
+    const originalControl1 = addPoints(
+        start,
+        scalePoint(subtractPoints(leftHandle, start), 1 / t)
+    );
+    const originalControl2 = addPoints(
+        end,
+        scalePoint(subtractPoints(rightHandle, end), 1 / (1 - t))
+    );
+    const mergedPoints = [start, originalControl1, originalControl2, end];
+    const [reconstructedLeft, reconstructedRight] = splitSegmentPoints(
+        mergedPoints,
+        t
+    );
+
+    const reconstructionMatches =
+        reconstructedLeft.length === leftPoints.length &&
+        reconstructedRight.length === rightPoints.length &&
+        reconstructedLeft.every((point, index) =>
+            pointsAreClose(point, leftPoints[index], 0.001)
+        ) &&
+        reconstructedRight.every((point, index) =>
+            pointsAreClose(point, rightPoints[index], 0.001)
+        );
+
+    if (!reconstructionMatches) {
+        return null;
+    }
+
+    return { points: mergedPoints, t };
+}
+
+function evaluateCubicBezier(points: SegmentPoint[], t: number): SegmentPoint {
+    const [p0, p1, p2, p3] = points;
+    const u = 1 - t;
+    const u2 = u * u;
+    const u3 = u2 * u;
+    const t2 = t * t;
+    const t3 = t2 * t;
+
+    return {
+        x: u3 * p0.x + 3 * u2 * t * p1.x + 3 * u * t2 * p2.x + t3 * p3.x,
+        y: u3 * p0.y + 3 * u2 * t * p1.y + 3 * u * t2 * p2.y + t3 * p3.y
+    };
+}
+
+function fitCubicCurveToConnectedCubicsFallback(
+    leftPoints: SegmentPoint[],
+    rightPoints: SegmentPoint[]
+): SegmentPoint[] {
+    const start = leftPoints[0];
+    const end = rightPoints[3];
+    const fallbackDirection = subtractPoints(end, start);
+    const startDirection = normalizePoint(
+        subtractPoints(leftPoints[1], start),
+        fallbackDirection
+    );
+    const endDirection = normalizePoint(
+        subtractPoints(rightPoints[2], end),
+        scalePoint(fallbackDirection, -1)
+    );
+
+    const numSamples = 24;
+    let a00 = 0;
+    let a01 = 0;
+    let a11 = 0;
+    let b0 = 0;
+    let b1 = 0;
+
+    for (let index = 1; index < numSamples; index++) {
+        const t = index / numSamples;
+        const targetPoint =
+            t <= 0.5
+                ? evaluateCubicBezier(leftPoints, t * 2)
+                : evaluateCubicBezier(rightPoints, (t - 0.5) * 2);
+        const oneMinusT = 1 - t;
+        const basis1 = 3 * oneMinusT * oneMinusT * t;
+        const basis2 = 3 * oneMinusT * t * t;
+        const startWeight = oneMinusT * oneMinusT * (1 + 2 * t);
+        const endWeight = t * t * (3 - 2 * t);
+        const basePoint = {
+            x: startWeight * start.x + endWeight * end.x,
+            y: startWeight * start.y + endWeight * end.y
+        };
+        const residual = subtractPoints(targetPoint, basePoint);
+        const startContribution = scalePoint(startDirection, basis1);
+        const endContribution = scalePoint(endDirection, basis2);
+
+        a00 += pointLengthSquared(startContribution);
+        a01 +=
+            startContribution.x * endContribution.x +
+            startContribution.y * endContribution.y;
+        a11 += pointLengthSquared(endContribution);
+        b0 +=
+            startContribution.x * residual.x + startContribution.y * residual.y;
+        b1 += endContribution.x * residual.x + endContribution.y * residual.y;
+    }
+
+    const chordLength = Math.hypot(end.x - start.x, end.y - start.y);
+    const fallbackLength = chordLength / 3;
+    const determinant = a00 * a11 - a01 * a01;
+    let startHandleLength = fallbackLength;
+    let endHandleLength = fallbackLength;
+
+    if (Math.abs(determinant) > 0.000001) {
+        startHandleLength = (b0 * a11 - b1 * a01) / determinant;
+        endHandleLength = (a00 * b1 - a01 * b0) / determinant;
+    }
+
+    startHandleLength = Math.max(0, startHandleLength);
+    endHandleLength = Math.max(0, endHandleLength);
+
+    if (startHandleLength === 0 && a11 > 0.000001) {
+        endHandleLength = Math.max(0, b1 / a11);
+    }
+    if (endHandleLength === 0 && a00 > 0.000001) {
+        startHandleLength = Math.max(0, b0 / a00);
+    }
+
+    return sanitizeMergedCubicWithFixedDirections(
+        start,
+        end,
+        startDirection,
+        endDirection,
+        startHandleLength,
+        endHandleLength
+    );
+}
+
+function fitCubicCurveToConnectedCubics(
+    leftPoints: SegmentPoint[],
+    rightPoints: SegmentPoint[]
+): SegmentPoint[] {
+    const exactInverse = tryInvertCubicSplit(leftPoints, rightPoints);
+    if (exactInverse) {
+        const startDirection = normalizePoint(
+            subtractPoints(exactInverse.points[1], exactInverse.points[0]),
+            subtractPoints(exactInverse.points[3], exactInverse.points[0])
+        );
+        const endDirection = normalizePoint(
+            subtractPoints(exactInverse.points[2], exactInverse.points[3]),
+            subtractPoints(exactInverse.points[0], exactInverse.points[3])
+        );
+
+        return sanitizeMergedCubicWithFixedDirections(
+            exactInverse.points[0],
+            exactInverse.points[3],
+            startDirection,
+            endDirection,
+            Math.hypot(
+                exactInverse.points[1].x - exactInverse.points[0].x,
+                exactInverse.points[1].y - exactInverse.points[0].y
+            ),
+            Math.hypot(
+                exactInverse.points[2].x - exactInverse.points[3].x,
+                exactInverse.points[2].y - exactInverse.points[3].y
+            )
+        );
+    }
+
+    return fitCubicCurveToConnectedCubicsFallback(leftPoints, rightPoints);
+}
+
+function fitQuadraticCurveToConnectedQuadratics(
+    leftPoints: SegmentPoint[],
+    rightPoints: SegmentPoint[]
+): SegmentPoint[] {
+    const start = leftPoints[0];
+    const end = rightPoints[2];
+    const numSamples = 8;
+    const samples: SegmentPoint[] = [];
+
+    for (let index = 0; index <= numSamples; index++) {
+        const t = index / numSamples;
+        if (t < 0.5) {
+            samples.push(evaluateQuadraticBezier(leftPoints, t * 2));
+        } else {
+            samples.push(evaluateQuadraticBezier(rightPoints, (t - 0.5) * 2));
+        }
+    }
+
+    return [start, samples[Math.floor(samples.length / 2)], end];
+}
+
+function evaluateQuadraticBezier(
+    points: SegmentPoint[],
+    t: number
+): SegmentPoint {
+    const [p0, p1, p2] = points;
+    const u = 1 - t;
+    const u2 = u * u;
+    const t2 = t * t;
+
+    return {
+        x: u2 * p0.x + 2 * u * t * p1.x + t2 * p2.x,
+        y: u2 * p0.y + 2 * u * t * p1.y + t2 * p2.y
+    };
+}
+
+/**
+ * Build node array for merging two segments when a node is deleted.
+ * Handles all combinations: line-line, line-curve, curve-line, curve-curve
+ */
+function buildMergedSegmentNodeArray(
+    nodes: Babelfont.Node[],
+    leftDescriptor: PathSegmentDescriptor | null,
+    rightDescriptor: PathSegmentDescriptor | null,
+    deletedNodeIndex: number,
+    closed: boolean
+): Babelfont.Node[] | null {
+    const clonedNodes = nodes.map((node) => cloneNodeData(node));
+
+    // Case 1: No left segment (deleting first node in open path)
+    if (!leftDescriptor) {
+        if (!rightDescriptor) return null;
+        // Just remove the node, the right segment becomes the start
+        if (!closed && deletedNodeIndex === 0) {
+            // Convert first on-curve node to Move
+            const nextOnCurveIndex = findNextOnCurveNodeIndex(
+                nodes,
+                deletedNodeIndex
+            );
+            if (nextOnCurveIndex !== null) {
+                clonedNodes[nextOnCurveIndex].nodetype =
+                    'Move' as Babelfont.NodeType;
+            }
+        }
+        return [
+            ...clonedNodes.slice(0, deletedNodeIndex),
+            ...clonedNodes.slice(deletedNodeIndex + 1)
+        ];
+    }
+
+    // Case 2: No right segment (deleting last node in open path)
+    if (!rightDescriptor) {
+        // Just remove the node
+        return [
+            ...clonedNodes.slice(0, deletedNodeIndex),
+            ...clonedNodes.slice(deletedNodeIndex + 1)
+        ];
+    }
+
+    // Determine segment types
+    const leftIsCurve =
+        leftDescriptor.type === 'cubic' || leftDescriptor.type === 'quadratic';
+    const rightIsCurve =
+        rightDescriptor.type === 'cubic' ||
+        rightDescriptor.type === 'quadratic';
+
+    // Case 3: Line-Line -> Simple line
+    if (!leftIsCurve && !rightIsCurve) {
+        // Remove the deleted node and any off-curve nodes associated with it
+        // The left segment end becomes the right segment end
+        const leftStartIdx = leftDescriptor.runStartNodeIndex;
+        const rightEndIdx = rightDescriptor.runEndNodeIndex;
+
+        return [
+            ...clonedNodes.slice(0, deletedNodeIndex),
+            ...clonedNodes.slice(deletedNodeIndex + 1)
+        ];
+    }
+
+    // Case 4: Line-Curve -> Convert to curve (keep right side's control points)
+    if (!leftIsCurve && rightIsCurve) {
+        const leftStartIdx = leftDescriptor.runStartNodeIndex;
+        const rightEndIdx = rightDescriptor.runEndNodeIndex;
+        const rightStartIdx = rightDescriptor.runStartNodeIndex;
+        const isCubic = rightDescriptor.type === 'cubic';
+
+        // Keep the right side's control points and end node
+        // The right side's nodes are from rightStartIdx+1 to rightEndIdx (inclusive)
+        const newNodes: Babelfont.Node[] = [];
+
+        // Add control points from the right side
+        for (let i = rightStartIdx + 1; i <= rightEndIdx; i++) {
+            const node = clonedNodes[i];
+            if (i === rightEndIdx) {
+                // End point - convert to Curve/QCurve
+                newNodes.push({
+                    x: node.x,
+                    y: node.y,
+                    nodetype: (isCubic
+                        ? 'Curve'
+                        : 'QCurve') as Babelfont.NodeType,
+                    smooth: node.smooth
+                });
+            } else {
+                // Control point
+                newNodes.push({
+                    x: node.x,
+                    y: node.y,
+                    nodetype: 'OffCurve' as Babelfont.NodeType
+                });
+            }
+        }
+
+        return [
+            ...clonedNodes.slice(0, leftStartIdx + 1),
+            ...newNodes,
+            ...clonedNodes.slice(rightEndIdx + 1)
+        ];
+    }
+
+    // Case 5: Curve-Line -> Convert to curve (keep left side's control points)
+    if (leftIsCurve && !rightIsCurve) {
+        const leftStartIdx = leftDescriptor.runStartNodeIndex;
+        const rightEndIdx = rightDescriptor.runEndNodeIndex;
+        const leftEndIdx = leftDescriptor.endNodeIndex;
+        const rightEndNode = clonedNodes[rightEndIdx];
+        const isCubic = leftDescriptor.type === 'cubic';
+
+        // Keep the left side's control points
+        // The left side's control points are from leftStartIdx+1 to leftEndIdx-1
+        const newNodes: Babelfont.Node[] = [];
+
+        // Add control points from the left side
+        for (let i = leftStartIdx + 1; i < leftEndIdx; i++) {
+            const node = clonedNodes[i];
+            newNodes.push({
+                x: node.x,
+                y: node.y,
+                nodetype: 'OffCurve' as Babelfont.NodeType
+            });
+        }
+
+        // Add the end point as a Curve/QCurve
+        newNodes.push({
+            x: rightEndNode.x,
+            y: rightEndNode.y,
+            nodetype: (isCubic ? 'Curve' : 'QCurve') as Babelfont.NodeType,
+            smooth: rightEndNode.smooth
+        });
+
+        return [
+            ...clonedNodes.slice(0, leftStartIdx + 1),
+            ...newNodes,
+            ...clonedNodes.slice(rightEndIdx + 1)
+        ];
+    }
+
+    // Case 6: Curve-Curve -> Merge curves
+    const mergedPoints =
+        leftDescriptor.type === 'cubic' && rightDescriptor.type === 'cubic'
+            ? fitCubicCurveToConnectedCubics(
+                  leftDescriptor.points,
+                  rightDescriptor.points
+              )
+            : fitQuadraticCurveToConnectedQuadratics(
+                  leftDescriptor.points,
+                  rightDescriptor.points
+              );
+
+    const newNodes: Babelfont.Node[] = [];
+    const isCubic = leftDescriptor.type === 'cubic';
+
+    for (let i = 1; i < mergedPoints.length; i++) {
+        const point = mergedPoints[i];
+        if (i === mergedPoints.length - 1) {
+            // End point
+            const endNodeIndex = rightDescriptor.endNodeIndex;
+            newNodes.push({
+                x: point.x,
+                y: point.y,
+                nodetype: (isCubic ? 'Curve' : 'QCurve') as Babelfont.NodeType,
+                smooth: clonedNodes[endNodeIndex].smooth
+            });
+        } else {
+            // Control point
+            newNodes.push({
+                x: point.x,
+                y: point.y,
+                nodetype: 'OffCurve' as Babelfont.NodeType
+            });
+        }
+    }
+
+    const leftStartIdx = leftDescriptor.runStartNodeIndex;
+    const rightEndIdx = rightDescriptor.runEndNodeIndex;
+
+    return [
+        ...clonedNodes.slice(0, leftStartIdx + 1),
+        ...newNodes,
+        ...clonedNodes.slice(rightEndIdx + 1)
+    ];
+}
+
+/**
+ * Find the index of the next on-curve node after the given index.
+ */
+function findNextOnCurveNodeIndex(
+    nodes: Babelfont.Node[],
+    startIndex: number
+): number | null {
+    for (let i = startIndex + 1; i < nodes.length; i++) {
+        const type = (nodes[i].nodetype || '').toString().toLowerCase();
+        if (type !== 'offcurve' && type !== 'o') {
+            return i;
+        }
+    }
+    return null;
 }
 
 function findFontForModelObject(
@@ -2442,6 +3151,83 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         this._nodeWrappers = null;
         recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
         return mutation.insertedNodeIndex;
+    }
+
+    /**
+     * Delete a node and merge/adjust adjacent segments accordingly.
+     * This is the reverse operation of _addPoint.
+     * @param nodeIndex - Index of the node to delete
+     * @returns true if deletion was successful, false otherwise
+     */
+    _deleteNode(nodeIndex: number): boolean {
+        const nodeArray = this.ensureNodesArray();
+        if (nodeIndex < 0 || nodeIndex >= nodeArray.length) {
+            return false;
+        }
+
+        const targetNode = nodeArray[nodeIndex];
+        const targetType = (targetNode.nodetype || '').toString().toLowerCase();
+        const isOffCurve = targetType === 'offcurve' || targetType === 'o';
+
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+
+        if (isOffCurve) {
+            const descriptors = buildPathSegmentDescriptors({
+                nodes: nodeArray,
+                closed: this.closed
+            });
+            const containingDescriptor = descriptors.find((descriptor) =>
+                descriptor.controlNodeIndices.includes(nodeIndex)
+            );
+
+            if (!containingDescriptor) {
+                nodeArray.splice(nodeIndex, 1);
+            } else {
+                this.data.nodes = buildLineCollapsedSegmentNodeArray(
+                    nodeArray,
+                    containingDescriptor,
+                    this.closed
+                );
+            }
+
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, [...this.data.nodes]);
+            return true;
+        }
+
+        // For on-curve nodes, we need to find and merge adjacent segments
+        const descriptors = buildPathSegmentDescriptors({
+            nodes: nodeArray,
+            closed: this.closed
+        });
+
+        // Find the segment ending at this node (left segment)
+        const leftDescriptor = descriptors.find(
+            (d) => d.endNodeIndex === nodeIndex
+        );
+
+        // Find the segment starting from this node (right segment)
+        const rightDescriptor = descriptors.find(
+            (d) => d.startNodeIndex === nodeIndex
+        );
+
+        // Build merged node array
+        const mergedNodes = buildMergedSegmentNodeArray(
+            nodeArray,
+            leftDescriptor || null,
+            rightDescriptor || null,
+            nodeIndex,
+            this.closed
+        );
+
+        if (!mergedNodes) {
+            return false;
+        }
+
+        this.data.nodes = mergedNodes;
+        this._nodeWrappers = null;
+        recordAndMarkDirty(this, 'nodes', oldNodes, mergedNodes);
+        return true;
     }
 
     toString(): string {

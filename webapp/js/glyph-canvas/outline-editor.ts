@@ -4946,6 +4946,160 @@ export class OutlineEditor {
         this.togglePointSmoothSelection([pointIndex]);
     }
 
+    /**
+     * Delete selected nodes with proper segment merging across all linked layers.
+     * Handles off-curve nodes (converts to line), on-curve nodes with various
+     * neighbor configurations (line-line, line-curve, curve-curve).
+     */
+    async deleteSelectedNodes(): Promise<void> {
+        const currentLayerModel = this.getCurrentLayerModel();
+        const currentGlyphModel = this.getCurrentGlyphModel();
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+
+        if (
+            !currentLayerModel ||
+            !currentGlyphModel ||
+            !currentLayerData ||
+            this.selectedPoints.length === 0
+        ) {
+            return;
+        }
+
+        // Group selected points by path/contour
+        const pointsByPath = new Map<number, number[]>();
+        for (const point of this.selectedPoints) {
+            const indices = pointsByPath.get(point.contourIndex) || [];
+            indices.push(point.nodeIndex);
+            pointsByPath.set(point.contourIndex, indices);
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const bridge = window.changeBridge;
+
+        // Sort indices in descending order for each path (to maintain validity during deletion)
+        for (const [pathIndex, nodeIndices] of pointsByPath) {
+            pointsByPath.set(
+                pathIndex,
+                nodeIndices.sort((a, b) => b - a)
+            );
+        }
+
+        // Perform deletions with suppressed model recording
+        withSuppressedModelRecording(() => {
+            // Delete from current layer
+            for (const [pathIndex, nodeIndices] of pointsByPath) {
+                const path = currentLayerModel.paths?.[pathIndex];
+                if (!path) continue;
+
+                for (const nodeIndex of nodeIndices) {
+                    path._deleteNode(nodeIndex);
+                }
+            }
+
+            // Delete from all linked layers
+            for (const linkedLayer of linkedLayers) {
+                for (const [pathIndex, nodeIndices] of pointsByPath) {
+                    const linkedPath = linkedLayer.paths?.[pathIndex];
+                    if (!linkedPath) continue;
+
+                    for (const nodeIndex of nodeIndices) {
+                        linkedPath._deleteNode(nodeIndex);
+                    }
+                }
+            }
+        });
+
+        // Sync changes to YDoc
+        if (bridge && currentGlyphModel.name) {
+            bridge.beginTransaction('Delete point(s)');
+            try {
+                bridge.syncGlyphFromJson(
+                    currentGlyphModel.name,
+                    'Delete point(s)'
+                );
+            } finally {
+                bridge.endTransaction();
+            }
+        }
+
+        // Update layer data from model
+        for (const [pathIndex, nodeIndices] of pointsByPath) {
+            const path = currentLayerModel.paths?.[pathIndex];
+            const shape = currentLayerData.shapes?.[pathIndex];
+            const contour = getPathShapeData(shape);
+
+            if (path && contour && typeof contour === 'object') {
+                const pathData = path.toJSON();
+                const normalizedNodes =
+                    typeof pathData.nodes === 'string'
+                        ? LayerDataNormalizer.parseNodes(pathData.nodes)
+                        : Array.isArray(pathData.nodes)
+                          ? pathData.nodes
+                          : [];
+                contour.nodes = normalizedNodes.map(
+                    (node: Babelfont.Node) => ({ ...node })
+                );
+                contour.closed = Boolean(pathData.closed);
+            }
+        }
+
+        // Clear selection
+        this.selectedPoints = [];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+
+        // Update UI
+        const currentFont = fontManager.currentFont;
+        const shouldUseIncrementalCacheRefresh = linkedLayers.length === 0;
+
+        if (currentFont) {
+            currentFont.markDirty('keyboard-outline');
+            void fontManager.updateDirtyIndicator();
+        }
+
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+
+        // Update font cache
+        if (currentFont) {
+            window.setTimeout(() => {
+                if (fontManager.currentFont !== currentFont) {
+                    return;
+                }
+
+                if (shouldUseIncrementalCacheRefresh) {
+                    fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+                    void fontManager.updateWorkerFontCache();
+                    return;
+                }
+
+                try {
+                    currentFont.syncJsonFromModel();
+                } catch (error) {
+                    console.error(
+                        '[OutlineEditor] Error syncing font JSON after node deletion:',
+                        error
+                    );
+                    return;
+                }
+
+                void fontManager.updateWorkerFontCache();
+            }, 0);
+        } else if (currentGlyphModel.name) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: currentGlyphModel.name,
+                        layerId: this.getCurrentLayerId()
+                    }
+                })
+            );
+        }
+    }
+
     onSpaceKeyReleased() {
         if (!this.active || !this.isPreviewMode) return;
         this.spaceKeyPressed = false;
@@ -5296,6 +5450,15 @@ export class OutlineEditor {
                     preMoveDesc,
                     postMoveDesc
                 );
+                return;
+            }
+        }
+
+        // Handle Delete/Backspace for node deletion
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (this.selectedPoints.length > 0) {
+                e.preventDefault();
+                void this.deleteSelectedNodes();
                 return;
             }
         }

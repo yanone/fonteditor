@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { Bezier } = require('bezier-js');
 const { Font, Layer } = require('../js/babelfont-model');
 const {
     open_font_file,
@@ -72,6 +73,27 @@ function makeFontWithSinglePath(nodes, closed = false) {
             features: []
         }
     });
+}
+
+function normalizeVector(dx, dy) {
+    const length = Math.hypot(dx, dy) || 1;
+    return {
+        x: dx / length,
+        y: dy / length
+    };
+}
+
+function expectNodesToMatch(actualNodes, expectedNodes) {
+    expect(actualNodes).toHaveLength(expectedNodes.length);
+
+    for (let index = 0; index < expectedNodes.length; index++) {
+        expect(actualNodes[index].nodetype).toBe(expectedNodes[index].nodetype);
+        expect(actualNodes[index].x).toBeCloseTo(expectedNodes[index].x, 8);
+        expect(actualNodes[index].y).toBeCloseTo(expectedNodes[index].y, 8);
+        expect(Boolean(actualNodes[index].smooth)).toBe(
+            Boolean(expectedNodes[index].smooth)
+        );
+    }
 }
 
 describe('Babelfont Object Model', () => {
@@ -1680,6 +1702,329 @@ describe('Babelfont Object Model', () => {
                     }
                 }
             }
+        });
+
+        test('Path._deleteNode should delete off-curve node and convert curve to line', () => {
+            // Create a cubic curve: Move + OffCurve + OffCurve + Curve
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 50, y: 0, nodetype: 'OffCurve' },
+                    { x: 100, y: 50, nodetype: 'OffCurve' },
+                    { x: 100, y: 100, nodetype: 'Curve' }
+                ],
+                false
+            );
+            const glyph = testFont.glyphs[0];
+            const layer = glyph.layers[0];
+            const path = layer.shapes[0].asPath();
+
+            expect(path.nodes.length).toBe(4);
+
+            // Delete the first off-curve node
+            const result = path._deleteNode(1);
+
+            expect(result).toBe(true);
+            expect(path.nodes.length).toBe(2);
+            expect(path.nodes[0].nodetype).toBe('Move');
+            expect(path.nodes[1].nodetype).toBe('Line');
+            expect(path.nodes[1].x).toBe(100);
+            expect(path.nodes[1].y).toBe(100);
+        });
+
+        test('Path._deleteNode should delete line node (line-line)', () => {
+            // Create a simple line path: Move + Line + Line
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 50, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 100, nodetype: 'Line' }
+                ],
+                false
+            );
+            const glyph = testFont.glyphs[0];
+            const layer = glyph.layers[0];
+            const path = layer.shapes[0].asPath();
+
+            expect(path.nodes.length).toBe(3);
+
+            // Delete the middle node
+            const result = path._deleteNode(1);
+
+            expect(result).toBe(true);
+            expect(path.nodes.length).toBe(2);
+            expect(path.nodes[0].nodetype).toBe('Move');
+            expect(path.nodes[1].nodetype).toBe('Line');
+        });
+
+        test('Path._deleteNode should merge two cubic curves', () => {
+            // Create two connected cubic curves
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 33, y: 0, nodetype: 'OffCurve' },
+                    { x: 67, y: 33, nodetype: 'OffCurve' },
+                    { x: 100, y: 50, nodetype: 'Curve', smooth: true },
+                    { x: 133, y: 67, nodetype: 'OffCurve' },
+                    { x: 167, y: 100, nodetype: 'OffCurve' },
+                    { x: 200, y: 100, nodetype: 'Curve' }
+                ],
+                false
+            );
+            const glyph = testFont.glyphs[0];
+            const layer = glyph.layers[0];
+            const path = layer.shapes[0].asPath();
+            const originalNodes = path.nodes.map((node) => ({
+                x: node.x,
+                y: node.y,
+                nodetype: node.nodetype
+            }));
+
+            expect(path.nodes.length).toBe(7);
+
+            // Delete the middle on-curve node (index 3)
+            const result = path._deleteNode(3);
+
+            expect(result).toBe(true);
+            // Should result in: Move + OffCurve + OffCurve + Curve (merged curve)
+            expect(path.nodes.length).toBe(4);
+            expect(path.nodes[0].nodetype).toBe('Move');
+            expect(path.nodes[1].nodetype).toBe('OffCurve');
+            expect(path.nodes[2].nodetype).toBe('OffCurve');
+            expect(path.nodes[3].nodetype).toBe('Curve');
+
+            const originalStartDirection = normalizeVector(
+                originalNodes[1].x - originalNodes[0].x,
+                originalNodes[1].y - originalNodes[0].y
+            );
+            const mergedStartDirection = normalizeVector(
+                path.nodes[1].x - path.nodes[0].x,
+                path.nodes[1].y - path.nodes[0].y
+            );
+            expect(mergedStartDirection.x).toBeCloseTo(
+                originalStartDirection.x,
+                8
+            );
+            expect(mergedStartDirection.y).toBeCloseTo(
+                originalStartDirection.y,
+                8
+            );
+
+            const originalEndDirection = normalizeVector(
+                originalNodes[5].x - originalNodes[6].x,
+                originalNodes[5].y - originalNodes[6].y
+            );
+            const mergedEndDirection = normalizeVector(
+                path.nodes[2].x - path.nodes[3].x,
+                path.nodes[2].y - path.nodes[3].y
+            );
+            expect(mergedEndDirection.x).toBeCloseTo(originalEndDirection.x, 8);
+            expect(mergedEndDirection.y).toBeCloseTo(originalEndDirection.y, 8);
+
+            expect(path.nodes[1].x).not.toBeCloseTo(path.nodes[3].x, 8);
+            expect(path.nodes[1].y).not.toBeCloseTo(path.nodes[3].y, 8);
+            expect(path.nodes[2].x).not.toBeCloseTo(path.nodes[0].x, 8);
+            expect(path.nodes[2].y).not.toBeCloseTo(path.nodes[0].y, 8);
+        });
+
+        test('Path._deleteNode should exactly invert an asymmetric cubic split', () => {
+            const originalNodes = [
+                { x: 0, y: 0, nodetype: 'Curve', smooth: true },
+                { x: 30, y: 60, nodetype: 'OffCurve' },
+                { x: 70, y: 60, nodetype: 'OffCurve' },
+                { x: 100, y: 0, nodetype: 'Curve', smooth: true }
+            ];
+            const testFont = makeFontWithSinglePath(originalNodes, false);
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            const insertedNodeIndex = path._addPoint(0, 0.25);
+
+            expect(insertedNodeIndex).toBe(3);
+            expect(path.nodes).toHaveLength(7);
+
+            const result = path._deleteNode(insertedNodeIndex);
+
+            expect(result).toBe(true);
+            expectNodesToMatch(path.nodes, originalNodes);
+
+            const mergedCurve = new Bezier([
+                { x: path.nodes[0].x, y: path.nodes[0].y },
+                { x: path.nodes[1].x, y: path.nodes[1].y },
+                { x: path.nodes[2].x, y: path.nodes[2].y },
+                { x: path.nodes[3].x, y: path.nodes[3].y }
+            ]);
+            expect(
+                mergedCurve
+                    .inflections()
+                    .filter((t) => t > 0.000001 && t < 0.999999)
+            ).toEqual([]);
+            expect(path.nodes[1].x).not.toBeCloseTo(path.nodes[3].x, 8);
+            expect(path.nodes[1].y).not.toBeCloseTo(path.nodes[3].y, 8);
+            expect(path.nodes[2].x).not.toBeCloseTo(path.nodes[0].x, 8);
+            expect(path.nodes[2].y).not.toBeCloseTo(path.nodes[0].y, 8);
+        });
+
+        test('Path._deleteNode should set both adjacent on-curve points to smooth=false when deleting a handle into a line', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Curve', smooth: true },
+                    { x: 30, y: 60, nodetype: 'OffCurve' },
+                    { x: 70, y: 60, nodetype: 'OffCurve' },
+                    { x: 100, y: 0, nodetype: 'Curve', smooth: true }
+                ],
+                false
+            );
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            const result = path._deleteNode(1);
+
+            expect(result).toBe(true);
+            expect(path.nodes.map((node) => node.nodetype)).toEqual([
+                'Curve',
+                'Line'
+            ]);
+            expect(path.nodes[0].smooth).toBe(false);
+            expect(path.nodes[1].smooth).toBe(false);
+        });
+
+        test('Path._deleteNode should convert line-curve to curve', () => {
+            // Create line followed by curve
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 50, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 50, nodetype: 'OffCurve' },
+                    { x: 150, y: 100, nodetype: 'OffCurve' },
+                    { x: 200, y: 100, nodetype: 'Curve' }
+                ],
+                false
+            );
+            const glyph = testFont.glyphs[0];
+            const layer = glyph.layers[0];
+            const path = layer.shapes[0].asPath();
+
+            expect(path.nodes.length).toBe(5);
+
+            // Delete the Line node (index 1)
+            const result = path._deleteNode(1);
+
+            expect(result).toBe(true);
+            // Should convert to a curve
+            expect(path.nodes.length).toBe(4);
+            expect(path.nodes[0].nodetype).toBe('Move');
+            expect(path.nodes[1].nodetype).toBe('OffCurve');
+            expect(path.nodes[2].nodetype).toBe('OffCurve');
+            expect(path.nodes[3].nodetype).toBe('Curve');
+        });
+
+        test('Path._deleteNode should convert curve-line to curve', () => {
+            // Create curve followed by line
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 50, y: 0, nodetype: 'OffCurve' },
+                    { x: 100, y: 50, nodetype: 'OffCurve' },
+                    { x: 150, y: 50, nodetype: 'Curve' },
+                    { x: 200, y: 100, nodetype: 'Line' }
+                ],
+                false
+            );
+            const glyph = testFont.glyphs[0];
+            const layer = glyph.layers[0];
+            const path = layer.shapes[0].asPath();
+
+            expect(path.nodes.length).toBe(5);
+
+            // Delete the Curve node (index 3)
+            const result = path._deleteNode(3);
+
+            expect(result).toBe(true);
+            // Should convert to a curve
+            expect(path.nodes.length).toBe(4);
+            expect(path.nodes[0].nodetype).toBe('Move');
+            expect(path.nodes[1].nodetype).toBe('OffCurve');
+            expect(path.nodes[2].nodetype).toBe('OffCurve');
+            expect(path.nodes[3].nodetype).toBe('Curve');
+        });
+
+        test('Path._deleteNode should handle quadratic curves', () => {
+            // Create two connected quadratic curves
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 50, y: 50, nodetype: 'OffCurve' },
+                    { x: 100, y: 0, nodetype: 'QCurve', smooth: true },
+                    { x: 150, y: 50, nodetype: 'OffCurve' },
+                    { x: 200, y: 100, nodetype: 'QCurve' }
+                ],
+                false
+            );
+            const glyph = testFont.glyphs[0];
+            const layer = glyph.layers[0];
+            const path = layer.shapes[0].asPath();
+
+            expect(path.nodes.length).toBe(5);
+
+            // Delete the middle QCurve node (index 2)
+            const result = path._deleteNode(2);
+
+            expect(result).toBe(true);
+            // Should result in: Move + OffCurve + QCurve (merged quadratic)
+            expect(path.nodes.length).toBe(3);
+            expect(path.nodes[0].nodetype).toBe('Move');
+            expect(path.nodes[1].nodetype).toBe('OffCurve');
+            expect(path.nodes[2].nodetype).toBe('QCurve');
+        });
+
+        test('Path._deleteNode should return false for invalid index', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 100, y: 100, nodetype: 'Line' }
+                ],
+                false
+            );
+            const glyph = testFont.glyphs[0];
+            const layer = glyph.layers[0];
+            const path = layer.shapes[0].asPath();
+
+            // Test negative index
+            expect(path._deleteNode(-1)).toBe(false);
+
+            // Test out of bounds index
+            expect(path._deleteNode(10)).toBe(false);
+
+            // Verify nodes unchanged
+            expect(path.nodes.length).toBe(2);
+        });
+
+        test('Path._deleteNode should handle closed paths', () => {
+            // Create a closed cubic curve path
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Curve' },
+                    { x: 50, y: 0, nodetype: 'OffCurve' },
+                    { x: 100, y: 50, nodetype: 'OffCurve' },
+                    { x: 100, y: 100, nodetype: 'Curve', smooth: true },
+                    { x: 50, y: 150, nodetype: 'OffCurve' },
+                    { x: 0, y: 100, nodetype: 'OffCurve' },
+                    { x: 0, y: 0, nodetype: 'Curve', smooth: true }
+                ],
+                true
+            );
+            const glyph = testFont.glyphs[0];
+            const layer = glyph.layers[0];
+            const path = layer.shapes[0].asPath();
+
+            expect(path.nodes.length).toBe(7);
+            expect(path.closed).toBe(true);
+
+            // Delete a node from the middle of the closed path
+            const result = path._deleteNode(3);
+
+            expect(result).toBe(true);
+            expect(path.nodes.length).toBe(4);
+            expect(path.closed).toBe(true);
         });
     });
 
