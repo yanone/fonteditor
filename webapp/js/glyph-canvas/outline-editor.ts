@@ -45,6 +45,10 @@ type VisibleSidebearingHandle = SidebearingHandle & {
     y: number;
     editable: boolean;
 };
+type EditableContour = {
+    nodes: Babelfont.Node[];
+    closed: boolean;
+};
 
 /**
  * Convert affine matrix [a, b, c, d, e, f] to DecomposedAffine
@@ -126,6 +130,284 @@ const parseComponentNodes = (shapes: Babelfont.Shape[]) => {
         }
     });
 };
+
+function getEditableContour(
+    shape: Babelfont.Shape | undefined
+): EditableContour | null {
+    const pathData = getPathShapeData(shape);
+    if (!pathData || typeof pathData !== 'object' || !('nodes' in pathData)) {
+        return null;
+    }
+
+    if (!pathData.nodes) {
+        return null;
+    }
+
+    if (typeof pathData.nodes === 'string') {
+        pathData.nodes = LayerDataNormalizer.parseNodes(pathData.nodes);
+    }
+
+    return {
+        nodes: pathData.nodes as Babelfont.Node[],
+        closed: Boolean(pathData.closed)
+    };
+}
+
+function isCurveNode(node: Babelfont.Node | null | undefined): boolean {
+    return node?.nodetype === 'Curve' || node?.nodetype === 'QCurve';
+}
+
+function isOffCurveNode(node: Babelfont.Node | null | undefined): boolean {
+    return node?.nodetype === 'OffCurve';
+}
+
+function getNeighborNodeIndex(
+    nodeIndex: number,
+    offset: number,
+    numNodes: number,
+    closed: boolean
+): number | null {
+    const targetIndex = nodeIndex + offset;
+
+    if (closed) {
+        return ((targetIndex % numNodes) + numNodes) % numNodes;
+    }
+
+    if (targetIndex < 0 || targetIndex >= numNodes) {
+        return null;
+    }
+
+    return targetIndex;
+}
+
+function moveNodeByDelta(
+    node: Babelfont.Node | null | undefined,
+    deltaX: number,
+    deltaY: number
+): void {
+    if (!node) {
+        return;
+    }
+
+    node.x += deltaX;
+    node.y += deltaY;
+}
+
+function alignHandleAlongDirection(
+    anchor: Babelfont.Node,
+    handle: Babelfont.Node,
+    directionX: number,
+    directionY: number
+): void {
+    const handleLength = Math.hypot(handle.x - anchor.x, handle.y - anchor.y);
+    const directionLength = Math.hypot(directionX, directionY);
+
+    if (!handleLength || !directionLength) {
+        return;
+    }
+
+    handle.x = anchor.x + (directionX / directionLength) * handleLength;
+    handle.y = anchor.y + (directionY / directionLength) * handleLength;
+}
+
+function realignSmoothHandles(
+    contour: EditableContour,
+    anchorIndex: number
+): boolean {
+    const anchor = contour.nodes[anchorIndex];
+    if (!anchor || !isCurveNode(anchor)) {
+        return false;
+    }
+
+    const prevIndex = getNeighborNodeIndex(
+        anchorIndex,
+        -1,
+        contour.nodes.length,
+        contour.closed
+    );
+    const nextIndex = getNeighborNodeIndex(
+        anchorIndex,
+        1,
+        contour.nodes.length,
+        contour.closed
+    );
+
+    const prevHandleIndex =
+        prevIndex !== null && isOffCurveNode(contour.nodes[prevIndex])
+            ? prevIndex
+            : null;
+    const nextHandleIndex =
+        nextIndex !== null && isOffCurveNode(contour.nodes[nextIndex])
+            ? nextIndex
+            : null;
+
+    if (prevHandleIndex === null && nextHandleIndex === null) {
+        return false;
+    }
+
+    if (prevHandleIndex !== null && nextHandleIndex !== null) {
+        const prevHandle = contour.nodes[prevHandleIndex];
+        const nextHandle = contour.nodes[nextHandleIndex];
+        const handleVectorInX = anchor.x - prevHandle.x;
+        const handleVectorInY = anchor.y - prevHandle.y;
+        const handleVectorOutX = anchor.x - nextHandle.x;
+        const handleVectorOutY = anchor.y - nextHandle.y;
+
+        alignHandleAlongDirection(
+            anchor,
+            prevHandle,
+            handleVectorOutX - handleVectorInX,
+            handleVectorOutY - handleVectorInY
+        );
+        alignHandleAlongDirection(
+            anchor,
+            nextHandle,
+            handleVectorInX - handleVectorOutX,
+            handleVectorInY - handleVectorOutY
+        );
+        return true;
+    }
+
+    if (prevHandleIndex !== null && nextIndex !== null) {
+        const prevHandle = contour.nodes[prevHandleIndex];
+        const nextReference = contour.nodes[nextIndex];
+        alignHandleAlongDirection(
+            anchor,
+            prevHandle,
+            anchor.x - nextReference.x,
+            anchor.y - nextReference.y
+        );
+        return true;
+    }
+
+    if (nextHandleIndex !== null && prevIndex !== null) {
+        const nextHandle = contour.nodes[nextHandleIndex];
+        const prevReference = contour.nodes[prevIndex];
+        alignHandleAlongDirection(
+            anchor,
+            nextHandle,
+            anchor.x - prevReference.x,
+            anchor.y - prevReference.y
+        );
+        return true;
+    }
+
+    return false;
+}
+
+function realignOppositeSmoothHandle(
+    contour: EditableContour,
+    offcurveIndex: number
+): boolean {
+    const offcurve = contour.nodes[offcurveIndex];
+    if (!isOffCurveNode(offcurve)) {
+        return false;
+    }
+
+    const nextIndex = getNeighborNodeIndex(
+        offcurveIndex,
+        1,
+        contour.nodes.length,
+        contour.closed
+    );
+    if (nextIndex !== null) {
+        const nextNode = contour.nodes[nextIndex];
+        if (isCurveNode(nextNode) && nextNode.smooth) {
+            const otherHandleIndex = getNeighborNodeIndex(
+                nextIndex,
+                1,
+                contour.nodes.length,
+                contour.closed
+            );
+            if (
+                otherHandleIndex !== null &&
+                otherHandleIndex !== offcurveIndex &&
+                isOffCurveNode(contour.nodes[otherHandleIndex])
+            ) {
+                alignHandleAlongDirection(
+                    nextNode,
+                    contour.nodes[otherHandleIndex],
+                    nextNode.x - offcurve.x,
+                    nextNode.y - offcurve.y
+                );
+                return true;
+            }
+
+            const oppositeLineIndex = getNeighborNodeIndex(
+                nextIndex,
+                1,
+                contour.nodes.length,
+                contour.closed
+            );
+            if (
+                oppositeLineIndex !== null &&
+                oppositeLineIndex !== offcurveIndex &&
+                !isOffCurveNode(contour.nodes[oppositeLineIndex])
+            ) {
+                alignHandleAlongDirection(
+                    nextNode,
+                    offcurve,
+                    nextNode.x - contour.nodes[oppositeLineIndex].x,
+                    nextNode.y - contour.nodes[oppositeLineIndex].y
+                );
+                return true;
+            }
+        }
+    }
+
+    const prevIndex = getNeighborNodeIndex(
+        offcurveIndex,
+        -1,
+        contour.nodes.length,
+        contour.closed
+    );
+    if (prevIndex !== null) {
+        const prevNode = contour.nodes[prevIndex];
+        if (isCurveNode(prevNode) && prevNode.smooth) {
+            const otherHandleIndex = getNeighborNodeIndex(
+                prevIndex,
+                -1,
+                contour.nodes.length,
+                contour.closed
+            );
+            if (
+                otherHandleIndex !== null &&
+                otherHandleIndex !== offcurveIndex &&
+                isOffCurveNode(contour.nodes[otherHandleIndex])
+            ) {
+                alignHandleAlongDirection(
+                    prevNode,
+                    contour.nodes[otherHandleIndex],
+                    prevNode.x - offcurve.x,
+                    prevNode.y - offcurve.y
+                );
+                return true;
+            }
+
+            const oppositeLineIndex = getNeighborNodeIndex(
+                prevIndex,
+                -1,
+                contour.nodes.length,
+                contour.closed
+            );
+            if (
+                oppositeLineIndex !== null &&
+                oppositeLineIndex !== offcurveIndex &&
+                !isOffCurveNode(contour.nodes[oppositeLineIndex])
+            ) {
+                alignHandleAlongDirection(
+                    prevNode,
+                    offcurve,
+                    prevNode.x - contour.nodes[oppositeLineIndex].x,
+                    prevNode.y - contour.nodes[oppositeLineIndex].y
+                );
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
 
 export class OutlineEditor {
     active: boolean = false;
@@ -1922,14 +2204,11 @@ export class OutlineEditor {
             }
             // Double-click on point - toggle smooth for all selected points
             if (this.hoveredPointIndex) {
-                if (this.selectedPoints.length > 0) {
-                    // Toggle smooth for all selected points
-                    for (const point of this.selectedPoints) {
-                        this.togglePointSmooth(point);
-                    }
-                } else {
-                    this.togglePointSmooth(this.hoveredPointIndex);
-                }
+                this.togglePointSmoothSelection(
+                    this.selectedPoints.length > 0
+                        ? this.selectedPoints
+                        : [this.hoveredPointIndex]
+                );
                 return true; // Event handled - skip single-click
             }
         }
@@ -2398,142 +2677,7 @@ export class OutlineEditor {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData || !currentLayerData.shapes) return;
 
-        // Build a set of selected point identifiers to avoid moving them twice
-        const selectedPointKeys = new Set(
-            this.selectedPoints.map(
-                ({ contourIndex, nodeIndex }) => `${contourIndex}:${nodeIndex}`
-            )
-        );
-
-        // Process each selected point
-        for (const { contourIndex, nodeIndex } of this.selectedPoints) {
-            const contour = currentLayerData.shapes?.[contourIndex];
-            if (!contour) continue;
-
-            // Type guard: Check if it's a Path (has nodes)
-            const pathData = 'nodes' in contour ? contour : null;
-            if (!pathData || !pathData.nodes) continue;
-
-            const nodes = pathData.nodes as Babelfont.Node[];
-            const node = nodes[nodeIndex];
-            if (!node) continue;
-
-            // If this is a curve point, remove its handles from selection (we'll move them together)
-            if (node.nodetype === 'Curve' || node.nodetype === 'QCurve') {
-                const prevIndex = (nodeIndex - 1 + nodes.length) % nodes.length;
-                const nextIndex = (nodeIndex + 1) % nodes.length;
-                const prevNode = nodes[prevIndex];
-                const nextNode = nodes[nextIndex];
-
-                if (prevNode?.nodetype === 'OffCurve') {
-                    selectedPointKeys.delete(`${contourIndex}:${prevIndex}`);
-                }
-                if (nextNode?.nodetype === 'OffCurve') {
-                    selectedPointKeys.delete(`${contourIndex}:${nextIndex}`);
-                }
-            }
-        }
-
-        // Move the selected nodes
-        for (const { contourIndex, nodeIndex } of this.selectedPoints) {
-            const key = `${contourIndex}:${nodeIndex}`;
-            if (!selectedPointKeys.has(key)) continue; // Skip if removed above
-
-            const contour = currentLayerData.shapes?.[contourIndex];
-            if (!contour) continue;
-
-            // Type guard: Check if it's a Path
-            const pathData = 'nodes' in contour ? contour : null;
-            if (!pathData || !pathData.nodes) continue;
-
-            const nodes = pathData.nodes as Babelfont.Node[];
-            const node = nodes[nodeIndex];
-            if (!node) continue;
-
-            node.x += deltaX;
-            node.y += deltaY;
-
-            // If this is a curve point, move its handles together
-            if (node.nodetype === 'Curve' || node.nodetype === 'QCurve') {
-                const prevIndex = (nodeIndex - 1 + nodes.length) % nodes.length;
-                const nextIndex = (nodeIndex + 1) % nodes.length;
-                const prevNode = nodes[prevIndex];
-                const nextNode = nodes[nextIndex];
-
-                if (prevNode?.nodetype === 'OffCurve') {
-                    prevNode.x += deltaX;
-                    prevNode.y += deltaY;
-                }
-                if (nextNode?.nodetype === 'OffCurve') {
-                    nextNode.x += deltaX;
-                    nextNode.y += deltaY;
-                }
-            }
-        }
-
-        // Handle smooth curve constraint for single offcurve dragging
-        if (this.selectedPoints.length === 1) {
-            const { contourIndex, nodeIndex } = this.selectedPoints[0];
-            const contour = currentLayerData.shapes?.[contourIndex];
-            if (!contour) return;
-
-            // Type guard: Check if it's a Path
-            const pathData = 'nodes' in contour ? contour : null;
-            if (pathData && pathData.nodes) {
-                const nodes = pathData.nodes as Babelfont.Node[];
-                const offcurve = nodes[nodeIndex];
-
-                if (offcurve?.nodetype === 'OffCurve') {
-                    // Find the associated curve point and the other handle
-                    const nextIndex = (nodeIndex + 1) % nodes.length;
-                    const prevIndex =
-                        (nodeIndex - 1 + nodes.length) % nodes.length;
-                    const nextNode = nodes[nextIndex];
-                    const prevNode = nodes[prevIndex];
-
-                    let curvePoint: Babelfont.Node | null = null;
-                    let otherHandleIndex = -1;
-
-                    if (
-                        nextNode &&
-                        (nextNode.nodetype === 'Curve' ||
-                            nextNode.nodetype === 'QCurve')
-                    ) {
-                        curvePoint = nextNode;
-                        const afterCurve = (nextIndex + 1) % nodes.length;
-                        if (
-                            afterCurve !== nodeIndex &&
-                            nodes[afterCurve]?.nodetype === 'OffCurve'
-                        ) {
-                            otherHandleIndex = afterCurve;
-                        }
-                    } else if (
-                        prevNode &&
-                        (prevNode.nodetype === 'Curve' ||
-                            prevNode.nodetype === 'QCurve')
-                    ) {
-                        curvePoint = prevNode;
-                        const beforeCurve =
-                            (prevIndex - 1 + nodes.length) % nodes.length;
-                        if (
-                            beforeCurve !== nodeIndex &&
-                            nodes[beforeCurve]?.nodetype === 'OffCurve'
-                        ) {
-                            otherHandleIndex = beforeCurve;
-                        }
-                    }
-
-                    // If we found a smooth curve point and the other handle, move it symmetrically
-                    if (curvePoint && otherHandleIndex >= 0) {
-                        const otherHandle = nodes[otherHandleIndex];
-                        const dx = offcurve.x - curvePoint.x;
-                        const dy = offcurve.y - curvePoint.y;
-                        otherHandle.x = curvePoint.x - dx;
-                        otherHandle.y = curvePoint.y - dy;
-                    }
-                }
-            }
-        }
+        this.applySelectedPointMove(currentLayerData, deltaX, deltaY);
     }
 
     _updateDraggedAnchors(deltaX: number, deltaY: number): void {
@@ -3158,24 +3302,7 @@ export class OutlineEditor {
             return;
         }
 
-        for (const point of this.selectedPoints) {
-            const { contourIndex, nodeIndex } = point;
-            const shape = currentLayerData.shapes[contourIndex];
-            const pathData = getPathShapeData(shape);
-            if (pathData && typeof pathData === 'object' && pathData.nodes) {
-                if (typeof pathData.nodes === 'string') {
-                    pathData.nodes = LayerDataNormalizer.parseNodes(
-                        pathData.nodes
-                    );
-                }
-
-                const nodes = pathData.nodes as Babelfont.Node[];
-                if (nodes[nodeIndex]) {
-                    nodes[nodeIndex].x += deltaX;
-                    nodes[nodeIndex].y += deltaY;
-                }
-            }
-        }
+        this.applySelectedPointMove(currentLayerData, deltaX, deltaY);
 
         this.applyMetricsKeysToCurrentEditedLayer();
 
@@ -3417,42 +3544,211 @@ export class OutlineEditor {
         this.adjustSelectedSidebearing(deltaX);
     }
 
-    togglePointSmooth(pointIndex: Point): void {
-        // Toggle smooth state of a point
+    private applySelectedPointMove(
+        currentLayerData: Babelfont.Layer,
+        deltaX: number,
+        deltaY: number
+    ): void {
+        const contourCache = new Map<number, EditableContour | null>();
+        const getContourData = (
+            contourIndex: number
+        ): EditableContour | null => {
+            if (!contourCache.has(contourIndex)) {
+                contourCache.set(
+                    contourIndex,
+                    getEditableContour(currentLayerData.shapes?.[contourIndex])
+                );
+            }
+            return contourCache.get(contourIndex) || null;
+        };
+
+        const selectedPointKeys = new Set(
+            this.selectedPoints.map(
+                ({ contourIndex, nodeIndex }) => `${contourIndex}:${nodeIndex}`
+            )
+        );
+        const smoothAnchorsToRealign = new Set<string>();
+
+        for (const { contourIndex, nodeIndex } of this.selectedPoints) {
+            const contour = getContourData(contourIndex);
+            const node = contour?.nodes[nodeIndex];
+            if (!contour || !node || !isCurveNode(node)) {
+                continue;
+            }
+
+            const prevIndex = getNeighborNodeIndex(
+                nodeIndex,
+                -1,
+                contour.nodes.length,
+                contour.closed
+            );
+            const nextIndex = getNeighborNodeIndex(
+                nodeIndex,
+                1,
+                contour.nodes.length,
+                contour.closed
+            );
+
+            if (
+                prevIndex !== null &&
+                isOffCurveNode(contour.nodes[prevIndex])
+            ) {
+                selectedPointKeys.delete(`${contourIndex}:${prevIndex}`);
+            }
+            if (
+                nextIndex !== null &&
+                isOffCurveNode(contour.nodes[nextIndex])
+            ) {
+                selectedPointKeys.delete(`${contourIndex}:${nextIndex}`);
+            }
+        }
+
+        for (const { contourIndex, nodeIndex } of this.selectedPoints) {
+            if (!selectedPointKeys.has(`${contourIndex}:${nodeIndex}`)) {
+                continue;
+            }
+
+            const contour = getContourData(contourIndex);
+            const node = contour?.nodes[nodeIndex];
+            if (!contour || !node) {
+                continue;
+            }
+
+            moveNodeByDelta(node, deltaX, deltaY);
+
+            if (isCurveNode(node) && node.smooth) {
+                smoothAnchorsToRealign.add(`${contourIndex}:${nodeIndex}`);
+            }
+
+            const prevIndexForAlignment = getNeighborNodeIndex(
+                nodeIndex,
+                -1,
+                contour.nodes.length,
+                contour.closed
+            );
+            const nextIndexForAlignment = getNeighborNodeIndex(
+                nodeIndex,
+                1,
+                contour.nodes.length,
+                contour.closed
+            );
+
+            if (
+                prevIndexForAlignment !== null &&
+                isCurveNode(contour.nodes[prevIndexForAlignment]) &&
+                contour.nodes[prevIndexForAlignment].smooth
+            ) {
+                smoothAnchorsToRealign.add(
+                    `${contourIndex}:${prevIndexForAlignment}`
+                );
+            }
+            if (
+                nextIndexForAlignment !== null &&
+                isCurveNode(contour.nodes[nextIndexForAlignment]) &&
+                contour.nodes[nextIndexForAlignment].smooth
+            ) {
+                smoothAnchorsToRealign.add(
+                    `${contourIndex}:${nextIndexForAlignment}`
+                );
+            }
+
+            if (!isCurveNode(node)) {
+                continue;
+            }
+
+            const prevIndex = getNeighborNodeIndex(
+                nodeIndex,
+                -1,
+                contour.nodes.length,
+                contour.closed
+            );
+            const nextIndex = getNeighborNodeIndex(
+                nodeIndex,
+                1,
+                contour.nodes.length,
+                contour.closed
+            );
+
+            if (
+                prevIndex !== null &&
+                isOffCurveNode(contour.nodes[prevIndex])
+            ) {
+                moveNodeByDelta(contour.nodes[prevIndex], deltaX, deltaY);
+            }
+            if (
+                nextIndex !== null &&
+                isOffCurveNode(contour.nodes[nextIndex])
+            ) {
+                moveNodeByDelta(contour.nodes[nextIndex], deltaX, deltaY);
+            }
+        }
+
+        for (const anchorKey of smoothAnchorsToRealign) {
+            const [contourIndexString, anchorIndexString] =
+                anchorKey.split(':');
+            const contourIndex = Number(contourIndexString);
+            const anchorIndex = Number(anchorIndexString);
+            const contour = getContourData(contourIndex);
+            if (contour) {
+                realignSmoothHandles(contour, anchorIndex);
+            }
+        }
+
+        if (this.selectedPoints.length === 1) {
+            const { contourIndex, nodeIndex } = this.selectedPoints[0];
+            const contour = getContourData(contourIndex);
+            if (contour) {
+                realignOppositeSmoothHandle(contour, nodeIndex);
+            }
+        }
+    }
+
+    private togglePointSmoothSelection(points: Point[]): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData || !currentLayerData.shapes) {
             return;
         }
 
-        const { contourIndex, nodeIndex } = pointIndex;
-        const shape = currentLayerData.shapes[contourIndex];
-        const pathData = getPathShapeData(shape);
+        const contourCache = new Map<number, EditableContour | null>();
+        const getContourData = (
+            contourIndex: number
+        ): EditableContour | null => {
+            if (!contourCache.has(contourIndex)) {
+                contourCache.set(
+                    contourIndex,
+                    getEditableContour(currentLayerData.shapes?.[contourIndex])
+                );
+            }
+            return contourCache.get(contourIndex) || null;
+        };
 
-        if (!pathData || !('nodes' in pathData) || !pathData.nodes) {
+        let changed = false;
+        for (const point of points) {
+            const contour = getContourData(point.contourIndex);
+            const node = contour?.nodes[point.nodeIndex];
+            if (!contour || !node || isOffCurveNode(node)) {
+                continue;
+            }
+
+            node.smooth = !node.smooth;
+            if (node.smooth) {
+                realignSmoothHandles(contour, point.nodeIndex);
+            }
+            changed = true;
+        }
+
+        if (!changed) {
             return;
         }
 
-        if (typeof pathData.nodes === 'string') {
-            pathData.nodes = LayerDataNormalizer.parseNodes(pathData.nodes);
-        }
-
-        const nodes = pathData.nodes as Babelfont.Node[];
-        if (!nodes[nodeIndex]) return;
-
-        const node = nodes[nodeIndex];
-        const { nodetype: type } = node;
-
-        // Toggle smooth property (no longer part of type)
-        node.smooth = !node.smooth;
-
-        // Save (non-blocking)
         this.saveLayerData('keyboard');
         this._syncCurrentGlyphToYDoc('Toggle smooth');
+        this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+    }
 
-        console.log(
-            `Toggled point smooth: ${node.smooth ? 'smooth' : 'not smooth'}`
-        );
+    togglePointSmooth(pointIndex: Point): void {
+        this.togglePointSmoothSelection([pointIndex]);
     }
 
     onSpaceKeyReleased() {
