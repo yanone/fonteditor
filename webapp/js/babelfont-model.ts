@@ -103,6 +103,25 @@ type InterpolationFontCacheEntry = {
     version: number;
 };
 
+type SegmentPoint = {
+    x: number;
+    y: number;
+};
+
+type PathSegmentDescriptor = {
+    segmentId: number;
+    type: 'line' | 'quadratic' | 'cubic';
+    points: SegmentPoint[];
+    startNodeIndex: number;
+    endNodeIndex: number;
+    controlNodeIndices: number[];
+    runStartNodeIndex: number;
+    runEndNodeIndex: number;
+    runControlNodeIndices: number[];
+    segmentIndexInRun: number;
+    wrapsAround: boolean;
+};
+
 export function withSuppressedModelRecording<T>(fn: () => T): T {
     suppressModelRecordingDepth++;
     try {
@@ -142,6 +161,427 @@ function getCurrentWindowFontModel(): Font | null {
 
     const currentFontModel = (window as Unsafe).currentFontModel;
     return currentFontModel instanceof Font ? currentFontModel : null;
+}
+
+function clampUnitInterval(value: number): number {
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+
+    return Math.max(0, Math.min(1, value));
+}
+
+function cloneSegmentPoint(point: SegmentPoint): SegmentPoint {
+    return { x: point.x, y: point.y };
+}
+
+function cloneNodeData(
+    node: Babelfont.Node,
+    overrides: Partial<Babelfont.Node> = {}
+): Babelfont.Node {
+    return {
+        ...node,
+        ...overrides
+    };
+}
+
+function midpoint(left: SegmentPoint, right: SegmentPoint): SegmentPoint {
+    return {
+        x: (left.x + right.x) / 2,
+        y: (left.y + right.y) / 2
+    };
+}
+
+function lerpPoint(
+    start: SegmentPoint,
+    end: SegmentPoint,
+    t: number
+): SegmentPoint {
+    return {
+        x: start.x + (end.x - start.x) * t,
+        y: start.y + (end.y - start.y) * t
+    };
+}
+
+function getNodePoint(node: Unsafe): SegmentPoint {
+    return { x: node.x, y: node.y };
+}
+
+function splitSegmentPoints(
+    points: SegmentPoint[],
+    t: number
+): [SegmentPoint[], SegmentPoint[]] {
+    const normalizedT = clampUnitInterval(t);
+
+    if (points.length === 2) {
+        const splitPoint = lerpPoint(points[0], points[1], normalizedT);
+        return [
+            [cloneSegmentPoint(points[0]), splitPoint],
+            [splitPoint, cloneSegmentPoint(points[1])]
+        ];
+    }
+
+    const split = new Bezier(points).split(normalizedT);
+    return [
+        split.left.points.map(({ x, y }: SegmentPoint) => ({ x, y })),
+        split.right.points.map(({ x, y }: SegmentPoint) => ({ x, y }))
+    ];
+}
+
+function buildPathSegmentDescriptors(pathData: {
+    nodes: Unsafe[];
+    closed?: boolean;
+}): PathSegmentDescriptor[] {
+    const segments: PathSegmentDescriptor[] = [];
+
+    if (!pathData.nodes || pathData.nodes.length < 2) {
+        return segments;
+    }
+
+    const nodes = pathData.nodes;
+    const closed = pathData.closed !== false;
+
+    const getNodeType = (node: Unsafe): string => {
+        return (node.type || node.nodetype || '').toString().toLowerCase();
+    };
+
+    const isOffCurve = (node: Unsafe): boolean => {
+        const type = getNodeType(node);
+        return type === 'o' || type === 'offcurve';
+    };
+
+    const isOnCurve = (node: Unsafe): boolean => !isOffCurve(node);
+
+    let startIdx = 0;
+    if (closed) {
+        for (let i = 0; i < nodes.length; i++) {
+            if (isOnCurve(nodes[i])) {
+                startIdx = i;
+                break;
+            }
+        }
+    }
+
+    let i = startIdx;
+    let processedCount = 0;
+    const maxNodes = closed ? nodes.length : nodes.length - 1;
+    let segmentId = 0;
+
+    while (processedCount < maxNodes) {
+        const currentIdx = i % nodes.length;
+        const current = nodes[currentIdx];
+
+        if (!isOnCurve(current)) {
+            i++;
+            processedCount++;
+            continue;
+        }
+
+        const offcurveNodeIndices: number[] = [];
+        let j = currentIdx + 1;
+        let offcurveCount = 0;
+        let endNodeIndex: number | null = null;
+
+        while (offcurveCount < nodes.length) {
+            if (j >= nodes.length && !closed) {
+                break;
+            }
+
+            const candidateIndex =
+                ((j % nodes.length) + nodes.length) % nodes.length;
+            const candidate = nodes[candidateIndex];
+
+            if (isOffCurve(candidate)) {
+                offcurveNodeIndices.push(candidateIndex);
+                j++;
+                offcurveCount++;
+                continue;
+            }
+
+            endNodeIndex = candidateIndex;
+            break;
+        }
+
+        if (endNodeIndex === null) {
+            break;
+        }
+
+        const startPoint = getNodePoint(current);
+        const endPoint = getNodePoint(nodes[endNodeIndex]);
+        const controlPoints = offcurveNodeIndices.map((index) =>
+            getNodePoint(nodes[index])
+        );
+        const endType = getNodeType(nodes[endNodeIndex]);
+        const wrapsAround = closed && endNodeIndex <= currentIdx;
+
+        if (controlPoints.length === 0) {
+            segments.push({
+                segmentId: segmentId++,
+                type: 'line',
+                points: [startPoint, endPoint],
+                startNodeIndex: currentIdx,
+                endNodeIndex,
+                controlNodeIndices: [],
+                runStartNodeIndex: currentIdx,
+                runEndNodeIndex: endNodeIndex,
+                runControlNodeIndices: [],
+                segmentIndexInRun: 0,
+                wrapsAround
+            });
+        } else if (endType === 'curve' && controlPoints.length === 2) {
+            segments.push({
+                segmentId: segmentId++,
+                type: 'cubic',
+                points: [startPoint, ...controlPoints, endPoint],
+                startNodeIndex: currentIdx,
+                endNodeIndex,
+                controlNodeIndices: [...offcurveNodeIndices],
+                runStartNodeIndex: currentIdx,
+                runEndNodeIndex: endNodeIndex,
+                runControlNodeIndices: [...offcurveNodeIndices],
+                segmentIndexInRun: 0,
+                wrapsAround
+            });
+        } else {
+            let segmentStartPoint = startPoint;
+            const runEndPoints = controlPoints.map((controlPoint, index) =>
+                index === controlPoints.length - 1
+                    ? endPoint
+                    : midpoint(controlPoint, controlPoints[index + 1])
+            );
+
+            for (
+                let controlIndex = 0;
+                controlIndex < controlPoints.length;
+                controlIndex++
+            ) {
+                const segmentEndPoint = runEndPoints[controlIndex];
+                segments.push({
+                    segmentId: segmentId++,
+                    type: 'quadratic',
+                    points: [
+                        cloneSegmentPoint(segmentStartPoint),
+                        cloneSegmentPoint(controlPoints[controlIndex]),
+                        cloneSegmentPoint(segmentEndPoint)
+                    ],
+                    startNodeIndex: currentIdx,
+                    endNodeIndex,
+                    controlNodeIndices: [offcurveNodeIndices[controlIndex]],
+                    runStartNodeIndex: currentIdx,
+                    runEndNodeIndex: endNodeIndex,
+                    runControlNodeIndices: [...offcurveNodeIndices],
+                    segmentIndexInRun: controlIndex,
+                    wrapsAround
+                });
+                segmentStartPoint = segmentEndPoint;
+            }
+        }
+
+        i += 1 + offcurveCount;
+        processedCount += 1 + offcurveCount;
+
+        if (processedCount > nodes.length * 2) {
+            break;
+        }
+    }
+
+    return segments;
+}
+
+function replaceSegmentRunInNodeArray(
+    nodes: Babelfont.Node[],
+    descriptor: PathSegmentDescriptor,
+    replacementNodes: Babelfont.Node[],
+    insertedNodeOffset: number,
+    closed: boolean
+): { nodes: Babelfont.Node[]; insertedNodeIndex: number } {
+    const clonedNodes = nodes.map((node) => cloneNodeData(node));
+
+    if (closed && descriptor.wrapsAround) {
+        const rotatedNodes = [
+            ...clonedNodes.slice(descriptor.runStartNodeIndex),
+            ...clonedNodes.slice(0, descriptor.runStartNodeIndex)
+        ];
+        const rotatedRunEndIndex =
+            clonedNodes.length -
+            descriptor.runStartNodeIndex +
+            descriptor.runEndNodeIndex;
+        const nextNodes = [
+            rotatedNodes[0],
+            ...replacementNodes,
+            ...rotatedNodes.slice(rotatedRunEndIndex + 1)
+        ];
+
+        return {
+            nodes: nextNodes,
+            insertedNodeIndex: 1 + insertedNodeOffset
+        };
+    }
+
+    const nextNodes = [
+        ...clonedNodes.slice(0, descriptor.runStartNodeIndex + 1),
+        ...replacementNodes,
+        ...clonedNodes.slice(descriptor.runEndNodeIndex + 1)
+    ];
+
+    return {
+        nodes: nextNodes,
+        insertedNodeIndex: descriptor.runStartNodeIndex + 1 + insertedNodeOffset
+    };
+}
+
+function buildInsertedSegmentNodeArray(
+    nodes: Babelfont.Node[],
+    descriptor: PathSegmentDescriptor,
+    t: number,
+    closed: boolean
+): { nodes: Babelfont.Node[]; insertedNodeIndex: number } {
+    const normalizedT = clampUnitInterval(t);
+
+    if (descriptor.type === 'line') {
+        const splitPoint = lerpPoint(
+            descriptor.points[0],
+            descriptor.points[1],
+            normalizedT
+        );
+        const replacementNodes = [
+            {
+                x: splitPoint.x,
+                y: splitPoint.y,
+                nodetype: 'Line' as Babelfont.NodeType
+            },
+            cloneNodeData(nodes[descriptor.runEndNodeIndex])
+        ];
+
+        return replaceSegmentRunInNodeArray(
+            nodes,
+            descriptor,
+            replacementNodes,
+            0,
+            closed
+        );
+    }
+
+    if (descriptor.type === 'cubic') {
+        const [leftPoints, rightPoints] = splitSegmentPoints(
+            descriptor.points,
+            normalizedT
+        );
+        const replacementNodes = [
+            {
+                x: leftPoints[1].x,
+                y: leftPoints[1].y,
+                nodetype: 'OffCurve' as Babelfont.NodeType
+            },
+            {
+                x: leftPoints[2].x,
+                y: leftPoints[2].y,
+                nodetype: 'OffCurve' as Babelfont.NodeType
+            },
+            {
+                x: leftPoints[3].x,
+                y: leftPoints[3].y,
+                nodetype: 'Curve' as Babelfont.NodeType,
+                smooth: true
+            },
+            {
+                x: rightPoints[1].x,
+                y: rightPoints[1].y,
+                nodetype: 'OffCurve' as Babelfont.NodeType
+            },
+            {
+                x: rightPoints[2].x,
+                y: rightPoints[2].y,
+                nodetype: 'OffCurve' as Babelfont.NodeType
+            },
+            cloneNodeData(nodes[descriptor.runEndNodeIndex], {
+                x: rightPoints[3].x,
+                y: rightPoints[3].y,
+                nodetype: 'Curve' as Babelfont.NodeType
+            })
+        ];
+
+        return replaceSegmentRunInNodeArray(
+            nodes,
+            descriptor,
+            replacementNodes,
+            2,
+            closed
+        );
+    }
+
+    const runControlPoints = descriptor.runControlNodeIndices.map((index) =>
+        getNodePoint(nodes[index])
+    );
+    const explicitRunEndPoints = runControlPoints.map((controlPoint, index) =>
+        index === runControlPoints.length - 1
+            ? getNodePoint(nodes[descriptor.runEndNodeIndex])
+            : midpoint(controlPoint, runControlPoints[index + 1])
+    );
+
+    const explicitRunNodes: Babelfont.Node[] = [];
+    for (let index = 0; index < runControlPoints.length; index++) {
+        explicitRunNodes.push({
+            x: runControlPoints[index].x,
+            y: runControlPoints[index].y,
+            nodetype: 'OffCurve' as Babelfont.NodeType
+        });
+        explicitRunNodes.push(
+            index === runControlPoints.length - 1
+                ? cloneNodeData(nodes[descriptor.runEndNodeIndex], {
+                      x: explicitRunEndPoints[index].x,
+                      y: explicitRunEndPoints[index].y,
+                      nodetype: 'QCurve' as Babelfont.NodeType
+                  })
+                : {
+                      x: explicitRunEndPoints[index].x,
+                      y: explicitRunEndPoints[index].y,
+                      nodetype: 'QCurve' as Babelfont.NodeType,
+                      smooth: true
+                  }
+        );
+    }
+
+    const targetPairIndex = descriptor.segmentIndexInRun * 2;
+    const [leftPoints, rightPoints] = splitSegmentPoints(
+        descriptor.points,
+        normalizedT
+    );
+    const explicitEndNode = explicitRunNodes[targetPairIndex + 1];
+
+    explicitRunNodes.splice(
+        targetPairIndex,
+        2,
+        {
+            x: leftPoints[1].x,
+            y: leftPoints[1].y,
+            nodetype: 'OffCurve' as Babelfont.NodeType
+        },
+        {
+            x: leftPoints[2].x,
+            y: leftPoints[2].y,
+            nodetype: 'QCurve' as Babelfont.NodeType,
+            smooth: true
+        },
+        {
+            x: rightPoints[1].x,
+            y: rightPoints[1].y,
+            nodetype: 'OffCurve' as Babelfont.NodeType
+        },
+        cloneNodeData(explicitEndNode, {
+            x: rightPoints[2].x,
+            y: rightPoints[2].y,
+            nodetype: 'QCurve' as Babelfont.NodeType
+        })
+    );
+
+    return replaceSegmentRunInNodeArray(
+        nodes,
+        descriptor,
+        explicitRunNodes,
+        targetPairIndex + 1,
+        closed
+    );
 }
 
 function findFontForModelObject(
@@ -1974,6 +2414,34 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
             nodetype,
             smooth
         );
+    }
+
+    _addPoint(segmentId: number, t: number): number | null {
+        const nodeArray = this.ensureNodesArray();
+        const descriptors = buildPathSegmentDescriptors({
+            nodes: nodeArray,
+            closed: this.closed
+        });
+        const descriptor = descriptors.find(
+            (candidate) => candidate.segmentId === segmentId
+        );
+
+        if (!descriptor) {
+            return null;
+        }
+
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        const mutation = buildInsertedSegmentNodeArray(
+            nodeArray,
+            descriptor,
+            t,
+            this.closed
+        );
+
+        this.data.nodes = mutation.nodes;
+        this._nodeWrappers = null;
+        recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
+        return mutation.insertedNodeIndex;
     }
 
     toString(): string {
@@ -3992,119 +4460,38 @@ export class Layer extends ArrayElementBase {
         points: Array<{ x: number; y: number }>;
         type: 'line' | 'quadratic' | 'cubic';
     }> {
-        const segments: Array<{
-            points: Array<{ x: number; y: number }>;
-            type: 'line' | 'quadratic' | 'cubic';
-        }> = [];
+        return buildPathSegmentDescriptors(pathData).map((segment) => ({
+            points: segment.points.map((point) => ({
+                x: point.x,
+                y: point.y
+            })),
+            type: segment.type
+        }));
+    }
 
-        if (!pathData.nodes || pathData.nodes.length < 2) {
-            return segments;
-        }
-
-        const nodes = pathData.nodes;
-        const closed = pathData.closed !== false; // Default to true
-
-        // Helper to get node type (handles both 'type' and 'nodetype' fields)
-        const getNodeType = (node: Unsafe): string => {
-            return (node.type || node.nodetype || '').toString().toLowerCase();
-        };
-
-        // Helper to check if node is offcurve
-        const isOffCurve = (node: Unsafe): boolean => {
-            const type = getNodeType(node);
-            return type === 'o' || type === 'offcurve';
-        };
-
-        // Helper to check if node is oncurve
-        const isOnCurve = (node: Unsafe): boolean => {
-            return !isOffCurve(node);
-        };
-
-        // Find the first oncurve node to start from
-        let startIdx = 0;
-        if (closed) {
-            // For closed paths, find first oncurve node
-            for (let i = 0; i < nodes.length; i++) {
-                if (isOnCurve(nodes[i])) {
-                    startIdx = i;
-                    break;
-                }
-            }
-        }
-
-        // Process segments
-        let i = startIdx;
-        let processedCount = 0;
-        const maxNodes = closed ? nodes.length : nodes.length - 1;
-
-        while (processedCount < maxNodes) {
-            const currentIdx = i % nodes.length;
-            const current = nodes[currentIdx];
-
-            if (!isOnCurve(current)) {
-                // Skip if we somehow landed on an offcurve (shouldn't happen after finding start)
-                i++;
-                processedCount++;
-                continue;
-            }
-
-            // Collect points for this segment: [oncurve] [offcurve*] [oncurve]
-            const points: Array<{ x: number; y: number }> = [
-                { x: current.x, y: current.y }
-            ];
-
-            // Collect all following offcurve nodes
-            let j = (currentIdx + 1) % nodes.length;
-            let offcurveCount = 0;
-            while (offcurveCount < nodes.length) {
-                // Safety limit
-                if (j >= nodes.length && !closed) break;
-
-                const node = nodes[j % nodes.length];
-                if (isOffCurve(node)) {
-                    points.push({ x: node.x, y: node.y });
-                    j++;
-                    offcurveCount++;
-                } else {
-                    // Found next oncurve node
-                    points.push({ x: node.x, y: node.y });
-                    break;
-                }
-            }
-
-            // Determine segment type based on number of points
-            if (points.length === 2) {
-                // Line segment: [oncurve] [oncurve]
-                segments.push({ points, type: 'line' });
-                i++;
-                processedCount++;
-            } else if (points.length === 3) {
-                // Quadratic Bezier: [oncurve] [offcurve] [oncurve]
-                segments.push({ points, type: 'quadratic' });
-                i += 1 + offcurveCount;
-                processedCount += 1 + offcurveCount;
-            } else if (points.length === 4) {
-                // Cubic Bezier: [oncurve] [offcurve] [offcurve] [oncurve]
-                segments.push({ points, type: 'cubic' });
-                i += 1 + offcurveCount;
-                processedCount += 1 + offcurveCount;
-            } else if (points.length > 4) {
-                // Too many control points - skip this malformed segment
-                i += 1 + offcurveCount;
-                processedCount += 1 + offcurveCount;
-            } else {
-                // Not enough points (shouldn't happen)
-                i++;
-                processedCount++;
-            }
-
-            // Safety check to prevent infinite loops
-            if (processedCount > nodes.length * 2) {
-                break;
-            }
-        }
-
-        return segments;
+    public static getPathSegmentDescriptors(pathData: {
+        nodes: Unsafe[];
+        closed?: boolean;
+    }): Array<{
+        segmentId: number;
+        type: 'line' | 'quadratic' | 'cubic';
+        points: Array<{ x: number; y: number }>;
+        startNodeIndex: number;
+        endNodeIndex: number;
+        controlNodeIndices: number[];
+        runStartNodeIndex: number;
+        runEndNodeIndex: number;
+        runControlNodeIndices: number[];
+        segmentIndexInRun: number;
+        wrapsAround: boolean;
+    }> {
+        return buildPathSegmentDescriptors(pathData).map((segment) => ({
+            ...segment,
+            points: segment.points.map((point) => ({
+                x: point.x,
+                y: point.y
+            }))
+        }));
     }
 
     private static boundsFromMinMax(
@@ -6791,8 +7178,19 @@ export class Font extends ModelBase {
                     typeof value === 'object' &&
                     !Array.isArray(value)
                 ) {
+                    const hasPathWrapper =
+                        'Path' in value &&
+                        value.Path &&
+                        typeof value.Path === 'object';
+                    const hasComponentWrapper =
+                        'Component' in value &&
+                        value.Component &&
+                        typeof value.Component === 'object';
+                    const hasFlatPathFields = 'nodes' in value;
+                    const hasFlatComponentFields = 'reference' in value;
+
                     // Normalize wrapped Path shape to unwrapped Path payload
-                    if ('Path' in value && !('Component' in value)) {
+                    if (hasPathWrapper) {
                         const pathPayload =
                             value.Path && typeof value.Path === 'object'
                                 ? value.Path
@@ -6807,7 +7205,7 @@ export class Font extends ModelBase {
                     }
 
                     // Normalize wrapped Component shape to unwrapped Component payload
-                    if ('Component' in value && !('Path' in value)) {
+                    if (hasComponentWrapper && !hasPathWrapper) {
                         const componentPayload =
                             value.Component &&
                             typeof value.Component === 'object'
@@ -6829,7 +7227,7 @@ export class Font extends ModelBase {
 
                     // Normalize flat Component shapes with array transforms
                     if (
-                        'reference' in value &&
+                        hasFlatComponentFields &&
                         Array.isArray(value.transform)
                     ) {
                         return {
@@ -6842,9 +7240,9 @@ export class Font extends ModelBase {
 
                     // Normalize flat Path shapes with array nodes
                     if (
-                        'nodes' in value &&
+                        hasFlatPathFields &&
                         Array.isArray(value.nodes) &&
-                        !('reference' in value)
+                        true
                     ) {
                         return {
                             ...value,

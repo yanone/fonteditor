@@ -303,6 +303,9 @@ class GlyphCanvas {
                 }
             }
             this.onKeyDown(e);
+            if (e.key === 'Alt') {
+                this.outlineEditor.setAltKeyPressed(true);
+            }
         });
         this.canvas!.addEventListener('keyup', (e) => {
             if (this.shouldBlockTextEditingDuringLoopAnimation(e)) {
@@ -345,6 +348,10 @@ class GlyphCanvas {
                     this.textRunEditor!.handleKeyUp(e);
                 }
             }
+
+            if (e.key === 'Alt') {
+                this.outlineEditor.setAltKeyPressed(false);
+            }
         });
 
         // Reset key states when window loses focus (e.g., Cmd+Tab to switch apps)
@@ -352,6 +359,7 @@ class GlyphCanvas {
             this.measurementKeyPressed = false;
             this.isDraggingCanvas = false;
             this.outlineEditor.onBlur();
+            this.outlineEditor.setAltKeyPressed(false);
             if (this.canvas) {
                 this.canvas.style.cursor = this.outlineEditor.active
                     ? 'default'
@@ -1243,13 +1251,15 @@ class GlyphCanvas {
             this.outlineEditor.hoveredGuideHandle !== null ||
             this.outlineEditor.hoveredComponentIndex !== null ||
             this.outlineEditor.hoveredAnchorIndex !== null ||
-            this.outlineEditor.hoveredPointIndex !== null;
+            this.outlineEditor.hoveredPointIndex !== null ||
+            this.outlineEditor.hoveredAddPointPreview !== null;
 
         this.outlineEditor.hoveredGlyphIndex = -1;
         this.outlineEditor.hoveredGuideHandle = null;
         this.outlineEditor.hoveredComponentIndex = null;
         this.outlineEditor.hoveredAnchorIndex = null;
         this.outlineEditor.hoveredPointIndex = null;
+        this.outlineEditor.hoveredAddPointPreview = null;
 
         // Re-render only if there was a hover state to clear
         if (hadHover) {

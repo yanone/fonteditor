@@ -571,8 +571,17 @@ export function buildHistoryStackItems(
                 return false;
             }
             const layerTouchKey = getLayerTouchKey(glyphName, layerId);
-            if (layerTouchKey && !item.touchedLayerKeySet.has(layerTouchKey)) {
-                return false;
+            if (layerTouchKey) {
+                const isGlyphScopedItemForGlyph =
+                    item.undoScope === 'glyph' &&
+                    !!glyphName &&
+                    item.glyphNameSet.has(glyphName);
+                if (
+                    !item.touchedLayerKeySet.has(layerTouchKey) &&
+                    !isGlyphScopedItemForGlyph
+                ) {
+                    return false;
+                }
             }
             if (
                 historyTargetKey &&

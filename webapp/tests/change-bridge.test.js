@@ -29,7 +29,7 @@ const {
     normalizeChangeLogEntry,
     resolveHistoryTargetItemId
 } = require('../js/change-log');
-const { Font } = require('../js/babelfont-model');
+const { Font, withSuppressedModelRecording } = require('../js/babelfont-model');
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -2896,6 +2896,95 @@ describe('syncGlyphFromJson', () => {
                 'width'
             ])
         ).toBe(700);
+    });
+
+    test('glyph-scoped undo restores linked-layer curve point insertion cleanly', () => {
+        const font = Font.fromData(makeMinimalFont());
+        const fontJson = font.toJSON();
+        const baseLayer = cloneValue(fontJson.glyphs[0].layers[0]);
+        fontJson.glyphs[0].layers = [
+            {
+                ...cloneValue(baseLayer),
+                id: 'layer-1',
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Curve' },
+                            { x: 30, y: 60, nodetype: 'OffCurve' },
+                            { x: 70, y: 60, nodetype: 'OffCurve' },
+                            { x: 100, y: 0, nodetype: 'Curve' }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            },
+            {
+                ...cloneValue(baseLayer),
+                id: 'layer-1b',
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 10, nodetype: 'Curve' },
+                            { x: 30, y: 70, nodetype: 'OffCurve' },
+                            { x: 70, y: 70, nodetype: 'OffCurve' },
+                            { x: 100, y: 10, nodetype: 'Curve' }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            }
+        ];
+
+        const bridge = new ChangeBridge('test-linked-add-point');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+
+        const glyph = font.findGlyph('A');
+        const layer1 = glyph.findLayerById('layer-1');
+        const layer2 = glyph.findLayerById('layer-1b');
+
+        withSuppressedModelRecording(() => {
+            layer1.paths[0]._addPoint(0, 0.5);
+            layer2.paths[0]._addPoint(0, 0.5);
+        });
+        bridge.syncGlyphFromJson('A', 'Add point');
+
+        const historyItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            glyphName: 'A',
+            layerId: 'layer-1',
+            includeUndone: true
+        });
+        expect(historyItems).toHaveLength(1);
+        expect(historyItems[0].undoScope).toBe('glyph');
+        expect(
+            fontJson.glyphs[0].layers.map(
+                (layer) => layer.shapes[0].nodes.length
+            )
+        ).toEqual([7, 7]);
+
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'glyph',
+                glyphName: 'A',
+                layerId: null
+            })
+        );
+
+        expect(
+            fontJson.glyphs[0].layers.map(
+                (layer) => layer.shapes[0].nodes.length
+            )
+        ).toEqual([4, 4]);
+        expect(fontJson.glyphs[0].layers[0].shapes[0].nodes[0].nodetype).toBe(
+            'Curve'
+        );
+        expect(fontJson.glyphs[0].layers[1].shapes[0].nodes[3].nodetype).toBe(
+            'Curve'
+        );
     });
 
     test('undo works after two consecutive syncs - each sync is a separate undo step', () => {

@@ -2072,9 +2072,136 @@ export class GlyphCanvasRenderer {
         this.ctx.closePath();
         this.ctx.stroke();
 
-        // Skip drawing direction arrow and handles if zoom is under minimum threshold
+        const addPointPreview =
+            !isInterpolated &&
+            this.glyphCanvas.outlineEditor.hoveredAddPointPreview &&
+            this.glyphCanvas.outlineEditor.hoveredAddPointPreview.shapeIndex ===
+                contourIndex
+                ? this.glyphCanvas.outlineEditor.hoveredAddPointPreview
+                : null;
         const minZoomForHandles =
             APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
+
+        if (addPointPreview) {
+            const colors = isDarkTheme
+                ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
+                : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+
+            this.ctx.save();
+            this.ctx.strokeStyle = colors.NODE_HOVERED;
+            this.ctx.lineWidth =
+                APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_STROKE_WIDTH *
+                invScale *
+                1.5;
+
+            addPointPreview.segments.forEach((segment) => {
+                this.ctx.beginPath();
+                this.ctx.moveTo(segment.points[0].x, segment.points[0].y);
+                if (segment.type === 'line') {
+                    this.ctx.lineTo(segment.points[1].x, segment.points[1].y);
+                } else if (segment.type === 'quadratic') {
+                    this.ctx.quadraticCurveTo(
+                        segment.points[1].x,
+                        segment.points[1].y,
+                        segment.points[2].x,
+                        segment.points[2].y
+                    );
+                } else {
+                    this.ctx.bezierCurveTo(
+                        segment.points[1].x,
+                        segment.points[1].y,
+                        segment.points[2].x,
+                        segment.points[2].y,
+                        segment.points[3].x,
+                        segment.points[3].y
+                    );
+                }
+                this.ctx.stroke();
+            });
+
+            if (this.viewportManager.scale >= minZoomForHandles) {
+                const handleOpacity =
+                    APP_SETTINGS.OUTLINE_EDITOR.HANDLE_LINE_OPACITY;
+                this.ctx.strokeStyle = isDarkTheme
+                    ? `rgba(255, 255, 255, ${handleOpacity})`
+                    : `rgba(0, 0, 0, ${handleOpacity})`;
+                this.ctx.lineWidth = 1 * invScale;
+
+                addPointPreview.segments.forEach((segment) => {
+                    if (segment.type === 'quadratic') {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(
+                            segment.points[0].x,
+                            segment.points[0].y
+                        );
+                        this.ctx.lineTo(
+                            segment.points[1].x,
+                            segment.points[1].y
+                        );
+                        this.ctx.lineTo(
+                            segment.points[2].x,
+                            segment.points[2].y
+                        );
+                        this.ctx.stroke();
+                    } else if (segment.type === 'cubic') {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(
+                            segment.points[0].x,
+                            segment.points[0].y
+                        );
+                        this.ctx.lineTo(
+                            segment.points[1].x,
+                            segment.points[1].y
+                        );
+                        this.ctx.moveTo(
+                            segment.points[2].x,
+                            segment.points[2].y
+                        );
+                        this.ctx.lineTo(
+                            segment.points[3].x,
+                            segment.points[3].y
+                        );
+                        this.ctx.stroke();
+                    }
+                });
+
+                const controlPointSize =
+                    APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM *
+                    invScale;
+                addPointPreview.segments.forEach((segment) => {
+                    const controlPoints =
+                        segment.type === 'quadratic'
+                            ? [segment.points[1]]
+                            : segment.type === 'cubic'
+                              ? [segment.points[1], segment.points[2]]
+                              : [];
+
+                    controlPoints.forEach((point) => {
+                        this.ctx.save();
+                        this.ctx.translate(point.x, point.y);
+                        this.applyInverseComponentTransform();
+                        this.ctx.beginPath();
+                        this.ctx.arc(0, 0, controlPointSize, 0, Math.PI * 2);
+                        this.ctx.fillStyle = colors.CONTROL_POINT_HOVERED;
+                        this.ctx.fill();
+                        this.ctx.restore();
+                    });
+                });
+            }
+
+            const nodeSize =
+                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM * invScale;
+            this.ctx.translate(
+                addPointPreview.point.x,
+                addPointPreview.point.y
+            );
+            this.applyInverseComponentTransform();
+            this.ctx.fillStyle = colors.NODE_HOVERED;
+            this.ctx.fillRect(-nodeSize, -nodeSize, nodeSize * 2, nodeSize * 2);
+            this.ctx.restore();
+        }
+
+        // Skip drawing direction arrow and handles if zoom is under minimum threshold
         if (this.viewportManager.scale >= minZoomForHandles) {
             // Draw direction arrow from the first node
             if (nodes.length > 1) {

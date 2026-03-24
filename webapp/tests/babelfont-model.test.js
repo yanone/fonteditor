@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { Font } = require('../js/babelfont-model');
+const { Font, Layer } = require('../js/babelfont-model');
 const {
     open_font_file,
     store_font
@@ -20,6 +20,58 @@ function loadFontFile(filePath) {
     console.log(`[Test] Converting ${fileName} using WASM...`);
     const babelfontJson = open_font_file(fileName, fileContents);
     return JSON.parse(babelfontJson);
+}
+
+function makeFontWithSinglePath(nodes, closed = false) {
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        cross_axis_mappings: [],
+        instances: [],
+        masters: [
+            {
+                name: { dflt: 'Regular' },
+                id: 'master-1',
+                location: {},
+                guides: [],
+                metrics: {},
+                kerning: new Map()
+            }
+        ],
+        glyphs: [
+            {
+                name: 'testGlyph',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        width: 500,
+                        id: 'layer-1',
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'master-1'
+                        },
+                        shapes: [
+                            {
+                                nodes,
+                                closed
+                            }
+                        ],
+                        anchors: []
+                    }
+                ]
+            }
+        ],
+        note: '',
+        date: new Date('2020-01-01T00:00:00.000Z'),
+        names: {},
+        features: {
+            classes: {},
+            prefixes: {},
+            features: []
+        }
+    });
 }
 
 describe('Babelfont Object Model', () => {
@@ -2385,6 +2437,103 @@ describe('Babelfont Object Model', () => {
             expect(
                 selectionLayer._getLinkedLayers().map((layer) => layer.id)
             ).toEqual(['layer-1b']);
+        });
+    });
+
+    describe('Path._addPoint()', () => {
+        test('inserts a new on-curve point into a line segment', () => {
+            const testFont = makeFontWithSinglePath([
+                { x: 0, y: 0, nodetype: 'Line' },
+                { x: 100, y: 0, nodetype: 'Line' }
+            ]);
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            const insertedNodeIndex = path._addPoint(0, 0.25);
+
+            expect(insertedNodeIndex).toBe(1);
+            expect(path.nodes.map((node) => node.nodetype)).toEqual([
+                'Line',
+                'Line',
+                'Line'
+            ]);
+            expect(path.nodes[1].x).toBeCloseTo(25);
+            expect(path.nodes[1].y).toBeCloseTo(0);
+        });
+
+        test('splits a cubic segment into two matching cubic segments', () => {
+            const testFont = makeFontWithSinglePath([
+                { x: 0, y: 0, nodetype: 'Curve' },
+                { x: 30, y: 60, nodetype: 'OffCurve' },
+                { x: 70, y: 60, nodetype: 'OffCurve' },
+                { x: 100, y: 0, nodetype: 'Curve' }
+            ]);
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            const insertedNodeIndex = path._addPoint(0, 0.5);
+
+            expect(insertedNodeIndex).toBe(3);
+            expect(path.nodes.map((node) => node.nodetype)).toEqual([
+                'Curve',
+                'OffCurve',
+                'OffCurve',
+                'Curve',
+                'OffCurve',
+                'OffCurve',
+                'Curve'
+            ]);
+            expect(path.nodes[3].x).toBeCloseTo(50);
+            expect(path.nodes[3].y).toBeCloseTo(45);
+            expect(path.nodes[3].smooth).toBe(true);
+        });
+
+        test('expands implied quadratic segments before inserting a point', () => {
+            const testFont = makeFontWithSinglePath([
+                { x: 0, y: 0, nodetype: 'QCurve' },
+                { x: 50, y: 100, nodetype: 'OffCurve' },
+                { x: 100, y: 100, nodetype: 'OffCurve' },
+                { x: 150, y: 0, nodetype: 'QCurve' }
+            ]);
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            const insertedNodeIndex = path._addPoint(0, 0.5);
+
+            expect(insertedNodeIndex).toBe(2);
+            expect(path.nodes.map((node) => node.nodetype)).toEqual([
+                'QCurve',
+                'OffCurve',
+                'QCurve',
+                'OffCurve',
+                'QCurve',
+                'OffCurve',
+                'QCurve'
+            ]);
+            expect(path.nodes[2].x).toBeCloseTo(43.75);
+            expect(path.nodes[2].y).toBeCloseTo(75);
+            expect(path.nodes[4].x).toBeCloseTo(75);
+            expect(path.nodes[4].y).toBeCloseTo(100);
+        });
+
+        test('describes implied quadratic runs as separate segments', () => {
+            const descriptors = Layer.getPathSegmentDescriptors({
+                nodes: [
+                    { x: 0, y: 0, nodetype: 'QCurve' },
+                    { x: 50, y: 100, nodetype: 'OffCurve' },
+                    { x: 100, y: 100, nodetype: 'OffCurve' },
+                    { x: 150, y: 0, nodetype: 'QCurve' }
+                ],
+                closed: false
+            });
+
+            expect(descriptors).toHaveLength(2);
+            expect(
+                descriptors.map((descriptor) => descriptor.segmentId)
+            ).toEqual([0, 1]);
+            expect(descriptors.map((descriptor) => descriptor.type)).toEqual([
+                'quadratic',
+                'quadratic'
+            ]);
+            expect(descriptors[0].points[2]).toEqual({ x: 75, y: 100 });
+            expect(descriptors[1].points[0]).toEqual({ x: 75, y: 100 });
         });
     });
 });

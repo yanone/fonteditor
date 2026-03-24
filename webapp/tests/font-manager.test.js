@@ -212,6 +212,51 @@ describe('FontManager saveLayerData', () => {
             layerId
         });
     });
+
+    test('refreshGlyphsAfterModelBatch drops invalid hybrid shapes before sending layer data to Rust', async () => {
+        const currentFont = fontManager.currentFont;
+        const glyph = currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const layer = glyph.layers.find((entry) => entry.id === layerId);
+
+        layer.shapes = [
+            {
+                Path: {
+                    nodes: '0 0 l 100 0 l',
+                    closed: false
+                },
+                reference: 'acute',
+                transform: [1, 0, 0, 1, 0, 0],
+                isInterpolated: false
+            },
+            {
+                nodes: '0 0 l 50 50 l',
+                closed: false
+            }
+        ];
+
+        await fontManager.refreshGlyphsAfterModelBatch(['a'], layerId);
+
+        expect(sendMessageSpy).toHaveBeenCalledWith({
+            type: 'storeLayerData',
+            glyphName: 'a',
+            layerId,
+            layerData: expect.objectContaining({
+                shapes: [
+                    {
+                        nodes: '0 0 l 100 0 l',
+                        closed: false
+                    },
+                    {
+                        nodes: '0 0 l 50 50 l',
+                        closed: false
+                    }
+                ]
+            })
+        });
+    });
 });
 
 describe('FontManager loadFont', () => {

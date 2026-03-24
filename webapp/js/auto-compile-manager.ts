@@ -10,6 +10,7 @@ import fontManager from './font-manager';
     let isCompiling = false; // Prevent overlapping compilations
     let loopRunning = false;
     let animationFrameId: number | null = null;
+    let initialCheckTimeoutId: number | null = null;
     let isStartupBlocked = false;
     let triggerQueued = false;
 
@@ -19,13 +20,13 @@ import fontManager from './font-manager';
         }
 
         triggerQueued = true;
-        queueMicrotask(() => {
+        window.setTimeout(() => {
             triggerQueued = false;
             triggerCompilation().catch((err) => {
                 console.error('Compilation error:', err);
                 isCompiling = false;
             });
-        });
+        }, 0);
     }
 
     /**
@@ -70,13 +71,23 @@ import fontManager from './font-manager';
             return; // Already running
         }
         loopRunning = true;
-        checkLoop();
+        if (initialCheckTimeoutId !== null) {
+            clearTimeout(initialCheckTimeoutId);
+        }
+        initialCheckTimeoutId = window.setTimeout(() => {
+            initialCheckTimeoutId = null;
+            checkLoop();
+        }, 0);
     }
 
     /**
      * Stop the continuous check loop
      */
     function stopLoop() {
+        if (initialCheckTimeoutId !== null) {
+            clearTimeout(initialCheckTimeoutId);
+            initialCheckTimeoutId = null;
+        }
         if (animationFrameId !== null) {
             cancelAnimationFrame(animationFrameId);
             animationFrameId = null;

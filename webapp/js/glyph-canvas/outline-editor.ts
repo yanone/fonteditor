@@ -5,7 +5,11 @@ import fontManager from '../font-manager';
 import type { Babelfont } from '../babelfont';
 import { Transform } from '../basictypes';
 import { Logger } from '../logger';
-import { Layer, DecomposedAffineTransform } from '../babelfont-model';
+import {
+    Layer,
+    DecomposedAffineTransform,
+    withSuppressedModelRecording
+} from '../babelfont-model';
 import {
     getHighestVisibleVerticalMetricValue,
     getLowestVisibleVerticalMetricValue
@@ -21,6 +25,7 @@ import {
     type SidebearingSide
 } from '../sidebearing-utils';
 import { translateLayerContentsX } from '../x-translation-utils';
+import { Bezier } from 'bezier-js';
 
 let console: Logger = new Logger('OutlineEditor');
 
@@ -48,6 +53,20 @@ type VisibleSidebearingHandle = SidebearingHandle & {
 type EditableContour = {
     nodes: Babelfont.Node[];
     closed: boolean;
+};
+
+type PreviewSegment = {
+    type: 'line' | 'quadratic' | 'cubic';
+    points: Array<{ x: number; y: number }>;
+};
+
+type HoveredAddPointPreview = {
+    shapeIndex: number;
+    pathIndex: number;
+    segmentId: number;
+    t: number;
+    point: { x: number; y: number };
+    segments: PreviewSegment[];
 };
 
 /**
@@ -150,6 +169,87 @@ function getEditableContour(
     return {
         nodes: pathData.nodes as Babelfont.Node[],
         closed: Boolean(pathData.closed)
+    };
+}
+
+function clampUnitInterval(value: number): number {
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+
+    return Math.max(0, Math.min(1, value));
+}
+
+function lerpPoint(
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    t: number
+): { x: number; y: number } {
+    return {
+        x: start.x + (end.x - start.x) * t,
+        y: start.y + (end.y - start.y) * t
+    };
+}
+
+function splitPreviewSegment(
+    points: Array<{ x: number; y: number }>,
+    t: number
+): [Array<{ x: number; y: number }>, Array<{ x: number; y: number }>] {
+    const normalizedT = clampUnitInterval(t);
+
+    if (points.length === 2) {
+        const splitPoint = lerpPoint(points[0], points[1], normalizedT);
+        return [
+            [points[0], splitPoint],
+            [splitPoint, points[1]]
+        ];
+    }
+
+    const split = new Bezier(points).split(normalizedT);
+    return [
+        split.left.points.map(({ x, y }: { x: number; y: number }) => ({
+            x,
+            y
+        })),
+        split.right.points.map(({ x, y }: { x: number; y: number }) => ({
+            x,
+            y
+        }))
+    ];
+}
+
+function projectPointOntoLine(
+    point: { x: number; y: number },
+    start: { x: number; y: number },
+    end: { x: number; y: number }
+): { x: number; y: number; t: number; distance: number } {
+    const deltaX = end.x - start.x;
+    const deltaY = end.y - start.y;
+    const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+
+    if (!lengthSquared) {
+        return {
+            x: start.x,
+            y: start.y,
+            t: 0,
+            distance: Math.hypot(point.x - start.x, point.y - start.y)
+        };
+    }
+
+    const unclampedT =
+        ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) /
+        lengthSquared;
+    const t = clampUnitInterval(unclampedT);
+    const projectedPoint = lerpPoint(start, end, t);
+
+    return {
+        x: projectedPoint.x,
+        y: projectedPoint.y,
+        t,
+        distance: Math.hypot(
+            point.x - projectedPoint.x,
+            point.y - projectedPoint.y
+        )
     };
 }
 
@@ -737,6 +837,7 @@ export class OutlineEditor {
     hoveredSidebearingHandle: SidebearingHandle | null = null;
     hoveredGuideHandle: GuideHandle | null = null;
     hoveredGlyphIndex: number = -1;
+    hoveredAddPointPreview: HoveredAddPointPreview | null = null;
     selectedPointIndex: any = null;
 
     layerDataDirty: boolean = false;
@@ -754,6 +855,7 @@ export class OutlineEditor {
     lastGlyphX: number | null = null;
     lastGlyphY: number | null = null;
     lastPointDragShiftKey: boolean | null = null;
+    altKeyPressed: boolean = false;
     canvas: HTMLCanvasElement | null = null;
 
     autoPanAnchorScreen: { x: number; y: number } | null = null;
@@ -2518,6 +2620,8 @@ export class OutlineEditor {
         this.selectedPoints = [];
         this.selectedSidebearingHandle = null;
         this.hoveredPointIndex = null;
+        this.hoveredAddPointPreview = null;
+        this.altKeyPressed = false;
         this.hoveredSidebearingHandle = null;
         this.isDraggingPoint = false;
         this.isDraggingSidebearing = false;
@@ -2540,6 +2644,7 @@ export class OutlineEditor {
         this.hoveredComponentIndex = null;
         this.hoveredSidebearingHandle = null;
         this.hoveredGuideHandle = null;
+        this.hoveredAddPointPreview = null;
         this.hoveredGlyphIndex = -1;
         this.glyphCanvas.updatePropertyPanel();
     }
@@ -2933,6 +3038,11 @@ export class OutlineEditor {
             this.hoveredGlyphIndex >= 0 &&
             this.hoveredGlyphIndex !== selectedGlyphIndex
         ) {
+            return;
+        }
+
+        if (e.altKey && this.hoveredAddPointPreview) {
+            void this.commitHoveredAddPointPreview();
             return;
         }
 
@@ -3573,12 +3683,16 @@ export class OutlineEditor {
         if (this.glyphCanvas.stackPreviewAnimator.shouldRenderStackPreview()) {
             return;
         }
+        if (e) {
+            this.altKeyPressed = e.altKey;
+        }
 
         this.updateHoveredGuideHandle();
         this.updateHoveredSidebearingHandle();
         this.updateHoveredComponent();
         this.updateHoveredAnchor();
         this.updateHoveredPoint();
+        this.updateHoveredAddPointPreview();
     }
 
     cursorStyle(): string | null {
@@ -3591,7 +3705,8 @@ export class OutlineEditor {
                 this.hoveredSidebearingHandle !== null ||
                 this.hoveredComponentIndex !== null ||
                 this.hoveredPointIndex ||
-                this.hoveredAnchorIndex !== null)
+                this.hoveredAnchorIndex !== null ||
+                this.hoveredAddPointPreview !== null)
         ) {
             this.canvas!.style.cursor = 'pointer';
         } else if (this.hoveredGlyphIndex !== -1) {
@@ -4033,6 +4148,289 @@ export class OutlineEditor {
         }
     }
 
+    private clearHoveredAddPointPreview(): void {
+        if (this.hoveredAddPointPreview) {
+            this.hoveredAddPointPreview = null;
+            this.glyphCanvas.render();
+        }
+    }
+
+    private updateHoveredAddPointPreview(): void {
+        if (
+            !this.active ||
+            !this.layerData ||
+            this.layerData.isInterpolated ||
+            !this.selectedLayerId ||
+            !this.glyphCanvas.canvas?.matches(':focus')
+        ) {
+            this.clearHoveredAddPointPreview();
+            return;
+        }
+
+        if (!this.altKeyPressed) {
+            this.clearHoveredAddPointPreview();
+            return;
+        }
+
+        if (
+            this.hoveredGuideHandle ||
+            this.hoveredSidebearingHandle ||
+            this.hoveredComponentIndex !== null ||
+            this.hoveredAnchorIndex !== null ||
+            this.hoveredPointIndex
+        ) {
+            this.clearHoveredAddPointPreview();
+            return;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            this.clearHoveredAddPointPreview();
+            return;
+        }
+
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const hitRadius =
+            10 / Math.max(this.glyphCanvas.viewportManager?.scale ?? 1, 0.001);
+        let bestPreview: HoveredAddPointPreview | null = null;
+        let bestDistance = Infinity;
+        let pathIndex = 0;
+
+        currentLayerData.shapes.forEach(
+            (shape: Babelfont.Shape, shapeIndex: number) => {
+                const contour = getEditableContour(shape);
+                if (!contour || contour.nodes.length < 2) {
+                    return;
+                }
+
+                const descriptors = Layer.getPathSegmentDescriptors({
+                    nodes: contour.nodes,
+                    closed: contour.closed
+                });
+
+                descriptors.forEach((descriptor) => {
+                    let projection: {
+                        x: number;
+                        y: number;
+                        t: number;
+                        distance: number;
+                    } | null = null;
+
+                    if (descriptor.type === 'line') {
+                        projection = projectPointOntoLine(
+                            { x: glyphX, y: glyphY },
+                            descriptor.points[0],
+                            descriptor.points[1]
+                        );
+                    } else {
+                        const projected = new Bezier(descriptor.points).project(
+                            {
+                                x: glyphX,
+                                y: glyphY
+                            }
+                        );
+                        projection = {
+                            x: projected.x,
+                            y: projected.y,
+                            t: clampUnitInterval(projected.t ?? 0),
+                            distance: projected.d ?? Infinity
+                        };
+                    }
+
+                    if (!projection || projection.distance > hitRadius) {
+                        return;
+                    }
+
+                    if (projection.distance >= bestDistance) {
+                        return;
+                    }
+
+                    const [leftPoints, rightPoints] = splitPreviewSegment(
+                        descriptor.points,
+                        projection.t
+                    );
+
+                    bestDistance = projection.distance;
+                    bestPreview = {
+                        shapeIndex,
+                        pathIndex,
+                        segmentId: descriptor.segmentId,
+                        t: projection.t,
+                        point: {
+                            x: projection.x,
+                            y: projection.y
+                        },
+                        segments: [
+                            {
+                                type: descriptor.type,
+                                points: leftPoints
+                            },
+                            {
+                                type: descriptor.type,
+                                points: rightPoints
+                            }
+                        ]
+                    };
+                });
+
+                pathIndex += 1;
+            }
+        );
+
+        const previousPreview = JSON.stringify(this.hoveredAddPointPreview);
+        const nextPreview = JSON.stringify(bestPreview);
+        if (previousPreview !== nextPreview) {
+            this.hoveredAddPointPreview = bestPreview;
+            this.glyphCanvas.render();
+        }
+    }
+
+    setAltKeyPressed(pressed: boolean): void {
+        if (this.altKeyPressed === pressed) {
+            return;
+        }
+
+        this.altKeyPressed = pressed;
+        if (!pressed) {
+            this.hoveredAddPointPreview = null;
+        }
+
+        if (this.active && this.layerData && !this.isPreviewMode) {
+            this.performHitDetection(null);
+            this.glyphCanvas.updateCursorStyle();
+            this.glyphCanvas.render();
+        }
+    }
+
+    private async commitHoveredAddPointPreview(): Promise<void> {
+        const preview = this.hoveredAddPointPreview;
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerModel = this.getCurrentLayerModel();
+        const currentGlyphModel = this.getCurrentGlyphModel();
+
+        if (
+            !preview ||
+            !currentLayerData ||
+            !currentLayerModel ||
+            !currentGlyphModel
+        ) {
+            return;
+        }
+
+        const activePath = currentLayerModel.paths?.[preview.pathIndex];
+        if (!activePath) {
+            return;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const bridge = window.changeBridge;
+        let insertedNodeIndex: number | null = null;
+
+        withSuppressedModelRecording(() => {
+            insertedNodeIndex = activePath._addPoint(
+                preview.segmentId,
+                preview.t
+            );
+
+            for (const linkedLayer of linkedLayers) {
+                const linkedPath = linkedLayer.paths?.[preview.pathIndex];
+                if (!linkedPath) {
+                    continue;
+                }
+                linkedPath._addPoint(preview.segmentId, preview.t);
+            }
+        });
+
+        if (bridge && currentGlyphModel.name) {
+            bridge.beginTransaction('Add point');
+            try {
+                bridge.syncGlyphFromJson(currentGlyphModel.name, 'Add point');
+            } finally {
+                bridge.endTransaction();
+            }
+        }
+
+        if (insertedNodeIndex === null) {
+            return;
+        }
+
+        const activePathData = activePath.toJSON();
+        const activeShape = currentLayerData.shapes?.[preview.shapeIndex];
+        const activeContour = getPathShapeData(activeShape);
+        if (activeContour && typeof activeContour === 'object') {
+            const normalizedNodes =
+                typeof activePathData.nodes === 'string'
+                    ? LayerDataNormalizer.parseNodes(activePathData.nodes)
+                    : Array.isArray(activePathData.nodes)
+                      ? activePathData.nodes
+                      : [];
+            activeContour.nodes = normalizedNodes.map(
+                (node: Babelfont.Node) => ({ ...node })
+            );
+            activeContour.closed = Boolean(activePathData.closed);
+        }
+
+        this.selectedPoints = [
+            {
+                contourIndex: preview.shapeIndex,
+                nodeIndex: insertedNodeIndex
+            }
+        ];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.hoveredAddPointPreview = null;
+
+        const currentFont = fontManager.currentFont;
+        const layerId = this.getCurrentLayerId();
+        const shouldUseIncrementalCacheRefresh = linkedLayers.length === 0;
+
+        if (currentFont) {
+            currentFont.markDirty('keyboard-outline');
+            void fontManager.updateDirtyIndicator();
+        }
+
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+
+        if (currentFont) {
+            window.setTimeout(() => {
+                if (fontManager.currentFont !== currentFont) {
+                    return;
+                }
+
+                if (shouldUseIncrementalCacheRefresh) {
+                    fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+                    void fontManager.updateWorkerFontCache();
+                    return;
+                }
+
+                try {
+                    currentFont.syncJsonFromModel();
+                } catch (error) {
+                    console.error(
+                        '[OutlineEditor] Error syncing font JSON after point insertion:',
+                        error
+                    );
+                    return;
+                }
+
+                void fontManager.updateWorkerFontCache();
+            }, 0);
+        } else if (currentGlyphModel.name) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: currentGlyphModel.name,
+                        layerId
+                    }
+                })
+            );
+        }
+    }
+
     onGlyphSelected() {
         // Perform mouse hit detection for objects at current mouse position
         if (this.active && this.selectedLayerId && this.layerData) {
@@ -4040,6 +4438,7 @@ export class OutlineEditor {
             this.updateHoveredComponent();
             this.updateHoveredAnchor();
             this.updateHoveredPoint();
+            this.updateHoveredAddPointPreview();
         }
     }
 

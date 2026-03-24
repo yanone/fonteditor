@@ -1002,10 +1002,23 @@ class FontManager {
             return shape;
         }
 
-        const pathCandidate =
-            'Path' in shape && shape.Path && typeof shape.Path === 'object'
-                ? shape.Path
-                : shape;
+        const hasPathWrapper =
+            'Path' in shape && shape.Path && typeof shape.Path === 'object';
+        const hasComponentWrapper =
+            'Component' in shape &&
+            shape.Component &&
+            typeof shape.Component === 'object';
+        const hasFlatPathFields = 'nodes' in shape;
+        const hasFlatComponentFields = 'reference' in shape;
+
+        if ((hasPathWrapper || hasFlatPathFields) && hasFlatComponentFields) {
+            console.warn(
+                '[FontManager] Normalizing invalid hybrid shape to path payload during Rust normalization',
+                shape
+            );
+        }
+
+        const pathCandidate = hasPathWrapper ? shape.Path : shape;
 
         if ('nodes' in pathCandidate) {
             let nodesValue = pathCandidate.nodes;
@@ -1022,14 +1035,11 @@ class FontManager {
             };
         }
 
-        const componentCandidate =
-            'Component' in shape &&
-            shape.Component &&
-            typeof shape.Component === 'object'
-                ? shape.Component
-                : shape;
+        const componentCandidate = hasComponentWrapper
+            ? shape.Component
+            : shape;
 
-        if ('reference' in componentCandidate) {
+        if ('reference' in componentCandidate && !hasFlatPathFields) {
             // Convert array-format transforms to DecomposedAffine objects.
             // Rust expects {translation, scale, rotation, skew, order}, not [a,b,c,d,tx,ty].
             // Array transforms come from layer-data-normalizer's identity fallback.
