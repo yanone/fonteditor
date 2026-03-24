@@ -210,6 +210,105 @@ function alignHandleAlongDirection(
     handle.y = anchor.y + (directionY / directionLength) * handleLength;
 }
 
+function projectDeltaOntoDirection(
+    deltaX: number,
+    deltaY: number,
+    directionX: number,
+    directionY: number
+): { deltaX: number; deltaY: number } {
+    const directionLengthSquared =
+        directionX * directionX + directionY * directionY;
+
+    if (!directionLengthSquared) {
+        return { deltaX: 0, deltaY: 0 };
+    }
+
+    const scale =
+        (deltaX * directionX + deltaY * directionY) / directionLengthSquared;
+    return {
+        deltaX: directionX * scale,
+        deltaY: directionY * scale
+    };
+}
+
+function getSmoothAnchorConstraintDirection(
+    contour: EditableContour,
+    nodeIndex: number
+): { directionX: number; directionY: number } | null {
+    const node = contour.nodes[nodeIndex];
+    if (!node || !isCurveNode(node) || !node.smooth) {
+        return null;
+    }
+
+    const prevIndex = getNeighborNodeIndex(
+        nodeIndex,
+        -1,
+        contour.nodes.length,
+        contour.closed
+    );
+    const nextIndex = getNeighborNodeIndex(
+        nodeIndex,
+        1,
+        contour.nodes.length,
+        contour.closed
+    );
+
+    if (prevIndex === null || nextIndex === null) {
+        return null;
+    }
+
+    const prevNode = contour.nodes[prevIndex];
+    const nextNode = contour.nodes[nextIndex];
+    const prevIsHandle = isOffCurveNode(prevNode);
+    const nextIsHandle = isOffCurveNode(nextNode);
+
+    if (prevIsHandle && nextIsHandle) {
+        return {
+            directionX: nextNode.x - prevNode.x,
+            directionY: nextNode.y - prevNode.y
+        };
+    }
+
+    if (prevIsHandle && !nextIsHandle) {
+        return {
+            directionX: nextNode.x - prevNode.x,
+            directionY: nextNode.y - prevNode.y
+        };
+    }
+
+    if (!prevIsHandle && nextIsHandle) {
+        return {
+            directionX: nextNode.x - prevNode.x,
+            directionY: nextNode.y - prevNode.y
+        };
+    }
+
+    return null;
+}
+
+function getAltAnchorMoveDelta(
+    contour: EditableContour,
+    nodeIndex: number,
+    deltaX: number,
+    deltaY: number
+): { deltaX: number; deltaY: number } {
+    const constraintDirection = getSmoothAnchorConstraintDirection(
+        contour,
+        nodeIndex
+    );
+
+    if (!constraintDirection) {
+        return { deltaX, deltaY };
+    }
+
+    return projectDeltaOntoDirection(
+        deltaX,
+        deltaY,
+        constraintDirection.directionX,
+        constraintDirection.directionY
+    );
+}
+
 function realignSmoothHandles(
     contour: EditableContour,
     anchorIndex: number
@@ -2839,7 +2938,7 @@ export class OutlineEditor {
         // Update all selected items
         this._updateDraggedGuide(deltaX, deltaY);
         this._updateDraggedComponents(deltaX, deltaY);
-        this._updateDraggedPoints(deltaX, deltaY);
+        this._updateDraggedPoints(deltaX, deltaY, e.altKey);
         this._updateDraggedAnchors(deltaX, deltaY);
         this._updateDraggedSidebearing(deltaX);
 
@@ -2924,11 +3023,20 @@ export class OutlineEditor {
         guide.pos.y += deltaY;
     }
 
-    _updateDraggedPoints(deltaX: number, deltaY: number): void {
+    _updateDraggedPoints(
+        deltaX: number,
+        deltaY: number,
+        preserveHandlePositions: boolean = false
+    ): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData || !currentLayerData.shapes) return;
 
-        this.applySelectedPointMove(currentLayerData, deltaX, deltaY);
+        this.applySelectedPointMove(
+            currentLayerData,
+            deltaX,
+            deltaY,
+            preserveHandlePositions
+        );
     }
 
     _updateDraggedAnchors(deltaX: number, deltaY: number): void {
@@ -3552,7 +3660,11 @@ export class OutlineEditor {
         }
     }
 
-    moveSelectedPoints(deltaX: number, deltaY: number): void {
+    moveSelectedPoints(
+        deltaX: number,
+        deltaY: number,
+        preserveHandlePositions: boolean = false
+    ): void {
         // Move all selected points by the given delta
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (
@@ -3563,7 +3675,12 @@ export class OutlineEditor {
             return;
         }
 
-        this.applySelectedPointMove(currentLayerData, deltaX, deltaY);
+        this.applySelectedPointMove(
+            currentLayerData,
+            deltaX,
+            deltaY,
+            preserveHandlePositions
+        );
 
         this.applyMetricsKeysToCurrentEditedLayer();
 
@@ -3808,7 +3925,8 @@ export class OutlineEditor {
     private applySelectedPointMove(
         currentLayerData: Babelfont.Layer,
         deltaX: number,
-        deltaY: number
+        deltaY: number,
+        preserveHandlePositions: boolean = false
     ): void {
         const contourCache = new Map<number, EditableContour | null>();
         const getContourData = (
@@ -3875,9 +3993,18 @@ export class OutlineEditor {
                 continue;
             }
 
-            moveNodeByDelta(node, deltaX, deltaY);
+            const adjustedDelta =
+                preserveHandlePositions && isCurveNode(node)
+                    ? getAltAnchorMoveDelta(contour, nodeIndex, deltaX, deltaY)
+                    : { deltaX, deltaY };
 
-            if (isCurveNode(node) && node.smooth) {
+            if (adjustedDelta.deltaX === 0 && adjustedDelta.deltaY === 0) {
+                continue;
+            }
+
+            moveNodeByDelta(node, adjustedDelta.deltaX, adjustedDelta.deltaY);
+
+            if (isCurveNode(node) && node.smooth && !preserveHandlePositions) {
                 smoothAnchorsToRealign.add(`${contourIndex}:${nodeIndex}`);
             }
 
@@ -3913,7 +4040,7 @@ export class OutlineEditor {
                 );
             }
 
-            if (!isCurveNode(node)) {
+            if (!isCurveNode(node) || preserveHandlePositions) {
                 continue;
             }
 
@@ -3934,13 +4061,21 @@ export class OutlineEditor {
                 prevIndex !== null &&
                 isOffCurveNode(contour.nodes[prevIndex])
             ) {
-                moveNodeByDelta(contour.nodes[prevIndex], deltaX, deltaY);
+                moveNodeByDelta(
+                    contour.nodes[prevIndex],
+                    adjustedDelta.deltaX,
+                    adjustedDelta.deltaY
+                );
             }
             if (
                 nextIndex !== null &&
                 isOffCurveNode(contour.nodes[nextIndex])
             ) {
-                moveNodeByDelta(contour.nodes[nextIndex], deltaX, deltaY);
+                moveNodeByDelta(
+                    contour.nodes[nextIndex],
+                    adjustedDelta.deltaX,
+                    adjustedDelta.deltaY
+                );
             }
         }
 
@@ -4294,7 +4429,7 @@ export class OutlineEditor {
             if (e.key === 'ArrowLeft') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(-multiplier, 0);
+                    this.moveSelectedPoints(-multiplier, 0, e.altKey);
                 }
                 if (this.selectedAnchors.length > 0) {
                     this.moveSelectedAnchors(-multiplier, 0);
@@ -4309,7 +4444,7 @@ export class OutlineEditor {
             } else if (e.key === 'ArrowRight') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(multiplier, 0);
+                    this.moveSelectedPoints(multiplier, 0, e.altKey);
                 }
                 if (this.selectedAnchors.length > 0) {
                     this.moveSelectedAnchors(multiplier, 0);
@@ -4324,7 +4459,7 @@ export class OutlineEditor {
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(0, multiplier);
+                    this.moveSelectedPoints(0, multiplier, e.altKey);
                 }
                 if (this.selectedAnchors.length > 0) {
                     this.moveSelectedAnchors(0, multiplier);
@@ -4336,7 +4471,7 @@ export class OutlineEditor {
             } else if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 if (this.selectedPoints.length > 0) {
-                    this.moveSelectedPoints(0, -multiplier);
+                    this.moveSelectedPoints(0, -multiplier, e.altKey);
                 }
                 if (this.selectedAnchors.length > 0) {
                     this.moveSelectedAnchors(0, -multiplier);
