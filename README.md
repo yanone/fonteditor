@@ -245,22 +245,23 @@ Users will see an orange update notification button in the title bar within 10 m
 
 **Counterpunch becomes a simple font editor**
 
-- ◻️ Multi-line editing
+- ◻️ Multi-line text
 - ◻️ Basic layer/glyph operations
-- ◻️ Contour point manipulation
-- ◻️ Component editing
-- ◻️ Anchor editing
-- ◻️ Guideline editing
+- ◻️ Edit outlines
+- ◻️ Edit components
+- ◻️ Edit anchors
+- ✅ Edit sidebearings
+- ◻️ Edit guidelines
 - ◻️ Layer management UI
 - ◻️ Python script fast UI
 - ✅ Undo/redo system
 - ◻️ Clipboard operations
 - ◻️ Selection tools
-- ◻️ Font info editing
+- ◻️ Edit Font Info
 - ◻️ Master/instance management
 - ◻️ Path operations (boolean)
 - ◻️ Transform tools
-- ◻️ Kerning UI
+- ◻️ Kerning
 - ◻️ Automatic glyph metric updates
 - ◻️ Automatic glyph composition
 
