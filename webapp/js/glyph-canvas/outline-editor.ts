@@ -4991,9 +4991,7 @@ export class OutlineEditor {
                 const path = currentLayerModel.paths?.[pathIndex];
                 if (!path) continue;
 
-                for (const nodeIndex of nodeIndices) {
-                    path._deleteNode(nodeIndex);
-                }
+                path._deleteNodes(nodeIndices);
             }
 
             // Delete from all linked layers
@@ -5002,9 +5000,7 @@ export class OutlineEditor {
                     const linkedPath = linkedLayer.paths?.[pathIndex];
                     if (!linkedPath) continue;
 
-                    for (const nodeIndex of nodeIndices) {
-                        linkedPath._deleteNode(nodeIndex);
-                    }
+                    linkedPath._deleteNodes(nodeIndices);
                 }
             }
         });
@@ -5036,9 +5032,9 @@ export class OutlineEditor {
                         : Array.isArray(pathData.nodes)
                           ? pathData.nodes
                           : [];
-                contour.nodes = normalizedNodes.map(
-                    (node: Babelfont.Node) => ({ ...node })
-                );
+                contour.nodes = normalizedNodes.map((node: Babelfont.Node) => ({
+                    ...node
+                }));
                 contour.closed = Boolean(pathData.closed);
             }
         }

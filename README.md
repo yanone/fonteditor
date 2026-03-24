@@ -246,11 +246,12 @@ Users will see an orange update notification button in the title bar within 10 m
 **Counterpunch becomes a simple font editor**
 
 - ◻️ Basic layer/glyph operations
-- ◻️ Edit outlines
+- ✅ Edit outlines
 - ◻️ Edit components
 - ◻️ Edit anchors
 - ✅ Edit sidebearings
 - ◻️ Edit guidelines
+- ◻️ Draw new outlines
 - ◻️ Layer management UI
 - ◻️ Python script fast UI
 - ✅ Undo/redo system

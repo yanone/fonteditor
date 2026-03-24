@@ -2026,6 +2026,49 @@ describe('Babelfont Object Model', () => {
             expect(path.nodes.length).toBe(4);
             expect(path.closed).toBe(true);
         });
+
+        test('Path._deleteNodes should ignore duplicate handle selections from the same cubic segment', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 50, y: 0, nodetype: 'OffCurve' },
+                    { x: 100, y: 50, nodetype: 'OffCurve' },
+                    { x: 100, y: 100, nodetype: 'Curve', smooth: true }
+                ],
+                false
+            );
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            const result = path._deleteNodes([1, 2]);
+
+            expect(result).toBe(true);
+            expect(path.nodes.map((node) => node.nodetype)).toEqual([
+                'Move',
+                'Line'
+            ]);
+            expect(path.nodes[0].smooth).toBe(false);
+            expect(path.nodes[1].smooth).toBe(false);
+        });
+
+        test('Path._deleteNodes should resolve mixed on-curve and off-curve selections against the original contour', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 50, y: 0, nodetype: 'OffCurve' },
+                    { x: 100, y: 50, nodetype: 'OffCurve' },
+                    { x: 100, y: 100, nodetype: 'Curve', smooth: true }
+                ],
+                false
+            );
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            const result = path._deleteNodes([1, 3]);
+
+            expect(result).toBe(true);
+            expect(path.nodes.map((node) => node.nodetype)).toEqual(['Move']);
+            expect(path.nodes[0].x).toBe(0);
+            expect(path.nodes[0].y).toBe(0);
+        });
     });
 
     describe('toJSON() serialization', () => {

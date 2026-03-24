@@ -175,10 +175,10 @@ function cloneSegmentPoint(point: SegmentPoint): SegmentPoint {
     return { x: point.x, y: point.y };
 }
 
-function cloneNodeData(
-    node: Babelfont.Node,
-    overrides: Partial<Babelfont.Node> = {}
-): Babelfont.Node {
+function cloneNodeData<T extends Babelfont.Node>(
+    node: T,
+    overrides: Partial<T> = {}
+): T {
     return {
         ...node,
         ...overrides
@@ -1169,21 +1169,21 @@ function buildMergedSegmentNodeArray(
             const node = clonedNodes[i];
             if (i === rightEndIdx) {
                 // End point - convert to Curve/QCurve
-                newNodes.push({
-                    x: node.x,
-                    y: node.y,
-                    nodetype: (isCubic
-                        ? 'Curve'
-                        : 'QCurve') as Babelfont.NodeType,
-                    smooth: node.smooth
-                });
+                newNodes.push(
+                    cloneNodeData(node, {
+                        nodetype: (isCubic
+                            ? 'Curve'
+                            : 'QCurve') as Babelfont.NodeType,
+                        smooth: node.smooth
+                    })
+                );
             } else {
                 // Control point
-                newNodes.push({
-                    x: node.x,
-                    y: node.y,
-                    nodetype: 'OffCurve' as Babelfont.NodeType
-                });
+                newNodes.push(
+                    cloneNodeData(node, {
+                        nodetype: 'OffCurve' as Babelfont.NodeType
+                    })
+                );
             }
         }
 
@@ -1209,20 +1209,20 @@ function buildMergedSegmentNodeArray(
         // Add control points from the left side
         for (let i = leftStartIdx + 1; i < leftEndIdx; i++) {
             const node = clonedNodes[i];
-            newNodes.push({
-                x: node.x,
-                y: node.y,
-                nodetype: 'OffCurve' as Babelfont.NodeType
-            });
+            newNodes.push(
+                cloneNodeData(node, {
+                    nodetype: 'OffCurve' as Babelfont.NodeType
+                })
+            );
         }
 
         // Add the end point as a Curve/QCurve
-        newNodes.push({
-            x: rightEndNode.x,
-            y: rightEndNode.y,
-            nodetype: (isCubic ? 'Curve' : 'QCurve') as Babelfont.NodeType,
-            smooth: rightEndNode.smooth
-        });
+        newNodes.push(
+            cloneNodeData(rightEndNode, {
+                nodetype: (isCubic ? 'Curve' : 'QCurve') as Babelfont.NodeType,
+                smooth: rightEndNode.smooth
+            })
+        );
 
         return [
             ...clonedNodes.slice(0, leftStartIdx + 1),
@@ -1251,12 +1251,16 @@ function buildMergedSegmentNodeArray(
         if (i === mergedPoints.length - 1) {
             // End point
             const endNodeIndex = rightDescriptor.endNodeIndex;
-            newNodes.push({
-                x: point.x,
-                y: point.y,
-                nodetype: (isCubic ? 'Curve' : 'QCurve') as Babelfont.NodeType,
-                smooth: clonedNodes[endNodeIndex].smooth
-            });
+            newNodes.push(
+                cloneNodeData(clonedNodes[endNodeIndex], {
+                    x: point.x,
+                    y: point.y,
+                    nodetype: (isCubic
+                        ? 'Curve'
+                        : 'QCurve') as Babelfont.NodeType,
+                    smooth: clonedNodes[endNodeIndex].smooth
+                })
+            );
         } else {
             // Control point
             newNodes.push({
@@ -1293,6 +1297,129 @@ function findNextOnCurveNodeIndex(
     return null;
 }
 
+function isOffCurveNodeType(type: string | undefined): boolean {
+    const normalizedType = (type || '').toString().toLowerCase();
+    return normalizedType === 'offcurve' || normalizedType === 'o';
+}
+
+function normalizePathNodeArray<T extends Babelfont.Node>(
+    nodes: T[],
+    closed: boolean
+): T[] {
+    const normalizedNodes = nodes.map((node) => cloneNodeData(node));
+
+    if (closed) {
+        return normalizedNodes;
+    }
+
+    const firstOnCurveIndex = normalizedNodes.findIndex(
+        (node) => !isOffCurveNodeType(node.nodetype)
+    );
+
+    if (firstOnCurveIndex === -1) {
+        return [];
+    }
+
+    if (firstOnCurveIndex > 0) {
+        normalizedNodes.splice(0, firstOnCurveIndex);
+    }
+
+    if (
+        normalizedNodes.length &&
+        (normalizedNodes[0].nodetype || '').toString().toLowerCase() === 'line'
+    ) {
+        normalizedNodes[0] = cloneNodeData(normalizedNodes[0], {
+            nodetype: 'Move' as Babelfont.NodeType
+        } as Partial<T>);
+    }
+
+    let lastOnCurveIndex = -1;
+    for (let index = normalizedNodes.length - 1; index >= 0; index--) {
+        if (!isOffCurveNodeType(normalizedNodes[index].nodetype)) {
+            lastOnCurveIndex = index;
+            break;
+        }
+    }
+
+    if (
+        lastOnCurveIndex !== -1 &&
+        lastOnCurveIndex < normalizedNodes.length - 1
+    ) {
+        normalizedNodes.splice(lastOnCurveIndex + 1);
+    }
+
+    return normalizedNodes;
+}
+
+function deleteNodeFromNodeArray<T extends Babelfont.Node>(
+    nodes: T[],
+    nodeIndex: number,
+    closed: boolean
+): T[] | null {
+    if (nodeIndex < 0 || nodeIndex >= nodes.length) {
+        return null;
+    }
+
+    const targetNode = nodes[nodeIndex];
+    const isOffCurve = isOffCurveNodeType(targetNode.nodetype);
+
+    if (isOffCurve) {
+        const descriptors = buildPathSegmentDescriptors({
+            nodes: nodes as Babelfont.Node[],
+            closed
+        });
+        const containingDescriptor = descriptors.find((descriptor) =>
+            descriptor.controlNodeIndices.includes(nodeIndex)
+        );
+
+        if (!containingDescriptor) {
+            const nextNodes = nodes.map((node) => cloneNodeData(node));
+            nextNodes.splice(nodeIndex, 1);
+            return normalizePathNodeArray(nextNodes, closed);
+        }
+
+        return normalizePathNodeArray(
+            buildLineCollapsedSegmentNodeArray(
+                nodes as Babelfont.Node[],
+                containingDescriptor,
+                closed
+            ) as T[],
+            closed
+        );
+    }
+
+    const descriptors = buildPathSegmentDescriptors({
+        nodes: nodes as Babelfont.Node[],
+        closed
+    });
+    const leftDescriptor = descriptors.find(
+        (d) => d.endNodeIndex === nodeIndex
+    );
+    const rightDescriptor = descriptors.find(
+        (d) => d.startNodeIndex === nodeIndex
+    );
+    const mergedNodes = buildMergedSegmentNodeArray(
+        nodes as Babelfont.Node[],
+        leftDescriptor || null,
+        rightDescriptor || null,
+        nodeIndex,
+        closed
+    ) as T[] | null;
+
+    if (!mergedNodes) {
+        return null;
+    }
+
+    return normalizePathNodeArray(mergedNodes, closed);
+}
+
+function stripBatchDeleteTracking(nodes: BatchTrackedNode[]): Babelfont.Node[] {
+    return nodes.map((node) => {
+        const { __batchDeleteOrigins, ...strippedNode } = node;
+        return strippedNode;
+    });
+}
+
 function findFontForModelObject(
     modelObj: ModelBase | null | undefined
 ): Font | null {
@@ -1322,6 +1449,10 @@ type OutlineEditorSelectionPoint = {
 type OutlineEditorGuideHandle = {
     scope: 'master' | 'layer';
     index: number;
+};
+
+type BatchTrackedNode = Babelfont.Node & {
+    __batchDeleteOrigins?: number[];
 };
 
 type OutlineEditorSelectionController = {
@@ -3165,57 +3296,10 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
             return false;
         }
 
-        const targetNode = nodeArray[nodeIndex];
-        const targetType = (targetNode.nodetype || '').toString().toLowerCase();
-        const isOffCurve = targetType === 'offcurve' || targetType === 'o';
-
         const oldNodes = nodeArray.map((node) => cloneNodeData(node));
 
-        if (isOffCurve) {
-            const descriptors = buildPathSegmentDescriptors({
-                nodes: nodeArray,
-                closed: this.closed
-            });
-            const containingDescriptor = descriptors.find((descriptor) =>
-                descriptor.controlNodeIndices.includes(nodeIndex)
-            );
-
-            if (!containingDescriptor) {
-                nodeArray.splice(nodeIndex, 1);
-            } else {
-                this.data.nodes = buildLineCollapsedSegmentNodeArray(
-                    nodeArray,
-                    containingDescriptor,
-                    this.closed
-                );
-            }
-
-            this._nodeWrappers = null;
-            recordAndMarkDirty(this, 'nodes', oldNodes, [...this.data.nodes]);
-            return true;
-        }
-
-        // For on-curve nodes, we need to find and merge adjacent segments
-        const descriptors = buildPathSegmentDescriptors({
-            nodes: nodeArray,
-            closed: this.closed
-        });
-
-        // Find the segment ending at this node (left segment)
-        const leftDescriptor = descriptors.find(
-            (d) => d.endNodeIndex === nodeIndex
-        );
-
-        // Find the segment starting from this node (right segment)
-        const rightDescriptor = descriptors.find(
-            (d) => d.startNodeIndex === nodeIndex
-        );
-
-        // Build merged node array
-        const mergedNodes = buildMergedSegmentNodeArray(
+        const mergedNodes = deleteNodeFromNodeArray(
             nodeArray,
-            leftDescriptor || null,
-            rightDescriptor || null,
             nodeIndex,
             this.closed
         );
@@ -3224,6 +3308,62 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
             return false;
         }
 
+        this.data.nodes = mergedNodes;
+        this._nodeWrappers = null;
+        recordAndMarkDirty(this, 'nodes', oldNodes, mergedNodes);
+        return true;
+    }
+
+    _deleteNodes(nodeIndices: number[]): boolean {
+        const nodeArray = this.ensureNodesArray();
+        const validNodeIndices = [...new Set(nodeIndices)]
+            .filter(
+                (nodeIndex) =>
+                    Number.isInteger(nodeIndex) &&
+                    nodeIndex >= 0 &&
+                    nodeIndex < nodeArray.length
+            )
+            .sort((left, right) => right - left);
+
+        if (!validNodeIndices.length) {
+            return false;
+        }
+
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        let trackedNodes: BatchTrackedNode[] = nodeArray.map((node, index) => ({
+            ...cloneNodeData(node),
+            __batchDeleteOrigins: [index]
+        }));
+        let changed = false;
+
+        for (const originalIndex of validNodeIndices) {
+            const currentIndex = trackedNodes.findIndex((node) =>
+                node.__batchDeleteOrigins?.includes(originalIndex)
+            );
+
+            if (currentIndex === -1) {
+                continue;
+            }
+
+            const nextNodes = deleteNodeFromNodeArray(
+                trackedNodes,
+                currentIndex,
+                this.closed
+            ) as BatchTrackedNode[] | null;
+
+            if (!nextNodes) {
+                continue;
+            }
+
+            trackedNodes = nextNodes;
+            changed = true;
+        }
+
+        if (!changed) {
+            return false;
+        }
+
+        const mergedNodes = stripBatchDeleteTracking(trackedNodes);
         this.data.nodes = mergedNodes;
         this._nodeWrappers = null;
         recordAndMarkDirty(this, 'nodes', oldNodes, mergedNodes);
