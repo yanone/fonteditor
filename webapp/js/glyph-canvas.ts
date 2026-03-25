@@ -1289,7 +1289,8 @@ class GlyphCanvas {
             this.outlineEditor.hoveredComponentIndex !== null ||
             this.outlineEditor.hoveredAnchorIndex !== null ||
             this.outlineEditor.hoveredPointIndex !== null ||
-            this.outlineEditor.hoveredAddPointPreview !== null;
+            this.outlineEditor.hoveredAddPointPreview !== null ||
+            this.outlineEditor.hoveredCommandCurvePreview !== null;
 
         this.outlineEditor.hoveredGlyphIndex = -1;
         this.outlineEditor.hoveredGuideHandle = null;
@@ -1297,6 +1298,7 @@ class GlyphCanvas {
         this.outlineEditor.hoveredAnchorIndex = null;
         this.outlineEditor.hoveredPointIndex = null;
         this.outlineEditor.hoveredAddPointPreview = null;
+        this.outlineEditor.hoveredCommandCurvePreview = null;
 
         // Re-render only if there was a hover state to clear
         if (hadHover) {

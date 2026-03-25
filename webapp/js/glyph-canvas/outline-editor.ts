@@ -60,13 +60,16 @@ type PreviewSegment = {
     points: Array<{ x: number; y: number }>;
 };
 
-type HoveredAddPointPreview = {
+type HoveredSegmentPreview = {
     shapeIndex: number;
     pathIndex: number;
     segmentId: number;
+    segments: PreviewSegment[];
+};
+
+type HoveredAddPointPreview = HoveredSegmentPreview & {
     t: number;
     point: { x: number; y: number };
-    segments: PreviewSegment[];
 };
 
 type PathSegmentHit = {
@@ -865,6 +868,7 @@ export class OutlineEditor {
     hoveredGuideHandle: GuideHandle | null = null;
     hoveredGlyphIndex: number = -1;
     hoveredAddPointPreview: HoveredAddPointPreview | null = null;
+    hoveredCommandCurvePreview: HoveredSegmentPreview | null = null;
     selectedPointIndex: any = null;
 
     layerDataDirty: boolean = false;
@@ -2694,6 +2698,7 @@ export class OutlineEditor {
         this.selectedSidebearingHandle = null;
         this.hoveredPointIndex = null;
         this.hoveredAddPointPreview = null;
+        this.hoveredCommandCurvePreview = null;
         this.altKeyPressed = false;
         this.cmdKeyPressed = false;
         this.hoveredSidebearingHandle = null;
@@ -2722,6 +2727,7 @@ export class OutlineEditor {
         this.hoveredSidebearingHandle = null;
         this.hoveredGuideHandle = null;
         this.hoveredAddPointPreview = null;
+        this.hoveredCommandCurvePreview = null;
         this.hoveredGlyphIndex = -1;
         this.glyphCanvas.updatePropertyPanel();
     }
@@ -3872,10 +3878,15 @@ export class OutlineEditor {
         this.updateHoveredAnchor();
         this.updateHoveredPoint();
         this.updateHoveredAddPointPreview();
+        this.updateHoveredCommandCurvePreview();
     }
 
     cursorStyle(): string | null {
         if (!this.active) return null;
+        if (this.altKeyPressed && this.hoveredAddPointPreview) {
+            this.canvas!.style.cursor = 'crosshair';
+            return null;
+        }
         if (this.shouldShowCommandPathCrosshair()) {
             this.canvas!.style.cursor = 'crosshair';
             return null;
@@ -3889,7 +3900,8 @@ export class OutlineEditor {
                 this.hoveredComponentIndex !== null ||
                 this.hoveredPointIndex ||
                 this.hoveredAnchorIndex !== null ||
-                this.hoveredAddPointPreview !== null)
+                this.hoveredAddPointPreview !== null ||
+                this.hoveredCommandCurvePreview !== null)
         ) {
             this.canvas!.style.cursor = 'pointer';
         } else if (this.hoveredGlyphIndex !== -1) {
@@ -4338,6 +4350,13 @@ export class OutlineEditor {
         }
     }
 
+    private clearHoveredCommandCurvePreview(): void {
+        if (this.hoveredCommandCurvePreview) {
+            this.hoveredCommandCurvePreview = null;
+            this.glyphCanvas.render();
+        }
+    }
+
     private findClosestPathSegmentHit(): PathSegmentHit | null {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData?.shapes) {
@@ -4510,14 +4529,94 @@ export class OutlineEditor {
         }
     }
 
-    setCommandKeyPressed(pressed: boolean): void {
+    private buildHoveredCommandCurvePreview(
+        hit: PathSegmentHit
+    ): HoveredSegmentPreview | null {
+        if (hit.descriptor.type !== 'line') {
+            return null;
+        }
+
+        const firstHandle = lerpPoint(
+            hit.descriptor.points[0],
+            hit.descriptor.points[1],
+            1 / 3
+        );
+        const secondHandle = lerpPoint(
+            hit.descriptor.points[0],
+            hit.descriptor.points[1],
+            2 / 3
+        );
+
+        return {
+            shapeIndex: hit.shapeIndex,
+            pathIndex: hit.pathIndex,
+            segmentId: hit.descriptor.segmentId,
+            segments: [
+                {
+                    type: 'cubic',
+                    points: [
+                        hit.descriptor.points[0],
+                        firstHandle,
+                        secondHandle,
+                        hit.descriptor.points[1]
+                    ]
+                }
+            ]
+        };
+    }
+
+    private updateHoveredCommandCurvePreview(): void {
+        if (
+            !this.active ||
+            !this.layerData ||
+            this.layerData.isInterpolated ||
+            !this.selectedLayerId ||
+            !this.cmdKeyPressed ||
+            this.altKeyPressed ||
+            this.activePathDrawingSession
+        ) {
+            this.clearHoveredCommandCurvePreview();
+            return;
+        }
+
+        if (!this.isNeutralCommandCanvasTarget()) {
+            this.clearHoveredCommandCurvePreview();
+            return;
+        }
+
+        const bestHit = this.findClosestPathSegmentHit();
+        const bestPreview = bestHit
+            ? this.buildHoveredCommandCurvePreview(bestHit)
+            : null;
+
+        const previousPreview = JSON.stringify(this.hoveredCommandCurvePreview);
+        const nextPreview = JSON.stringify(bestPreview);
+        if (previousPreview !== nextPreview) {
+            this.hoveredCommandCurvePreview = bestPreview;
+            this.glyphCanvas.render();
+        }
+    }
+
+    setCommandKeyPressed(pressed: boolean, refreshHover: boolean = true): void {
         if (this.cmdKeyPressed === pressed) {
             return;
         }
 
         this.cmdKeyPressed = pressed;
         if (!pressed) {
+            this.hoveredCommandCurvePreview = null;
             this.finalizePendingCommandPathEdit();
+        }
+
+        if (
+            refreshHover &&
+            this.active &&
+            this.layerData &&
+            !this.isPreviewMode
+        ) {
+            this.performHitDetection(null);
+            this.glyphCanvas.updateCursorStyle();
+            this.glyphCanvas.render();
         }
     }
 
@@ -4673,7 +4772,7 @@ export class OutlineEditor {
             return false;
         }
 
-        this.setCommandKeyPressed(true);
+        this.setCommandKeyPressed(true, false);
 
         if (this.tryHandleActivePathDrawingSessionClick()) {
             return true;

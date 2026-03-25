@@ -3603,6 +3603,68 @@ describe('GlyphCanvas command path drawing visuals', () => {
         expect(canvas.outlineEditor.getCommandPathPreviewLine()).toBeNull();
     });
 
+    test('cmd hover on a straight segment previews collinear curve handles', () => {
+        canvas.viewportManager.scale = 10;
+        jest.spyOn(
+            canvas.outlineEditor,
+            'transformMouseToComponentSpace'
+        ).mockReturnValue({ glyphX: 55, glyphY: 30 });
+
+        canvas.outlineEditor.setCommandKeyPressed(true);
+
+        expect(canvas.outlineEditor.hoveredCommandCurvePreview).toEqual({
+            shapeIndex: 0,
+            pathIndex: 0,
+            segmentId: 0,
+            segments: [
+                {
+                    type: 'cubic',
+                    points: [
+                        { x: 20, y: 30 },
+                        { x: 20 + 70 / 3, y: 30 },
+                        { x: 20 + (70 * 2) / 3, y: 30 },
+                        { x: 90, y: 30 }
+                    ]
+                }
+            ]
+        });
+
+        canvas.outlineEditor.setCommandKeyPressed(false);
+
+        expect(canvas.outlineEditor.hoveredCommandCurvePreview).toBeNull();
+    });
+
+    test('alt point-insert hover uses a crosshair cursor', () => {
+        canvas.outlineEditor.altKeyPressed = true;
+        canvas.outlineEditor.hoveredAddPointPreview = {
+            shapeIndex: 0,
+            pathIndex: 0,
+            segmentId: 0,
+            t: 0.5,
+            point: { x: 55, y: 30 },
+            segments: [
+                {
+                    type: 'line',
+                    points: [
+                        { x: 20, y: 30 },
+                        { x: 55, y: 30 }
+                    ]
+                },
+                {
+                    type: 'line',
+                    points: [
+                        { x: 55, y: 30 },
+                        { x: 90, y: 30 }
+                    ]
+                }
+            ]
+        };
+
+        canvas.updateCursorStyle();
+
+        expect(canvas.canvas.style.cursor).toBe('crosshair');
+    });
+
     test('drawOutlineEditor does not force-close open contours', () => {
         canvas.renderer.ctx.closePath.mockClear();
         canvas.renderer.ctx.stroke.mockClear();

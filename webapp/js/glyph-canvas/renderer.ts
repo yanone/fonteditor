@@ -2107,11 +2107,19 @@ export class GlyphCanvasRenderer {
                 contourIndex
                 ? this.glyphCanvas.outlineEditor.hoveredAddPointPreview
                 : null;
+        const commandCurvePreview =
+            !isInterpolated &&
+            this.glyphCanvas.outlineEditor.hoveredCommandCurvePreview &&
+            this.glyphCanvas.outlineEditor.hoveredCommandCurvePreview
+                .shapeIndex === contourIndex
+                ? this.glyphCanvas.outlineEditor.hoveredCommandCurvePreview
+                : null;
+        const segmentPreview = addPointPreview || commandCurvePreview;
         const closed = getClosedFromOutlineShape(shape);
-        const addPointPreviewDescriptor = addPointPreview
+        const addPointPreviewDescriptor = segmentPreview
             ? Layer.getPathSegmentDescriptors({ nodes, closed }).find(
                   (descriptor) =>
-                      descriptor.segmentId === addPointPreview.segmentId
+                      descriptor.segmentId === segmentPreview.segmentId
               ) || null
             : null;
         const previewControlNodeIndices = new Set(
@@ -2131,11 +2139,11 @@ export class GlyphCanvasRenderer {
             APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_STROKE_WIDTH * invScale;
 
         // Build the path using the helper method
-        const startIdx = addPointPreview
-            ? this.buildPathWithAddPointPreview(nodes, closed, addPointPreview)
+        const startIdx = segmentPreview
+            ? this.buildPathWithAddPointPreview(nodes, closed, segmentPreview)
             : this.buildPathFromNodes(nodes, closed);
 
-        if (!addPointPreview && closed) {
+        if (!segmentPreview && closed) {
             this.ctx.closePath();
         }
         this.ctx.stroke();
@@ -2317,8 +2325,8 @@ export class GlyphCanvasRenderer {
                 }
             });
 
-            if (addPointPreview) {
-                addPointPreview.segments.forEach((segment) => {
+            if (segmentPreview) {
+                segmentPreview.segments.forEach((segment) => {
                     if (segment.type === 'quadratic') {
                         this.ctx.beginPath();
                         this.ctx.moveTo(
@@ -2477,31 +2485,18 @@ export class GlyphCanvasRenderer {
             this.ctx.restore();
         });
 
-        if (addPointPreview) {
-            const previewPoints = addPointPreview.segments.flatMap(
-                (segment) => {
-                    if (segment.type === 'line') {
-                        return [
-                            {
-                                point: segment.points[1],
-                                type: 'oncurve'
-                            }
-                        ];
-                    }
+        if (segmentPreview) {
+            const previewPoints = segmentPreview.segments.flatMap((segment) => {
+                if (segment.type === 'line') {
+                    return [
+                        {
+                            point: segment.points[1],
+                            type: 'oncurve'
+                        }
+                    ];
+                }
 
-                    if (segment.type === 'quadratic') {
-                        return [
-                            {
-                                point: segment.points[1],
-                                type: 'offcurve'
-                            },
-                            {
-                                point: segment.points[2],
-                                type: 'oncurve'
-                            }
-                        ];
-                    }
-
+                if (segment.type === 'quadratic') {
                     return [
                         {
                             point: segment.points[1],
@@ -2509,15 +2504,26 @@ export class GlyphCanvasRenderer {
                         },
                         {
                             point: segment.points[2],
-                            type: 'offcurve'
-                        },
-                        {
-                            point: segment.points[3],
                             type: 'oncurve'
                         }
                     ];
                 }
-            );
+
+                return [
+                    {
+                        point: segment.points[1],
+                        type: 'offcurve'
+                    },
+                    {
+                        point: segment.points[2],
+                        type: 'offcurve'
+                    },
+                    {
+                        point: segment.points[3],
+                        type: 'oncurve'
+                    }
+                ];
+            });
 
             previewPoints.slice(0, -1).forEach(({ point, type }) => {
                 this.ctx.save();
