@@ -55,6 +55,34 @@ function getNodesFromOutlineShape(shape: any): Babelfont.Node[] | undefined {
     return undefined;
 }
 
+function getClosedFromOutlineShape(shape: any): boolean {
+    if (!shape || typeof shape !== 'object') {
+        return false;
+    }
+
+    if ('closed' in shape) {
+        return Boolean(shape.closed);
+    }
+
+    if (
+        shape.Path &&
+        typeof shape.Path === 'object' &&
+        'closed' in shape.Path
+    ) {
+        return Boolean(shape.Path.closed);
+    }
+
+    if (
+        shape.Contour &&
+        typeof shape.Contour === 'object' &&
+        'closed' in shape.Contour
+    ) {
+        return Boolean(shape.Contour.closed);
+    }
+
+    return false;
+}
+
 /**
  * Calculate bounding box from SVG path data
  * Parses M, L, C, Q, Z commands and resolves curve extrema.
@@ -2057,6 +2085,27 @@ export class GlyphCanvasRenderer {
             nodes[0]?.y
         );
 
+        const addPointPreview =
+            !isInterpolated &&
+            this.glyphCanvas.outlineEditor.hoveredAddPointPreview &&
+            this.glyphCanvas.outlineEditor.hoveredAddPointPreview.shapeIndex ===
+                contourIndex
+                ? this.glyphCanvas.outlineEditor.hoveredAddPointPreview
+                : null;
+        const closed = getClosedFromOutlineShape(shape);
+        const addPointPreviewDescriptor = addPointPreview
+            ? Layer.getPathSegmentDescriptors({ nodes, closed }).find(
+                  (descriptor) =>
+                      descriptor.segmentId === addPointPreview.segmentId
+              ) || null
+            : null;
+        const previewControlNodeIndices = new Set(
+            addPointPreviewDescriptor?.runControlNodeIndices ?? []
+        );
+        const colors = isDarkTheme
+            ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
+            : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+
         // Draw the outline path
         this.ctx.beginPath();
         const outlineOpacity = APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_OPACITY;
@@ -2067,139 +2116,16 @@ export class GlyphCanvasRenderer {
             APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_STROKE_WIDTH * invScale;
 
         // Build the path using the helper method
-        const startIdx = this.buildPathFromNodes(nodes);
+        const startIdx = addPointPreview
+            ? this.buildPathWithAddPointPreview(nodes, closed, addPointPreview)
+            : this.buildPathFromNodes(nodes);
 
-        this.ctx.closePath();
+        if (!addPointPreview) {
+            this.ctx.closePath();
+        }
         this.ctx.stroke();
-
-        const addPointPreview =
-            !isInterpolated &&
-            this.glyphCanvas.outlineEditor.hoveredAddPointPreview &&
-            this.glyphCanvas.outlineEditor.hoveredAddPointPreview.shapeIndex ===
-                contourIndex
-                ? this.glyphCanvas.outlineEditor.hoveredAddPointPreview
-                : null;
         const minZoomForHandles =
             APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
-
-        if (addPointPreview) {
-            const colors = isDarkTheme
-                ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
-                : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
-
-            this.ctx.save();
-            this.ctx.strokeStyle = colors.NODE_HOVERED;
-            this.ctx.lineWidth =
-                APP_SETTINGS.OUTLINE_EDITOR.OUTLINE_STROKE_WIDTH *
-                invScale *
-                1.5;
-
-            addPointPreview.segments.forEach((segment) => {
-                this.ctx.beginPath();
-                this.ctx.moveTo(segment.points[0].x, segment.points[0].y);
-                if (segment.type === 'line') {
-                    this.ctx.lineTo(segment.points[1].x, segment.points[1].y);
-                } else if (segment.type === 'quadratic') {
-                    this.ctx.quadraticCurveTo(
-                        segment.points[1].x,
-                        segment.points[1].y,
-                        segment.points[2].x,
-                        segment.points[2].y
-                    );
-                } else {
-                    this.ctx.bezierCurveTo(
-                        segment.points[1].x,
-                        segment.points[1].y,
-                        segment.points[2].x,
-                        segment.points[2].y,
-                        segment.points[3].x,
-                        segment.points[3].y
-                    );
-                }
-                this.ctx.stroke();
-            });
-
-            if (this.viewportManager.scale >= minZoomForHandles) {
-                const handleOpacity =
-                    APP_SETTINGS.OUTLINE_EDITOR.HANDLE_LINE_OPACITY;
-                this.ctx.strokeStyle = isDarkTheme
-                    ? `rgba(255, 255, 255, ${handleOpacity})`
-                    : `rgba(0, 0, 0, ${handleOpacity})`;
-                this.ctx.lineWidth = 1 * invScale;
-
-                addPointPreview.segments.forEach((segment) => {
-                    if (segment.type === 'quadratic') {
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(
-                            segment.points[0].x,
-                            segment.points[0].y
-                        );
-                        this.ctx.lineTo(
-                            segment.points[1].x,
-                            segment.points[1].y
-                        );
-                        this.ctx.lineTo(
-                            segment.points[2].x,
-                            segment.points[2].y
-                        );
-                        this.ctx.stroke();
-                    } else if (segment.type === 'cubic') {
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(
-                            segment.points[0].x,
-                            segment.points[0].y
-                        );
-                        this.ctx.lineTo(
-                            segment.points[1].x,
-                            segment.points[1].y
-                        );
-                        this.ctx.moveTo(
-                            segment.points[2].x,
-                            segment.points[2].y
-                        );
-                        this.ctx.lineTo(
-                            segment.points[3].x,
-                            segment.points[3].y
-                        );
-                        this.ctx.stroke();
-                    }
-                });
-
-                const controlPointSize =
-                    APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM *
-                    invScale;
-                addPointPreview.segments.forEach((segment) => {
-                    const controlPoints =
-                        segment.type === 'quadratic'
-                            ? [segment.points[1]]
-                            : segment.type === 'cubic'
-                              ? [segment.points[1], segment.points[2]]
-                              : [];
-
-                    controlPoints.forEach((point) => {
-                        this.ctx.save();
-                        this.ctx.translate(point.x, point.y);
-                        this.applyInverseComponentTransform();
-                        this.ctx.beginPath();
-                        this.ctx.arc(0, 0, controlPointSize, 0, Math.PI * 2);
-                        this.ctx.fillStyle = colors.CONTROL_POINT_HOVERED;
-                        this.ctx.fill();
-                        this.ctx.restore();
-                    });
-                });
-            }
-
-            const nodeSize =
-                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM * invScale;
-            this.ctx.translate(
-                addPointPreview.point.x,
-                addPointPreview.point.y
-            );
-            this.applyInverseComponentTransform();
-            this.ctx.fillStyle = colors.NODE_HOVERED;
-            this.ctx.fillRect(-nodeSize, -nodeSize, nodeSize * 2, nodeSize * 2);
-            this.ctx.restore();
-        }
 
         // Skip drawing direction arrow and handles if zoom is under minimum threshold
         if (this.viewportManager.scale >= minZoomForHandles) {
@@ -2291,6 +2217,10 @@ export class GlyphCanvasRenderer {
             nodes.forEach((node: Babelfont.Node, nodeIndex: number) => {
                 const { x, y, nodetype: type } = node;
 
+                if (previewControlNodeIndices.has(nodeIndex)) {
+                    return;
+                }
+
                 // Only draw lines from off-curve points
                 if (type === 'OffCurve') {
                     // Check if this is the first or second control point in a cubic bezier pair
@@ -2350,12 +2280,71 @@ export class GlyphCanvasRenderer {
                     }
                 }
             });
+
+            if (addPointPreview) {
+                addPointPreview.segments.forEach((segment) => {
+                    if (segment.type === 'quadratic') {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(
+                            segment.points[0].x,
+                            segment.points[0].y
+                        );
+                        this.ctx.lineTo(
+                            segment.points[1].x,
+                            segment.points[1].y
+                        );
+                        this.ctx.lineTo(
+                            segment.points[2].x,
+                            segment.points[2].y
+                        );
+                        this.ctx.stroke();
+                    } else if (segment.type === 'cubic') {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(
+                            segment.points[0].x,
+                            segment.points[0].y
+                        );
+                        this.ctx.lineTo(
+                            segment.points[1].x,
+                            segment.points[1].y
+                        );
+                        this.ctx.moveTo(
+                            segment.points[2].x,
+                            segment.points[2].y
+                        );
+                        this.ctx.lineTo(
+                            segment.points[3].x,
+                            segment.points[3].y
+                        );
+                        this.ctx.stroke();
+                    }
+                });
+            }
         }
 
         // Draw nodes (points)
         // Nodes are drawn at the same zoom threshold as handles
         if (this.viewportManager.scale < minZoomForHandles) {
             return;
+        }
+
+        const nodeSizeMax = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM;
+        const nodeSizeMin = APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
+        const nodeInterpolationMin =
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MIN;
+        const nodeInterpolationMax =
+            APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MAX;
+
+        let pointSize;
+        if (this.viewportManager.scale >= nodeInterpolationMax) {
+            pointSize = nodeSizeMax * invScale;
+        } else {
+            const zoomFactor =
+                (this.viewportManager.scale - nodeInterpolationMin) /
+                (nodeInterpolationMax - nodeInterpolationMin);
+            pointSize =
+                (nodeSizeMin + (nodeSizeMax - nodeSizeMin) * zoomFactor) *
+                invScale;
         }
 
         nodes.forEach((node: Babelfont.Node, nodeIndex: number) => {
@@ -2379,33 +2368,15 @@ export class GlyphCanvasRenderer {
                         p.nodeIndex === nodeIndex
                 );
 
+            if (previewControlNodeIndices.has(nodeIndex)) {
+                return;
+            }
+
             // Skip Move nodes - they don't get rendered
             if (type === 'Move') {
                 return;
             }
 
-            // Calculate point size based on zoom level
-            const nodeSizeMax =
-                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MAX_ZOOM;
-            const nodeSizeMin =
-                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_AT_MIN_ZOOM;
-            const nodeInterpolationMin =
-                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MIN;
-            const nodeInterpolationMax =
-                APP_SETTINGS.OUTLINE_EDITOR.NODE_SIZE_INTERPOLATION_MAX;
-
-            let pointSize;
-            if (this.viewportManager.scale >= nodeInterpolationMax) {
-                pointSize = nodeSizeMax * invScale;
-            } else {
-                // Interpolate between min and max size
-                const zoomFactor =
-                    (this.viewportManager.scale - nodeInterpolationMin) /
-                    (nodeInterpolationMax - nodeInterpolationMin);
-                pointSize =
-                    (nodeSizeMin + (nodeSizeMax - nodeSizeMin) * zoomFactor) *
-                    invScale;
-            }
             // Draw nodes with inverse transform to maintain normal aspect ratio
             this.ctx.save();
             this.ctx.translate(x, y);
@@ -2413,9 +2384,6 @@ export class GlyphCanvasRenderer {
 
             if (type === 'OffCurve') {
                 // Off-curve point (cubic bezier control point) - draw as circle
-                const colors = isDarkTheme
-                    ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
-                    : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
                 this.ctx.beginPath();
                 this.ctx.arc(0, 0, pointSize, 0, Math.PI * 2);
                 let fillColor = isSelected
@@ -2434,9 +2402,6 @@ export class GlyphCanvasRenderer {
                 // Stroke permanently removed
             } else {
                 // On-curve point - draw as square
-                const colors = isDarkTheme
-                    ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
-                    : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
                 let fillColor = isSelected
                     ? colors.NODE_SELECTED
                     : isHovered
@@ -2475,6 +2440,72 @@ export class GlyphCanvasRenderer {
 
             this.ctx.restore();
         });
+
+        if (addPointPreview) {
+            const previewPoints = addPointPreview.segments.flatMap(
+                (segment) => {
+                    if (segment.type === 'line') {
+                        return [
+                            {
+                                point: segment.points[1],
+                                type: 'oncurve'
+                            }
+                        ];
+                    }
+
+                    if (segment.type === 'quadratic') {
+                        return [
+                            {
+                                point: segment.points[1],
+                                type: 'offcurve'
+                            },
+                            {
+                                point: segment.points[2],
+                                type: 'oncurve'
+                            }
+                        ];
+                    }
+
+                    return [
+                        {
+                            point: segment.points[1],
+                            type: 'offcurve'
+                        },
+                        {
+                            point: segment.points[2],
+                            type: 'offcurve'
+                        },
+                        {
+                            point: segment.points[3],
+                            type: 'oncurve'
+                        }
+                    ];
+                }
+            );
+
+            previewPoints.slice(0, -1).forEach(({ point, type }) => {
+                this.ctx.save();
+                this.ctx.translate(point.x, point.y);
+                this.applyInverseComponentTransform();
+
+                if (type === 'offcurve') {
+                    this.ctx.beginPath();
+                    this.ctx.arc(0, 0, pointSize, 0, Math.PI * 2);
+                    this.ctx.fillStyle = colors.CONTROL_POINT_NORMAL;
+                    this.ctx.fill();
+                } else {
+                    this.ctx.fillStyle = colors.NODE_NORMAL;
+                    this.ctx.fillRect(
+                        -pointSize,
+                        -pointSize,
+                        pointSize * 2,
+                        pointSize * 2
+                    );
+                }
+
+                this.ctx.restore();
+            });
+        }
     }
 
     drawBoundingBox() {
@@ -3466,6 +3497,7 @@ export class GlyphCanvasRenderer {
                         i += 3; // Skip the two control points and endpoint
                     } else {
                         // Single off-curve - shouldn't happen with cubic, just draw line
+                        const startIdx = this.getPathStartIndex(nodes);
                         target.lineTo(next2X, next2Y);
                         i += 2;
                     }
@@ -3486,6 +3518,105 @@ export class GlyphCanvasRenderer {
         return startIdx;
     }
 
+    private appendPreviewSegmentToPath(
+        target: CanvasPath | Path2D,
+        segment:
+            | {
+                  type: 'line' | 'quadratic' | 'cubic';
+                  points: Array<{ x: number; y: number }>;
+              }
+            | {
+                  type: 'line' | 'quadratic' | 'cubic';
+                  points: Array<{ x: number; y: number }>;
+              }
+    ): void {
+        if (segment.type === 'line') {
+            target.lineTo(segment.points[1].x, segment.points[1].y);
+            return;
+        }
+
+        if (segment.type === 'quadratic') {
+            target.quadraticCurveTo(
+                segment.points[1].x,
+                segment.points[1].y,
+                segment.points[2].x,
+                segment.points[2].y
+            );
+            return;
+        }
+
+        target.bezierCurveTo(
+            segment.points[1].x,
+            segment.points[1].y,
+            segment.points[2].x,
+            segment.points[2].y,
+            segment.points[3].x,
+            segment.points[3].y
+        );
+    }
+
+    private buildPathWithAddPointPreview(
+        nodes: Babelfont.Node[],
+        closed: boolean,
+        preview: {
+            segmentId: number;
+            segments: Array<{
+                type: 'line' | 'quadratic' | 'cubic';
+                points: Array<{ x: number; y: number }>;
+            }>;
+        },
+        pathTarget?: Path2D
+    ): number {
+        const descriptors = Layer.getPathSegmentDescriptors({ nodes, closed });
+        if (!descriptors.length) {
+            return this.buildPathFromNodes(nodes, pathTarget);
+        }
+
+        const startIdx = this.getPathStartIndex(nodes);
+
+        const target = pathTarget || this.ctx;
+        target.moveTo(descriptors[0].points[0].x, descriptors[0].points[0].y);
+
+        descriptors.forEach((descriptor) => {
+            if (descriptor.segmentId === preview.segmentId) {
+                preview.segments.forEach((segment) => {
+                    this.appendPreviewSegmentToPath(target, segment);
+                });
+                return;
+            }
+
+            this.appendPreviewSegmentToPath(target, descriptor);
+        });
+
+        if (closed) {
+            target.closePath();
+        }
+
+        return startIdx;
+    }
+
+    private getPathStartIndex(nodes: Babelfont.Node[]): number {
+        let startIdx = 0;
+        for (let i = 0; i < nodes.length; i++) {
+            const { nodetype: type } = nodes[i];
+            if (type === 'Move') {
+                startIdx = i;
+                break;
+            }
+        }
+        for (let i = 0; i < nodes.length; i++) {
+            const { nodetype: type } = nodes[i];
+            if (
+                startIdx === 0 &&
+                (type === 'Curve' || type === 'QCurve' || type === 'Line')
+            ) {
+                startIdx = i;
+                break;
+            }
+        }
+
+        return startIdx;
+    }
     drawCursor() {
         // Draw the text cursor at the current position
         // Don't draw cursor if not visible, in glyph edit mode, in preview mode, or when measurement tool is active in text mode
