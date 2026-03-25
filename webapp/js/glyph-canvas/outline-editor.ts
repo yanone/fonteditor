@@ -257,6 +257,10 @@ function isCurveNode(node: Babelfont.Node | null | undefined): boolean {
     return node?.nodetype === 'Curve' || node?.nodetype === 'QCurve';
 }
 
+function isOnCurveNode(node: Babelfont.Node | null | undefined): boolean {
+    return Boolean(node) && node?.nodetype !== 'OffCurve';
+}
+
 function isOffCurveNode(node: Babelfont.Node | null | undefined): boolean {
     return node?.nodetype === 'OffCurve';
 }
@@ -336,7 +340,7 @@ function getSmoothAnchorConstraintDirection(
     nodeIndex: number
 ): { directionX: number; directionY: number } | null {
     const node = contour.nodes[nodeIndex];
-    if (!node || !isCurveNode(node) || !node.smooth) {
+    if (!node || !isOnCurveNode(node) || !node.smooth) {
         return null;
     }
 
@@ -414,7 +418,7 @@ function realignSmoothHandles(
     anchorIndex: number
 ): boolean {
     const anchor = contour.nodes[anchorIndex];
-    if (!anchor || !isCurveNode(anchor)) {
+    if (!anchor || !isOnCurveNode(anchor) || !anchor.smooth) {
         return false;
     }
 
@@ -517,7 +521,7 @@ function realignSmoothHandlesForToggle(
     anchorIndex: number
 ): boolean {
     const anchor = contour.nodes[anchorIndex];
-    if (!anchor || !isCurveNode(anchor)) {
+    if (!anchor || !isOnCurveNode(anchor) || !anchor.smooth) {
         return false;
     }
 
@@ -595,7 +599,7 @@ function realignOppositeSmoothHandle(
     );
     if (nextIndex !== null) {
         const nextNode = contour.nodes[nextIndex];
-        if (isCurveNode(nextNode) && nextNode.smooth) {
+        if (isOnCurveNode(nextNode) && nextNode.smooth) {
             const otherHandleIndex = getNeighborNodeIndex(
                 nextIndex,
                 1,
@@ -646,7 +650,7 @@ function realignOppositeSmoothHandle(
     );
     if (prevIndex !== null) {
         const prevNode = contour.nodes[prevIndex];
-        if (isCurveNode(prevNode) && prevNode.smooth) {
+        if (isOnCurveNode(prevNode) && prevNode.smooth) {
             const otherHandleIndex = getNeighborNodeIndex(
                 prevIndex,
                 -1,
@@ -4922,7 +4926,7 @@ export class OutlineEditor {
         for (const { contourIndex, nodeIndex } of this.selectedPoints) {
             const contour = getContourData(contourIndex);
             const node = contour?.nodes[nodeIndex];
-            if (!contour || !node || !isCurveNode(node)) {
+            if (!contour || !node || !isOnCurveNode(node)) {
                 continue;
             }
 
@@ -4965,7 +4969,7 @@ export class OutlineEditor {
             }
 
             const adjustedDelta =
-                preserveHandlePositions && isCurveNode(node)
+                preserveHandlePositions && isOnCurveNode(node)
                     ? getAltAnchorMoveDelta(contour, nodeIndex, deltaX, deltaY)
                     : { deltaX, deltaY };
 
@@ -4975,7 +4979,11 @@ export class OutlineEditor {
 
             moveNodeByDelta(node, adjustedDelta.deltaX, adjustedDelta.deltaY);
 
-            if (isCurveNode(node) && node.smooth && !preserveHandlePositions) {
+            if (
+                isOnCurveNode(node) &&
+                node.smooth &&
+                !preserveHandlePositions
+            ) {
                 smoothAnchorsToRealign.add(`${contourIndex}:${nodeIndex}`);
             }
 
@@ -4995,7 +5003,7 @@ export class OutlineEditor {
 
                 if (
                     prevIndexForAlignment !== null &&
-                    isCurveNode(contour.nodes[prevIndexForAlignment]) &&
+                    isOnCurveNode(contour.nodes[prevIndexForAlignment]) &&
                     contour.nodes[prevIndexForAlignment].smooth
                 ) {
                     smoothAnchorsToRealign.add(
@@ -5004,7 +5012,7 @@ export class OutlineEditor {
                 }
                 if (
                     nextIndexForAlignment !== null &&
-                    isCurveNode(contour.nodes[nextIndexForAlignment]) &&
+                    isOnCurveNode(contour.nodes[nextIndexForAlignment]) &&
                     contour.nodes[nextIndexForAlignment].smooth
                 ) {
                     smoothAnchorsToRealign.add(
@@ -5013,7 +5021,7 @@ export class OutlineEditor {
                 }
             }
 
-            if (!isCurveNode(node) || preserveHandlePositions) {
+            if (isOffCurveNode(node) || preserveHandlePositions) {
                 continue;
             }
 
