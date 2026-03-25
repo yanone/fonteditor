@@ -1489,11 +1489,13 @@ export class GlyphCanvasRenderer {
             !currentLayerData ||
             ((!currentLayerData.shapes ||
                 currentLayerData.shapes.length === 0) &&
+                (!currentLayerData.anchors ||
+                    currentLayerData.anchors.length === 0) &&
                 visibleGuides.length === 0)
         ) {
             console.log(
                 '[Renderer]',
-                'Skipping drawOutlineEditor: no shapes or guides at current stack position'
+                'Skipping drawOutlineEditor: no shapes, anchors, or guides at current stack position'
             );
             return;
         }

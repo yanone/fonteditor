@@ -69,6 +69,13 @@ type HoveredAddPointPreview = {
     segments: PreviewSegment[];
 };
 
+type PathSegmentHit = {
+    shapeIndex: number;
+    pathIndex: number;
+    descriptor: ReturnType<typeof Layer.getPathSegmentDescriptors>[number];
+    projection: { x: number; y: number; t: number; distance: number };
+};
+
 /**
  * Convert affine matrix [a, b, c, d, e, f] to DecomposedAffine
  */
@@ -2240,31 +2247,74 @@ export class OutlineEditor {
         );
     }
 
+    private mergeSelectedLayerComponentLayerData(
+        exactLayerData: Babelfont.Layer | null | undefined,
+        fallbackLayerData: Babelfont.Layer | null | undefined
+    ): Babelfont.Layer | null | undefined {
+        if (!exactLayerData) {
+            return fallbackLayerData;
+        }
+
+        if (!fallbackLayerData) {
+            return exactLayerData;
+        }
+
+        const mergedLayerData: Babelfont.Layer = {
+            ...fallbackLayerData,
+            ...exactLayerData,
+            isInterpolated: false
+        };
+
+        if (exactLayerData.shapes || fallbackLayerData.shapes) {
+            mergedLayerData.shapes = this.mergeSelectedLayerShapes(
+                exactLayerData.shapes || [],
+                fallbackLayerData.shapes || []
+            );
+        }
+
+        return mergedLayerData;
+    }
+
     private mergeSelectedLayerShapes(
         exactShapes: Babelfont.Shape[],
         interpolatedShapes: Babelfont.Shape[]
     ): Babelfont.Shape[] {
-        return exactShapes.map((exactShape, index) => {
-            const interpolatedShape = interpolatedShapes[index];
-            if (
-                !interpolatedShape ||
-                !('reference' in exactShape) ||
-                !('reference' in interpolatedShape)
-            ) {
+        const interpolatedComponentsByReference = new Map<
+            string,
+            Babelfont.Component[]
+        >();
+
+        for (const shape of interpolatedShapes) {
+            if (!('reference' in shape)) {
+                continue;
+            }
+
+            const queue =
+                interpolatedComponentsByReference.get(shape.reference) || [];
+            queue.push(shape);
+            interpolatedComponentsByReference.set(shape.reference, queue);
+        }
+
+        return exactShapes.map((exactShape) => {
+            if (!('reference' in exactShape)) {
                 return exactShape;
             }
 
+            const componentQueue =
+                interpolatedComponentsByReference.get(exactShape.reference) ||
+                [];
+            const interpolatedShape = componentQueue.shift();
+            const mergedLayerData = this.mergeSelectedLayerComponentLayerData(
+                exactShape.layerData,
+                interpolatedShape?.layerData
+            );
+
             return {
+                ...interpolatedShape,
                 ...exactShape,
-                transform: interpolatedShape.transform ||
+                transform: interpolatedShape?.transform ||
                     exactShape.transform || [1, 0, 0, 1, 0, 0],
-                ...(interpolatedShape.layerData || exactShape.layerData
-                    ? {
-                          layerData:
-                              interpolatedShape.layerData ||
-                              exactShape.layerData
-                      }
-                    : {}),
+                ...(mergedLayerData ? { layerData: mergedLayerData } : {}),
                 isInterpolated: false
             };
         });
@@ -3012,6 +3062,21 @@ export class OutlineEditor {
                         : [this.hoveredPointIndex]
                 );
                 return true; // Event handled - skip single-click
+            }
+
+            if (
+                this.hoveredGuideHandle === null &&
+                this.hoveredSidebearingHandle === null &&
+                this.hoveredComponentIndex === null &&
+                this.hoveredAnchorIndex === null
+            ) {
+                const hoveredSegment = this.findClosestPathSegmentHit();
+                if (
+                    hoveredSegment &&
+                    this.selectAllNodesInContour(hoveredSegment.shapeIndex)
+                ) {
+                    return true;
+                }
             }
         }
 
@@ -4245,6 +4310,104 @@ export class OutlineEditor {
         }
     }
 
+    private findClosestPathSegmentHit(): PathSegmentHit | null {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return null;
+        }
+
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const hitRadius =
+            10 / Math.max(this.glyphCanvas.viewportManager?.scale ?? 1, 0.001);
+        let bestHit: PathSegmentHit | null = null;
+        let bestDistance = Infinity;
+        let pathIndex = 0;
+
+        currentLayerData.shapes.forEach(
+            (shape: Babelfont.Shape, shapeIndex: number) => {
+                const contour = getEditableContour(shape);
+                if (!contour || contour.nodes.length < 2) {
+                    return;
+                }
+
+                const descriptors = Layer.getPathSegmentDescriptors({
+                    nodes: contour.nodes,
+                    closed: contour.closed
+                });
+
+                descriptors.forEach((descriptor) => {
+                    let projection: PathSegmentHit['projection'] | null = null;
+
+                    if (descriptor.type === 'line') {
+                        projection = projectPointOntoLine(
+                            { x: glyphX, y: glyphY },
+                            descriptor.points[0],
+                            descriptor.points[1]
+                        );
+                    } else {
+                        const projected = new Bezier(descriptor.points).project(
+                            {
+                                x: glyphX,
+                                y: glyphY
+                            }
+                        );
+                        projection = {
+                            x: projected.x,
+                            y: projected.y,
+                            t: clampUnitInterval(projected.t ?? 0),
+                            distance: projected.d ?? Infinity
+                        };
+                    }
+
+                    if (!projection || projection.distance > hitRadius) {
+                        return;
+                    }
+
+                    if (projection.distance >= bestDistance) {
+                        return;
+                    }
+
+                    bestDistance = projection.distance;
+                    bestHit = {
+                        shapeIndex,
+                        pathIndex,
+                        descriptor,
+                        projection
+                    };
+                });
+
+                pathIndex += 1;
+            }
+        );
+
+        return bestHit;
+    }
+
+    private selectAllNodesInContour(contourIndex: number): boolean {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const contour = getEditableContour(
+            currentLayerData?.shapes?.[contourIndex]
+        );
+
+        if (!contour?.nodes.length) {
+            return false;
+        }
+
+        this.selectedPoints = contour.nodes.map(
+            (_node: Babelfont.Node, nodeIndex: number) => ({
+                contourIndex,
+                nodeIndex
+            })
+        );
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+        return true;
+    }
+
     private updateHoveredAddPointPreview(): void {
         if (
             !this.active ||
@@ -4280,92 +4443,36 @@ export class OutlineEditor {
         }
 
         const { glyphX, glyphY } = this.transformMouseToComponentSpace();
-        const hitRadius =
-            10 / Math.max(this.glyphCanvas.viewportManager?.scale ?? 1, 0.001);
         let bestPreview: HoveredAddPointPreview | null = null;
-        let bestDistance = Infinity;
-        let pathIndex = 0;
+        const bestHit = this.findClosestPathSegmentHit();
 
-        currentLayerData.shapes.forEach(
-            (shape: Babelfont.Shape, shapeIndex: number) => {
-                const contour = getEditableContour(shape);
-                if (!contour || contour.nodes.length < 2) {
-                    return;
-                }
+        if (bestHit) {
+            const [leftPoints, rightPoints] = splitPreviewSegment(
+                bestHit.descriptor.points,
+                bestHit.projection.t
+            );
 
-                const descriptors = Layer.getPathSegmentDescriptors({
-                    nodes: contour.nodes,
-                    closed: contour.closed
-                });
-
-                descriptors.forEach((descriptor) => {
-                    let projection: {
-                        x: number;
-                        y: number;
-                        t: number;
-                        distance: number;
-                    } | null = null;
-
-                    if (descriptor.type === 'line') {
-                        projection = projectPointOntoLine(
-                            { x: glyphX, y: glyphY },
-                            descriptor.points[0],
-                            descriptor.points[1]
-                        );
-                    } else {
-                        const projected = new Bezier(descriptor.points).project(
-                            {
-                                x: glyphX,
-                                y: glyphY
-                            }
-                        );
-                        projection = {
-                            x: projected.x,
-                            y: projected.y,
-                            t: clampUnitInterval(projected.t ?? 0),
-                            distance: projected.d ?? Infinity
-                        };
+            bestPreview = {
+                shapeIndex: bestHit.shapeIndex,
+                pathIndex: bestHit.pathIndex,
+                segmentId: bestHit.descriptor.segmentId,
+                t: bestHit.projection.t,
+                point: {
+                    x: bestHit.projection.x,
+                    y: bestHit.projection.y
+                },
+                segments: [
+                    {
+                        type: bestHit.descriptor.type,
+                        points: leftPoints
+                    },
+                    {
+                        type: bestHit.descriptor.type,
+                        points: rightPoints
                     }
-
-                    if (!projection || projection.distance > hitRadius) {
-                        return;
-                    }
-
-                    if (projection.distance >= bestDistance) {
-                        return;
-                    }
-
-                    const [leftPoints, rightPoints] = splitPreviewSegment(
-                        descriptor.points,
-                        projection.t
-                    );
-
-                    bestDistance = projection.distance;
-                    bestPreview = {
-                        shapeIndex,
-                        pathIndex,
-                        segmentId: descriptor.segmentId,
-                        t: projection.t,
-                        point: {
-                            x: projection.x,
-                            y: projection.y
-                        },
-                        segments: [
-                            {
-                                type: descriptor.type,
-                                points: leftPoints
-                            },
-                            {
-                                type: descriptor.type,
-                                points: rightPoints
-                            }
-                        ]
-                    };
-                });
-
-                pathIndex += 1;
-            }
-        );
+                ]
+            };
+        }
 
         const previousPreview = JSON.stringify(this.hoveredAddPointPreview);
         const nextPreview = JSON.stringify(bestPreview);
@@ -4555,6 +4662,40 @@ export class OutlineEditor {
             ...node
         }));
         contour.closed = Boolean(pathData.closed);
+    }
+
+    private syncCurrentExactLayerDataFromModel(): void {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerModel = this.getCurrentLayerModel();
+
+        if (!currentLayerData || !currentLayerModel) {
+            return;
+        }
+
+        const exactNormalized = LayerDataNormalizer.normalize(
+            currentLayerModel.toJSON(),
+            false
+        );
+
+        if (!exactNormalized) {
+            return;
+        }
+
+        if (exactNormalized.shapes && currentLayerData.shapes?.length) {
+            exactNormalized.shapes = this.mergeSelectedLayerShapes(
+                exactNormalized.shapes,
+                currentLayerData.shapes
+            );
+        }
+
+        for (const key of Object.keys(currentLayerData)) {
+            if (!(key in exactNormalized)) {
+                delete (currentLayerData as Record<string, any>)[key];
+            }
+        }
+
+        Object.assign(currentLayerData, exactNormalized);
+        parseComponentNodes(currentLayerData.shapes || []);
     }
 
     private canSlideSmoothPointOnCurve(point: Point): boolean {
@@ -5169,33 +5310,66 @@ export class OutlineEditor {
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
         const bridge = window.changeBridge;
+        const fullContourIndices = new Set<number>();
 
         // Sort indices in descending order for each path (to maintain validity during deletion)
         for (const [pathIndex, nodeIndices] of pointsByPath) {
+            const contour = getEditableContour(
+                currentLayerData.shapes?.[pathIndex]
+            );
+            const uniqueNodeIndices = [...new Set(nodeIndices)].filter(
+                (nodeIndex) =>
+                    Number.isInteger(nodeIndex) &&
+                    nodeIndex >= 0 &&
+                    nodeIndex < (contour?.nodes.length || 0)
+            );
+
+            if (contour && uniqueNodeIndices.length === contour.nodes.length) {
+                fullContourIndices.add(pathIndex);
+                pointsByPath.set(
+                    pathIndex,
+                    uniqueNodeIndices.sort((a, b) => b - a)
+                );
+                continue;
+            }
+
             pointsByPath.set(
                 pathIndex,
-                nodeIndices.sort((a, b) => b - a)
+                uniqueNodeIndices.sort((a, b) => b - a)
             );
         }
 
+        const contourIndicesDescending = [...pointsByPath.keys()].sort(
+            (left, right) => right - left
+        );
+
         // Perform deletions with suppressed model recording
         withSuppressedModelRecording(() => {
-            // Delete from current layer
-            for (const [pathIndex, nodeIndices] of pointsByPath) {
-                const path = currentLayerModel.paths?.[pathIndex];
-                if (!path) continue;
+            const deleteContourFromLayer = (layerModel: Layer): void => {
+                for (const pathIndex of contourIndicesDescending) {
+                    const shape = layerModel.shapes?.[pathIndex];
+                    if (!shape?.isPath?.()) {
+                        continue;
+                    }
 
-                path._deleteNodes(nodeIndices);
-            }
+                    if (fullContourIndices.has(pathIndex)) {
+                        layerModel.removeShape(pathIndex);
+                        continue;
+                    }
 
-            // Delete from all linked layers
-            for (const linkedLayer of linkedLayers) {
-                for (const [pathIndex, nodeIndices] of pointsByPath) {
-                    const linkedPath = linkedLayer.paths?.[pathIndex];
-                    if (!linkedPath) continue;
+                    const nodeIndices = pointsByPath.get(pathIndex) || [];
+                    if (!nodeIndices.length) {
+                        continue;
+                    }
 
-                    linkedPath._deleteNodes(nodeIndices);
+                    shape.asPath()._deleteNodes(nodeIndices);
                 }
+            };
+
+            deleteContourFromLayer(currentLayerModel);
+
+            for (const linkedLayer of linkedLayers) {
+                deleteContourFromLayer(linkedLayer);
             }
         });
 
@@ -5212,26 +5386,7 @@ export class OutlineEditor {
             }
         }
 
-        // Update layer data from model
-        for (const [pathIndex, nodeIndices] of pointsByPath) {
-            const path = currentLayerModel.paths?.[pathIndex];
-            const shape = currentLayerData.shapes?.[pathIndex];
-            const contour = getPathShapeData(shape);
-
-            if (path && contour && typeof contour === 'object') {
-                const pathData = path.toJSON();
-                const normalizedNodes =
-                    typeof pathData.nodes === 'string'
-                        ? LayerDataNormalizer.parseNodes(pathData.nodes)
-                        : Array.isArray(pathData.nodes)
-                          ? pathData.nodes
-                          : [];
-                contour.nodes = normalizedNodes.map((node: Babelfont.Node) => ({
-                    ...node
-                }));
-                contour.closed = Boolean(pathData.closed);
-            }
-        }
+        this.syncCurrentExactLayerDataFromModel();
 
         // Clear selection
         this.selectedPoints = [];
