@@ -473,7 +473,7 @@ function replaceSegmentRunInNodeArray(
         ];
 
         return {
-            nodes: nextNodes,
+            nodes: normalizePathNodeArray(nextNodes, true),
             insertedNodeIndex: 1 + insertedNodeOffset
         };
     }
@@ -485,7 +485,7 @@ function replaceSegmentRunInNodeArray(
     ];
 
     return {
-        nodes: nextNodes,
+        nodes: closed ? normalizePathNodeArray(nextNodes, true) : nextNodes,
         insertedNodeIndex: descriptor.runStartNodeIndex + 1 + insertedNodeOffset
     };
 }
@@ -1363,6 +1363,45 @@ function normalizePathNodeArray<T extends Babelfont.Node>(
     const normalizedNodes = nodes.map((node) => cloneNodeData(node));
 
     if (closed) {
+        for (let index = 0; index < normalizedNodes.length; index++) {
+            const node = normalizedNodes[index];
+            if (isOffCurveNodeType(node.nodetype)) {
+                continue;
+            }
+
+            let offCurveCount = 0;
+            let previousIndex =
+                (((index - 1) % normalizedNodes.length) +
+                    normalizedNodes.length) %
+                normalizedNodes.length;
+
+            while (
+                offCurveCount < normalizedNodes.length &&
+                isOffCurveNodeType(normalizedNodes[previousIndex].nodetype)
+            ) {
+                offCurveCount++;
+                previousIndex =
+                    (((previousIndex - 1) % normalizedNodes.length) +
+                        normalizedNodes.length) %
+                    normalizedNodes.length;
+            }
+
+            if (!offCurveCount) {
+                continue;
+            }
+
+            const expectedNodeType =
+                offCurveCount === 2
+                    ? ('Curve' as Babelfont.NodeType)
+                    : ('QCurve' as Babelfont.NodeType);
+
+            if (node.nodetype !== expectedNodeType) {
+                normalizedNodes[index] = cloneNodeData(node, {
+                    nodetype: expectedNodeType
+                } as Partial<T>);
+            }
+        }
+
         return normalizedNodes;
     }
 

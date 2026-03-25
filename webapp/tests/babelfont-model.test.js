@@ -1864,6 +1864,165 @@ describe('Babelfont Object Model', () => {
             expect(path.nodes[2].y).not.toBeCloseTo(path.nodes[0].y, 8);
         });
 
+        test('Path._convertLineSegmentToCurve keeps a fully converted closed contour cubic at the wraparound start', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 100, nodetype: 'Line' },
+                    { x: 0, y: 100, nodetype: 'Line' }
+                ],
+                true
+            );
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            while (true) {
+                const lineDescriptor = Layer.getPathSegmentDescriptors({
+                    nodes: path.nodes,
+                    closed: true
+                }).find((descriptor) => descriptor.type === 'line');
+
+                if (!lineDescriptor) {
+                    break;
+                }
+
+                expect(
+                    path._convertLineSegmentToCurve(lineDescriptor.segmentId)
+                ).toBe(true);
+            }
+
+            expect(path.nodes.every((node) => node.nodetype !== 'Line')).toBe(
+                true
+            );
+            expect(path.nodes[0].nodetype).toBe('Curve');
+
+            const segmentTypes = Layer.processPathSegments({
+                nodes: path.nodes,
+                closed: true
+            }).map((segment) => segment.type);
+
+            expect(segmentTypes).toEqual(['cubic', 'cubic', 'cubic', 'cubic']);
+        });
+
+        test('fully converting matching closed contours preserves glyph compatibility across layers', () => {
+            const font = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: { wght: 0 },
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    },
+                    {
+                        name: { dflt: 'Bold' },
+                        id: 'master-2',
+                        location: { wght: 1 },
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'n',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-1',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 0, y: 0, nodetype: 'Line' },
+                                            { x: 100, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 100,
+                                                y: 100,
+                                                nodetype: 'Line'
+                                            },
+                                            { x: 0, y: 100, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ],
+                                anchors: []
+                            },
+                            {
+                                width: 500,
+                                id: 'layer-2',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-2'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            { x: 20, y: 0, nodetype: 'Line' },
+                                            { x: 140, y: 0, nodetype: 'Line' },
+                                            {
+                                                x: 140,
+                                                y: 100,
+                                                nodetype: 'Line'
+                                            },
+                                            { x: 20, y: 100, nodetype: 'Line' }
+                                        ],
+                                        closed: true
+                                    }
+                                ],
+                                anchors: []
+                            }
+                        ]
+                    }
+                ],
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: {
+                    classes: {},
+                    prefixes: {},
+                    features: []
+                }
+            });
+
+            const glyph = font.findGlyph('n');
+            const [pathA, pathB] = glyph.layers.map((layer) => layer.paths[0]);
+
+            while (true) {
+                const lineDescriptor = Layer.getPathSegmentDescriptors({
+                    nodes: pathA.nodes,
+                    closed: true
+                }).find((descriptor) => descriptor.type === 'line');
+
+                if (!lineDescriptor) {
+                    break;
+                }
+
+                expect(
+                    pathA._convertLineSegmentToCurve(lineDescriptor.segmentId)
+                ).toBe(true);
+                expect(
+                    pathB._convertLineSegmentToCurve(lineDescriptor.segmentId)
+                ).toBe(true);
+            }
+
+            expect(glyph.isCompatible).toBe(true);
+            expect(
+                glyph.calculateOutlineCompatibility().incompatibleLayerIds
+            ).toEqual([]);
+        });
+
         test('Path._slideSmoothOnCurve should move a smooth on-curve point along the merged cubic without changing the fitted curve', () => {
             const originalNodes = [
                 { x: 0, y: 0, nodetype: 'Curve', smooth: true },
