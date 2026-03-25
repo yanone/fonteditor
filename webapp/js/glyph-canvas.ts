@@ -306,6 +306,11 @@ class GlyphCanvas {
             if (e.key === 'Alt') {
                 this.outlineEditor.setAltKeyPressed(true);
             }
+            if (e.key === 'Meta' || e.key === 'Control') {
+                this.outlineEditor.setCommandKeyPressed(true);
+                this.updateCursorStyle();
+                this.render();
+            }
         });
         this.canvas!.addEventListener('keyup', (e) => {
             if (this.shouldBlockTextEditingDuringLoopAnimation(e)) {
@@ -351,6 +356,11 @@ class GlyphCanvas {
 
             if (e.key === 'Alt') {
                 this.outlineEditor.setAltKeyPressed(false);
+            }
+            if (e.key === 'Meta' || e.key === 'Control') {
+                this.outlineEditor.setCommandKeyPressed(false);
+                this.updateCursorStyle();
+                this.render();
             }
         });
 
@@ -1125,6 +1135,7 @@ class GlyphCanvas {
     onMouseDown(e: MouseEvent): void {
         // Focus the canvas when clicked
         this.canvas!.focus();
+        this.outlineEditor.setCommandKeyPressed(e.metaKey || e.ctrlKey);
 
         // Refresh mouse position + hover targets at click time.
         // Double-click handling relies on hovered* state and can otherwise use stale values
@@ -1342,8 +1353,11 @@ class GlyphCanvas {
         // Update cursor style based on position (after updating hover states)
         this.updateCursorStyle(e);
 
-        // Re-render when the measurement key is pressed to update crosshair position
-        if (this.measurementKeyPressed) {
+        // Re-render when auxiliary overlays depend on the pointer position.
+        if (
+            this.measurementKeyPressed ||
+            this.outlineEditor.shouldRenderCommandPathPreview()
+        ) {
             this.render();
         }
     }

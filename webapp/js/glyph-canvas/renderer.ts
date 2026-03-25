@@ -457,15 +457,19 @@ export class GlyphCanvasRenderer {
                 continue;
             }
 
+            const closed = getClosedFromOutlineShape(shape);
+
             this.ctx.beginPath();
-            this.buildPathFromNodes(nodes);
-            this.ctx.closePath();
+            this.buildPathFromNodes(nodes, closed);
+            if (closed) {
+                this.ctx.closePath();
+            }
             this.ctx.lineWidth =
                 APP_SETTINGS.OUTLINE_EDITOR.HIT_TOLERANCE /
                 this.viewportManager.scale;
 
             if (
-                this.ctx.isPointInPath(mouseX, mouseY) ||
+                (closed && this.ctx.isPointInPath(mouseX, mouseY)) ||
                 this.ctx.isPointInStroke(mouseX, mouseY)
             ) {
                 return true;
@@ -928,7 +932,12 @@ export class GlyphCanvasRenderer {
             if (!nodes || nodes.length === 0) {
                 continue;
             }
-            this.buildPathFromNodes(nodes);
+            const closed = getClosedFromOutlineShape(shape);
+            if (!closed) {
+                continue;
+            }
+
+            this.buildPathFromNodes(nodes, closed);
             this.ctx.closePath();
         }
 
@@ -1568,6 +1577,10 @@ export class GlyphCanvasRenderer {
                     return;
                 }
 
+                if (!getClosedFromOutlineShape(shape)) {
+                    return;
+                }
+
                 // Get nodes from shape
                 const nodes = getNodesFromShape(shape);
 
@@ -2120,12 +2133,35 @@ export class GlyphCanvasRenderer {
         // Build the path using the helper method
         const startIdx = addPointPreview
             ? this.buildPathWithAddPointPreview(nodes, closed, addPointPreview)
-            : this.buildPathFromNodes(nodes);
+            : this.buildPathFromNodes(nodes, closed);
 
-        if (!addPointPreview) {
+        if (!addPointPreview && closed) {
             this.ctx.closePath();
         }
         this.ctx.stroke();
+
+        const commandPathPreviewLine =
+            !isInterpolated &&
+            this.glyphCanvas.outlineEditor.getCommandPathPreviewContourIndex() ===
+                contourIndex
+                ? this.glyphCanvas.outlineEditor.getCommandPathPreviewLine()
+                : null;
+        if (commandPathPreviewLine) {
+            this.ctx.save();
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = colors.NODE_HOVERED;
+            this.ctx.lineWidth = 1 * invScale;
+            this.ctx.moveTo(
+                commandPathPreviewLine.start.x,
+                commandPathPreviewLine.start.y
+            );
+            this.ctx.lineTo(
+                commandPathPreviewLine.end.x,
+                commandPathPreviewLine.end.y
+            );
+            this.ctx.stroke();
+            this.ctx.restore();
+        }
         const minZoomForHandles =
             APP_SETTINGS.OUTLINE_EDITOR.MIN_ZOOM_FOR_HANDLES;
 
@@ -2250,11 +2286,8 @@ export class GlyphCanvasRenderer {
                             y: targetY,
                             nodetype: targetType
                         } = nodes[targetIdx];
-                        // Connect to on-curve points (Line, Curve, or QCurve)
-                        if (
-                            targetType !== 'OffCurve' &&
-                            targetType !== 'Move'
-                        ) {
+                        // Connect to on-curve points, including Move for open contours.
+                        if (targetType !== 'OffCurve') {
                             this.ctx.beginPath();
                             this.ctx.moveTo(x, y);
                             this.ctx.lineTo(targetX, targetY);
@@ -2270,6 +2303,7 @@ export class GlyphCanvasRenderer {
                             nodetype: targetType
                         } = nodes[targetIdx];
                         if (
+                            targetType === 'Move' ||
                             targetType === 'Curve' ||
                             targetType === 'QCurve' ||
                             targetType === 'Line'
@@ -2374,8 +2408,8 @@ export class GlyphCanvasRenderer {
                 return;
             }
 
-            // Skip Move nodes - they don't get rendered
-            if (type === 'Move') {
+            // Closed contours do not expose a Move start node in the editor.
+            if (type === 'Move' && closed) {
                 return;
             }
 
@@ -3425,7 +3459,11 @@ export class GlyphCanvasRenderer {
         this.ctx.restore();
     }
 
-    buildPathFromNodes(nodes: Babelfont.Node[], pathTarget?: Path2D) {
+    buildPathFromNodes(
+        nodes: Babelfont.Node[],
+        closed = true,
+        pathTarget?: Path2D
+    ) {
         // Build a canvas path from a nodes array
         // pathTarget: if provided (Path2D object), draws to it; otherwise draws to this.ctx
         // Returns the startIdx for use in drawing direction arrows
@@ -3436,36 +3474,35 @@ export class GlyphCanvasRenderer {
         // Use the provided path target or default to canvas context
         const target = pathTarget || this.ctx;
 
-        // Prefer explicit Move start if present, otherwise use first on-curve point
-        let startIdx = 0;
-        for (let i = 0; i < nodes.length; i++) {
-            const { nodetype: type } = nodes[i];
-            if (type === 'Move') {
-                startIdx = i;
-                break;
-            }
-        }
-        for (let i = 0; i < nodes.length; i++) {
-            const { nodetype: type } = nodes[i];
-            if (
-                startIdx === 0 &&
-                (type === 'Curve' || type === 'QCurve' || type === 'Line')
-            ) {
-                startIdx = i;
-                break;
-            }
-        }
+        const startIdx = this.getPathStartIndex(nodes);
 
         const { x: startX, y: startY } = nodes[startIdx];
         target.moveTo(startX, startY);
 
         // Draw contour by looking ahead for control points
+        const getNodeIndex = (offset: number): number | null => {
+            const logicalIndex = startIdx + offset;
+
+            if (closed) {
+                return (
+                    ((logicalIndex % nodes.length) + nodes.length) %
+                    nodes.length
+                );
+            }
+
+            return logicalIndex < nodes.length ? logicalIndex : null;
+        };
+
         let i = 0;
         while (i < nodes.length) {
-            const idx = (startIdx + i) % nodes.length;
-            const nextIdx = (startIdx + i + 1) % nodes.length;
-            const next2Idx = (startIdx + i + 2) % nodes.length;
-            const next3Idx = (startIdx + i + 3) % nodes.length;
+            const idx = getNodeIndex(i);
+            const nextIdx = getNodeIndex(i + 1);
+            const next2Idx = getNodeIndex(i + 2);
+            const next3Idx = getNodeIndex(i + 3);
+
+            if (idx === null || nextIdx === null) {
+                break;
+            }
 
             const { nodetype: type } = nodes[idx];
             const {
@@ -3478,15 +3515,24 @@ export class GlyphCanvasRenderer {
             if (type !== 'OffCurve') {
                 // We're at an on-curve point, look ahead for next segment
                 if (next1Type === 'OffCurve') {
+                    if (next2Idx === null) {
+                        break;
+                    }
+
                     // Next is off-curve - check if cubic (two consecutive off-curve)
                     const {
                         x: next2X,
                         y: next2Y,
                         nodetype: next2Type
                     } = nodes[next2Idx];
-                    const { x: next3X, y: next3Y } = nodes[next3Idx];
 
                     if (next2Type === 'OffCurve') {
+                        if (next3Idx === null) {
+                            break;
+                        }
+
+                        const { x: next3X, y: next3Y } = nodes[next3Idx];
+
                         // Cubic bezier: two off-curve control points + on-curve endpoint
                         target.bezierCurveTo(
                             next1X,
@@ -3571,7 +3617,7 @@ export class GlyphCanvasRenderer {
     ): number {
         const descriptors = Layer.getPathSegmentDescriptors({ nodes, closed });
         if (!descriptors.length) {
-            return this.buildPathFromNodes(nodes, pathTarget);
+            return this.buildPathFromNodes(nodes, closed, pathTarget);
         }
 
         const startIdx = this.getPathStartIndex(nodes);
@@ -3599,19 +3645,24 @@ export class GlyphCanvasRenderer {
 
     private getPathStartIndex(nodes: Babelfont.Node[]): number {
         let startIdx = 0;
+        let foundMove = false;
+
         for (let i = 0; i < nodes.length; i++) {
             const { nodetype: type } = nodes[i];
             if (type === 'Move') {
                 startIdx = i;
+                foundMove = true;
                 break;
             }
         }
+
+        if (foundMove) {
+            return startIdx;
+        }
+
         for (let i = 0; i < nodes.length; i++) {
             const { nodetype: type } = nodes[i];
-            if (
-                startIdx === 0 &&
-                (type === 'Curve' || type === 'QCurve' || type === 'Line')
-            ) {
+            if (type === 'Curve' || type === 'QCurve' || type === 'Line') {
                 startIdx = i;
                 break;
             }
@@ -4524,9 +4575,13 @@ export class GlyphCanvasRenderer {
                 continue;
             }
 
+            const closed = getClosedFromOutlineShape(shape);
+
             this.ctx.beginPath();
-            this.buildPathFromNodes(nodes);
-            this.ctx.closePath();
+            this.buildPathFromNodes(nodes, closed);
+            if (closed) {
+                this.ctx.closePath();
+            }
             this.ctx.stroke();
         }
     }
@@ -4710,9 +4765,10 @@ export class GlyphCanvasRenderer {
             if ('reference' in shape) return;
 
             const nodes = getNodesFromShape(shape);
+            const closed = getClosedFromOutlineShape(shape);
 
-            if (nodes && nodes.length > 0) {
-                this.buildPathFromNodes(nodes);
+            if (nodes && nodes.length > 0 && closed) {
+                this.buildPathFromNodes(nodes, closed);
                 this.ctx.closePath();
             }
         });
@@ -4781,15 +4837,18 @@ export class GlyphCanvasRenderer {
         invScale: number,
         isDarkTheme: boolean
     ): void {
+        type FlattenedOutlineShape = {
+            nodes: any[];
+            transform: number[] | null;
+            closed: boolean;
+        };
+
         // Collect all outline shapes (non-component shapes with nodes) at each nesting level
         const collectOutlineShapes = (
             shapes: any[],
             transform: number[] | null = null
-        ): Array<{ nodes: any[]; transform: number[] | null }> => {
-            const outlineShapes: Array<{
-                nodes: any[];
-                transform: number[] | null;
-            }> = [];
+        ): FlattenedOutlineShape[] => {
+            const outlineShapes: FlattenedOutlineShape[] = [];
 
             shapes.forEach((componentShape) => {
                 if ('reference' in componentShape) {
@@ -4846,7 +4905,8 @@ export class GlyphCanvasRenderer {
                 ) {
                     outlineShapes.push({
                         nodes: componentShape.nodes,
-                        transform: transform
+                        transform: transform,
+                        closed: Boolean(componentShape.closed)
                     });
                 }
             });
@@ -4879,7 +4939,11 @@ export class GlyphCanvasRenderer {
         this.ctx.shadowBlur = 0;
         this.ctx.shadowColor = 'transparent';
         this.ctx.beginPath();
-        outlineShapes.forEach(({ nodes, transform }) => {
+        outlineShapes.forEach(({ nodes, transform, closed }) => {
+            if (!closed) {
+                return;
+            }
+
             if (transform) {
                 this.ctx.save();
                 this.ctx.transform(
@@ -4891,7 +4955,7 @@ export class GlyphCanvasRenderer {
                     transform[5]
                 );
             }
-            this.buildPathFromNodes(nodes);
+            this.buildPathFromNodes(nodes, closed);
             this.ctx.closePath();
             if (transform) this.ctx.restore();
         });

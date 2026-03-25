@@ -2812,6 +2812,870 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             currentFontSpy.mockRestore();
         }
     });
+
+    test('cmd-click drawing creates and closes a linked path, then commits one history item on key release', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Draw Test' }
+            },
+            note: '',
+            date: '2026-03-25',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const bridge = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(),
+            hasUnsavedChanges: false
+        };
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+        const originalBridge = window.changeBridge;
+        const originalFontModel = window.currentFontModel;
+
+        window.changeBridge = bridge;
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+
+        const transformSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValueOnce({ glyphX: 10, glyphY: 20 })
+            .mockReturnValueOnce({ glyphX: 80, glyphY: 20 })
+            .mockReturnValueOnce({ glyphX: 80, glyphY: 90 });
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.hoveredPointIndex = null;
+            canvas.outlineEditor.onSingleClick({
+                clientX: 20,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.hoveredPointIndex = null;
+            canvas.outlineEditor.onSingleClick({
+                clientX: 20,
+                clientY: 30,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            expect(bridge.beginTransaction).not.toHaveBeenCalled();
+            expect(bridge.syncGlyphFromJson).not.toHaveBeenCalled();
+
+            canvas.outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 0
+            };
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.setCommandKeyPressed(false);
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Draw path'
+            );
+            expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+            expect(currentLayer.paths).toHaveLength(1);
+            expect(linkedLayer.paths).toHaveLength(1);
+            expect(currentLayer.paths[0].closed).toBe(true);
+            expect(linkedLayer.paths[0].closed).toBe(true);
+            expect(
+                currentLayer.paths[0].nodes.map((node) => node.nodetype)
+            ).toEqual(['Line', 'Line', 'Line']);
+            expect(
+                linkedLayer.paths[0].nodes.map((node) => node.nodetype)
+            ).toEqual(['Line', 'Line', 'Line']);
+        } finally {
+            transformSpy.mockRestore();
+            window.changeBridge = originalBridge;
+            window.currentFontModel = originalFontModel;
+            linkedLayersSpy.mockRestore();
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('cmd-click extends an open path from its selected first point across linked layers', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 40, y: 40, nodetype: 'Move' },
+                                        { x: 100, y: 40, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 50, y: 50, nodetype: 'Move' },
+                                        { x: 110, y: 50, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Extend Test' }
+            },
+            note: '',
+            date: '2026-03-25',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const bridge = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(),
+            hasUnsavedChanges: false
+        };
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+        const segmentHitSpy = jest
+            .spyOn(canvas.outlineEditor, 'findClosestPathSegmentHit')
+            .mockReturnValue(null);
+        const originalBridge = window.changeBridge;
+        const originalFontModel = window.currentFontModel;
+
+        window.changeBridge = bridge;
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+
+        const transformSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 10, glyphY: 40 });
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            expect(bridge.beginTransaction).not.toHaveBeenCalled();
+
+            canvas.outlineEditor.setCommandKeyPressed(false);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Draw path'
+            );
+            expect(
+                currentLayer.paths[0].nodes.map((node) => ({
+                    x: node.x,
+                    y: node.y,
+                    nodetype: node.nodetype
+                }))
+            ).toEqual([
+                { x: 10, y: 40, nodetype: 'Move' },
+                { x: 40, y: 40, nodetype: 'Line' },
+                { x: 100, y: 40, nodetype: 'Line' }
+            ]);
+            expect(
+                linkedLayer.paths[0].nodes.map((node) => ({
+                    x: node.x,
+                    y: node.y,
+                    nodetype: node.nodetype
+                }))
+            ).toEqual([
+                { x: 10, y: 40, nodetype: 'Move' },
+                { x: 50, y: 50, nodetype: 'Line' },
+                { x: 110, y: 50, nodetype: 'Line' }
+            ]);
+            expect(canvas.outlineEditor.selectedPoints).toEqual([
+                { contourIndex: 0, nodeIndex: 0 }
+            ]);
+        } finally {
+            transformSpy.mockRestore();
+            segmentHitSpy.mockRestore();
+            window.changeBridge = originalBridge;
+            window.currentFontModel = originalFontModel;
+            linkedLayersSpy.mockRestore();
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('cmd-click converts a line segment into a curve across linked layers and defers history until key release', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Move' },
+                                        { x: 90, y: 0, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 10, y: 10, nodetype: 'Move' },
+                                        { x: 100, y: 10, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Curve Test' }
+            },
+            note: '',
+            date: '2026-03-25',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const bridge = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(),
+            hasUnsavedChanges: false
+        };
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+        const originalBridge = window.changeBridge;
+        const originalFontModel = window.currentFontModel;
+
+        window.changeBridge = bridge;
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+        const descriptor = Layer.getPathSegmentDescriptors({
+            nodes: currentLayer.toJSON().shapes[0].nodes,
+            closed: false
+        })[0];
+        const segmentHitSpy = jest
+            .spyOn(canvas.outlineEditor, 'findClosestPathSegmentHit')
+            .mockReturnValue({
+                shapeIndex: 0,
+                pathIndex: 0,
+                descriptor,
+                projection: {
+                    x: 45,
+                    y: 0,
+                    t: 0.5,
+                    distance: 0
+                }
+            });
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            expect(bridge.beginTransaction).not.toHaveBeenCalled();
+            expect(bridge.syncGlyphFromJson).not.toHaveBeenCalled();
+
+            canvas.outlineEditor.setCommandKeyPressed(false);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(bridge.beginTransaction).toHaveBeenCalledWith(
+                'Convert line to curve'
+            );
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Convert line to curve'
+            );
+            expect(
+                currentLayer.paths[0].nodes.map((node) => node.nodetype)
+            ).toEqual(['Move', 'OffCurve', 'OffCurve', 'Curve']);
+            expect(
+                linkedLayer.paths[0].nodes.map((node) => node.nodetype)
+            ).toEqual(['Move', 'OffCurve', 'OffCurve', 'Curve']);
+            expect(currentLayer.paths[0].nodes[1].x).toBeCloseTo(30);
+            expect(currentLayer.paths[0].nodes[2].x).toBeCloseTo(60);
+        } finally {
+            segmentHitSpy.mockRestore();
+            window.changeBridge = originalBridge;
+            window.currentFontModel = originalFontModel;
+            linkedLayersSpy.mockRestore();
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('closed path origin-return segment is hittable for double-click selection and cmd-click conversion', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Line' },
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 100, y: 100, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 10, y: 10, nodetype: 'Line' },
+                                        { x: 110, y: 10, nodetype: 'Line' },
+                                        { x: 110, y: 110, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Closed Segment Test' }
+            },
+            note: '',
+            date: '2026-03-25',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const bridge = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(),
+            hasUnsavedChanges: false
+        };
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+        const originalBridge = window.changeBridge;
+        const originalFontModel = window.currentFontModel;
+
+        window.changeBridge = bridge;
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+
+        const transformSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 50, glyphY: 50 });
+
+        try {
+            const hit = canvas.outlineEditor.findClosestPathSegmentHit();
+            expect(hit).not.toBeNull();
+            expect(hit.shapeIndex).toBe(0);
+            expect(hit.pathIndex).toBe(0);
+            expect(hit.descriptor.type).toBe('line');
+
+            canvas.outlineEditor.hoveredGuideHandle = null;
+            canvas.outlineEditor.hoveredSidebearingHandle = null;
+            canvas.outlineEditor.hoveredComponentIndex = null;
+            canvas.outlineEditor.hoveredAnchorIndex = null;
+            canvas.outlineEditor.hoveredPointIndex = null;
+
+            expect(
+                canvas.outlineEditor.onDoubleClick({
+                    clientX: 0,
+                    clientY: 0,
+                    detail: 2,
+                    shiftKey: false,
+                    altKey: false,
+                    metaKey: false,
+                    ctrlKey: false
+                })
+            ).toBe(true);
+            expect(canvas.outlineEditor.selectedPoints).toEqual([
+                { contourIndex: 0, nodeIndex: 0 },
+                { contourIndex: 0, nodeIndex: 1 },
+                { contourIndex: 0, nodeIndex: 2 }
+            ]);
+
+            canvas.outlineEditor.selectedPoints = [];
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.setCommandKeyPressed(false);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Convert line to curve'
+            );
+            expect(
+                currentLayer.paths[0].nodes.map((node) => node.nodetype)
+            ).toContain('Curve');
+            expect(
+                linkedLayer.paths[0].nodes.map((node) => node.nodetype)
+            ).toContain('Curve');
+        } finally {
+            transformSpy.mockRestore();
+            window.changeBridge = originalBridge;
+            window.currentFontModel = originalFontModel;
+            linkedLayersSpy.mockRestore();
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+});
+
+describe('GlyphCanvas command path drawing visuals', () => {
+    let canvas;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 500, dx: 0, dy: 0, g: 0 }];
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 20, y: 30, nodetype: 'Move' },
+                        { x: 90, y: 30, nodetype: 'Line' }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+    });
+
+    test('cmd preview line follows the open endpoint and disappears on key release', () => {
+        jest.spyOn(
+            canvas.outlineEditor,
+            'transformMouseToComponentSpace'
+        ).mockReturnValue({ glyphX: 140, glyphY: 60 });
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.setCommandKeyPressed(true);
+
+        expect(canvas.outlineEditor.getCommandPathPreviewLine()).toEqual({
+            start: { x: 90, y: 30 },
+            end: { x: 140, y: 60 }
+        });
+
+        canvas.updateCursorStyle();
+        expect(canvas.canvas.style.cursor).toBe('crosshair');
+
+        canvas.outlineEditor.setCommandKeyPressed(false);
+
+        expect(canvas.outlineEditor.getCommandPathPreviewLine()).toBeNull();
+    });
+
+    test('drawOutlineEditor does not force-close open contours', () => {
+        canvas.renderer.ctx.closePath.mockClear();
+        canvas.renderer.ctx.stroke.mockClear();
+
+        canvas.renderer.drawOutlineEditor();
+
+        const firstStrokeOrder =
+            canvas.renderer.ctx.stroke.mock.invocationCallOrder[0];
+        const firstCloseOrder =
+            canvas.renderer.ctx.closePath.mock.invocationCallOrder[0] ??
+            Infinity;
+
+        expect(firstStrokeOrder).toBeLessThan(firstCloseOrder);
+    });
+
+    test('drawOutlineEditor renders a visible start node for a one-point open path', () => {
+        canvas.outlineEditor.layerData.shapes = [
+            {
+                nodes: [{ x: 20, y: 30, nodetype: 'Move' }],
+                closed: false
+            }
+        ];
+        canvas.renderer.ctx.fillRect.mockClear();
+
+        canvas.renderer.drawOutlineEditor();
+
+        expect(canvas.renderer.ctx.fillRect).toHaveBeenCalledTimes(1);
+    });
+
+    test('drawShape renders a committed open line segment without closing the contour', () => {
+        canvas.renderer.ctx.lineTo.mockClear();
+        canvas.renderer.ctx.closePath.mockClear();
+        canvas.renderer.ctx.stroke.mockClear();
+        canvas.renderer.viewportManager.scale = 0.01;
+
+        canvas.renderer.drawShape(
+            {
+                nodes: [
+                    { x: 20, y: 30, nodetype: 'Move' },
+                    { x: 80, y: 30, nodetype: 'Line' }
+                ],
+                closed: false
+            },
+            0,
+            false
+        );
+
+        expect(canvas.renderer.ctx.lineTo).toHaveBeenCalledWith(80, 30);
+        expect(canvas.renderer.ctx.closePath).not.toHaveBeenCalled();
+        expect(canvas.renderer.ctx.stroke).toHaveBeenCalled();
+    });
+
+    test('drawCachedExplicitGlyphOutline skips open contours in compiled fill pass', () => {
+        canvas.renderer.ctx.closePath.mockClear();
+
+        canvas.renderer.drawCachedExplicitGlyphOutline(
+            {
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 20, y: 30, nodetype: 'Move' },
+                            { x: 80, y: 30, nodetype: 'Line' }
+                        ],
+                        closed: false
+                    }
+                ]
+            },
+            0,
+            0
+        );
+
+        expect(canvas.renderer.ctx.closePath).not.toHaveBeenCalled();
+    });
 });
 
 describe('GlyphCanvas anchor movement', () => {

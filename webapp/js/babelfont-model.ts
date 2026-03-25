@@ -737,6 +737,60 @@ function buildLineCollapsedSegmentNodeArray(
     ).nodes;
 }
 
+function buildLineCurvedSegmentNodeArray(
+    nodes: Babelfont.Node[],
+    descriptor: PathSegmentDescriptor,
+    closed: boolean
+): Babelfont.Node[] | null {
+    if (descriptor.type !== 'line') {
+        return null;
+    }
+
+    const clonedNodes = nodes.map((node) => cloneNodeData(node));
+    clonedNodes[descriptor.runStartNodeIndex] = cloneNodeData(
+        clonedNodes[descriptor.runStartNodeIndex],
+        {
+            smooth: false
+        }
+    );
+
+    const firstHandle = lerpPoint(
+        descriptor.points[0],
+        descriptor.points[1],
+        1 / 3
+    );
+    const secondHandle = lerpPoint(
+        descriptor.points[0],
+        descriptor.points[1],
+        2 / 3
+    );
+
+    return replaceSegmentRunInNodeArray(
+        clonedNodes,
+        descriptor,
+        [
+            {
+                x: firstHandle.x,
+                y: firstHandle.y,
+                nodetype: 'OffCurve' as Babelfont.NodeType
+            },
+            {
+                x: secondHandle.x,
+                y: secondHandle.y,
+                nodetype: 'OffCurve' as Babelfont.NodeType
+            },
+            cloneNodeData(clonedNodes[descriptor.runEndNodeIndex], {
+                x: descriptor.points[1].x,
+                y: descriptor.points[1].y,
+                nodetype: 'Curve' as Babelfont.NodeType,
+                smooth: false
+            })
+        ],
+        2,
+        closed
+    ).nodes;
+}
+
 function intersectLines(
     originA: SegmentPoint,
     targetA: SegmentPoint,
@@ -3474,6 +3528,125 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         this._nodeWrappers = null;
         recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
         return mutation.insertedNodeIndex;
+    }
+
+    _appendLine(
+        point: { x: number; y: number },
+        edge: 'start' | 'end' = 'end'
+    ): number | null {
+        if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+            return null;
+        }
+
+        if (this.closed) {
+            return null;
+        }
+
+        const nodeArray = this.ensureNodesArray();
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        let nextNodes: Babelfont.Node[];
+        let insertedNodeIndex: number;
+
+        if (!nodeArray.length) {
+            nextNodes = [
+                {
+                    x: point.x,
+                    y: point.y,
+                    nodetype: 'Move' as Babelfont.NodeType
+                }
+            ];
+            insertedNodeIndex = 0;
+        } else if (edge === 'start') {
+            nextNodes = [
+                {
+                    x: point.x,
+                    y: point.y,
+                    nodetype: 'Move' as Babelfont.NodeType
+                },
+                cloneNodeData(nodeArray[0], {
+                    nodetype: 'Line' as Babelfont.NodeType,
+                    smooth: false
+                }),
+                ...nodeArray.slice(1).map((node) => cloneNodeData(node))
+            ];
+            insertedNodeIndex = 0;
+        } else {
+            nextNodes = [
+                ...nodeArray.map((node) => cloneNodeData(node)),
+                {
+                    x: point.x,
+                    y: point.y,
+                    nodetype: 'Line' as Babelfont.NodeType
+                }
+            ];
+            insertedNodeIndex = nextNodes.length - 1;
+        }
+
+        this.data.nodes = nextNodes;
+        this._nodeWrappers = null;
+        recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+        return insertedNodeIndex;
+    }
+
+    _closeOpenPath(): boolean {
+        if (this.closed) {
+            return false;
+        }
+
+        const nodeArray = this.ensureNodesArray();
+        if (nodeArray.length < 3) {
+            return false;
+        }
+
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        const oldClosed = this.data.closed;
+        const nextNodes = nodeArray.map((node) => cloneNodeData(node));
+
+        nextNodes[0] = cloneNodeData(nextNodes[0], {
+            nodetype:
+                nextNodes[0].nodetype === 'Move'
+                    ? ('Line' as Babelfont.NodeType)
+                    : nextNodes[0].nodetype,
+            smooth: false
+        });
+
+        this.data.nodes = nextNodes;
+        this.data.closed = true;
+        this._nodeWrappers = null;
+        recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+        recordAndMarkDirty(this, 'closed', oldClosed, true);
+        return true;
+    }
+
+    _convertLineSegmentToCurve(segmentId: number): boolean {
+        const nodeArray = this.ensureNodesArray();
+        const descriptors = buildPathSegmentDescriptors({
+            nodes: nodeArray,
+            closed: this.closed
+        });
+        const descriptor = descriptors.find(
+            (candidate) => candidate.segmentId === segmentId
+        );
+
+        if (!descriptor || descriptor.type !== 'line') {
+            return false;
+        }
+
+        const nextNodes = buildLineCurvedSegmentNodeArray(
+            nodeArray,
+            descriptor,
+            this.closed
+        );
+
+        if (!nextNodes) {
+            return false;
+        }
+
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        this.data.nodes = nextNodes;
+        this._nodeWrappers = null;
+        recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+        return true;
     }
 
     _canSlideSmoothOnCurve(nodeIndex: number): boolean {

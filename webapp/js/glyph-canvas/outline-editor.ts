@@ -76,6 +76,20 @@ type PathSegmentHit = {
     projection: { x: number; y: number; t: number; distance: number };
 };
 
+type PendingCommandPathEdit = {
+    didDraw: boolean;
+    didConvertLine: boolean;
+};
+
+type ActivePathDrawingSession = {
+    shapeIndex: number;
+    pathIndex: number;
+    edge: 'start' | 'end';
+    startedFromExistingPath: boolean;
+    originNodeIndex: number;
+    segmentCount: number;
+};
+
 /**
  * Convert affine matrix [a, b, c, d, e, f] to DecomposedAffine
  */
@@ -869,6 +883,7 @@ export class OutlineEditor {
     lastGlyphY: number | null = null;
     lastPointDragShiftKey: boolean | null = null;
     altKeyPressed: boolean = false;
+    cmdKeyPressed: boolean = false;
     canvas: HTMLCanvasElement | null = null;
 
     autoPanAnchorScreen: { x: number; y: number } | null = null;
@@ -882,6 +897,8 @@ export class OutlineEditor {
     private unlinkedLayerIdsByGlyphName = new Map<string, Set<string>>();
     private pendingGlyphSwitchSourceLayerKey: string | null = null;
     private pendingGlyphSwitchSourceLayer: any | null = null;
+    private activePathDrawingSession: ActivePathDrawingSession | null = null;
+    private pendingCommandPathEdit: PendingCommandPathEdit | null = null;
 
     private readonly GUIDELINES_STORAGE_KEY = 'outlineEditorGuidelinesVisible';
 
@@ -2678,6 +2695,7 @@ export class OutlineEditor {
         this.hoveredPointIndex = null;
         this.hoveredAddPointPreview = null;
         this.altKeyPressed = false;
+        this.cmdKeyPressed = false;
         this.hoveredSidebearingHandle = null;
         this.isDraggingPoint = false;
         this.isSlidingSmoothPointAlongCurve = false;
@@ -2685,6 +2703,8 @@ export class OutlineEditor {
         this.isDraggingGuide = false;
         this.selectedGuideHandle = null;
         this.hoveredGuideHandle = null;
+        this.activePathDrawingSession = null;
+        this.pendingCommandPathEdit = null;
         this.resetMarqueeSelection();
         this.layerDataDirty = false;
     }
@@ -3115,6 +3135,10 @@ export class OutlineEditor {
 
         if (e.altKey && this.hoveredAddPointPreview) {
             void this.commitHoveredAddPointPreview();
+            return;
+        }
+
+        if (this.handleCommandPathGesture(e)) {
             return;
         }
 
@@ -3852,6 +3876,10 @@ export class OutlineEditor {
 
     cursorStyle(): string | null {
         if (!this.active) return null;
+        if (this.shouldShowCommandPathCrosshair()) {
+            this.canvas!.style.cursor = 'crosshair';
+            return null;
+        }
         if (
             this.selectedLayerId &&
             this.layerData &&
@@ -4079,10 +4107,11 @@ export class OutlineEditor {
         const collectOutlineShapes = (
             shapes: Babelfont.Shape[],
             parentTransform: Transform = [1, 0, 0, 1, 0, 0]
-        ): Array<{ nodes: any[]; transform: Transform }> => {
+        ): Array<{ nodes: any[]; transform: Transform; closed: boolean }> => {
             const outlineShapes: Array<{
                 nodes: any[];
                 transform: Transform;
+                closed: boolean;
             }> = [];
 
             for (const componentShape of shapes) {
@@ -4139,24 +4168,13 @@ export class OutlineEditor {
                         );
                     }
                 } else {
-                    // Handle both nested { Path: { nodes } } and flat { nodes }
-                    let nodes: Babelfont.Node[] | null = null;
-                    if (
-                        'Path' in componentShape &&
-                        (componentShape as any).Path?.nodes
-                    ) {
-                        nodes = (componentShape as any).Path.nodes;
-                    } else if (
-                        'nodes' in componentShape &&
-                        (componentShape as any).nodes
-                    ) {
-                        nodes = (componentShape as any).nodes;
-                    }
+                    const contour = getEditableContour(componentShape);
 
-                    if (nodes && Array.isArray(nodes) && nodes.length > 0) {
+                    if (contour?.nodes.length) {
                         outlineShapes.push({
-                            nodes: nodes,
-                            transform: parentTransform
+                            nodes: contour.nodes,
+                            transform: parentTransform,
+                            closed: contour.closed
                         });
                     }
                 }
@@ -4182,11 +4200,21 @@ export class OutlineEditor {
         // This allows the canvas nonzero winding rule to properly handle counters
         const combinedPath = new Path2D();
 
-        for (const { nodes, transform: nestedTransform } of outlineShapes) {
+        for (const {
+            nodes,
+            transform: nestedTransform,
+            closed
+        } of outlineShapes) {
             // Create a path for this shape
             const shapePath = new Path2D();
-            this.glyphCanvas.renderer!.buildPathFromNodes(nodes, shapePath);
-            shapePath.closePath();
+            this.glyphCanvas.renderer!.buildPathFromNodes(
+                nodes,
+                closed,
+                shapePath
+            );
+            if (closed) {
+                shapePath.closePath();
+            }
 
             // Apply the accumulated transform to this shape's path
             const matrix = new DOMMatrix([
@@ -4482,6 +4510,17 @@ export class OutlineEditor {
         }
     }
 
+    setCommandKeyPressed(pressed: boolean): void {
+        if (this.cmdKeyPressed === pressed) {
+            return;
+        }
+
+        this.cmdKeyPressed = pressed;
+        if (!pressed) {
+            this.finalizePendingCommandPathEdit();
+        }
+    }
+
     setAltKeyPressed(pressed: boolean): void {
         if (this.altKeyPressed === pressed) {
             return;
@@ -4628,6 +4667,502 @@ export class OutlineEditor {
         }
     }
 
+    private handleCommandPathGesture(e: MouseEvent): boolean {
+        const isCmdClick = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+        if (!isCmdClick) {
+            return false;
+        }
+
+        this.setCommandKeyPressed(true);
+
+        if (this.tryHandleActivePathDrawingSessionClick()) {
+            return true;
+        }
+
+        if (!this.isNeutralCommandCanvasTarget()) {
+            return false;
+        }
+
+        const segmentHit = this.findClosestPathSegmentHit();
+        if (segmentHit?.descriptor.type === 'line') {
+            return this.convertLineSegmentToCurve(segmentHit);
+        }
+
+        return this.beginCommandPathDrawing();
+    }
+
+    private isNeutralCommandCanvasTarget(): boolean {
+        return (
+            this.hoveredGuideHandle === null &&
+            this.hoveredSidebearingHandle === null &&
+            this.hoveredComponentIndex === null &&
+            this.hoveredAnchorIndex === null &&
+            this.hoveredPointIndex === null
+        );
+    }
+
+    private tryHandleActivePathDrawingSessionClick(): boolean {
+        const session = this.activePathDrawingSession;
+        if (!session) {
+            return false;
+        }
+
+        if (
+            !session.startedFromExistingPath &&
+            session.segmentCount > 1 &&
+            this.hoveredPointIndex?.contourIndex === session.shapeIndex &&
+            this.hoveredPointIndex.nodeIndex === session.originNodeIndex
+        ) {
+            return this.closeActivePathDrawingSession(session);
+        }
+
+        if (!this.isNeutralCommandCanvasTarget()) {
+            return false;
+        }
+
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        return this.appendLineToPathSession(session, { x: glyphX, y: glyphY });
+    }
+
+    private beginCommandPathDrawing(): boolean {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerModel = this.getCurrentLayerModel();
+
+        if (!currentLayerData || !currentLayerModel) {
+            return false;
+        }
+
+        const seed = this.getSelectedOpenPathEndpointSeed();
+        if (seed) {
+            const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+            return this.appendLineToPathSession(seed, { x: glyphX, y: glyphY });
+        }
+
+        return this.startNewPathDrawingSession();
+    }
+
+    private getSelectedOpenPathEndpointSeed(): ActivePathDrawingSession | null {
+        if (this.selectedPoints.length !== 1) {
+            return null;
+        }
+
+        const selectedPoint = this.selectedPoints[0];
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const contour = getEditableContour(
+            currentLayerData?.shapes?.[selectedPoint.contourIndex]
+        );
+
+        if (!contour || contour.closed || contour.nodes.length < 1) {
+            return null;
+        }
+
+        if (
+            selectedPoint.nodeIndex !== 0 &&
+            selectedPoint.nodeIndex !== contour.nodes.length - 1
+        ) {
+            return null;
+        }
+
+        const pathIndex = this.getPathIndexForShapeIndex(
+            selectedPoint.contourIndex
+        );
+        if (pathIndex === null) {
+            return null;
+        }
+
+        return {
+            shapeIndex: selectedPoint.contourIndex,
+            pathIndex,
+            edge: selectedPoint.nodeIndex === 0 ? 'start' : 'end',
+            startedFromExistingPath: true,
+            originNodeIndex: selectedPoint.nodeIndex,
+            segmentCount: 0
+        };
+    }
+
+    private getPathIndexForShapeIndex(shapeIndex: number): number | null {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const shapes = currentLayerData?.shapes;
+        if (!shapes || shapeIndex < 0 || shapeIndex >= shapes.length) {
+            return null;
+        }
+
+        let pathIndex = 0;
+        for (let index = 0; index < shapes.length; index++) {
+            if (!this.isPathShape(shapes[index])) {
+                continue;
+            }
+
+            if (index === shapeIndex) {
+                return pathIndex;
+            }
+
+            pathIndex += 1;
+        }
+
+        return null;
+    }
+
+    private getCommandPathPreviewSeed(): ActivePathDrawingSession | null {
+        return (
+            this.activePathDrawingSession ||
+            this.getSelectedOpenPathEndpointSeed()
+        );
+    }
+
+    private getCommandPathPreviewStartPoint(): { x: number; y: number } | null {
+        const session = this.getCommandPathPreviewSeed();
+        if (!session) {
+            return null;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const contour = getEditableContour(
+            currentLayerData?.shapes?.[session.shapeIndex]
+        );
+
+        if (!contour?.nodes.length) {
+            return null;
+        }
+
+        const nodeIndex =
+            session.edge === 'start' ? 0 : contour.nodes.length - 1;
+        const node = contour.nodes[nodeIndex];
+        return node ? { x: node.x, y: node.y } : null;
+    }
+
+    shouldRenderCommandPathPreview(): boolean {
+        return Boolean(
+            this.active &&
+            this.cmdKeyPressed &&
+            !this.isPreviewMode &&
+            this.getCommandPathPreviewStartPoint()
+        );
+    }
+
+    getCommandPathPreviewLine(): {
+        start: { x: number; y: number };
+        end: { x: number; y: number };
+    } | null {
+        if (!this.shouldRenderCommandPathPreview()) {
+            return null;
+        }
+
+        const start = this.getCommandPathPreviewStartPoint();
+        if (!start) {
+            return null;
+        }
+
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        return {
+            start,
+            end: {
+                x: glyphX,
+                y: glyphY
+            }
+        };
+    }
+
+    getCommandPathPreviewContourIndex(): number | null {
+        return this.getCommandPathPreviewSeed()?.shapeIndex ?? null;
+    }
+
+    private shouldShowCommandPathCrosshair(): boolean {
+        if (!this.active || !this.cmdKeyPressed || this.isPreviewMode) {
+            return false;
+        }
+
+        if (this.getCommandPathPreviewSeed()) {
+            return true;
+        }
+
+        return this.isNeutralCommandCanvasTarget();
+    }
+
+    private startNewPathDrawingSession(): boolean {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerModel = this.getCurrentLayerModel();
+
+        if (!currentLayerData || !currentLayerModel) {
+            return false;
+        }
+
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        let activePath = null;
+
+        withSuppressedModelRecording(() => {
+            activePath = currentLayerModel.addPath(false);
+            activePath?._appendLine({ x: glyphX, y: glyphY });
+
+            for (const linkedLayer of linkedLayers) {
+                const linkedPath = linkedLayer.addPath(false);
+                linkedPath._appendLine({ x: glyphX, y: glyphY });
+            }
+        });
+
+        const pathIndex = currentLayerModel.paths.length - 1;
+        const shapeIndex = (currentLayerModel.shapes?.length || 1) - 1;
+        this.notePendingCommandPathEdit('draw');
+        this.activePathDrawingSession = {
+            shapeIndex,
+            pathIndex,
+            edge: 'end',
+            startedFromExistingPath: false,
+            originNodeIndex: 0,
+            segmentCount: 0
+        };
+
+        this.syncCurrentContourDataFromModel(pathIndex, shapeIndex);
+        this.selectedPoints = [{ contourIndex: shapeIndex, nodeIndex: 0 }];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+        return !!activePath;
+    }
+
+    private appendLineToPathSession(
+        session: ActivePathDrawingSession,
+        point: { x: number; y: number }
+    ): boolean {
+        const currentLayerModel = this.getCurrentLayerModel();
+        if (!currentLayerModel) {
+            return false;
+        }
+
+        const activePath = currentLayerModel.paths?.[session.pathIndex];
+        if (!activePath) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        let insertedNodeIndex: number | null = null;
+
+        withSuppressedModelRecording(() => {
+            insertedNodeIndex = activePath._appendLine(point, session.edge);
+
+            for (const linkedLayer of linkedLayers) {
+                const linkedPath = linkedLayer.paths?.[session.pathIndex];
+                linkedPath?._appendLine(point, session.edge);
+            }
+        });
+
+        if (insertedNodeIndex === null) {
+            return false;
+        }
+
+        this.notePendingCommandPathEdit('draw');
+        this.activePathDrawingSession = {
+            ...session,
+            segmentCount: session.segmentCount + 1
+        };
+        this.syncCurrentContourDataFromModel(
+            session.pathIndex,
+            session.shapeIndex
+        );
+        this.selectedPoints = [
+            {
+                contourIndex: session.shapeIndex,
+                nodeIndex: insertedNodeIndex
+            }
+        ];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+        return true;
+    }
+
+    private closeActivePathDrawingSession(
+        session: ActivePathDrawingSession
+    ): boolean {
+        const currentLayerModel = this.getCurrentLayerModel();
+        if (!currentLayerModel) {
+            return false;
+        }
+
+        const activePath = currentLayerModel.paths?.[session.pathIndex];
+        if (!activePath) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        let changed = false;
+
+        withSuppressedModelRecording(() => {
+            changed = activePath._closeOpenPath();
+            if (!changed) {
+                return;
+            }
+
+            for (const linkedLayer of linkedLayers) {
+                const linkedPath = linkedLayer.paths?.[session.pathIndex];
+                linkedPath?._closeOpenPath();
+            }
+        });
+
+        if (!changed) {
+            return false;
+        }
+
+        this.notePendingCommandPathEdit('draw');
+        this.activePathDrawingSession = null;
+        this.syncCurrentContourDataFromModel(
+            session.pathIndex,
+            session.shapeIndex
+        );
+        this.selectedPoints = [
+            {
+                contourIndex: session.shapeIndex,
+                nodeIndex: session.originNodeIndex
+            }
+        ];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+        return true;
+    }
+
+    private convertLineSegmentToCurve(hit: PathSegmentHit): boolean {
+        const currentLayerModel = this.getCurrentLayerModel();
+        if (!currentLayerModel) {
+            return false;
+        }
+
+        const activePath = currentLayerModel.paths?.[hit.pathIndex];
+        if (!activePath) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        let changed = false;
+
+        withSuppressedModelRecording(() => {
+            changed = activePath._convertLineSegmentToCurve(
+                hit.descriptor.segmentId
+            );
+            if (!changed) {
+                return;
+            }
+
+            for (const linkedLayer of linkedLayers) {
+                const linkedPath = linkedLayer.paths?.[hit.pathIndex];
+                linkedPath?._convertLineSegmentToCurve(
+                    hit.descriptor.segmentId
+                );
+            }
+        });
+
+        if (!changed) {
+            return false;
+        }
+
+        this.notePendingCommandPathEdit('convert');
+        this.activePathDrawingSession = null;
+        this.syncCurrentContourDataFromModel(hit.pathIndex, hit.shapeIndex);
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+        return true;
+    }
+
+    private notePendingCommandPathEdit(kind: 'draw' | 'convert'): void {
+        if (!this.pendingCommandPathEdit) {
+            this.pendingCommandPathEdit = {
+                didDraw: false,
+                didConvertLine: false
+            };
+        }
+
+        if (kind === 'draw') {
+            this.pendingCommandPathEdit.didDraw = true;
+        } else {
+            this.pendingCommandPathEdit.didConvertLine = true;
+        }
+    }
+
+    private finalizePendingCommandPathEdit(): void {
+        const pendingEdit = this.pendingCommandPathEdit;
+        this.activePathDrawingSession = null;
+        this.pendingCommandPathEdit = null;
+
+        if (!pendingEdit) {
+            return;
+        }
+
+        const currentGlyphModel = this.getCurrentGlyphModel();
+        const currentFont = fontManager.currentFont;
+        const layerId = this.getCurrentLayerId();
+        const bridge = window.changeBridge;
+        const label = pendingEdit.didDraw
+            ? pendingEdit.didConvertLine
+                ? 'Edit path'
+                : 'Draw path'
+            : pendingEdit.didConvertLine
+              ? 'Convert line to curve'
+              : null;
+
+        if (!label) {
+            return;
+        }
+
+        if (bridge && currentGlyphModel?.name) {
+            bridge.beginTransaction(label);
+            try {
+                bridge.syncGlyphFromJson(currentGlyphModel.name, label);
+            } finally {
+                bridge.endTransaction();
+            }
+        }
+
+        if (currentFont) {
+            currentFont.markDirty('keyboard-outline');
+            void fontManager.updateDirtyIndicator();
+
+            window.setTimeout(() => {
+                if (fontManager.currentFont !== currentFont) {
+                    return;
+                }
+
+                try {
+                    currentFont.syncJsonFromModel();
+                } catch (error) {
+                    console.error(
+                        '[OutlineEditor] Error syncing font JSON after cmd path edit:',
+                        error
+                    );
+                    return;
+                }
+
+                void fontManager.updateWorkerFontCache();
+            }, 0);
+        } else if (currentGlyphModel?.name) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: currentGlyphModel.name,
+                        layerId
+                    }
+                })
+            );
+        }
+
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+    }
+
     onGlyphSelected() {
         // Perform mouse hit detection for objects at current mouse position
         if (this.active && this.selectedLayerId && this.layerData) {
@@ -4639,14 +5174,17 @@ export class OutlineEditor {
         }
     }
 
-    private syncCurrentContourDataFromModel(pathIndex: number): void {
+    private syncCurrentContourDataFromModel(
+        pathIndex: number,
+        shapeIndex: number = pathIndex
+    ): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const currentLayerModel = this.getCurrentLayerModel();
         const path = currentLayerModel?.paths?.[pathIndex];
-        const shape = currentLayerData?.shapes?.[pathIndex];
+        const shape = currentLayerData?.shapes?.[shapeIndex];
         const contour = getPathShapeData(shape);
 
-        if (!path || !contour || typeof contour !== 'object') {
+        if (!currentLayerData || !path) {
             return;
         }
 
@@ -4657,11 +5195,25 @@ export class OutlineEditor {
                 : Array.isArray(pathData.nodes)
                   ? pathData.nodes
                   : [];
+        const normalizedPathData: Babelfont.Path = {
+            ...pathData,
+            nodes: normalizedNodes.map((node: Babelfont.Node) => ({
+                ...node
+            })),
+            closed: Boolean(pathData.closed)
+        };
 
-        contour.nodes = normalizedNodes.map((node: Babelfont.Node) => ({
-            ...node
-        }));
-        contour.closed = Boolean(pathData.closed);
+        if (!contour || typeof contour !== 'object') {
+            if (!currentLayerData.shapes) {
+                currentLayerData.shapes = [];
+            }
+
+            currentLayerData.shapes.splice(shapeIndex, 0, normalizedPathData);
+            return;
+        }
+
+        contour.nodes = normalizedPathData.nodes;
+        contour.closed = normalizedPathData.closed;
     }
 
     private syncCurrentExactLayerDataFromModel(): void {
@@ -5476,6 +6028,7 @@ export class OutlineEditor {
     }
 
     onBlur() {
+        this.setCommandKeyPressed(false);
         this.spaceKeyPressed = false;
         this.isDraggingPoint = false;
         this.isSlidingSmoothPointAlongCurve = false;
