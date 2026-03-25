@@ -1,12 +1,12 @@
 {
-  "name": "context-font-editor",
-  "version": "0.1.0",
-  "description": "Context Font Editor",
-  "type": "module",
-  "scripts": {
-    "generate-docs": "node generate-api-docs.mjs"
-  },
-  "dependencies": {
-    "typescript": "^5.0.0"
-  }
+    "name": "counterpunch-font-editor",
+    "version": "0.1.0",
+    "description": "Counterpunch Font Editor",
+    "type": "module",
+    "scripts": {
+        "generate-docs": "node generate-api-docs.mjs"
+    },
+    "dependencies": {
+        "typescript": "^5.0.0"
+    }
 }
