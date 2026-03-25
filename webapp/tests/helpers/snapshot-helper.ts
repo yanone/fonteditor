@@ -90,33 +90,22 @@ export async function waitForCanvasReady(page: any) {
  */
 export async function waitForFontLoaded(page: any) {
     console.log('[Test] Waiting for fontReady event');
-    // Wait for fontReady event to be dispatched.
-    // Guard against race conditions where the event fired before listener setup.
-    await page.evaluate(() => {
-        return new Promise<void>((resolve, reject) => {
-            if (window.currentFontModel && window.fontManager?.currentFont) {
-                resolve();
-                return;
-            }
-
-            const onReady = () => {
-                window.clearTimeout(timeoutId);
-                resolve();
-            };
-
-            const timeoutId = window.setTimeout(() => {
-                window.removeEventListener('fontReady', onReady);
-                reject(new Error('Timed out waiting for fontReady event'));
-            }, 15000);
-
-            window.addEventListener('fontReady', onReady, { once: true });
-        });
-    });
+    // Startup sequencing can dispatch fontReady before this helper attaches
+    // its listener. Wait for the underlying loaded-font state instead of
+    // relying on a single event edge.
+    await page.waitForFunction(
+        () => {
+            const currentFont = window.fontManager?.currentFont;
+            return !!currentFont && !!(window.currentFontModel || currentFont.fontModel);
+        },
+        { timeout: 15000 }
+    );
 
     console.log('[Test] Waiting for font model to be ready');
     await page.waitForFunction(
         () => {
-            return window.currentFontModel && window.fontManager?.currentFont;
+            const currentFont = window.fontManager?.currentFont;
+            return !!currentFont && !!(window.currentFontModel || currentFont.fontModel);
         },
         { timeout: 5000 }
     );

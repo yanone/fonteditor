@@ -918,6 +918,7 @@ class FontManager {
         let newid = `font-${Date.now()}`;
         this.openedFonts.set(newid, newFont);
         this.currentFontId = newid;
+        window.currentFontModel = newFont.fontModel;
 
         this.editingFont = null;
         this.fullFont = null;

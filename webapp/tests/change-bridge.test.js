@@ -277,7 +277,10 @@ const GENERIC_ACCESSOR_TEST_EXCLUSIONS = new Set([
     'lsb',
     'rsb',
     'leftMetricsKey',
-    'rightMetricsKey'
+    'rightMetricsKey',
+    'selected', // UI/editor selection state (Node, Anchor, Component, Guide)
+    'linked', // UI/editor layer linkage state
+    'selection' // UI/editor selection snapshot on Layer
 ]);
 const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
     'anchors',
@@ -293,7 +296,8 @@ const GENERIC_MUTABLE_GETTER_EXCLUSIONS = new Set([
     'nodes',
     'paths',
     'rsb',
-    'shapes'
+    'shapes',
+    'selection' // UI/editor selection snapshot on Layer
 ]);
 
 function cloneValue(value) {
@@ -1298,12 +1302,13 @@ describe('change-log', () => {
                 layerId: 'layer-1'
             })
         ).toHaveLength(1);
+        // Glyph-scoped items appear for all layers of that glyph
         expect(
             buildHistoryStackItems([changeEntry], {
                 glyphName: 'A',
                 layerId: 'layer-miss'
             })
-        ).toHaveLength(0);
+        ).toHaveLength(1);
     });
 });
 
