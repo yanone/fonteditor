@@ -96,7 +96,10 @@ export async function waitForFontLoaded(page: any) {
     await page.waitForFunction(
         () => {
             const currentFont = window.fontManager?.currentFont;
-            return !!currentFont && !!(window.currentFontModel || currentFont.fontModel);
+            return (
+                !!currentFont &&
+                !!(window.currentFontModel || currentFont.fontModel)
+            );
         },
         { timeout: 15000 }
     );
@@ -105,7 +108,10 @@ export async function waitForFontLoaded(page: any) {
     await page.waitForFunction(
         () => {
             const currentFont = window.fontManager?.currentFont;
-            return !!currentFont && !!(window.currentFontModel || currentFont.fontModel);
+            return (
+                !!currentFont &&
+                !!(window.currentFontModel || currentFont.fontModel)
+            );
         },
         { timeout: 5000 }
     );
