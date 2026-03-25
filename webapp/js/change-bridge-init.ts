@@ -15,7 +15,7 @@ import { Font } from './babelfont-model';
 import { WindowSync } from './window-sync';
 import { fontCompilation } from './font-compilation';
 import { Logger } from './logger';
-import type { HistoryStackItem } from './change-log';
+import { deriveGlyphNamesFromPaths, type HistoryStackItem } from './change-log';
 import {
     syncModelSidebearingEditToCanvas,
     inferSidebearingSideFromHistoryItem
@@ -239,6 +239,74 @@ function applyImmediateUndoSidebearingSync(
     gc.render?.();
 }
 
+function collectUndoRedoOverviewGlyphNames(
+    historyItem: HistoryStackItem | null,
+    glyphNames: Array<string | null | undefined>
+): string[] {
+    const refreshGlyphNames = new Set<string>();
+    const addGlyphName = (glyphName?: string | null) => {
+        if (glyphName && glyphName !== 'undefined') {
+            refreshGlyphNames.add(glyphName);
+        }
+    };
+
+    for (const glyphName of glyphNames) {
+        addGlyphName(glyphName);
+    }
+
+    for (const glyphName of deriveGlyphNamesFromPaths(
+        historyItem?.touchedPaths ?? []
+    )) {
+        addGlyphName(glyphName);
+    }
+
+    const fontModel =
+        window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
+    if (fontModel?.findGlyphsUsingComponent) {
+        for (const glyphName of [...refreshGlyphNames]) {
+            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
+                glyphName
+            )) {
+                addGlyphName(dependentGlyphName);
+            }
+        }
+    }
+
+    return [...refreshGlyphNames];
+}
+
+async function refreshGlyphOverviewAfterUndoRedo(
+    historyItem: HistoryStackItem | null,
+    layerId: string | null,
+    glyphNames: Array<string | null | undefined>
+): Promise<void> {
+    const refreshGlyphNames = collectUndoRedoOverviewGlyphNames(
+        historyItem,
+        glyphNames
+    );
+
+    if (refreshGlyphNames.length) {
+        for (const glyphName of refreshGlyphNames) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName,
+                        layerId: layerId ?? undefined
+                    }
+                })
+            );
+        }
+        return;
+    }
+
+    const glyphOverview = window.glyphOverviewInstance;
+    if (typeof glyphOverview?.renderGlyphOutlines === 'function') {
+        await glyphOverview.renderGlyphOutlines(
+            glyphOverview.currentLocation ?? {}
+        );
+    }
+}
+
 export function queueRustCacheAndRefreshCanvas(): Promise<void> {
     return enqueueBridgeSync(async () => {
         await syncRustCacheAndRefreshCanvas();
@@ -295,6 +363,18 @@ export function runBridgeUndoRedo(
             refreshRootGlyphName,
             glyphName,
             true
+        );
+
+        await refreshGlyphOverviewAfterUndoRedo(
+            appliedChange.historyItem,
+            appliedChange.layerId ?? layerId ?? null,
+            [
+                appliedChange.glyphName,
+                glyphName,
+                editedGlyphName,
+                refreshRootGlyphName,
+                getActiveEditedGlyphName()
+            ]
         );
     });
 }
