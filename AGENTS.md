@@ -376,6 +376,8 @@ The MCP (Model Context Protocol) server in `mcp-server/` provides:
 - Runtime data inspection
 - JavaScript execution in webapp context
 
+When using MCP for live app inspection, always use the app instance already running in Chrome. Do not open or inspect the app in a VS Code browser tab, because that can attach MCP to the wrong runtime session and hide the real state.
+
 Start the server: `cd mcp-server && npm run dev`
 
 WebSocket port: 9876
