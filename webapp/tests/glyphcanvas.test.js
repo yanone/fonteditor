@@ -4516,6 +4516,8 @@ describe('GlyphCanvas keyboard handling', () => {
     });
 
     afterEach(() => {
+        delete window.glyphCanvas;
+        jest.restoreAllMocks();
         canvas.destroy();
     });
 
@@ -4684,6 +4686,166 @@ describe('GlyphCanvas keyboard handling', () => {
         expect(repeatEvent.defaultPrevented).toBe(true);
         expect(document.activeElement).toBe(canvas.canvas);
         expect(canvas.measurementKeyPressed).toBe(true);
+    });
+
+    test('Cmd+Alt+L clicks the summary layer-link toggle and uses the same tooltip text', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 0, nodetype: 'Line' },
+                                        { x: 400, y: 700, nodetype: 'Line' },
+                                        { x: 100, y: 700, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'brace-layer',
+                            name: '{50}',
+                            width: 520,
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            location: { wght: 50 },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 110, y: 0, nodetype: 'Line' },
+                                        { x: 410, y: 0, nodetype: 'Line' },
+                                        { x: 410, y: 680, nodetype: 'Line' },
+                                        { x: 110, y: 680, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Keyboard Shortcut Test' }
+            },
+            note: '',
+            date: '2026-03-25',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        jest.spyOn(fontManager, 'currentFont', 'get').mockReturnValue({
+            fontModel: font,
+            babelfontData: {
+                glyphs: font.glyphs.map((glyph) => glyph.toJSON())
+            }
+        });
+        jest.spyOn(fontManager, 'fetchGlyphData').mockResolvedValue({
+            glyphName: 'A',
+            layers: font.findGlyph('A').layers.map((layer) => layer.toJSON())
+        });
+
+        const editorView = document.createElement('div');
+        editorView.id = 'view-editor';
+        editorView.className = 'focused';
+        document.body.appendChild(editorView);
+        const propertiesSection = document.createElement('div');
+        propertiesSection.id = 'glyph-properties-section';
+        document.body.appendChild(propertiesSection);
+        window.glyphCanvas = canvas;
+        canvas.propertiesSection = propertiesSection;
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+
+        await canvas.displayMastersList(propertiesSection, false);
+
+        const summaryButton = propertiesSection.querySelector(
+            '.editor-layer-link-summary-toggle'
+        );
+
+        expect(summaryButton).toBeTruthy();
+        expect(summaryButton.getAttribute('title')).toBe(
+            'Unlink all layers (Cmd+Alt+L)'
+        );
+
+        const firstEvent = new KeyboardEvent('keydown', {
+            key: 'l',
+            code: 'KeyL',
+            metaKey: true,
+            altKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+
+        document.dispatchEvent(firstEvent);
+
+        expect(firstEvent.defaultPrevented).toBe(true);
+        expect(canvas.outlineEditor.isLayerLinked('layer-1', 'A')).toBe(false);
+        expect(canvas.outlineEditor.isLayerLinked('brace-layer', 'A')).toBe(
+            false
+        );
+        expect(summaryButton.getAttribute('title')).toBe(
+            'Link all layers (Cmd+Alt+L)'
+        );
+
+        const secondEvent = new KeyboardEvent('keydown', {
+            key: 'l',
+            code: 'KeyL',
+            metaKey: true,
+            altKey: true,
+            bubbles: true,
+            cancelable: true
+        });
+
+        document.dispatchEvent(secondEvent);
+
+        expect(secondEvent.defaultPrevented).toBe(true);
+        expect(canvas.outlineEditor.isLayerLinked('layer-1', 'A')).toBe(true);
+        expect(canvas.outlineEditor.isLayerLinked('brace-layer', 'A')).toBe(
+            true
+        );
+        expect(summaryButton.getAttribute('title')).toBe(
+            'Unlink all layers (Cmd+Alt+L)'
+        );
     });
 });
 

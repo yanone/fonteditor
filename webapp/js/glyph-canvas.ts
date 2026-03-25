@@ -529,6 +529,32 @@ class GlyphCanvas {
             }
         });
 
+        document.addEventListener(
+            'keydown',
+            (e) => {
+                if ((e.metaKey || e.ctrlKey) && e.altKey && e.code === 'KeyL') {
+                    const editorView = document.querySelector('#view-editor');
+                    const isEditorFocused =
+                        !!editorView &&
+                        editorView.classList.contains('focused');
+
+                    if (!isEditorFocused || !this.outlineEditor.active) {
+                        return;
+                    }
+
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const summaryLinkButton =
+                        this.propertiesSection?.querySelector(
+                            '.editor-layer-link-summary-toggle'
+                        ) as HTMLButtonElement | null;
+                    summaryLinkButton?.click();
+                }
+            },
+            true
+        );
+
         document.addEventListener('keydown', (e) => {
             if ((e.metaKey || e.ctrlKey) && e.altKey && e.code === 'KeyG') {
                 const editorView = document.querySelector('#view-editor');
@@ -1874,8 +1900,8 @@ class GlyphCanvas {
             setLinkButtonState(
                 summaryLinkButton,
                 allLinked,
-                'Unlink all layers',
-                'Link all layers'
+                'Unlink all layers (Cmd+Alt+L)',
+                'Link all layers (Cmd+Alt+L)'
             );
 
             for (const button of layerLinkButtons) {
@@ -2742,7 +2768,6 @@ class GlyphCanvas {
 
         return glyph.findLayerById(this.outlineEditor.selectedLayerId) || null;
     }
-
     reapplyActiveEditedGlyphAdvanceAfterShape(): boolean {
         if (!this.outlineEditor.active || !this.textRunEditor) {
             return false;
