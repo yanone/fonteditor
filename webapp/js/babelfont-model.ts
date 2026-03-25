@@ -1413,6 +1413,198 @@ function deleteNodeFromNodeArray<T extends Babelfont.Node>(
     return normalizePathNodeArray(mergedNodes, closed);
 }
 
+function getAdjacentPathDescriptors(
+    descriptors: PathSegmentDescriptor[],
+    nodeIndex: number
+): {
+    leftDescriptor: PathSegmentDescriptor | null;
+    rightDescriptor: PathSegmentDescriptor | null;
+} {
+    return {
+        leftDescriptor:
+            descriptors.find(
+                (descriptor) => descriptor.endNodeIndex === nodeIndex
+            ) || null,
+        rightDescriptor:
+            descriptors.find(
+                (descriptor) => descriptor.startNodeIndex === nodeIndex
+            ) || null
+    };
+}
+
+function isCurveSegmentDescriptor(
+    descriptor: PathSegmentDescriptor | null
+): descriptor is PathSegmentDescriptor {
+    return Boolean(
+        descriptor &&
+        (descriptor.type === 'cubic' || descriptor.type === 'quadratic')
+    );
+}
+
+function pointsMatchWithinTolerance(
+    left: SegmentPoint,
+    right: SegmentPoint,
+    tolerance = 0.000001
+): boolean {
+    return (
+        Math.abs(left.x - right.x) <= tolerance &&
+        Math.abs(left.y - right.y) <= tolerance
+    );
+}
+
+function findMergedSegmentDescriptorAfterNodeDeletion(
+    mergedDescriptors: PathSegmentDescriptor[],
+    leftDescriptor: PathSegmentDescriptor,
+    rightDescriptor: PathSegmentDescriptor
+): PathSegmentDescriptor | null {
+    const expectedStart = leftDescriptor.points[0];
+    const expectedEnd =
+        rightDescriptor.points[rightDescriptor.points.length - 1];
+
+    return (
+        mergedDescriptors.find((descriptor) => {
+            const startPoint = descriptor.points[0];
+            const endPoint = descriptor.points[descriptor.points.length - 1];
+            return (
+                pointsMatchWithinTolerance(startPoint, expectedStart) &&
+                pointsMatchWithinTolerance(endPoint, expectedEnd)
+            );
+        }) || null
+    );
+}
+
+function projectPointOntoLineSegment(
+    point: SegmentPoint,
+    start: SegmentPoint,
+    end: SegmentPoint
+): number {
+    const deltaX = end.x - start.x;
+    const deltaY = end.y - start.y;
+    const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+
+    if (!lengthSquared) {
+        return 0;
+    }
+
+    return clampUnitInterval(
+        ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) /
+            lengthSquared
+    );
+}
+
+function prepareSmoothPointSlideMutation(
+    nodes: Babelfont.Node[],
+    nodeIndex: number,
+    closed: boolean
+): {
+    mergedNodes: Babelfont.Node[];
+    mergedDescriptor: PathSegmentDescriptor;
+} | null {
+    if (nodeIndex < 0 || nodeIndex >= nodes.length) {
+        return null;
+    }
+
+    const targetNode = nodes[nodeIndex];
+    if (
+        !targetNode ||
+        isOffCurveNodeType(targetNode.nodetype) ||
+        targetNode.nodetype === 'Move' ||
+        !targetNode.smooth
+    ) {
+        return null;
+    }
+
+    const descriptors = buildPathSegmentDescriptors({ nodes, closed });
+    const { leftDescriptor, rightDescriptor } = getAdjacentPathDescriptors(
+        descriptors,
+        nodeIndex
+    );
+
+    if (
+        !isCurveSegmentDescriptor(leftDescriptor) ||
+        !isCurveSegmentDescriptor(rightDescriptor)
+    ) {
+        return null;
+    }
+
+    const mergedNodes = deleteNodeFromNodeArray(nodes, nodeIndex, closed);
+    if (!mergedNodes) {
+        return null;
+    }
+
+    const mergedDescriptors = buildPathSegmentDescriptors({
+        nodes: mergedNodes,
+        closed
+    });
+    const mergedDescriptor = findMergedSegmentDescriptorAfterNodeDeletion(
+        mergedDescriptors,
+        leftDescriptor,
+        rightDescriptor
+    );
+
+    if (!mergedDescriptor) {
+        return null;
+    }
+
+    return {
+        mergedNodes,
+        mergedDescriptor
+    };
+}
+
+function buildSmoothPointSlideMutationAtT(
+    nodes: Babelfont.Node[],
+    nodeIndex: number,
+    t: number,
+    closed: boolean
+): { nodes: Babelfont.Node[]; insertedNodeIndex: number; t: number } | null {
+    const prepared = prepareSmoothPointSlideMutation(nodes, nodeIndex, closed);
+    if (!prepared) {
+        return null;
+    }
+
+    const normalizedT = clampUnitInterval(t);
+
+    const mutation = buildInsertedSegmentNodeArray(
+        prepared.mergedNodes,
+        prepared.mergedDescriptor,
+        normalizedT,
+        closed
+    );
+
+    return {
+        ...mutation,
+        t: normalizedT
+    };
+}
+
+function buildSmoothPointSlideMutation(
+    nodes: Babelfont.Node[],
+    nodeIndex: number,
+    targetPoint: SegmentPoint,
+    closed: boolean
+): { nodes: Babelfont.Node[]; insertedNodeIndex: number; t: number } | null {
+    const prepared = prepareSmoothPointSlideMutation(nodes, nodeIndex, closed);
+    if (!prepared) {
+        return null;
+    }
+
+    const t =
+        prepared.mergedDescriptor.points.length === 2
+            ? projectPointOntoLineSegment(
+                  targetPoint,
+                  prepared.mergedDescriptor.points[0],
+                  prepared.mergedDescriptor.points[1]
+              )
+            : clampUnitInterval(
+                  new Bezier(prepared.mergedDescriptor.points).project(
+                      targetPoint
+                  ).t ?? 0
+              );
+
+    return buildSmoothPointSlideMutationAtT(nodes, nodeIndex, t, closed);
+}
+
 function stripBatchDeleteTracking(nodes: BatchTrackedNode[]): Babelfont.Node[] {
     return nodes.map((node) => {
         const { __batchDeleteOrigins, ...strippedNode } = node;
@@ -3282,6 +3474,112 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         this._nodeWrappers = null;
         recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
         return mutation.insertedNodeIndex;
+    }
+
+    _canSlideSmoothOnCurve(nodeIndex: number): boolean {
+        const nodeArray = this.ensureNodesArray();
+        const targetNode = nodeArray[nodeIndex];
+
+        if (
+            !targetNode ||
+            isOffCurveNodeType(targetNode.nodetype) ||
+            targetNode.nodetype === 'Move' ||
+            !targetNode.smooth
+        ) {
+            return false;
+        }
+
+        const descriptors = buildPathSegmentDescriptors({
+            nodes: nodeArray,
+            closed: this.closed
+        });
+        const { leftDescriptor, rightDescriptor } = getAdjacentPathDescriptors(
+            descriptors,
+            nodeIndex
+        );
+
+        return (
+            isCurveSegmentDescriptor(leftDescriptor) &&
+            isCurveSegmentDescriptor(rightDescriptor)
+        );
+    }
+
+    _slideSmoothOnCurve(
+        nodeIndex: number,
+        targetPoint: { x: number; y: number }
+    ): { insertedNodeIndex: number; changed: boolean; t: number } | null {
+        const nodeArray = this.ensureNodesArray();
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        const mutation = buildSmoothPointSlideMutation(
+            nodeArray,
+            nodeIndex,
+            targetPoint,
+            this.closed
+        );
+
+        if (!mutation) {
+            return null;
+        }
+
+        const changed =
+            JSON.stringify(oldNodes) !== JSON.stringify(mutation.nodes);
+
+        if (!changed) {
+            return {
+                insertedNodeIndex: mutation.insertedNodeIndex,
+                changed: false,
+                t: mutation.t
+            };
+        }
+
+        this.data.nodes = mutation.nodes;
+        this._nodeWrappers = null;
+
+        recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
+        return {
+            insertedNodeIndex: mutation.insertedNodeIndex,
+            changed,
+            t: mutation.t
+        };
+    }
+
+    _slideSmoothOnCurveAtT(
+        nodeIndex: number,
+        t: number
+    ): { insertedNodeIndex: number; changed: boolean; t: number } | null {
+        const nodeArray = this.ensureNodesArray();
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        const mutation = buildSmoothPointSlideMutationAtT(
+            nodeArray,
+            nodeIndex,
+            t,
+            this.closed
+        );
+
+        if (!mutation) {
+            return null;
+        }
+
+        const changed =
+            JSON.stringify(oldNodes) !== JSON.stringify(mutation.nodes);
+
+        if (!changed) {
+            return {
+                insertedNodeIndex: mutation.insertedNodeIndex,
+                changed: false,
+                t: mutation.t
+            };
+        }
+
+        this.data.nodes = mutation.nodes;
+        this._nodeWrappers = null;
+
+        recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
+        return {
+            insertedNodeIndex: mutation.insertedNodeIndex,
+            changed,
+            t: mutation.t
+        };
     }
 
     /**

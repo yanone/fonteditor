@@ -1864,6 +1864,61 @@ describe('Babelfont Object Model', () => {
             expect(path.nodes[2].y).not.toBeCloseTo(path.nodes[0].y, 8);
         });
 
+        test('Path._slideSmoothOnCurve should move a smooth on-curve point along the merged cubic without changing the fitted curve', () => {
+            const originalNodes = [
+                { x: 0, y: 0, nodetype: 'Curve', smooth: true },
+                { x: 25, y: 80, nodetype: 'OffCurve' },
+                { x: 75, y: 80, nodetype: 'OffCurve' },
+                { x: 100, y: 0, nodetype: 'Curve', smooth: true },
+                { x: 125, y: -80, nodetype: 'OffCurve' },
+                { x: 175, y: -80, nodetype: 'OffCurve' },
+                { x: 200, y: 0, nodetype: 'Curve', smooth: true }
+            ];
+            const mergedFont = makeFontWithSinglePath(originalNodes, false);
+            const mergedPath = mergedFont.glyphs[0].layers[0].paths[0];
+            expect(mergedPath._deleteNode(3)).toBe(true);
+
+            const mergedCurve = new Bezier([
+                { x: mergedPath.nodes[0].x, y: mergedPath.nodes[0].y },
+                { x: mergedPath.nodes[1].x, y: mergedPath.nodes[1].y },
+                { x: mergedPath.nodes[2].x, y: mergedPath.nodes[2].y },
+                { x: mergedPath.nodes[3].x, y: mergedPath.nodes[3].y }
+            ]);
+            const requestedPoint = { x: 118, y: 14 };
+            const projectedPoint = mergedCurve.project(requestedPoint);
+
+            const testFont = makeFontWithSinglePath(originalNodes, false);
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            const result = path._slideSmoothOnCurve(3, requestedPoint);
+
+            expect(result).not.toBeNull();
+            expect(result.changed).toBe(true);
+            expect(result.t).toBeCloseTo(projectedPoint.t, 8);
+            expect(path.nodes[result.insertedNodeIndex].x).toBeCloseTo(
+                projectedPoint.x,
+                8
+            );
+            expect(path.nodes[result.insertedNodeIndex].y).toBeCloseTo(
+                projectedPoint.y,
+                8
+            );
+
+            const movedNodes = path.nodes.map((node) => ({
+                x: node.x,
+                y: node.y,
+                nodetype: node.nodetype,
+                ...(node.smooth !== undefined ? { smooth: node.smooth } : {})
+            }));
+            const collapsedFont = makeFontWithSinglePath(movedNodes, false);
+            const collapsedPath = collapsedFont.glyphs[0].layers[0].paths[0];
+            expect(collapsedPath._deleteNode(result.insertedNodeIndex)).toBe(
+                true
+            );
+
+            expectNodesToMatch(collapsedPath.nodes, mergedPath.nodes);
+        });
+
         test('Path._deleteNode should set both adjacent on-curve points to smooth=false when deleting a handle into a line', () => {
             const testFont = makeFontWithSinglePath(
                 [

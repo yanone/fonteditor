@@ -808,6 +808,7 @@ export class OutlineEditor {
     spaceKeyPressed: boolean = false;
     cursorStyleBeforePreview: string | null = null;
     isDraggingPoint: boolean = false;
+    isSlidingSmoothPointAlongCurve: boolean = false;
     isDraggingComponent: boolean = false;
     isDraggingAnchor: boolean = false;
     isDraggingSidebearing: boolean = false;
@@ -818,6 +819,7 @@ export class OutlineEditor {
     _dragType:
         | 'anchor'
         | 'point'
+        | 'slide-point'
         | 'component'
         | 'sidebearing'
         | 'guide'
@@ -2624,6 +2626,7 @@ export class OutlineEditor {
         this.altKeyPressed = false;
         this.hoveredSidebearingHandle = null;
         this.isDraggingPoint = false;
+        this.isSlidingSmoothPointAlongCurve = false;
         this.isDraggingSidebearing = false;
         this.isDraggingGuide = false;
         this.selectedGuideHandle = null;
@@ -3195,6 +3198,31 @@ export class OutlineEditor {
         if (this.hoveredPointIndex) {
             this.selectedGuideHandle = null;
             this.selectedSidebearingHandle = null;
+            const isCmdClick = e.metaKey || e.ctrlKey;
+            if (
+                isCmdClick &&
+                !e.shiftKey &&
+                this.canSlideSmoothPointOnCurve(this.hoveredPointIndex)
+            ) {
+                this.selectedPoints = [{ ...this.hoveredPointIndex }];
+                this.selectedAnchors = [];
+                this.selectedComponents = [];
+                this.isDraggingPoint = true;
+                this.isSlidingSmoothPointAlongCurve = true;
+                this._hasMoved = false;
+                this._dragType = 'slide-point';
+                this._preDragDesc = this._buildNodeDesc();
+                window.changeBridge?.beginTransaction('Move point along curve');
+                this.glyphCanvas.lastMouseX = e.clientX;
+                this.glyphCanvas.lastMouseY = e.clientY;
+                this.lastGlyphX = null;
+                this.lastGlyphY = null;
+                this.lastPointDragShiftKey = e.shiftKey;
+                this.glyphCanvas.updatePropertyPanel();
+                this.glyphCanvas.render();
+                return;
+            }
+
             if (e.shiftKey) {
                 // Shift-click: add to or remove from selection (keep anchors selected for mixed selection)
                 const existingIndex = this.selectedPoints.findIndex(
@@ -3417,18 +3445,27 @@ export class OutlineEditor {
         // Update all selected items
         this._updateDraggedGuide(deltaX, deltaY);
         this._updateDraggedComponents(deltaX, deltaY);
-        this._updateDraggedPoints(
-            deltaX,
-            deltaY,
-            e.altKey,
-            e.shiftKey,
-            glyphX,
-            glyphY
-        );
+        if (this.isSlidingSmoothPointAlongCurve) {
+            if (this.slideSelectedSmoothPointAlongCurve(glyphX, glyphY)) {
+                this._hasMoved = true;
+            }
+        } else {
+            this._updateDraggedPoints(
+                deltaX,
+                deltaY,
+                e.altKey,
+                e.shiftKey,
+                glyphX,
+                glyphY
+            );
+        }
         this._updateDraggedAnchors(deltaX, deltaY);
         this._updateDraggedSidebearing(deltaX);
 
-        if (this.isDraggingPoint || this.isDraggingComponent) {
+        if (
+            (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve) ||
+            this.isDraggingComponent
+        ) {
             this.applyMetricsKeysToCurrentEditedLayer();
         }
 
@@ -3438,6 +3475,9 @@ export class OutlineEditor {
             if (this.selectedGuideHandle?.scope === 'layer') {
                 this.saveLayerData('mouse-drag-guide');
             }
+        } else if (this.isSlidingSmoothPointAlongCurve) {
+            // Sliding a smooth point is applied directly to the model so linked
+            // layers stay in sync. Persist once on mouse up.
         } else {
             const dragChangeSource = this.isDraggingAnchor
                 ? 'mouse-drag-anchor'
@@ -3596,6 +3636,7 @@ export class OutlineEditor {
         const draggedGuideScope = this.selectedGuideHandle?.scope ?? null;
 
         this.isDraggingPoint = false;
+        this.isSlidingSmoothPointAlongCurve = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
         this.isDraggingSidebearing = false;
@@ -3633,19 +3674,31 @@ export class OutlineEditor {
                 const label =
                     dragType === 'anchor'
                         ? 'Drag anchor'
-                        : dragType === 'point'
-                          ? 'Drag point'
-                          : dragType === 'component'
-                            ? 'Drag component'
-                            : dragType === 'guide'
-                              ? 'Drag guide'
-                              : dragType === 'sidebearing' &&
-                                  this.selectedSidebearingHandle
-                                ? getSidebearingTransactionLabel(
-                                      this.selectedSidebearingHandle.side
-                                  )
-                                : 'Drag';
-                if (!(dragType === 'guide' && draggedGuideScope === 'master')) {
+                        : dragType === 'slide-point'
+                          ? 'Move point along curve'
+                          : dragType === 'point'
+                            ? 'Drag point'
+                            : dragType === 'component'
+                              ? 'Drag component'
+                              : dragType === 'guide'
+                                ? 'Drag guide'
+                                : dragType === 'sidebearing' &&
+                                    this.selectedSidebearingHandle
+                                  ? getSidebearingTransactionLabel(
+                                        this.selectedSidebearingHandle.side
+                                    )
+                                  : 'Drag';
+                if (dragType === 'slide-point') {
+                    const currentGlyphModel = this.getCurrentGlyphModel();
+                    if (window.changeBridge && currentGlyphModel?.name) {
+                        window.changeBridge.syncGlyphFromJson(
+                            currentGlyphModel.name,
+                            label
+                        );
+                    }
+                } else if (
+                    !(dragType === 'guide' && draggedGuideScope === 'master')
+                ) {
                     this._syncCurrentGlyphToYDoc(
                         label,
                         preDragDesc ?? undefined,
@@ -3655,7 +3708,40 @@ export class OutlineEditor {
             }
 
             window.changeBridge?.endTransaction();
-            if (dragType !== 'guide') {
+            if (dragType === 'slide-point') {
+                const currentFont = fontManager.currentFont;
+                const currentGlyphModel = this.getCurrentGlyphModel();
+                if (currentFont) {
+                    currentFont.markDirty('keyboard-outline');
+                    void fontManager.updateDirtyIndicator();
+                    window.setTimeout(() => {
+                        if (fontManager.currentFont !== currentFont) {
+                            return;
+                        }
+
+                        try {
+                            currentFont.syncJsonFromModel();
+                        } catch (error) {
+                            console.error(
+                                '[OutlineEditor] Error syncing font JSON after smooth point slide:',
+                                error
+                            );
+                            return;
+                        }
+
+                        void fontManager.updateWorkerFontCache();
+                    }, 0);
+                } else if (currentGlyphModel?.name) {
+                    window.dispatchEvent(
+                        new CustomEvent('glyphChanged', {
+                            detail: {
+                                glyphName: currentGlyphModel.name,
+                                layerId: this.getCurrentLayerId()
+                            }
+                        })
+                    );
+                }
+            } else if (dragType !== 'guide') {
                 fontManager.updateWorkerFontCache();
                 fontManager.flushPendingDebugEditingFontSaveAfterDrag();
             }
@@ -4442,6 +4528,106 @@ export class OutlineEditor {
         }
     }
 
+    private syncCurrentContourDataFromModel(pathIndex: number): void {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerModel = this.getCurrentLayerModel();
+        const path = currentLayerModel?.paths?.[pathIndex];
+        const shape = currentLayerData?.shapes?.[pathIndex];
+        const contour = getPathShapeData(shape);
+
+        if (!path || !contour || typeof contour !== 'object') {
+            return;
+        }
+
+        const pathData = path.toJSON();
+        const normalizedNodes =
+            typeof pathData.nodes === 'string'
+                ? LayerDataNormalizer.parseNodes(pathData.nodes)
+                : Array.isArray(pathData.nodes)
+                  ? pathData.nodes
+                  : [];
+
+        contour.nodes = normalizedNodes.map((node: Babelfont.Node) => ({
+            ...node
+        }));
+        contour.closed = Boolean(pathData.closed);
+    }
+
+    private canSlideSmoothPointOnCurve(point: Point): boolean {
+        const currentLayerModel = this.getCurrentLayerModel();
+        const path = currentLayerModel?.paths?.[point.contourIndex];
+        return Boolean(path?._canSlideSmoothOnCurve?.(point.nodeIndex));
+    }
+
+    private slideSelectedSmoothPointAlongCurve(
+        pointerX: number,
+        pointerY: number
+    ): boolean {
+        if (this.selectedPoints.length !== 1) {
+            return false;
+        }
+
+        const currentLayerModel = this.getCurrentLayerModel();
+        const currentPoint = this.selectedPoints[0];
+        const activePath =
+            currentLayerModel?.paths?.[currentPoint.contourIndex];
+
+        if (!activePath) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        let result: {
+            insertedNodeIndex: number;
+            changed: boolean;
+            t: number;
+        } | null = null;
+
+        withSuppressedModelRecording(() => {
+            result = activePath._slideSmoothOnCurve(currentPoint.nodeIndex, {
+                x: pointerX,
+                y: pointerY
+            });
+
+            if (!result) {
+                return;
+            }
+
+            for (const linkedLayer of linkedLayers) {
+                const linkedPath =
+                    linkedLayer.paths?.[currentPoint.contourIndex];
+                if (!linkedPath) {
+                    continue;
+                }
+
+                linkedPath._slideSmoothOnCurveAtT(
+                    currentPoint.nodeIndex,
+                    result.t
+                );
+            }
+        });
+
+        const slideResult = result as {
+            insertedNodeIndex: number;
+            changed: boolean;
+            t: number;
+        } | null;
+
+        if (!slideResult) {
+            return false;
+        }
+
+        this.syncCurrentContourDataFromModel(currentPoint.contourIndex);
+        this.selectedPoints = [
+            {
+                contourIndex: currentPoint.contourIndex,
+                nodeIndex: slideResult.insertedNodeIndex
+            }
+        ];
+
+        return slideResult.changed;
+    }
+
     moveSelectedPoints(
         deltaX: number,
         deltaY: number,
@@ -5129,6 +5315,7 @@ export class OutlineEditor {
     onBlur() {
         this.spaceKeyPressed = false;
         this.isDraggingPoint = false;
+        this.isSlidingSmoothPointAlongCurve = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
         // Exit preview mode if active

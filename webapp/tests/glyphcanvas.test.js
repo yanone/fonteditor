@@ -2162,6 +2162,244 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             currentFontSpy.mockRestore();
         }
     });
+
+    test('cmd-dragging a smooth point slides it along the curve across linked layers as one glyph history item', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        {
+                                            x: 0,
+                                            y: 0,
+                                            nodetype: 'Curve',
+                                            smooth: true
+                                        },
+                                        { x: 25, y: 80, nodetype: 'OffCurve' },
+                                        { x: 75, y: 80, nodetype: 'OffCurve' },
+                                        {
+                                            x: 100,
+                                            y: 0,
+                                            nodetype: 'Curve',
+                                            smooth: true
+                                        },
+                                        {
+                                            x: 125,
+                                            y: -80,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 175,
+                                            y: -80,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 200,
+                                            y: 0,
+                                            nodetype: 'Curve',
+                                            smooth: true
+                                        }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        {
+                                            x: 0,
+                                            y: 20,
+                                            nodetype: 'Curve',
+                                            smooth: true
+                                        },
+                                        {
+                                            x: 25,
+                                            y: 100,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 75,
+                                            y: 100,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 100,
+                                            y: 20,
+                                            nodetype: 'Curve',
+                                            smooth: true
+                                        },
+                                        {
+                                            x: 125,
+                                            y: -60,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 175,
+                                            y: -60,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 200,
+                                            y: 20,
+                                            nodetype: 'Curve',
+                                            smooth: true
+                                        }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Slide Test' }
+            },
+            note: '',
+            date: '2026-03-25',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const bridge = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(),
+            hasUnsavedChanges: false
+        };
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const flushDebugSpy = jest
+            .spyOn(fontManager, 'flushPendingDebugEditingFontSaveAfterDrag')
+            .mockImplementation(() => {});
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+        const originalBridge = window.changeBridge;
+        const originalFontModel = window.currentFontModel;
+
+        window.changeBridge = bridge;
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+        const originalActiveX = currentLayer.paths[0].nodes[3].x;
+        const originalLinkedX = linkedLayer.paths[0].nodes[3].x;
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        canvas.outlineEditor.hoveredPointIndex = {
+            contourIndex: 0,
+            nodeIndex: 3
+        };
+        jest.spyOn(
+            canvas.outlineEditor,
+            'transformMouseToComponentSpace'
+        ).mockReturnValue({ glyphX: 120, glyphY: 10 });
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.onMouseMove({
+                clientX: 30,
+                clientY: 40,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.onMouseUp({ clientX: 30, clientY: 40 });
+
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(bridge.beginTransaction).toHaveBeenCalledWith(
+                'Move point along curve'
+            );
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Move point along curve'
+            );
+            expect(bridge.endTransaction).toHaveBeenCalled();
+            expect(currentLayer.paths[0].nodes[3].x).not.toBe(originalActiveX);
+            expect(linkedLayer.paths[0].nodes[3].x).not.toBe(originalLinkedX);
+            expect(canvas.outlineEditor.selectedPoints).toEqual([
+                { contourIndex: 0, nodeIndex: 3 }
+            ]);
+        } finally {
+            window.changeBridge = originalBridge;
+            window.currentFontModel = originalFontModel;
+            linkedLayersSpy.mockRestore();
+            flushDebugSpy.mockRestore();
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
 });
 
 describe('GlyphCanvas anchor movement', () => {

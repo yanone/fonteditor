@@ -2987,6 +2987,105 @@ describe('syncGlyphFromJson', () => {
         );
     });
 
+    test('glyph-scoped undo restores linked-layer smooth point slide cleanly', () => {
+        const font = Font.fromData(makeMinimalFont());
+        const fontJson = font.toJSON();
+        const baseLayer = cloneValue(fontJson.glyphs[0].layers[0]);
+        fontJson.glyphs[0].layers = [
+            {
+                ...cloneValue(baseLayer),
+                id: 'layer-1',
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Curve', smooth: true },
+                            { x: 25, y: 80, nodetype: 'OffCurve' },
+                            { x: 75, y: 80, nodetype: 'OffCurve' },
+                            { x: 100, y: 0, nodetype: 'Curve', smooth: true },
+                            { x: 125, y: -80, nodetype: 'OffCurve' },
+                            { x: 175, y: -80, nodetype: 'OffCurve' },
+                            { x: 200, y: 0, nodetype: 'Curve', smooth: true }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            },
+            {
+                ...cloneValue(baseLayer),
+                id: 'layer-1b',
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 20, nodetype: 'Curve', smooth: true },
+                            { x: 25, y: 100, nodetype: 'OffCurve' },
+                            { x: 75, y: 100, nodetype: 'OffCurve' },
+                            { x: 100, y: 20, nodetype: 'Curve', smooth: true },
+                            { x: 125, y: -60, nodetype: 'OffCurve' },
+                            { x: 175, y: -60, nodetype: 'OffCurve' },
+                            { x: 200, y: 20, nodetype: 'Curve', smooth: true }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            }
+        ];
+
+        const originalNodesByLayer = fontJson.glyphs[0].layers.map((layer) =>
+            cloneValue(layer.shapes[0].nodes)
+        );
+
+        const bridge = new ChangeBridge('test-linked-slide-point');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+
+        const glyph = font.findGlyph('A');
+        const layer1 = glyph.findLayerById('layer-1');
+        const layer2 = glyph.findLayerById('layer-1b');
+
+        withSuppressedModelRecording(() => {
+            const result = layer1.paths[0]._slideSmoothOnCurve(3, {
+                x: 120,
+                y: 10
+            });
+            expect(result).not.toBeNull();
+            layer2.paths[0]._slideSmoothOnCurveAtT(3, result.t);
+        });
+        bridge.syncGlyphFromJson('A', 'Move point along curve');
+
+        const historyItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            glyphName: 'A',
+            layerId: 'layer-1',
+            includeUndone: true
+        });
+        expect(historyItems).toHaveLength(1);
+        expect(historyItems[0].undoScope).toBe('glyph');
+        expect(fontJson.glyphs[0].layers[0].shapes[0].nodes[3].x).not.toBe(
+            originalNodesByLayer[0][3].x
+        );
+        expect(fontJson.glyphs[0].layers[1].shapes[0].nodes[3].x).not.toBe(
+            originalNodesByLayer[1][3].x
+        );
+
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'glyph',
+                glyphName: 'A',
+                layerId: null
+            })
+        );
+
+        expect(fontJson.glyphs[0].layers[0].shapes[0].nodes).toEqual(
+            originalNodesByLayer[0]
+        );
+        expect(fontJson.glyphs[0].layers[1].shapes[0].nodes).toEqual(
+            originalNodesByLayer[1]
+        );
+    });
+
     test('undo works after two consecutive syncs - each sync is a separate undo step', () => {
         const { bridge, fontJson } = createTestBridge('test-1');
 
