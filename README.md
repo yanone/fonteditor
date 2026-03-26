@@ -251,7 +251,7 @@ Users will see an orange update notification button in the title bar within 10 m
 - ◻️ Edit anchors
 - ✅ Edit sidebearings
 - ◻️ Edit guidelines
-- ◻️ Draw new outlines
+- ✅ Draw new outlines
 - ◻️ Layer management UI
 - ◻️ Python script fast UI
 - ✅ Undo/redo system

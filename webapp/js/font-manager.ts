@@ -2295,6 +2295,36 @@ class FontManager {
         }
     }
 
+    /**
+     * Force a full font JSON store to the Rust worker cache, bypassing all
+     * incremental-layer optimisations. Call this after multi-layer mutations
+     * (e.g. close-path that patches all linked masters at once) so that
+     * interpolate_glyph sees up-to-date data in every master layer.
+     *
+     * Must be called AFTER syncJsonFromModel() has been invoked so that
+     * this.currentFont.babelfontJson reflects the latest model state.
+     */
+    async forceFullWorkerCacheUpdate(): Promise<void> {
+        if (!this.currentFont || !fontCompilation?.isInitialized) {
+            return;
+        }
+        // Clear incremental-drag flag so updateWorkerFontCache takes the full path.
+        this.pendingBabelfontJsonSyncAfterDrag = false;
+        // Invalidate the "already stored" sentinel so fontCompilation doesn't skip the send.
+        fontCompilation.lastStoredFontJson = null;
+        try {
+            await fontCompilation.sendMessage({
+                type: 'storeFontJson',
+                babelfontJson: this.currentFont.babelfontJson
+            });
+        } catch (error) {
+            console.error(
+                '[FontManager] forceFullWorkerCacheUpdate: error sending storeFontJson:',
+                error
+            );
+        }
+    }
+
     async awaitWorkerCacheUpdate(): Promise<void> {
         if (!this.workerCacheUpdatePromise) {
             return;

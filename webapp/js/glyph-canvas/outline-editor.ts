@@ -837,6 +837,8 @@ export class OutlineEditor {
     cursorStyleBeforePreview: string | null = null;
     isDraggingPoint: boolean = false;
     isSlidingSmoothPointAlongCurve: boolean = false;
+    isSnappedToCloseOpenPath: boolean = false;
+    private _dragStartEndpointsCoincident: boolean = false;
     isDraggingComponent: boolean = false;
     isDraggingAnchor: boolean = false;
     isDraggingSidebearing: boolean = false;
@@ -2704,6 +2706,7 @@ export class OutlineEditor {
         this.hoveredSidebearingHandle = null;
         this.isDraggingPoint = false;
         this.isSlidingSmoothPointAlongCurve = false;
+        this.isSnappedToCloseOpenPath = false;
         this.isDraggingSidebearing = false;
         this.isDraggingGuide = false;
         this.selectedGuideHandle = null;
@@ -3322,6 +3325,13 @@ export class OutlineEditor {
                 return;
             }
 
+            // Cmd+click on on-curve node of closed path: open path at that node
+            if (isCmdClick && !e.shiftKey) {
+                if (this.openClosedPathAtNode(this.hoveredPointIndex)) {
+                    return;
+                }
+            }
+
             if (e.shiftKey) {
                 // Shift-click: add to or remove from selection (keep anchors selected for mixed selection)
                 const existingIndex = this.selectedPoints.findIndex(
@@ -3359,6 +3369,8 @@ export class OutlineEditor {
                 this.isDraggingPoint = true;
                 this._hasMoved = false;
                 this._dragType = 'point';
+                this._dragStartEndpointsCoincident =
+                    this._areOpenPathEndpointsCoincident();
                 this._preDragDesc = this._buildNodeDesc();
                 window.changeBridge?.beginTransaction('Drag point');
                 this.glyphCanvas.lastMouseX = e.clientX;
@@ -3557,6 +3569,7 @@ export class OutlineEditor {
                 glyphX,
                 glyphY
             );
+            this._checkOpenPathEndpointSnap();
         }
         this._updateDraggedAnchors(deltaX, deltaY);
         this._updateDraggedSidebearing(deltaX);
@@ -3670,6 +3683,91 @@ export class OutlineEditor {
         );
     }
 
+    /**
+     * Check whether the selected point is an endpoint of an open path
+     * and the two endpoints are at the same position.
+     */
+    private _areOpenPathEndpointsCoincident(): boolean {
+        if (this.selectedPoints.length !== 1) {
+            return false;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return false;
+        }
+
+        const { contourIndex, nodeIndex } = this.selectedPoints[0];
+        const contour = getEditableContour(
+            currentLayerData.shapes[contourIndex]
+        );
+        if (!contour || contour.closed || contour.nodes.length < 2) {
+            return false;
+        }
+
+        const lastIndex = contour.nodes.length - 1;
+        if (nodeIndex !== 0 && nodeIndex !== lastIndex) {
+            return false;
+        }
+
+        const first = contour.nodes[0];
+        const last = contour.nodes[lastIndex];
+        return first.x === last.x && first.y === last.y;
+    }
+
+    /**
+     * While dragging a single endpoint of an open path, snap it onto
+     * the opposite endpoint when close enough to allow closing on mouseup.
+     * Skipped when the endpoints were already coincident at drag start.
+     */
+    _checkOpenPathEndpointSnap(): void {
+        this.isSnappedToCloseOpenPath = false;
+
+        if (
+            !this.isDraggingPoint ||
+            this.selectedPoints.length !== 1 ||
+            this._dragStartEndpointsCoincident
+        ) {
+            return;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return;
+        }
+
+        const { contourIndex, nodeIndex } = this.selectedPoints[0];
+        const contour = getEditableContour(
+            currentLayerData.shapes[contourIndex]
+        );
+        if (!contour || contour.closed || contour.nodes.length < 2) {
+            return;
+        }
+
+        const lastIndex = contour.nodes.length - 1;
+        const isStartNode = nodeIndex === 0;
+        const isEndNode = nodeIndex === lastIndex;
+        if (!isStartNode && !isEndNode) {
+            return;
+        }
+
+        const oppositeIndex = isStartNode ? lastIndex : 0;
+        const draggedNode = contour.nodes[nodeIndex];
+        const oppositeNode = contour.nodes[oppositeIndex];
+        const snapRadius = 10 / this.glyphCanvas.viewportManager!.scale;
+        const dist = Math.sqrt(
+            (draggedNode.x - oppositeNode.x) ** 2 +
+                (draggedNode.y - oppositeNode.y) ** 2
+        );
+
+        if (dist <= snapRadius) {
+            // Snap the dragged node onto the opposite node
+            draggedNode.x = oppositeNode.x;
+            draggedNode.y = oppositeNode.y;
+            this.isSnappedToCloseOpenPath = true;
+        }
+    }
+
     _updateDraggedAnchors(deltaX: number, deltaY: number): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData) return;
@@ -3733,14 +3831,32 @@ export class OutlineEditor {
         const dragType = this._dragType;
         const preDragDesc = this._preDragDesc;
         const draggedGuideScope = this.selectedGuideHandle?.scope ?? null;
+        const wasSnappedToClose = this.isSnappedToCloseOpenPath;
+        const snappedContourIndex =
+            wasSnappedToClose && this.selectedPoints.length === 1
+                ? this.selectedPoints[0].contourIndex
+                : -1;
 
         this.isDraggingPoint = false;
         this.isSlidingSmoothPointAlongCurve = false;
+        this.isSnappedToCloseOpenPath = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
         this.isDraggingSidebearing = false;
         this.isDraggingGuide = false;
         this.lastPointDragShiftKey = null;
+
+        // If we were snapped to close an open path, abort the normal
+        // drag sync and perform a merge-close instead.
+        if (wasSnappedToClose && wasDragging && snappedContourIndex >= 0) {
+            // Don't end the drag transaction — reuse it so
+            // drag + close appear as a single undo entry.
+            this._hasMoved = false;
+            this._preDragDesc = null;
+            this._dragType = null;
+            this.closeOpenPathByMerge(snappedContourIndex, true);
+            return;
+        }
 
         // Update worker font cache after dragging ends
         if (wasDragging) {
@@ -3936,7 +4052,7 @@ export class OutlineEditor {
                 const dist = Math.sqrt(
                     (coords.x - glyphX) ** 2 + (coords.y - glyphY) ** 2
                 );
-                if (dist <= scaledHitRadius && dist < bestDist) {
+                if (dist <= scaledHitRadius && dist <= bestDist) {
                     bestDist = dist;
                     bestValue = getValue(item);
                 }
@@ -5176,6 +5292,198 @@ export class OutlineEditor {
         return true;
     }
 
+    private openClosedPathAtNode(point: Point): boolean {
+        const currentLayerModel = this.getCurrentLayerModel();
+        const currentGlyphModel = this.getCurrentGlyphModel();
+        if (!currentLayerModel || !currentGlyphModel) {
+            return false;
+        }
+
+        const activePath = currentLayerModel.paths?.[point.contourIndex];
+        if (!activePath || !activePath.closed) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        let changed = false;
+
+        withSuppressedModelRecording(() => {
+            changed = activePath._openClosedPathAtNode(point.nodeIndex);
+            if (!changed) {
+                return;
+            }
+
+            for (const linkedLayer of linkedLayers) {
+                const linkedPath = linkedLayer.paths?.[point.contourIndex];
+                linkedPath?._openClosedPathAtNode(point.nodeIndex);
+            }
+        });
+
+        if (!changed) {
+            return false;
+        }
+
+        const bridge = window.changeBridge;
+        if (bridge && currentGlyphModel.name) {
+            bridge.beginTransaction('Open path');
+            try {
+                bridge.syncGlyphFromJson(currentGlyphModel.name, 'Open path');
+            } finally {
+                bridge.endTransaction();
+            }
+        }
+
+        this.syncCurrentExactLayerDataFromModel();
+
+        const currentFont = fontManager.currentFont;
+        if (currentFont) {
+            currentFont.markDirty('keyboard-outline');
+            void fontManager.updateDirtyIndicator();
+        }
+
+        // Select only the new end node (the duplicate at the end)
+        const newPath = currentLayerModel.paths?.[point.contourIndex];
+        const lastNodeIndex = newPath ? newPath.nodes.length - 1 : 0;
+        this.selectedPoints = [
+            {
+                contourIndex: point.contourIndex,
+                nodeIndex: lastNodeIndex
+            }
+        ];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+
+        if (currentFont) {
+            window.setTimeout(() => {
+                if (fontManager.currentFont !== currentFont) {
+                    return;
+                }
+
+                try {
+                    currentFont.syncJsonFromModel();
+                } catch (error) {
+                    console.error(
+                        '[OutlineEditor] Error syncing font JSON after opening path:',
+                        error
+                    );
+                    return;
+                }
+
+                void fontManager.updateWorkerFontCache();
+            }, 0);
+        } else if (currentGlyphModel.name) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: currentGlyphModel.name,
+                        layerId: this.getCurrentLayerId()
+                    }
+                })
+            );
+        }
+        return true;
+    }
+
+    private closeOpenPathByMerge(
+        contourIndex: number,
+        reuseTransaction: boolean = false
+    ): boolean {
+        const currentLayerModel = this.getCurrentLayerModel();
+        const currentGlyphModel = this.getCurrentGlyphModel();
+        if (!currentLayerModel || !currentGlyphModel) {
+            return false;
+        }
+
+        const activePath = currentLayerModel.paths?.[contourIndex];
+        if (!activePath || activePath.closed) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        let changed = false;
+
+        withSuppressedModelRecording(() => {
+            changed = activePath._closeOpenPathByMerge();
+            if (!changed) {
+                return;
+            }
+
+            for (const linkedLayer of linkedLayers) {
+                const linkedPath = linkedLayer.paths?.[contourIndex];
+                linkedPath?._closeOpenPathByMerge();
+            }
+        });
+
+        if (!changed) {
+            return false;
+        }
+
+        const currentFont = fontManager.currentFont;
+
+        // Sync JSON and update worker cache immediately (before endTransaction fires
+        // dirty callbacks and before updatePropertyPanel triggers fetchLayerData →
+        // interpolateGlyph). This ensures the Rust worker has up-to-date glyph data
+        // for ALL masters when it processes the interpolation request, preventing
+        // GlyphNotInterpolatable. Use forceFullWorkerCacheUpdate to bypass incremental
+        // single-layer optimisations — close-path patches all linked masters at once.
+        if (currentFont) {
+            try {
+                currentFont.syncJsonFromModel();
+            } catch (error) {
+                console.error(
+                    '[OutlineEditor] Error syncing font JSON after closing path:',
+                    error
+                );
+            }
+            void fontManager.forceFullWorkerCacheUpdate();
+        }
+
+        const bridge = window.changeBridge;
+        if (bridge && currentGlyphModel.name) {
+            if (!reuseTransaction) {
+                bridge.beginTransaction('Close path');
+            }
+            try {
+                bridge.syncGlyphFromJson(currentGlyphModel.name, 'Close path');
+            } finally {
+                bridge.endTransaction();
+            }
+        }
+
+        this.syncCurrentExactLayerDataFromModel();
+
+        if (currentFont) {
+            currentFont.markDirty('keyboard-outline');
+            void fontManager.updateDirtyIndicator();
+        }
+
+        this.selectedPoints = [{ contourIndex, nodeIndex: 0 }];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+
+        if (!currentFont && currentGlyphModel.name) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: currentGlyphModel.name,
+                        layerId: this.getCurrentLayerId()
+                    }
+                })
+            );
+        }
+        return true;
+    }
+
     private notePendingCommandPathEdit(kind: 'draw' | 'convert'): void {
         if (!this.pendingCommandPathEdit) {
             this.pendingCommandPathEdit = {
@@ -6131,6 +6439,7 @@ export class OutlineEditor {
         this.spaceKeyPressed = false;
         this.isDraggingPoint = false;
         this.isSlidingSmoothPointAlongCurve = false;
+        this.isSnappedToCloseOpenPath = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
         // Exit preview mode if active

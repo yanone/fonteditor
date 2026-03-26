@@ -1379,11 +1379,50 @@ export class ChangeBridge {
         historyAction: 'undo' | 'redo',
         historyTargetKey?: string | null
     ): HistoryStackItem | null {
+        const resolvedGlyphName = glyphName ?? null;
+        const resolvedLayerId = layerId ?? null;
+        const resolvedHistoryTargetKey = historyTargetKey ?? null;
+
+        // Prefer the newest visible history item whose backing UndoManager
+        // still has stack depth. This prevents stale change-log entries from
+        // blocking undo/redo after branch edits clear a manager's stack.
+        const candidates = buildHistoryStackItems(this._changeLog, {
+            glyphName: resolvedGlyphName,
+            layerId: resolvedLayerId,
+            includeUndone: true,
+            historyTargetKey: resolvedHistoryTargetKey
+        }).filter((item) =>
+            historyAction === 'undo' ? item.isActive : !item.isActive
+        );
+
+        for (let index = candidates.length - 1; index >= 0; index--) {
+            const candidate = candidates[index];
+            const target = this._targetFromHistoryItem(
+                candidate,
+                resolvedGlyphName,
+                resolvedLayerId
+            );
+            const { manager, scope } = this._getUndoManagerForTarget(target);
+            if (scope === 'font') {
+                return candidate;
+            }
+            if (!manager) {
+                continue;
+            }
+            const stackDepth =
+                historyAction === 'undo'
+                    ? manager.undoStack.length
+                    : manager.redoStack.length;
+            if (stackDepth > 0) {
+                return candidate;
+            }
+        }
+
         return resolveHistoryTargetItem(this._changeLog, {
-            glyphName: glyphName ?? null,
-            layerId: layerId ?? null,
+            glyphName: resolvedGlyphName,
+            layerId: resolvedLayerId,
             historyAction,
-            historyTargetKey: historyTargetKey ?? null
+            historyTargetKey: resolvedHistoryTargetKey
         });
     }
 

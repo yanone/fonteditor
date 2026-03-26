@@ -3657,6 +3657,95 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         return true;
     }
 
+    /**
+     * Close an open path by merging the last node into the first.
+     * The last node is removed and the first node's type changes
+     * from Move to Line. Exact reverse of _openClosedPathAtNode.
+     */
+    _closeOpenPathByMerge(): boolean {
+        if (this.closed) {
+            return false;
+        }
+
+        const nodeArray = this.ensureNodesArray();
+        if (nodeArray.length < 2) {
+            return false;
+        }
+
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        const oldClosed = this.data.closed;
+
+        // Remove the last node (duplicate of the first)
+        const nextNodes = nodeArray
+            .slice(0, -1)
+            .map((node) => cloneNodeData(node));
+
+        // Convert the first node from Move to Line
+        nextNodes[0] = cloneNodeData(nextNodes[0], {
+            nodetype:
+                nextNodes[0].nodetype === 'Move'
+                    ? ('Line' as Babelfont.NodeType)
+                    : nextNodes[0].nodetype,
+            smooth: false
+        });
+
+        this.data.nodes = nextNodes;
+        this.data.closed = true;
+        this._nodeWrappers = null;
+        recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+        recordAndMarkDirty(this, 'closed', oldClosed, true);
+        return true;
+    }
+
+    /**
+     * Open a closed path at the given on-curve node index.
+     * The node is duplicated: one copy becomes the start (Move),
+     * the other becomes the end. The overall shape is preserved.
+     */
+    _openClosedPathAtNode(nodeIndex: number): boolean {
+        if (!this.closed) {
+            return false;
+        }
+
+        const nodeArray = this.ensureNodesArray();
+        if (nodeArray.length < 3) {
+            return false;
+        }
+
+        const targetNode = nodeArray[nodeIndex];
+        if (
+            !targetNode ||
+            isOffCurveNodeType(targetNode.nodetype) ||
+            targetNode.nodetype === 'Move'
+        ) {
+            return false;
+        }
+
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        const oldClosed = this.data.closed;
+
+        // Rotate nodes so that nodeIndex becomes index 0
+        const rotated = [
+            ...nodeArray.slice(nodeIndex),
+            ...nodeArray.slice(0, nodeIndex)
+        ].map((node) => cloneNodeData(node));
+
+        // Duplicate the node: first copy at start becomes Move,
+        // second copy appended at end keeps its original type
+        rotated[0] = cloneNodeData(rotated[0], {
+            nodetype: 'Move' as Babelfont.NodeType,
+            smooth: false
+        });
+        rotated.push(cloneNodeData(nodeArray[nodeIndex], { smooth: false }));
+
+        this.data.nodes = rotated;
+        this.data.closed = false;
+        this._nodeWrappers = null;
+        recordAndMarkDirty(this, 'nodes', oldNodes, rotated);
+        recordAndMarkDirty(this, 'closed', oldClosed, false);
+        return true;
+    }
+
     _convertLineSegmentToCurve(segmentId: number): boolean {
         const nodeArray = this.ensureNodesArray();
         const descriptors = buildPathSegmentDescriptors({

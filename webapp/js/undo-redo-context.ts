@@ -8,9 +8,11 @@ export type UndoRedoContext = {
 export function getUndoRedoContext(): UndoRedoContext {
     const oe = window.glyphCanvas?.outlineEditor;
     const parsedStack = oe?.active ? oe.parseGlyphStack() : [];
-    const rootGlyphName = parsedStack[0]?.glyphName;
+    const currentGlyphName =
+        oe?.currentGlyphName ?? window.glyphCanvas?.getCurrentGlyphName?.();
+    const rootGlyphName = parsedStack[0]?.glyphName ?? currentGlyphName;
     const fallbackUndoGlyphName =
-        parsedStack[parsedStack.length - 1]?.glyphName;
+        parsedStack[parsedStack.length - 1]?.glyphName ?? currentGlyphName;
     const fallbackUndoLayerId = oe?.selectedLayerId ?? null;
     const historyContext = window.getHistoryUndoContext?.();
 
