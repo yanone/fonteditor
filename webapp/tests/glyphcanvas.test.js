@@ -3536,7 +3536,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                                 {
                                     nodes: [
                                         { x: 0, y: 0, nodetype: 'Move' },
-                                        { x: 90, y: 0, nodetype: 'Line' }
+                                        { x: 100, y: 0, nodetype: 'Line' }
                                     ],
                                     closed: false
                                 }
@@ -3555,7 +3555,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                                 {
                                     nodes: [
                                         { x: 10, y: 10, nodetype: 'Move' },
-                                        { x: 100, y: 10, nodetype: 'Line' }
+                                        { x: 110, y: 10, nodetype: 'Line' }
                                     ],
                                     closed: false
                                 }
@@ -3667,8 +3667,22 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(
                 linkedLayer.paths[0].nodes.map((node) => node.nodetype)
             ).toEqual(['Move', 'OffCurve', 'OffCurve', 'Curve']);
-            expect(currentLayer.paths[0].nodes[1].x).toBeCloseTo(30);
-            expect(currentLayer.paths[0].nodes[2].x).toBeCloseTo(60);
+            expect(currentLayer.paths[0].nodes[1].x).toBe(33);
+            expect(currentLayer.paths[0].nodes[2].x).toBe(67);
+            expect(linkedLayer.paths[0].nodes[1].x).toBe(43);
+            expect(linkedLayer.paths[0].nodes[2].x).toBe(77);
+            expect(
+                currentLayer.paths[0].nodes.every(
+                    (node) =>
+                        Number.isInteger(node.x) && Number.isInteger(node.y)
+                )
+            ).toBe(true);
+            expect(
+                linkedLayer.paths[0].nodes.every(
+                    (node) =>
+                        Number.isInteger(node.x) && Number.isInteger(node.y)
+                )
+            ).toBe(true);
         } finally {
             segmentHitSpy.mockRestore();
             window.changeBridge = originalBridge;
@@ -3858,6 +3872,190 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             ).toContain('Curve');
         } finally {
             transformSpy.mockRestore();
+            window.changeBridge = originalBridge;
+            window.currentFontModel = originalFontModel;
+            linkedLayersSpy.mockRestore();
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('alt-click add point rounds all resulting split nodes to grid in active and linked layers', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Curve' },
+                                        {
+                                            x: 30,
+                                            y: 60,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 70,
+                                            y: 60,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        { x: 100, y: 0, nodetype: 'Curve' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 10, y: 0, nodetype: 'Curve' },
+                                        {
+                                            x: 40,
+                                            y: 60,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 80,
+                                            y: 60,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        { x: 110, y: 0, nodetype: 'Curve' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Add Point Rounding Test' }
+            },
+            note: '',
+            date: '2026-03-26',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const bridge = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(),
+            hasUnsavedChanges: false
+        };
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+        const originalBridge = window.changeBridge;
+        const originalFontModel = window.currentFontModel;
+
+        window.changeBridge = bridge;
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        canvas.outlineEditor.hoveredAddPointPreview = {
+            shapeIndex: 0,
+            pathIndex: 0,
+            segmentId: 0,
+            t: 0.5,
+            point: { x: 50, y: 45 },
+            segments: []
+        };
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: true,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+                'A',
+                'Add point'
+            );
+            expect(
+                currentLayer.paths[0].nodes.every(
+                    (node) =>
+                        Number.isInteger(node.x) && Number.isInteger(node.y)
+                )
+            ).toBe(true);
+            expect(
+                linkedLayer.paths[0].nodes.every(
+                    (node) =>
+                        Number.isInteger(node.x) && Number.isInteger(node.y)
+                )
+            ).toBe(true);
+        } finally {
             window.changeBridge = originalBridge;
             window.currentFontModel = originalFontModel;
             linkedLayersSpy.mockRestore();

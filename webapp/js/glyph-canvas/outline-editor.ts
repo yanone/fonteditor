@@ -4777,11 +4777,25 @@ export class OutlineEditor {
         const bridge = window.changeBridge;
         let insertedNodeIndex: number | null = null;
 
+        const roundPathNodesToGrid = (
+            path: { nodes?: Babelfont.Node[] } | null | undefined
+        ): void => {
+            if (!path?.nodes) {
+                return;
+            }
+
+            for (const node of path.nodes) {
+                node.x = Math.round(node.x);
+                node.y = Math.round(node.y);
+            }
+        };
+
         withSuppressedModelRecording(() => {
             insertedNodeIndex = activePath._addPoint(
                 preview.segmentId,
                 preview.t
             );
+            roundPathNodesToGrid(activePath);
 
             for (const linkedLayer of linkedLayers) {
                 const linkedPath = linkedLayer.paths?.[preview.pathIndex];
@@ -4789,6 +4803,7 @@ export class OutlineEditor {
                     continue;
                 }
                 linkedPath._addPoint(preview.segmentId, preview.t);
+                roundPathNodesToGrid(linkedPath);
             }
         });
 
@@ -5269,6 +5284,18 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const roundPathNodesToGrid = (
+            path: { nodes?: Babelfont.Node[] } | null | undefined
+        ): void => {
+            if (!path?.nodes) {
+                return;
+            }
+
+            for (const node of path.nodes) {
+                node.x = Math.round(node.x);
+                node.y = Math.round(node.y);
+            }
+        };
         let changed = false;
 
         withSuppressedModelRecording(() => {
@@ -5278,12 +5305,14 @@ export class OutlineEditor {
             if (!changed) {
                 return;
             }
+            roundPathNodesToGrid(activePath);
 
             for (const linkedLayer of linkedLayers) {
                 const linkedPath = linkedLayer.paths?.[hit.pathIndex];
                 linkedPath?._convertLineSegmentToCurve(
                     hit.descriptor.segmentId
                 );
+                roundPathNodesToGrid(linkedPath);
             }
         });
 
