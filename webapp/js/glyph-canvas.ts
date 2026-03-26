@@ -202,6 +202,7 @@ class GlyphCanvas {
         this.canvas.style.cursor = 'default';
         this.canvas.style.outline = 'none'; // Remove focus outline
         this.canvas.tabIndex = 0; // Make canvas focusable
+        this.canvas.dataset.hasContextMenu = 'true';
         this.canvasHost.appendChild(this.canvas);
 
         this.propertyPanel = document.createElement('div');
@@ -265,6 +266,21 @@ class GlyphCanvas {
         this.canvas!.addEventListener('mouseleave', (e) =>
             this.onMouseLeave(e)
         );
+        this.canvas!.addEventListener('contextmenu', (e) => {
+            const rect = this.canvas!.getBoundingClientRect();
+            this.mouseX = e.clientX - rect.left;
+            this.mouseY = e.clientY - rect.top;
+            this.mouseCanvasX = (this.mouseX * this.canvas!.width) / rect.width;
+            this.mouseCanvasY =
+                (this.mouseY * this.canvas!.height) / rect.height;
+
+            if (!this.measurementTool.shouldBlockHitDetection()) {
+                this.outlineEditor.performHitDetection(e);
+                this.updateHoveredGlyph();
+            }
+
+            this.outlineEditor.onContextMenu(e);
+        });
 
         // Wheel event for zooming
         this.canvas!.addEventListener('wheel', (e) => this.onWheel(e), {
@@ -1133,6 +1149,10 @@ class GlyphCanvas {
     }
 
     onMouseDown(e: MouseEvent): void {
+        if (e.button === 2) {
+            return;
+        }
+
         // Focus the canvas when clicked
         this.canvas!.focus();
         this.outlineEditor.setCommandKeyPressed(e.metaKey || e.ctrlKey);

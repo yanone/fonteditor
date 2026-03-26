@@ -26,6 +26,13 @@ import {
 } from '../sidebearing-utils';
 import { translateLayerContentsX } from '../x-translation-utils';
 import { Bezier } from 'bezier-js';
+import tippy, { type Instance as TippyInstance } from 'tippy.js';
+import {
+    addTippyBackdropSupport,
+    getOrCreateBackdrop,
+    getTheme,
+    setupMenuKeyboardNav
+} from '../tippy-utils';
 
 let console: Logger = new Logger('OutlineEditor');
 
@@ -92,6 +99,18 @@ type ActivePathDrawingSession = {
     originNodeIndex: number;
     segmentCount: number;
 };
+
+type CanvasPathContextTarget = {
+    shapeIndex: number;
+    pathIndex: number;
+    nodeIndex: number | null;
+    onCurveOrdinal: number | null;
+    nodeType: Babelfont.NodeType | null;
+    intendedPoint: CanvasPoint | null;
+    canSetStartNode: boolean;
+};
+
+type CanvasPoint = { x: number; y: number };
 
 /**
  * Convert affine matrix [a, b, c, d, e, f] to DecomposedAffine
@@ -905,8 +924,13 @@ export class OutlineEditor {
     private pendingGlyphSwitchSourceLayer: any | null = null;
     private activePathDrawingSession: ActivePathDrawingSession | null = null;
     private pendingCommandPathEdit: PendingCommandPathEdit | null = null;
+    private canvasContextMenuTippy: TippyInstance | null = null;
+    private canvasContextMenuTarget: CanvasPathContextTarget | null = null;
 
     private readonly GUIDELINES_STORAGE_KEY = 'outlineEditorGuidelinesVisible';
+
+    private readonly CANVAS_CONTEXT_MENU_BACKDROP_CLASS =
+        'canvas-context-menu-backdrop';
 
     constructor(glyphCanvas: GlyphCanvas) {
         this.glyphCanvas = glyphCanvas;
@@ -2695,6 +2719,8 @@ export class OutlineEditor {
     }
 
     clearState() {
+        this.canvasContextMenuTippy?.hide();
+        this.canvasContextMenuTarget = null;
         this.layerData = null;
         this.selectedPoints = [];
         this.selectedSidebearingHandle = null;
@@ -4969,6 +4995,680 @@ export class OutlineEditor {
         }
 
         return this.startNewPathDrawingSession();
+    }
+
+    private ensureCanvasContextMenu(): TippyInstance | null {
+        if (this.canvasContextMenuTippy) {
+            return this.canvasContextMenuTippy;
+        }
+
+        if (!this.canvas) {
+            return null;
+        }
+
+        const backdrop = getOrCreateBackdrop(
+            this.CANVAS_CONTEXT_MENU_BACKDROP_CLASS
+        );
+
+        this.canvasContextMenuTippy = tippy(this.canvas, {
+            content: '',
+            allowHTML: true,
+            trigger: 'manual',
+            interactive: true,
+            placement: 'right-start',
+            theme: getTheme(),
+            arrow: false,
+            offset: [0, 0],
+            appendTo: document.body,
+            hideOnClick: false,
+            zIndex: 9999,
+            getReferenceClientRect: null as any,
+            onShown: (instance) => {
+                const menu = instance.popper.querySelector('.plugin-menu');
+                if (!menu) {
+                    return;
+                }
+
+                if ((menu as any)._handlersSetup) {
+                    return;
+                }
+                (menu as any)._handlersSetup = true;
+
+                setupMenuKeyboardNav(menu);
+
+                menu.querySelectorAll('.plugin-menu-item').forEach((item) => {
+                    item.addEventListener('click', () => {
+                        const action = item.getAttribute('data-action');
+                        if (!action) {
+                            return;
+                        }
+
+                        instance.hide();
+                        this.handleCanvasContextMenuAction(action);
+                    });
+                });
+            }
+        });
+
+        addTippyBackdropSupport(this.canvasContextMenuTippy, backdrop);
+        return this.canvasContextMenuTippy;
+    }
+
+    private findClosestPointNodeAt(
+        glyphPoint: CanvasPoint,
+        hitRadius: number = 10
+    ): Point | null {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return null;
+        }
+
+        const scaledHitRadius =
+            hitRadius / Math.max(this.glyphCanvas.viewportManager!.scale, 0.001);
+        let bestDist = Infinity;
+        let bestPoint: Point | null = null;
+
+        currentLayerData.shapes.forEach((shape: Babelfont.Shape, contourIndex) => {
+            const contour = getEditableContour(shape);
+            if (!contour?.nodes?.length) {
+                return;
+            }
+
+            contour.nodes.forEach((node: Babelfont.Node, nodeIndex: number) => {
+                const dist = Math.hypot(node.x - glyphPoint.x, node.y - glyphPoint.y);
+                if (dist <= scaledHitRadius && dist <= bestDist) {
+                    bestDist = dist;
+                    bestPoint = { contourIndex, nodeIndex };
+                }
+            });
+        });
+
+        return bestPoint;
+    }
+
+    private findClosestPathSegmentHitAt(glyphPoint: CanvasPoint): PathSegmentHit | null {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return null;
+        }
+
+        const hitRadius =
+            10 / Math.max(this.glyphCanvas.viewportManager?.scale ?? 1, 0.001);
+        let bestHit: PathSegmentHit | null = null;
+        let bestDistance = Infinity;
+        let pathIndex = 0;
+
+        currentLayerData.shapes.forEach(
+            (shape: Babelfont.Shape, shapeIndex: number) => {
+                const contour = getEditableContour(shape);
+                if (!contour || contour.nodes.length < 2) {
+                    return;
+                }
+
+                const descriptors = Layer.getPathSegmentDescriptors({
+                    nodes: contour.nodes,
+                    closed: contour.closed
+                });
+
+                descriptors.forEach((descriptor) => {
+                    let projection: PathSegmentHit['projection'] | null = null;
+
+                    if (descriptor.type === 'line') {
+                        projection = projectPointOntoLine(
+                            glyphPoint,
+                            descriptor.points[0],
+                            descriptor.points[1]
+                        );
+                    } else {
+                        const projected = new Bezier(descriptor.points).project(
+                            glyphPoint
+                        );
+                        projection = {
+                            x: projected.x,
+                            y: projected.y,
+                            t: clampUnitInterval(projected.t ?? 0),
+                            distance: projected.d ?? Infinity
+                        };
+                    }
+
+                    if (!projection || projection.distance > hitRadius) {
+                        return;
+                    }
+
+                    if (projection.distance >= bestDistance) {
+                        return;
+                    }
+
+                    bestDistance = projection.distance;
+                    bestHit = {
+                        shapeIndex,
+                        pathIndex,
+                        descriptor,
+                        projection
+                    };
+                });
+
+                pathIndex += 1;
+            }
+        );
+
+        return bestHit;
+    }
+
+    private buildCanvasContextMenuTarget(
+        clickedPoint: CanvasPoint | null = null
+    ): CanvasPathContextTarget | null {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerModel = this.getCurrentLayerModel();
+        if (
+            !this.selectedLayerId ||
+            !currentLayerModel ||
+            currentLayerData?.isInterpolated ||
+            !currentLayerData?.shapes
+        ) {
+            return null;
+        }
+
+        const fallbackPoint = this.transformMouseToComponentSpace();
+        const resolvedPoint = clickedPoint || {
+            x: fallbackPoint.glyphX,
+            y: fallbackPoint.glyphY
+        };
+
+        const segmentHit = this.findClosestPathSegmentHitAt(resolvedPoint);
+        let shapeIndex = segmentHit?.shapeIndex ?? null;
+        let pathIndex = segmentHit?.pathIndex ?? null;
+        const clickedNode = this.findClosestPointNodeAt(resolvedPoint);
+
+        if (clickedNode) {
+            const hoveredShapeIndex = clickedNode.contourIndex;
+            const hoveredPathIndex =
+                this.getPathIndexForShapeIndex(hoveredShapeIndex);
+
+            if (hoveredPathIndex !== null) {
+                shapeIndex = hoveredShapeIndex;
+                pathIndex = hoveredPathIndex;
+            }
+        }
+
+        if (shapeIndex === null || pathIndex === null) {
+            return null;
+        }
+
+        const contour = getEditableContour(currentLayerData.shapes[shapeIndex]);
+        const hoveredNodeIndex =
+            clickedNode?.contourIndex === shapeIndex
+                ? clickedNode.nodeIndex
+                : null;
+        const hoveredNode =
+            hoveredNodeIndex !== null ? contour?.nodes[hoveredNodeIndex] : null;
+        let onCurveOrdinal: number | null = null;
+        if (hoveredNodeIndex !== null && contour?.nodes) {
+            const onCurveBeforeOrAtNode = contour.nodes
+                .slice(0, hoveredNodeIndex + 1)
+                .filter((node: Babelfont.Node) => isOnCurveNode(node)).length;
+            onCurveOrdinal = Math.max(0, onCurveBeforeOrAtNode - 1);
+        }
+        const canSetStartNode = Boolean(
+            contour?.closed &&
+            hoveredNodeIndex !== null &&
+            hoveredNodeIndex > 0 &&
+            onCurveOrdinal !== null &&
+            onCurveOrdinal > 0 &&
+            hoveredNode &&
+            hoveredNode.nodetype !== 'OffCurve'
+        );
+
+        return {
+            shapeIndex,
+            pathIndex,
+            nodeIndex: hoveredNodeIndex,
+            onCurveOrdinal,
+            nodeType:
+                hoveredNode && isOnCurveNode(hoveredNode)
+                    ? hoveredNode.nodetype
+                    : null,
+            intendedPoint:
+                hoveredNode && isOnCurveNode(hoveredNode)
+                    ? {
+                          x: Number(hoveredNode.x),
+                          y: Number(hoveredNode.y)
+                      }
+                    : null,
+            canSetStartNode
+        };
+    }
+
+    private getClosestOnCurveNodeIndex(
+        path: any,
+        point: CanvasPoint,
+        requireNonStart: boolean,
+        preferredNodeType?: Babelfont.NodeType | null
+    ): number | null {
+        const nodes = path?.nodes;
+        if (!Array.isArray(nodes) || !nodes.length) {
+            return null;
+        }
+
+        const pickBest = (enforceNodeType: boolean): number | null => {
+            let bestIndex: number | null = null;
+            let bestDistance = Infinity;
+
+            nodes.forEach((node: Babelfont.Node, nodeIndex: number) => {
+                if (!isOnCurveNode(node)) {
+                    return;
+                }
+
+                if (requireNonStart && nodeIndex === 0) {
+                    return;
+                }
+
+                if (
+                    enforceNodeType &&
+                    preferredNodeType &&
+                    node.nodetype !== preferredNodeType
+                ) {
+                    return;
+                }
+
+                const distance = Math.hypot(node.x - point.x, node.y - point.y);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestIndex = nodeIndex;
+                }
+            });
+
+            return bestIndex;
+        };
+
+        return pickBest(true) ?? pickBest(false);
+    }
+
+    private getOnCurveNodeIndexByOrdinal(
+        path: any,
+        onCurveOrdinal: number,
+        requireNonStart: boolean
+    ): number | null {
+        const nodes = path?.nodes;
+        if (!Array.isArray(nodes) || !nodes.length || onCurveOrdinal < 0) {
+            return null;
+        }
+
+        let currentOrdinal = -1;
+        for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+            const node = nodes[nodeIndex];
+            if (!isOnCurveNode(node)) {
+                continue;
+            }
+
+            currentOrdinal += 1;
+            if (currentOrdinal !== onCurveOrdinal) {
+                continue;
+            }
+
+            if (requireNonStart && nodeIndex === 0) {
+                return null;
+            }
+
+            return nodeIndex;
+        }
+
+        return null;
+    }
+
+    private buildCanvasContextMenuHtml(
+        target: CanvasPathContextTarget | null
+    ): string {
+        const items: string[] = [];
+
+        if (target?.canSetStartNode) {
+            items.push(`
+                <div class="plugin-menu-item" data-action="set-start-node">
+                    <span class="material-symbols-outlined">flag</span>
+                    <span>Set as start node</span>
+                </div>
+            `);
+        }
+
+        if (target) {
+            items.push(`
+                <div class="plugin-menu-item" data-action="reverse-path-direction">
+                    <span class="material-symbols-outlined">swap_horiz</span>
+                    <span>Reverse path direction</span>
+                </div>
+            `);
+        }
+
+        if (!items.length) {
+            items.push(`
+                <div class="plugin-menu-item">
+                    <span class="material-symbols-outlined">block</span>
+                    <span>No path actions here</span>
+                </div>
+            `);
+        }
+
+        return `<div class="plugin-menu">${items.join('')}</div>`;
+    }
+
+    onContextMenu(e: MouseEvent): void {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const tippyInstance = this.ensureCanvasContextMenu();
+        if (!tippyInstance) {
+            return;
+        }
+
+        const rect = this.canvas?.getBoundingClientRect();
+        const canvasPoint = rect
+            ? this.glyphCanvas.toGlyphLocal(
+                  e.clientX - rect.left,
+                  e.clientY - rect.top
+              )
+            : this.transformMouseToComponentSpace();
+        const clickedPoint = this.isEditingComponent()
+            ? (() => {
+                  const compTransform = this.getAccumulatedTransform();
+                  const [a, b, c, d, tx, ty] = compTransform;
+                  const det = a * d - b * c;
+
+                  if (Math.abs(det) <= 0.0001) {
+                      return {
+                          x: canvasPoint.glyphX,
+                          y: canvasPoint.glyphY
+                      };
+                  }
+
+                  const localX = canvasPoint.glyphX - tx;
+                  const localY = canvasPoint.glyphY - ty;
+                  return {
+                      x: (d * localX - c * localY) / det,
+                      y: (a * localY - b * localX) / det
+                  };
+              })()
+            : {
+                  x: canvasPoint.glyphX,
+                  y: canvasPoint.glyphY
+              };
+
+        this.canvasContextMenuTarget =
+            this.buildCanvasContextMenuTarget(clickedPoint);
+
+        tippyInstance.setProps({
+            theme: getTheme(),
+            content: this.buildCanvasContextMenuHtml(
+                this.canvasContextMenuTarget
+            ),
+            getReferenceClientRect: () => ({
+                width: 0,
+                height: 0,
+                top: e.clientY,
+                bottom: e.clientY,
+                left: e.clientX,
+                right: e.clientX,
+                x: e.clientX,
+                y: e.clientY,
+                toJSON: () => ({})
+            })
+        });
+
+        tippyInstance.show();
+    }
+
+    private handleCanvasContextMenuAction(action: string): void {
+        if (action === 'set-start-node') {
+            this.setContextMenuPathStartNode();
+            return;
+        }
+
+        if (action === 'reverse-path-direction') {
+            this.reverseContextMenuPathDirection();
+        }
+    }
+
+    private applyPathMutationAcrossLinkedLayers(
+        pathIndex: number,
+        label: string,
+        mutate: (path: any, layerIndex?: number) => boolean
+    ): boolean {
+        const currentLayerModel = this.getCurrentLayerModel();
+        const currentGlyphModel = this.getCurrentGlyphModel();
+        if (!currentLayerModel || !currentGlyphModel) {
+            return false;
+        }
+
+        const activePath = currentLayerModel.paths?.[pathIndex];
+        if (!activePath) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        let changed = false;
+
+        withSuppressedModelRecording(() => {
+            changed = mutate(activePath, 0);
+            if (!changed) {
+                return;
+            }
+
+            for (let layerIndex = 0; layerIndex < linkedLayers.length; layerIndex++) {
+                const linkedLayer = linkedLayers[layerIndex];
+                const linkedPath = linkedLayer.paths?.[pathIndex];
+                if (!linkedPath) {
+                    continue;
+                }
+                mutate(linkedPath, layerIndex + 1);
+            }
+        });
+
+        if (!changed) {
+            return false;
+        }
+
+        const bridge = window.changeBridge;
+        if (bridge && currentGlyphModel.name) {
+            bridge.beginTransaction(label);
+            try {
+                bridge.syncGlyphFromJson(currentGlyphModel.name, label);
+            } finally {
+                bridge.endTransaction();
+            }
+        }
+
+        this.syncCurrentExactLayerDataFromModel();
+
+        const currentFont = fontManager.currentFont;
+        if (currentFont) {
+            currentFont.markDirty('keyboard-outline');
+            void fontManager.updateDirtyIndicator();
+        }
+
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+
+        if (currentFont) {
+            window.setTimeout(() => {
+                if (fontManager.currentFont !== currentFont) {
+                    return;
+                }
+
+                try {
+                    currentFont.syncJsonFromModel();
+                } catch (error) {
+                    console.error(
+                        '[OutlineEditor] Error syncing font JSON after path context menu action:',
+                        error
+                    );
+                    return;
+                }
+
+                void fontManager.updateWorkerFontCache();
+            }, 0);
+        } else if (currentGlyphModel.name) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: currentGlyphModel.name,
+                        layerId: this.getCurrentLayerId()
+                    }
+                })
+            );
+        }
+
+        return true;
+    }
+
+    private setContextMenuPathStartNode(): boolean {
+        const target = this.canvasContextMenuTarget;
+        if (
+            !target ||
+            !target.canSetStartNode ||
+            target.nodeIndex === null ||
+            target.onCurveOrdinal === null ||
+            target.onCurveOrdinal <= 0 ||
+            !target.intendedPoint
+        ) {
+            return false;
+        }
+
+        const resolvedPathIndex = target.pathIndex;
+        if (!Number.isInteger(resolvedPathIndex) || resolvedPathIndex < 0) {
+            return false;
+        }
+
+        const currentLayerModel = this.getCurrentLayerModel();
+        if (!currentLayerModel) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const layers = [currentLayerModel, ...linkedLayers];
+        const mappedNodeIndicesByLayer: number[] = [];
+
+        // Resolve active layer by coordinate proximity (intendedPoint in model space),
+        // then derive the on-curve ordinal for linked-layer mapping.
+        // This avoids relying on target.nodeIndex / target.onCurveOrdinal which were
+        // captured from render data that may be out of sync after prior mutations.
+        const activePath = currentLayerModel.paths?.[resolvedPathIndex];
+        if (!activePath) {
+            return false;
+        }
+
+        const activeModelIndex = this.getClosestOnCurveNodeIndex(
+            activePath,
+            target.intendedPoint as CanvasPoint,
+            true
+        );
+
+        if (activeModelIndex === null || activeModelIndex <= 0) {
+            return false;
+        }
+
+        mappedNodeIndicesByLayer[0] = activeModelIndex;
+
+        // Derive on-curve ordinal from the resolved active-layer node.
+        const activeNodes = activePath.nodes;
+        const activeOrdinal = Array.isArray(activeNodes)
+            ? activeNodes
+                  .slice(0, activeModelIndex + 1)
+                  .filter((n: any) => isOnCurveNode(n)).length - 1
+            : -1;
+
+        if (activeOrdinal < 0) {
+            return false;
+        }
+
+        for (let layerIndex = 1; layerIndex < layers.length; layerIndex++) {
+            const layer = layers[layerIndex];
+            const path = layer?.paths?.[resolvedPathIndex];
+            if (!path) {
+                continue;
+            }
+
+            const mappedNodeIndex = this.getOnCurveNodeIndexByOrdinal(
+                path,
+                activeOrdinal,
+                false
+            );
+
+            if (mappedNodeIndex === null) {
+                continue;
+            }
+
+            mappedNodeIndicesByLayer[layerIndex] = mappedNodeIndex;
+        }
+
+        // Verify all layers have resolved indices before mutating.
+        for (let i = 0; i < layers.length; i++) {
+            if (mappedNodeIndicesByLayer[i] === undefined) {
+                return false;
+            }
+        }
+
+        const changed = this.applyPathMutationAcrossLinkedLayers(
+            resolvedPathIndex,
+            'Set start node',
+            (path: any, layerIndex = 0) => {
+                const mappedNodeIndex = mappedNodeIndicesByLayer[layerIndex];
+                if (mappedNodeIndex === undefined || mappedNodeIndex <= 0) {
+                    return mappedNodeIndex === 0;
+                }
+
+                return path?._setStartNode?.(mappedNodeIndex) ?? false;
+            }
+        );
+
+        if (!changed) {
+            return false;
+        }
+
+        this.selectedPoints = [
+            {
+                contourIndex: target.shapeIndex,
+                nodeIndex: 0
+            }
+        ];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+        return true;
+    }
+
+    private reverseContextMenuPathDirection(): boolean {
+        const target = this.canvasContextMenuTarget;
+        if (!target) {
+            return false;
+        }
+
+        const resolvedPathIndex = target.pathIndex;
+        if (!Number.isInteger(resolvedPathIndex) || resolvedPathIndex < 0) {
+            return false;
+        }
+
+        const changed = this.applyPathMutationAcrossLinkedLayers(
+            resolvedPathIndex,
+            'Reverse path direction',
+            (path: any) => path?._reverseDirection?.() ?? false
+        );
+
+        if (!changed) {
+            return false;
+        }
+
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+        return true;
     }
 
     private getSelectedOpenPathEndpointSeed(): ActivePathDrawingSession | null {

@@ -3746,6 +3746,126 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         return true;
     }
 
+    _setStartNode(nodeIndex: number): boolean {
+        if (!this.closed) {
+            return false;
+        }
+
+        const nodeArray = this.ensureNodesArray();
+        if (nodeArray.length < 2) {
+            return false;
+        }
+
+        const targetNode = nodeArray[nodeIndex];
+        if (
+            !targetNode ||
+            nodeIndex <= 0 ||
+            isOffCurveNodeType(targetNode.nodetype)
+        ) {
+            return false;
+        }
+
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        const rotated = [
+            ...nodeArray.slice(nodeIndex),
+            ...nodeArray.slice(0, nodeIndex)
+        ].map((node) => cloneNodeData(node));
+        const nextNodes = normalizePathNodeArray(rotated, true);
+
+        this.data.nodes = nextNodes;
+        this._nodeWrappers = null;
+        recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+        return true;
+    }
+
+    _reverseDirection(): boolean {
+        const nodeArray = this.ensureNodesArray();
+        if (nodeArray.length < 2) {
+            return false;
+        }
+
+        const descriptors = buildPathSegmentDescriptors({
+            nodes: nodeArray,
+            closed: this.closed
+        });
+        if (!descriptors.length) {
+            return false;
+        }
+
+        const reverseControlNodes = (descriptor: PathSegmentDescriptor) =>
+            descriptor.controlNodeIndices
+                .slice()
+                .reverse()
+                .map((controlNodeIndex) =>
+                    cloneNodeData(nodeArray[controlNodeIndex], {
+                        nodetype: 'OffCurve' as Babelfont.NodeType
+                    })
+                );
+
+        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+        const nextNodes: Babelfont.Node[] = [];
+
+        if (this.closed) {
+            const startDescriptorIndex = descriptors.findIndex(
+                (descriptor) => descriptor.endNodeIndex === 0
+            );
+            if (startDescriptorIndex < 0) {
+                return false;
+            }
+
+            const orderedDescriptors = Array.from(
+                { length: descriptors.length },
+                (_value, offset) =>
+                    descriptors[
+                        (startDescriptorIndex - offset + descriptors.length) %
+                            descriptors.length
+                    ]
+            );
+
+            nextNodes.push(cloneNodeData(nodeArray[0]));
+
+            orderedDescriptors.forEach((descriptor, descriptorIndex) => {
+                nextNodes.push(...reverseControlNodes(descriptor));
+
+                if (descriptorIndex < orderedDescriptors.length - 1) {
+                    nextNodes.push(
+                        cloneNodeData(nodeArray[descriptor.startNodeIndex])
+                    );
+                }
+            });
+        } else {
+            const orderedDescriptors = descriptors.slice().reverse();
+            const firstDescriptor = orderedDescriptors[0];
+
+            nextNodes.push(
+                cloneNodeData(nodeArray[firstDescriptor.endNodeIndex], {
+                    nodetype: 'Move' as Babelfont.NodeType,
+                    smooth: false
+                })
+            );
+
+            for (const descriptor of orderedDescriptors) {
+                nextNodes.push(...reverseControlNodes(descriptor));
+                nextNodes.push(
+                    cloneNodeData(nodeArray[descriptor.startNodeIndex])
+                );
+            }
+        }
+
+        const normalizedNodes = normalizePathNodeArray(nextNodes, this.closed);
+        if (!this.closed && normalizedNodes.length) {
+            normalizedNodes[0] = cloneNodeData(normalizedNodes[0], {
+                nodetype: 'Move' as Babelfont.NodeType,
+                smooth: false
+            });
+        }
+
+        this.data.nodes = normalizedNodes;
+        this._nodeWrappers = null;
+        recordAndMarkDirty(this, 'nodes', oldNodes, normalizedNodes);
+        return true;
+    }
+
     _convertLineSegmentToCurve(segmentId: number): boolean {
         const nodeArray = this.ensureNodesArray();
         const descriptors = buildPathSegmentDescriptors({
