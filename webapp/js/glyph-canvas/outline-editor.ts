@@ -5103,16 +5103,17 @@ export class OutlineEditor {
         }
 
         const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const snappedStart = { x: Math.round(glyphX), y: Math.round(glyphY) };
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
         let activePath = null;
 
         withSuppressedModelRecording(() => {
             activePath = currentLayerModel.addPath(false);
-            activePath?._appendLine({ x: glyphX, y: glyphY });
+            activePath?._appendLine(snappedStart);
 
             for (const linkedLayer of linkedLayers) {
                 const linkedPath = linkedLayer.addPath(false);
-                linkedPath._appendLine({ x: glyphX, y: glyphY });
+                linkedPath._appendLine(snappedStart);
             }
         });
 
@@ -5155,14 +5156,21 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        const snappedPoint = {
+            x: Math.round(point.x),
+            y: Math.round(point.y)
+        };
         let insertedNodeIndex: number | null = null;
 
         withSuppressedModelRecording(() => {
-            insertedNodeIndex = activePath._appendLine(point, session.edge);
+            insertedNodeIndex = activePath._appendLine(
+                snappedPoint,
+                session.edge
+            );
 
             for (const linkedLayer of linkedLayers) {
                 const linkedPath = linkedLayer.paths?.[session.pathIndex];
-                linkedPath?._appendLine(point, session.edge);
+                linkedPath?._appendLine(snappedPoint, session.edge);
             }
         });
 

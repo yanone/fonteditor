@@ -3443,7 +3443,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
 
         const transformSpy = jest
             .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
-            .mockReturnValue({ glyphX: 10, glyphY: 40 });
+            .mockReturnValue({ glyphX: 10.6, glyphY: 39.4 });
 
         try {
             canvas.outlineEditor.onSingleClick({
@@ -3473,7 +3473,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                     nodetype: node.nodetype
                 }))
             ).toEqual([
-                { x: 10, y: 40, nodetype: 'Move' },
+                { x: 11, y: 39, nodetype: 'Move' },
                 { x: 40, y: 40, nodetype: 'Line' },
                 { x: 100, y: 40, nodetype: 'Line' }
             ]);
@@ -3484,7 +3484,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                     nodetype: node.nodetype
                 }))
             ).toEqual([
-                { x: 10, y: 40, nodetype: 'Move' },
+                { x: 11, y: 39, nodetype: 'Move' },
                 { x: 50, y: 50, nodetype: 'Line' },
                 { x: 110, y: 50, nodetype: 'Line' }
             ]);
