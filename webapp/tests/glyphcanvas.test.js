@@ -2501,6 +2501,327 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         }
     });
 
+    test('deletes selected points, anchors, and guides together across linked layers using anchor/guide names', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Move' },
+                                        { x: 50, y: 0, nodetype: 'Line' },
+                                        { x: 50, y: 50, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [
+                                { name: 'keep', x: 5, y: 5 },
+                                { name: 'top', x: 25, y: 90 }
+                            ],
+                            guides: [
+                                {
+                                    name: 'delete-me',
+                                    pos: { x: 0, y: 600 },
+                                    angle: 0
+                                }
+                            ]
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 10, y: 10, nodetype: 'Move' },
+                                        { x: 60, y: 10, nodetype: 'Line' },
+                                        { x: 60, y: 60, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [
+                                { name: 'top', x: 30, y: 95 },
+                                { name: 'keep', x: 10, y: 10 }
+                            ],
+                            guides: [
+                                {
+                                    name: 'keep-guide',
+                                    pos: { x: 0, y: 580 },
+                                    angle: 0
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Delete Mixed Selection Test' }
+            },
+            note: '',
+            date: '2026-03-26',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                fontModel: font,
+                markDirty: jest.fn(),
+                syncJsonFromModel: jest.fn(),
+                hasUnsavedChanges: false
+            });
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const previousChangeBridge = window.changeBridge;
+        window.changeBridge = {
+            beginTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn(),
+            endTransaction: jest.fn()
+        };
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 },
+            { contourIndex: 0, nodeIndex: 1 },
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+        canvas.outlineEditor.selectedAnchors = [1];
+        canvas.outlineEditor.selectedGuideHandle = {
+            scope: 'layer',
+            index: 0
+        };
+
+        try {
+            await canvas.outlineEditor.deleteSelectedNodes();
+
+            for (const layer of [currentLayer, linkedLayer]) {
+                expect(layer.shapes).toHaveLength(0);
+            }
+
+            expect(currentLayer.toJSON().anchors).toEqual([
+                { name: 'keep', x: 5, y: 5 }
+            ]);
+            expect(linkedLayer.toJSON().anchors).toEqual([
+                { name: 'keep', x: 10, y: 10 }
+            ]);
+
+            expect(currentLayer.toJSON().guides || []).toEqual([]);
+            expect(linkedLayer.toJSON().guides || []).toEqual([
+                {
+                    name: 'keep-guide',
+                    pos: { x: 0, y: 580 },
+                    angle: 0
+                }
+            ]);
+
+            expect(window.changeBridge.beginTransaction).toHaveBeenCalledTimes(
+                1
+            );
+            expect(window.changeBridge.syncGlyphFromJson).toHaveBeenCalledTimes(
+                1
+            );
+            expect(window.changeBridge.endTransaction).toHaveBeenCalledTimes(1);
+        } finally {
+            window.changeBridge = previousChangeBridge;
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('deletes a full contour when all on-curve nodes are selected, even if off-curve handles are not selected', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Move' },
+                                        { x: 50, y: 0, nodetype: 'OffCurve' },
+                                        {
+                                            x: 100,
+                                            y: 50,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 100,
+                                            y: 100,
+                                            nodetype: 'Curve'
+                                        }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 10, y: 10, nodetype: 'Move' },
+                                        {
+                                            x: 60,
+                                            y: 10,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 110,
+                                            y: 60,
+                                            nodetype: 'OffCurve'
+                                        },
+                                        {
+                                            x: 110,
+                                            y: 110,
+                                            nodetype: 'Curve'
+                                        }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'On-Curve Delete Test' }
+            },
+            note: '',
+            date: '2026-03-26',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({
+                fontModel: font,
+                markDirty: jest.fn(),
+                syncJsonFromModel: jest.fn(),
+                hasUnsavedChanges: false
+            });
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        // Select only on-curve nodes (Move + Curve), not off-curve handles.
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 },
+            { contourIndex: 0, nodeIndex: 3 }
+        ];
+
+        try {
+            await canvas.outlineEditor.deleteSelectedNodes();
+
+            expect(currentLayer.shapes).toHaveLength(0);
+            expect(linkedLayer.shapes).toHaveLength(0);
+        } finally {
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
     test('prefers exact nested component layer data over stale interpolated payloads', () => {
         canvas.outlineEditor.selectedLayerId = 'layer-1';
 

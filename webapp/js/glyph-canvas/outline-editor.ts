@@ -6249,12 +6249,15 @@ export class OutlineEditor {
         const currentLayerModel = this.getCurrentLayerModel();
         const currentGlyphModel = this.getCurrentGlyphModel();
         const currentLayerData = this.getCurrentLayerDataFromStack();
+        const hasPointSelection = this.selectedPoints.length > 0;
+        const hasAnchorSelection = this.selectedAnchors.length > 0;
+        const hasGuideSelection = this.selectedGuideHandle !== null;
 
         if (
             !currentLayerModel ||
             !currentGlyphModel ||
             !currentLayerData ||
-            this.selectedPoints.length === 0
+            (!hasPointSelection && !hasAnchorSelection && !hasGuideSelection)
         ) {
             return;
         }
@@ -6283,7 +6286,22 @@ export class OutlineEditor {
                     nodeIndex < (contour?.nodes.length || 0)
             );
 
-            if (contour && uniqueNodeIndices.length === contour.nodes.length) {
+            const selectedNodeIndexSet = new Set(uniqueNodeIndices);
+            const onCurveNodeIndices = contour
+                ? contour.nodes
+                      .map((node, index) =>
+                          isOnCurveNode(node) ? index : null
+                      )
+                      .filter((index): index is number => index !== null)
+                : [];
+
+            if (
+                contour &&
+                onCurveNodeIndices.length > 0 &&
+                onCurveNodeIndices.every((index) =>
+                    selectedNodeIndexSet.has(index)
+                )
+            ) {
                 fullContourIndices.add(pathIndex);
                 pointsByPath.set(
                     pathIndex,
@@ -6301,6 +6319,31 @@ export class OutlineEditor {
         const contourIndicesDescending = [...pointsByPath.keys()].sort(
             (left, right) => right - left
         );
+
+        const selectedAnchorIndicesDescending = [
+            ...new Set(this.selectedAnchors)
+        ]
+            .filter(
+                (anchorIndex) =>
+                    Number.isInteger(anchorIndex) &&
+                    anchorIndex >= 0 &&
+                    anchorIndex < (currentLayerModel.anchors?.length || 0)
+            )
+            .sort((left, right) => right - left);
+
+        const selectedAnchorNames = this.getAnchorNamesForSelectionIndices(
+            this.selectedAnchors,
+            currentLayerData.anchors || []
+        );
+
+        const selectedGuideHandle = this.selectedGuideHandle
+            ? { ...this.selectedGuideHandle }
+            : null;
+
+        const selectedLayerGuideName =
+            selectedGuideHandle?.scope === 'layer'
+                ? currentLayerModel.guides?.[selectedGuideHandle.index]?.name
+                : null;
 
         // Perform deletions with suppressed model recording
         withSuppressedModelRecording(() => {
@@ -6325,10 +6368,70 @@ export class OutlineEditor {
                 }
             };
 
+            const removeAnchorsByName = (layerModel: Layer): void => {
+                if (!selectedAnchorNames.length) {
+                    return;
+                }
+
+                const used = new Set<number>();
+                const indicesToDelete: number[] = [];
+
+                for (const anchorName of selectedAnchorNames) {
+                    const match = layerModel.anchors?.findIndex(
+                        (anchor, index) =>
+                            !used.has(index) && anchor.name === anchorName
+                    );
+
+                    if (match !== undefined && match >= 0) {
+                        used.add(match);
+                        indicesToDelete.push(match);
+                    }
+                }
+
+                indicesToDelete
+                    .sort((left, right) => right - left)
+                    .forEach((index) => layerModel.removeAnchor(index));
+            };
+
+            const removeSelectedGuideFromLayer = (layerModel: Layer): void => {
+                if (selectedGuideHandle?.scope !== 'layer') {
+                    return;
+                }
+
+                if (layerModel === currentLayerModel) {
+                    layerModel.removeGuide(selectedGuideHandle.index);
+                    return;
+                }
+
+                if (!selectedLayerGuideName) {
+                    return;
+                }
+
+                const linkedGuideIndex = layerModel.guides?.findIndex(
+                    (guide) => guide.name === selectedLayerGuideName
+                );
+
+                if (linkedGuideIndex !== undefined && linkedGuideIndex >= 0) {
+                    layerModel.removeGuide(linkedGuideIndex);
+                }
+            };
+
             deleteContourFromLayer(currentLayerModel);
+            selectedAnchorIndicesDescending.forEach((anchorIndex) =>
+                currentLayerModel.removeAnchor(anchorIndex)
+            );
+            removeSelectedGuideFromLayer(currentLayerModel);
+
+            if (selectedGuideHandle?.scope === 'master') {
+                this.getRootMasterModel()?.removeGuide(
+                    selectedGuideHandle.index
+                );
+            }
 
             for (const linkedLayer of linkedLayers) {
                 deleteContourFromLayer(linkedLayer);
+                removeAnchorsByName(linkedLayer);
+                removeSelectedGuideFromLayer(linkedLayer);
             }
         });
 
@@ -6763,7 +6866,11 @@ export class OutlineEditor {
 
         // Handle Delete/Backspace for node deletion
         if (e.key === 'Delete' || e.key === 'Backspace') {
-            if (this.selectedPoints.length > 0) {
+            if (
+                this.selectedPoints.length > 0 ||
+                this.selectedAnchors.length > 0 ||
+                this.selectedGuideHandle
+            ) {
                 e.preventDefault();
                 void this.deleteSelectedNodes();
                 return;
