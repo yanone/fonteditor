@@ -16,7 +16,9 @@ async function openFustatFont(page: Page): Promise<void> {
 
 async function waitForBridgeReady(page: Page): Promise<void> {
     await page.waitForFunction(
-        () => !!(window as any).changeBridge && !!(window as any).currentFontModel,
+        () =>
+            !!(window as any).changeBridge &&
+            !!(window as any).currentFontModel,
         { timeout: 15000 }
     );
     await page.waitForTimeout(400);
@@ -81,7 +83,12 @@ async function captureOutlineFingerprint(page: Page): Promise<{
         id: string;
         paths: Array<{
             closed: boolean;
-            nodes: Array<{ x: number; y: number; nodetype: string; smooth: boolean }>;
+            nodes: Array<{
+                x: number;
+                y: number;
+                nodetype: string;
+                smooth: boolean;
+            }>;
         }>;
     }>;
     compatible: boolean;
@@ -131,8 +138,7 @@ async function performUndo(page: Page): Promise<void> {
 
 test('fuzz path context actions on Fustat n: click intent maps to start node and reverse stays compatible', async ({
     page
-},
-testInfo: TestInfo) => {
+}, testInfo: TestInfo) => {
     test.setTimeout(300000);
 
     await page.goto('/?test=true');
@@ -160,8 +166,7 @@ testInfo: TestInfo) => {
     expect(baseline.linkedLayerCount).toBeGreaterThan(0);
     expect(baseline.compatibility?.compatible).toBeTruthy();
 
-    let seed =
-        1337 + testInfo.repeatEachIndex * 100003 + testInfo.retry * 1009;
+    let seed = 1337 + testInfo.repeatEachIndex * 100003 + testInfo.retry * 1009;
     const rand = () => {
         seed = (seed * 1664525 + 1013904223) >>> 0;
         return seed / 0x100000000;
@@ -313,7 +318,8 @@ testInfo: TestInfo) => {
                 const target = oe.canvasContextMenuTarget;
                 const glyph = oe.getCurrentGlyphModel();
                 const compatibility = glyph?.calculateOutlineCompatibility?.();
-                const linkedLayerCount = layer?._getLinkedLayers?.()?.length || 0;
+                const linkedLayerCount =
+                    layer?._getLinkedLayers?.()?.length || 0;
 
                 return {
                     startNode: startNodeCoords,
@@ -425,7 +431,9 @@ testInfo: TestInfo) => {
                 linkedLayerCount: linkedLayers.length,
                 paths: [layer, ...linkedLayers].map((entry: any) => ({
                     id: entry.id,
-                    path: toGeometrySignature(entry.paths?.[pathIndex]?.toJSON?.())
+                    path: toGeometrySignature(
+                        entry.paths?.[pathIndex]?.toJSON?.()
+                    )
                 }))
             };
         });

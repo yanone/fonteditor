@@ -5064,29 +5064,39 @@ export class OutlineEditor {
         }
 
         const scaledHitRadius =
-            hitRadius / Math.max(this.glyphCanvas.viewportManager!.scale, 0.001);
+            hitRadius /
+            Math.max(this.glyphCanvas.viewportManager!.scale, 0.001);
         let bestDist = Infinity;
         let bestPoint: Point | null = null;
 
-        currentLayerData.shapes.forEach((shape: Babelfont.Shape, contourIndex) => {
-            const contour = getEditableContour(shape);
-            if (!contour?.nodes?.length) {
-                return;
-            }
-
-            contour.nodes.forEach((node: Babelfont.Node, nodeIndex: number) => {
-                const dist = Math.hypot(node.x - glyphPoint.x, node.y - glyphPoint.y);
-                if (dist <= scaledHitRadius && dist <= bestDist) {
-                    bestDist = dist;
-                    bestPoint = { contourIndex, nodeIndex };
+        currentLayerData.shapes.forEach(
+            (shape: Babelfont.Shape, contourIndex) => {
+                const contour = getEditableContour(shape);
+                if (!contour?.nodes?.length) {
+                    return;
                 }
-            });
-        });
+
+                contour.nodes.forEach(
+                    (node: Babelfont.Node, nodeIndex: number) => {
+                        const dist = Math.hypot(
+                            node.x - glyphPoint.x,
+                            node.y - glyphPoint.y
+                        );
+                        if (dist <= scaledHitRadius && dist <= bestDist) {
+                            bestDist = dist;
+                            bestPoint = { contourIndex, nodeIndex };
+                        }
+                    }
+                );
+            }
+        );
 
         return bestPoint;
     }
 
-    private findClosestPathSegmentHitAt(glyphPoint: CanvasPoint): PathSegmentHit | null {
+    private findClosestPathSegmentHitAt(
+        glyphPoint: CanvasPoint
+    ): PathSegmentHit | null {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData?.shapes) {
             return null;
@@ -5452,7 +5462,11 @@ export class OutlineEditor {
                 return;
             }
 
-            for (let layerIndex = 0; layerIndex < linkedLayers.length; layerIndex++) {
+            for (
+                let layerIndex = 0;
+                layerIndex < linkedLayers.length;
+                layerIndex++
+            ) {
                 const linkedLayer = linkedLayers[layerIndex];
                 const linkedPath = linkedLayer.paths?.[pathIndex];
                 if (!linkedPath) {
