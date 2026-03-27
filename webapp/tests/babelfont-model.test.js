@@ -3138,4 +3138,85 @@ describe('Babelfont Object Model', () => {
             expect(descriptors[1].points[0]).toEqual({ x: 75, y: 100 });
         });
     });
+
+    // ── Performance regression guards ─────────────────────────────────────────
+    // These tests verify that editing a layer goes through the fast-path
+    // Layer.recomputeOwnMetricsKeys() instead of the O(all-glyphs) scan
+    // of Font.recomputeMetricsKeys(). They do NOT use timing measurements;
+    // instead they assert that the expensive Font-level method is never called.
+
+    describe('Layer.recomputeOwnMetricsKeys() fast path', () => {
+        test('does not call Font.recomputeMetricsKeys for a layer with a left metrics key', () => {
+            const fontSpy = jest.spyOn(metricsKeysFont, 'recomputeMetricsKeys');
+
+            // Find a layer (or whose glyph) has a leftMetricsKey set
+            let targetLayer = null;
+            for (const glyph of metricsKeysFont.glyphs) {
+                for (const layer of glyph.layers || []) {
+                    if (layer.leftMetricsKey || glyph.leftMetricsKey) {
+                        targetLayer = layer;
+                        break;
+                    }
+                }
+                if (targetLayer) break;
+            }
+            expect(targetLayer).not.toBeNull();
+
+            // The fast-path method must NOT delegate to the font-level scan
+            targetLayer.recomputeOwnMetricsKeys();
+
+            expect(fontSpy).not.toHaveBeenCalled();
+            fontSpy.mockRestore();
+        });
+
+        test('does not call Font.recomputeMetricsKeys for a layer with a right metrics key', () => {
+            const fontSpy = jest.spyOn(metricsKeysFont, 'recomputeMetricsKeys');
+
+            let targetLayer = null;
+            for (const glyph of metricsKeysFont.glyphs) {
+                for (const layer of glyph.layers || []) {
+                    if (layer.rightMetricsKey || glyph.rightMetricsKey) {
+                        targetLayer = layer;
+                        break;
+                    }
+                }
+                if (targetLayer) break;
+            }
+            expect(targetLayer).not.toBeNull();
+
+            targetLayer.recomputeOwnMetricsKeys();
+
+            expect(fontSpy).not.toHaveBeenCalled();
+            fontSpy.mockRestore();
+        });
+
+        test('recomputeOwnMetricsKeys resolves sidebearing correctly without full scan', () => {
+            // Pick a glyph+layer with a right metrics key and verify
+            // that recomputeOwnMetricsKeys produces the same RSB as the
+            // full Font.recomputeMetricsKeys path.
+            let glyphWithKey = null;
+            let layerWithKey = null;
+            for (const glyph of metricsKeysFont.glyphs) {
+                for (const layer of glyph.layers || []) {
+                    if (layer.rightMetricsKey || glyph.rightMetricsKey) {
+                        glyphWithKey = glyph;
+                        layerWithKey = layer;
+                        break;
+                    }
+                }
+                if (layerWithKey) break;
+            }
+            expect(layerWithKey).not.toBeNull();
+
+            // Full scan (reference result)
+            metricsKeysFont.recomputeMetricsKeys(new Set([glyphWithKey.name]));
+            const expectedRsb = layerWithKey.rsb;
+
+            // Reset by nudging the width, then use the fast path
+            layerWithKey.width += 1;
+            layerWithKey.recomputeOwnMetricsKeys();
+
+            expect(layerWithKey.rsb).toBeCloseTo(expectedRsb, 1);
+        });
+    });
 });

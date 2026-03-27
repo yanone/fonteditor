@@ -3532,3 +3532,134 @@ describe('syncGlyphFromJson', () => {
         bridge2.destroy();
     });
 });
+
+// ── Performance regression guards ─────────────────────────────────────────
+// These tests verify that layer-scoped undo uses the scope-aware fast path
+// in _syncJsonFromYDoc(), which patches only the changed layer instead of
+// reconstructing the entire font from Y.Doc. They do NOT use timing
+// measurements; instead they assert observable structural invariants:
+//
+//   • After layer-scoped undo, the changed layer is correctly reverted.
+//   • After layer-scoped undo, unrelated glyphs' layer objects are the
+//     SAME reference as before undo (proving they were not rebuilt).
+//   • After glyph/font-scoped undo, the full sync path is used (object
+//     identity of unrelated glyphs IS allowed to change, but correctness
+//     is still verified).
+
+describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
+    afterEach(() => {
+        delete window.changeBridge;
+    });
+
+    test('layer-scoped undo patches only the changed layer — other glyph data is not rebuilt', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('test-scope-1');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+
+        // Capture reference to glyph B's layer object BEFORE the edit.
+        // If scope-aware sync is working, this exact object must survive undo.
+        const glyphBLayerBefore = fontJson.glyphs[1].layers[0];
+        expect(glyphBLayerBefore).toBeDefined();
+
+        // Record a node-position change on glyph A, layer-1
+        bridge.beginTransaction('Move node');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
+            'x',
+            100,
+            150
+        );
+        bridge.endTransaction();
+
+        // Confirm the Y.Doc now holds the new value
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(150);
+
+        // Perform the undo — scope must be 'layer'
+        const result = bridge.undo('A', 'layer-1');
+        expect(result).toEqual(
+            expect.objectContaining({
+                scope: 'layer',
+                glyphName: 'A',
+                layerId: 'layer-1'
+            })
+        );
+
+        // Y.Doc should be reverted
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(100);
+
+        // Glyph B's layer object MUST be the same reference as before.
+        // A regression to full-font reconstruction would create a new object.
+        expect(fontJson.glyphs[1].layers[0]).toBe(glyphBLayerBefore);
+    });
+
+    test('layer-scoped undo correctly patches _fontJson for the changed layer', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('test-scope-2');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+
+        // Record a width change on glyph A, layer-1
+        bridge.beginTransaction('Width change');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            700
+        );
+        bridge.endTransaction();
+
+        // Override fontJson to reflect the edit (simulating what saveLayerData does)
+        fontJson.glyphs[0].layers[0].width = 700;
+
+        bridge.undo('A', 'layer-1');
+
+        // After undo, _syncJsonFromYDoc (scope-aware) must patch the layer
+        // so the width in fontJson reflects the undone value from Y.Doc.
+        expect(fontJson.glyphs[0].layers[0].width).toBe(600);
+    });
+
+    test('glyph-scoped undo falls back to full sync (correctness preserved)', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('test-scope-3');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+
+        // Record a glyph-level change (unicode, not layer-scoped)
+        bridge.recordChange(['glyphs', 'A'], 'production_name', 'A', 'Aalt');
+
+        // Perform undo at glyph scope (no layerId)
+        const result = bridge.undo('A', null);
+        expect(result).not.toBeNull();
+
+        // After full sync, the Y.Doc value must be reflected in fontJson
+        expect(
+            getYPath(bridge.fontMap, ['glyphs', 'A', 'production_name'])
+        ).toBe('A');
+        expect(fontJson.glyphs[0].production_name).toBe('A');
+    });
+});

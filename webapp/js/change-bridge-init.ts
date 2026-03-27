@@ -146,6 +146,15 @@ export async function syncRustCacheAndRefreshCanvas(
             }
 
             if (!didStoreLayer) {
+                // Ensure babelfontJson is current before sending to Rust.
+                // It may be stale when _onAfterSync deferred the rebuild
+                // (undo/redo/remote sync marks pendingBabelfontJsonSyncAfterDrag
+                // instead of calling syncJsonFromModel() synchronously).
+                const fm = window.fontManager;
+                if (fm?.pendingBabelfontJsonSyncAfterDrag) {
+                    fm.currentFont?.syncJsonFromModel();
+                    fm.pendingBabelfontJsonSyncAfterDrag = false;
+                }
                 // Force this explicit sync to reach Rust even when the JSON text
                 // matches a previously stored payload. This path is used after
                 // undo/redo/remote Yjs updates where Rust may still hold an
@@ -359,10 +368,14 @@ export function runBridgeUndoRedo(
             window.autoCompileManager?.checkAndSchedule?.();
         }
 
+        // For layer-scoped undo/redo, the incremental storeLayerData path
+        // is sufficient (reads directly from the model, no babelfontJson needed).
+        // For glyph/font scope, force a full Rust font cache refresh.
+        const forceFullRustSync = appliedChange.scope !== 'layer';
         await syncRustCacheAndRefreshCanvas(
             refreshRootGlyphName,
             glyphName,
-            true
+            forceFullRustSync
         );
 
         await refreshGlyphOverviewAfterUndoRedo(
@@ -420,8 +433,15 @@ function initializeBridge(detail: {
     window.changeBridge = bridge;
 
     // Called after _syncJsonFromYDoc in undo/redo/remote.
-    // Rebuilds the Font model and re-serializes babelfontJson so
-    // the compilation pipeline sees the Y.Doc-driven changes.
+    // Rebuilds the Font model from the already-patched babelfontData.
+    // babelfontJson is marked stale and rebuilt lazily:
+    //   • For layer-scoped undo/redo, syncRustCacheAndRefreshCanvas uses the
+    //     incremental storeLayerData path which reads directly from the model
+    //     (no babelfontJson needed).
+    //   • If the fallback full-sync path is needed, syncRustCacheAndRefreshCanvas
+    //     rebuilds babelfontJson just before sending it to the Rust worker.
+    //   • For the next full compile, compileEditingFont rebuilds babelfontJson
+    //     via syncBabelfontJsonFromCurrentModel() before invoking fontc.
     bridge.onAfterSync(() => {
         const fm = window.fontManager;
         if (!fm?.currentFont) return;
@@ -429,14 +449,12 @@ function initializeBridge(detail: {
         // Reset compilation state so next compile is a clean full build
         fm.lastChangeSource = null;
         fm.lastEditType = null;
-        fm.pendingBabelfontJsonSyncAfterDrag = false;
+        // Mark babelfontJson as stale; it will be rebuilt lazily (see comment above).
+        fm.pendingBabelfontJsonSyncAfterDrag = true;
 
         // Rebuild Font model from the patched babelfontData
         fm.currentFont.fontModel = Font.fromData(fm.currentFont.babelfontData);
         window.currentFontModel = fm.currentFont.fontModel;
-
-        // Re-serialize babelfontJson so the worker gets correct data
-        fm.currentFont.syncJsonFromModel();
 
         // Invalidate the storeFontJson cache so syncRustCacheAndRefreshCanvas
         // always sends the updated JSON to Rust after undo/redo/remote-change.
