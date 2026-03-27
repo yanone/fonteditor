@@ -129,8 +129,7 @@ const APP_SETTINGS = {
             MEASUREMENT_TOOL_CROSSHAIR: '#000000',
 
             // Node snapping
-            SNAP_DEBUG_NODE: 'rgba(0, 120, 200, 0.5)', // Snap candidate node marker color (debug)
-            SNAP_DEBUG_LINE: 'rgba(0, 120, 200, 0.15)', // Snap guide line color (debug)
+            SNAP_DEBUG_NODE: 'rgba(0, 120, 200, 0.5)', // Snap candidate node marker color
             SNAP_HIGHLIGHT_NODE: '#ff7700', // Active snap target node marker
             SNAP_HIGHLIGHT_LINE: '#ff7700', // Line from dragged node to snap target
 
@@ -200,8 +199,7 @@ const APP_SETTINGS = {
             MEASUREMENT_TOOL_CROSSHAIR: '#ffffff',
 
             // Node snapping
-            SNAP_DEBUG_NODE: 'rgba(80, 180, 255, 0.5)', // Snap candidate node marker color (debug)
-            SNAP_DEBUG_LINE: 'rgba(80, 180, 255, 0.15)', // Snap guide line color (debug)
+            SNAP_DEBUG_NODE: 'rgba(80, 180, 255, 0.5)', // Snap candidate node marker color
             SNAP_HIGHLIGHT_NODE: '#ff9900', // Active snap target node marker
             SNAP_HIGHLIGHT_LINE: '#ff9900', // Line from dragged node to snap target
 

@@ -1773,24 +1773,6 @@ describe('GlyphCanvas measurement overlay', () => {
             .mockResolvedValue();
         window.currentFontModel = font;
 
-        const leftLayer = font
-            .findGlyph('leftGlyph')
-            .findLayerById('left-layer');
-        // Temporary diagnostics while fixing the neighbor debug-node path.
-        // eslint-disable-next-line no-console
-        console.log('left layer shape', {
-            hasShape: !!leftLayer?.shapes?.[0],
-            hasIsPath: typeof leftLayer?.shapes?.[0]?.isPath,
-            isPath:
-                typeof leftLayer?.shapes?.[0]?.isPath === 'function'
-                    ? leftLayer.shapes[0].isPath()
-                    : null,
-            pathJson:
-                typeof leftLayer?.shapes?.[0]?.asPath === 'function'
-                    ? leftLayer.shapes[0].asPath().toJSON()
-                    : null
-        });
-
         canvas.outlineEditor.active = true;
         canvas.measurementKeyPressed = true;
         canvas.measurementTool.visible = true;
@@ -1864,19 +1846,13 @@ describe('GlyphCanvas measurement overlay', () => {
 
 describe('GlyphCanvas snap debug candidates', () => {
     let canvas;
+    let font;
+    let currentFontSpy;
 
     beforeEach(() => {
         document.body.innerHTML = '<div id="test-container"></div>';
         canvas = new GlyphCanvas('test-container');
-    });
-
-    afterEach(() => {
-        canvas.destroy();
-        window.currentFontModel = null;
-    });
-
-    test('collectDebugSnapCandidates includes neighboring glyph nodes from object-model contour outlines', () => {
-        const font = Font.fromData({
+        font = Font.fromData({
             upm: 1000,
             version: [1, 0],
             axes: [],
@@ -1978,7 +1954,7 @@ describe('GlyphCanvas snap debug candidates', () => {
                 }
             ],
             names: {
-                family_name: { en: 'Snap Debug Test' }
+                family_name: { en: 'Snap Test' }
             },
             note: '',
             date: '2026-03-27',
@@ -1989,74 +1965,173 @@ describe('GlyphCanvas snap debug candidates', () => {
             variation_sequences: [],
             format_specific: {}
         });
-
-        const currentFontSpy = jest
+        currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue({ fontModel: font });
+        window.currentFontModel = font;
+    });
 
-        try {
-            window.currentFontModel = font;
+    afterEach(() => {
+        canvas.destroy();
+        currentFontSpy.mockRestore();
+        window.currentFontModel = null;
+    });
 
-            canvas.outlineEditor.layerData = {
-                id: 'active-layer',
-                width: 400,
-                master: {
-                    type: 'DefaultForMaster',
-                    master: 'master-1'
-                },
-                shapes: [
-                    {
-                        nodes: [
-                            { x: 100, y: 0, nodetype: 'Line' },
-                            { x: 260, y: 0, nodetype: 'Line' },
-                            { x: 260, y: 200, nodetype: 'Line' },
-                            { x: 100, y: 200, nodetype: 'Line' }
-                        ],
-                        closed: true
-                    }
-                ],
-                anchors: [],
-                guides: []
-            };
-            canvas.outlineEditor.selectedLayerId = 'active-layer';
-            canvas.outlineEditor.selectedPoints = [];
-            canvas.textRunEditor.selectedMasterId = 'master-1';
-            canvas.textRunEditor.glyphNameBuffer = [
-                'leftGlyph',
-                'activeGlyph',
-                'rightGlyph'
-            ];
-            canvas.textRunEditor.shapedGlyphs = [
-                { ax: 300, dx: 0, dy: 0, g: 11 },
-                { ax: 400, dx: 0, dy: 0, g: 12 },
-                { ax: 320, dx: 0, dy: 0, g: 13 }
-            ];
-            canvas.textRunEditor.selectedGlyphIndex = 1;
+    function setupTextRun() {
+        canvas.outlineEditor.layerData = {
+            id: 'active-layer',
+            width: 400,
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-1'
+            },
+            shapes: [
+                {
+                    nodes: [
+                        { x: 100, y: 0, nodetype: 'Line' },
+                        { x: 260, y: 0, nodetype: 'Line' },
+                        { x: 260, y: 200, nodetype: 'Line' },
+                        { x: 100, y: 200, nodetype: 'Line' }
+                    ],
+                    closed: true
+                }
+            ],
+            anchors: [],
+            guides: []
+        };
+        canvas.outlineEditor.selectedLayerId = 'active-layer';
+        canvas.textRunEditor.selectedMasterId = 'master-1';
+        canvas.textRunEditor.glyphNameBuffer = [
+            'leftGlyph',
+            'activeGlyph',
+            'rightGlyph'
+        ];
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 300, dx: 0, dy: 0, g: 11 },
+            { ax: 400, dx: 0, dy: 0, g: 12 },
+            { ax: 320, dx: 0, dy: 0, g: 13 }
+        ];
+        canvas.textRunEditor.selectedGlyphIndex = 1;
+    }
 
-            const candidates =
-                canvas.outlineEditor.collectDebugSnapCandidates();
+    function simulateDragStart(contourIndex, nodeIndex) {
+        canvas.outlineEditor.selectedPoints = [{ contourIndex, nodeIndex }];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.isSlidingSmoothPointAlongCurve = false;
+        // Trigger snap cache build (mimics _handleDrag first-frame init)
+        canvas.outlineEditor._snapDragStartMouseX = 100;
+        canvas.outlineEditor._snapDragStartMouseY = 0;
+        canvas.outlineEditor._snapDragStartNodePos = { x: 100, y: 0 };
+        canvas.outlineEditor._rebuildSnapCandidateCache();
+    }
 
-            expect(
-                candidates.filter((candidate) => candidate.source === 'active')
-                    .length
-            ).toBeGreaterThan(0);
-            expect(candidates).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        source: 'left',
-                        x: -280,
-                        y: 10
-                    }),
-                    expect.objectContaining({
-                        source: 'right',
-                        x: 440,
-                        y: 30
-                    })
-                ])
+    test('collectDebugSnapCandidates returns empty when not dragging', () => {
+        setupTextRun();
+        canvas.outlineEditor.selectedPoints = [];
+        const candidates = canvas.outlineEditor.collectDebugSnapCandidates();
+        expect(candidates).toEqual([]);
+    });
+
+    test('collectDebugSnapCandidates includes neighboring glyph nodes from object-model contour outlines', () => {
+        setupTextRun();
+        simulateDragStart(0, 0);
+
+        const candidates = canvas.outlineEditor.collectDebugSnapCandidates();
+
+        // Debug candidates should NOT include active-glyph source nodes
+        // (they duplicate the visible node handles)
+        expect(candidates.filter((c) => c.source === 'active').length).toBe(0);
+
+        // Should include origin (drag-start position)
+        expect(candidates).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ source: 'origin', x: 100, y: 0 })
+            ])
+        );
+
+        // Should include left and right neighbor nodes
+        expect(candidates).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    source: 'left',
+                    x: -280,
+                    y: 10
+                }),
+                expect.objectContaining({
+                    source: 'right',
+                    x: 440,
+                    y: 30
+                })
+            ])
+        );
+    });
+
+    test('snap cache excludes dragged nodes from activeOnlyDragCandidates', () => {
+        setupTextRun();
+        simulateDragStart(0, 0);
+
+        const cache = canvas.outlineEditor._snapCandidateCache;
+        expect(cache).not.toBeNull();
+
+        // activeOnlyDragCandidates should NOT contain the dragged node (100, 0)
+        // but should contain origin (100, 0) with source 'origin'
+        const activeOnly = cache.activeOnlyDragCandidates;
+        const draggedAsActive = activeOnly.filter(
+            (c) => c.source === 'active' && c.x === 100 && c.y === 0
+        );
+        expect(draggedAsActive.length).toBe(0);
+
+        // Origin candidate is always present
+        expect(activeOnly[0]).toEqual(
+            expect.objectContaining({ source: 'origin', x: 100, y: 0 })
+        );
+    });
+
+    test('snap cache allDragCandidates includes neighbor nodes', () => {
+        setupTextRun();
+        simulateDragStart(0, 0);
+
+        const cache = canvas.outlineEditor._snapCandidateCache;
+        const all = cache.allDragCandidates;
+
+        // Should contain both active-glyph and neighbor nodes
+        const leftNodes = all.filter((c) => c.source === 'left');
+        const rightNodes = all.filter((c) => c.source === 'right');
+        expect(leftNodes.length).toBe(4); // 4 on-curve nodes in leftGlyph
+        expect(rightNodes.length).toBe(4); // 4 on-curve nodes in rightGlyph
+    });
+
+    test('snap cache candidates are sorted by distance from anchor', () => {
+        setupTextRun();
+        simulateDragStart(0, 0);
+
+        const cache = canvas.outlineEditor._snapCandidateCache;
+        const activeNodes = cache.activeOnlyDragCandidates.filter(
+            (c) => c.source === 'active'
+        );
+
+        // Verify active nodes are sorted by distance from anchor (100, 0)
+        for (let i = 1; i < activeNodes.length; i++) {
+            const prevDist = Math.hypot(
+                activeNodes[i - 1].x - 100,
+                activeNodes[i - 1].y - 0
             );
-        } finally {
-            currentFontSpy.mockRestore();
+            const currDist = Math.hypot(
+                activeNodes[i].x - 100,
+                activeNodes[i].y - 0
+            );
+            expect(currDist).toBeGreaterThanOrEqual(prevDist);
         }
+    });
+
+    test('snap cache pre-computes snapDistFontUnits and metricsYValues', () => {
+        setupTextRun();
+        simulateDragStart(0, 0);
+
+        const cache = canvas.outlineEditor._snapCandidateCache;
+        expect(typeof cache.snapDistFontUnits).toBe('number');
+        expect(cache.snapDistFontUnits).toBeGreaterThan(0);
+        expect(Array.isArray(cache.metricsYValues)).toBe(true);
     });
 });
 

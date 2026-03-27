@@ -3030,57 +3030,145 @@ export class GlyphCanvasRenderer {
             }
         }
 
-        // ---- Snap highlight: source node + line from dragged point to source node ----
+        // ---- Snap highlight: one guide per active snap axis ----
+        // xSource and ySource may be different nodes (independent axis snaps)
+        // or the same node (exact XY point snap). Draw a guide for each.
         const snapTarget = this.glyphCanvas.outlineEditor.activeSnapTarget;
+        const naturalPos = this.glyphCanvas.outlineEditor.snapDraggedNaturalPos;
 
-        if (snapTarget) {
+        if (snapTarget && naturalPos) {
             const highlightRadius = 5 * invScale;
             const lineWidth = 1 * invScale;
-            const sourceNode = snapTarget.source;
-            const draggedPointX = snapTarget.snappedX;
-            const draggedPointY = snapTarget.snappedY;
+            const { xSource, ySource, snappedX, snappedY } = snapTarget;
 
-            this.ctx.save();
-            this.ctx.strokeStyle = colors.SNAP_HIGHLIGHT_LINE;
-            this.ctx.fillStyle = colors.SNAP_HIGHLIGHT_NODE;
-            this.ctx.lineWidth = lineWidth;
+            type SnapSrc = NonNullable<typeof xSource>;
 
-            // Draw line from dragged point to the source node that inferred the snap
-            if (
-                draggedPointX !== sourceNode.x ||
-                draggedPointY !== sourceNode.y
-            ) {
+            // Draw one guide: line from dragged node → snap candidate, circle
+            // on the snap candidate.
+            //
+            // Exception — metric sources (baseline, x-height, etc.): the snap
+            // is to an infinite horizontal line, not a specific point. In that
+            // case the target circle is drawn ON the dragged node and the line
+            // runs from the natural (unsnapped) position to the dragged node.
+            const drawGuide = (source: SnapSrc) => {
+                const isMetric = source.source === 'metric';
+
+                let lineStartX: number,
+                    lineStartY: number,
+                    lineEndX: number,
+                    lineEndY: number,
+                    targetX: number,
+                    targetY: number;
+
+                if (isMetric) {
+                    // Line: natural pos → snap result (shows the "pull")
+                    lineStartX = naturalPos.x;
+                    lineStartY = naturalPos.y;
+                    lineEndX = snappedX;
+                    lineEndY = snappedY;
+                    // Target: on the dragged node (snap candidate is a line)
+                    targetX = snappedX;
+                    targetY = snappedY;
+                } else {
+                    // Line: dragged node (snapped position) → source candidate
+                    lineStartX = snappedX;
+                    lineStartY = snappedY;
+                    lineEndX = source.x;
+                    lineEndY = source.y;
+                    // Target: on the source candidate node
+                    targetX = source.x;
+                    targetY = source.y;
+                }
+
+                this.ctx.save();
+                this.ctx.strokeStyle = colors.SNAP_HIGHLIGHT_LINE;
+                this.ctx.fillStyle = colors.SNAP_HIGHLIGHT_NODE;
+                this.ctx.lineWidth = lineWidth;
+
+                // Draw the line only if it has non-zero length
+                if (lineStartX !== lineEndX || lineStartY !== lineEndY) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(lineStartX, lineStartY);
+                    this.ctx.lineTo(lineEndX, lineEndY);
+                    this.ctx.stroke();
+                }
+
+                // Filled dot at target
                 this.ctx.beginPath();
-                this.ctx.moveTo(draggedPointX, draggedPointY);
-                this.ctx.lineTo(sourceNode.x, sourceNode.y);
+                this.ctx.arc(targetX, targetY, highlightRadius, 0, Math.PI * 2);
+                this.ctx.fill();
+                // Ring around target
+                this.ctx.beginPath();
+                this.ctx.arc(
+                    targetX,
+                    targetY,
+                    highlightRadius * 2,
+                    0,
+                    Math.PI * 2
+                );
                 this.ctx.stroke();
+
+                this.ctx.restore();
+            };
+
+            // When both axes snap to the same object, draw one guide.
+            // When they snap to different objects, draw one guide per axis.
+            if (xSource && ySource && xSource === ySource) {
+                drawGuide(xSource);
+            } else {
+                if (xSource) drawGuide(xSource);
+                if (ySource) drawGuide(ySource);
             }
 
-            // Draw highlighted marker on the source node
-            this.ctx.beginPath();
-            this.ctx.arc(
-                sourceNode.x,
-                sourceNode.y,
-                highlightRadius,
-                0,
-                Math.PI * 2
-            );
-            this.ctx.fill();
+            // Extra origin guide for the combined (originX, metricY) case:
+            // when a metric snap locked both axes (snapped to originX on X and
+            // metricY on Y), also draw a line from the snapped position back to
+            // the original node position so the user can see how far they've
+            // moved vertically from the origin.
+            const originPos =
+                this.glyphCanvas.outlineEditor.snapDragStartNodePos;
+            const isMetricXY =
+                xSource &&
+                ySource &&
+                xSource === ySource &&
+                xSource.source === 'metric';
+            if (isMetricXY && originPos) {
+                // Only draw if the origin differs from the current snapped pos
+                if (originPos.x !== snappedX || originPos.y !== snappedY) {
+                    this.ctx.save();
+                    this.ctx.strokeStyle = colors.SNAP_HIGHLIGHT_LINE;
+                    this.ctx.fillStyle = colors.SNAP_HIGHLIGHT_NODE;
+                    this.ctx.lineWidth = lineWidth;
 
-            // Draw a ring around the source node for visibility
-            this.ctx.beginPath();
-            this.ctx.arc(
-                sourceNode.x,
-                sourceNode.y,
-                highlightRadius * 2,
-                0,
-                Math.PI * 2
-            );
-            this.ctx.strokeStyle = colors.SNAP_HIGHLIGHT_LINE;
-            this.ctx.lineWidth = 1 * invScale;
-            this.ctx.stroke();
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(snappedX, snappedY);
+                    this.ctx.lineTo(originPos.x, originPos.y);
+                    this.ctx.stroke();
 
-            this.ctx.restore();
+                    // Filled dot at origin
+                    this.ctx.beginPath();
+                    this.ctx.arc(
+                        originPos.x,
+                        originPos.y,
+                        highlightRadius,
+                        0,
+                        Math.PI * 2
+                    );
+                    this.ctx.fill();
+                    // Ring around origin
+                    this.ctx.beginPath();
+                    this.ctx.arc(
+                        originPos.x,
+                        originPos.y,
+                        highlightRadius * 2,
+                        0,
+                        Math.PI * 2
+                    );
+                    this.ctx.stroke();
+
+                    this.ctx.restore();
+                }
+            }
         }
 
         this.ctx.restore();
