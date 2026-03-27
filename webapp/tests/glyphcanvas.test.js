@@ -1773,6 +1773,24 @@ describe('GlyphCanvas measurement overlay', () => {
             .mockResolvedValue();
         window.currentFontModel = font;
 
+        const leftLayer = font
+            .findGlyph('leftGlyph')
+            .findLayerById('left-layer');
+        // Temporary diagnostics while fixing the neighbor debug-node path.
+        // eslint-disable-next-line no-console
+        console.log('left layer shape', {
+            hasShape: !!leftLayer?.shapes?.[0],
+            hasIsPath: typeof leftLayer?.shapes?.[0]?.isPath,
+            isPath:
+                typeof leftLayer?.shapes?.[0]?.isPath === 'function'
+                    ? leftLayer.shapes[0].isPath()
+                    : null,
+            pathJson:
+                typeof leftLayer?.shapes?.[0]?.asPath === 'function'
+                    ? leftLayer.shapes[0].asPath().toJSON()
+                    : null
+        });
+
         canvas.outlineEditor.active = true;
         canvas.measurementKeyPressed = true;
         canvas.measurementTool.visible = true;
@@ -1841,6 +1859,204 @@ describe('GlyphCanvas measurement overlay', () => {
         const extents = canvas.renderer.getTextRunHorizontalExtents();
 
         expect(extents).toEqual({ minX: 0, maxX: 640 });
+    });
+});
+
+describe('GlyphCanvas snap debug candidates', () => {
+    let canvas;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+        window.currentFontModel = null;
+    });
+
+    test('collectDebugSnapCandidates includes neighboring glyph nodes from object-model contour outlines', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'leftGlyph',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'left-layer',
+                            width: 300,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 20, y: 10, nodetype: 'Line' },
+                                        { x: 80, y: 10, nodetype: 'Line' },
+                                        { x: 80, y: 70, nodetype: 'Line' },
+                                        { x: 20, y: 70, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'activeGlyph',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'active-layer',
+                            width: 400,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 260, y: 0, nodetype: 'Line' },
+                                        { x: 260, y: 200, nodetype: 'Line' },
+                                        { x: 100, y: 200, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'rightGlyph',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'right-layer',
+                            width: 320,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 40, y: 30, nodetype: 'Line' },
+                                        { x: 90, y: 30, nodetype: 'Line' },
+                                        { x: 90, y: 120, nodetype: 'Line' },
+                                        { x: 40, y: 120, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Snap Debug Test' }
+            },
+            note: '',
+            date: '2026-03-27',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+
+        try {
+            window.currentFontModel = font;
+
+            canvas.outlineEditor.layerData = {
+                id: 'active-layer',
+                width: 400,
+                master: {
+                    type: 'DefaultForMaster',
+                    master: 'master-1'
+                },
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 100, y: 0, nodetype: 'Line' },
+                            { x: 260, y: 0, nodetype: 'Line' },
+                            { x: 260, y: 200, nodetype: 'Line' },
+                            { x: 100, y: 200, nodetype: 'Line' }
+                        ],
+                        closed: true
+                    }
+                ],
+                anchors: [],
+                guides: []
+            };
+            canvas.outlineEditor.selectedLayerId = 'active-layer';
+            canvas.outlineEditor.selectedPoints = [];
+            canvas.textRunEditor.selectedMasterId = 'master-1';
+            canvas.textRunEditor.glyphNameBuffer = [
+                'leftGlyph',
+                'activeGlyph',
+                'rightGlyph'
+            ];
+            canvas.textRunEditor.shapedGlyphs = [
+                { ax: 300, dx: 0, dy: 0, g: 11 },
+                { ax: 400, dx: 0, dy: 0, g: 12 },
+                { ax: 320, dx: 0, dy: 0, g: 13 }
+            ];
+            canvas.textRunEditor.selectedGlyphIndex = 1;
+
+            const candidates =
+                canvas.outlineEditor.collectDebugSnapCandidates();
+
+            expect(
+                candidates.filter((candidate) => candidate.source === 'active')
+                    .length
+            ).toBeGreaterThan(0);
+            expect(candidates).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        source: 'left',
+                        x: -280,
+                        y: 10
+                    }),
+                    expect.objectContaining({
+                        source: 'right',
+                        x: 440,
+                        y: 30
+                    })
+                ])
+            );
+        } finally {
+            currentFontSpy.mockRestore();
+        }
     });
 });
 

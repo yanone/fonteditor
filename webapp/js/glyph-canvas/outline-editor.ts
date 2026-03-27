@@ -37,6 +37,22 @@ import {
 let console: Logger = new Logger('OutlineEditor');
 
 type Point = { contourIndex: number; nodeIndex: number };
+type SnapCandidate = {
+    x: number;
+    y: number;
+    source: 'active' | 'left' | 'right';
+};
+type ActiveSnapTarget = {
+    source: SnapCandidate;
+    snappedX: number;
+    snappedY: number;
+    type: 'x' | 'y' | 'xy';
+};
+type SnapCandidateCache = {
+    includeNeighbors: boolean;
+    orderedAllCandidates: SnapCandidate[];
+    orderedDragCandidates: SnapCandidate[];
+};
 type GuideHandle = { scope: 'master' | 'layer'; index: number };
 type SidebearingHandle = { side: SidebearingSide };
 type LayerSelectionState = {
@@ -127,13 +143,34 @@ function identityDecomposed(): Babelfont.DecomposedAffine {
 }
 
 const getPathShapeData = (shape: any): any => {
+    if (
+        shape &&
+        typeof shape === 'object' &&
+        typeof shape.isPath === 'function' &&
+        typeof shape.asPath === 'function' &&
+        shape.isPath()
+    ) {
+        return shape.asPath().toJSON();
+    }
     if (shape && typeof shape === 'object' && 'Path' in shape) {
         return shape.Path;
+    }
+    if (shape && typeof shape === 'object' && 'Contour' in shape) {
+        return shape.Contour;
     }
     return shape;
 };
 
 const getComponentShapeData = (shape: any): any => {
+    if (
+        shape &&
+        typeof shape === 'object' &&
+        typeof shape.isComponent === 'function' &&
+        typeof shape.asComponent === 'function' &&
+        shape.isComponent()
+    ) {
+        return shape.asComponent().toJSON();
+    }
     if (shape && typeof shape === 'object' && 'Component' in shape) {
         return shape.Component;
     }
@@ -541,6 +578,17 @@ function realignSmoothHandles(
     return false;
 }
 
+function transformPoint(
+    x: number,
+    y: number,
+    transform: Transform
+): { x: number; y: number } {
+    return {
+        x: transform[0] * x + transform[2] * y + transform[4],
+        y: transform[1] * x + transform[3] * y + transform[5]
+    };
+}
+
 function getAxisAlignedHandleDirection(
     anchor: Babelfont.Node,
     handle: Babelfont.Node
@@ -858,6 +906,16 @@ export class OutlineEditor {
     isSlidingSmoothPointAlongCurve: boolean = false;
     isSnappedToCloseOpenPath: boolean = false;
     private _dragStartEndpointsCoincident: boolean = false;
+
+    /** Active snap target during a point drag – includes the snapped point and the source node it snapped from. */
+    activeSnapTarget: ActiveSnapTarget | null = null;
+    /** Natural (unsnapped) position the dragged primary node would be at this frame. Used for snap highlight rendering. */
+    snapDraggedNaturalPos: { x: number; y: number } | null = null;
+    private _snapDragStartMouseX: number | null = null;
+    private _snapDragStartMouseY: number | null = null;
+    private _snapDragStartNodePos: { x: number; y: number } | null = null;
+    private _snapCandidateCache: SnapCandidateCache | null = null;
+    private _pointDragPreserveHandlePositions: boolean = false;
     isDraggingComponent: boolean = false;
     isDraggingAnchor: boolean = false;
     isDraggingSidebearing: boolean = false;
@@ -2737,6 +2795,13 @@ export class OutlineEditor {
         this.isDraggingGuide = false;
         this.selectedGuideHandle = null;
         this.hoveredGuideHandle = null;
+        this.activeSnapTarget = null;
+        this.snapDraggedNaturalPos = null;
+        this._snapDragStartMouseX = null;
+        this._snapDragStartMouseY = null;
+        this._snapDragStartNodePos = null;
+        this._snapCandidateCache = null;
+        this._pointDragPreserveHandlePositions = false;
         this.activePathDrawingSession = null;
         this.pendingCommandPathEdit = null;
         this.resetMarqueeSelection();
@@ -3346,6 +3411,7 @@ export class OutlineEditor {
                 this.lastGlyphX = null;
                 this.lastGlyphY = null;
                 this.lastPointDragShiftKey = e.shiftKey;
+                this._pointDragPreserveHandlePositions = false;
                 this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
                 return;
@@ -3404,6 +3470,7 @@ export class OutlineEditor {
                 this.lastGlyphX = null; // Reset for delta calculation
                 this.lastGlyphY = null;
                 this.lastPointDragShiftKey = e.shiftKey;
+                this._pointDragPreserveHandlePositions = e.altKey;
                 this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             }
@@ -3499,6 +3566,562 @@ export class OutlineEditor {
         }
     }
 
+    /**
+     * Collect on-curve node positions as snap candidates.
+     *
+     * Returns positions in **active-glyph-local** coordinates:
+     * - Nodes from the active glyph's current edited layer (all, or minus dragged when excludeDraggedPoints=true)
+     * - Nodes from the directly adjacent left/right glyphs in the text run (offset to active-glyph space)
+     *
+     * @param excludeDraggedPoints - when true, skip the currently-selected (dragged) nodes
+     */
+    private _collectOnCurveCandidatesFromShapes(
+        shapes: Babelfont.Shape[] | undefined,
+        source: SnapCandidate['source'],
+        parentTransform: Transform = [1, 0, 0, 1, 0, 0],
+        masterId: string | null | undefined = null,
+        fontModel: any = (window as any).currentFontModel
+    ): SnapCandidate[] {
+        fontModel = fontModel || fontManager.currentFont?.fontModel;
+
+        if (!shapes?.length) {
+            return [];
+        }
+
+        const candidates: SnapCandidate[] = [];
+
+        for (const shape of shapes) {
+            const componentData = getComponentShapeData(shape);
+            if (
+                componentData &&
+                typeof componentData === 'object' &&
+                'reference' in componentData
+            ) {
+                const nestedTransformRaw = componentData.transform || [
+                    1, 0, 0, 1, 0, 0
+                ];
+                const nestedTransform = Array.isArray(nestedTransformRaw)
+                    ? nestedTransformRaw
+                    : DecomposedAffineTransform.toAffine(nestedTransformRaw);
+                const combinedTransform: Transform = [
+                    parentTransform[0] * nestedTransform[0] +
+                        parentTransform[2] * nestedTransform[1],
+                    parentTransform[1] * nestedTransform[0] +
+                        parentTransform[3] * nestedTransform[1],
+                    parentTransform[0] * nestedTransform[2] +
+                        parentTransform[2] * nestedTransform[3],
+                    parentTransform[1] * nestedTransform[2] +
+                        parentTransform[3] * nestedTransform[3],
+                    parentTransform[0] * nestedTransform[4] +
+                        parentTransform[2] * nestedTransform[5] +
+                        parentTransform[4],
+                    parentTransform[1] * nestedTransform[4] +
+                        parentTransform[3] * nestedTransform[5] +
+                        parentTransform[5]
+                ];
+
+                let componentShapes = componentData.layerData?.shapes;
+                if (!componentShapes && fontModel && componentData.reference) {
+                    const componentGlyph = fontModel.findGlyph(
+                        componentData.reference
+                    );
+                    if (componentGlyph?.layers?.length) {
+                        const componentLayer =
+                            (masterId && componentGlyph.findLayerByMasterId
+                                ? componentGlyph.findLayerByMasterId(masterId)
+                                : undefined) ||
+                            (masterId
+                                ? componentGlyph.layers.find(
+                                      (candidate: any) =>
+                                          candidate.master?.master === masterId
+                                  )
+                                : undefined) ||
+                            componentGlyph.layers[0];
+                        componentShapes = componentLayer?.shapes;
+                    }
+                }
+
+                candidates.push(
+                    ...this._collectOnCurveCandidatesFromShapes(
+                        componentShapes,
+                        source,
+                        combinedTransform,
+                        masterId,
+                        fontModel
+                    )
+                );
+                continue;
+            }
+
+            const contour = getEditableContour(shape);
+            if (!contour) {
+                continue;
+            }
+
+            for (const node of contour.nodes) {
+                if (!isOnCurveNode(node)) {
+                    continue;
+                }
+                const point = transformPoint(node.x, node.y, parentTransform);
+                candidates.push({ x: point.x, y: point.y, source });
+            }
+        }
+
+        return candidates;
+    }
+
+    private _getBufferedAdjacentSnapCandidates(
+        glyphIndex: number,
+        source: 'left' | 'right',
+        activeWorldX: number,
+        activeWorldY: number,
+        masterId: string | null | undefined
+    ): SnapCandidate[] {
+        const tre = this.glyphCanvas.textRunEditor;
+        if (!tre || glyphIndex < 0 || glyphIndex >= tre.shapedGlyphs.length) {
+            return [];
+        }
+
+        const glyphPosition = tre._getGlyphPosition(glyphIndex);
+        const offsetX =
+            glyphPosition.xPosition + glyphPosition.xOffset - activeWorldX;
+        const offsetY = glyphPosition.yOffset - activeWorldY;
+        const shapedGlyph = tre.shapedGlyphs[glyphIndex];
+        const fontModel =
+            fontManager.currentFont?.fontModel ||
+            (window as any).currentFontModel;
+
+        const explicitGlyphName = shapedGlyph.explicitGlyphName;
+        if (explicitGlyphName && shapedGlyph.g === 0) {
+            const explicitOutline =
+                tre.getCachedExplicitGlyphOutline(explicitGlyphName);
+            if (explicitOutline?.shapes?.length) {
+                return this._collectOnCurveCandidatesFromShapes(
+                    explicitOutline.shapes as Babelfont.Shape[],
+                    source,
+                    [1, 0, 0, 1, offsetX, offsetY],
+                    masterId,
+                    fontModel
+                );
+            }
+        }
+
+        const glyphName =
+            explicitGlyphName || tre.glyphNameBuffer[glyphIndex] || null;
+        const glyphWrapper = glyphName ? fontModel?.findGlyph(glyphName) : null;
+        if (!glyphWrapper?.layers?.length) {
+            return [];
+        }
+
+        const layer =
+            (masterId && glyphWrapper.findLayerByMasterId
+                ? glyphWrapper.findLayerByMasterId(masterId)
+                : undefined) ||
+            (masterId
+                ? glyphWrapper.layers.find(
+                      (candidate: any) => candidate.master?.master === masterId
+                  )
+                : undefined) ||
+            glyphWrapper.layers[0];
+
+        return this._collectOnCurveCandidatesFromShapes(
+            layer?.shapes,
+            source,
+            [1, 0, 0, 1, offsetX, offsetY],
+            masterId,
+            fontModel
+        );
+    }
+
+    private _collectActiveDebugSnapCandidates(): SnapCandidate[] {
+        const candidates: SnapCandidate[] = [];
+        const draggedKeys = new Set(
+            this.isDraggingPoint
+                ? this.selectedPoints.map(
+                      (point) => `${point.contourIndex}:${point.nodeIndex}`
+                  )
+                : []
+        );
+
+        const activeLayerData = this.getCurrentLayerDataFromStack();
+        if (!activeLayerData?.shapes) {
+            return candidates;
+        }
+
+        activeLayerData.shapes.forEach((shape, contourIndex) => {
+            const contour = getEditableContour(shape);
+            if (!contour) {
+                return;
+            }
+
+            contour.nodes.forEach((node, nodeIndex) => {
+                if (!isOnCurveNode(node)) {
+                    return;
+                }
+
+                if (draggedKeys.has(`${contourIndex}:${nodeIndex}`)) {
+                    return;
+                }
+
+                candidates.push({
+                    x: node.x,
+                    y: node.y,
+                    source: 'active'
+                });
+            });
+        });
+
+        return candidates;
+    }
+
+    collectDebugSnapCandidates(): SnapCandidate[] {
+        const anchor = this._snapDragStartNodePos ||
+            this._getPrimaryDragNodePos() || {
+                x: 0,
+                y: 0
+            };
+
+        return this._buildSnapCandidateCache(anchor, true)
+            .orderedDragCandidates;
+    }
+
+    private _sortSnapCandidatesByDistance(
+        candidates: SnapCandidate[],
+        anchor: { x: number; y: number }
+    ): SnapCandidate[] {
+        const sourceBuckets: Record<SnapCandidate['source'], SnapCandidate[]> =
+            {
+                active: [],
+                left: [],
+                right: []
+            };
+
+        for (const candidate of candidates) {
+            sourceBuckets[candidate.source].push(candidate);
+        }
+
+        for (const source of ['active', 'left', 'right'] as const) {
+            sourceBuckets[source].sort((left, right) => {
+                const leftDistance = Math.hypot(
+                    left.x - anchor.x,
+                    left.y - anchor.y
+                );
+                const rightDistance = Math.hypot(
+                    right.x - anchor.x,
+                    right.y - anchor.y
+                );
+                return leftDistance - rightDistance;
+            });
+        }
+
+        return [
+            ...sourceBuckets.active,
+            ...sourceBuckets.left,
+            ...sourceBuckets.right
+        ];
+    }
+
+    private _buildSnapCandidateCache(
+        anchor: { x: number; y: number },
+        includeNeighbors: boolean
+    ): SnapCandidateCache {
+        const allCandidates: SnapCandidate[] = [];
+        const dragCandidates: SnapCandidate[] = [];
+        const draggedKeys = new Set(
+            this.selectedPoints.map(
+                (point) => `${point.contourIndex}:${point.nodeIndex}`
+            )
+        );
+
+        const activeLayerData = this.getCurrentLayerDataFromStack();
+        if (activeLayerData?.shapes) {
+            activeLayerData.shapes.forEach((shape, contourIndex) => {
+                const contour = getEditableContour(shape);
+                if (!contour) {
+                    return;
+                }
+
+                contour.nodes.forEach((node, nodeIndex) => {
+                    if (!isOnCurveNode(node)) {
+                        return;
+                    }
+
+                    const candidate = {
+                        x: node.x,
+                        y: node.y,
+                        source: 'active' as const
+                    };
+                    allCandidates.push(candidate);
+
+                    if (!draggedKeys.has(`${contourIndex}:${nodeIndex}`)) {
+                        dragCandidates.push(candidate);
+                    }
+                });
+            });
+        }
+
+        if (includeNeighbors) {
+            const tre = this.glyphCanvas.textRunEditor;
+            const fontModel =
+                fontManager.currentFont?.fontModel ||
+                (window as any).currentFontModel;
+            if (tre && tre.selectedGlyphIndex >= 0 && fontModel) {
+                const selectedIdx = tre.selectedGlyphIndex;
+                const masterId =
+                    this.getCurrentLayerModel()?.master?.master ||
+                    tre.selectedMasterId ||
+                    fontModel.masters?.[0]?.id;
+                const activePos = tre._getGlyphPosition(selectedIdx);
+                const activeWorldX = activePos.xPosition + activePos.xOffset;
+                const activeWorldY = activePos.yOffset;
+
+                for (const adjIdx of [selectedIdx - 1, selectedIdx + 1]) {
+                    if (adjIdx < 0 || adjIdx >= tre.shapedGlyphs.length) {
+                        continue;
+                    }
+
+                    const candidates = this._getBufferedAdjacentSnapCandidates(
+                        adjIdx,
+                        adjIdx < selectedIdx ? 'left' : 'right',
+                        activeWorldX,
+                        activeWorldY,
+                        masterId
+                    );
+                    allCandidates.push(...candidates);
+                    dragCandidates.push(...candidates);
+                }
+            }
+        }
+
+        return {
+            includeNeighbors,
+            orderedAllCandidates: this._sortSnapCandidatesByDistance(
+                allCandidates,
+                anchor
+            ),
+            orderedDragCandidates: this._sortSnapCandidatesByDistance(
+                dragCandidates,
+                anchor
+            )
+        };
+    }
+
+    private _rebuildSnapCandidateCache(): void {
+        if (!this._snapDragStartNodePos) {
+            this._snapCandidateCache = null;
+            return;
+        }
+
+        this._snapCandidateCache = this._buildSnapCandidateCache(
+            this._snapDragStartNodePos,
+            this._shouldIncludeNeighborSnapSources()
+        );
+    }
+
+    private _shouldIncludeNeighborSnapSources(): boolean {
+        return (
+            this.isDraggingPoint &&
+            !this.isSlidingSmoothPointAlongCurve &&
+            !this._pointDragPreserveHandlePositions &&
+            this.altKeyPressed
+        );
+    }
+
+    collectSnapCandidates(
+        excludeDraggedPoints: boolean = false
+    ): SnapCandidate[] {
+        const includeNeighbors = this._shouldIncludeNeighborSnapSources();
+
+        if (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve) {
+            if (
+                !this._snapCandidateCache ||
+                this._snapCandidateCache.includeNeighbors !== includeNeighbors
+            ) {
+                this._rebuildSnapCandidateCache();
+            }
+
+            if (this._snapCandidateCache) {
+                return excludeDraggedPoints
+                    ? this._snapCandidateCache.orderedDragCandidates
+                    : this._snapCandidateCache.orderedAllCandidates;
+            }
+        }
+
+        const anchor =
+            this._snapDragStartNodePos || this._getPrimaryDragNodePos();
+        if (!anchor) {
+            return [];
+        }
+
+        const cache = this._buildSnapCandidateCache(anchor, includeNeighbors);
+        return excludeDraggedPoints
+            ? cache.orderedDragCandidates
+            : cache.orderedAllCandidates;
+    }
+
+    /**
+     * Return the position of the first selected on-curve node from the
+     * current live layer data, or null if none is available.
+     */
+    private _getPrimaryDragNodePos(): { x: number; y: number } | null {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) return null;
+        for (const { contourIndex, nodeIndex } of this.selectedPoints) {
+            const contour = getEditableContour(
+                currentLayerData.shapes[contourIndex]
+            );
+            const node = contour?.nodes[nodeIndex];
+            if (node && isOnCurveNode(node)) {
+                return { x: node.x, y: node.y };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Compute snap-adjusted deltas for a point drag frame.
+     *
+     * Uses the absolute offset from drag-start (tracked with _snapDragStart*)
+     * to determine the "natural" target position and then checks whether any
+     * snap candidate is within SNAP_DISTANCE_PX screen pixels.  Sets
+     * this.activeSnapTarget and this.snapDraggedNaturalPos as side-effects.
+     */
+    private _applySnapToDelta(
+        rawDeltaX: number,
+        rawDeltaY: number,
+        glyphX: number,
+        glyphY: number
+    ): { deltaX: number; deltaY: number } {
+        const snapDistPx = APP_SETTINGS.OUTLINE_EDITOR.SNAP_DISTANCE_PX;
+        if (
+            !snapDistPx ||
+            !this._snapDragStartNodePos ||
+            this._snapDragStartMouseX === null ||
+            this._snapDragStartMouseY === null
+        ) {
+            this.activeSnapTarget = null;
+            this.snapDraggedNaturalPos = null;
+            return { deltaX: rawDeltaX, deltaY: rawDeltaY };
+        }
+
+        // Natural (unsnapped) target using cumulative offset from drag start –
+        // avoids error accumulation from per-frame snapped deltas
+        const naturalX =
+            this._snapDragStartNodePos.x +
+            Math.round(glyphX) -
+            Math.round(this._snapDragStartMouseX);
+        const naturalY =
+            this._snapDragStartNodePos.y +
+            Math.round(glyphY) -
+            Math.round(this._snapDragStartMouseY);
+
+        this.snapDraggedNaturalPos = { x: naturalX, y: naturalY };
+
+        const candidates = this.collectSnapCandidates(true);
+        const scale = this.glyphCanvas.viewportManager!.scale;
+        const snapDistFontUnits = snapDistPx / scale;
+
+        let bestSnapPoint: SnapCandidate | null = null;
+        let bestSnapPointDist = Number.POSITIVE_INFINITY;
+        let bestSnapXCandidate: SnapCandidate | null = null;
+        let bestSnapX: number | null = null;
+        let bestDistX = snapDistFontUnits;
+        let bestSnapYCandidate: SnapCandidate | null = null;
+        let bestSnapY: number | null = null;
+        let bestDistY = snapDistFontUnits;
+
+        for (const candidate of candidates) {
+            const distX = Math.abs(naturalX - candidate.x);
+            const distY = Math.abs(naturalY - candidate.y);
+            if (distX <= snapDistFontUnits && distY <= snapDistFontUnits) {
+                const pointDist = Math.hypot(distX, distY);
+                if (pointDist < bestSnapPointDist) {
+                    bestSnapPointDist = pointDist;
+                    bestSnapPoint = candidate;
+                }
+            }
+            if (distX < bestDistX) {
+                bestDistX = distX;
+                bestSnapX = candidate.x;
+                bestSnapXCandidate = candidate;
+            }
+            if (distY < bestDistY) {
+                bestDistY = distY;
+                bestSnapY = candidate.y;
+                bestSnapYCandidate = candidate;
+            }
+        }
+
+        // Compute per-frame delta from current node position to snap target
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        let primaryNodeX = naturalX;
+        let primaryNodeY = naturalY;
+        if (currentLayerData?.shapes) {
+            for (const { contourIndex, nodeIndex } of this.selectedPoints) {
+                const contour = getEditableContour(
+                    currentLayerData.shapes[contourIndex]
+                );
+                const node = contour?.nodes[nodeIndex];
+                if (node && isOnCurveNode(node)) {
+                    primaryNodeX = node.x;
+                    primaryNodeY = node.y;
+                    break;
+                }
+            }
+        }
+
+        let adjustedDeltaX = rawDeltaX;
+        let adjustedDeltaY = rawDeltaY;
+        let snapType: 'x' | 'y' | 'xy' | null = null;
+        let snapX = naturalX;
+        let snapY = naturalY;
+        let snapSource: SnapCandidate | null = null;
+
+        if (bestSnapPoint) {
+            adjustedDeltaX = bestSnapPoint.x - primaryNodeX;
+            adjustedDeltaY = bestSnapPoint.y - primaryNodeY;
+            snapType = 'xy';
+            snapX = bestSnapPoint.x;
+            snapY = bestSnapPoint.y;
+            snapSource = bestSnapPoint;
+        } else if (bestSnapX !== null && bestSnapY !== null) {
+            adjustedDeltaX = bestSnapX - primaryNodeX;
+            adjustedDeltaY = bestSnapY - primaryNodeY;
+            snapType = 'xy';
+            snapX = bestSnapX;
+            snapY = bestSnapY;
+            snapSource =
+                bestDistX <= bestDistY
+                    ? bestSnapXCandidate || bestSnapYCandidate
+                    : bestSnapYCandidate || bestSnapXCandidate;
+        } else if (bestSnapX !== null) {
+            adjustedDeltaX = bestSnapX - primaryNodeX;
+            snapType = 'x';
+            snapX = bestSnapX;
+            snapSource = bestSnapXCandidate;
+        } else if (bestSnapY !== null) {
+            adjustedDeltaY = bestSnapY - primaryNodeY;
+            snapType = 'y';
+            snapY = bestSnapY;
+            snapSource = bestSnapYCandidate;
+        }
+
+        this.activeSnapTarget = snapType
+            ? {
+                  source: snapSource || {
+                      x: snapX,
+                      y: snapY,
+                      source: 'active'
+                  },
+                  snappedX: snapX,
+                  snappedY: snapY,
+                  type: snapType
+              }
+            : null;
+
+        return { deltaX: adjustedDeltaX, deltaY: adjustedDeltaY };
+    }
+
     onMouseMove(e: MouseEvent) {
         if (this.isMarqueeSelecting) {
             const rect = this.canvas!.getBoundingClientRect();
@@ -3572,10 +4195,44 @@ export class OutlineEditor {
             this.lastPointDragShiftKey = e.shiftKey;
         }
 
-        const effectiveDeltaY = this.isDraggingSidebearing ? 0 : deltaY;
+        // Initialize snap drag-start state on the first genuine drag frame
+        // (previousGlyphX === null means no movement has been applied yet)
+        if (
+            this.isDraggingPoint &&
+            !this.isSlidingSmoothPointAlongCurve &&
+            previousGlyphX === null
+        ) {
+            this._snapDragStartMouseX = glyphX;
+            this._snapDragStartMouseY = glyphY;
+            this._snapDragStartNodePos = this._getPrimaryDragNodePos();
+            this._rebuildSnapCandidateCache();
+        }
+
+        // Apply node snapping when dragging on-curve points (not sliding smooth points)
+        let effectiveDeltaX = deltaX;
+        let effectiveDeltaY = this.isDraggingSidebearing ? 0 : deltaY;
+
+        if (
+            this.isDraggingPoint &&
+            !this.isSlidingSmoothPointAlongCurve &&
+            this.selectedPoints.length > 0
+        ) {
+            const snapped = this._applySnapToDelta(
+                deltaX,
+                deltaY,
+                glyphX,
+                glyphY
+            );
+            effectiveDeltaX = snapped.deltaX;
+            effectiveDeltaY = this.isDraggingSidebearing ? 0 : snapped.deltaY;
+        } else {
+            this.activeSnapTarget = null;
+            this.snapDraggedNaturalPos = null;
+            this._snapCandidateCache = null;
+        }
 
         // Track whether any actual movement occurred (to avoid spurious undo entries)
-        if (deltaX !== 0 || effectiveDeltaY !== 0) {
+        if (effectiveDeltaX !== 0 || effectiveDeltaY !== 0) {
             this._hasMoved = true;
         }
 
@@ -3588,9 +4245,9 @@ export class OutlineEditor {
             }
         } else {
             this._updateDraggedPoints(
-                deltaX,
-                deltaY,
-                e.altKey,
+                effectiveDeltaX,
+                effectiveDeltaY,
+                this._pointDragPreserveHandlePositions,
                 e.shiftKey,
                 glyphX,
                 glyphY
@@ -3598,7 +4255,7 @@ export class OutlineEditor {
             this._checkOpenPathEndpointSnap();
         }
         this._updateDraggedAnchors(deltaX, deltaY);
-        this._updateDraggedSidebearing(deltaX);
+        this._updateDraggedSidebearing(effectiveDeltaX);
 
         if (
             (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve) ||
@@ -3871,6 +4528,15 @@ export class OutlineEditor {
         this.isDraggingSidebearing = false;
         this.isDraggingGuide = false;
         this.lastPointDragShiftKey = null;
+        this._pointDragPreserveHandlePositions = false;
+
+        // Reset node snap state
+        this.activeSnapTarget = null;
+        this.snapDraggedNaturalPos = null;
+        this._snapDragStartMouseX = null;
+        this._snapDragStartMouseY = null;
+        this._snapDragStartNodePos = null;
+        this._snapCandidateCache = null;
 
         // If we were snapped to close an open path, abort the normal
         // drag sync and perform a merge-close instead.
@@ -4768,6 +5434,9 @@ export class OutlineEditor {
         }
 
         this.altKeyPressed = pressed;
+        if (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve) {
+            this._rebuildSnapCandidateCache();
+        }
         if (!pressed) {
             this.hoveredAddPointPreview = null;
         }

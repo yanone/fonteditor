@@ -291,6 +291,9 @@ export class GlyphCanvasRenderer {
             // Draw outline editor (when layer is selected)
             this.drawOutlineEditor();
 
+            // Draw snap visualization (debug candidates + snap highlight)
+            this.drawSnapVisualization();
+
             // Draw canvas plugins above outline editor
             this.drawCanvasPluginsAbove();
         }
@@ -2050,9 +2053,6 @@ export class GlyphCanvasRenderer {
             this.ctx.restore();
         });
 
-        // Draw bounding box for testing
-        this.drawBoundingBox();
-
         this.drawMarqueeSelectionRect();
 
         this.ctx.restore();
@@ -2550,101 +2550,6 @@ export class GlyphCanvasRenderer {
         }
     }
 
-    drawBoundingBox() {
-        // Draw the calculated bounding box in outline editing mode
-        if (
-            !this.glyphCanvas.outlineEditor.active ||
-            !this.glyphCanvas.outlineEditor.layerData
-        ) {
-            return;
-        }
-
-        // Check if bounding box display is enabled
-        if (!APP_SETTINGS?.OUTLINE_EDITOR?.SHOW_BOUNDING_BOX) {
-            return;
-        }
-
-        const bbox = this.glyphCanvas.outlineEditor.calculateGlyphBoundingBox();
-        if (!bbox) {
-            return;
-        }
-
-        const invScale = 1 / this.viewportManager.scale;
-        const isDarkTheme =
-            document.documentElement.getAttribute('data-theme') !== 'light';
-
-        // Draw bounding box rectangle
-        this.ctx.strokeStyle = isDarkTheme
-            ? 'rgba(255, 0, 255, 0.8)' // Magenta for dark theme
-            : 'rgba(255, 0, 255, 0.8)'; // Magenta for light theme
-        this.ctx.lineWidth = 2 * invScale;
-        this.ctx.setLineDash([5 * invScale, 5 * invScale]); // Dashed line
-
-        this.ctx.strokeRect(bbox.minX, bbox.minY, bbox.width, bbox.height);
-
-        this.ctx.setLineDash([]); // Reset to solid line
-
-        // Draw center point of bounding box
-        const centerX = bbox.minX + bbox.width / 2;
-        const centerY = bbox.minY + bbox.height / 2;
-        const crossSize = 10 * invScale;
-
-        this.ctx.strokeStyle = isDarkTheme
-            ? 'rgba(255, 0, 255, 1.0)' // Bright magenta for dark theme
-            : 'rgba(255, 0, 255, 1.0)'; // Bright magenta for light theme
-        this.ctx.lineWidth = 2 * invScale;
-
-        // Draw crosshair at center
-        this.ctx.beginPath();
-        this.ctx.moveTo(centerX - crossSize, centerY);
-        this.ctx.lineTo(centerX + crossSize, centerY);
-        this.ctx.moveTo(centerX, centerY - crossSize);
-        this.ctx.lineTo(centerX, centerY + crossSize);
-        this.ctx.stroke();
-
-        // Draw bbox dimensions as text labels
-        const fontSize = 10 * invScale;
-        this.ctx.font = `${fontSize}px monospace`;
-        this.ctx.fillStyle = isDarkTheme
-            ? 'rgba(255, 0, 255, 0.9)'
-            : 'rgba(255, 0, 255, 0.9)';
-
-        // Save context to flip text right-side up
-        this.ctx.save();
-
-        // Width label (centered at top)
-        this.ctx.translate(bbox.minX + bbox.width / 2, bbox.maxY);
-        this.ctx.scale(1, -1); // Flip Y to make text right-side up
-        const widthText = `${Math.round(bbox.width)}`;
-        const widthMetrics = this.ctx.measureText(widthText);
-        this.ctx.fillText(widthText, -widthMetrics.width / 2, -fontSize);
-        this.ctx.restore();
-
-        // Height label (centered at left)
-        this.ctx.save();
-        this.ctx.translate(bbox.minX, bbox.minY + bbox.height / 2);
-        this.ctx.scale(1, -1); // Flip Y to make text right-side up
-        const heightText = `${Math.round(bbox.height)}`;
-        this.ctx.fillText(heightText, -fontSize * 4, fontSize / 2);
-        this.ctx.restore();
-
-        // Corner coordinates (bottom-left and top-right)
-        this.ctx.save();
-        this.ctx.translate(bbox.minX, bbox.minY);
-        this.ctx.scale(1, -1);
-        const minText = `(${Math.round(bbox.minX)}, ${Math.round(bbox.minY)})`;
-        this.ctx.fillText(minText, 0, fontSize + 5 * invScale);
-        this.ctx.restore();
-
-        this.ctx.save();
-        this.ctx.translate(bbox.maxX, bbox.maxY);
-        this.ctx.scale(1, -1);
-        const maxText = `(${Math.round(bbox.maxX)}, ${Math.round(bbox.maxY)})`;
-        const maxMetrics = this.ctx.measureText(maxText);
-        this.ctx.fillText(maxText, -maxMetrics.width, -5 * invScale);
-        this.ctx.restore();
-    }
-
     drawMarqueeSelectionRect() {
         const rect =
             this.glyphCanvas.outlineEditor.getVisibleMarqueeSelectionBox();
@@ -3055,6 +2960,129 @@ export class GlyphCanvasRenderer {
         });
 
         // Restore context immediately after calling plugins (synchronous)
+        this.ctx.restore();
+    }
+
+    /**
+     * Draw snap visualization:
+     * - DEBUG (SNAP_NODES_DEBUG_SHOW=true): small dot for every eligible snap-candidate node
+     * - ALWAYS (when dragging and activeSnapTarget is set): highlight the snap source node
+     *   and draw a straight line from the dragged point to that source node
+     */
+    drawSnapVisualization() {
+        // Only render when editing mode is active and we have a selected glyph
+        if (
+            !this.glyphCanvas.outlineEditor.active ||
+            !this.glyphCanvas.outlineEditor.layerData ||
+            this.glyphCanvas.outlineEditor.isPreviewMode
+        ) {
+            return;
+        }
+
+        if (
+            this.textRunEditor.selectedGlyphIndex < 0 ||
+            this.textRunEditor.selectedGlyphIndex >=
+                this.textRunEditor.shapedGlyphs.length
+        ) {
+            return;
+        }
+
+        const isDarkTheme =
+            document.documentElement.getAttribute('data-theme') !== 'light';
+        const colors = isDarkTheme
+            ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
+            : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
+
+        // Compute active glyph world offset (same as drawOutlineEditor)
+        let xPosition = 0;
+        for (let i = 0; i < this.textRunEditor.selectedGlyphIndex; i++) {
+            xPosition += this.textRunEditor.shapedGlyphs[i].ax || 0;
+        }
+        const glyph =
+            this.textRunEditor.shapedGlyphs[
+                this.textRunEditor.selectedGlyphIndex
+            ];
+        const x = xPosition + (glyph.dx || 0);
+        const y = glyph.dy || 0;
+
+        const invScale = 1 / this.viewportManager.scale;
+
+        this.ctx.save();
+        this.ctx.translate(x, y);
+
+        const showDebug = APP_SETTINGS.OUTLINE_EDITOR.SNAP_NODES_DEBUG_SHOW;
+
+        // ---- Debug visualization: eligible snap candidate nodes ----
+        if (showDebug) {
+            const candidates =
+                this.glyphCanvas.outlineEditor.collectDebugSnapCandidates();
+
+            if (candidates.length > 0) {
+                // Draw candidate node dots
+                const dotRadius = 3 * invScale;
+                this.ctx.save();
+                this.ctx.fillStyle = colors.SNAP_DEBUG_NODE;
+                for (const c of candidates) {
+                    this.ctx.beginPath();
+                    this.ctx.arc(c.x, c.y, dotRadius, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+                this.ctx.restore();
+            }
+        }
+
+        // ---- Snap highlight: source node + line from dragged point to source node ----
+        const snapTarget = this.glyphCanvas.outlineEditor.activeSnapTarget;
+
+        if (snapTarget) {
+            const highlightRadius = 5 * invScale;
+            const lineWidth = 1.5 * invScale;
+            const sourceNode = snapTarget.source;
+            const draggedPointX = snapTarget.snappedX;
+            const draggedPointY = snapTarget.snappedY;
+
+            this.ctx.save();
+            this.ctx.strokeStyle = colors.SNAP_HIGHLIGHT_LINE;
+            this.ctx.fillStyle = colors.SNAP_HIGHLIGHT_NODE;
+            this.ctx.lineWidth = lineWidth;
+
+            // Draw line from dragged point to the source node that inferred the snap
+            if (
+                draggedPointX !== sourceNode.x ||
+                draggedPointY !== sourceNode.y
+            ) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(draggedPointX, draggedPointY);
+                this.ctx.lineTo(sourceNode.x, sourceNode.y);
+                this.ctx.stroke();
+            }
+
+            // Draw highlighted marker on the source node
+            this.ctx.beginPath();
+            this.ctx.arc(
+                sourceNode.x,
+                sourceNode.y,
+                highlightRadius,
+                0,
+                Math.PI * 2
+            );
+            this.ctx.fill();
+
+            // Draw a ring around the source node for visibility
+            this.ctx.beginPath();
+            this.ctx.arc(
+                sourceNode.x,
+                sourceNode.y,
+                highlightRadius * 2,
+                0,
+                Math.PI * 2
+            );
+            this.ctx.strokeStyle = colors.SNAP_HIGHLIGHT_LINE;
+            this.ctx.stroke();
+
+            this.ctx.restore();
+        }
+
         this.ctx.restore();
     }
 

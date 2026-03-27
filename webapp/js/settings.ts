@@ -69,8 +69,11 @@ const APP_SETTINGS = {
         PAN_SPEED_MOUSE_HORIZONTAL: 1.5, // mouse wheel horizontal pan speed (Shift+scroll)
 
         // Debug/development
-        SHOW_BOUNDING_BOX: false, // Show calculated bounding box in editing mode
         INTERPOLATION_ANIMATION_DELAY: 0, // ms - delay between animation frames for debugging (0 = no delay)
+
+        // Node snapping
+        SNAP_NODES_DEBUG_SHOW: true, // Show eligible snap candidate nodes (dev only; overridden to false in production)
+        SNAP_DISTANCE_PX: 3, // Snapping distance in screen pixels
 
         // Measurement tool
         MEASUREMENT_TOOL_DISPLAY_DELAY: 0, // ms - measurement tool appears immediately when Tab is pressed
@@ -125,6 +128,12 @@ const APP_SETTINGS = {
             MEASUREMENT_TOOL_LABEL_TEXT: '#ffffff',
             MEASUREMENT_TOOL_LABEL_BG: 'rgba(0, 0, 0, 0.85)',
             MEASUREMENT_TOOL_CROSSHAIR: '#000000',
+
+            // Node snapping
+            SNAP_DEBUG_NODE: 'rgba(0, 120, 200, 0.5)', // Snap candidate node marker color (debug)
+            SNAP_DEBUG_LINE: 'rgba(0, 120, 200, 0.15)', // Snap guide line color (debug)
+            SNAP_HIGHLIGHT_NODE: '#ff7700', // Active snap target node marker
+            SNAP_HIGHLIGHT_LINE: '#ff7700', // Line from dragged node to snap target
 
             // Hover labels (glyph tooltips and component labels)
             HOVER_LABEL_BG: '#c7c7c7',
@@ -191,6 +200,12 @@ const APP_SETTINGS = {
             MEASUREMENT_TOOL_LABEL_BG: 'rgba(255, 255, 255, 0.85)',
             MEASUREMENT_TOOL_CROSSHAIR: '#ffffff',
 
+            // Node snapping
+            SNAP_DEBUG_NODE: 'rgba(80, 180, 255, 0.5)', // Snap candidate node marker color (debug)
+            SNAP_DEBUG_LINE: 'rgba(80, 180, 255, 0.15)', // Snap guide line color (debug)
+            SNAP_HIGHLIGHT_NODE: '#ff9900', // Active snap target node marker
+            SNAP_HIGHLIGHT_LINE: '#ff9900', // Line from dragged node to snap target
+
             // Hover labels (glyph tooltips and component labels)
             HOVER_LABEL_BG: '#444444',
             HOVER_LABEL_BORDER: 'rgba(0, 0, 0, 0.5)',
@@ -205,8 +220,8 @@ const APP_SETTINGS = {
 // These settings override the defaults when running in production mode
 const PRODUCTION_OVERRIDES = {
     OUTLINE_EDITOR: {
-        SHOW_BOUNDING_BOX: false, // Hide bounding box in production
-        SHOW_COMPONENT_ORIGIN_MARKERS: false // Hide component origin markers in production
+        SHOW_COMPONENT_ORIGIN_MARKERS: false, // Hide component origin markers in production
+        SNAP_NODES_DEBUG_SHOW: false // Hide snap debug visualization in production
     },
     FONT_MANAGER: {
         SAVE_DEBUG_FONTS: false // Disable debug font generation in production
