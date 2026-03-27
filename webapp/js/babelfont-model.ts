@@ -5097,6 +5097,45 @@ export class Layer extends ArrayElementBase {
         recordAndMarkDirty(this, 'width', oldWidth, this.toJSON().width);
     }
 
+    /**
+     * Resolve and apply this layer's own metrics keys (left/right)
+     * without scanning the full font. Use during interactive editing
+     * (keyboard/mouse) where only the current layer needs updating.
+     */
+    recomputeOwnMetricsKeys(): boolean {
+        const glyph = this.parent() as Glyph | undefined;
+        if (!glyph) return false;
+
+        let changed = false;
+        for (const side of ['left', 'right'] as SidebearingSide[]) {
+            const key =
+                side === 'left'
+                    ? this.leftMetricsKey || glyph.leftMetricsKey
+                    : this.rightMetricsKey || glyph.rightMetricsKey;
+            if (!key) continue;
+
+            const resolution = this.resolveMetricsKey(side);
+            const applied = getAppliedMetricsKeySidebearing(
+                this,
+                side,
+                resolution
+            );
+            const currentValue = side === 'left' ? this.lsb : this.rsb;
+            if (
+                applied.error ||
+                applied.value === null ||
+                Math.abs(currentValue - applied.value) <=
+                    METRIC_UPDATE_EPSILON
+            ) {
+                continue;
+            }
+
+            this.setDirectSidebearing(side, applied.value);
+            changed = true;
+        }
+        return changed;
+    }
+
     isAutomaticAlignedLayer(): boolean {
         const components = (this.shapes || []).filter((shape) =>
             shape.isComponent()

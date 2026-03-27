@@ -11,6 +11,7 @@ import * as Y from 'yjs';
 import {
     jsonToYDoc,
     yDocToJson,
+    fromYType,
     toYType,
     setYPath,
     deleteYPath,
@@ -497,6 +498,23 @@ export class ChangeBridge {
             return;
         }
 
+        // Fast path: single glyph + known layer → compare and sync only
+        // the affected layer, avoiding full-glyph JSON reconstruction,
+        // deep-equality checks, and cloning.
+        if (uniqueGlyphNames.length === 1 && layerId) {
+            if (
+                this._trySyncSingleLayer(
+                    uniqueGlyphNames[0],
+                    layerId,
+                    label,
+                    oldValue,
+                    newValue
+                )
+            ) {
+                return;
+            }
+        }
+
         const glyphs = (this._fontJson as Unsafe).glyphs;
         if (!Array.isArray(glyphs)) return;
 
@@ -588,6 +606,91 @@ export class ChangeBridge {
         console.log(
             `Glyph sync committed for ${targets.map((target) => target.glyphName).join(', ')} (${label})`
         );
+    }
+
+    /**
+     * Fast path for syncing a single layer into Y.Doc.
+     *
+     * Instead of reconstructing the entire glyph from the Y.Doc,
+     * deep-comparing the whole glyph, and cloning it multiple times,
+     * this only touches the one affected layer — dramatically reducing
+     * JSON serialization overhead for point-move operations.
+     *
+     * Returns true if the fast path handled the sync (even if no
+     * changes were found), false if the caller should fall back to
+     * the full glyph path.
+     */
+    private _trySyncSingleLayer(
+        glyphName: string,
+        layerId: string,
+        label: string,
+        oldValue?: string,
+        newValue?: string
+    ): boolean {
+        const glyphs = (this._fontJson as Unsafe).glyphs;
+        if (!Array.isArray(glyphs)) return false;
+
+        const glyphJson = glyphs.find(
+            (g: Record<string, unknown>) => g.name === glyphName
+        ) as Record<string, unknown> | undefined;
+        if (!glyphJson) return false;
+
+        const glyphsMap = this.fontMap.get('glyphs') as
+            | Y.Map<unknown>
+            | undefined;
+        if (!glyphsMap) return false;
+
+        const glyphMap = glyphsMap.get(glyphName) as
+            | Y.Map<unknown>
+            | undefined;
+        if (!glyphMap) return false;
+
+        const layersMap = glyphMap.get('layers') as
+            | Y.Map<unknown>
+            | undefined;
+        if (!layersMap) return false;
+
+        const yLayerMap = layersMap.get(layerId);
+        if (!yLayerMap) return false;
+
+        // Find the layer in the in-memory model
+        const glyphLayers = (glyphJson.layers ?? []) as Array<
+            Record<string, unknown>
+        >;
+        const layerJson = glyphLayers.find(
+            (l: Record<string, unknown>) => l.id === layerId
+        );
+        if (!layerJson) return false;
+
+        // Reconstruct only this one layer from Y.Doc
+        const yLayerJson = fromYType(yLayerMap);
+
+        // Compare only the affected layer
+        if (this._isDeepEqual(yLayerJson, layerJson)) {
+            return true; // No changes — skip
+        }
+
+        const layerSnapshot = cloneHistoryValue(layerJson);
+
+        this._queueOrCommitOperations(
+            [
+                {
+                    op: 'set' as ChangeOp,
+                    path: ['glyphs', glyphName, 'layers', layerId],
+                    oldValue: cloneHistoryValue(oldValue ?? glyphName),
+                    newValue: cloneHistoryValue(newValue ?? label),
+                    applyPath: ['glyphs', glyphName, 'layers', layerId],
+                    applyNewValue: layerSnapshot,
+                    applyMode: 'layer-snapshot'
+                }
+            ],
+            label
+        );
+
+        console.log(
+            `Glyph sync committed for ${glyphName} layer ${layerId} (${label}) [fast path]`
+        );
+        return true;
     }
 
     // ── Undo / Redo ──────────────────────────────────────────────

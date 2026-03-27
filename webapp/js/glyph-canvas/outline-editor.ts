@@ -1366,13 +1366,19 @@ export class OutlineEditor {
             rawLayer.format_specific = currentLayerData.format_specific;
         }
 
-        const bridge = window.changeBridge;
-        if (bridge) {
-            bridge.runWithoutRecording(() => {
-                fontModel.recomputeMetricsKeys(new Set([glyphName]));
-            });
-        } else {
-            fontModel.recomputeMetricsKeys(new Set([glyphName]));
+        // Resolve only the current layer's own metrics keys — avoids
+        // the O(all-glyphs) scan of Font.recomputeMetricsKeys which
+        // iterates every layer with a metrics key in the entire font.
+        const layerModel = glyph.findLayerById(currentLayerId);
+        if (layerModel) {
+            const bridge = window.changeBridge;
+            if (bridge) {
+                bridge.runWithoutRecording(() => {
+                    layerModel.recomputeOwnMetricsKeys();
+                });
+            } else {
+                layerModel.recomputeOwnMetricsKeys();
+            }
         }
 
         currentLayerData.width = rawLayer.width;

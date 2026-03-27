@@ -92,7 +92,7 @@ export function jsonToYDoc(
 /**
  * Convert a Yjs shared type back into a plain JS value.
  */
-function fromYType(value: unknown): unknown {
+export function fromYType(value: unknown): unknown {
     if (value instanceof Y.Map) {
         const obj: Record<string, unknown> = {};
         value.forEach((v: unknown, k: string) => {
