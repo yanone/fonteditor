@@ -72,7 +72,6 @@ const APP_SETTINGS = {
         INTERPOLATION_ANIMATION_DELAY: 0, // ms - delay between animation frames for debugging (0 = no delay)
 
         // Node snapping
-        SNAP_NODES_DEBUG_SHOW: true, // Show eligible snap candidate nodes (dev only; overridden to false in production)
         SNAP_DISTANCE_PX: 3, // Snapping distance in screen pixels
 
         // Measurement tool
@@ -220,8 +219,7 @@ const APP_SETTINGS = {
 // These settings override the defaults when running in production mode
 const PRODUCTION_OVERRIDES = {
     OUTLINE_EDITOR: {
-        SHOW_COMPONENT_ORIGIN_MARKERS: false, // Hide component origin markers in production
-        SNAP_NODES_DEBUG_SHOW: false // Hide snap debug visualization in production
+        SHOW_COMPONENT_ORIGIN_MARKERS: false // Hide component origin markers in production
     },
     FONT_MANAGER: {
         SAVE_DEBUG_FONTS: false // Disable debug font generation in production

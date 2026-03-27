@@ -2965,7 +2965,7 @@ export class GlyphCanvasRenderer {
 
     /**
      * Draw snap visualization:
-     * - DEBUG (SNAP_NODES_DEBUG_SHOW=true): small dot for every eligible snap-candidate node
+     * - ALWAYS during point drag: small dot for each neighboring glyph's eligible snap node
      * - ALWAYS (when dragging and activeSnapTarget is set): highlight the snap source node
      *   and draw a straight line from the dragged point to that source node
      */
@@ -3010,15 +3010,14 @@ export class GlyphCanvasRenderer {
         this.ctx.save();
         this.ctx.translate(x, y);
 
-        const showDebug = APP_SETTINGS.OUTLINE_EDITOR.SNAP_NODES_DEBUG_SHOW;
-
-        // ---- Debug visualization: eligible snap candidate nodes ----
-        if (showDebug) {
+        // ---- Neighboring glyph snap nodes: shown whenever dragging a point ----
+        // collectDebugSnapCandidates() returns [] when not dragging, so this
+        // is automatically a no-op outside of point drags.
+        {
             const candidates =
                 this.glyphCanvas.outlineEditor.collectDebugSnapCandidates();
 
             if (candidates.length > 0) {
-                // Draw candidate node dots
                 const dotRadius = 3 * invScale;
                 this.ctx.save();
                 this.ctx.fillStyle = colors.SNAP_DEBUG_NODE;
@@ -3036,7 +3035,7 @@ export class GlyphCanvasRenderer {
 
         if (snapTarget) {
             const highlightRadius = 5 * invScale;
-            const lineWidth = 1.5 * invScale;
+            const lineWidth = 1 * invScale;
             const sourceNode = snapTarget.source;
             const draggedPointX = snapTarget.snappedX;
             const draggedPointY = snapTarget.snappedY;
@@ -3078,6 +3077,7 @@ export class GlyphCanvasRenderer {
                 Math.PI * 2
             );
             this.ctx.strokeStyle = colors.SNAP_HIGHLIGHT_LINE;
+            this.ctx.lineWidth = 1 * invScale;
             this.ctx.stroke();
 
             this.ctx.restore();
