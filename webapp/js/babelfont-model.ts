@@ -5124,8 +5124,7 @@ export class Layer extends ArrayElementBase {
             if (
                 applied.error ||
                 applied.value === null ||
-                Math.abs(currentValue - applied.value) <=
-                    METRIC_UPDATE_EPSILON
+                Math.abs(currentValue - applied.value) <= METRIC_UPDATE_EPSILON
             ) {
                 continue;
             }

@@ -640,14 +640,10 @@ export class ChangeBridge {
             | undefined;
         if (!glyphsMap) return false;
 
-        const glyphMap = glyphsMap.get(glyphName) as
-            | Y.Map<unknown>
-            | undefined;
+        const glyphMap = glyphsMap.get(glyphName) as Y.Map<unknown> | undefined;
         if (!glyphMap) return false;
 
-        const layersMap = glyphMap.get('layers') as
-            | Y.Map<unknown>
-            | undefined;
+        const layersMap = glyphMap.get('layers') as Y.Map<unknown> | undefined;
         if (!layersMap) return false;
 
         const yLayerMap = layersMap.get(layerId);
