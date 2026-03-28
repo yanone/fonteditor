@@ -5165,6 +5165,20 @@ flex-direction: row;
     cursor: default;
 }
 
+.editor-layer-compatibility-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    color: var(--accent-red);
+    flex: 0 0 auto;
+}
+
+.editor-layer-compatibility-indicator .material-symbols-outlined {
+    font-size: 15px;
+}
+
 :root:not([data-theme='light']) .editor-layer-item.inactive:hover {
     background-color: transparent;
 }

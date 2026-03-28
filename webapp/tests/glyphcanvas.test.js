@@ -5753,6 +5753,128 @@ describe('OutlineEditor exact selected layers', () => {
         expect(nestedLayerToggle.getAttribute('data-linked')).toBe('false');
         expect(summaryToggle.getAttribute('data-linked')).toBe('false');
     });
+
+    test('shows broken_image next to the link toggle for incompatible non-active layers and recalculates when the active layer changes', async () => {
+        const targetContainer = document.createElement('div');
+        const incompatibleFont = makeComponentFont();
+        const glyph = incompatibleFont.findGlyph('A');
+        glyph.findLayerById('brace-layer').addPath(true);
+
+        currentFontSpy.mockReturnValue({ fontModel: incompatibleFont });
+        fetchGlyphDataSpy.mockResolvedValue({
+            glyphName: 'A',
+            layers: glyph.layers.map((layer) => layer.toJSON())
+        });
+        canvas.outlineEditor.active = true;
+
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        await canvas.displayMastersList(targetContainer);
+
+        expect(
+            targetContainer.querySelector(
+                '.editor-layer-item[data-layer-id="brace-layer"] .editor-layer-link-toggle'
+            )
+        ).toBeTruthy();
+        expect(
+            targetContainer.querySelector(
+                '.editor-layer-item[data-layer-id="brace-layer"] .editor-layer-compatibility-indicator .material-symbols-outlined'
+            )?.textContent
+        ).toBe('broken_image');
+        expect(
+            targetContainer.querySelector(
+                '.editor-layer-item[data-layer-id="master-layer"] .editor-layer-compatibility-indicator'
+            )
+        ).toBeFalsy();
+
+        targetContainer.replaceChildren();
+        canvas.outlineEditor.selectedLayerId = 'brace-layer';
+        await canvas.displayMastersList(targetContainer);
+
+        expect(
+            targetContainer.querySelector(
+                '.editor-layer-item[data-layer-id="master-layer"] .editor-layer-link-toggle'
+            )
+        ).toBeTruthy();
+        expect(
+            targetContainer.querySelector(
+                '.editor-layer-item[data-layer-id="master-layer"] .editor-layer-compatibility-indicator .material-symbols-outlined'
+            )?.textContent
+        ).toBe('broken_image');
+        expect(
+            targetContainer.querySelector(
+                '.editor-layer-item[data-layer-id="brace-layer"] .editor-layer-compatibility-indicator'
+            )
+        ).toBeFalsy();
+    });
+
+    test('refreshes the layers list compatibility state when switching the active layer', async () => {
+        const incompatibleFont = makeComponentFont();
+        const glyph = incompatibleFont.findGlyph('A');
+        const masterLayer = glyph.findLayerById('master-layer');
+        const braceLayer = glyph.findLayerById('brace-layer');
+        glyph.findLayerById('brace-layer').addPath(true);
+
+        currentFontSpy.mockReturnValue({ fontModel: incompatibleFont });
+        fetchGlyphDataSpy.mockResolvedValue({
+            glyphName: 'A',
+            layers: glyph.layers.map((layer) => layer.toJSON())
+        });
+
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+
+        const updateSpy = jest
+            .spyOn(canvas, 'updatePropertiesUI')
+            .mockResolvedValue();
+
+        await canvas.outlineEditor.selectLayer(braceLayer);
+
+        expect(updateSpy).toHaveBeenCalled();
+        expect(canvas.outlineEditor.selectedLayerId).toBe('brace-layer');
+
+        updateSpy.mockRestore();
+
+        const targetContainer = document.createElement('div');
+        await canvas.displayMastersList(targetContainer);
+
+        expect(
+            targetContainer.querySelector(
+                '.editor-layer-item[data-layer-id="brace-layer"] .editor-layer-compatibility-indicator'
+            )
+        ).toBeFalsy();
+        expect(
+            targetContainer.querySelector(
+                '.editor-layer-item[data-layer-id="master-layer"] .editor-layer-link-toggle'
+            )
+        ).toBeTruthy();
+        expect(
+            targetContainer.querySelector(
+                '.editor-layer-item[data-layer-id="master-layer"] .editor-layer-compatibility-indicator .material-symbols-outlined'
+            )?.textContent
+        ).toBe('broken_image');
+    });
+
+    test('refreshes the layers list when layerFingerprintChanged is emitted for the current glyph', async () => {
+        canvas.outlineEditor.active = true;
+        const updateSpy = jest
+            .spyOn(canvas, 'updatePropertiesUI')
+            .mockResolvedValue();
+
+        window.dispatchEvent(
+            new CustomEvent('layerFingerprintChanged', {
+                detail: {
+                    glyphName: 'A',
+                    layerId: 'master-layer'
+                }
+            })
+        );
+
+        await Promise.resolve();
+
+        expect(updateSpy).toHaveBeenCalled();
+
+        updateSpy.mockRestore();
+    });
 });
 
 describe('OutlineEditor per-layer selection memory', () => {

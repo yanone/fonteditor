@@ -164,6 +164,23 @@ class GlyphCanvas {
     // Flag to prevent overlapping updatePropertiesUI calls
     isUpdatingPropertiesUI: boolean = false;
 
+    private handleLayerFingerprintChanged = (event: Event): void => {
+        if (!this.outlineEditor.active) {
+            return;
+        }
+
+        const detail = (event as CustomEvent).detail;
+        const currentGlyphName =
+            this.outlineEditor.getLayerLinkGlyphName() ||
+            this.getCurrentGlyphName();
+
+        if (detail?.glyphName && detail.glyphName !== currentGlyphName) {
+            return;
+        }
+
+        void this.updatePropertiesUI();
+    };
+
     constructor(containerId: string) {
         this.container = document.getElementById(containerId)!;
         if (!this.container) {
@@ -259,6 +276,11 @@ class GlyphCanvas {
     }
 
     setupEventListeners(): void {
+        window.addEventListener(
+            'layerFingerprintChanged',
+            this.handleLayerFingerprintChanged
+        );
+
         // Mouse events for panning
         this.canvas!.addEventListener('mousedown', (e) => this.onMouseDown(e));
         this.canvas!.addEventListener('mousemove', (e) => this.onMouseMove(e));
@@ -1881,8 +1903,28 @@ class GlyphCanvas {
             this.outlineEditor.getLayerLinkGlyphName() ||
             glyph?.name ||
             this.getCurrentGlyphName();
+        const activeLayer =
+            isEditMode && preselectedLayerId
+                ? glyphLayers.find(
+                      (candidate) => candidate.id === preselectedLayerId
+                  )
+                : undefined;
+        const activeLayerFingerprint = activeLayer?.fingerprint || null;
         const displayedLayerIds: string[] = [];
         const layerLinkButtons: HTMLButtonElement[] = [];
+
+        const isLayerCompatibleWithActive = (
+            layer: Layer | undefined
+        ): boolean => {
+            if (!isEditMode || !layer?.id || !activeLayerFingerprint) {
+                return true;
+            }
+
+            return (
+                layer.id === activeLayer?.id ||
+                layer.fingerprint === activeLayerFingerprint
+            );
+        };
 
         const setLinkButtonState = (
             button: HTMLButtonElement,
@@ -1919,6 +1961,19 @@ class GlyphCanvas {
             });
 
             return button;
+        };
+
+        const createCompatibilityIndicator = (): HTMLSpanElement => {
+            const indicator = document.createElement('span');
+            indicator.className = 'editor-layer-compatibility-indicator';
+            indicator.title = 'Outline is incompatible with the active layer';
+
+            const icon = document.createElement('span');
+            icon.className = 'material-symbols-outlined';
+            icon.textContent = 'broken_image';
+            indicator.appendChild(icon);
+
+            return indicator;
         };
 
         let summaryLinkButton: HTMLButtonElement | null = null;
@@ -2055,7 +2110,6 @@ class GlyphCanvas {
 
             if (isEditMode && layer?.id) {
                 displayedLayerIds.push(layer.id);
-
                 const linkButton = createLinkButton(() => {
                     const nextLinked = !this.outlineEditor.isLayerLinked(
                         layer.id,
@@ -2072,6 +2126,10 @@ class GlyphCanvas {
                 linkButton.setAttribute('data-layer-id', layer.id);
                 layerLinkButtons.push(linkButton);
                 item.appendChild(linkButton);
+
+                if (!isLayerCompatibleWithActive(layer)) {
+                    item.appendChild(createCompatibilityIndicator());
+                }
             }
 
             item.addEventListener('click', () => {
@@ -3851,6 +3909,11 @@ class GlyphCanvas {
     }
 
     destroy(): void {
+        window.removeEventListener(
+            'layerFingerprintChanged',
+            this.handleLayerFingerprintChanged
+        );
+
         // Clear any pending blur timeout
         if (this.blurTimeoutId) {
             clearTimeout(this.blurTimeoutId);

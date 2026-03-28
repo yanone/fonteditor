@@ -8618,8 +8618,7 @@ export class OutlineEditor {
         }
         this.glyphCanvas.axesManager!._setupAnimation(newSettings);
 
-        // Update the visual selection highlight for layers without rebuilding the entire UI
-        this.updateLayerSelection();
+        await this.glyphCanvas.updatePropertiesUI();
     }
 
     async onAnimationComplete() {
