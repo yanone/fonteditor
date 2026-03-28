@@ -137,7 +137,7 @@ describe('FontManager saveLayerData', () => {
         });
     });
 
-    test('defers immediate auto-compile for interactive outline saves', async () => {
+    test('keeps live auto-compile for interactive outline drag saves', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
@@ -157,7 +157,76 @@ describe('FontManager saveLayerData', () => {
         );
         expect(
             window.autoCompileManager.checkAndSchedule
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledTimes(1);
+    });
+
+    test('keeps live auto-compile for interactive anchor drag saves', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            cloneJson(layer),
+            'mouse-drag-anchor'
+        );
+
+        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
+            1
+        );
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
+    });
+
+    test('keeps live auto-compile for interactive keyboard outline saves', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            cloneJson(layer),
+            'keyboard-outline'
+        );
+
+        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
+            1
+        );
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
+    });
+
+    test('keeps live auto-compile for interactive keyboard anchor saves', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            cloneJson(layer),
+            'keyboard-anchor'
+        );
+
+        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
+            1
+        );
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
     });
 
     test('keeps immediate auto-compile for generic keyboard saves', async () => {
@@ -173,6 +242,27 @@ describe('FontManager saveLayerData', () => {
             layer.id,
             cloneJson(layer),
             'keyboard'
+        );
+
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
+    });
+
+    test('keeps immediate auto-compile for guide drag saves without interactive debounce', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            cloneJson(layer),
+            'mouse-drag-guide'
         );
 
         expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();

@@ -2129,9 +2129,7 @@ class FontManager {
         }
 
         this.currentFont!.markDirty(changeSource);
-        if (!deferInteractiveCompile) {
-            window.autoCompileManager.checkAndSchedule();
-        }
+        window.autoCompileManager.checkAndSchedule();
         await this.updateDirtyIndicator();
 
         // Update worker's font cache so glyph overview renders correctly
