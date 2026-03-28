@@ -1,6 +1,75 @@
-const { Font, Layer } = require('../js/babelfont-model');
+const fs = require('fs');
+const path = require('path');
+const {
+    Font,
+    Layer,
+    DecomposedAffineTransform
+} = require('../js/babelfont-model');
 const fontManager = require('../js/font-manager').default;
 const { fontInterpolation } = require('../js/font-interpolation');
+const {
+    open_font_file,
+    store_font,
+    interpolate_glyph,
+    clear_font_cache
+} = require('../wasm-dist/babelfont_fontc_web');
+
+function loadFontFixture(fileName) {
+    const fixturePath = path.join(__dirname, '..', 'examples', fileName);
+    const fileContents = fs.readFileSync(fixturePath, 'utf-8');
+    return JSON.parse(open_font_file(fileName, fileContents));
+}
+
+function canonicalizeLayerDataForComparison(layerData) {
+    if (!layerData || typeof layerData !== 'object') {
+        return layerData;
+    }
+
+    const canonical = { ...layerData };
+
+    if (Array.isArray(layerData.anchors)) {
+        canonical.anchors = layerData.anchors
+            .map((anchor) => ({
+                name: anchor.name,
+                x: anchor.x,
+                y: anchor.y
+            }))
+            .sort((left, right) => {
+                const leftKey = `${left.name}|${left.x}|${left.y}`;
+                const rightKey = `${right.name}|${right.x}|${right.y}`;
+                return leftKey.localeCompare(rightKey);
+            });
+    }
+
+    if (Array.isArray(layerData.shapes)) {
+        canonical.shapes = layerData.shapes.map((shape) => {
+            if (!shape || typeof shape !== 'object') {
+                return shape;
+            }
+
+            if ('reference' in shape) {
+                const canonicalShape = {
+                    ...shape,
+                    layerData: shape.layerData
+                        ? canonicalizeLayerDataForComparison(shape.layerData)
+                        : shape.layerData
+                };
+
+                if (shape.transform) {
+                    canonicalShape.transform = Array.isArray(shape.transform)
+                        ? shape.transform
+                        : DecomposedAffineTransform.toAffine(shape.transform);
+                }
+
+                return canonicalShape;
+            }
+
+            return { ...shape };
+        });
+    }
+
+    return canonical;
+}
 
 // ==================== Initialization Tests ====================
 
@@ -5458,7 +5527,11 @@ describe('OutlineEditor exact selected layers', () => {
                     name: { en: 'Regular' },
                     location: { wght: 0 },
                     guides: [],
-                    metrics: {},
+                    metrics: {
+                        ascender: 800,
+                        descender: -200,
+                        WinDescent: 200
+                    },
                     kerning: new Map()
                 }
             ],
@@ -5619,7 +5692,7 @@ describe('OutlineEditor exact selected layers', () => {
         ['master-layer', 500, 100, 250],
         ['brace-layer', 520, 110, 260]
     ])(
-        'uses exact stored root layer data for selected %s while keeping interpolated component data',
+        'uses exact stored root layer data for selected %s while keeping interpolated component transforms',
         async (layerId, expectedWidth, expectedFirstX, expectedAnchorX) => {
             canvas.outlineEditor.selectedLayerId = layerId;
             canvas.outlineEditor.glyphStack = `A@${layerId}`;
@@ -5641,12 +5714,88 @@ describe('OutlineEditor exact selected layers', () => {
             expect(
                 canvas.outlineEditor.layerData.shapes[1].layerData.shapes[0]
                     .nodes[0].x
-            ).toBe(33.5);
+            ).toBe(20);
             expect(canvas.outlineEditor.renderVerticalMetrics).toEqual({
                 ascender: 800.25
             });
         }
     );
+
+    test('keeps exact selected layer data editable when interpolation fails', async () => {
+        interpolateSpy.mockRejectedValueOnce(new Error('incompatible glyph'));
+
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        canvas.outlineEditor.glyphStack = 'A@master-layer';
+
+        await canvas.outlineEditor.fetchLayerData(true);
+
+        expect(interpolateSpy).toHaveBeenCalled();
+        expect(canvas.outlineEditor.layerData.isInterpolated).toBe(false);
+        expect(canvas.outlineEditor.layerData.width).toBe(500);
+        expect(canvas.outlineEditor.layerData.shapes[0].nodes[0].x).toBe(100);
+        expect(canvas.outlineEditor.layerData.anchors[0].x).toBe(250);
+        expect(canvas.outlineEditor.layerData.shapes[1].layerData.width).toBe(
+            300
+        );
+        expect(
+            canvas.outlineEditor.layerData.shapes[1].layerData.shapes[0]
+                .nodes[0].x
+        ).toBe(20);
+        expect(canvas.outlineEditor.renderVerticalMetrics).toEqual({
+            ascender: 800,
+            descender: -200,
+            WinDescent: -200
+        });
+    });
+
+    test('resolves normal component layer data from the object model before interpolation returns', async () => {
+        let capturedRootLayerData = null;
+        canvas.glyphCanvas = canvas;
+        const assignLayerDataSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'assignLayerData'
+        );
+
+        interpolateSpy.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    capturedRootLayerData = canvas.outlineEditor.layerData;
+                    resolve({
+                        width: 999.75,
+                        shapes: [
+                            {
+                                nodes: '150.5 0 l 450.5 0 l 450.5 700 l 150.5 700 l'
+                            },
+                            {
+                                reference: 'componentGlyph',
+                                transform: [1, 0, 0, 1, 55.5, 66.5]
+                            }
+                        ],
+                        anchors: [{ name: 'top', x: 999.9, y: 999.9 }],
+                        guides: [{ pos: { x: 0, y: 999.9 }, angle: 0 }],
+                        _verticalMetrics: { ascender: 800.25 }
+                    });
+                })
+        );
+
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        canvas.outlineEditor.glyphStack = 'A@master-layer';
+
+        await canvas.outlineEditor.fetchLayerData(true);
+
+        expect(assignLayerDataSpy).toHaveBeenCalled();
+        expect(capturedRootLayerData).toBeTruthy();
+        expect(capturedRootLayerData.isInterpolated).toBe(false);
+        expect(capturedRootLayerData.shapes[1].layerData.width).toBe(300);
+        expect(
+            capturedRootLayerData.shapes[1].layerData.shapes[0].nodes[0].x
+        ).toBe(20);
+        expect(canvas.outlineEditor.layerData.shapes[1].transform[4]).toBe(
+            55.5
+        );
+
+        assignLayerDataSpy.mockRestore();
+    });
 
     test('renders intermediate layers as italic Intermediate Layer labels in the layers list', async () => {
         const targetContainer = document.createElement('div');
@@ -5874,6 +6023,80 @@ describe('OutlineEditor exact selected layers', () => {
         expect(updateSpy).toHaveBeenCalled();
 
         updateSpy.mockRestore();
+    });
+});
+
+describe('OutlineEditor exact layerData parity', () => {
+    let canvas;
+    let currentFontSpy;
+    let fustatFontData;
+    let fustatFont;
+
+    beforeAll(() => {
+        fustatFontData = loadFontFixture('Fustat.glyphs');
+    });
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        fustatFont = Font.fromData(fustatFontData);
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: fustatFont });
+        canvas.getCurrentGlyphName = jest.fn(() => 'Adieresis');
+    });
+
+    afterEach(() => {
+        clear_font_cache();
+        currentFontSpy.mockRestore();
+        canvas.destroy();
+    });
+
+    test('matches Rust layerData for Fustat Adieresis on the Regular layer exact location', () => {
+        const glyph =
+            fustatFont.findGlyph('Adieresis') ||
+            fustatFont.findGlyph('adieresis');
+        expect(glyph).toBeTruthy();
+
+        const regularMaster =
+            fustatFont.masters.find((master) => {
+                const names = master.name || {};
+                return Object.values(names)
+                    .join(' ')
+                    .toLowerCase()
+                    .includes('regular');
+            }) || fustatFont.masters[0];
+        expect(regularMaster).toBeTruthy();
+
+        const regularLayer =
+            glyph.findLayerByMasterId(regularMaster.id) || glyph.layers[0];
+        expect(regularLayer).toBeTruthy();
+
+        canvas.outlineEditor.selectedLayerId = regularLayer.id;
+        canvas.outlineEditor.glyphStack = `Adieresis@${regularLayer.id}`;
+
+        const exactLayerData =
+            canvas.outlineEditor.getExactLayerDataForSelection(
+                glyph.name,
+                regularLayer.id
+            );
+        const userspaceLocation =
+            canvas.outlineEditor.getUserspaceLocationForLayer(
+                regularLayer.id,
+                glyph.name
+            );
+
+        store_font(JSON.stringify(fustatFontData));
+        const rustLayerData = JSON.parse(
+            interpolate_glyph(
+                glyph.name,
+                JSON.stringify(userspaceLocation || {})
+            )
+        );
+
+        expect(canonicalizeLayerDataForComparison(exactLayerData)).toEqual(
+            canonicalizeLayerDataForComparison(rustLayerData)
+        );
     });
 });
 

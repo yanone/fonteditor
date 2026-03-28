@@ -2452,7 +2452,7 @@ export class OutlineEditor {
 
     private applyExactSelectedLayerData(
         exactLayerData: any,
-        interpolatedResult: any
+        interpolatedResult?: any | null
     ): void {
         const exactNormalized = LayerDataNormalizer.normalize(
             exactLayerData,
@@ -2470,16 +2470,379 @@ export class OutlineEditor {
             );
         }
 
-        this.assignLayerData(exactNormalized, interpolatedResult);
+        this.assignLayerData(
+            exactNormalized,
+            interpolatedResult ?? exactNormalized
+        );
+    }
+
+    private cloneLayerData<T>(value: T): T {
+        if (typeof structuredClone === 'function') {
+            return structuredClone(value);
+        }
+
+        return JSON.parse(JSON.stringify(value));
+    }
+
+    private flattenNestedShapes(shapes: any[] | undefined): any[] {
+        if (!Array.isArray(shapes)) {
+            return [];
+        }
+
+        return shapes.map((shape) => {
+            if (!shape || typeof shape !== 'object') {
+                return shape;
+            }
+
+            const flattenedShape =
+                'Path' in shape && shape.Path
+                    ? shape.Path
+                    : 'Component' in shape && shape.Component
+                      ? shape.Component
+                      : shape;
+
+            const result = { ...flattenedShape };
+
+            if (result.layerData?.shapes) {
+                result.layerData = {
+                    ...result.layerData,
+                    shapes: this.flattenNestedShapes(result.layerData.shapes)
+                };
+            }
+
+            return result;
+        });
+    }
+
+    private serializeLayerDataAsInterpolationPayload(layerData: any): any {
+        if (!layerData || typeof layerData !== 'object') {
+            return layerData;
+        }
+
+        const serializedLayerData: any = {
+            width: layerData.width ?? 0,
+            shapes: this.flattenNestedShapes(layerData.shapes).map((shape) => {
+                if (!shape || typeof shape !== 'object') {
+                    return shape;
+                }
+
+                if ('nodes' in shape) {
+                    const serializedPath: Record<string, any> = {
+                        nodes: Array.isArray(shape.nodes)
+                            ? LayerDataNormalizer.serializeNodes(shape.nodes)
+                            : shape.nodes
+                    };
+
+                    if (shape.closed !== undefined) {
+                        serializedPath.closed = shape.closed;
+                    }
+
+                    if (
+                        shape.format_specific &&
+                        Object.keys(shape.format_specific).length
+                    ) {
+                        serializedPath.format_specific = shape.format_specific;
+                    }
+
+                    return serializedPath;
+                }
+
+                if ('reference' in shape) {
+                    const originalTransform = shape.transform;
+                    const affineTransform = Array.isArray(originalTransform)
+                        ? originalTransform
+                        : originalTransform
+                          ? DecomposedAffineTransform.toAffine(
+                                originalTransform
+                            )
+                          : [1, 0, 0, 1, 0, 0];
+
+                    const serializedComponent: Record<string, any> = {
+                        reference: shape.reference
+                    };
+
+                    if (
+                        shape.format_specific &&
+                        Object.keys(shape.format_specific).length
+                    ) {
+                        serializedComponent.format_specific =
+                            shape.format_specific;
+                    }
+
+                    const isIdentityTransform =
+                        affineTransform[0] === 1 &&
+                        affineTransform[1] === 0 &&
+                        affineTransform[2] === 0 &&
+                        affineTransform[3] === 1 &&
+                        affineTransform[4] === 0 &&
+                        affineTransform[5] === 0;
+                    if (!isIdentityTransform) {
+                        serializedComponent.transform = originalTransform;
+                    }
+
+                    if (shape.location && Object.keys(shape.location).length) {
+                        serializedComponent.location = shape.location;
+                    }
+
+                    if (shape.layerData) {
+                        serializedComponent.layerData =
+                            this.serializeLayerDataAsInterpolationPayload(
+                                shape.layerData
+                            );
+                    }
+
+                    return serializedComponent;
+                }
+
+                return shape;
+            })
+        };
+
+        const serializedAnchors = (layerData.anchors || []).map(
+            (anchor: any) => ({
+                name: anchor.name,
+                x: anchor.x,
+                y: anchor.y
+            })
+        );
+        if (serializedAnchors.length) {
+            serializedLayerData.anchors = serializedAnchors;
+        }
+
+        delete serializedLayerData._verticalMetrics;
+        delete serializedLayerData._interpolationLocation;
+
+        return serializedLayerData;
+    }
+
+    private getPreferredComponentLayer(
+        componentGlyph: any,
+        masterId: string | null | undefined
+    ): any | null {
+        const layers = componentGlyph?.layers || [];
+        if (!layers.length) {
+            return null;
+        }
+
+        if (masterId) {
+            const defaultLayer = layers.find(
+                (candidate: any) =>
+                    candidate.master?.master === masterId &&
+                    candidate.master?.type === 'DefaultForMaster'
+            );
+            if (defaultLayer) {
+                return defaultLayer;
+            }
+
+            const nonIntermediateSameMaster = layers.find(
+                (candidate: any) =>
+                    candidate.master?.master === masterId &&
+                    (!candidate.location ||
+                        Object.keys(candidate.location).length === 0) &&
+                    (!candidate.smart_component_location ||
+                        Object.keys(candidate.smart_component_location)
+                            .length === 0)
+            );
+            if (nonIntermediateSameMaster) {
+                return nonIntermediateSameMaster;
+            }
+        }
+
+        return layers[0] || null;
+    }
+
+    private getVerticalMetricsForLayer(
+        layer: any,
+        fontModel: any
+    ): Record<string, number> | null {
+        const masterId = layer?.master?.master;
+        if (!fontModel || !masterId) {
+            return null;
+        }
+
+        const master =
+            fontModel.findMaster?.(masterId) ||
+            fontModel.masters?.find(
+                (candidate: any) => candidate.id === masterId
+            );
+        const metrics = master?.metrics;
+
+        if (!metrics || typeof metrics !== 'object') {
+            return null;
+        }
+
+        const verticalMetrics = Object.fromEntries(
+            Object.entries(metrics).filter(([, value]) =>
+                Number.isFinite(value)
+            )
+        ) as Record<string, number>;
+
+        if (!Object.keys(verticalMetrics).length) {
+            return null;
+        }
+
+        if (Number.isFinite(verticalMetrics.WinDescent)) {
+            verticalMetrics.WinDescent = -Math.abs(verticalMetrics.WinDescent);
+        }
+
+        return verticalMetrics;
+    }
+
+    private resolveComponentLayerDataFromModel(
+        shapes: any[] | undefined,
+        fontModel: any,
+        masterId: string | null | undefined,
+        visited: Set<string>
+    ): any[] {
+        const flattenedShapes = this.flattenNestedShapes(shapes);
+
+        return flattenedShapes.map((shape) => {
+            if (
+                !shape ||
+                typeof shape !== 'object' ||
+                !('reference' in shape)
+            ) {
+                return shape;
+            }
+
+            const resolvedShape = { ...shape };
+            const reference = resolvedShape.reference;
+
+            if (!fontModel || !reference || visited.has(reference)) {
+                if (resolvedShape.layerData?.shapes) {
+                    resolvedShape.layerData = {
+                        ...resolvedShape.layerData,
+                        shapes: this.resolveComponentLayerDataFromModel(
+                            resolvedShape.layerData.shapes,
+                            fontModel,
+                            masterId,
+                            visited
+                        )
+                    };
+                }
+
+                return resolvedShape;
+            }
+
+            const componentGlyph =
+                fontModel.findGlyph?.(reference) ||
+                fontModel.glyphs?.find(
+                    (glyph: any) => glyph.name === reference
+                );
+            if (!componentGlyph?.layers?.length) {
+                return resolvedShape;
+            }
+
+            visited.add(reference);
+
+            const componentLayer =
+                this.getPreferredComponentLayer(componentGlyph, masterId) ||
+                componentGlyph.layers[0];
+
+            const rawLayerData =
+                componentLayer?.toJSON?.() || componentLayer || null;
+            const nestedLayerData = rawLayerData
+                ? this.cloneLayerData(rawLayerData)
+                : resolvedShape.layerData
+                  ? this.cloneLayerData(resolvedShape.layerData)
+                  : null;
+
+            if (nestedLayerData?.shapes) {
+                nestedLayerData.shapes =
+                    this.resolveComponentLayerDataFromModel(
+                        nestedLayerData.shapes,
+                        fontModel,
+                        componentLayer?.master?.master ?? masterId,
+                        visited
+                    );
+            }
+
+            visited.delete(reference);
+
+            if (!nestedLayerData) {
+                return resolvedShape;
+            }
+
+            return {
+                ...resolvedShape,
+                layerData: nestedLayerData
+            };
+        });
+    }
+
+    private buildExactLayerDataFromModel(
+        glyphName: string,
+        layerId: string
+    ): any | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        const glyph = this.getGlyphModelByName(glyphName);
+        const layer = glyph?.findLayerById?.(layerId);
+        const rawLayerData = layer?.toJSON?.();
+
+        if (!fontModel || !rawLayerData) {
+            return null;
+        }
+
+        const exactLayerData = this.cloneLayerData(rawLayerData);
+        exactLayerData.shapes = this.resolveComponentLayerDataFromModel(
+            exactLayerData.shapes,
+            fontModel,
+            layer?.master?.master,
+            new Set([glyphName])
+        );
+
+        const serializedLayerData =
+            this.serializeLayerDataAsInterpolationPayload(exactLayerData);
+
+        const verticalMetrics = this.getVerticalMetricsForLayer(
+            layer,
+            fontModel
+        );
+        if (verticalMetrics) {
+            serializedLayerData._verticalMetrics = verticalMetrics;
+        }
+
+        const interpolationLocation = this.getUserspaceLocationForLayer(
+            layerId,
+            glyphName
+        );
+        if (interpolationLocation) {
+            serializedLayerData._interpolationLocation = interpolationLocation;
+        }
+
+        return serializedLayerData;
+    }
+
+    private updateCurrentGlyphNameFromStack(glyphName: string): void {
+        const parsed = this.parseGlyphStack();
+        if (parsed.length > 1) {
+            this.currentGlyphName = parsed[parsed.length - 1].glyphName;
+        } else {
+            this.currentGlyphName = glyphName;
+        }
+    }
+
+    private finalizeFetchedLayerData(
+        glyphName: string,
+        skipRender: boolean
+    ): void {
+        this.updateCurrentGlyphNameFromStack(glyphName);
+
+        console.log('Fetched ROOT layer data:', this.layerData);
+        console.log('Current position in stack:', this.glyphStack);
+
+        this.glyphCanvas.updatePropertyPanel();
+
+        if (!skipRender) {
+            this.glyphCanvas.render();
+        }
     }
 
     private getExactLayerDataForSelection(
         glyphName: string,
         layerId: string
     ): any | null {
-        const glyph = this.getGlyphModelByName(glyphName);
-        const layer = glyph?.findLayerById?.(layerId);
-        return layer?.toJSON?.() || null;
+        return this.buildExactLayerDataFromModel(glyphName, layerId);
     }
 
     /**
@@ -8931,28 +9294,38 @@ export class OutlineEditor {
             return;
         }
 
-        try {
-            // Always fetch root glyph name - never component reference
-            const parsedStack = this.parseGlyphStack();
-            const glyphName =
-                rootGlyphName ??
-                parsedStack[0]?.glyphName ??
-                this.glyphCanvas.getCurrentGlyphName();
-            if (
-                !glyphName ||
-                glyphName === 'undefined' ||
-                glyphName.startsWith('GID ')
-            ) {
-                console.warn(
-                    '[OutlineEditor] Skipping fetchLayerData due to invalid glyph name',
-                    glyphName
-                );
-                return;
-            }
-            console.log(
-                `🔍 Fetching ROOT layer data for glyph: "${glyphName}", layer: ${this.selectedLayerId}`
+        // Always fetch root glyph name - never component reference
+        const parsedStack = this.parseGlyphStack();
+        const glyphName =
+            rootGlyphName ??
+            parsedStack[0]?.glyphName ??
+            this.glyphCanvas.getCurrentGlyphName();
+        if (
+            !glyphName ||
+            glyphName === 'undefined' ||
+            glyphName.startsWith('GID ')
+        ) {
+            console.warn(
+                '[OutlineEditor] Skipping fetchLayerData due to invalid glyph name',
+                glyphName
             );
+            return;
+        }
 
+        console.log(
+            `🔍 Fetching ROOT layer data for glyph: "${glyphName}", layer: ${this.selectedLayerId}`
+        );
+
+        const exactLayerData = this.getExactLayerDataForSelection(
+            glyphName,
+            this.selectedLayerId
+        );
+        if (exactLayerData) {
+            this.applyExactSelectedLayerData(exactLayerData, null);
+            this.finalizeFetchedLayerData(glyphName, skipRender);
+        }
+
+        try {
             // Compute the userspace location for this layer
             const userspaceLocation = this.getUserspaceLocationForLayer(
                 this.selectedLayerId,
@@ -8962,8 +9335,10 @@ export class OutlineEditor {
                 console.warn(
                     `[OutlineEditor] Could not resolve location for layer ${this.selectedLayerId}`
                 );
-                this.layerData = null;
-                this.renderVerticalMetrics = null;
+                if (!exactLayerData) {
+                    this.layerData = null;
+                    this.renderVerticalMetrics = null;
+                }
                 return;
             }
 
@@ -8975,11 +9350,6 @@ export class OutlineEditor {
                 userspaceLocation
             );
 
-            const exactLayerData = this.getExactLayerDataForSelection(
-                glyphName,
-                this.selectedLayerId
-            );
-
             if (exactLayerData) {
                 this.applyExactSelectedLayerData(exactLayerData, rustResult);
             } else {
@@ -8987,25 +9357,7 @@ export class OutlineEditor {
                 this.applyRustLayerData(rustResult, false);
             }
 
-            // Update currentGlyphName based on glyph_stack position
-            // If we're in a nested component, extract the component name from the stack
-            const parsed = this.parseGlyphStack();
-            if (parsed.length > 1) {
-                // We're in a nested component - use the last glyph name in the stack
-                this.currentGlyphName = parsed[parsed.length - 1].glyphName;
-            } else {
-                // We're at root level
-                this.currentGlyphName = glyphName;
-            }
-
-            console.log('Fetched ROOT layer data:', this.layerData);
-            console.log('Current position in stack:', this.glyphStack);
-
-            this.glyphCanvas.updatePropertyPanel();
-
-            if (!skipRender) {
-                this.glyphCanvas.render();
-            }
+            this.finalizeFetchedLayerData(glyphName, skipRender);
         } catch (error) {
             // Silently ignore cancellations — these happen when a newer fetchLayerData
             // call supersedes this one during startup or rapid glyph switching.
@@ -9023,8 +9375,10 @@ export class OutlineEditor {
                 return;
             }
             console.error('Error fetching layer data via Rust:', error);
-            this.layerData = null;
-            this.renderVerticalMetrics = null;
+            if (!exactLayerData) {
+                this.layerData = null;
+                this.renderVerticalMetrics = null;
+            }
         }
     }
 
