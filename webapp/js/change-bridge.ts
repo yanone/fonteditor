@@ -1748,7 +1748,26 @@ export class ChangeBridge {
                         continue;
                     }
                     nextLayerIds.add(layerId);
-                    layersMap.set(layerId, toYType(layerJson));
+                    // Patch the existing layerMap in place to preserve the
+                    // Y.Map instance reference so layer UndoManagers (which
+                    // register on the specific Y.Map object) remain valid
+                    // after a glyph snapshot is applied.
+                    let layerMap = layersMap.get(layerId) as
+                        | Y.Map<unknown>
+                        | undefined;
+                    if (!(layerMap instanceof Y.Map)) {
+                        layerMap = new Y.Map<unknown>();
+                        layersMap.set(layerId, layerMap);
+                    }
+                    const layerKeys = new Set(Object.keys(layerJson));
+                    for (const [lk, lv] of Object.entries(layerJson)) {
+                        layerMap.set(lk, toYType(lv));
+                    }
+                    layerMap.forEach((_v: unknown, key: string) => {
+                        if (!layerKeys.has(key)) {
+                            layerMap!.delete(key);
+                        }
+                    });
                 }
 
                 layersMap.forEach((_value: unknown, key: string) => {
