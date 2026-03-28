@@ -4,7 +4,9 @@
     "description": "Counterpunch Font Editor",
     "type": "module",
     "scripts": {
-        "generate-docs": "node generate-api-docs.mjs"
+        "generate-api-docs": "node generate-api-docs.mjs",
+        "generate-event-docs": "node generate-js-event-docs.mjs",
+        "generate-docs": "npm run generate-api-docs && npm run generate-event-docs"
     },
     "dependencies": {
         "typescript": "^5.0.0"

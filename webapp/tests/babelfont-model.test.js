@@ -3062,6 +3062,55 @@ describe('Babelfont Object Model', () => {
             expect(path.nodes[1].y).toBeCloseTo(0);
         });
 
+        test('dispatches layerFingerprintChanged when inserting a node changes the layer fingerprint', () => {
+            const testFont = makeFontWithSinglePath([
+                { x: 0, y: 0, nodetype: 'Line' },
+                { x: 100, y: 0, nodetype: 'Line' }
+            ]);
+            const layer = testFont.glyphs[0].layers[0];
+            const path = layer.paths[0];
+            const dispatchSpy = jest.spyOn(window, 'dispatchEvent');
+
+            path._addPoint(0, 0.25);
+
+            expect(dispatchSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'layerFingerprintChanged',
+                    detail: {
+                        glyphName: 'testGlyph',
+                        layerId: layer.id
+                    }
+                })
+            );
+
+            dispatchSpy.mockRestore();
+        });
+
+        test('dispatches layerFingerprintChanged when deleting a node changes the layer fingerprint', () => {
+            const testFont = makeFontWithSinglePath([
+                { x: 0, y: 0, nodetype: 'Line' },
+                { x: 50, y: 0, nodetype: 'Line' },
+                { x: 100, y: 0, nodetype: 'Line' }
+            ]);
+            const layer = testFont.glyphs[0].layers[0];
+            const path = layer.paths[0];
+            const dispatchSpy = jest.spyOn(window, 'dispatchEvent');
+
+            expect(path._deleteNode(1)).toBe(true);
+
+            expect(dispatchSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'layerFingerprintChanged',
+                    detail: {
+                        glyphName: 'testGlyph',
+                        layerId: layer.id
+                    }
+                })
+            );
+
+            dispatchSpy.mockRestore();
+        });
+
         test('splits a cubic segment into two matching cubic segments', () => {
             const testFont = makeFontWithSinglePath([
                 { x: 0, y: 0, nodetype: 'Curve' },
@@ -3136,6 +3185,31 @@ describe('Babelfont Object Model', () => {
             ]);
             expect(descriptors[0].points[2]).toEqual({ x: 75, y: 100 });
             expect(descriptors[1].points[0]).toEqual({ x: 75, y: 100 });
+        });
+    });
+
+    describe('Layer shape structure changes', () => {
+        test('dispatches layerFingerprintChanged when adding a new path changes the layer fingerprint', () => {
+            const testFont = makeFontWithSinglePath([
+                { x: 0, y: 0, nodetype: 'Line' },
+                { x: 100, y: 0, nodetype: 'Line' }
+            ]);
+            const layer = testFont.glyphs[0].layers[0];
+            const dispatchSpy = jest.spyOn(window, 'dispatchEvent');
+
+            layer.addPath(true);
+
+            expect(dispatchSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'layerFingerprintChanged',
+                    detail: {
+                        glyphName: 'testGlyph',
+                        layerId: layer.id
+                    }
+                })
+            );
+
+            dispatchSpy.mockRestore();
         });
     });
 

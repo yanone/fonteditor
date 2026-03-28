@@ -1960,6 +1960,49 @@ function refreshOutlineEditorSelectionUi(
     outlineEditor.glyphCanvas?.render?.();
 }
 
+function getPathOwningLayer(path: Path): Layer | null {
+    const parent = path.parent();
+    if (parent instanceof Layer) {
+        return parent;
+    }
+
+    if (parent instanceof Shape) {
+        const layer = parent.parent();
+        return layer instanceof Layer ? layer : null;
+    }
+
+    return null;
+}
+
+function dispatchLayerFingerprintChanged(
+    layer: Layer | null,
+    previousFingerprint: string | null
+): void {
+    if (!layer || typeof window === 'undefined') {
+        return;
+    }
+
+    if (layer.fingerprint === previousFingerprint) {
+        return;
+    }
+
+    const glyph = layer.parent();
+    const glyphName = glyph instanceof Glyph ? glyph.name : null;
+    if (!glyphName || !layer.id) {
+        return;
+    }
+
+    // Structural outline edits can change layer compatibility fingerprints.
+    window.dispatchEvent(
+        new CustomEvent('layerFingerprintChanged', {
+            detail: {
+                glyphName,
+                layerId: layer.id
+            }
+        })
+    );
+}
+
 function assertOutlineEditorSelectionMutationAllowed(
     layer: Layer,
     outlineEditor: OutlineEditorSelectionController | null,
@@ -3282,6 +3325,14 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
 export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     private _nodeWrappers: Node[] | null = null;
 
+    private withLayerFingerprintChangeEvent<T>(fn: () => T): T {
+        const layer = getPathOwningLayer(this);
+        const previousFingerprint = layer?.fingerprint ?? null;
+        const result = fn();
+        dispatchLayerFingerprintChanged(layer, previousFingerprint);
+        return result;
+    }
+
     getPathSegment(): (string | number)[] {
         // When wrapped by Shape.asPath(), Shape already provides ['shapes', idx]
         if (this._parentObject instanceof Shape) return [];
@@ -3331,10 +3382,12 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     set nodes(value: Babelfont.Node[]) {
-        const old = this.data.nodes;
-        this.data.nodes = value;
-        this._nodeWrappers = null; // Invalidate cache
-        recordAndMarkDirty(this, 'nodes', old, value);
+        this.withLayerFingerprintChangeEvent(() => {
+            const old = this.data.nodes;
+            this.data.nodes = value;
+            this._nodeWrappers = null; // Invalidate cache
+            recordAndMarkDirty(this, 'nodes', old, value);
+        });
     }
 
     /**
@@ -3456,9 +3509,11 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     set closed(value: boolean) {
-        const old = this.data.closed;
-        this.data.closed = value;
-        recordAndMarkDirty(this, 'closed', old, value);
+        this.withLayerFingerprintChangeEvent(() => {
+            const old = this.data.closed;
+            this.data.closed = value;
+            recordAndMarkDirty(this, 'closed', old, value);
+        });
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {
@@ -3488,16 +3543,21 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         nodetype: Babelfont.NodeType = 'Line' as Babelfont.NodeType,
         smooth?: boolean
     ): Node {
-        const nodeArray = this.ensureNodesArray();
-        const nodeData: Babelfont.Node = { x, y, nodetype };
-        if (smooth !== undefined) {
-            nodeData.smooth = smooth;
-        }
+        return this.withLayerFingerprintChangeEvent(() => {
+            const nodeArray = this.ensureNodesArray();
+            const nodeData: Babelfont.Node = { x, y, nodetype };
+            if (smooth !== undefined) {
+                nodeData.smooth = smooth;
+            }
 
-        nodeArray.splice(index, 0, nodeData);
-        this._nodeWrappers = null; // Invalidate cache
-        recordAddAndMarkDirty([...this.getPath(), 'nodes', index], nodeData);
-        return new Node(nodeArray, index, this);
+            nodeArray.splice(index, 0, nodeData);
+            this._nodeWrappers = null; // Invalidate cache
+            recordAddAndMarkDirty(
+                [...this.getPath(), 'nodes', index],
+                nodeData
+            );
+            return new Node(nodeArray, index, this);
+        });
     }
 
     /**
@@ -3506,18 +3566,20 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      * path.removeNode(0)  # Remove first node
      */
     removeNode(index: number): void {
-        const nodeArray = this.ensureNodesArray();
-        const removedNode = nodeArray[index];
-        if (removedNode === undefined) {
-            return;
-        }
+        this.withLayerFingerprintChangeEvent(() => {
+            const nodeArray = this.ensureNodesArray();
+            const removedNode = nodeArray[index];
+            if (removedNode === undefined) {
+                return;
+            }
 
-        nodeArray.splice(index, 1);
-        this._nodeWrappers = null; // Invalidate cache
-        recordRemoveAndMarkDirty(
-            [...this.getPath(), 'nodes', index],
-            removedNode
-        );
+            nodeArray.splice(index, 1);
+            this._nodeWrappers = null; // Invalidate cache
+            recordRemoveAndMarkDirty(
+                [...this.getPath(), 'nodes', index],
+                removedNode
+            );
+        });
     }
 
     /**
@@ -3542,119 +3604,129 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
     }
 
     _addPoint(segmentId: number, t: number): number | null {
-        const nodeArray = this.ensureNodesArray();
-        const descriptors = buildPathSegmentDescriptors({
-            nodes: nodeArray,
-            closed: this.closed
+        return this.withLayerFingerprintChangeEvent(() => {
+            const nodeArray = this.ensureNodesArray();
+            const descriptors = buildPathSegmentDescriptors({
+                nodes: nodeArray,
+                closed: this.closed
+            });
+            const descriptor = descriptors.find(
+                (candidate) => candidate.segmentId === segmentId
+            );
+
+            if (!descriptor) {
+                return null;
+            }
+
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            const mutation = buildInsertedSegmentNodeArray(
+                nodeArray,
+                descriptor,
+                t,
+                this.closed
+            );
+
+            this.data.nodes = mutation.nodes;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
+            return mutation.insertedNodeIndex;
         });
-        const descriptor = descriptors.find(
-            (candidate) => candidate.segmentId === segmentId
-        );
-
-        if (!descriptor) {
-            return null;
-        }
-
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        const mutation = buildInsertedSegmentNodeArray(
-            nodeArray,
-            descriptor,
-            t,
-            this.closed
-        );
-
-        this.data.nodes = mutation.nodes;
-        this._nodeWrappers = null;
-        recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
-        return mutation.insertedNodeIndex;
     }
 
     _appendLine(
         point: { x: number; y: number },
         edge: 'start' | 'end' = 'end'
     ): number | null {
-        if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
-            return null;
-        }
+        return this.withLayerFingerprintChangeEvent(() => {
+            if (
+                !point ||
+                !Number.isFinite(point.x) ||
+                !Number.isFinite(point.y)
+            ) {
+                return null;
+            }
 
-        if (this.closed) {
-            return null;
-        }
+            if (this.closed) {
+                return null;
+            }
 
-        const nodeArray = this.ensureNodesArray();
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        let nextNodes: Babelfont.Node[];
-        let insertedNodeIndex: number;
+            const nodeArray = this.ensureNodesArray();
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            let nextNodes: Babelfont.Node[];
+            let insertedNodeIndex: number;
 
-        if (!nodeArray.length) {
-            nextNodes = [
-                {
-                    x: point.x,
-                    y: point.y,
-                    nodetype: 'Move' as Babelfont.NodeType
-                }
-            ];
-            insertedNodeIndex = 0;
-        } else if (edge === 'start') {
-            nextNodes = [
-                {
-                    x: point.x,
-                    y: point.y,
-                    nodetype: 'Move' as Babelfont.NodeType
-                },
-                cloneNodeData(nodeArray[0], {
-                    nodetype: 'Line' as Babelfont.NodeType,
-                    smooth: false
-                }),
-                ...nodeArray.slice(1).map((node) => cloneNodeData(node))
-            ];
-            insertedNodeIndex = 0;
-        } else {
-            nextNodes = [
-                ...nodeArray.map((node) => cloneNodeData(node)),
-                {
-                    x: point.x,
-                    y: point.y,
-                    nodetype: 'Line' as Babelfont.NodeType
-                }
-            ];
-            insertedNodeIndex = nextNodes.length - 1;
-        }
+            if (!nodeArray.length) {
+                nextNodes = [
+                    {
+                        x: point.x,
+                        y: point.y,
+                        nodetype: 'Move' as Babelfont.NodeType
+                    }
+                ];
+                insertedNodeIndex = 0;
+            } else if (edge === 'start') {
+                nextNodes = [
+                    {
+                        x: point.x,
+                        y: point.y,
+                        nodetype: 'Move' as Babelfont.NodeType
+                    },
+                    cloneNodeData(nodeArray[0], {
+                        nodetype: 'Line' as Babelfont.NodeType,
+                        smooth: false
+                    }),
+                    ...nodeArray.slice(1).map((node) => cloneNodeData(node))
+                ];
+                insertedNodeIndex = 0;
+            } else {
+                nextNodes = [
+                    ...nodeArray.map((node) => cloneNodeData(node)),
+                    {
+                        x: point.x,
+                        y: point.y,
+                        nodetype: 'Line' as Babelfont.NodeType
+                    }
+                ];
+                insertedNodeIndex = nextNodes.length - 1;
+            }
 
-        this.data.nodes = nextNodes;
-        this._nodeWrappers = null;
-        recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
-        return insertedNodeIndex;
+            this.data.nodes = nextNodes;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+            return insertedNodeIndex;
+        });
     }
 
     _closeOpenPath(): boolean {
-        if (this.closed) {
-            return false;
-        }
+        return this.withLayerFingerprintChangeEvent(() => {
+            if (this.closed) {
+                return false;
+            }
 
-        const nodeArray = this.ensureNodesArray();
-        if (nodeArray.length < 3) {
-            return false;
-        }
+            const nodeArray = this.ensureNodesArray();
+            if (nodeArray.length < 3) {
+                return false;
+            }
 
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        const oldClosed = this.data.closed;
-        const nextNodes = nodeArray.map((node) => cloneNodeData(node));
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            const oldClosed = this.data.closed;
+            const nextNodes = nodeArray.map((node) => cloneNodeData(node));
 
-        nextNodes[0] = cloneNodeData(nextNodes[0], {
-            nodetype:
-                nextNodes[0].nodetype === 'Move'
-                    ? ('Line' as Babelfont.NodeType)
-                    : nextNodes[0].nodetype,
-            smooth: false
+            nextNodes[0] = cloneNodeData(nextNodes[0], {
+                nodetype:
+                    nextNodes[0].nodetype === 'Move'
+                        ? ('Line' as Babelfont.NodeType)
+                        : nextNodes[0].nodetype,
+                smooth: false
+            });
+
+            this.data.nodes = nextNodes;
+            this.data.closed = true;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+            recordAndMarkDirty(this, 'closed', oldClosed, true);
+            return true;
         });
-
-        this.data.nodes = nextNodes;
-        this.data.closed = true;
-        this._nodeWrappers = null;
-        recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
-        recordAndMarkDirty(this, 'closed', oldClosed, true);
-        return true;
     }
 
     /**
@@ -3663,38 +3735,38 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      * from Move to Line. Exact reverse of _openClosedPathAtNode.
      */
     _closeOpenPathByMerge(): boolean {
-        if (this.closed) {
-            return false;
-        }
+        return this.withLayerFingerprintChangeEvent(() => {
+            if (!this.closed) {
+                return false;
+            }
 
-        const nodeArray = this.ensureNodesArray();
-        if (nodeArray.length < 2) {
-            return false;
-        }
+            const nodeArray = this.ensureNodesArray();
+            if (nodeArray.length < 2) {
+                return false;
+            }
 
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        const oldClosed = this.data.closed;
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            const oldClosed = this.data.closed;
 
-        // Remove the last node (duplicate of the first)
-        const nextNodes = nodeArray
-            .slice(0, -1)
-            .map((node) => cloneNodeData(node));
+            const nextNodes = nodeArray
+                .slice(0, -1)
+                .map((node) => cloneNodeData(node));
 
-        // Convert the first node from Move to Line
-        nextNodes[0] = cloneNodeData(nextNodes[0], {
-            nodetype:
-                nextNodes[0].nodetype === 'Move'
-                    ? ('Line' as Babelfont.NodeType)
-                    : nextNodes[0].nodetype,
-            smooth: false
+            nextNodes[0] = cloneNodeData(nextNodes[0], {
+                nodetype:
+                    nextNodes[0].nodetype === 'Move'
+                        ? ('Line' as Babelfont.NodeType)
+                        : nextNodes[0].nodetype,
+                smooth: false
+            });
+
+            this.data.nodes = nextNodes;
+            this.data.closed = true;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+            recordAndMarkDirty(this, 'closed', oldClosed, true);
+            return true;
         });
-
-        this.data.nodes = nextNodes;
-        this.data.closed = true;
-        this._nodeWrappers = null;
-        recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
-        recordAndMarkDirty(this, 'closed', oldClosed, true);
-        return true;
     }
 
     /**
@@ -3703,198 +3775,210 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      * the other becomes the end. The overall shape is preserved.
      */
     _openClosedPathAtNode(nodeIndex: number): boolean {
-        if (!this.closed) {
-            return false;
-        }
-
-        const nodeArray = this.ensureNodesArray();
-        if (nodeArray.length < 3) {
-            return false;
-        }
-
-        const targetNode = nodeArray[nodeIndex];
-        if (
-            !targetNode ||
-            isOffCurveNodeType(targetNode.nodetype) ||
-            targetNode.nodetype === 'Move'
-        ) {
-            return false;
-        }
-
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        const oldClosed = this.data.closed;
-
-        // Rotate nodes so that nodeIndex becomes index 0
-        const rotated = [
-            ...nodeArray.slice(nodeIndex),
-            ...nodeArray.slice(0, nodeIndex)
-        ].map((node) => cloneNodeData(node));
-
-        // Duplicate the node: first copy at start becomes Move,
-        // second copy appended at end keeps its original type
-        rotated[0] = cloneNodeData(rotated[0], {
-            nodetype: 'Move' as Babelfont.NodeType,
-            smooth: false
-        });
-        rotated.push(cloneNodeData(nodeArray[nodeIndex], { smooth: false }));
-
-        this.data.nodes = rotated;
-        this.data.closed = false;
-        this._nodeWrappers = null;
-        recordAndMarkDirty(this, 'nodes', oldNodes, rotated);
-        recordAndMarkDirty(this, 'closed', oldClosed, false);
-        return true;
-    }
-
-    _setStartNode(nodeIndex: number): boolean {
-        if (!this.closed) {
-            return false;
-        }
-
-        const nodeArray = this.ensureNodesArray();
-        if (nodeArray.length < 2) {
-            return false;
-        }
-
-        const targetNode = nodeArray[nodeIndex];
-        if (
-            !targetNode ||
-            nodeIndex <= 0 ||
-            isOffCurveNodeType(targetNode.nodetype)
-        ) {
-            return false;
-        }
-
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        const rotated = [
-            ...nodeArray.slice(nodeIndex),
-            ...nodeArray.slice(0, nodeIndex)
-        ].map((node) => cloneNodeData(node));
-        const nextNodes = normalizePathNodeArray(rotated, true);
-
-        this.data.nodes = nextNodes;
-        this._nodeWrappers = null;
-        recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
-        return true;
-    }
-
-    _reverseDirection(): boolean {
-        const nodeArray = this.ensureNodesArray();
-        if (nodeArray.length < 2) {
-            return false;
-        }
-
-        const descriptors = buildPathSegmentDescriptors({
-            nodes: nodeArray,
-            closed: this.closed
-        });
-        if (!descriptors.length) {
-            return false;
-        }
-
-        const reverseControlNodes = (descriptor: PathSegmentDescriptor) =>
-            descriptor.controlNodeIndices
-                .slice()
-                .reverse()
-                .map((controlNodeIndex) =>
-                    cloneNodeData(nodeArray[controlNodeIndex], {
-                        nodetype: 'OffCurve' as Babelfont.NodeType
-                    })
-                );
-
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        const nextNodes: Babelfont.Node[] = [];
-
-        if (this.closed) {
-            const startDescriptorIndex = descriptors.findIndex(
-                (descriptor) => descriptor.endNodeIndex === 0
-            );
-            if (startDescriptorIndex < 0) {
+        return this.withLayerFingerprintChangeEvent(() => {
+            if (!this.closed) {
                 return false;
             }
 
-            const orderedDescriptors = Array.from(
-                { length: descriptors.length },
-                (_value, offset) =>
-                    descriptors[
-                        (startDescriptorIndex - offset + descriptors.length) %
-                            descriptors.length
-                    ]
+            const nodeArray = this.ensureNodesArray();
+            if (nodeArray.length < 3) {
+                return false;
+            }
+
+            const targetNode = nodeArray[nodeIndex];
+            if (
+                !targetNode ||
+                isOffCurveNodeType(targetNode.nodetype) ||
+                targetNode.nodetype === 'Move'
+            ) {
+                return false;
+            }
+
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            const oldClosed = this.data.closed;
+
+            const rotated = [
+                ...nodeArray.slice(nodeIndex),
+                ...nodeArray.slice(0, nodeIndex)
+            ].map((node) => cloneNodeData(node));
+
+            rotated[0] = cloneNodeData(rotated[0], {
+                nodetype: 'Move' as Babelfont.NodeType,
+                smooth: false
+            });
+            rotated.push(
+                cloneNodeData(nodeArray[nodeIndex], { smooth: false })
             );
 
-            nextNodes.push(cloneNodeData(nodeArray[0]));
+            this.data.nodes = rotated;
+            this.data.closed = false;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, rotated);
+            recordAndMarkDirty(this, 'closed', oldClosed, false);
+            return true;
+        });
+    }
 
-            orderedDescriptors.forEach((descriptor, descriptorIndex) => {
-                nextNodes.push(...reverseControlNodes(descriptor));
+    _setStartNode(nodeIndex: number): boolean {
+        return this.withLayerFingerprintChangeEvent(() => {
+            if (!this.closed) {
+                return false;
+            }
 
-                if (descriptorIndex < orderedDescriptors.length - 1) {
+            const nodeArray = this.ensureNodesArray();
+            if (nodeArray.length < 2) {
+                return false;
+            }
+
+            const targetNode = nodeArray[nodeIndex];
+            if (
+                !targetNode ||
+                nodeIndex <= 0 ||
+                isOffCurveNodeType(targetNode.nodetype)
+            ) {
+                return false;
+            }
+
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            const rotated = [
+                ...nodeArray.slice(nodeIndex),
+                ...nodeArray.slice(0, nodeIndex)
+            ].map((node) => cloneNodeData(node));
+            const nextNodes = normalizePathNodeArray(rotated, true);
+
+            this.data.nodes = nextNodes;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+            return true;
+        });
+    }
+
+    _reverseDirection(): boolean {
+        return this.withLayerFingerprintChangeEvent(() => {
+            const nodeArray = this.ensureNodesArray();
+            if (nodeArray.length < 2) {
+                return false;
+            }
+
+            const descriptors = buildPathSegmentDescriptors({
+                nodes: nodeArray,
+                closed: this.closed
+            });
+            if (!descriptors.length) {
+                return false;
+            }
+
+            const reverseControlNodes = (descriptor: PathSegmentDescriptor) =>
+                descriptor.controlNodeIndices
+                    .slice()
+                    .reverse()
+                    .map((controlNodeIndex) =>
+                        cloneNodeData(nodeArray[controlNodeIndex], {
+                            nodetype: 'OffCurve' as Babelfont.NodeType
+                        })
+                    );
+
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            const nextNodes: Babelfont.Node[] = [];
+
+            if (this.closed) {
+                const startDescriptorIndex = descriptors.findIndex(
+                    (descriptor) => descriptor.endNodeIndex === 0
+                );
+                if (startDescriptorIndex < 0) {
+                    return false;
+                }
+
+                const orderedDescriptors = Array.from(
+                    { length: descriptors.length },
+                    (_value, offset) =>
+                        descriptors[
+                            (startDescriptorIndex -
+                                offset +
+                                descriptors.length) %
+                                descriptors.length
+                        ]
+                );
+
+                nextNodes.push(cloneNodeData(nodeArray[0]));
+
+                orderedDescriptors.forEach((descriptor, descriptorIndex) => {
+                    nextNodes.push(...reverseControlNodes(descriptor));
+
+                    if (descriptorIndex < orderedDescriptors.length - 1) {
+                        nextNodes.push(
+                            cloneNodeData(nodeArray[descriptor.startNodeIndex])
+                        );
+                    }
+                });
+            } else {
+                const orderedDescriptors = descriptors.slice().reverse();
+                const firstDescriptor = orderedDescriptors[0];
+
+                nextNodes.push(
+                    cloneNodeData(nodeArray[firstDescriptor.endNodeIndex], {
+                        nodetype: 'Move' as Babelfont.NodeType,
+                        smooth: false
+                    })
+                );
+
+                for (const descriptor of orderedDescriptors) {
+                    nextNodes.push(...reverseControlNodes(descriptor));
                     nextNodes.push(
                         cloneNodeData(nodeArray[descriptor.startNodeIndex])
                     );
                 }
-            });
-        } else {
-            const orderedDescriptors = descriptors.slice().reverse();
-            const firstDescriptor = orderedDescriptors[0];
+            }
 
-            nextNodes.push(
-                cloneNodeData(nodeArray[firstDescriptor.endNodeIndex], {
+            const normalizedNodes = normalizePathNodeArray(
+                nextNodes,
+                this.closed
+            );
+            if (!this.closed && normalizedNodes.length) {
+                normalizedNodes[0] = cloneNodeData(normalizedNodes[0], {
                     nodetype: 'Move' as Babelfont.NodeType,
                     smooth: false
-                })
-            );
-
-            for (const descriptor of orderedDescriptors) {
-                nextNodes.push(...reverseControlNodes(descriptor));
-                nextNodes.push(
-                    cloneNodeData(nodeArray[descriptor.startNodeIndex])
-                );
+                });
             }
-        }
 
-        const normalizedNodes = normalizePathNodeArray(nextNodes, this.closed);
-        if (!this.closed && normalizedNodes.length) {
-            normalizedNodes[0] = cloneNodeData(normalizedNodes[0], {
-                nodetype: 'Move' as Babelfont.NodeType,
-                smooth: false
-            });
-        }
-
-        this.data.nodes = normalizedNodes;
-        this._nodeWrappers = null;
-        recordAndMarkDirty(this, 'nodes', oldNodes, normalizedNodes);
-        return true;
+            this.data.nodes = normalizedNodes;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, normalizedNodes);
+            return true;
+        });
     }
 
     _convertLineSegmentToCurve(segmentId: number): boolean {
-        const nodeArray = this.ensureNodesArray();
-        const descriptors = buildPathSegmentDescriptors({
-            nodes: nodeArray,
-            closed: this.closed
+        return this.withLayerFingerprintChangeEvent(() => {
+            const nodeArray = this.ensureNodesArray();
+            const descriptors = buildPathSegmentDescriptors({
+                nodes: nodeArray,
+                closed: this.closed
+            });
+            const descriptor = descriptors.find(
+                (candidate) => candidate.segmentId === segmentId
+            );
+
+            if (!descriptor || descriptor.type !== 'line') {
+                return false;
+            }
+
+            const nextNodes = buildLineCurvedSegmentNodeArray(
+                nodeArray,
+                descriptor,
+                this.closed
+            );
+
+            if (!nextNodes) {
+                return false;
+            }
+
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            this.data.nodes = nextNodes;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+            return true;
         });
-        const descriptor = descriptors.find(
-            (candidate) => candidate.segmentId === segmentId
-        );
-
-        if (!descriptor || descriptor.type !== 'line') {
-            return false;
-        }
-
-        const nextNodes = buildLineCurvedSegmentNodeArray(
-            nodeArray,
-            descriptor,
-            this.closed
-        );
-
-        if (!nextNodes) {
-            return false;
-        }
-
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        this.data.nodes = nextNodes;
-        this._nodeWrappers = null;
-        recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
-        return true;
     }
 
     _canSlideSmoothOnCurve(nodeIndex: number): boolean {
@@ -3929,78 +4013,82 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         nodeIndex: number,
         targetPoint: { x: number; y: number }
     ): { insertedNodeIndex: number; changed: boolean; t: number } | null {
-        const nodeArray = this.ensureNodesArray();
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        const mutation = buildSmoothPointSlideMutation(
-            nodeArray,
-            nodeIndex,
-            targetPoint,
-            this.closed
-        );
+        return this.withLayerFingerprintChangeEvent(() => {
+            const nodeArray = this.ensureNodesArray();
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            const mutation = buildSmoothPointSlideMutation(
+                nodeArray,
+                nodeIndex,
+                targetPoint,
+                this.closed
+            );
 
-        if (!mutation) {
-            return null;
-        }
+            if (!mutation) {
+                return null;
+            }
 
-        const changed =
-            JSON.stringify(oldNodes) !== JSON.stringify(mutation.nodes);
+            const changed =
+                JSON.stringify(oldNodes) !== JSON.stringify(mutation.nodes);
 
-        if (!changed) {
+            if (!changed) {
+                return {
+                    insertedNodeIndex: mutation.insertedNodeIndex,
+                    changed: false,
+                    t: mutation.t
+                };
+            }
+
+            this.data.nodes = mutation.nodes;
+            this._nodeWrappers = null;
+
+            recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
             return {
                 insertedNodeIndex: mutation.insertedNodeIndex,
-                changed: false,
+                changed,
                 t: mutation.t
             };
-        }
-
-        this.data.nodes = mutation.nodes;
-        this._nodeWrappers = null;
-
-        recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
-        return {
-            insertedNodeIndex: mutation.insertedNodeIndex,
-            changed,
-            t: mutation.t
-        };
+        });
     }
 
     _slideSmoothOnCurveAtT(
         nodeIndex: number,
         t: number
     ): { insertedNodeIndex: number; changed: boolean; t: number } | null {
-        const nodeArray = this.ensureNodesArray();
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        const mutation = buildSmoothPointSlideMutationAtT(
-            nodeArray,
-            nodeIndex,
-            t,
-            this.closed
-        );
+        return this.withLayerFingerprintChangeEvent(() => {
+            const nodeArray = this.ensureNodesArray();
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            const mutation = buildSmoothPointSlideMutationAtT(
+                nodeArray,
+                nodeIndex,
+                t,
+                this.closed
+            );
 
-        if (!mutation) {
-            return null;
-        }
+            if (!mutation) {
+                return null;
+            }
 
-        const changed =
-            JSON.stringify(oldNodes) !== JSON.stringify(mutation.nodes);
+            const changed =
+                JSON.stringify(oldNodes) !== JSON.stringify(mutation.nodes);
 
-        if (!changed) {
+            if (!changed) {
+                return {
+                    insertedNodeIndex: mutation.insertedNodeIndex,
+                    changed: false,
+                    t: mutation.t
+                };
+            }
+
+            this.data.nodes = mutation.nodes;
+            this._nodeWrappers = null;
+
+            recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
             return {
                 insertedNodeIndex: mutation.insertedNodeIndex,
-                changed: false,
+                changed,
                 t: mutation.t
             };
-        }
-
-        this.data.nodes = mutation.nodes;
-        this._nodeWrappers = null;
-
-        recordAndMarkDirty(this, 'nodes', oldNodes, mutation.nodes);
-        return {
-            insertedNodeIndex: mutation.insertedNodeIndex,
-            changed,
-            t: mutation.t
-        };
+        });
     }
 
     /**
@@ -4010,83 +4098,89 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      * @returns true if deletion was successful, false otherwise
      */
     _deleteNode(nodeIndex: number): boolean {
-        const nodeArray = this.ensureNodesArray();
-        if (nodeIndex < 0 || nodeIndex >= nodeArray.length) {
-            return false;
-        }
+        return this.withLayerFingerprintChangeEvent(() => {
+            const nodeArray = this.ensureNodesArray();
+            if (nodeIndex < 0 || nodeIndex >= nodeArray.length) {
+                return false;
+            }
 
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
 
-        const mergedNodes = deleteNodeFromNodeArray(
-            nodeArray,
-            nodeIndex,
-            this.closed
-        );
+            const mergedNodes = deleteNodeFromNodeArray(
+                nodeArray,
+                nodeIndex,
+                this.closed
+            );
 
-        if (!mergedNodes) {
-            return false;
-        }
+            if (!mergedNodes) {
+                return false;
+            }
 
-        this.data.nodes = mergedNodes;
-        this._nodeWrappers = null;
-        recordAndMarkDirty(this, 'nodes', oldNodes, mergedNodes);
-        return true;
+            this.data.nodes = mergedNodes;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, mergedNodes);
+            return true;
+        });
     }
 
     _deleteNodes(nodeIndices: number[]): boolean {
-        const nodeArray = this.ensureNodesArray();
-        const validNodeIndices = [...new Set(nodeIndices)]
-            .filter(
-                (nodeIndex) =>
-                    Number.isInteger(nodeIndex) &&
-                    nodeIndex >= 0 &&
-                    nodeIndex < nodeArray.length
-            )
-            .sort((left, right) => right - left);
+        return this.withLayerFingerprintChangeEvent(() => {
+            const nodeArray = this.ensureNodesArray();
+            const validNodeIndices = [...new Set(nodeIndices)]
+                .filter(
+                    (nodeIndex) =>
+                        Number.isInteger(nodeIndex) &&
+                        nodeIndex >= 0 &&
+                        nodeIndex < nodeArray.length
+                )
+                .sort((left, right) => right - left);
 
-        if (!validNodeIndices.length) {
-            return false;
-        }
+            if (!validNodeIndices.length) {
+                return false;
+            }
 
-        const oldNodes = nodeArray.map((node) => cloneNodeData(node));
-        let trackedNodes: BatchTrackedNode[] = nodeArray.map((node, index) => ({
-            ...cloneNodeData(node),
-            __batchDeleteOrigins: [index]
-        }));
-        let changed = false;
-
-        for (const originalIndex of validNodeIndices) {
-            const currentIndex = trackedNodes.findIndex((node) =>
-                node.__batchDeleteOrigins?.includes(originalIndex)
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            let trackedNodes: BatchTrackedNode[] = nodeArray.map(
+                (node, index) => ({
+                    ...cloneNodeData(node),
+                    __batchDeleteOrigins: [index]
+                })
             );
+            let changed = false;
 
-            if (currentIndex === -1) {
-                continue;
+            for (const originalIndex of validNodeIndices) {
+                const currentIndex = trackedNodes.findIndex((node) =>
+                    node.__batchDeleteOrigins?.includes(originalIndex)
+                );
+
+                if (currentIndex === -1) {
+                    continue;
+                }
+
+                const nextNodes = deleteNodeFromNodeArray(
+                    trackedNodes,
+                    currentIndex,
+                    this.closed
+                ) as BatchTrackedNode[] | null;
+
+                if (!nextNodes) {
+                    continue;
+                }
+
+                trackedNodes = nextNodes;
+                changed = true;
             }
 
-            const nextNodes = deleteNodeFromNodeArray(
-                trackedNodes,
-                currentIndex,
-                this.closed
-            ) as BatchTrackedNode[] | null;
-
-            if (!nextNodes) {
-                continue;
+            if (!changed) {
+                return false;
             }
 
-            trackedNodes = nextNodes;
-            changed = true;
-        }
-
-        if (!changed) {
-            return false;
-        }
-
-        const mergedNodes = stripBatchDeleteTracking(trackedNodes);
-        this.data.nodes = mergedNodes;
-        this._nodeWrappers = null;
-        recordAndMarkDirty(this, 'nodes', oldNodes, mergedNodes);
-        return true;
+            const mergedNodes = stripBatchDeleteTracking(trackedNodes);
+            this.data.nodes = mergedNodes;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, mergedNodes);
+            return true;
+        });
     }
 
     toString(): string {
@@ -4693,6 +4787,13 @@ export class Layer extends ArrayElementBase {
     private _shapeWrappers: Shape[] | null = null;
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
+
+    private withFingerprintChangeEvent<T>(fn: () => T): T {
+        const previousFingerprint = this.fingerprint;
+        const result = fn();
+        dispatchLayerFingerprintChanged(this, previousFingerprint);
+        return result;
+    }
 
     private static normalizeSignatureNodeType(
         nodeType: string | undefined
@@ -5913,14 +6014,16 @@ export class Layer extends ArrayElementBase {
      * Add a new shape to the layer
      */
     addShape(shape: Babelfont.Shape): Shape {
-        if (!this.data.shapes) {
-            this.data.shapes = [];
-        }
-        this.data.shapes.push(shape);
-        this._shapeWrappers = null; // Invalidate cache
-        const index = this.data.shapes.length - 1;
-        recordAddAndMarkDirty([...this.getPath(), 'shapes', index], shape);
-        return new Shape(this.data.shapes, index, this);
+        return this.withFingerprintChangeEvent(() => {
+            if (!this.data.shapes) {
+                this.data.shapes = [];
+            }
+            this.data.shapes.push(shape);
+            this._shapeWrappers = null; // Invalidate cache
+            const index = this.data.shapes.length - 1;
+            recordAddAndMarkDirty([...this.getPath(), 'shapes', index], shape);
+            return new Shape(this.data.shapes, index, this);
+        });
     }
 
     /**
@@ -6022,26 +6125,28 @@ export class Layer extends ArrayElementBase {
      * Remove a shape at the specified index
      */
     removeShape(shapeOrIndex: number | Shape | Path | Component): void {
-        if (!this.data.shapes) {
-            return;
-        }
+        this.withFingerprintChangeEvent(() => {
+            if (!this.data.shapes) {
+                return;
+            }
 
-        const index = this.resolveShapeIndex(shapeOrIndex);
-        if (index === null) {
-            return;
-        }
+            const index = this.resolveShapeIndex(shapeOrIndex);
+            if (index === null) {
+                return;
+            }
 
-        const removedShape = this.data.shapes[index];
-        if (removedShape === undefined) {
-            return;
-        }
+            const removedShape = this.data.shapes[index];
+            if (removedShape === undefined) {
+                return;
+            }
 
-        this.data.shapes.splice(index, 1);
-        this._shapeWrappers = null; // Invalidate cache
-        recordRemoveAndMarkDirty(
-            [...this.getPath(), 'shapes', index],
-            removedShape
-        );
+            this.data.shapes.splice(index, 1);
+            this._shapeWrappers = null; // Invalidate cache
+            recordRemoveAndMarkDirty(
+                [...this.getPath(), 'shapes', index],
+                removedShape
+            );
+        });
     }
 
     /**
