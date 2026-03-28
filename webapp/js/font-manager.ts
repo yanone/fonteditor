@@ -1516,6 +1516,11 @@ class FontManager {
     async recompileEditingFont(): Promise<boolean> {
         if (!this.currentFont) return false;
 
+        // Multi-layer structural edits can enqueue an explicit worker cache
+        // refresh before requesting recompilation. Wait for that refresh so the
+        // editing-font compile never races against stale Rust cache contents.
+        await this.awaitWorkerCacheUpdate();
+
         // Capture change version at start of compilation
         const startChangeVersion = this.currentFont.changeVersion;
         const startCompileRequestVersion =
@@ -2308,20 +2313,32 @@ class FontManager {
         if (!this.currentFont || !fontCompilation?.isInitialized) {
             return;
         }
-        // Clear incremental-drag flag so updateWorkerFontCache takes the full path.
-        this.pendingBabelfontJsonSyncAfterDrag = false;
-        // Invalidate the "already stored" sentinel so fontCompilation doesn't skip the send.
-        fontCompilation.lastStoredFontJson = null;
+
+        const cacheUpdatePromise = (async () => {
+            // Clear incremental-drag flag so updateWorkerFontCache takes the full path.
+            this.pendingBabelfontJsonSyncAfterDrag = false;
+            // Invalidate the "already stored" sentinel so fontCompilation doesn't skip the send.
+            fontCompilation.lastStoredFontJson = null;
+            try {
+                await fontCompilation.sendMessage({
+                    type: 'storeFontJson',
+                    babelfontJson: this.currentFont!.babelfontJson
+                });
+            } catch (error) {
+                console.error(
+                    '[FontManager] forceFullWorkerCacheUpdate: error sending storeFontJson:',
+                    error
+                );
+            }
+        })();
+
+        this.workerCacheUpdatePromise = cacheUpdatePromise;
         try {
-            await fontCompilation.sendMessage({
-                type: 'storeFontJson',
-                babelfontJson: this.currentFont.babelfontJson
-            });
-        } catch (error) {
-            console.error(
-                '[FontManager] forceFullWorkerCacheUpdate: error sending storeFontJson:',
-                error
-            );
+            await cacheUpdatePromise;
+        } finally {
+            if (this.workerCacheUpdatePromise === cacheUpdatePromise) {
+                this.workerCacheUpdatePromise = null;
+            }
         }
     }
 

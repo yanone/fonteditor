@@ -7302,6 +7302,8 @@ export class OutlineEditor {
                     error
                 );
             }
+            fontManager.lastChangeSource = 'close-open-path';
+            fontManager.lastEditType = null;
             void fontManager.forceFullWorkerCacheUpdate();
         }
 
@@ -7320,7 +7322,7 @@ export class OutlineEditor {
         this.syncCurrentExactLayerDataFromModel();
 
         if (currentFont) {
-            currentFont.markDirty('keyboard-outline');
+            currentFont.markDirty('close-open-path');
             void fontManager.updateDirtyIndicator();
         }
 

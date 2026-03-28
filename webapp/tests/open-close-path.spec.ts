@@ -255,10 +255,11 @@ function makeTestFont(): string {
 async function loadTestFont(page: Page) {
     const fontJson = makeTestFont();
     await page.evaluate((json) => {
-        // Set the text buffer to 'A' so the editing subset includes our glyph
-        localStorage.setItem('glyphCanvasTextBuffer', 'A');
+        // Keep two shaped copies visible so we can detect HarfBuzz rendering
+        // disappearing on the non-edited instance during close-by-drag.
+        localStorage.setItem('glyphCanvasTextBuffer', 'AA');
         if ((window as any).glyphCanvas?.textRunEditor) {
-            (window as any).glyphCanvas.textRunEditor.setTextBuffer('A');
+            (window as any).glyphCanvas.textRunEditor.setTextBuffer('AA');
         }
         const plugin = (window as any).pluginRegistry.get('memory');
         window.dispatchEvent(
@@ -303,14 +304,13 @@ async function waitForEditingFontCompiled(page: Page) {
 async function navigateToGlyphA(page: Page) {
     await page.evaluate(async () => {
         const gc = (window as any).glyphCanvas;
-        gc.textRunEditor.setTextBuffer('A');
+        gc.textRunEditor.setTextBuffer('AA');
         await gc.textRunEditor.selectGlyphByIndex(0, true);
+        gc.resetZoomAndPosition();
+        gc.render();
     });
     // Wait for rendering and editor to settle
     await page.waitForTimeout(500);
-    // Reset zoom so the glyph fills the canvas predictably
-    await page.keyboard.press('Meta+0');
-    await page.waitForTimeout(400);
 }
 
 /** Select the first matching master layer for editing */
@@ -424,6 +424,71 @@ async function hasRendering(page: Page): Promise<boolean> {
         }
         return false;
     });
+}
+
+async function hasRenderedTextGlyphAtIndex(
+    page: Page,
+    glyphIndex: number
+): Promise<boolean> {
+    return page.evaluate((index) => {
+        const gc = (window as any).glyphCanvas;
+        const canvas = gc?.canvas as HTMLCanvasElement | undefined;
+        if (!canvas) {
+            return false;
+        }
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const vm = gc?.viewportManager;
+        const glyphBounds = gc?.glyphBounds;
+        if (!ctx || !vm || !Array.isArray(glyphBounds)) {
+            return false;
+        }
+
+        const bounds = glyphBounds[index];
+        if (!bounds) {
+            return false;
+        }
+
+        const pad = 20;
+        const topLeft = vm.fontToScreenCoordinates(
+            bounds.x + bounds.x1 - pad,
+            bounds.y + bounds.y2 + pad
+        );
+        const bottomRight = vm.fontToScreenCoordinates(
+            bounds.x + bounds.x2 + pad,
+            bounds.y + bounds.y1 - pad
+        );
+
+        const left = Math.max(
+            0,
+            Math.floor(Math.min(topLeft.x, bottomRight.x))
+        );
+        const right = Math.min(
+            canvas.width,
+            Math.ceil(Math.max(topLeft.x, bottomRight.x))
+        );
+        const top = Math.max(0, Math.floor(Math.min(topLeft.y, bottomRight.y)));
+        const bottom = Math.min(
+            canvas.height,
+            Math.ceil(Math.max(topLeft.y, bottomRight.y))
+        );
+
+        if (right <= left || bottom <= top) {
+            return false;
+        }
+
+        const data = ctx.getImageData(
+            left,
+            top,
+            right - left,
+            bottom - top
+        ).data;
+        for (let i = 3; i < data.length; i += 4) {
+            if (data[i] > 0) {
+                return true;
+            }
+        }
+        return false;
+    }, glyphIndex);
 }
 
 /** Perform undo via keyboard shortcut and wait for it to settle */
@@ -677,6 +742,7 @@ test.describe('Open/Close Path across linked masters', () => {
         await waitForCompilation(page);
         const afterDragCompat = await getCompatibility(page);
         expect(afterDragCompat.compatible).toBe(true);
+        expect(await hasRenderedTextGlyphAtIndex(page, 1)).toBe(true);
 
         // ---------------------------------------------------------------
         // 4. Drag the moved node back onto node 0 to close the path.
@@ -741,6 +807,7 @@ test.describe('Open/Close Path across linked masters', () => {
         // Compatibility check
         const afterCloseCompat = await getCompatibility(page);
         expect(afterCloseCompat.compatible).toBe(true);
+        expect(await hasRenderedTextGlyphAtIndex(page, 1)).toBe(true);
 
         // CRITICAL: Verify the rendering has not disappeared
         // Give extra time for compilation/rendering pipeline
