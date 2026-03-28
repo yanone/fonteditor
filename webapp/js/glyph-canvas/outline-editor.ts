@@ -5660,8 +5660,7 @@ export class OutlineEditor {
     }
 
     private handleAltCurveConversionGesture(e: MouseEvent): boolean {
-        const isAltClick =
-            e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey;
+        const isAltClick = e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey;
         if (!isAltClick || !this.isNeutralCommandCanvasTarget()) {
             return false;
         }
