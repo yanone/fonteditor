@@ -2078,6 +2078,31 @@ describe('Babelfont Object Model', () => {
             expectNodesToMatch(collapsedPath.nodes, mergedPath.nodes);
         });
 
+        test('Path._closeOpenPathByMerge should close an open contour by removing the duplicated endpoint', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 100, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 100, nodetype: 'Line' },
+                    { x: 0, y: 100, nodetype: 'Line' },
+                    { x: 0, y: 0, nodetype: 'Line' }
+                ],
+                false
+            );
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            expect(path._closeOpenPathByMerge()).toBe(true);
+            expect(path.closed).toBe(true);
+            expect(path.nodes).toHaveLength(4);
+            expect(path.nodes[0].nodetype).toBe('Line');
+            expect(path.nodes.map((node) => [node.x, node.y])).toEqual([
+                [0, 0],
+                [100, 0],
+                [100, 100],
+                [0, 100]
+            ]);
+        });
+
         test('Path._deleteNode should set both adjacent on-curve points to smooth=false when deleting a handle into a line', () => {
             const testFont = makeFontWithSinglePath(
                 [

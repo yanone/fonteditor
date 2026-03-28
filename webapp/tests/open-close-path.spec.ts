@@ -436,19 +436,65 @@ async function performUndo(page: Page) {
 async function waitForCompilation(page: Page) {
     await page.waitForTimeout(300);
 
-    // Wait until the font manager is no longer compiling
+    // Wait for one successful editing-font compile notification when possible.
+    // Structural edits can leave `needsRecompile` flipping while background
+    // cache refreshes and compile chaining continue, so this helper must not
+    // block the entire test on full quiescence.
     try {
         await page.waitForFunction(
             () => {
                 const fm = (window as any).fontManager;
-                return fm?.currentFont && !fm.currentFont.needsRecompile;
+                const autoCompileStatus =
+                    (window as any).autoCompileManager?.getStatus?.() || null;
+                if (!fm?.currentFont) {
+                    return false;
+                }
+
+                if (!fm.currentFont.needsRecompile) {
+                    return true;
+                }
+
+                return !!fm.editingFont && !autoCompileStatus?.isCompiling;
             },
-            { timeout: 10000 }
+            { timeout: 5000 }
         );
     } catch {
-        // If compilation status doesn't settle, proceed anyway
+        // If compilation status does not fully settle, continue after a
+        // bounded delay; the test asserts the actual outline/rendering state.
     }
+
+    await page.evaluate(async () => {
+        await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+        );
+        await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+        );
+    });
     await page.waitForTimeout(300);
+}
+
+async function waitForOutlineState(
+    page: Page,
+    expected: { closed: boolean; nodeCount: number },
+    timeout = 5000
+) {
+    await page.waitForFunction(
+        ({ closed, nodeCount }) => {
+            const oe = (window as any).glyphCanvas?.outlineEditor;
+            const layerData = oe?.getCurrentLayerDataFromStack?.();
+            const shape = layerData?.shapes?.[0];
+            const contour = shape?.Path ? shape.Path : shape;
+            const nodes = contour?.nodes;
+            if (!contour || !Array.isArray(nodes)) {
+                return false;
+            }
+
+            return contour.closed === closed && nodes.length === nodeCount;
+        },
+        expected,
+        { timeout }
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +730,7 @@ test.describe('Open/Close Path across linked masters', () => {
         await page.mouse.up();
         await page.waitForTimeout(500);
         await waitForCompilation(page);
+        await waitForOutlineState(page, { closed: true, nodeCount: 4 });
 
         // After close, the path should be closed with 4 nodes again
         const afterCloseOutline = await getActiveLayerOutlineState(page);

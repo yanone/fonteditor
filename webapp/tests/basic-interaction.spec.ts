@@ -558,18 +558,34 @@ test.describe('Font Editor Basic Workflow', () => {
 
             await target.click();
 
-            // Wait until layer switch animation is complete and selection settled
+            // Wait until layer switch animation, axis animation, and selection settle.
+            // The JSON snapshot does not include viewport pan/zoom, so taking the
+            // screenshot before the layer-driven variation animation finishes can
+            // produce a visually shifted but state-identical canvas.
             await page.waitForFunction((expectedLayerId) => {
                 const selected = document.querySelector(
                     '.editor-layers-list .editor-layer-item.selected[data-layer-id]'
                 );
                 const selectedLayerId = selected?.getAttribute('data-layer-id');
                 const glyphCanvas = (window as any).glyphCanvas;
-                const isAnimating =
+                const isLayerAnimating =
                     !!glyphCanvas?.outlineEditor?.isLayerSwitchAnimating;
-                return !isAnimating && selectedLayerId === expectedLayerId;
+                const isAxisAnimating = !!glyphCanvas?.axesManager?.isAnimating;
+                return (
+                    !isLayerAnimating &&
+                    !isAxisAnimating &&
+                    selectedLayerId === expectedLayerId
+                );
             }, targetLayerId);
 
+            await page.evaluate(async () => {
+                await new Promise<void>((resolve) =>
+                    requestAnimationFrame(() => resolve())
+                );
+                await new Promise<void>((resolve) =>
+                    requestAnimationFrame(() => resolve())
+                );
+            });
             await page.waitForTimeout(300);
 
             console.log(

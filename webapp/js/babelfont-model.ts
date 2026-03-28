@@ -3736,7 +3736,7 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      */
     _closeOpenPathByMerge(): boolean {
         return this.withLayerFingerprintChangeEvent(() => {
-            if (!this.closed) {
+            if (this.closed) {
                 return false;
             }
 
