@@ -3261,8 +3261,13 @@ export class OutlineEditor {
             return;
         }
 
-        if (e.altKey && this.hoveredAddPointPreview) {
+        const isCmdClick = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+        if (isCmdClick && this.hoveredAddPointPreview) {
             void this.commitHoveredAddPointPreview();
+            return;
+        }
+
+        if (this.handleAltCurveConversionGesture(e)) {
             return;
         }
 
@@ -4733,7 +4738,7 @@ export class OutlineEditor {
 
     cursorStyle(): string | null {
         if (!this.active) return null;
-        if (this.altKeyPressed && this.hoveredAddPointPreview) {
+        if (this.cmdKeyPressed && this.hoveredAddPointPreview) {
             this.canvas!.style.cursor = 'crosshair';
             return null;
         }
@@ -5317,7 +5322,7 @@ export class OutlineEditor {
             return;
         }
 
-        if (!this.altKeyPressed) {
+        if (!this.cmdKeyPressed || this.altKeyPressed) {
             this.clearHoveredAddPointPreview();
             return;
         }
@@ -5421,8 +5426,8 @@ export class OutlineEditor {
             !this.layerData ||
             this.layerData.isInterpolated ||
             !this.selectedLayerId ||
-            !this.cmdKeyPressed ||
-            this.altKeyPressed ||
+            !this.altKeyPressed ||
+            this.cmdKeyPressed ||
             this.activePathDrawingSession
         ) {
             this.clearHoveredCommandCurvePreview();
@@ -5454,7 +5459,7 @@ export class OutlineEditor {
 
         this.cmdKeyPressed = pressed;
         if (!pressed) {
-            this.hoveredCommandCurvePreview = null;
+            this.hoveredAddPointPreview = null;
             this.finalizePendingCommandPathEdit();
         }
 
@@ -5480,7 +5485,8 @@ export class OutlineEditor {
             this._rebuildSnapCandidateCache();
         }
         if (!pressed) {
-            this.hoveredAddPointPreview = null;
+            this.hoveredCommandCurvePreview = null;
+            this.finalizePendingCommandPathEdit();
         }
 
         if (this.active && this.layerData && !this.isPreviewMode) {
@@ -5650,12 +5656,24 @@ export class OutlineEditor {
             return false;
         }
 
-        const segmentHit = this.findClosestPathSegmentHit();
-        if (segmentHit?.descriptor.type === 'line') {
-            return this.convertLineSegmentToCurve(segmentHit);
+        return this.beginCommandPathDrawing();
+    }
+
+    private handleAltCurveConversionGesture(e: MouseEvent): boolean {
+        const isAltClick =
+            e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey;
+        if (!isAltClick || !this.isNeutralCommandCanvasTarget()) {
+            return false;
         }
 
-        return this.beginCommandPathDrawing();
+        this.altKeyPressed = true;
+
+        const segmentHit = this.findClosestPathSegmentHit();
+        if (segmentHit?.descriptor.type !== 'line') {
+            return false;
+        }
+
+        return this.convertLineSegmentToCurve(segmentHit);
     }
 
     private isNeutralCommandCanvasTarget(): boolean {
@@ -7008,7 +7026,7 @@ export class OutlineEditor {
                     currentFont.syncJsonFromModel();
                 } catch (error) {
                     console.error(
-                        '[OutlineEditor] Error syncing font JSON after cmd path edit:',
+                        '[OutlineEditor] Error syncing font JSON after modifier path edit:',
                         error
                     );
                     return;

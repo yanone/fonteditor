@@ -30,6 +30,11 @@ When working with Python, these shortcuts streamline common operations:
 - Hold `Tab` to show the measurement overlay immediately in Editor text mode
 - Hold `Tab` to show the measurement tool immediately in outline editing mode, then click and drag to define a custom measurement line
 
+## Editor Outline Actions
+
+- `Cmd/Ctrl + Click` on a segment adds a point to that segment
+- `Alt + Click` on a straight segment converts it into a curve
+
 ## Notes for Beginners
 
 Keep in mind that some shortcuts may only be available when certain views are active or have focus. Additionally, keyboard conventions differ between platforms: macOS uses `Cmd` while Windows and Linux use `Ctrl`. The measurement overlay uses the dedicated `Tab` key rather than `Cmd/Ctrl`.

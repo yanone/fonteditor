@@ -3794,7 +3794,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         }
     });
 
-    test('cmd-click converts a line segment into a curve across linked layers and defers history until key release', async () => {
+    test('alt-click converts a line segment into a curve across linked layers and defers history until key release', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -3933,15 +3933,15 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 clientY: 0,
                 detail: 1,
                 shiftKey: false,
-                altKey: false,
-                metaKey: true,
+                altKey: true,
+                metaKey: false,
                 ctrlKey: false
             });
 
             expect(bridge.beginTransaction).not.toHaveBeenCalled();
             expect(bridge.syncGlyphFromJson).not.toHaveBeenCalled();
 
-            canvas.outlineEditor.setCommandKeyPressed(false);
+            canvas.outlineEditor.setAltKeyPressed(false);
             await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(linkedLayersSpy).toHaveBeenCalled();
@@ -3985,7 +3985,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         }
     });
 
-    test('closed path origin-return segment is hittable for double-click selection and cmd-click conversion', async () => {
+    test('closed path origin-return segment is hittable for double-click selection and alt-click conversion', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -4143,11 +4143,11 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 clientY: 0,
                 detail: 1,
                 shiftKey: false,
-                altKey: false,
-                metaKey: true,
+                altKey: true,
+                metaKey: false,
                 ctrlKey: false
             });
-            canvas.outlineEditor.setCommandKeyPressed(false);
+            canvas.outlineEditor.setAltKeyPressed(false);
             await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(linkedLayersSpy).toHaveBeenCalled();
@@ -4172,7 +4172,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         }
     });
 
-    test('alt-click add point rounds all resulting split nodes to grid in active and linked layers', async () => {
+    test('cmd-click add point rounds all resulting split nodes to grid in active and linked layers', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -4322,8 +4322,8 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 clientY: 0,
                 detail: 1,
                 shiftKey: false,
-                altKey: true,
-                metaKey: false,
+                altKey: false,
+                metaKey: true,
                 ctrlKey: false
             });
 
@@ -4413,14 +4413,14 @@ describe('GlyphCanvas command path drawing visuals', () => {
         expect(canvas.outlineEditor.getCommandPathPreviewLine()).toBeNull();
     });
 
-    test('cmd hover on a straight segment previews collinear curve handles', () => {
+    test('alt hover on a straight segment previews collinear curve handles', () => {
         canvas.viewportManager.scale = 10;
         jest.spyOn(
             canvas.outlineEditor,
             'transformMouseToComponentSpace'
         ).mockReturnValue({ glyphX: 55, glyphY: 30 });
 
-        canvas.outlineEditor.setCommandKeyPressed(true);
+        canvas.outlineEditor.setAltKeyPressed(true);
 
         expect(canvas.outlineEditor.hoveredCommandCurvePreview).toEqual({
             shapeIndex: 0,
@@ -4439,13 +4439,13 @@ describe('GlyphCanvas command path drawing visuals', () => {
             ]
         });
 
-        canvas.outlineEditor.setCommandKeyPressed(false);
+        canvas.outlineEditor.setAltKeyPressed(false);
 
         expect(canvas.outlineEditor.hoveredCommandCurvePreview).toBeNull();
     });
 
-    test('alt point-insert hover uses a crosshair cursor', () => {
-        canvas.outlineEditor.altKeyPressed = true;
+    test('cmd point-insert hover uses a crosshair cursor', () => {
+        canvas.outlineEditor.setCommandKeyPressed(true);
         canvas.outlineEditor.hoveredAddPointPreview = {
             shapeIndex: 0,
             pathIndex: 0,
@@ -4473,6 +4473,8 @@ describe('GlyphCanvas command path drawing visuals', () => {
         canvas.updateCursorStyle();
 
         expect(canvas.canvas.style.cursor).toBe('crosshair');
+
+        canvas.outlineEditor.setCommandKeyPressed(false);
     });
 
     test('drawOutlineEditor does not force-close open contours', () => {
