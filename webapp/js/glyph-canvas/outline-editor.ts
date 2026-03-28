@@ -4625,6 +4625,22 @@ export class OutlineEditor {
                               )
                             : undefined;
                 }
+                const normalizeDragDesc = (
+                    value: string | null | undefined
+                ): string | null => {
+                    if (!value) {
+                        return null;
+                    }
+                    const colonIndex = value.indexOf(': ');
+                    if (colonIndex >= 0) {
+                        return value.slice(colonIndex + 2);
+                    }
+                    return value;
+                };
+                const isNoOpDragByDescription =
+                    normalizeDragDesc(preDragDesc) !== null &&
+                    normalizeDragDesc(preDragDesc) ===
+                        normalizeDragDesc(postDragDesc);
                 const label =
                     dragType === 'anchor'
                         ? 'Drag anchor'
@@ -4642,7 +4658,11 @@ export class OutlineEditor {
                                         this.selectedSidebearingHandle.side
                                     )
                                   : 'Drag';
-                if (dragType === 'slide-point') {
+                if (isNoOpDragByDescription) {
+                    // A drag moved during interaction but returned to the same
+                    // effective value (e.g. point dragged out and back). Skip
+                    // Yjs/history sync to avoid no-op history entries.
+                } else if (dragType === 'slide-point') {
                     const currentGlyphModel = this.getCurrentGlyphModel();
                     if (window.changeBridge && currentGlyphModel?.name) {
                         window.changeBridge.syncGlyphFromJson(

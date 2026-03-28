@@ -343,11 +343,112 @@ describe('GlyphCanvas onMouseUp', () => {
 
             canvas.outlineEditor.onMouseUp({ clientX: 10, clientY: 20 });
 
-            expect(syncSpy).toHaveBeenCalledWith(
-                'Set LSB',
-                'LEFT 40',
-                'LEFT 40'
+            expect(syncSpy).not.toHaveBeenCalled();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+        }
+    });
+
+    test('point drag that returns to original position does not sync to YDoc', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const syncSpy = jest.spyOn(
+            canvas.outlineEditor,
+            '_syncCurrentGlyphToYDoc'
+        );
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.layerData = {
+                id: 'layer-1',
+                width: 520,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 80, y: 180, nodetype: 'Line', smooth: false },
+                            { x: 105, y: 282, nodetype: 'Line', smooth: false },
+                            { x: 160, y: 210, nodetype: 'Line', smooth: false }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            };
+            canvas.outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 1
+            };
+
+            const pointerSpy = jest
+                .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+                .mockImplementationOnce(() => ({ glyphX: 105, glyphY: 282 }))
+                .mockImplementationOnce(() => ({ glyphX: 120, glyphY: 300 }))
+                .mockImplementationOnce(() => ({ glyphX: 105, glyphY: 282 }));
+
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            canvas.outlineEditor.onMouseMove({
+                clientX: 11,
+                clientY: 21,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.onMouseMove({
+                clientX: 12,
+                clientY: 22,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.onMouseMove({
+                clientX: 13,
+                clientY: 23,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+
+            expect(window.changeBridge.beginTransaction).toHaveBeenCalledWith(
+                'Drag point'
             );
+            expect(syncSpy).not.toHaveBeenCalled();
+            expect(
+                window.changeBridge.syncGlyphFromJson
+            ).not.toHaveBeenCalled();
+            expect(window.changeBridge.endTransaction).toHaveBeenCalled();
+
+            pointerSpy.mockRestore();
         } finally {
             window.changeBridge = originalWindowChangeBridge;
             fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;

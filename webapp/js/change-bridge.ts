@@ -1257,14 +1257,20 @@ export class ChangeBridge {
             return;
         }
 
-        const scopeInfo = this._deriveBufferedScope(normalizedOperations);
+        const effectiveOperations =
+            this._reduceToNetChangingOperations(normalizedOperations);
+        if (!effectiveOperations.length) {
+            return;
+        }
+
+        const scopeInfo = this._deriveBufferedScope(effectiveOperations);
         this._prepareBatchUndoManagers(scopeInfo);
 
         const nextHistoryItemId =
             historyItemId ?? this._getCurrentHistoryItemId();
         const timestamp = Date.now();
 
-        for (const operation of normalizedOperations) {
+        for (const operation of effectiveOperations) {
             const operationHistoryTarget =
                 historyTarget ?? this._deriveHistoryTarget(operation.path);
             const entry = createLogEntry({
@@ -1291,7 +1297,7 @@ export class ChangeBridge {
         }
 
         this.yDoc.transact(() => {
-            for (const operation of normalizedOperations) {
+            for (const operation of effectiveOperations) {
                 this._applyBufferedOperation(operation);
             }
         }, scopeInfo.origin);
@@ -1299,11 +1305,71 @@ export class ChangeBridge {
         this._finishBatchUndoManagers(scopeInfo);
         this._onDirty?.();
 
-        if (normalizedOperations.length === 1) {
+        if (effectiveOperations.length === 1) {
             console.log(
-                `[ChangeBridge] Change recorded: ${normalizedOperations[0].path.join('.')}`
+                `[ChangeBridge] Change recorded: ${effectiveOperations[0].path.join('.')}`
             );
         }
+    }
+
+    private _reduceToNetChangingOperations(
+        operations: BufferedChangeOperation[]
+    ): BufferedChangeOperation[] {
+        const byApplyPath = new Map<
+            string,
+            {
+                originalValue: unknown;
+                finalValue: unknown;
+            }
+        >();
+
+        operations.forEach((operation) => {
+            const applyPath = this._toYDocPath(
+                operation.applyPath ?? operation.path
+            );
+            const pathKey = JSON.stringify(applyPath);
+            const existing = byApplyPath.get(pathKey);
+            const finalValue =
+                operation.op === 'remove'
+                    ? undefined
+                    : cloneHistoryValue(
+                          operation.applyNewValue === undefined
+                              ? operation.newValue
+                              : operation.applyNewValue
+                      );
+
+            if (!existing) {
+                byApplyPath.set(pathKey, {
+                    finalValue,
+                    originalValue: cloneHistoryValue(
+                        getYPath(this.fontMap, applyPath)
+                    )
+                });
+                return;
+            }
+
+            existing.finalValue = finalValue;
+        });
+
+        const noOpPathKeys = new Set(
+            Array.from(byApplyPath.entries())
+                .filter(([, entry]) =>
+                    this._isDeepEqual(entry.originalValue, entry.finalValue)
+                )
+                .map(([pathKey]) => pathKey)
+        );
+
+        if (!noOpPathKeys.size) {
+            return operations;
+        }
+
+        return operations.filter((operation) => {
+            const applyPath = this._toYDocPath(
+                operation.applyPath ?? operation.path
+            );
+            const pathKey = JSON.stringify(applyPath);
+            return !noOpPathKeys.has(pathKey);
+        });
     }
 
     private _applyBufferedOperation(operation: BufferedChangeOperation): void {

@@ -1573,6 +1573,66 @@ describe('Transactions', () => {
         expect(log[0].transactionId).not.toBeNull();
     });
 
+    test('net no-op point drag transaction does not emit history or Yjs changes', () => {
+        const { bridge } = createTestBridge('test-noop-drag');
+
+        bridge.beginTransaction('Drag point');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
+            'x',
+            100,
+            120
+        );
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
+            'y',
+            0,
+            15
+        );
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
+            'x',
+            120,
+            100
+        );
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1', 'shapes', 0, 'nodes', 0],
+            'y',
+            15,
+            0
+        );
+        bridge.endTransaction();
+
+        expect(bridge.getChangeLog()).toHaveLength(0);
+        expect(bridge.canUndo('A', 'layer-1')).toBe(false);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(100);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'y'
+            ])
+        ).toBe(0);
+    });
+
     test('buffered layer transaction undoes as one layer history item', () => {
         const { bridge } = createTestBridge('test-1');
 
@@ -1954,6 +2014,65 @@ describe('Model mutable getter change recording', () => {
                 ])
             )
         ).toBe('lookupflag 0;');
+    });
+
+    test('no-op OpenType prefix code edit does not emit history', () => {
+        const { bridge, font } = createTestBridge('feature-prefix-noop');
+
+        font.features.prefixes.global.code = 'lookupflag 0;';
+
+        expect(bridge.getChangeLog()).toHaveLength(0);
+        expect(
+            normalizeYValue(
+                getYPath(bridge.fontMap, [
+                    'features',
+                    'prefixes',
+                    'global',
+                    'code'
+                ])
+            )
+        ).toBe('lookupflag 0;');
+    });
+
+    test('no-op OpenType feature code edit does not emit history', () => {
+        const { bridge, font } = createTestBridge('feature-code-noop');
+
+        font.features.features[0][1].code = 'sub f i by fi;';
+
+        expect(bridge.getChangeLog()).toHaveLength(0);
+        expect(
+            normalizeYValue(
+                getYPath(bridge.fontMap, [
+                    'features',
+                    'features',
+                    0,
+                    1,
+                    'code'
+                ])
+            )
+        ).toBe('sub f i by fi;');
+    });
+
+    test('mixed non-outline transaction keeps only net-changing edits', () => {
+        const { bridge, font } = createTestBridge('mixed-noop-transaction');
+
+        bridge.beginTransaction('Mixed non-outline edit');
+        try {
+            font.note = '';
+            font.features.prefixes.global.code = 'lookupflag 0;';
+            font.features.features[0][1].code = 'sub f i by fi;';
+            font.glyphs[0].layers[0].width = 610;
+        } finally {
+            bridge.endTransaction();
+        }
+
+        const log = bridge.getChangeLog();
+
+        expect(log).toHaveLength(1);
+        expect(log[0].transactionLabel).toBe('Mixed non-outline edit');
+        expect(log[0].path).toBe('glyphs.A.layers.layer-1.width');
+        expect(log[0].oldValue).toBe(600);
+        expect(log[0].newValue).toBe(610);
     });
 
     test('feature list structural mutations sync Y.Doc for add remove and reorder', () => {
