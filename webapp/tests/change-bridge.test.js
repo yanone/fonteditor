@@ -2042,13 +2042,7 @@ describe('Model mutable getter change recording', () => {
         expect(bridge.getChangeLog()).toHaveLength(0);
         expect(
             normalizeYValue(
-                getYPath(bridge.fontMap, [
-                    'features',
-                    'features',
-                    0,
-                    1,
-                    'code'
-                ])
+                getYPath(bridge.fontMap, ['features', 'features', 0, 1, 'code'])
             )
         ).toBe('sub f i by fi;');
     });
