@@ -99,12 +99,116 @@ type UndoManagerWithScope = {
     scope: UndoScope;
 };
 
+type LayerFingerprintTarget = {
+    glyphName: string;
+    layerId: string;
+};
+
+type LayerFingerprintSnapshotEntry = LayerFingerprintTarget & {
+    fingerprint: string | null;
+};
+
 function getLayerManagerKey(glyphName: string, layerId: string): string {
     return `${glyphName}@@${layerId}`;
 }
 
 function getLayerEditOrigin(glyphName: string, layerId: string): string {
     return `${LAYER_EDIT_ORIGIN_PREFIX}${glyphName}@@${layerId}`;
+}
+
+function getLayerFingerprintTargetKey(
+    glyphName: string,
+    layerId: string
+): string {
+    return `${glyphName}@@${layerId}`;
+}
+
+function normalizeLayerSignatureNodeType(nodeType: unknown): string {
+    switch (nodeType) {
+        case 'Move':
+        case 'Line':
+        case 'OffCurve':
+        case 'Curve':
+        case 'QCurve':
+            return nodeType;
+        default:
+            return String(nodeType || 'Unknown');
+    }
+}
+
+function getComponentReferenceFromShape(shape: Unsafe): string {
+    if (!shape || typeof shape !== 'object') {
+        return '';
+    }
+
+    if (
+        'Component' in shape &&
+        shape.Component &&
+        typeof shape.Component === 'object'
+    ) {
+        return String((shape.Component as Unsafe).reference || '');
+    }
+
+    return String(shape.reference || '');
+}
+
+function getPathLikeShape(shape: Unsafe): Unsafe | null {
+    if (!shape || typeof shape !== 'object') {
+        return null;
+    }
+
+    if ('Path' in shape && shape.Path && typeof shape.Path === 'object') {
+        return shape.Path as Unsafe;
+    }
+
+    if (Array.isArray(shape.nodes)) {
+        return shape;
+    }
+
+    return null;
+}
+
+function getLayerFingerprintFromJson(layerJson: Unsafe): string | null {
+    if (!layerJson || typeof layerJson !== 'object') {
+        return null;
+    }
+
+    const shapes = Array.isArray(layerJson.shapes) ? layerJson.shapes : [];
+    const anchors = Array.isArray(layerJson.anchors) ? layerJson.anchors : [];
+
+    const componentSignatures = shapes
+        .filter(
+            (shape: unknown) =>
+                !!shape &&
+                typeof shape === 'object' &&
+                ('Component' in shape || 'reference' in shape)
+        )
+        .map(
+            (shape: unknown) =>
+                `C:${getComponentReferenceFromShape(shape as Unsafe)}`
+        );
+
+    const pathSignatures = shapes
+        .map((shape: unknown) => getPathLikeShape(shape as Unsafe))
+        .filter((shape: Unsafe | null): shape is Unsafe => Boolean(shape))
+        .map((pathShape: Unsafe) => {
+            const nodes = Array.isArray(pathShape.nodes) ? pathShape.nodes : [];
+            const nodeTypes = nodes.map((node: unknown) =>
+                normalizeLayerSignatureNodeType((node as Unsafe)?.nodetype)
+            );
+            const closedFlag = pathShape.closed === false ? '0' : '1';
+            return `P:${closedFlag}:${nodeTypes.length}:${nodeTypes.join(',')}`;
+        });
+
+    const anchorSignatures = anchors
+        .map((anchor: unknown) => `A:${String((anchor as Unsafe)?.name || '')}`)
+        .sort((a: string, b: string) => a.localeCompare(b));
+
+    return [
+        `components[${componentSignatures.join('|')}]`,
+        `paths[${pathSignatures.join('|')}]`,
+        `anchors[${anchorSignatures.join('|')}]`
+    ].join(';');
 }
 
 /**
@@ -204,6 +308,99 @@ export class ChangeBridge {
 
     private _getCurrentHistoryItemId(): string {
         return this._txHistoryItemId ?? this._createHistoryItemId();
+    }
+
+    private _collectLayerFingerprintSnapshot(
+        targets?: LayerFingerprintTarget[] | null
+    ): Map<string, LayerFingerprintSnapshotEntry> {
+        const snapshot = new Map<string, LayerFingerprintSnapshotEntry>();
+        const glyphs = (this._fontJson as Unsafe)?.glyphs;
+        if (!Array.isArray(glyphs)) {
+            return snapshot;
+        }
+
+        const targetKeys = targets?.length
+            ? new Set(
+                  targets.map((target) =>
+                      getLayerFingerprintTargetKey(
+                          target.glyphName,
+                          target.layerId
+                      )
+                  )
+              )
+            : null;
+
+        for (const glyph of glyphs) {
+            const glyphName =
+                typeof glyph?.name === 'string' ? glyph.name : null;
+            if (!glyphName) {
+                continue;
+            }
+
+            const layers = Array.isArray(glyph.layers) ? glyph.layers : [];
+            for (const layer of layers) {
+                const layerId = typeof layer?.id === 'string' ? layer.id : null;
+                if (!layerId) {
+                    continue;
+                }
+
+                const targetKey = getLayerFingerprintTargetKey(
+                    glyphName,
+                    layerId
+                );
+                if (targetKeys && !targetKeys.has(targetKey)) {
+                    continue;
+                }
+
+                snapshot.set(targetKey, {
+                    glyphName,
+                    layerId,
+                    fingerprint: getLayerFingerprintFromJson(layer)
+                });
+            }
+        }
+
+        return snapshot;
+    }
+
+    private _emitLayerFingerprintChangedEvents(
+        previousSnapshot: Map<string, LayerFingerprintSnapshotEntry>,
+        nextSnapshot: Map<string, LayerFingerprintSnapshotEntry>
+    ): void {
+        if (typeof window === 'undefined') {
+            return;
+        }
+
+        const targetKeys = new Set<string>([
+            ...previousSnapshot.keys(),
+            ...nextSnapshot.keys()
+        ]);
+
+        for (const targetKey of targetKeys) {
+            const previous = previousSnapshot.get(targetKey) ?? null;
+            const next = nextSnapshot.get(targetKey) ?? null;
+            const previousFingerprint = previous?.fingerprint ?? null;
+            const nextFingerprint = next?.fingerprint ?? null;
+
+            if (previousFingerprint === nextFingerprint) {
+                continue;
+            }
+
+            const glyphName = next?.glyphName ?? previous?.glyphName;
+            const layerId = next?.layerId ?? previous?.layerId;
+            if (!glyphName || !layerId) {
+                continue;
+            }
+
+            window.dispatchEvent(
+                new CustomEvent('layerFingerprintChanged', {
+                    detail: {
+                        glyphName,
+                        layerId
+                    }
+                })
+            );
+        }
     }
 
     constructor(windowId?: string) {
@@ -1080,6 +1277,18 @@ export class ChangeBridge {
     ): void {
         if (!this._fontJson) return;
 
+        const fingerprintTargets =
+            scopeHint?.glyphName && scopeHint?.layerId
+                ? [
+                      {
+                          glyphName: scopeHint.glyphName,
+                          layerId: scopeHint.layerId
+                      }
+                  ]
+                : null;
+        const previousFingerprintSnapshot =
+            this._collectLayerFingerprintSnapshot(fingerprintTargets);
+
         // Fast path: only reconstruct the specific layer from Y.Doc.
         if (scopeHint?.glyphName && scopeHint?.layerId) {
             const glyphsMap = this.fontMap.get('glyphs');
@@ -1111,6 +1320,12 @@ export class ChangeBridge {
                                     layers[layerIdx] = fromYType(
                                         layerMap
                                     ) as Unsafe;
+                                    this._emitLayerFingerprintChangedEvents(
+                                        previousFingerprintSnapshot,
+                                        this._collectLayerFingerprintSnapshot(
+                                            fingerprintTargets
+                                        )
+                                    );
                                     return; // Only the one layer was patched
                                 }
                             }
@@ -1132,6 +1347,11 @@ export class ChangeBridge {
                 delete (this._fontJson as Unsafe)[key];
             }
         }
+
+        this._emitLayerFingerprintChangedEvents(
+            previousFingerprintSnapshot,
+            this._collectLayerFingerprintSnapshot(fingerprintTargets)
+        );
     }
 
     /**

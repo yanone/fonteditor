@@ -54,6 +54,7 @@ interface GlyphFilterPlugin {
     keyword: string;
     display_name: string;
     instance: any; // Python plugin instance
+    autoUpdateEvents?: string[];
     groups?: Record<string, GroupDefinition>;
     lastResults?: FilterResult[];
     glyphCount?: number;
@@ -117,6 +118,9 @@ export class GlyphOverviewFilterManager {
     private inFlightCountRequests: number = 0;
     private sharedPluginContext: Record<string, any> = {};
     private sharedPluginContextVersion: number = 1;
+    private autoUpdateListeners: Map<string, EventListener> = new Map();
+    private pendingAutoUpdatePluginKeywords: Set<string> = new Set();
+    private autoUpdateFlushScheduled: boolean = false;
 
     constructor() {
         this.rootNode = this.buildEmptyTree();
@@ -286,6 +290,120 @@ export class GlyphOverviewFilterManager {
         return { ...this.sharedPluginContext };
     }
 
+    private getAllLoadedPlugins(): GlyphFilterPlugin[] {
+        return [...this.plugins, ...this.userFilters];
+    }
+
+    private normalizeAutoUpdateEvents(events: unknown): string[] {
+        if (!Array.isArray(events)) {
+            return [];
+        }
+
+        return [
+            ...new Set(
+                events
+                    .filter(
+                        (eventName): eventName is string =>
+                            typeof eventName === 'string'
+                    )
+                    .map((eventName) => eventName.trim())
+                    .filter(Boolean)
+            )
+        ];
+    }
+
+    private invalidatePluginCache(plugin: GlyphFilterPlugin): void {
+        plugin.cachedDataVersion = undefined;
+        plugin.cachedContextVersion = undefined;
+    }
+
+    private refreshAutoUpdateListeners(): void {
+        const requiredEvents = new Set(
+            this.getAllLoadedPlugins().flatMap(
+                (plugin) => plugin.autoUpdateEvents || []
+            )
+        );
+
+        for (const [eventName, listener] of this.autoUpdateListeners) {
+            if (requiredEvents.has(eventName)) {
+                continue;
+            }
+
+            window.removeEventListener(eventName, listener);
+            this.autoUpdateListeners.delete(eventName);
+        }
+
+        for (const eventName of requiredEvents) {
+            if (this.autoUpdateListeners.has(eventName)) {
+                continue;
+            }
+
+            const listener: EventListener = () => {
+                const pluginsToRefresh = this.getAllLoadedPlugins().filter(
+                    (plugin) =>
+                        (plugin.autoUpdateEvents || []).includes(eventName)
+                );
+
+                if (pluginsToRefresh.length === 0) {
+                    return;
+                }
+
+                for (const plugin of pluginsToRefresh) {
+                    this.invalidatePluginCache(plugin);
+                    this.pendingAutoUpdatePluginKeywords.add(plugin.keyword);
+                }
+
+                if (this.autoUpdateFlushScheduled) {
+                    return;
+                }
+
+                this.autoUpdateFlushScheduled = true;
+                queueMicrotask(() => {
+                    void this.flushPendingAutoUpdatePlugins();
+                });
+            };
+
+            window.addEventListener(eventName, listener);
+            this.autoUpdateListeners.set(eventName, listener);
+        }
+    }
+
+    private async flushPendingAutoUpdatePlugins(): Promise<void> {
+        this.autoUpdateFlushScheduled = false;
+
+        if (this.pendingAutoUpdatePluginKeywords.size === 0) {
+            return;
+        }
+
+        const pendingKeywords = [...this.pendingAutoUpdatePluginKeywords];
+        this.pendingAutoUpdatePluginKeywords.clear();
+
+        const pendingPlugins = pendingKeywords
+            .map((keyword) =>
+                this.getAllLoadedPlugins().find(
+                    (plugin) => plugin.keyword === keyword
+                )
+            )
+            .filter((plugin): plugin is GlyphFilterPlugin => Boolean(plugin));
+
+        const activePlugin =
+            this.activeFilter && pendingPlugins.includes(this.activeFilter)
+                ? this.activeFilter
+                : null;
+
+        if (activePlugin) {
+            await this.runFilter(activePlugin);
+        }
+
+        for (const plugin of pendingPlugins) {
+            if (plugin === activePlugin) {
+                continue;
+            }
+
+            await this.runPluginForCount(plugin);
+        }
+    }
+
     /**
      * Discover and load all glyph filter plugins from installed packages.
      * Uses Python's entry_points system to find plugins in the 'counterpunch_glyphfilter_plugins' group.
@@ -321,6 +439,7 @@ export class GlyphOverviewFilterManager {
                             'path': getattr(plugin_instance, 'path', ''),
                             'keyword': getattr(plugin_instance, 'keyword', ep.name),
                             'display_name': getattr(plugin_instance, 'display_name', ep.name),
+                            'auto_update_events': getattr(plugin_instance, 'auto_update_events', []),
                             'instance': plugin_instance
                         })
                     except Exception as e:
@@ -393,6 +512,10 @@ export class GlyphOverviewFilterManager {
                     plugin.groups = {};
                 }
 
+                plugin.autoUpdateEvents = this.normalizeAutoUpdateEvents(
+                    plugin.auto_update_events
+                );
+
                 this.plugins.push(plugin as GlyphFilterPlugin);
             }
 
@@ -409,6 +532,7 @@ export class GlyphOverviewFilterManager {
                 this.plugins.map((p) => p.display_name)
             );
             this.loaded = true;
+            this.refreshAutoUpdateListeners();
 
             // Apply pending active filter if any
             if ((this as any)._pendingActiveFilter) {
@@ -626,6 +750,8 @@ export class GlyphOverviewFilterManager {
             }
         } catch (error) {
             console.error('Error discovering user filters:', error);
+        } finally {
+            this.refreshAutoUpdateListeners();
         }
     }
 
@@ -1496,14 +1622,6 @@ export class GlyphOverviewFilterManager {
      * Execute a user-defined filter with sandboxing and timeout
      */
     private getCurrentFontSnapshotJson(): string | null {
-        const fontManagerFont = window.fontManager?.currentFont;
-        if (
-            fontManagerFont?.babelfontJson &&
-            typeof fontManagerFont.babelfontJson === 'string'
-        ) {
-            return fontManagerFont.babelfontJson;
-        }
-
         const font = window.currentFontModel as any;
         if (font?.toJSONString && typeof font.toJSONString === 'function') {
             try {
@@ -1522,6 +1640,14 @@ export class GlyphOverviewFilterManager {
                     error
                 );
             }
+        }
+
+        const fontManagerFont = window.fontManager?.currentFont;
+        if (
+            fontManagerFont?.babelfontJson &&
+            typeof fontManagerFont.babelfontJson === 'string'
+        ) {
+            return fontManagerFont.babelfontJson;
         }
 
         return null;

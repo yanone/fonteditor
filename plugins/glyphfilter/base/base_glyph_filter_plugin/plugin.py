@@ -35,6 +35,9 @@ class BaseGlyphFilterPlugin:
     Required methods:
     - get_groups(): Return group definitions for group keywords
     - filter_glyphs(font): Return list of glyphs matching the filter
+
+    Optional attributes:
+    - auto_update_events: List of JS event names that should re-run the filter
     """
     
     # Plugin path - must match a registered path in FILTER_PATHS
@@ -46,6 +49,9 @@ class BaseGlyphFilterPlugin:
     
     # Display name shown in sidebar
     display_name = "Base Filter"
+
+    # Optional list of window events that should trigger this filter to refresh.
+    auto_update_events = []
     
     def __init__(self):
         """

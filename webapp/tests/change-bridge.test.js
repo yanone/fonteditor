@@ -3575,6 +3575,43 @@ describe('syncGlyphFromJson', () => {
         expect(redoEntry.transactionLabel).toBe('Redo');
     });
 
+    test('undo emits layerFingerprintChanged when replay changes a layer fingerprint', () => {
+        const { bridge, fontJson } = createTestBridge('fingerprint-undo');
+        const dispatchSpy = jest.spyOn(window, 'dispatchEvent');
+
+        fontJson.glyphs[0].layers[0].shapes.push({
+            nodes: [
+                { x: 10, y: 10, nodetype: 'line', smooth: false },
+                { x: 20, y: 20, nodetype: 'line', smooth: false },
+                { x: 30, y: 10, nodetype: 'line', smooth: false }
+            ],
+            closed: true,
+            format_specific: { seed: true }
+        });
+        bridge.syncGlyphFromJson(
+            'A',
+            'Add path',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+        dispatchSpy.mockClear();
+
+        bridge.undo('A', 'layer-1');
+
+        expect(dispatchSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'layerFingerprintChanged',
+                detail: {
+                    glyphName: 'A',
+                    layerId: 'layer-1'
+                }
+            })
+        );
+
+        dispatchSpy.mockRestore();
+    });
+
     test('sync window receives edits without calling initFromJson', () => {
         // Primary: initialized normally
         const font1 = makeMinimalFont();
@@ -3639,6 +3676,104 @@ describe('syncGlyphFromJson', () => {
             ])
         ).toBe(800);
 
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+
+    test('linked window emits layerFingerprintChanged when receiving a remote fingerprint-changing update', () => {
+        const font1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('primary');
+        bridge1.initFromJson(font1);
+        const bridge2 = new ChangeBridge('secondary');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(bridge1, 'test-fingerprint-remote-sync');
+        const sync2 = new WindowSync(bridge2, 'test-fingerprint-remote-sync');
+        const dispatchSpy = jest.spyOn(window, 'dispatchEvent');
+        dispatchSpy.mockClear();
+
+        font1.glyphs[0].layers[0].shapes.push({
+            nodes: [
+                { x: 10, y: 10, nodetype: 'line', smooth: false },
+                { x: 20, y: 20, nodetype: 'line', smooth: false },
+                { x: 30, y: 10, nodetype: 'line', smooth: false }
+            ],
+            closed: true,
+            format_specific: { seed: true }
+        });
+        bridge1.syncGlyphFromJson(
+            'A',
+            'Add path',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+        flushTimers();
+
+        expect(dispatchSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'layerFingerprintChanged',
+                detail: {
+                    glyphName: 'A',
+                    layerId: 'layer-1'
+                }
+            })
+        );
+
+        dispatchSpy.mockRestore();
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+
+    test('linked window emits layerFingerprintChanged when receiving a remote undo that changes a layer fingerprint', () => {
+        const font1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('primary');
+        bridge1.initFromJson(font1);
+        const bridge2 = new ChangeBridge('secondary');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(bridge1, 'test-fingerprint-remote-undo');
+        const sync2 = new WindowSync(bridge2, 'test-fingerprint-remote-undo');
+        const dispatchSpy = jest.spyOn(window, 'dispatchEvent');
+        dispatchSpy.mockClear();
+
+        font1.glyphs[0].layers[0].shapes.push({
+            nodes: [
+                { x: 10, y: 10, nodetype: 'line', smooth: false },
+                { x: 20, y: 20, nodetype: 'line', smooth: false },
+                { x: 30, y: 10, nodetype: 'line', smooth: false }
+            ],
+            closed: true,
+            format_specific: { seed: true }
+        });
+        bridge1.syncGlyphFromJson(
+            'A',
+            'Add path',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+        flushTimers();
+        dispatchSpy.mockClear();
+
+        bridge1.undo('A', 'layer-1');
+        flushTimers();
+
+        expect(dispatchSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'layerFingerprintChanged',
+                detail: {
+                    glyphName: 'A',
+                    layerId: 'layer-1'
+                }
+            })
+        );
+
+        dispatchSpy.mockRestore();
         sync1.destroy();
         sync2.destroy();
         bridge1.destroy();

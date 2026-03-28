@@ -18,13 +18,16 @@ Incompatible Outlines Filter - shows glyphs whose main layers
 have incompatible outline structure.
 """
 
+from base_glyph_filter_plugin import BaseGlyphFilterPlugin
 
-class IncompatibleOutlinesFilter:
+
+class IncompatibleOutlinesFilter(BaseGlyphFilterPlugin):
     """Filter that returns glyphs with outline incompatibilities."""
 
     path = "basic/debugging"
     keyword = "com.context.incompatible_outlines"
     display_name = "Incompatible Outlines"
+    auto_update_events = ["layerFingerprintChanged"]
 
     def __init__(self):
         pass

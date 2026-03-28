@@ -12,14 +12,14 @@ of glyphs based on custom criteria.
 1. Copy this folder and rename it
 2. Rename the `base_glyph_filter_plugin` package folder
 3. Update `setup.py`:
-   - Change `name` to your plugin name
-   - Update the entry point to match your package and class names
+    - Change `name` to your plugin name
+    - Update the entry point to match your package and class names
 4. Implement your plugin in `plugin.py`:
-   - Set `path` to a valid filter path (e.g., 'basic', 'basic/glyph_categories')
-   - Set `keyword` to a unique reverse domain name identifier
-   - Set `display_name` to a human-readable name
-   - Implement `get_colors()` if you want color coding
-   - Implement `filter_glyphs(font)` to return filtered glyphs
+    - Set `path` to a valid filter path (e.g., 'basic', 'basic/glyph_categories')
+    - Set `keyword` to a unique reverse domain name identifier
+    - Set `display_name` to a human-readable name
+    - Implement `get_colors()` if you want color coding
+    - Implement `filter_glyphs(font)` to return filtered glyphs
 
 ## Plugin Interface
 
@@ -60,6 +60,19 @@ def filter_glyphs(self, font):
             })
     return results
 ```
+
+### Optional Auto Updates
+
+Set `auto_update_events` on class-based plugins to refresh them when the app
+dispatches matching window events:
+
+```python
+class MyFilter(BaseGlyphFilterPlugin):
+    auto_update_events = ["layerFingerprintChanged"]
+```
+
+When one of those events fires, the active filter is re-run immediately and
+inactive filters refresh their sidebar counts.
 
 ## Building
 
