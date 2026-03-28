@@ -1414,6 +1414,65 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         expect(canvas.viewportManager.panX).toBe(130);
     });
 
+    test('sidebearing drags refresh live advances for keyed dependent glyphs', () => {
+        const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
+        const glyphName = 'l';
+        const layer = font.findGlyph(glyphName).layers[0];
+        const masterId = layer.master.master;
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+
+        canvas.outlineEditor.layerData = {
+            ...layer.toJSON(),
+            isInterpolated: false
+        };
+        canvas.outlineEditor.selectedLayerId = layer.id;
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [{ glyphName }]);
+        canvas.getCurrentGlyphName = jest.fn(() => glyphName);
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+        canvas.outlineEditor.selectedSidebearingHandle = { side: 'right' };
+        canvas.outlineEditor.isDraggingSidebearing = true;
+        window.changeBridge = null;
+
+        canvas.outlineEditor._updateDraggedSidebearing(17);
+
+        expect(
+            canvas.textRunEditor.refreshGlyphAdvancesLive
+        ).toHaveBeenCalledWith(
+            {
+                l: font.findGlyph('l').findLayerByMasterId(masterId).width,
+                n: font.findGlyph('n').findLayerByMasterId(masterId).width,
+                a: font.findGlyph('a').findLayerByMasterId(masterId).width,
+                adieresis: font
+                    .findGlyph('adieresis')
+                    .findLayerByMasterId(masterId).width,
+                aring: font.findGlyph('aring').findLayerByMasterId(masterId)
+                    .width
+            },
+            { render: false }
+        );
+    });
+
+    test('point drags recompute keyed sidebearings live before mouseup', () => {
+        const applyMetricsSpy = jest
+            .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
+            .mockReturnValue(null);
+
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+
+        canvas.onMouseMove({ clientX: 10, clientY: 20 });
+        canvas.onMouseMove({ clientX: 25, clientY: 15 });
+
+        expect(applyMetricsSpy).toHaveBeenCalled();
+
+        applyMetricsSpy.mockRestore();
+    });
+
     test('pressing ArrowRight on the left sidebearing handle decreases the sidebearing', () => {
         canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
         canvas.viewportManager.scale = 2;

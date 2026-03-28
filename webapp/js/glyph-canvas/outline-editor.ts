@@ -1322,7 +1322,44 @@ export class OutlineEditor {
         this.clearAllSelections();
     }
 
-    private applyMetricsKeysToCurrentEditedLayer(): void {
+    private collectLiveAdvanceWidths(
+        glyphNames: Iterable<string>,
+        layerId: string,
+        masterId: string | null
+    ): Record<string, number> {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel) {
+            return {};
+        }
+
+        const glyphAdvances: Record<string, number> = {};
+        for (const glyphName of glyphNames) {
+            if (!glyphName || glyphName in glyphAdvances) {
+                continue;
+            }
+
+            const glyph = fontModel.findGlyph(glyphName);
+            const layer =
+                glyph?.findLayerById(layerId) ||
+                (masterId ? glyph?.findLayerByMasterId(masterId) : undefined);
+            if (!layer || !Number.isFinite(layer.width)) {
+                continue;
+            }
+
+            glyphAdvances[glyphName] = layer.width;
+        }
+
+        return glyphAdvances;
+    }
+
+    private applyMetricsKeysToCurrentEditedLayer(
+        refreshGlyphAdvances: boolean = true
+    ): {
+        glyphName: string;
+        nextWidth: number;
+        glyphAdvances: Record<string, number>;
+        advancesRefreshed: boolean;
+    } | null {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const currentLayerId = this.getCurrentLayerId();
         if (
@@ -1330,7 +1367,7 @@ export class OutlineEditor {
             currentLayerData.isInterpolated ||
             !currentLayerId
         ) {
-            return;
+            return null;
         }
 
         const parsed = this.parseGlyphStack();
@@ -1340,15 +1377,13 @@ export class OutlineEditor {
                 : this.glyphCanvas.getCurrentGlyphName();
         const fontModel = fontManager.currentFont?.fontModel;
         if (!glyphName || !fontModel) {
-            return;
+            return null;
         }
-
-        const previousWidth = currentLayerData.width;
 
         const glyph = fontModel.findGlyph(glyphName);
         const rawLayer = glyph?.findLayerById(currentLayerId)?.toJSON?.();
         if (!glyph || !rawLayer) {
-            return;
+            return null;
         }
 
         rawLayer.width = currentLayerData.width;
@@ -1366,19 +1401,21 @@ export class OutlineEditor {
             rawLayer.format_specific = currentLayerData.format_specific;
         }
 
-        // Resolve only the current layer's own metrics keys — avoids
-        // the O(all-glyphs) scan of Font.recomputeMetricsKeys which
-        // iterates every layer with a metrics key in the entire font.
-        const layerModel = glyph.findLayerById(currentLayerId);
-        if (layerModel) {
-            const bridge = window.changeBridge;
-            if (bridge) {
-                bridge.runWithoutRecording(() => {
-                    layerModel.recomputeOwnMetricsKeys();
-                });
-            } else {
-                layerModel.recomputeOwnMetricsKeys();
+        const affectedGlyphNames = new Set<string>([glyphName]);
+        const recomputeMetricsKeys = () => {
+            for (const recomputedGlyphName of fontModel.recomputeMetricsKeys(
+                new Set([glyphName])
+            )) {
+                affectedGlyphNames.add(recomputedGlyphName);
             }
+        };
+        const bridge = window.changeBridge;
+        if (bridge) {
+            bridge.runWithoutRecording(() => {
+                recomputeMetricsKeys();
+            });
+        } else {
+            recomputeMetricsKeys();
         }
 
         currentLayerData.width = rawLayer.width;
@@ -1392,11 +1429,29 @@ export class OutlineEditor {
             currentLayerData.guides = rawLayer.guides;
         }
 
-        if (Math.abs((currentLayerData.width || 0) - previousWidth) > 0.01) {
-            this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive({
-                [glyphName]: currentLayerData.width
-            });
-        }
+        const masterId =
+            typeof rawLayer.master === 'object' && rawLayer.master
+                ? rawLayer.master.master || null
+                : null;
+        const glyphAdvances = this.collectLiveAdvanceWidths(
+            affectedGlyphNames,
+            currentLayerId,
+            masterId
+        );
+        const advancesRefreshed =
+            refreshGlyphAdvances &&
+            Object.keys(glyphAdvances).length > 0 &&
+            !!this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive(
+                glyphAdvances,
+                { render: false }
+            );
+
+        return {
+            glyphName,
+            nextWidth: currentLayerData.width || 0,
+            glyphAdvances,
+            advancesRefreshed
+        };
     }
 
     private getCurrentMasterModel(): any | null {
@@ -4637,14 +4692,13 @@ export class OutlineEditor {
         this._updateDraggedAnchors(deltaX, deltaY);
         this._updateDraggedSidebearing(effectiveDeltaX);
 
-        // Defer metrics-key recomputation during point drags — run once on mouseUp
         if (this.isDraggingComponent) {
             this.applyMetricsKeysToCurrentEditedLayer();
         } else if (
             this.isDraggingPoint &&
             !this.isSlidingSmoothPointAlongCurve
         ) {
-            this._pendingDragMetricsUpdate = true;
+            this.applyMetricsKeysToCurrentEditedLayer();
         }
 
         // Throttle saveLayerData during drag (every 50ms) — final save on mouseUp
@@ -4929,12 +4983,6 @@ export class OutlineEditor {
         this._snapCandidateCache = null;
         this._lastDragSaveTime = 0;
         this._lastPropertyPanelUpdateTime = 0;
-
-        // Flush deferred metrics-key recomputation from the drag
-        if (this._pendingDragMetricsUpdate) {
-            this._pendingDragMetricsUpdate = false;
-            this.applyMetricsKeysToCurrentEditedLayer();
-        }
 
         // If we were snapped to close an open path, abort the normal
         // drag sync and perform a merge-close instead.
@@ -7780,19 +7828,23 @@ export class OutlineEditor {
         currentLayerData.width =
             (currentLayerData.width || 0) + sidebearingDelta;
 
+        const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(false);
         const parsed = this.parseGlyphStack();
         const glyphName =
-            parsed.length > 0
+            metricsUpdate?.glyphName ||
+            (parsed.length > 0
                 ? parsed[parsed.length - 1].glyphName
-                : this.glyphCanvas.getCurrentGlyphName();
+                : this.glyphCanvas.getCurrentGlyphName());
 
         const { widthDelta } = applyLiveSidebearingVisualSync(
             this.glyphCanvas,
             {
                 glyphName,
+                glyphAdvances: metricsUpdate?.glyphAdvances,
                 side,
                 previousWidth,
-                nextWidth: currentLayerData.width || 0,
+                nextWidth:
+                    metricsUpdate?.nextWidth || currentLayerData.width || 0,
                 render: false
             }
         );

@@ -69,6 +69,7 @@ export function applyLiveSidebearingVisualSync(
     target: SidebearingVisualTarget,
     options: {
         glyphName?: string | null;
+        glyphAdvances?: Record<string, number> | null;
         side: SidebearingSide;
         previousWidth: number;
         nextWidth: number;
@@ -94,13 +95,17 @@ export function applyLiveSidebearingVisualSync(
             widthDelta * target.viewportManager.scale;
     }
 
-    const glyphName = options.glyphName;
+    const liveGlyphAdvances =
+        options.glyphAdvances && Object.keys(options.glyphAdvances).length > 0
+            ? options.glyphAdvances
+            : options.glyphName
+              ? { [options.glyphName]: nextWidth }
+              : null;
     const advancesRefreshed =
-        !!glyphName &&
-        !!target.textRunEditor?.refreshGlyphAdvancesLive(
-            { [glyphName]: nextWidth },
-            { render: options.render }
-        );
+        !!liveGlyphAdvances &&
+        !!target.textRunEditor?.refreshGlyphAdvancesLive(liveGlyphAdvances, {
+            render: options.render
+        });
 
     return { widthDelta, advancesRefreshed };
 }

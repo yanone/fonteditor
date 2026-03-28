@@ -131,6 +131,46 @@ describe('applyLiveSidebearingVisualSync', () => {
             { render: false }
         );
     });
+
+    test('refreshes active and dependent glyph advances in one pass when provided', () => {
+        const refreshGlyphAdvancesLive = jest.fn(() => true);
+        const target = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive
+            }
+        };
+
+        const result = applyLiveSidebearingVisualSync(target, {
+            glyphName: 'a',
+            glyphAdvances: {
+                a: 520,
+                adieresis: 610,
+                aring: 620
+            },
+            side: 'right',
+            previousWidth: 500,
+            nextWidth: 520,
+            render: false
+        });
+
+        expect(result).toEqual({
+            widthDelta: 20,
+            advancesRefreshed: true
+        });
+        expect(target.viewportManager.panX).toBe(100);
+        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
+            {
+                a: 520,
+                adieresis: 610,
+                aring: 620
+            },
+            { render: false }
+        );
+    });
 });
 
 describe('runBridgeUndoRedo sidebearing sync', () => {
