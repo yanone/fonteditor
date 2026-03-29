@@ -1381,10 +1381,15 @@ export class OutlineEditor {
         }
 
         const glyph = fontModel.findGlyph(glyphName);
-        const rawLayer = glyph?.findLayerById(currentLayerId)?.toJSON?.();
+        const layerModel = glyph?.findLayerById(currentLayerId);
+        const rawLayer = layerModel?.toJSON?.();
         if (!glyph || !rawLayer) {
             return null;
         }
+
+        const previousWidth = Number(currentLayerData.width) || 0;
+        const previousSidebearings =
+            this.getDirectSidebearingsForLayerData(currentLayerData);
 
         rawLayer.width = currentLayerData.width;
         rawLayer.height = currentLayerData.height;
@@ -1427,6 +1432,22 @@ export class OutlineEditor {
         }
         if (rawLayer.guides !== undefined) {
             currentLayerData.guides = rawLayer.guides;
+        }
+
+        const nextSidebearings =
+            this.getDirectSidebearingsForLayerData(currentLayerData);
+        const editedSide = this.inferEditedSideFromSidebearingDelta(
+            previousSidebearings,
+            nextSidebearings
+        );
+
+        if (editedSide === 'left' && this.glyphCanvas.viewportManager) {
+            const nextWidth = Number(currentLayerData.width) || 0;
+            const widthDelta = nextWidth - previousWidth;
+            if (Math.abs(widthDelta) > 0.01) {
+                this.glyphCanvas.viewportManager.panX -=
+                    widthDelta * this.glyphCanvas.viewportManager.scale;
+            }
         }
 
         const masterId =
@@ -7755,6 +7776,49 @@ export class OutlineEditor {
         return bounds
             ? (currentLayerData.width || 0) - bounds.maxX
             : currentLayerData.width || 0;
+    }
+
+    private getDirectSidebearingsForLayerData(layerData: {
+        width?: number;
+        master?: { master?: string } | null;
+    }): { left: number; right: number } {
+        const bounds = Layer.calculateBoundingBox(
+            layerData,
+            false,
+            fontManager.currentFont?.fontModel,
+            layerData.master?.master
+        );
+        const width = Number(layerData.width) || 0;
+
+        return {
+            left: bounds ? bounds.minX : 0,
+            right: bounds ? width - bounds.maxX : width
+        };
+    }
+
+    private inferEditedSideFromSidebearingDelta(
+        previousSidebearings: { left: number; right: number },
+        nextSidebearings: { left: number; right: number }
+    ): SidebearingSide | null {
+        const epsilon = 0.01;
+        const leftDelta = Math.abs(
+            nextSidebearings.left - previousSidebearings.left
+        );
+        const rightDelta = Math.abs(
+            nextSidebearings.right - previousSidebearings.right
+        );
+
+        if (leftDelta <= epsilon && rightDelta <= epsilon) {
+            return null;
+        }
+        if (leftDelta > rightDelta + epsilon) {
+            return 'left';
+        }
+        if (rightDelta > leftDelta + epsilon) {
+            return 'right';
+        }
+
+        return null;
     }
 
     private applySidebearingDelta(
