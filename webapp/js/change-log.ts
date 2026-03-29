@@ -572,13 +572,13 @@ export function buildHistoryStackItems(
             }
             const layerTouchKey = getLayerTouchKey(glyphName, layerId);
             if (layerTouchKey) {
-                const isGlyphScopedItemForGlyph =
-                    item.undoScope === 'glyph' &&
+                const isGlyphOrFontScopedItemForGlyph =
+                    (item.undoScope === 'glyph' || item.undoScope === 'font') &&
                     !!glyphName &&
                     item.glyphNameSet.has(glyphName);
                 if (
                     !item.touchedLayerKeySet.has(layerTouchKey) &&
-                    !isGlyphScopedItemForGlyph
+                    !isGlyphOrFontScopedItemForGlyph
                 ) {
                     return false;
                 }

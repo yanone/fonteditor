@@ -942,6 +942,7 @@ export class OutlineEditor {
     isMarqueeSelecting: boolean = false;
     _hasMoved: boolean = false;
     _preDragDesc: string | null = null;
+    _metricsKeyEditedSide: SidebearingSide | null = null;
     _dragType:
         | 'anchor'
         | 'point'
@@ -1440,6 +1441,8 @@ export class OutlineEditor {
             previousSidebearings,
             nextSidebearings
         );
+
+        this._metricsKeyEditedSide = editedSide;
 
         if (editedSide === 'left' && this.glyphCanvas.viewportManager) {
             const nextWidth = Number(currentLayerData.width) || 0;
@@ -5073,6 +5076,8 @@ export class OutlineEditor {
                     normalizeDragDesc(preDragDesc) !== null &&
                     normalizeDragDesc(preDragDesc) ===
                         normalizeDragDesc(postDragDesc);
+                const hasMetricsKeySideChange =
+                    this._metricsKeyEditedSide !== null;
                 const label =
                     dragType === 'anchor'
                         ? 'Drag anchor'
@@ -5090,7 +5095,7 @@ export class OutlineEditor {
                                         this.selectedSidebearingHandle.side
                                     )
                                   : 'Drag';
-                if (isNoOpDragByDescription) {
+                if (isNoOpDragByDescription && !hasMetricsKeySideChange) {
                     // A drag moved during interaction but returned to the same
                     // effective value (e.g. point dragged out and back). Skip
                     // Yjs/history sync to avoid no-op history entries.
@@ -5105,10 +5110,20 @@ export class OutlineEditor {
                 } else if (
                     !(dragType === 'guide' && draggedGuideScope === 'master')
                 ) {
+                    // Encode the metrics-key edited side into newValue so
+                    // inferSidebearingSideFromHistoryItem can detect it on undo.
+                    const metricsKeySide = this._metricsKeyEditedSide;
+                    this._metricsKeyEditedSide = null;
+                    const encodedPostDesc =
+                        metricsKeySide && postDragDesc !== undefined
+                            ? `${
+                                  metricsKeySide === 'left' ? 'LEFT' : 'RIGHT'
+                              } ${postDragDesc}`
+                            : postDragDesc;
                     this._syncCurrentGlyphToYDoc(
                         label,
                         preDragDesc ?? undefined,
-                        postDragDesc
+                        encodedPostDesc
                     );
                 }
             }

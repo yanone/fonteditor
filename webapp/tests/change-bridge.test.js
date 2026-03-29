@@ -1310,6 +1310,31 @@ describe('change-log', () => {
             })
         ).toHaveLength(1);
     });
+
+    test('buildHistoryStackItems shows font-scoped glyph-touching items in layer history', () => {
+        resetLogCounter();
+        const fontScopedEntry = createLogEntry({
+            timestamp: 1,
+            windowId: 'w',
+            windowRoleLabel: 'Main',
+            historyItemId: 'history-item-1',
+            historyAction: 'change',
+            transactionLabel: 'Set sidebearing',
+            transactionId: 1,
+            op: 'set',
+            undoScope: 'font',
+            path: 'glyphs.A.layers.layer-1.width',
+            oldValue: 600,
+            newValue: 610
+        });
+
+        const layerItems = buildHistoryStackItems([fontScopedEntry], {
+            glyphName: 'A',
+            layerId: 'layer-1'
+        });
+        expect(layerItems).toHaveLength(1);
+        expect(layerItems[0].undoScope).toBe('font');
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1799,6 +1824,58 @@ describe('Transactions', () => {
                 'width'
             ])
         ).toBe(620);
+    });
+
+    test('layer-scoped undo resolves font-scoped items that touch the active glyph', () => {
+        const { bridge } = createTestBridge('test-1');
+
+        bridge.beginTransaction('Set sidebearing with dependents');
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            620
+        );
+        bridge.recordChange(
+            ['glyphs', 'B', 'layers', 'layer-2'],
+            'width',
+            650,
+            680
+        );
+        bridge.endTransaction();
+
+        const layerItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            glyphName: 'A',
+            layerId: 'layer-1'
+        });
+        expect(layerItems).toHaveLength(1);
+        expect(layerItems[0].undoScope).toBe('font');
+
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'font',
+                glyphName: null,
+                layerId: null
+            })
+        );
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'B',
+                'layers',
+                'layer-2',
+                'width'
+            ])
+        ).toBe(650);
     });
 
     test('nested transactions share outermost label', () => {

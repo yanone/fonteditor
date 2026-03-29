@@ -248,6 +248,44 @@ function applyImmediateUndoSidebearingSync(
     gc.render?.();
 }
 
+function recomputeMetricsKeysAfterUndoRedo(
+    bridge: ChangeBridge,
+    historyItem: HistoryStackItem | null,
+    glyphNames: Array<string | null | undefined>
+): Set<string> {
+    const fontModel = window.fontManager?.currentFont?.fontModel;
+    if (!fontModel || typeof fontModel.recomputeMetricsKeys !== 'function') {
+        return new Set();
+    }
+
+    const seedGlyphNames = new Set<string>();
+    const addGlyphName = (glyphName?: string | null) => {
+        if (glyphName && glyphName !== 'undefined') {
+            seedGlyphNames.add(glyphName);
+        }
+    };
+
+    for (const glyphName of glyphNames) {
+        addGlyphName(glyphName);
+    }
+    for (const glyphName of deriveGlyphNamesFromPaths(
+        historyItem?.touchedPaths ?? []
+    )) {
+        addGlyphName(glyphName);
+    }
+
+    if (seedGlyphNames.size === 0) {
+        return new Set();
+    }
+
+    const recompute = () => fontModel.recomputeMetricsKeys(seedGlyphNames);
+    if (typeof bridge.runWithoutRecording === 'function') {
+        return bridge.runWithoutRecording(recompute);
+    }
+
+    return recompute();
+}
+
 function collectUndoRedoOverviewGlyphNames(
     historyItem: HistoryStackItem | null,
     glyphNames: Array<string | null | undefined>
@@ -355,6 +393,25 @@ export function runBridgeUndoRedo(
             appliedChange.layerId,
             appliedChange.historyItem as HistoryStackItem | null,
             previousWidth
+        );
+
+        const recomputedGlyphNames = recomputeMetricsKeysAfterUndoRedo(
+            bridge,
+            appliedChange.historyItem as HistoryStackItem | null,
+            [appliedChange.glyphName, glyphName, editedGlyphName]
+        );
+
+        refreshLiveTextRunAdvances(
+            new Set(
+                [
+                    ...recomputedGlyphNames,
+                    appliedChange.glyphName,
+                    glyphName,
+                    editedGlyphName,
+                    getActiveEditedGlyphName()
+                ].filter((name): name is string => !!name)
+            ),
+            appliedChange.layerId ?? layerId ?? undefined
         );
 
         // Ensure undo/redo always triggers a full editing-font recompile path.

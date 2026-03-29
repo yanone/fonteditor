@@ -5526,8 +5526,26 @@ export class Layer extends ArrayElementBase {
         const glyphName = (this.parent() as Glyph)?.name;
         const isPlainNumericInput = isPlainNumericText(input);
         const forceLocal = input.startsWith('==');
+        const useLocalKeyStorage = forceLocal;
+        const suppressDerivedHistory = forceLocal;
         const updateScope: 'layer' | 'font' =
-            !isPlainNumericInput && !forceLocal ? 'font' : 'layer';
+            !isPlainNumericInput && !useLocalKeyStorage ? 'font' : 'layer';
+
+        const recomputeDependentMetrics = (
+            affectedGlyphNames: Set<string>
+        ): void => {
+            const recompute = () =>
+                this.getFont()?.recomputeMetricsKeys(affectedGlyphNames) ||
+                new Set<string>();
+            const bridge = getChangeBridge();
+            const dependentGlyphNames =
+                suppressDerivedHistory && bridge?.runWithoutRecording
+                    ? bridge.runWithoutRecording(recompute)
+                    : recompute();
+            for (const dependentGlyphName of dependentGlyphNames) {
+                affectedGlyphNames.add(dependentGlyphName);
+            }
+        };
 
         return withBridgeTransaction(label, () => {
             if (isPlainNumericInput) {
@@ -5536,11 +5554,7 @@ export class Layer extends ArrayElementBase {
                 const affectedGlyphNames = new Set<string>(
                     [glyphName].filter(Boolean) as string[]
                 );
-                for (const dependentGlyphName of this.getFont()?.recomputeMetricsKeys(
-                    affectedGlyphNames
-                ) || []) {
-                    affectedGlyphNames.add(dependentGlyphName);
-                }
+                recomputeDependentMetrics(affectedGlyphNames);
                 return {
                     input,
                     value: Number(input),
@@ -5552,7 +5566,7 @@ export class Layer extends ArrayElementBase {
                 };
             }
 
-            if (forceLocal) {
+            if (useLocalKeyStorage) {
                 if (side === 'left') {
                     this.leftMetricsKey = input;
                 } else {
@@ -5589,11 +5603,7 @@ export class Layer extends ArrayElementBase {
             const affectedGlyphNames = new Set<string>(
                 [glyphName].filter(Boolean) as string[]
             );
-            for (const dependentGlyphName of this.getFont()?.recomputeMetricsKeys(
-                affectedGlyphNames
-            ) || []) {
-                affectedGlyphNames.add(dependentGlyphName);
-            }
+            recomputeDependentMetrics(affectedGlyphNames);
             return {
                 ...resolution,
                 updateScope,

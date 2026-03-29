@@ -30,6 +30,13 @@ Every function must be accompanied by a human-readable description, which must a
 
 Layer sidebearings can be linked to other glyphs’ sidebearings by curated keys such as `=n`or arithmetics like `=a+10` or fixed values `=50` etc.
 
+In detail:
+
+- `=n` inherits that sidebearing glyph-wide from the same-side sidebearing of glyph `n`
+- `=n+10` or `=n*1.5*` does the same, but adds arithmetics
+- `=50` sets sidebearings glyph-wide to an exact value of `50`
+- exceptions can be made that are local to just one layer of a glyph when the key starts with another `=`, so `==n`, `==n+10`, or `==50` etc, while the other layers of the same glyph may have a glyph-wide key or no key at all.
+
 Since sidbearings are not supposed to change when a user edits anything on a layer with inherited linked sidebearings, the sidebearings will be kept up-to-date if the glyph’s left-most or right-most nodes or component bounding boxes ar responsible for left or right side layer bounding box changes.
 
 During edits from mouse-dragging, the width of the active glyph in the harfbuzz buffer must be updated live and without any lag by adjusting all occurrences of its advance width in the harfbuzz buffer and immediately redrawing, while scheduling repeated editing font compilations as during outline edits so that the GPOS table can update.
@@ -45,12 +52,10 @@ The canvas must even be panned and anchored to the active glyph if only the righ
 
 When a sidebearing changes, update the sidebearings of all inheriting downstream glyphs both in the object model as well as their advance widths in the harfbuzz buffer before repainting the canvas, and anchoring the canvas to the opposite side of the sidebearing that was edited during the repaint.
 
-##### Test
+##### Tests
 
-Sidebearing updates must be proven with a playwright fuzzing test that enforces the above rules. It randomly sets sidebearing keys, observes adherence, then changes outlines, unsets them, manually edits sidebearings using the handles or property panel text fields, each time ensuring that the sidebearings, width, and downstream glyphs update as expected and the opposite glyph side stays anchored on the canvas during all operations. At the end of the fuzzing test, all actions are to be undone via the history and checked that each state is undone correctly by comparing to snapshots that have been taken before each edit.
+**Test 1:**
 
-Details to test:
+For glyphs with no sidebearing keys, test that sidebearing edits via the handle by mouse, or via the handle by keyboard, or via the property panel text fields, always anchors the opposite glyph edge visually on the canvas. LSB edits anchor the right layer edge visually on screen, and RSB edits anchor the left layer edge visually on screen.
 
-- No sidebearing keys: Drag sidebearing handle out, and back. Also edit via keyboard.
-- With sidebearing keys: Edit outlines and back and observe that the sidebearing stays the same and the width changes.
-- Observe that the glyph side opposite of the sidebearing edit stays anchored on canvas for all of these edits and undos. Observe that downstream glyphs update as well in the same transactions.
+Also ensure that undo operations of the same edits result in the same edge anchoring as during edits, by storing in the history item which side got edited and using that for undo-time anchoring.

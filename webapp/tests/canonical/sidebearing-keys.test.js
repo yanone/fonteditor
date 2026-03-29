@@ -483,6 +483,74 @@ describe('Sidebearing keys: viewport panning', () => {
         expect(canvas.viewportManager.panX).toBeCloseTo(initialPanX, 2);
     });
 
+    // ── _metricsKeyEditedSide: records which side changed for history encoding ──
+
+    test('LSB key fires: _metricsKeyEditedSide is set to left', () => {
+        const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
+        setupCanvasForGlyph(font, 'n'); // n has both LSB and RSB keys
+
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+
+        const currentLayerData =
+            canvas.outlineEditor.getCurrentLayerDataFromStack();
+        const shapes = currentLayerData.shapes || [];
+        let minX = Infinity;
+        let leftmostNode = null;
+        for (const shape of shapes) {
+            const nodesArray = ensureParsedNodes(
+                shape.nodes || (shape.Path && shape.Path.nodes) || []
+            );
+            for (const node of nodesArray) {
+                if (node.x < minX) {
+                    minX = node.x;
+                    leftmostNode = node;
+                }
+            }
+        }
+        expect(leftmostNode).not.toBeNull();
+        leftmostNode.x -= 20; // move leftmost node left → LSB key fires
+
+        canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
+
+        expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('left');
+    });
+
+    test('RSB key fires: _metricsKeyEditedSide is set to right', () => {
+        const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
+        setupCanvasForGlyph(font, 'n'); // n has both LSB and RSB keys
+
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+
+        const currentLayerData =
+            canvas.outlineEditor.getCurrentLayerDataFromStack();
+        const shapes = currentLayerData.shapes || [];
+        let maxX = -Infinity;
+        let rightmostNode = null;
+        for (const shape of shapes) {
+            const nodesArray = ensureParsedNodes(
+                shape.nodes || (shape.Path && shape.Path.nodes) || []
+            );
+            for (const node of nodesArray) {
+                if (node.x > maxX) {
+                    maxX = node.x;
+                    rightmostNode = node;
+                }
+            }
+        }
+        expect(rightmostNode).not.toBeNull();
+        rightmostNode.x += 20; // move rightmost node right → RSB key fires
+
+        canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
+
+        expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('right');
+    });
+
     // ── LSB key only: right edge anchored, panX adjusted for width delta ──
 
     test('LSB-only key: panX is adjusted by -widthDelta*scale to anchor right edge', () => {

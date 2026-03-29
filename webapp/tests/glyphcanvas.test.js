@@ -525,6 +525,60 @@ describe('GlyphCanvas onMouseUp', () => {
                 originalFlushPendingDebugEditingFontSaveAfterDrag;
         }
     });
+
+    test('point drag with metrics-key side change still syncs even if point description matches', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const syncSpy = jest.spyOn(
+            canvas.outlineEditor,
+            '_syncCurrentGlyphToYDoc'
+        );
+        const buildNodeDescSpy = jest
+            .spyOn(canvas.outlineEditor, '_buildNodeDesc')
+            .mockReturnValue('(105, 282)');
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.isDraggingPoint = true;
+            canvas.outlineEditor._dragType = 'point';
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor._preDragDesc = "node '(105, 282)'";
+            canvas.outlineEditor._metricsKeyEditedSide = 'left';
+
+            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+
+            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
+            expect(syncSpy).toHaveBeenCalledWith(
+                'Drag point',
+                "node '(105, 282)'",
+                'LEFT (105, 282)'
+            );
+            expect(window.changeBridge.endTransaction).toHaveBeenCalled();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            buildNodeDescSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+        }
+    });
 });
 
 describe('OutlineEditor marquee selection', () => {

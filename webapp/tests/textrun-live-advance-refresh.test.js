@@ -444,4 +444,99 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         ]);
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(140);
     });
+
+    test('undo point drag recomputes metrics-key dependents and refreshes their advances immediately', async () => {
+        const refreshGlyphAdvancesLive = jest.fn();
+        const recomputeMetricsKeys = jest.fn(() => new Set(['a', 'n']));
+
+        const makeFontModel = (aWidth, nWidth) => ({
+            recomputeMetricsKeys,
+            findGlyph: jest.fn((glyphName) => {
+                if (glyphName === 'a') {
+                    return {
+                        findLayerById: jest.fn(() => ({ width: aWidth }))
+                    };
+                }
+                if (glyphName === 'n') {
+                    return {
+                        findLayerById: jest.fn(() => ({ width: nWidth }))
+                    };
+                }
+                return null;
+            })
+        });
+
+        const currentFont = {
+            fontModel: makeFontModel(500, 480),
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        originalWindow.glyphCanvas = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive
+            },
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                fetchLayerData: jest.fn().mockResolvedValue(),
+                runDeterministicRefresh: jest.fn(async (task) => await task()),
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: jest.fn(() => 'a'),
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            updatePropertyPanel: jest.fn(),
+            render: jest.fn(),
+            requestRepaintAfterCompile: jest.fn()
+        };
+
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            lastChangeSource: null,
+            lastEditType: null
+        };
+
+        originalWindow.changeBridge = {
+            runWithoutRecording: jest.fn((fn) => fn()),
+            undo: jest.fn(() => {
+                currentFont.fontModel = makeFontModel(520, 600);
+                return {
+                    scope: 'layer',
+                    glyphName: 'a',
+                    layerId: 'layer-1',
+                    historyItem: {
+                        transactionLabel: 'Drag point',
+                        touchedPaths: ['glyphs.a.layers.layer-1'],
+                        entries: [
+                            {
+                                oldValue: '(10, 20)',
+                                newValue: 'LEFT (20, 20)'
+                            }
+                        ]
+                    }
+                };
+            })
+        };
+
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
+
+        expect(recomputeMetricsKeys).toHaveBeenCalled();
+        expect(
+            refreshGlyphAdvancesLive.mock.calls.some(
+                (call) =>
+                    call?.[0]?.a === 520 &&
+                    call?.[0]?.n === 600 &&
+                    call?.[1]?.render === false
+            )
+        ).toBe(true);
+    });
 });
