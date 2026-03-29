@@ -934,6 +934,7 @@ export class OutlineEditor {
     private _lastDragSaveTime: number = 0;
     private _lastPropertyPanelUpdateTime: number = 0;
     private _pendingDragMetricsUpdate: boolean = false;
+    private _pointDragDeltaX: number = 0;
     private _pointDragPreserveHandlePositions: boolean = false;
     isDraggingComponent: boolean = false;
     isDraggingAnchor: boolean = false;
@@ -1268,6 +1269,28 @@ export class OutlineEditor {
         }
 
         return glyph.findLayerById?.(layerId) || null;
+    }
+
+    private hasActiveMetricsKey(side: SidebearingSide): boolean {
+        const resolution =
+            this.getCurrentLayerModel()?.resolveMetricsKey?.(side);
+        return !!resolution?.input && !resolution?.error;
+    }
+
+    private updatePointDragDeltaX(deltaX: number): void {
+        if (
+            !this.isDraggingPoint ||
+            this.isSlidingSmoothPointAlongCurve ||
+            !Number.isFinite(deltaX)
+        ) {
+            return;
+        }
+
+        if (Math.abs(deltaX) <= 0.01) {
+            return;
+        }
+
+        this._pointDragDeltaX += deltaX;
     }
 
     private getSelectionScopeLayerModel(layerId: string | null): any | null {
@@ -3271,6 +3294,7 @@ export class OutlineEditor {
         this._lastDragSaveTime = 0;
         this._lastPropertyPanelUpdateTime = 0;
         this._pendingDragMetricsUpdate = false;
+        this._pointDragDeltaX = 0;
         this._pointDragPreserveHandlePositions = false;
         this.activePathDrawingSession = null;
         this.pendingCommandPathEdit = null;
@@ -3939,6 +3963,7 @@ export class OutlineEditor {
                 this._dragStartEndpointsCoincident =
                     this._areOpenPathEndpointsCoincident();
                 this._preDragDesc = this._buildNodeDesc();
+                this._pointDragDeltaX = 0;
                 window.changeBridge?.beginTransaction('Drag point');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
@@ -4711,6 +4736,7 @@ export class OutlineEditor {
                 glyphX,
                 glyphY
             );
+            this.updatePointDragDeltaX(effectiveDeltaX);
             this._checkOpenPathEndpointSnap();
         }
         this._updateDraggedAnchors(deltaX, deltaY);
@@ -5076,8 +5102,13 @@ export class OutlineEditor {
                     normalizeDragDesc(preDragDesc) !== null &&
                     normalizeDragDesc(preDragDesc) ===
                         normalizeDragDesc(postDragDesc);
+                const hasLeftMetricsKeyPointDragDelta =
+                    dragType === 'point' &&
+                    Math.abs(this._pointDragDeltaX) > 0.01 &&
+                    this.hasActiveMetricsKey('left');
                 const hasMetricsKeySideChange =
-                    this._metricsKeyEditedSide !== null;
+                    this._metricsKeyEditedSide !== null ||
+                    hasLeftMetricsKeyPointDragDelta;
                 const label =
                     dragType === 'anchor'
                         ? 'Drag anchor'
@@ -5112,8 +5143,11 @@ export class OutlineEditor {
                 ) {
                     // Encode the metrics-key edited side into newValue so
                     // inferSidebearingSideFromHistoryItem can detect it on undo.
-                    const metricsKeySide = this._metricsKeyEditedSide;
+                    const metricsKeySide =
+                        this._metricsKeyEditedSide ||
+                        (hasLeftMetricsKeyPointDragDelta ? 'left' : null);
                     this._metricsKeyEditedSide = null;
+                    this._pointDragDeltaX = 0;
                     const encodedPostDesc =
                         metricsKeySide && postDragDesc !== undefined
                             ? `${
@@ -5166,6 +5200,7 @@ export class OutlineEditor {
                 fontManager.updateWorkerFontCache();
                 fontManager.flushPendingDebugEditingFontSaveAfterDrag();
             }
+            this._pointDragDeltaX = 0;
             this._hasMoved = false;
             this._preDragDesc = null;
             this._dragType = null;

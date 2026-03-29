@@ -54,8 +54,14 @@ When a sidebearing changes, update the sidebearings of all inheriting downstream
 
 ##### Tests
 
-**Test 1:**
+**Test 1: Unkeyed Sidebearing Edits**
 
-For glyphs with no sidebearing keys, test that sidebearing edits via the handle by mouse, or via the handle by keyboard, or via the property panel text fields, always anchors the opposite glyph edge visually on the canvas. LSB edits anchor the right layer edge visually on screen, and RSB edits anchor the left layer edge visually on screen.
+For glyphs with no sidebearing keys, test that sidebearing edits via the handle by mouse, or via the handle by keyboard, or via the property panel text fields, always anchors the opposite glyph edge visually on the canvas. LSB edits anchor the right layer edge visually on screen, and RSB edits anchor the left layer edge visually on screen. Test a matrix of all edit input types and both sides.
 
-Also ensure that undo operations of the same edits result in the same edge anchoring as during edits, by storing in the history item which side got edited and using that for undo-time anchoring.
+Also ensure that undo operations of the same edits result in the same edge anchoring as during edits, by storing in the history item which side got edited and using that for undo-time visual anchoring of the opposite edge.
+
+**Test 2: Keyed Sidebearing Edits**
+
+For glyphs with any of the defined sidebearing keys, test that outline or components edits always anchor the opposite glyph edge visually on the canvas. Outline edits on the left anchor the right layer edge visually on screen, and outline edits on the right anchor the left layer edge visually on screen.
+
+Also ensure that undo operations of the same edits result in the same edge anchoring as during edits, by storing in the history item which side got edited and using that for undo-time visual anchoring of the opposite edge.

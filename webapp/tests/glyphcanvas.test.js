@@ -579,6 +579,204 @@ describe('GlyphCanvas onMouseUp', () => {
             saveLayerDataSpy.mockRestore();
         }
     });
+
+    test('point drag with left metrics key syncs when recorded x delta changed', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const syncSpy = jest.spyOn(
+            canvas.outlineEditor,
+            '_syncCurrentGlyphToYDoc'
+        );
+        const buildNodeDescSpy = jest
+            .spyOn(canvas.outlineEditor, '_buildNodeDesc')
+            .mockReturnValue('(105, 282)');
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+        const getCurrentLayerModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentLayerModel')
+            .mockReturnValue({
+                resolveMetricsKey: jest.fn((side) =>
+                    side === 'left'
+                        ? { input: '=60', value: 60, error: null }
+                        : { input: undefined, value: null, error: null }
+                )
+            });
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.isDraggingPoint = true;
+            canvas.outlineEditor._dragType = 'point';
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor._preDragDesc = "node '(105, 282)'";
+            canvas.outlineEditor._metricsKeyEditedSide = null;
+            canvas.outlineEditor._pointDragDeltaX = -18;
+
+            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+
+            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
+            expect(syncSpy).toHaveBeenCalledWith(
+                'Drag point',
+                "node '(105, 282)'",
+                'LEFT (105, 282)'
+            );
+            expect(window.changeBridge.endTransaction).toHaveBeenCalled();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            buildNodeDescSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+            getCurrentLayerModelSpy.mockRestore();
+        }
+    });
+
+    test('point drag with left metrics key keeps cumulative x delta across compensated straight-left moves', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const syncSpy = jest.spyOn(
+            canvas.outlineEditor,
+            '_syncCurrentGlyphToYDoc'
+        );
+        const buildNodeDescSpy = jest
+            .spyOn(canvas.outlineEditor, '_buildNodeDesc')
+            .mockReturnValue('(105, 282)');
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+        const getCurrentLayerModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentLayerModel')
+            .mockReturnValue({
+                resolveMetricsKey: jest.fn((side) =>
+                    side === 'left'
+                        ? { input: '=60', value: 60, error: null }
+                        : { input: undefined, value: null, error: null }
+                )
+            });
+        const applyMetricsKeysSpy = jest
+            .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
+            .mockImplementation(() => {
+                const node = canvas.outlineEditor.layerData.shapes[0].nodes[1];
+                node.x = 105;
+                node.y = 282;
+                canvas.outlineEditor._metricsKeyEditedSide = null;
+                return null;
+            });
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.layerData = {
+                id: 'layer-1',
+                width: 520,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 80, y: 180, nodetype: 'Line', smooth: false },
+                            { x: 105, y: 282, nodetype: 'Line', smooth: false },
+                            { x: 160, y: 210, nodetype: 'Line', smooth: false }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            };
+            canvas.outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 1
+            };
+            canvas.outlineEditor.selectedPoints = [
+                { contourIndex: 0, nodeIndex: 1 }
+            ];
+            canvas.outlineEditor.isDraggingPoint = true;
+            canvas.outlineEditor._dragType = 'point';
+            canvas.outlineEditor._preDragDesc = "node '(105, 282)'";
+            canvas.outlineEditor.lastGlyphX = null;
+            canvas.outlineEditor.lastGlyphY = null;
+            canvas.outlineEditor._pointDragDeltaX = 0;
+
+            const pointerSpy = jest
+                .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+                .mockImplementationOnce(() => ({ glyphX: 105, glyphY: 282 }))
+                .mockImplementationOnce(() => ({ glyphX: 95, glyphY: 282 }))
+                .mockImplementationOnce(() => ({ glyphX: 85, glyphY: 282 }));
+
+            canvas.outlineEditor.onMouseMove({
+                clientX: 11,
+                clientY: 21,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.onMouseMove({
+                clientX: 12,
+                clientY: 22,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.onMouseMove({
+                clientX: 13,
+                clientY: 23,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            expect(canvas.outlineEditor._pointDragDeltaX).toBeLessThan(-0.01);
+
+            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+
+            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
+            expect(syncSpy).toHaveBeenCalledWith(
+                'Drag point',
+                "node '(105, 282)'",
+                'LEFT (105, 282)'
+            );
+            expect(window.changeBridge.endTransaction).toHaveBeenCalled();
+
+            pointerSpy.mockRestore();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            buildNodeDescSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+            getCurrentLayerModelSpy.mockRestore();
+            applyMetricsKeysSpy.mockRestore();
+        }
+    });
 });
 
 describe('OutlineEditor marquee selection', () => {

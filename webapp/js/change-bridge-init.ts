@@ -248,6 +248,42 @@ function applyImmediateUndoSidebearingSync(
     gc.render?.();
 }
 
+function syncImmediateUndoOutlineLayerFromModel(
+    glyphName: string | null,
+    layerId: string | null
+): void {
+    const gc = window.glyphCanvas;
+    const fontModel = window.fontManager?.currentFont?.fontModel;
+    const editedGlyphName = getActiveEditedGlyphName() ?? glyphName;
+    if (!gc || !fontModel || !editedGlyphName || !layerId) {
+        return;
+    }
+
+    const layer = fontModel.findGlyph(editedGlyphName)?.findLayerById(layerId);
+    if (!layer) {
+        return;
+    }
+
+    gc.syncCurrentOutlineLayerDataFromModel?.(layer);
+    gc.updatePropertyPanel?.();
+    gc.outlineEditor.performHitDetection?.(null);
+    gc.render?.();
+}
+
+function shouldForceFullRustSyncAfterUndoRedo(
+    scope: 'font' | 'glyph' | 'layer',
+    historyItem: HistoryStackItem | null
+): boolean {
+    if (scope !== 'layer') {
+        return true;
+    }
+
+    return (
+        historyItem?.transactionLabel === 'Drag point' &&
+        inferSidebearingSideFromHistoryItem(historyItem) !== null
+    );
+}
+
 function recomputeMetricsKeysAfterUndoRedo(
     bridge: ChangeBridge,
     historyItem: HistoryStackItem | null,
@@ -401,6 +437,11 @@ export function runBridgeUndoRedo(
             [appliedChange.glyphName, glyphName, editedGlyphName]
         );
 
+        syncImmediateUndoOutlineLayerFromModel(
+            appliedChange.glyphName,
+            appliedChange.layerId ?? layerId ?? null
+        );
+
         refreshLiveTextRunAdvances(
             new Set(
                 [
@@ -428,7 +469,10 @@ export function runBridgeUndoRedo(
         // For layer-scoped undo/redo, the incremental storeLayerData path
         // is sufficient (reads directly from the model, no babelfontJson needed).
         // For glyph/font scope, force a full Rust font cache refresh.
-        const forceFullRustSync = appliedChange.scope !== 'layer';
+        const forceFullRustSync = shouldForceFullRustSyncAfterUndoRedo(
+            appliedChange.scope,
+            appliedChange.historyItem as HistoryStackItem | null
+        );
         await syncRustCacheAndRefreshCanvas(
             refreshRootGlyphName,
             glyphName,
