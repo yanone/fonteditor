@@ -1473,6 +1473,7 @@ export class OutlineEditor {
             if (Math.abs(widthDelta) > 0.01) {
                 this.glyphCanvas.viewportManager.panX -=
                     widthDelta * this.glyphCanvas.viewportManager.scale;
+                this._shiftSnapCandidateCacheX(widthDelta);
             }
         }
 
@@ -4370,6 +4371,24 @@ export class OutlineEditor {
         this._snapCandidateCache = this._buildSnapCandidateCache(
             this._snapDragStartNodePos
         );
+    }
+
+    /**
+     * Shift all snap candidate X coordinates (except left-neighbor candidates)
+     * by deltaX. Called after a keyed-LSB compensation shifts active-glyph
+     * geometry and advances the right neighbor's world position, so that
+     * cached snap candidates stay visually aligned with the geometry.
+     */
+    private _shiftSnapCandidateCacheX(deltaX: number): void {
+        if (!this._snapCandidateCache) return;
+        // debugCandidates is the union of all three candidate arrays.
+        // Candidates are shared by reference across arrays, so iterating only
+        // debugCandidates shifts each unique object exactly once.
+        for (const c of this._snapCandidateCache.debugCandidates) {
+            if (c.source !== 'left') {
+                c.x += deltaX;
+            }
+        }
     }
 
     /**
