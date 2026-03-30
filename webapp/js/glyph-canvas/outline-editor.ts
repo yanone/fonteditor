@@ -1475,6 +1475,15 @@ export class OutlineEditor {
                     widthDelta * this.glyphCanvas.viewportManager.scale;
                 this._shiftSnapCandidateCacheX(widthDelta);
             }
+        } else if (editedSide === 'right') {
+            const nextWidth = Number(currentLayerData.width) || 0;
+            const widthDelta = nextWidth - previousWidth;
+            if (Math.abs(widthDelta) > 0.01) {
+                // RSB edit: only width changes, no geometry/viewport shift.
+                // Right-neighbor candidates move because the active glyph's
+                // advance changes, shifting the right neighbor's world position.
+                this._shiftSnapCandidateCacheX(widthDelta, 'right');
+            }
         }
 
         const masterId =
@@ -4379,13 +4388,20 @@ export class OutlineEditor {
      * geometry and advances the right neighbor's world position, so that
      * cached snap candidates stay visually aligned with the geometry.
      */
-    private _shiftSnapCandidateCacheX(deltaX: number): void {
+    private _shiftSnapCandidateCacheX(
+        deltaX: number,
+        onlySource?: SnapCandidate['source']
+    ): void {
         if (!this._snapCandidateCache) return;
         // debugCandidates is the union of all three candidate arrays.
         // Candidates are shared by reference across arrays, so iterating only
         // debugCandidates shifts each unique object exactly once.
         for (const c of this._snapCandidateCache.debugCandidates) {
-            if (c.source !== 'left') {
+            if (
+                onlySource !== undefined
+                    ? c.source === onlySource
+                    : c.source !== 'left'
+            ) {
                 c.x += deltaX;
             }
         }
