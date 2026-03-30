@@ -4788,6 +4788,15 @@ export class Layer extends ArrayElementBase {
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
 
+    /**
+     * Force shape wrapper rebuild on next access.
+     * Call after replacing `data.shapes` externally so that
+     * setDirectSidebearing operates on the current shapes array.
+     */
+    invalidateShapeCache(): void {
+        this._shapeWrappers = null;
+    }
+
     private withFingerprintChangeEvent<T>(fn: () => T): T {
         const previousFingerprint = this.fingerprint;
         const result = fn();

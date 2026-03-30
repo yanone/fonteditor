@@ -935,6 +935,7 @@ export class OutlineEditor {
     private _lastPropertyPanelUpdateTime: number = 0;
     private _pendingDragMetricsUpdate: boolean = false;
     private _pointDragDeltaX: number = 0;
+    private _componentDragDeltaX: number = 0;
     private _pointDragPreserveHandlePositions: boolean = false;
     isDraggingComponent: boolean = false;
     isDraggingAnchor: boolean = false;
@@ -1293,6 +1294,16 @@ export class OutlineEditor {
         this._pointDragDeltaX += deltaX;
     }
 
+    private updateComponentDragDeltaX(deltaX: number): void {
+        if (!this.isDraggingComponent || !Number.isFinite(deltaX)) {
+            return;
+        }
+        if (Math.abs(deltaX) <= 0.01) {
+            return;
+        }
+        this._componentDragDeltaX += deltaX;
+    }
+
     private getSelectionScopeLayerModel(layerId: string | null): any | null {
         if (!layerId) {
             return null;
@@ -1429,6 +1440,10 @@ export class OutlineEditor {
         if (currentLayerData.format_specific !== undefined) {
             rawLayer.format_specific = currentLayerData.format_specific;
         }
+
+        // Force shape wrapper rebuild so setDirectSidebearing operates
+        // on the current editing shapes (not stale cached wrappers).
+        layerModel.invalidateShapeCache();
 
         const affectedGlyphNames = new Set<string>([glyphName]);
         const recomputeMetricsKeys = () => {
@@ -3305,6 +3320,7 @@ export class OutlineEditor {
         this._lastPropertyPanelUpdateTime = 0;
         this._pendingDragMetricsUpdate = false;
         this._pointDragDeltaX = 0;
+        this._componentDragDeltaX = 0;
         this._pointDragPreserveHandlePositions = false;
         this.activePathDrawingSession = null;
         this.pendingCommandPathEdit = null;
@@ -3838,6 +3854,7 @@ export class OutlineEditor {
                 this._hasMoved = false;
                 this._dragType = 'component';
                 this._preDragDesc = this._buildComponentDesc();
+                this._componentDragDeltaX = 0;
                 window.changeBridge?.beginTransaction('Drag component');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
@@ -4779,12 +4796,30 @@ export class OutlineEditor {
         this._updateDraggedSidebearing(effectiveDeltaX);
 
         if (this.isDraggingComponent) {
-            this.applyMetricsKeysToCurrentEditedLayer();
+            const metricsResult =
+                this.applyMetricsKeysToCurrentEditedLayer();
+            if (metricsResult) {
+                this.updateComponentDragDeltaX(deltaX);
+            }
         } else if (
             this.isDraggingPoint &&
             !this.isSlidingSmoothPointAlongCurve
         ) {
             this.applyMetricsKeysToCurrentEditedLayer();
+        }
+
+        // After metrics key recomputation, if the viewport was panned
+        // (LSB key shifted shapes right + panned viewport left), recalculate
+        // lastGlyphX so the next frame's delta purely reflects mouse movement.
+        if (
+            (this.isDraggingComponent || this.isDraggingPoint) &&
+            this._metricsKeyEditedSide === 'left'
+        ) {
+            const recalc = this.isDraggingGuide
+                ? this.transformMouseToRootSpace()
+                : this.transformMouseToComponentSpace();
+            this.lastGlyphX = recalc.glyphX;
+            this.lastGlyphY = recalc.glyphY;
         }
 
         // Throttle saveLayerData during drag (every 50ms) — final save on mouseUp
@@ -5142,9 +5177,14 @@ export class OutlineEditor {
                     dragType === 'point' &&
                     Math.abs(this._pointDragDeltaX) > 0.01 &&
                     this.hasActiveMetricsKey('left');
+                const hasLeftMetricsKeyComponentDragDelta =
+                    dragType === 'component' &&
+                    Math.abs(this._componentDragDeltaX) > 0.01 &&
+                    this.hasActiveMetricsKey('left');
                 const hasMetricsKeySideChange =
                     this._metricsKeyEditedSide !== null ||
-                    hasLeftMetricsKeyPointDragDelta;
+                    hasLeftMetricsKeyPointDragDelta ||
+                    hasLeftMetricsKeyComponentDragDelta;
                 const label =
                     dragType === 'anchor'
                         ? 'Drag anchor'
@@ -5181,9 +5221,13 @@ export class OutlineEditor {
                     // inferSidebearingSideFromHistoryItem can detect it on undo.
                     const metricsKeySide =
                         this._metricsKeyEditedSide ||
-                        (hasLeftMetricsKeyPointDragDelta ? 'left' : null);
+                        (hasLeftMetricsKeyPointDragDelta ||
+                        hasLeftMetricsKeyComponentDragDelta
+                            ? 'left'
+                            : null);
                     this._metricsKeyEditedSide = null;
                     this._pointDragDeltaX = 0;
+                    this._componentDragDeltaX = 0;
                     const encodedPostDesc =
                         metricsKeySide && postDragDesc !== undefined
                             ? `${
@@ -5237,6 +5281,7 @@ export class OutlineEditor {
                 fontManager.flushPendingDebugEditingFontSaveAfterDrag();
             }
             this._pointDragDeltaX = 0;
+            this._componentDragDeltaX = 0;
             this._hasMoved = false;
             this._preDragDesc = null;
             this._dragType = null;

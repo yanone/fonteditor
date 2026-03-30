@@ -905,3 +905,412 @@ describe('Sidebearing keys: viewport panning', () => {
         expect(canvas.viewportManager.panX).not.toBe(panXAfterRsb);
     });
 });
+
+// ==================== Component Sidebearing Key Tests ====================
+
+/**
+ * Build a synthetic font with composite glyphs for testing component
+ * drag interactions with sidebearing keys.
+ *
+ * Layout:
+ *   base    – paths x=60..460, width=520
+ *   accent  – paths x=0..100,  width=100
+ *
+ * Composites (all reference base + accent):
+ *   composite – LSB key "60",  base@tx=0  accent@tx=200
+ *               bbox: minX=60 (from base paths), LSB=60 ✓
+ *               width=520
+ *
+ *   comp_rsb  – RSB key "60",  base@tx=0  accent@tx=420
+ *               accent paths transformed: 420..520, maxX=520
+ *               width=580 (so RSB = 580-520 = 60 ✓)
+ *
+ *   mixed     – LSB key "30",  one inline path (x=30..250) + accent@tx=300
+ *               minX=30 (from inline path), LSB=30 ✓
+ *               width=500
+ */
+function buildComponentFont() {
+    const master = {
+        id: 'master-1',
+        name: { en: 'Regular' },
+        location: {},
+        guides: [],
+        metrics: {},
+        kerning: new Map()
+    };
+    const defaultMaster = {
+        type: 'DefaultForMaster',
+        master: 'master-1'
+    };
+
+    const identityTransform = () => ({
+        translation: [0, 0],
+        scale: [1, 1],
+        rotation: 0,
+        skew: [0, 0]
+    });
+
+    return {
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [master],
+        glyphs: [
+            {
+                name: 'base',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'base-layer',
+                        width: 520,
+                        master: defaultMaster,
+                        shapes: [
+                            {
+                                nodes: [
+                                    { x: 60, y: 0, nodetype: 'Line' },
+                                    { x: 460, y: 0, nodetype: 'Line' },
+                                    { x: 460, y: 700, nodetype: 'Line' },
+                                    { x: 60, y: 700, nodetype: 'Line' }
+                                ],
+                                closed: true
+                            }
+                        ],
+                        anchors: [],
+                        guides: []
+                    }
+                ]
+            },
+            {
+                name: 'accent',
+                category: 'Mark',
+                exported: true,
+                layers: [
+                    {
+                        id: 'accent-layer',
+                        width: 100,
+                        master: defaultMaster,
+                        shapes: [
+                            {
+                                nodes: [
+                                    { x: 0, y: 0, nodetype: 'Line' },
+                                    { x: 100, y: 0, nodetype: 'Line' },
+                                    { x: 100, y: 100, nodetype: 'Line' },
+                                    { x: 0, y: 100, nodetype: 'Line' }
+                                ],
+                                closed: true
+                            }
+                        ],
+                        anchors: [],
+                        guides: []
+                    }
+                ]
+            },
+            // composite: LSB key = 60, base@identity, accent@(200,700)
+            // bbox minX=60 (base), maxX=460 (base), width=520, LSB=60 ✓
+            {
+                name: 'composite',
+                category: 'Base',
+                exported: true,
+                format_specific: { metric_left: '60' },
+                layers: [
+                    {
+                        id: 'composite-layer',
+                        width: 520,
+                        master: defaultMaster,
+                        shapes: [
+                            {
+                                reference: 'base',
+                                transform: identityTransform()
+                            },
+                            {
+                                reference: 'accent',
+                                transform: {
+                                    ...identityTransform(),
+                                    translation: [200, 700]
+                                }
+                            }
+                        ],
+                        anchors: [],
+                        guides: []
+                    }
+                ]
+            },
+            // comp_rsb: RSB key = 60, base@identity, accent@(420,700)
+            // accent paths transformed: 420..520, maxX=520
+            // width = 520 + 60 = 580, RSB = 580-520 = 60 ✓
+            {
+                name: 'comp_rsb',
+                category: 'Base',
+                exported: true,
+                format_specific: { metric_right: '60' },
+                layers: [
+                    {
+                        id: 'comp_rsb-layer',
+                        width: 580,
+                        master: defaultMaster,
+                        shapes: [
+                            {
+                                reference: 'base',
+                                transform: identityTransform()
+                            },
+                            {
+                                reference: 'accent',
+                                transform: {
+                                    ...identityTransform(),
+                                    translation: [420, 700]
+                                }
+                            }
+                        ],
+                        anchors: [],
+                        guides: []
+                    }
+                ]
+            },
+            // mixed: LSB key = 30, inline path (30..250) + accent@(300,700)
+            // minX=30 (path), width=500, LSB=30 ✓
+            {
+                name: 'mixed',
+                category: 'Base',
+                exported: true,
+                format_specific: { metric_left: '30' },
+                layers: [
+                    {
+                        id: 'mixed-layer',
+                        width: 500,
+                        master: defaultMaster,
+                        shapes: [
+                            {
+                                nodes: [
+                                    { x: 30, y: 0, nodetype: 'Line' },
+                                    { x: 250, y: 0, nodetype: 'Line' },
+                                    { x: 250, y: 700, nodetype: 'Line' },
+                                    { x: 30, y: 700, nodetype: 'Line' }
+                                ],
+                                closed: true
+                            },
+                            {
+                                reference: 'accent',
+                                transform: {
+                                    ...identityTransform(),
+                                    translation: [300, 700]
+                                }
+                            }
+                        ],
+                        anchors: [],
+                        guides: []
+                    }
+                ]
+            }
+        ],
+        names: { family_name: { en: 'Component Test' } },
+        note: '',
+        date: '2026-03-30',
+        features: {},
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    };
+}
+
+/**
+ * Get the X translation from a component shape in layerData.
+ */
+function getComponentTranslationX(shape) {
+    const t = shape.transform;
+    if (!t) return 0;
+    if (Array.isArray(t)) return t[4] || 0;
+    return (t.translation && t.translation[0]) || 0;
+}
+
+describe('Sidebearing keys: component drags', () => {
+    test('dragging accent component right on glyph with RSB key increases width', () => {
+        // comp_rsb: accent@(420,700), bbox maxX=520, width=580, RSB=60
+        // Moving accent +30 → maxX=550 → RSB=30≠60 → key fires → width=610
+        const font = Font.fromData(buildComponentFont());
+        setupCanvasForGlyph(font, 'comp_rsb');
+
+        canvas.outlineEditor.isDraggingComponent = true;
+        canvas.outlineEditor.selectedComponents = [1];
+        canvas.outlineEditor._dragType = 'component';
+        canvas.outlineEditor._componentDragDeltaX = 0;
+
+        const currentLayerData =
+            canvas.outlineEditor.getCurrentLayerDataFromStack();
+        const widthBefore = currentLayerData.width;
+
+        // Move accent right by 30 (tx 420→450, accent paths 450..550, maxX 520→550)
+        currentLayerData.shapes[1].transform.translation[0] += 30;
+
+        const result =
+            canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
+
+        const widthAfter = currentLayerData.width;
+        expect(widthAfter).toBeGreaterThan(widthBefore);
+        expect(widthAfter - widthBefore).toBeCloseTo(30, 0);
+        expect(result).not.toBeNull();
+        expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('right');
+    });
+
+    test('dragging base component left on glyph with LSB key: right edge anchored', () => {
+        // composite: base@identity, bbox minX=60, width=520, LSB=60
+        // Moving base tx -20 → base paths at 40..440 → minX=40 → LSB=40≠60
+        // → key fires: shift all +20 → base back to 60..460, accent 200→220
+        // → width 520→540, panX adjusts
+        const font = Font.fromData(buildComponentFont());
+        setupCanvasForGlyph(font, 'composite');
+
+        const scale = 2;
+        canvas.viewportManager.scale = scale;
+        const initialPanX = 100;
+        canvas.viewportManager.panX = initialPanX;
+
+        canvas.outlineEditor.isDraggingComponent = true;
+        canvas.outlineEditor.selectedComponents = [0];
+        canvas.outlineEditor._dragType = 'component';
+        canvas.outlineEditor._componentDragDeltaX = 0;
+
+        const currentLayerData =
+            canvas.outlineEditor.getCurrentLayerDataFromStack();
+        const widthBefore = currentLayerData.width;
+        const accentTxBefore = getComponentTranslationX(
+            currentLayerData.shapes[1]
+        );
+
+        // Move base component left by 20
+        currentLayerData.shapes[0].transform.translation[0] -= 20;
+
+        canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
+
+        const widthAfter = currentLayerData.width;
+        const widthDelta = widthAfter - widthBefore;
+
+        // Width must increase (LSB key shifts content right, widening advance)
+        expect(widthDelta).toBeGreaterThan(0.5);
+
+        // The accent (non-dragged)'s tx must have increased by the LSB restore offset
+        const accentTxAfter = getComponentTranslationX(
+            currentLayerData.shapes[1]
+        );
+        expect(accentTxAfter).toBeGreaterThan(accentTxBefore);
+
+        // panX anchors right edge
+        expect(canvas.viewportManager.panX).toBeCloseTo(
+            initialPanX - widthDelta * scale,
+            1
+        );
+
+        expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('left');
+    });
+
+    test('dragging base component right on glyph with RSB key: left edge anchored', () => {
+        // comp_rsb: base@identity, maxX=520, width=580, RSB=60
+        // Moving base tx +20 → base paths at 80..480 → maxX=max(480,520)=520
+        // (accent still at 420..520) → no change. So we move base far enough
+        // that base paths exceed accent: tx=+80 → paths 140..540 → maxX=540 > 520
+        // RSB=580-540=40≠60 → key fires → width=600
+        const font = Font.fromData(buildComponentFont());
+        setupCanvasForGlyph(font, 'comp_rsb');
+
+        const scale = 2;
+        canvas.viewportManager.scale = scale;
+        const initialPanX = 100;
+        canvas.viewportManager.panX = initialPanX;
+
+        canvas.outlineEditor.isDraggingComponent = true;
+        canvas.outlineEditor.selectedComponents = [0];
+        canvas.outlineEditor._dragType = 'component';
+        canvas.outlineEditor._componentDragDeltaX = 0;
+
+        const currentLayerData =
+            canvas.outlineEditor.getCurrentLayerDataFromStack();
+        const widthBefore = currentLayerData.width;
+
+        // Move base far enough right so that base maxX exceeds accent maxX
+        currentLayerData.shapes[0].transform.translation[0] += 80;
+
+        canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
+
+        const widthAfter = currentLayerData.width;
+        expect(widthAfter).toBeGreaterThan(widthBefore);
+
+        // RSB key → left edge anchored → panX unchanged
+        expect(canvas.viewportManager.panX).toBe(initialPanX);
+        expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('right');
+    });
+
+    test('mixed paths+components: dragging component past path left edge fires LSB key', () => {
+        // mixed: inline path (30..250) + accent@(300,700), LSB=30, width=500
+        // Move accent left by 340 → tx=-40, accent paths at -40..60
+        // minX = min(30, -40) = -40, LSB=-40≠30 → key fires
+        // → shift all +70 → path nodes 30→100, accent -40→30
+        // → width increases by 70
+        const font = Font.fromData(buildComponentFont());
+        setupCanvasForGlyph(font, 'mixed');
+
+        const scale = 2;
+        canvas.viewportManager.scale = scale;
+        const initialPanX = 100;
+        canvas.viewportManager.panX = initialPanX;
+
+        canvas.outlineEditor.isDraggingComponent = true;
+        canvas.outlineEditor.selectedComponents = [1];
+        canvas.outlineEditor._dragType = 'component';
+        canvas.outlineEditor._componentDragDeltaX = 0;
+
+        const currentLayerData =
+            canvas.outlineEditor.getCurrentLayerDataFromStack();
+        const widthBefore = currentLayerData.width;
+
+        // Move accent component left by 340 → tx=300-340=-40
+        currentLayerData.shapes[1].transform.translation[0] -= 340;
+
+        canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
+
+        const widthAfter = currentLayerData.width;
+        const widthDelta = widthAfter - widthBefore;
+
+        // Width should increase
+        expect(widthDelta).toBeGreaterThan(0.5);
+
+        // Path nodes should have been shifted right by the LSB restoration
+        const pathShape = currentLayerData.shapes[0];
+        const pathNodes =
+            pathShape.nodes ||
+            (pathShape.Path && pathShape.Path.nodes) ||
+            [];
+        const nodesArray = ensureParsedNodes(pathNodes);
+        // Original leftmost was 30; after LSB shift it should be > 30
+        const minPathX = Math.min(...nodesArray.map((n) => n.x));
+        expect(minPathX).toBeGreaterThan(30);
+
+        // panX adjusts for right-edge anchoring
+        expect(canvas.viewportManager.panX).toBeCloseTo(
+            initialPanX - widthDelta * scale,
+            1
+        );
+    });
+
+    test('component drag records _metricsKeyEditedSide for undo', () => {
+        const font = Font.fromData(buildComponentFont());
+        setupCanvasForGlyph(font, 'composite');
+
+        canvas.outlineEditor.isDraggingComponent = true;
+        canvas.outlineEditor.selectedComponents = [0];
+        canvas.outlineEditor._dragType = 'component';
+        canvas.outlineEditor._componentDragDeltaX = 0;
+
+        const currentLayerData =
+            canvas.outlineEditor.getCurrentLayerDataFromStack();
+
+        // Move base component left → LSB changes → side = 'left'
+        currentLayerData.shapes[0].transform.translation[0] -= 20;
+
+        canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
+
+        expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('left');
+    });
+});
