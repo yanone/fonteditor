@@ -8921,6 +8921,15 @@ export class OutlineEditor {
                 } else if (this.selectedComponents.length > 0) {
                     postMoveDesc = this._buildComponentDesc(true);
                 }
+                // Encode the metrics-key edited side into postMoveDesc so
+                // inferSidebearingSideFromHistoryItem can detect it on undo
+                // and apply the matching viewport pan (same as drag-end path).
+                if (this._metricsKeyEditedSide && postMoveDesc !== undefined) {
+                    postMoveDesc = `${
+                        this._metricsKeyEditedSide === 'left' ? 'LEFT' : 'RIGHT'
+                    } ${postMoveDesc}`;
+                }
+                this._metricsKeyEditedSide = null;
                 this._syncCurrentGlyphToYDoc(
                     'Arrow key',
                     preMoveDesc,
