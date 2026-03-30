@@ -1279,9 +1279,7 @@ describe('Sidebearing keys: component drags', () => {
         // Path nodes should have been shifted right by the LSB restoration
         const pathShape = currentLayerData.shapes[0];
         const pathNodes =
-            pathShape.nodes ||
-            (pathShape.Path && pathShape.Path.nodes) ||
-            [];
+            pathShape.nodes || (pathShape.Path && pathShape.Path.nodes) || [];
         const nodesArray = ensureParsedNodes(pathNodes);
         // Original leftmost was 30; after LSB shift it should be > 30
         const minPathX = Math.min(...nodesArray.map((n) => n.x));

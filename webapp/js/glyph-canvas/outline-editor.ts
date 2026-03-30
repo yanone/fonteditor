@@ -4796,8 +4796,7 @@ export class OutlineEditor {
         this._updateDraggedSidebearing(effectiveDeltaX);
 
         if (this.isDraggingComponent) {
-            const metricsResult =
-                this.applyMetricsKeysToCurrentEditedLayer();
+            const metricsResult = this.applyMetricsKeysToCurrentEditedLayer();
             if (metricsResult) {
                 this.updateComponentDragDeltaX(deltaX);
             }
