@@ -4574,8 +4574,15 @@ export class OutlineEditor {
         // Resolve final snapped position and per-axis sources.
         // XY exact snap wins over independent axis snaps when both are active
         // on the same axis, because it locks both axes to a single node.
-        let adjustedDeltaX = rawDeltaX;
-        let adjustedDeltaY = rawDeltaY;
+        //
+        // Baseline always uses the cumulative natural position rather than the
+        // per-frame raw delta.  For normal drags these are equivalent, but when
+        // a keyed metrics-key compensation pans the viewport between frames the
+        // raw delta becomes zero (the pan absorbs the mouse movement in screen
+        // space).  The cumulative formula is immune to that because it works
+        // from the fixed drag-start origin and is unaffected by viewport shifts.
+        let adjustedDeltaX = naturalX - primaryNodeX;
+        let adjustedDeltaY = naturalY - primaryNodeY;
         let finalSnapX = naturalX;
         let finalSnapY = naturalY;
         let xSource: SnapCandidate | null = null;
@@ -4616,12 +4623,6 @@ export class OutlineEditor {
 
         if (xSource) adjustedDeltaX = finalSnapX - primaryNodeX;
         if (ySource) adjustedDeltaY = finalSnapY - primaryNodeY;
-
-        // When one axis is snapped but the other is free, use the cumulative
-        // natural position for the free axis to prevent per-frame rounding
-        // drift, which would cause the node to be offset from the guide dot.
-        if (xSource && !ySource) adjustedDeltaY = naturalY - primaryNodeY;
-        if (!xSource && ySource) adjustedDeltaX = naturalX - primaryNodeX;
 
         this.activeSnapTarget =
             xSource || ySource
