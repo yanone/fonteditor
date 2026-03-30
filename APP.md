@@ -52,6 +52,8 @@ The canvas must even be panned and anchored to the active glyph if only the righ
 
 When a sidebearing changes, update the sidebearings of all inheriting downstream glyphs both in the object model as well as their advance widths in the harfbuzz buffer before repainting the canvas, and anchoring the canvas to the opposite side of the sidebearing that was edited during the repaint.
 
+When downstream glyphs that appear **before** the active glyph in the harfbuzz buffer also change width (via metrics-key cascading), the active glyph's screen position shifts because its world position is the cumulative sum of all preceding advances. To keep the active glyph stationary, compute the total advance delta of all preceding buffer entries before and after refreshing advances, and compensate panX by `−precedingDelta × scale`. This preceding-advance compensation applies regardless of which side was edited (LSB or RSB), and is additive with the active glyph's own width compensation for LSB edits.
+
 ##### Tests
 
 **Test 1: Unkeyed Sidebearing Edits**

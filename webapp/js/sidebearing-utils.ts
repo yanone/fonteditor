@@ -16,6 +16,9 @@ type SidebearingVisualTarget = {
             glyphAdvances: Record<string, number>,
             options?: { render?: boolean }
         ): boolean;
+        computePrecedingAdvanceDelta?(
+            glyphAdvances: Record<string, number>
+        ): number;
     } | null;
     syncCurrentOutlineLayerDataFromModel?(
         layer: SidebearingLayerSnapshot
@@ -101,11 +104,27 @@ export function applyLiveSidebearingVisualSync(
             : options.glyphName
               ? { [options.glyphName]: nextWidth }
               : null;
+
+    // Snapshot preceding-glyph advance delta BEFORE refreshing the buffer,
+    // so the current ax values still reflect the pre-update state.
+    const precedingDelta = liveGlyphAdvances
+        ? (target.textRunEditor?.computePrecedingAdvanceDelta?.(
+              liveGlyphAdvances
+          ) ?? 0)
+        : 0;
+
     const advancesRefreshed =
         !!liveGlyphAdvances &&
         !!target.textRunEditor?.refreshGlyphAdvancesLive(liveGlyphAdvances, {
             render: options.render
         });
+
+    // Compensate panX for advance changes in glyphs preceding the active
+    // glyph in the buffer (e.g. downstream metrics-key cascades).
+    if (Math.abs(precedingDelta) > 0.01 && target.viewportManager) {
+        target.viewportManager.panX -=
+            precedingDelta * target.viewportManager.scale;
+    }
 
     return { widthDelta, advancesRefreshed };
 }

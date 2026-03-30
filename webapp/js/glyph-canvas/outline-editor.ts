@@ -1510,6 +1510,16 @@ export class OutlineEditor {
             currentLayerId,
             masterId
         );
+
+        // Snapshot preceding-glyph advance delta BEFORE refreshing the
+        // buffer, so the current ax values reflect the pre-update state.
+        const precedingDelta =
+            refreshGlyphAdvances && Object.keys(glyphAdvances).length > 0
+                ? (this.glyphCanvas.textRunEditor?.computePrecedingAdvanceDelta(
+                      glyphAdvances
+                  ) ?? 0)
+                : 0;
+
         const advancesRefreshed =
             refreshGlyphAdvances &&
             Object.keys(glyphAdvances).length > 0 &&
@@ -1517,6 +1527,16 @@ export class OutlineEditor {
                 glyphAdvances,
                 { render: false }
             );
+
+        // Compensate panX for advance changes in glyphs preceding the
+        // active glyph in the buffer (downstream metrics-key cascades).
+        if (
+            Math.abs(precedingDelta) > 0.01 &&
+            this.glyphCanvas.viewportManager
+        ) {
+            this.glyphCanvas.viewportManager.panX -=
+                precedingDelta * this.glyphCanvas.viewportManager.scale;
+        }
 
         return {
             glyphName,

@@ -2910,6 +2910,41 @@ export class TextRunEditor {
         return { xPosition, xOffset, yOffset };
     }
 
+    /**
+     * Compute the total advance-width delta for all glyphs preceding the
+     * selected glyph in the buffer, given a map of new advance widths.
+     * Must be called BEFORE refreshGlyphAdvancesLive so the current ax
+     * values still reflect the pre-update state.
+     */
+    computePrecedingAdvanceDelta(
+        glyphAdvances: Record<string, number>
+    ): number {
+        if (
+            !this.shapedGlyphs ||
+            this.shapedGlyphs.length === 0 ||
+            this.selectedGlyphIndex <= 0
+        ) {
+            return 0;
+        }
+
+        let delta = 0;
+        const limit = Math.min(
+            this.selectedGlyphIndex,
+            this.shapedGlyphs.length
+        );
+        for (let i = 0; i < limit; i++) {
+            const glyph = this.shapedGlyphs[i];
+            const name = glyph.explicitGlyphName || this.glyphNameBuffer[i];
+            if (!name) continue;
+
+            const newAdvance = glyphAdvances[name];
+            if (!Number.isFinite(newAdvance)) continue;
+
+            delta += newAdvance - (glyph.ax || 0);
+        }
+        return delta;
+    }
+
     get selectedGlyph() {
         if (
             this.selectedGlyphIndex >= 0 &&
