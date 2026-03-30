@@ -1418,7 +1418,7 @@ export class OutlineEditor {
         const glyph = fontModel.findGlyph(glyphName);
         const layerModel = glyph?.findLayerById(currentLayerId);
         const rawLayer = layerModel?.toJSON?.();
-        if (!glyph || !rawLayer) {
+        if (!glyph || !layerModel || !rawLayer) {
             return null;
         }
 
