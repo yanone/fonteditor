@@ -5465,6 +5465,40 @@ function setupFontLoadingListener() {
 
                     gc.textRunEditor!.shapeText(true);
                     gc.reapplyActiveEditedGlyphAdvanceAfterShape();
+
+                    // After a mid-drag full compile, shapeText() resets all
+                    // shapedGlyphs advances from HarfBuzz. reapplyActiveEditedGlyphAdvanceAfterShape
+                    // only re-applies the active glyph's model width. Glyphs that share
+                    // the active glyph's metrics key (e.g. 'a', 'n' when dragging 'l')
+                    // still hold HarfBuzz values instead of the live model values.
+                    // Re-apply model widths for every glyph in the buffer so that the
+                    // pre-existing panX (computed against model values) stays correct.
+                    if (isDragActive && gc.textRunEditor) {
+                        const fontModel =
+                            window.fontManager?.currentFont?.fontModel;
+                        const selectedLayerId =
+                            gc.outlineEditor?.selectedLayerId;
+                        if (fontModel && selectedLayerId) {
+                            const allAdvances: Record<string, number> = {};
+                            for (const name of gc.textRunEditor
+                                .glyphNameBuffer) {
+                                if (!name || name in allAdvances) continue;
+                                const glyph = fontModel.findGlyph(name);
+                                const layer =
+                                    glyph?.findLayerById(selectedLayerId);
+                                if (layer && Number.isFinite(layer.width)) {
+                                    allAdvances[name] = layer.width;
+                                }
+                            }
+                            if (Object.keys(allAdvances).length > 0) {
+                                gc.textRunEditor.refreshGlyphAdvancesLive(
+                                    allAdvances,
+                                    { render: false }
+                                );
+                            }
+                        }
+                    }
+
                     timelineMark('canvas.editingFontCompiled.shapeTextForced');
 
                     if (Number.isFinite(incomingRevision)) {

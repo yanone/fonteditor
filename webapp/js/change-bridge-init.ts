@@ -49,7 +49,8 @@ function getLayerWidth(
 
 function refreshLiveTextRunAdvances(
     glyphNames: Iterable<string>,
-    layerId?: string
+    layerId?: string,
+    options?: { compensatePanX?: boolean }
 ): void {
     const gc = window.glyphCanvas;
     const textRunEditor = gc?.textRunEditor;
@@ -78,7 +79,23 @@ function refreshLiveTextRunAdvances(
         return;
     }
 
+    // Snapshot the preceding-advance delta BEFORE refreshing so we can
+    // compensate panX for cascade-width changes in glyphs that precede
+    // the active glyph in the buffer (e.g. 'a'/'n' reverted on undo of 'l').
+    let precedingDelta = 0;
+    if (options?.compensatePanX) {
+        precedingDelta =
+            textRunEditor.computePrecedingAdvanceDelta?.(glyphAdvances) ?? 0;
+    }
+
     textRunEditor.refreshGlyphAdvancesLive(glyphAdvances, { render: false });
+
+    if (options?.compensatePanX && Math.abs(precedingDelta) > 0.01) {
+        const vm = gc?.viewportManager;
+        if (vm) {
+            vm.panX -= precedingDelta * vm.scale;
+        }
+    }
 }
 
 function getActiveEditedGlyphName(): string | null {
@@ -452,7 +469,8 @@ export function runBridgeUndoRedo(
                     getActiveEditedGlyphName()
                 ].filter((name): name is string => !!name)
             ),
-            appliedChange.layerId ?? layerId ?? undefined
+            appliedChange.layerId ?? layerId ?? undefined,
+            { compensatePanX: true }
         );
 
         // Ensure undo/redo always triggers a full editing-font recompile path.
