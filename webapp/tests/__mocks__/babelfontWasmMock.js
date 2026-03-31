@@ -125,8 +125,10 @@ initBabelfontWasm.interpolate_glyph = jest.fn((glyphName, locationJson) => {
         return JSON.stringify({});
     }
 
-    const tmpDir = os.tmpdir();
-    const fontPath = path.join(tmpDir, 'jest-interpolate-font.babelfont');
+    const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'babelfont-jest-interpolate-')
+    );
+    const fontPath = path.join(tempDir, 'font.babelfont');
     const interpolateScript = path.join(
         __dirname,
         '../helpers/interpolate-glyph.mjs'
@@ -144,7 +146,7 @@ initBabelfontWasm.interpolate_glyph = jest.fn((glyphName, locationJson) => {
         ).trim();
     } finally {
         try {
-            fs.unlinkSync(fontPath);
+            fs.rmSync(tempDir, { recursive: true, force: true });
         } catch (e) {}
     }
 });

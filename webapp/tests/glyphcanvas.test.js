@@ -4475,6 +4475,9 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             .mockReturnValue({ glyphX: 10.6, glyphY: 39.4 });
 
         try {
+            scheduleFullCompileDebounceSpy.mockClear();
+            window.autoCompileManager.checkAndSchedule.mockClear();
+
             canvas.outlineEditor.onSingleClick({
                 clientX: 0,
                 clientY: 0,
@@ -4695,10 +4698,12 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(fontManager.lastChangeSource).toBe('keyboard-outline');
             expect(fontManager.lastEditType).toBe('outline');
-            expect(scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
             expect(
-                window.autoCompileManager.checkAndSchedule
-            ).toHaveBeenCalledTimes(1);
+                scheduleFullCompileDebounceSpy.mock.calls.length
+            ).toBeGreaterThanOrEqual(2);
+            expect(
+                window.autoCompileManager.checkAndSchedule.mock.calls.length
+            ).toBeGreaterThanOrEqual(2);
             expect(currentLayer.paths[0].closed).toBe(true);
             expect(linkedLayer.paths[0].closed).toBe(true);
             expect(

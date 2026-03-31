@@ -8,6 +8,8 @@ type EdgeSnapshot = {
     left: number;
     right: number;
     width: number;
+    centerX: number;
+    centerY: number;
     panX: number;
     scale: number;
 };
@@ -316,9 +318,22 @@ async function getEdgeSnapshot(page: Page): Promise<EdgeSnapshot> {
         const width = Number(
             outlineEditor.getCurrentLayerDataFromStack().width
         );
+        const bbox = outlineEditor.calculateGlyphBoundingBox?.();
         const leftWorldX = glyphPosition.xPosition + glyphPosition.xOffset;
         const rightWorldX = leftWorldX + width;
         const rect = glyphCanvas.canvas.getBoundingClientRect();
+        const bboxCenter = bbox
+            ? viewportManager.fontToScreenCoordinates(
+                  glyphPosition.xPosition +
+                      glyphPosition.xOffset +
+                      bbox.minX +
+                      bbox.width / 2,
+                  glyphPosition.yOffset + bbox.minY + bbox.height / 2
+              )
+            : viewportManager.fontToScreenCoordinates(
+                  leftWorldX + width / 2,
+                  glyphPosition.yOffset
+              );
 
         return {
             left:
@@ -334,6 +349,8 @@ async function getEdgeSnapshot(page: Page): Promise<EdgeSnapshot> {
                     glyphPosition.yOffset
                 ).x,
             width,
+            centerX: rect.left + bboxCenter.x,
+            centerY: rect.top + bboxCenter.y,
             panX: viewportManager.panX,
             scale: viewportManager.scale
         };

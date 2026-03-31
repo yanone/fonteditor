@@ -1452,9 +1452,6 @@ export class OutlineEditor {
             return null;
         }
 
-        const bboxCenterAnchorScreen = refreshGlyphAdvances
-            ? this.getBoundingBoxCenterScreenPosition()
-            : null;
         const previousWidth = Number(currentLayerData.width) || 0;
         const previousSidebearings =
             this.getDirectSidebearingsForLayerData(currentLayerData);
@@ -1535,17 +1532,22 @@ export class OutlineEditor {
         const adjacentSnapCandidateWidthDeltas =
             this._getAdjacentSnapCandidateWidthDeltas(glyphAdvances);
 
-        const advancesRefreshed =
-            refreshGlyphAdvances &&
-            Object.keys(glyphAdvances).length > 0 &&
-            !!this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive(
-                glyphAdvances,
-                { render: false }
-            );
-
-        if (bboxCenterAnchorScreen) {
-            this.applyBoundingBoxCenterScreenAnchor(bboxCenterAnchorScreen);
-        }
+        const advancesRefreshed = refreshGlyphAdvances
+            ? editedSide
+                ? applyLiveSidebearingVisualSync(this.glyphCanvas, {
+                      glyphName,
+                      glyphAdvances,
+                      side: editedSide,
+                      previousWidth,
+                      nextWidth,
+                      render: false
+                  }).advancesRefreshed
+                : Object.keys(glyphAdvances).length > 0 &&
+                  !!this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive(
+                      glyphAdvances,
+                      { render: false }
+                  )
+            : false;
 
         if (editedSide === 'left') {
             const rightNeighborWidthDelta =

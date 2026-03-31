@@ -122,42 +122,39 @@ function setupCanvasForGlyph(font, glyphName) {
     return { glyph, layer, masterId };
 }
 
-function getActiveGlyphBoundingBoxCenterScreen() {
+function getActiveGlyphAdvanceEdgesScreen() {
     const currentLayerData =
         canvas.outlineEditor.getCurrentLayerDataFromStack();
-    const bbox = currentLayerData
-        ? Layer.calculateBoundingBox(currentLayerData, true)
-        : null;
-    if (!bbox) {
+    if (!currentLayerData) {
         return null;
     }
 
     const glyphPosition = canvas.textRunEditor._getGlyphPosition(
         canvas.textRunEditor.selectedGlyphIndex
     );
-    let localCenterX = bbox.minX + bbox.width / 2;
-    let localCenterY = bbox.minY + bbox.height / 2;
+    const leftWorldX = glyphPosition.xPosition + glyphPosition.xOffset;
+    const rightWorldX = leftWorldX + (Number(currentLayerData.width) || 0);
 
-    if (canvas.outlineEditor.isEditingComponent()) {
-        const [a, b, c, d, tx, ty] =
-            canvas.outlineEditor.getAccumulatedTransform();
-        const transformedX = a * localCenterX + c * localCenterY + tx;
-        const transformedY = b * localCenterX + d * localCenterY + ty;
-        localCenterX = transformedX;
-        localCenterY = transformedY;
-    }
-
-    return canvas.viewportManager.fontToScreenCoordinates(
-        glyphPosition.xPosition + glyphPosition.xOffset + localCenterX,
-        glyphPosition.yOffset + localCenterY
-    );
+    return {
+        left: canvas.viewportManager.fontToScreenCoordinates(
+            leftWorldX,
+            glyphPosition.yOffset
+        ).x,
+        right: canvas.viewportManager.fontToScreenCoordinates(
+            rightWorldX,
+            glyphPosition.yOffset
+        ).x
+    };
 }
 
-function expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen) {
-    const currentScreen = getActiveGlyphBoundingBoxCenterScreen();
-    expect(currentScreen).not.toBeNull();
-    expect(currentScreen.x).toBeCloseTo(anchorScreen.x, 2);
-    expect(currentScreen.y).toBeCloseTo(anchorScreen.y, 2);
+function expectActiveGlyphOppositeEdgeAnchored(anchorEdges, editedSide) {
+    const currentEdges = getActiveGlyphAdvanceEdgesScreen();
+    expect(currentEdges).not.toBeNull();
+    if (editedSide === 'left') {
+        expect(currentEdges.right).toBeCloseTo(anchorEdges.right, 2);
+    } else {
+        expect(currentEdges.left).toBeCloseTo(anchorEdges.left, 2);
+    }
 }
 
 function makeBidirectionalNeighborMetricsFont() {
@@ -377,7 +374,7 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
         expect(advancesCall).toHaveProperty('a');
     });
 
-    test('point drag on glyph with LEFT sidebearing key keeps bbox center anchored', () => {
+    test('point drag on glyph with LEFT sidebearing key keeps the right edge anchored', () => {
         const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
         const { masterId } = setupCanvasForGlyph(font, 'n');
 
@@ -416,7 +413,7 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
         }
         expect(leftmostNode).not.toBeNull();
         leftmostNode.x -= 20;
-        const anchorScreen = getActiveGlyphBoundingBoxCenterScreen();
+        const anchorEdges = getActiveGlyphAdvanceEdgesScreen();
 
         const result =
             canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
@@ -427,7 +424,7 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
         // Width must increase: LSB key translates nodes right, advance widens.
         expect(widthDelta).toBeGreaterThan(0.5);
 
-        expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen);
+        expectActiveGlyphOppositeEdgeAnchored(anchorEdges, 'left');
 
         // Advance widths include the active glyph and downstream dependents.
         expect(result).not.toBeNull();
@@ -499,9 +496,9 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
 });
 
 describe('Sidebearing keys: viewport anchoring', () => {
-    // ── RSB key (glyph a): bbox center stays visually anchored ──
+    // ── RSB key (glyph a): left edge stays visually anchored ──
 
-    test('RSB-only key: point drag keeps bbox center anchored', () => {
+    test('RSB-only key: point drag keeps the left edge anchored', () => {
         const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
         // glyph a has only metricRight = n (RSB key, no LSB key)
         const { masterId } = setupCanvasForGlyph(font, 'a');
@@ -526,16 +523,16 @@ describe('Sidebearing keys: viewport anchoring', () => {
                 node.x += 20;
             }
         }
-        const anchorScreen = getActiveGlyphBoundingBoxCenterScreen();
+        const anchorEdges = getActiveGlyphAdvanceEdgesScreen();
 
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
-        expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen);
+        expectActiveGlyphOppositeEdgeAnchored(anchorEdges, 'right');
     });
 
-    // ── Both keys (glyph n): leftmost-only drag fires LSB key → bbox center anchored ──
+    // ── Both keys (glyph n): leftmost-only drag fires LSB key → right edge anchored ──
 
-    test('both keys: dragging only the leftmost node keeps bbox center anchored', () => {
+    test('both keys: dragging only the leftmost node keeps the right edge anchored', () => {
         const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
         // glyph n has both metricLeft = "=l-5" and metricRight = "=l-10".
         // When only the leftmost node moves, the LSB key fires (translates all
@@ -574,7 +571,7 @@ describe('Sidebearing keys: viewport anchoring', () => {
         }
         expect(leftmostNode).not.toBeNull();
         leftmostNode.x -= 20;
-        const anchorScreen = getActiveGlyphBoundingBoxCenterScreen();
+        const anchorEdges = getActiveGlyphAdvanceEdgesScreen();
 
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
@@ -584,10 +581,10 @@ describe('Sidebearing keys: viewport anchoring', () => {
         // Width must increase: the LSB key translates nodes right, widening the advance.
         expect(widthDelta).toBeGreaterThan(0.5);
 
-        expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen);
+        expectActiveGlyphOppositeEdgeAnchored(anchorEdges, 'left');
     });
 
-    test('both keys: dragging only the rightmost node keeps bbox center anchored', () => {
+    test('both keys: dragging only the rightmost node keeps the left edge anchored', () => {
         const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
         setupCanvasForGlyph(font, 'n');
 
@@ -621,11 +618,11 @@ describe('Sidebearing keys: viewport anchoring', () => {
 
         expect(rightmostNode).not.toBeNull();
         rightmostNode.x += 20;
-        const anchorScreen = getActiveGlyphBoundingBoxCenterScreen();
+        const anchorEdges = getActiveGlyphAdvanceEdgesScreen();
 
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
-        expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen);
+        expectActiveGlyphOppositeEdgeAnchored(anchorEdges, 'right');
     });
 
     // ── _metricsKeyEditedSide: records which side changed for history encoding ──
@@ -696,9 +693,9 @@ describe('Sidebearing keys: viewport anchoring', () => {
         expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('right');
     });
 
-    // ── LSB key only: bbox center remains anchored ──
+    // ── LSB key only: right edge remains anchored ──
 
-    test('LSB-only key: point drag keeps bbox center anchored', () => {
+    test('LSB-only key: point drag keeps the right edge anchored', () => {
         // Build a minimal font with a reference glyph and a glyph with only
         // a LSB metrics key (no RSB key). Moving a node causes the LSB key to
         // translate the content, widening the advance, and the viewport must
@@ -819,7 +816,7 @@ describe('Sidebearing keys: viewport anchoring', () => {
                 }
             }
         }
-        const anchorScreen = getActiveGlyphBoundingBoxCenterScreen();
+        const anchorEdges = getActiveGlyphAdvanceEdgesScreen();
 
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
@@ -829,7 +826,7 @@ describe('Sidebearing keys: viewport anchoring', () => {
         // Width must have changed for this test to be meaningful
         expect(Math.abs(widthDelta)).toBeGreaterThan(0.5);
 
-        expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen);
+        expectActiveGlyphOppositeEdgeAnchored(anchorEdges, 'left');
     });
 
     // ── Sidebearing handle drag (RSB on l): panX unchanged (glyph a downstream) ──
@@ -962,7 +959,7 @@ describe('Sidebearing keys: viewport anchoring', () => {
 
     // ── Sequential drags: RSB drag followed by LSB drag both correct correctly ──
 
-    test('after RSB drag widens advance, subsequent leftmost drag still keeps bbox center anchored', () => {
+    test('after RSB drag widens advance, subsequent leftmost drag still anchors the opposite edge', () => {
         // Regression: after saveLayerData the layer model's _shapeWrappers can
         // become stale. syncLiveLayerData must invalidate them so that
         // translateLayerContentsX (called from setDirectSidebearing inside
@@ -1003,11 +1000,11 @@ describe('Sidebearing keys: viewport anchoring', () => {
             rightmostNode.x += 20;
         }
 
-        let anchorScreen = getActiveGlyphBoundingBoxCenterScreen();
+        let anchorEdges = getActiveGlyphAdvanceEdgesScreen();
 
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
         canvas.outlineEditor.isDraggingPoint = false;
-        expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen);
+        expectActiveGlyphOppositeEdgeAnchored(anchorEdges, 'right');
 
         const widthAfterRsb = currentLayerData.width;
         // RSB key maintained → advance widened by rightmost-node displacement
@@ -1037,7 +1034,7 @@ describe('Sidebearing keys: viewport anchoring', () => {
             leftmostNode.x -= 15;
         }
 
-        anchorScreen = getActiveGlyphBoundingBoxCenterScreen();
+        anchorEdges = getActiveGlyphAdvanceEdgesScreen();
 
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
@@ -1045,7 +1042,7 @@ describe('Sidebearing keys: viewport anchoring', () => {
 
         // LSB key must still fire and update the width even after a prior RSB drag.
         expect(widthAfterLsb).not.toBe(widthAfterRsb);
-        expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen);
+        expectActiveGlyphOppositeEdgeAnchored(anchorEdges, 'left');
         expect(canvas.viewportManager.panX).not.toBe(panXAfterRsb);
     });
 });
@@ -1370,7 +1367,7 @@ describe('Sidebearing keys: component drags', () => {
         expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('right');
     });
 
-    test('dragging base component left on glyph with LSB key keeps bbox center anchored', () => {
+    test('dragging base component left on glyph with LSB key keeps the right edge anchored', () => {
         // composite: base@identity, bbox minX=60, width=520, LSB=60
         // Moving base tx -20 → base paths at 40..440 → minX=40 → LSB=40≠60
         // → key fires: shift all +20 → base back to 60..460, accent 200→220
@@ -1397,7 +1394,7 @@ describe('Sidebearing keys: component drags', () => {
 
         // Move base component left by 20
         currentLayerData.shapes[0].transform.translation[0] -= 20;
-        const anchorScreen = getActiveGlyphBoundingBoxCenterScreen();
+        const anchorEdges = getActiveGlyphAdvanceEdgesScreen();
 
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
@@ -1413,12 +1410,12 @@ describe('Sidebearing keys: component drags', () => {
         );
         expect(accentTxAfter).toBeGreaterThan(accentTxBefore);
 
-        expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen);
+        expectActiveGlyphOppositeEdgeAnchored(anchorEdges, 'left');
 
         expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('left');
     });
 
-    test('dragging base component right on glyph with RSB key keeps bbox center anchored', () => {
+    test('dragging base component right on glyph with RSB key keeps the left edge anchored', () => {
         // comp_rsb: base@identity, maxX=520, width=580, RSB=60
         // Moving base tx +20 → base paths at 80..480 → maxX=max(480,520)=520
         // (accent still at 420..520) → no change. So we move base far enough
@@ -1443,14 +1440,14 @@ describe('Sidebearing keys: component drags', () => {
 
         // Move base far enough right so that base maxX exceeds accent maxX
         currentLayerData.shapes[0].transform.translation[0] += 80;
-        const anchorScreen = getActiveGlyphBoundingBoxCenterScreen();
+        const anchorEdges = getActiveGlyphAdvanceEdgesScreen();
 
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
         const widthAfter = currentLayerData.width;
         expect(widthAfter).toBeGreaterThan(widthBefore);
 
-        expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen);
+        expectActiveGlyphOppositeEdgeAnchored(anchorEdges, 'right');
         expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('right');
     });
 
@@ -1472,7 +1469,7 @@ describe('Sidebearing keys: component drags', () => {
         canvas.outlineEditor.selectedComponents = [1];
         canvas.outlineEditor._dragType = 'component';
         canvas.outlineEditor._componentDragDeltaX = 0;
-        const anchorScreen = getActiveGlyphBoundingBoxCenterScreen();
+        const anchorEdges = getActiveGlyphAdvanceEdgesScreen();
 
         const currentLayerData =
             canvas.outlineEditor.getCurrentLayerDataFromStack();
@@ -1498,7 +1495,7 @@ describe('Sidebearing keys: component drags', () => {
         const minPathX = Math.min(...nodesArray.map((n) => n.x));
         expect(minPathX).toBeGreaterThan(30);
 
-        expectActiveGlyphBoundingBoxCenterAnchored(anchorScreen);
+        expectActiveGlyphOppositeEdgeAnchored(anchorEdges, 'left');
     });
 
     test('component drag records _metricsKeyEditedSide for undo', () => {
