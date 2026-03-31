@@ -45,11 +45,42 @@ export async function captureSnapshot(
             ? safeGet('stateManager').getStateSnapshot()
             : null;
         const state = stateSnapshot?.state || {};
+        const textRunEditor = safeGet('glyphCanvas.textRunEditor');
 
         const snapshot: AppSnapshot = {
             label: snapshotLabel,
             state: JSON.parse(JSON.stringify(state || {}))
         };
+
+        if (textRunEditor) {
+            const glyphBuffer = Array.isArray(textRunEditor.shapedGlyphs)
+                ? textRunEditor.shapedGlyphs.map(
+                      (glyph: Record<string, any>) => ({
+                          ...glyph
+                      })
+                  )
+                : [];
+
+            const uniqueGids = new Set<number>();
+            for (const glyph of glyphBuffer) {
+                if (Number.isFinite(glyph.g)) {
+                    uniqueGids.add(glyph.g as number);
+                }
+            }
+
+            const gidToName = Array.from(uniqueGids)
+                .sort((a, b) => a - b)
+                .map((gid) => ({
+                    gid,
+                    name: textRunEditor.getGlyphNameForGid(gid)
+                }));
+
+            // Read the live text-run state so JSON snapshots match the exact
+            // glyph stream currently rendered on the canvas, even when async
+            // editing-font apply paths repaint without going through state sync.
+            snapshot.state.editor_harfbuzz_glyph_buffer = glyphBuffer;
+            snapshot.state.editor_harfbuzz_gid_to_name = gidToName;
+        }
 
         // Ensure everything is JSON-serializable by doing a round-trip
         return JSON.parse(JSON.stringify(snapshot));

@@ -153,10 +153,12 @@ initBabelfontWasm.version = jest.fn(() => '0.1.0');
 // Real implementation using wasm module to convert .glyphs files
 initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
     // Write to temp file, convert with wasm helper, read result, delete temp files
-    const tmpDir = os.tmpdir();
-    const inputPath = path.join(tmpDir, filename);
+    const tempDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'babelfont-jest-convert-')
+    );
+    const inputPath = path.join(tempDir, filename);
     const outputPath = path.join(
-        tmpDir,
+        tempDir,
         filename.replace(/\.glyphs$/, '.jest-converted.babelfont')
     );
 
@@ -185,6 +187,9 @@ initBabelfontWasm.open_font_file = jest.fn((filename, contents) => {
         } catch (e) {}
         try {
             fs.unlinkSync(outputPath);
+        } catch (e) {}
+        try {
+            fs.rmdirSync(tempDir);
         } catch (e) {}
     }
 });

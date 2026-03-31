@@ -124,6 +124,7 @@ npm run test:update-snapshots
 ### Playwright Automation Mode
 
 - For automated development workflows, run Playwright non-interactively by default (headless CLI execution), so reports don't get stuck and require user to press Ctrl+C. The user might not be present to do that.
+- The project must enforce this by default: keep Playwright configured with `use.headless = true` and HTML reporter `open: 'never'` so `npm run test` stays machine-processable after failures without opening interactive UI.
 - Do not use Playwright UI/debug/record modes unless explicitly requested for manual investigation.
 
 ### Release Process

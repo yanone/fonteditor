@@ -24,7 +24,7 @@ export default defineConfig({
     retries: process.env.CI ? 2 : 0,
 
     // Reporter to use
-    reporter: [['html'], ['list']],
+    reporter: [['html', { open: 'never' }], ['list']],
 
     expect: {
         toHaveScreenshot: {
@@ -34,6 +34,9 @@ export default defineConfig({
 
     // Shared settings for all projects
     use: {
+        // Force non-interactive execution for automation and CI.
+        headless: true,
+
         // Base URL for navigation
         baseURL: process.env.CI
             ? 'http://localhost:9000'
