@@ -124,7 +124,8 @@ function getActiveEditedGlyphName(): string | null {
 export async function syncRustCacheAndRefreshCanvas(
     rootGlyphName?: string,
     editedGlyphName?: string,
-    forceFullRustSync: boolean = false
+    forceFullRustSync: boolean = false,
+    options?: { skipDeferredCanvasRepaint?: boolean }
 ): Promise<void> {
     const gc = window.glyphCanvas;
     const oe = gc?.outlineEditor;
@@ -240,7 +241,9 @@ export async function syncRustCacheAndRefreshCanvas(
                 selectedLayerId
             );
         }
-        gc.requestRepaintAfterCompile();
+        if (!options?.skipDeferredCanvasRepaint) {
+            gc.requestRepaintAfterCompile();
+        }
     }
 }
 
@@ -482,15 +485,11 @@ export function runBridgeUndoRedo(
             appliedChange.historyItem as HistoryStackItem | null,
             [appliedChange.glyphName, glyphName, editedGlyphName]
         );
+        const isDirectSidebearingHistory = isDirectSidebearingUndoRedo(
+            appliedChange.historyItem as HistoryStackItem | null
+        );
 
-        if (
-            !(
-                appliedImmediateSidebearingSync &&
-                isDirectSidebearingUndoRedo(
-                    appliedChange.historyItem as HistoryStackItem | null
-                )
-            )
-        ) {
+        if (!(appliedImmediateSidebearingSync && isDirectSidebearingHistory)) {
             syncImmediateUndoOutlineLayerFromModel(
                 appliedChange.glyphName,
                 appliedChange.layerId ?? layerId ?? null
@@ -532,7 +531,12 @@ export function runBridgeUndoRedo(
         await syncRustCacheAndRefreshCanvas(
             refreshRootGlyphName,
             glyphName,
-            forceFullRustSync
+            forceFullRustSync,
+            {
+                skipDeferredCanvasRepaint:
+                    appliedImmediateSidebearingSync &&
+                    isDirectSidebearingHistory
+            }
         );
 
         await refreshGlyphOverviewAfterUndoRedo(

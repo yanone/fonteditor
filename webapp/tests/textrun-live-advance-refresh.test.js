@@ -267,7 +267,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(60);
         expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenCalledTimes(1);
         expect(render).toHaveBeenCalledTimes(1);
-        expect(requestRepaintAfterCompile).toHaveBeenCalledTimes(1);
+        expect(requestRepaintAfterCompile).not.toHaveBeenCalled();
     });
 
     test('undo sidebearing sync refreshes advances for the stack-selected edited glyph name', async () => {
