@@ -9390,8 +9390,11 @@ export class OutlineEditor {
         return null;
     }
 
-    async autoSelectMatchingLayer(): Promise<void> {
+    async autoSelectMatchingLayer(options?: {
+        skipRender?: boolean;
+    }): Promise<void> {
         const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
+        const skipRender = options?.skipRender === true;
         const previousLayer = this.isEditingComponent()
             ? this.getCurrentLayerModel()
             : this.getTransitionPreviousLayerModel(rootGlyphName);
@@ -9447,7 +9450,7 @@ export class OutlineEditor {
             // Fetch layer data EXCEPT during slider interpolation or layer switch animation
             // During these states, we use interpolated data instead
             if (!this.isInterpolating && !this.isLayerSwitchAnimating) {
-                await this.fetchLayerData(); // Fetch layer data for outline editor
+                await this.fetchLayerData(skipRender); // Fetch layer data for outline editor
 
                 // Perform mouse hit detection after layer data is loaded
                 this.performHitDetection(null);
@@ -9462,7 +9465,7 @@ export class OutlineEditor {
             this.isInterpolating = false;
             this.autoPanAnchorScreen = null;
 
-            if (this.active) {
+            if (this.active && !skipRender) {
                 this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             }

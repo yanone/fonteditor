@@ -1623,7 +1623,10 @@ class GlyphCanvas {
         this.render();
     }
 
-    setFont(fontArrayBuffer: ArrayBuffer): Promise<void> {
+    setFont(
+        fontArrayBuffer: ArrayBuffer,
+        options?: { skipInitialShapeRender?: boolean }
+    ): Promise<void> {
         if (!fontArrayBuffer) {
             console.error('No font data provided');
             return Promise.resolve();
@@ -1664,7 +1667,9 @@ class GlyphCanvas {
 
                 // Shape text with new editing font
                 // (Stage 2 will use the rebuilt name→GID map)
-                this.textRunEditor!.shapeText();
+                this.textRunEditor!.shapeText(
+                    options?.skipInitialShapeRender === true
+                );
                 this.reapplyActiveEditedGlyphAdvanceAfterShape();
                 console.log(
                     '[GlyphCanvas]',
@@ -3637,7 +3642,9 @@ class GlyphCanvas {
                     );
                     return;
                 }
-                await this.outlineEditor.autoSelectMatchingLayer();
+                await this.outlineEditor.autoSelectMatchingLayer({
+                    skipRender: true
+                });
             }
         } finally {
             this.isUpdatingPropertiesUI = false;
@@ -5440,7 +5447,9 @@ function setupFontLoadingListener() {
                         gc.pendingFeatureChangeAnchor.editing ||
                         gc.pendingFeatureChangeAnchor.text;
 
-                    await window.glyphCanvas.setFont(arrayBuffer);
+                    await window.glyphCanvas.setFont(arrayBuffer, {
+                        skipInitialShapeRender: true
+                    });
                     timelineMark('canvas.editingFontCompiled.fontApplied');
                     console.log(
                         '[GlyphCanvas]',
