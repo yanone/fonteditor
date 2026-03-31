@@ -512,6 +512,10 @@ function isSupportedFontFormat(name: string, isDir: boolean): boolean {
     return supportedExtensions.some((ext) => lowerName.endsWith(ext));
 }
 
+function hasOpenFontInCurrentWindow(): boolean {
+    return (window.fontManager?.openedFonts.size || 0) > 0;
+}
+
 // Helper functions for plugin menu dropdowns
 function createPluginMenuHtml(menuItems: TitleBarMenuItem[]): string {
     const items = menuItems
@@ -536,12 +540,14 @@ function createFileContextMenuHtml(
 
     // Open (for supported font formats)
     if (isSupportedFontFormat(name, isDir)) {
-        items.push(`
-            <div class="plugin-menu-item" data-action="open">
-                <span class="material-symbols-outlined">folder_open</span>
-                <span>Open</span>
-            </div>
-        `);
+        if (!hasOpenFontInCurrentWindow()) {
+            items.push(`
+                <div class="plugin-menu-item" data-action="open">
+                    <span class="material-symbols-outlined">folder_open</span>
+                    <span>Open</span>
+                </div>
+            `);
+        }
         items.push(`
             <div class="plugin-menu-item" data-action="open-new-tab">
                 <span class="material-symbols-outlined">open_in_new</span>
@@ -717,6 +723,7 @@ function setupFileContextMenus() {
 
             // Set position to mouse cursor
             tippyInstance.setProps({
+                content: createFileContextMenuHtml(path, name, isDir),
                 getReferenceClientRect: () => ({
                     width: 0,
                     height: 0,
@@ -2078,12 +2085,20 @@ function setupFileItemClickHandlers() {
 
                 // Handle double-click
                 if (isFont) {
-                    console.log(
-                        '[FileBrowser]',
-                        'Double-click opening font:',
-                        path
-                    );
-                    openFont(path);
+                    if (hasOpenFontInCurrentWindow()) {
+                        console.log(
+                            '[FileBrowser]',
+                            'Ignoring font double-click while a font is already open:',
+                            path
+                        );
+                    } else {
+                        console.log(
+                            '[FileBrowser]',
+                            'Double-click opening font:',
+                            path
+                        );
+                        openFont(path);
+                    }
                 } else if (isDir) {
                     navigateToPath(path);
                 }

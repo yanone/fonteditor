@@ -237,6 +237,58 @@ test.describe('Font Editor Basic Workflow', () => {
         }
     };
 
+    test('files view keeps font opening to new tabs once a font is loaded', async ({
+        page
+    }) => {
+        await page.keyboard.press('Meta+Shift+F');
+        await page.waitForTimeout(200);
+
+        const firstFontItem = page.locator(
+            '.file-item[data-name="Fustat.glyphs"]'
+        );
+        const secondFontItem = page.locator(
+            '.file-item[data-name="YanoneKaffeesatz.designspace"]'
+        );
+
+        await firstFontItem.dblclick();
+        await waitForFontLoaded(page);
+        await waitForOpenSessionReady(page, 'Fustat.glyphs');
+        await page.waitForTimeout(300);
+
+        const currentFontPathBefore = await page.evaluate(() => {
+            const win = window as any;
+            return win.fontManager?.currentFont?.path || null;
+        });
+
+        await secondFontItem.click({ button: 'right' });
+
+        await expect(
+            page.locator(
+                '.tippy-box:visible .plugin-menu-item[data-action="open-new-tab"]'
+            )
+        ).toBeVisible();
+        await expect(
+            page.locator(
+                '.tippy-box:visible .plugin-menu-item[data-action="open"]'
+            )
+        ).toHaveCount(0);
+
+        await page.mouse.click(10, 10);
+        await page.waitForTimeout(100);
+
+        await secondFontItem.dblclick();
+        await page.waitForTimeout(1500);
+
+        await expect(page.locator('#loading-cursor-spinner')).toBeHidden();
+
+        const currentFontPathAfter = await page.evaluate(() => {
+            const win = window as any;
+            return win.fontManager?.currentFont?.path || null;
+        });
+
+        expect(currentFontPathAfter).toBe(currentFontPathBefore);
+    });
+
     test('open YanoneKaffeesatz.glyphspackage and snapshot full window', async ({
         page
     }) => {
