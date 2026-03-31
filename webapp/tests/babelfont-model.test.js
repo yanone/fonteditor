@@ -3087,6 +3087,32 @@ describe('Babelfont Object Model', () => {
             expect(path.nodes[1].y).toBeCloseTo(0);
         });
 
+        test('preserves the closed contour start node when splitting the wraparound segment', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 100, nodetype: 'Line' },
+                    { x: 0, y: 100, nodetype: 'Line' }
+                ],
+                true
+            );
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            const insertedNodeIndex = path._addPoint(3, 0.5);
+
+            expect(insertedNodeIndex).toBe(4);
+            expect(path.nodes.map((node) => ({ x: node.x, y: node.y }))).toEqual([
+                { x: 0, y: 0 },
+                { x: 100, y: 0 },
+                { x: 100, y: 100 },
+                { x: 0, y: 100 },
+                { x: 0, y: 50 }
+            ]);
+            expect(path.nodes[0].x).toBe(0);
+            expect(path.nodes[0].y).toBe(0);
+        });
+
         test('dispatches layerFingerprintChanged when inserting a node changes the layer fingerprint', () => {
             const testFont = makeFontWithSinglePath([
                 { x: 0, y: 0, nodetype: 'Line' },

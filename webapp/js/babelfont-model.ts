@@ -471,10 +471,20 @@ function replaceSegmentRunInNodeArray(
             ...replacementNodes,
             ...rotatedNodes.slice(rotatedRunEndIndex + 1)
         ];
+        const restoredStartIndex = replacementNodes.length;
+        const restoredNodes = [
+            ...nextNodes.slice(restoredStartIndex),
+            ...nextNodes.slice(0, restoredStartIndex)
+        ];
+        const insertedNodeIndex =
+            ((1 + insertedNodeOffset - restoredStartIndex) %
+                restoredNodes.length +
+                restoredNodes.length) %
+            restoredNodes.length;
 
         return {
-            nodes: normalizePathNodeArray(nextNodes, true),
-            insertedNodeIndex: 1 + insertedNodeOffset
+            nodes: normalizePathNodeArray(restoredNodes, true),
+            insertedNodeIndex
         };
     }
 
