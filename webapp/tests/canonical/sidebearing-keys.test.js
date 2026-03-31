@@ -118,6 +118,130 @@ function setupCanvasForGlyph(font, glyphName) {
     return { glyph, layer, masterId };
 }
 
+function makeBidirectionalNeighborMetricsFont() {
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        masters: [
+            {
+                name: { dflt: 'Regular' },
+                id: 'M0',
+                location: {},
+                guides: [],
+                metrics: {},
+                kerning: {},
+                custom_ot_values: {},
+                format_specific: {}
+            }
+        ],
+        instances: [],
+        glyphs: [
+            {
+                name: 'l',
+                category: 'Base',
+                layers: [
+                    {
+                        width: 260,
+                        id: 'L0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: '90 0 l 170 0 l 170 620 l 90 620 l',
+                                closed: true
+                            }
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true,
+                format_specific: {}
+            },
+            {
+                name: 'a',
+                category: 'Base',
+                layers: [
+                    {
+                        width: 340,
+                        id: 'A0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: '70 0 l 270 0 l 270 620 l 70 620 l',
+                                closed: true
+                            }
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true,
+                format_specific: {
+                    metric_left: '=l-5',
+                    metric_right: '=l-10'
+                }
+            },
+            {
+                name: 'adieresis',
+                category: 'Base',
+                layers: [
+                    {
+                        width: 360,
+                        id: 'AD0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: '80 0 l 280 0 l 280 620 l 80 620 l',
+                                closed: true
+                            }
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true,
+                format_specific: {
+                    metric_left: '=a',
+                    metric_right: '=a'
+                }
+            }
+        ],
+        names: { family_name: { en: 'BidirectionalNeighborMetrics' } },
+        note: '',
+        date: '2026-03-31',
+        features: { classes: {}, prefixes: {}, features: [] },
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
+function primeSnapCacheForAdjacentDependents(anchor) {
+    canvas.outlineEditor.selectedPoints = [anchor];
+    canvas.outlineEditor.isDraggingPoint = true;
+    canvas.outlineEditor.isSlidingSmoothPointAlongCurve = false;
+    canvas.outlineEditor._snapDragStartMouseX = 0;
+    canvas.outlineEditor._snapDragStartMouseY = 0;
+    const node =
+        canvas.outlineEditor.getCurrentLayerDataFromStack().shapes[
+            anchor.contourIndex
+        ].nodes[anchor.nodeIndex];
+    canvas.outlineEditor._snapDragStartNodePos = { x: node.x, y: node.y };
+    canvas.outlineEditor._rebuildSnapCandidateCache();
+}
+
+function getSnapCandidateXs(source) {
+    return canvas.outlineEditor._snapCandidateCache.debugCandidates
+        .filter((candidate) => candidate.source === source)
+        .map((candidate) => candidate.x);
+}
+
 // ==================== Tests ====================
 
 describe('Sidebearing keys: live recompute during mouse drags', () => {
@@ -888,6 +1012,77 @@ describe('Sidebearing keys: viewport panning', () => {
         expect(widthAfterLsb).not.toBe(widthAfterRsb);
         // panX must have shifted to anchor the right edge of the advance.
         expect(canvas.viewportManager.panX).not.toBe(panXAfterRsb);
+    });
+});
+
+describe('Sidebearing keys: adjacent snap candidate compensation', () => {
+    test('left-side keyed edit shifts right-neighbor snap candidates by active and dependent width deltas', () => {
+        const font = makeBidirectionalNeighborMetricsFont();
+        setupCanvasForGlyph(font, 'a');
+
+        canvas.textRunEditor.glyphNameBuffer = ['adieresis', 'a', 'adieresis'];
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 360, dx: 0, dy: 0, g: 11 },
+            { ax: 340, dx: 0, dy: 0, g: 12 },
+            { ax: 360, dx: 0, dy: 0, g: 11 }
+        ];
+        canvas.textRunEditor.selectedGlyphIndex = 1;
+
+        const currentLayerData =
+            canvas.outlineEditor.getCurrentLayerDataFromStack();
+        const widthBefore = currentLayerData.width;
+        primeSnapCacheForAdjacentDependents({ contourIndex: 0, nodeIndex: 0 });
+        const rightBefore = getSnapCandidateXs('right');
+
+        currentLayerData.shapes[0].nodes[0].x -= 20;
+        const result =
+            canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
+
+        const widthDelta = currentLayerData.width - widthBefore;
+        const rightNeighborDelta = result.glyphAdvances.adieresis - 360;
+        const rightAfter = getSnapCandidateXs('right');
+
+        expect(widthDelta).toBeGreaterThan(0);
+        expect(rightNeighborDelta).toBeGreaterThan(0);
+        rightAfter.forEach((value, index) => {
+            expect(value - rightBefore[index]).toBeCloseTo(
+                widthDelta + rightNeighborDelta,
+                5
+            );
+        });
+    });
+
+    test('right-side keyed edit shifts left-neighbor snap candidates by the dependent width delta', () => {
+        const font = makeBidirectionalNeighborMetricsFont();
+        setupCanvasForGlyph(font, 'a');
+
+        canvas.textRunEditor.glyphNameBuffer = ['adieresis', 'a', 'adieresis'];
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 360, dx: 0, dy: 0, g: 11 },
+            { ax: 340, dx: 0, dy: 0, g: 12 },
+            { ax: 360, dx: 0, dy: 0, g: 11 }
+        ];
+        canvas.textRunEditor.selectedGlyphIndex = 1;
+
+        const currentLayerData =
+            canvas.outlineEditor.getCurrentLayerDataFromStack();
+        primeSnapCacheForAdjacentDependents({ contourIndex: 0, nodeIndex: 1 });
+        const leftBefore = getSnapCandidateXs('left');
+
+        currentLayerData.shapes[0].nodes[1].x += 20;
+        const result =
+            canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
+
+        const leftNeighborDelta = result.glyphAdvances.adieresis - 360;
+        const leftAfter = getSnapCandidateXs('left');
+
+        expect(leftNeighborDelta).toBeGreaterThan(0);
+        leftAfter.forEach((value, index) => {
+            expect(value - leftBefore[index]).toBeCloseTo(
+                -leftNeighborDelta,
+                5
+            );
+        });
     });
 });
 

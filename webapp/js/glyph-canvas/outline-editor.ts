@@ -1516,6 +1516,8 @@ export class OutlineEditor {
             currentLayerId,
             masterId
         );
+        const adjacentSnapCandidateWidthDeltas =
+            this._getAdjacentSnapCandidateWidthDeltas(glyphAdvances);
 
         // Snapshot preceding-glyph advance delta BEFORE refreshing the
         // buffer, so the current ax values reflect the pre-update state.
@@ -1542,6 +1544,23 @@ export class OutlineEditor {
         ) {
             this.glyphCanvas.viewportManager.panX -=
                 precedingDelta * this.glyphCanvas.viewportManager.scale;
+        }
+
+        if (editedSide === 'left') {
+            const rightNeighborWidthDelta =
+                adjacentSnapCandidateWidthDeltas.right;
+            if (rightNeighborWidthDelta !== undefined) {
+                this._shiftSnapCandidateCacheX(
+                    rightNeighborWidthDelta,
+                    'right'
+                );
+            }
+        } else if (editedSide === 'right') {
+            const leftNeighborWidthDelta =
+                adjacentSnapCandidateWidthDeltas.left;
+            if (leftNeighborWidthDelta !== undefined) {
+                this._shiftSnapCandidateCacheX(-leftNeighborWidthDelta, 'left');
+            }
         }
 
         return {
@@ -4456,6 +4475,65 @@ export class OutlineEditor {
                 c.x += deltaX;
             }
         }
+    }
+
+    private _getAdjacentSnapCandidateWidthDeltas(
+        glyphAdvances: Record<string, number>
+    ): Partial<Record<'left' | 'right', number>> {
+        const textRunEditor = this.glyphCanvas.textRunEditor;
+        if (
+            !textRunEditor ||
+            !Array.isArray(textRunEditor.shapedGlyphs) ||
+            textRunEditor.selectedGlyphIndex < 0
+        ) {
+            return {};
+        }
+
+        const deltas: Partial<Record<'left' | 'right', number>> = {};
+        const selectedGlyphIndex = textRunEditor.selectedGlyphIndex;
+        const resolveGlyphName = (glyphIndex: number): string | null => {
+            const shapedGlyph = textRunEditor.shapedGlyphs[glyphIndex];
+            return (
+                shapedGlyph?.explicitGlyphName ||
+                textRunEditor.glyphNameBuffer?.[glyphIndex] ||
+                null
+            );
+        };
+
+        for (const [source, glyphIndex] of [
+            ['left', selectedGlyphIndex - 1],
+            ['right', selectedGlyphIndex + 1]
+        ] as const) {
+            if (
+                glyphIndex < 0 ||
+                glyphIndex >= textRunEditor.shapedGlyphs.length
+            ) {
+                continue;
+            }
+
+            const glyphName = resolveGlyphName(glyphIndex);
+            if (!glyphName || !(glyphName in glyphAdvances)) {
+                continue;
+            }
+
+            const previousAdvance = Number(
+                textRunEditor.shapedGlyphs[glyphIndex]?.ax
+            );
+            const nextAdvance = Number(glyphAdvances[glyphName]);
+            if (
+                !Number.isFinite(previousAdvance) ||
+                !Number.isFinite(nextAdvance)
+            ) {
+                continue;
+            }
+
+            const delta = nextAdvance - previousAdvance;
+            if (Math.abs(delta) > 0.01) {
+                deltas[source] = delta;
+            }
+        }
+
+        return deltas;
     }
 
     /**
