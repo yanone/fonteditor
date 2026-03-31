@@ -14,6 +14,10 @@ import fontManager from './font-manager';
     let isStartupBlocked = false;
     let triggerQueued = false;
 
+    function isCompilationBlockedByActiveDrag() {
+        return !!window.glyphCanvas?.outlineEditor?.draggingSomething;
+    }
+
     function queueImmediateTrigger() {
         if (triggerQueued) {
             return;
@@ -40,6 +44,14 @@ import fontManager from './font-manager';
         }
 
         if (isStartupBlocked) {
+            animationFrameId = requestAnimationFrame(checkLoop);
+            return;
+        }
+
+        if (
+            fontManager.currentFont?.needsRecompile &&
+            isCompilationBlockedByActiveDrag()
+        ) {
             animationFrameId = requestAnimationFrame(checkLoop);
             return;
         }
@@ -109,6 +121,10 @@ import fontManager from './font-manager';
             return;
         }
 
+        if (isCompilationBlockedByActiveDrag()) {
+            return;
+        }
+
         if (fontManager.currentFont?.needsRecompile) {
             isCompiling = true;
 
@@ -171,6 +187,13 @@ import fontManager from './font-manager';
      * Now just ensures the loop is running.
      */
     function checkAndSchedule() {
+        if (isCompilationBlockedByActiveDrag()) {
+            if (!loopRunning) {
+                startLoop();
+            }
+            return;
+        }
+
         if (!loopRunning) {
             startLoop();
         }

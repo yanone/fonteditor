@@ -58,6 +58,10 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     const DEBOUNCE_MS = 350;
     const MONITOR_MS = 200;
 
+    function isCompilationBlockedByActiveDrag(): boolean {
+        return !!window.glyphCanvas?.outlineEditor?.draggingSomething;
+    }
+
     function isValidProfile(profile: string): profile is QcProfile {
         return AVAILABLE_QC_PROFILES.includes(profile as QcProfile);
     }
@@ -135,6 +139,10 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
             return;
         }
 
+        if (isCompilationBlockedByActiveDrag()) {
+            return;
+        }
+
         if (debounceTimer !== null) {
             clearTimeout(debounceTimer);
             debounceTimer = null;
@@ -148,6 +156,10 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
 
     function checkAndSchedule(): void {
         if (!isEnabled || TEMP_DISABLE_FULL_COMPILE) {
+            return;
+        }
+
+        if (isCompilationBlockedByActiveDrag()) {
             return;
         }
 
@@ -180,6 +192,11 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                 const currentFont = fontManager.currentFont;
                 if (!currentFont) {
                     dispatchQcUpdate(null, 'idle', -1);
+                    break;
+                }
+
+                if (isCompilationBlockedByActiveDrag()) {
+                    scheduleCompilation(MONITOR_MS);
                     break;
                 }
 

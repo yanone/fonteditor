@@ -2105,9 +2105,12 @@ class FontManager {
         // Directly assign the cleaned layer data (no need for JSON.parse/stringify)
         glyph.layers[layerIndex] = layerDataCopy;
 
+        const isMouseDragEdit = changeSource.startsWith('mouse-drag');
         const isInteractiveEdit =
-            changeSource.startsWith('mouse-drag') ||
-            changeSource.startsWith('keyboard');
+            isMouseDragEdit || changeSource.startsWith('keyboard');
+        const isActiveMouseDrag =
+            isMouseDragEdit &&
+            !!window.glyphCanvas?.outlineEditor?.draggingSomething;
 
         if (isInteractiveEdit) {
             this.pendingBabelfontJsonSyncAfterDrag = true;
@@ -2134,12 +2137,14 @@ class FontManager {
             isInteractiveEdit && this.lastEditType !== null;
 
         // Schedule debounced full compile after interactive editing stops
-        if (deferInteractiveCompile) {
+        if (deferInteractiveCompile && !isActiveMouseDrag) {
             this.scheduleFullCompileDebounce();
         }
 
         this.currentFont!.markDirty(changeSource);
-        window.autoCompileManager.checkAndSchedule();
+        if (!isActiveMouseDrag) {
+            window.autoCompileManager.checkAndSchedule();
+        }
         await this.updateDirtyIndicator();
 
         // Update worker's font cache so glyph overview renders correctly
