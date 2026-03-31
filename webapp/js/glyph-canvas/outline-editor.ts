@@ -4074,13 +4074,14 @@ export class OutlineEditor {
         if (this.hoveredPointIndex) {
             this.selectedGuideHandle = null;
             this.selectedSidebearingHandle = null;
+            const hoveredPoint = this.hoveredPointIndex;
             const isCmdClick = e.metaKey || e.ctrlKey;
             if (
                 isCmdClick &&
                 !e.shiftKey &&
-                this.canSlideSmoothPointOnCurve(this.hoveredPointIndex)
+                this.canSlideSmoothPointOnCurve(hoveredPoint)
             ) {
-                this.selectedPoints = [{ ...this.hoveredPointIndex }];
+                this.selectedPoints = [{ ...hoveredPoint }];
                 this.selectedAnchors = [];
                 this.selectedComponents = [];
                 this.isDraggingPoint = true;
@@ -4104,40 +4105,47 @@ export class OutlineEditor {
 
             // Cmd+click on on-curve node of closed path: open path at that node
             if (isCmdClick && !e.shiftKey) {
-                if (this.openClosedPathAtNode(this.hoveredPointIndex)) {
+                if (this.openClosedPathAtNode(hoveredPoint)) {
                     return;
                 }
             }
 
-            if (e.shiftKey) {
+            const existingIndex = this.selectedPoints.findIndex(
+                (p) =>
+                    p.contourIndex === hoveredPoint.contourIndex &&
+                    p.nodeIndex === hoveredPoint.nodeIndex
+            );
+            const isInSelection = existingIndex >= 0;
+            const currentLayerData = this.getCurrentLayerDataFromStack();
+            const contour = getEditableContour(
+                currentLayerData?.shapes?.[hoveredPoint.contourIndex]
+            );
+            const hoveredNode = contour?.nodes[hoveredPoint.nodeIndex];
+            const canStartShiftOffCurveDrag =
+                e.shiftKey &&
+                isOffCurveNode(hoveredNode) &&
+                ((this.selectedPoints.length === 0 &&
+                    this.selectedAnchors.length === 0) ||
+                    (isInSelection &&
+                        this.selectedPoints.length === 1 &&
+                        this.selectedAnchors.length === 0));
+
+            if (e.shiftKey && !canStartShiftOffCurveDrag) {
                 // Shift-click: add to or remove from selection (keep anchors selected for mixed selection)
-                const existingIndex = this.selectedPoints.findIndex(
-                    (p) =>
-                        p.contourIndex ===
-                            this.hoveredPointIndex!.contourIndex &&
-                        p.nodeIndex === this.hoveredPointIndex!.nodeIndex
-                );
                 if (existingIndex >= 0) {
                     // Remove from selection
                     this.selectedPoints.splice(existingIndex, 1);
                 } else {
                     // Add to selection
-                    this.selectedPoints.push({ ...this.hoveredPointIndex });
+                    this.selectedPoints.push({ ...hoveredPoint });
                 }
                 this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             } else {
                 // Check if clicked point is already in selection
-                const isInSelection = this.selectedPoints.some(
-                    (p) =>
-                        p.contourIndex ===
-                            this.hoveredPointIndex!.contourIndex &&
-                        p.nodeIndex === this.hoveredPointIndex!.nodeIndex
-                );
-
-                if (!isInSelection) {
+                if (!isInSelection || canStartShiftOffCurveDrag) {
                     // Regular click on unselected point: select only this point, clear anchors
-                    this.selectedPoints = [{ ...this.hoveredPointIndex }];
+                    this.selectedPoints = [{ ...hoveredPoint }];
                     this.selectedAnchors = []; // Clear anchor selection
                 }
                 // If already in selection, keep all selected points and anchors

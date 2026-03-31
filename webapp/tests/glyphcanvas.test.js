@@ -526,6 +526,153 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
+    test('shift-held click on an off-curve point starts dragging immediately when nothing is selected', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.layerData = {
+                id: 'layer-1',
+                width: 520,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Curve', smooth: false },
+                            {
+                                x: 30,
+                                y: 60,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            {
+                                x: 70,
+                                y: 60,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            {
+                                x: 100,
+                                y: 0,
+                                nodetype: 'Curve',
+                                smooth: false
+                            }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            };
+            canvas.outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 1
+            };
+
+            const pointerSpy = jest
+                .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+                .mockImplementationOnce(() => ({ glyphX: 30, glyphY: 60 }))
+                .mockImplementationOnce(() => ({ glyphX: 50, glyphY: 80 }));
+
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: true,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            expect(canvas.outlineEditor.selectedPoints).toEqual([
+                { contourIndex: 0, nodeIndex: 1 }
+            ]);
+            expect(canvas.outlineEditor.isDraggingPoint).toBe(true);
+            expect(canvas.outlineEditor.lastPointDragShiftKey).toBe(true);
+            expect(window.changeBridge.beginTransaction).toHaveBeenCalledWith(
+                'Drag point'
+            );
+
+            canvas.outlineEditor.onMouseMove({
+                clientX: 11,
+                clientY: 21,
+                shiftKey: true,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.onMouseMove({
+                clientX: 12,
+                clientY: 22,
+                shiftKey: true,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            expect(
+                canvas.outlineEditor.layerData.shapes[0].nodes[1].x
+            ).not.toBe(30);
+
+            pointerSpy.mockRestore();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
+    test('shift-click on an on-curve point still toggles selection instead of starting a drag', () => {
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Line', smooth: false },
+                        { x: 100, y: 0, nodetype: 'Line', smooth: false }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        };
+        canvas.outlineEditor.hoveredPointIndex = {
+            contourIndex: 0,
+            nodeIndex: 1
+        };
+
+        canvas.outlineEditor.onSingleClick({
+            clientX: 10,
+            clientY: 20,
+            detail: 1,
+            shiftKey: true,
+            altKey: false,
+            metaKey: false,
+            ctrlKey: false
+        });
+
+        expect(canvas.outlineEditor.selectedPoints).toEqual([
+            { contourIndex: 0, nodeIndex: 1 }
+        ]);
+        expect(canvas.outlineEditor.isDraggingPoint).toBe(false);
+    });
+
     test('point drag with metrics-key side change still syncs even if point description matches', () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
