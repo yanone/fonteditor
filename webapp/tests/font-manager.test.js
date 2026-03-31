@@ -137,7 +137,7 @@ describe('FontManager saveLayerData', () => {
         });
     });
 
-    test('defers outline drag auto-compile wakeups until drag end', async () => {
+    test('keeps live editing auto-compile for interactive outline drag saves', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
@@ -145,32 +145,22 @@ describe('FontManager saveLayerData', () => {
             (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
         );
 
-        window.glyphCanvas = {
-            outlineEditor: {
-                draggingSomething: true
-            }
-        };
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            cloneJson(layer),
+            'mouse-drag-outline'
+        );
 
-        try {
-            await fontManager.saveLayerData(
-                'a',
-                layer.id,
-                cloneJson(layer),
-                'mouse-drag-outline'
-            );
-
-            expect(
-                fontManager.scheduleFullCompileDebounce
-            ).not.toHaveBeenCalled();
-            expect(
-                window.autoCompileManager.checkAndSchedule
-            ).not.toHaveBeenCalled();
-        } finally {
-            delete window.glyphCanvas;
-        }
+        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
+            1
+        );
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
     });
 
-    test('defers anchor drag auto-compile wakeups until drag end', async () => {
+    test('keeps live editing auto-compile for interactive anchor drag saves', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
@@ -178,29 +168,19 @@ describe('FontManager saveLayerData', () => {
             (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
         );
 
-        window.glyphCanvas = {
-            outlineEditor: {
-                draggingSomething: true
-            }
-        };
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            cloneJson(layer),
+            'mouse-drag-anchor'
+        );
 
-        try {
-            await fontManager.saveLayerData(
-                'a',
-                layer.id,
-                cloneJson(layer),
-                'mouse-drag-anchor'
-            );
-
-            expect(
-                fontManager.scheduleFullCompileDebounce
-            ).not.toHaveBeenCalled();
-            expect(
-                window.autoCompileManager.checkAndSchedule
-            ).not.toHaveBeenCalled();
-        } finally {
-            delete window.glyphCanvas;
-        }
+        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
+            1
+        );
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
     });
 
     test('keeps live auto-compile for interactive keyboard outline saves', async () => {
@@ -270,7 +250,7 @@ describe('FontManager saveLayerData', () => {
         ).toHaveBeenCalledTimes(1);
     });
 
-    test('defers guide drag auto-compile wakeups until drag end', async () => {
+    test('keeps immediate editing auto-compile for guide drag saves', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
         );
@@ -278,29 +258,17 @@ describe('FontManager saveLayerData', () => {
             (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
         );
 
-        window.glyphCanvas = {
-            outlineEditor: {
-                draggingSomething: true
-            }
-        };
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            cloneJson(layer),
+            'mouse-drag-guide'
+        );
 
-        try {
-            await fontManager.saveLayerData(
-                'a',
-                layer.id,
-                cloneJson(layer),
-                'mouse-drag-guide'
-            );
-
-            expect(
-                fontManager.scheduleFullCompileDebounce
-            ).not.toHaveBeenCalled();
-            expect(
-                window.autoCompileManager.checkAndSchedule
-            ).not.toHaveBeenCalled();
-        } finally {
-            delete window.glyphCanvas;
-        }
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
     });
 
     test('postpones debounced full compile until drag ends', () => {

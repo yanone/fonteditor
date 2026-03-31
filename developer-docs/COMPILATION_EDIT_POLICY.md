@@ -25,39 +25,40 @@ When these files disagree with this document, treat that as a bug and reconcile 
 
 ## Core Rules
 
-1. Active mouse drags must not trigger editing compiles, full compiles, or full babelfont JSON sync while the pointer is still down.
-2. Interactive keyboard edits must still compile live.
-3. Interactive enriched edits must still schedule a trailing debounced full compile after the interaction settles.
-4. Interactive drag and keyboard edits must continue using incremental layer updates into the worker rather than re-sending the full babelfont JSON.
-5. Editing compiles must continue using the subsetted `editing` target before fontc.
-6. Text input uses its own subset-only fast path and still schedules a deferred full compile after typing settles.
-7. Full compiles remain the correctness fallback after interactive editing or when an edit type does not have a specialized fast path.
+1. Active mouse drags must continue triggering live editing compiles.
+2. Active mouse drags must not trigger full compiles or the full babelfont JSON sync that feeds those full compiles while the pointer is still down.
+3. Interactive keyboard edits must still compile live.
+4. Interactive enriched edits must still schedule a trailing debounced full compile after the interaction settles.
+5. Interactive drag and keyboard edits must continue using incremental layer updates into the worker rather than re-sending the full babelfont JSON.
+6. Editing compiles must continue using the subsetted `editing` target before fontc.
+7. Text input uses its own subset-only fast path and still schedules a deferred full compile after typing settles.
+8. Full compiles remain the correctness fallback after interactive editing or when an edit type does not have a specialized fast path.
 
 ## Edit-Type Matrix
 
-| Edit source                             | Origin                                                           | `lastEditType`                        | Immediate scheduling                           | Trailing debounce                             | `compilationMode` | Option overrides                                                         | Worker font update path                                                                               | Canvas behavior                                               |
-| --------------------------------------- | ---------------------------------------------------------------- | ------------------------------------- | ---------------------------------------------- | --------------------------------------------- | ----------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `mouse-drag-outline`                    | `OutlineEditor` drag of nodes and sidebearings                   | `outline`                             | No while drag is active; wake once on drag end | No while drag is active; schedule on drag end | `outline-only`    | `skip_features: true`, `skip_kerning: true`, `produce_varc_table: false` | Incremental layer state stays local during drag; worker/cache sync resumes after drag end             | Live layerData redraw during drag; compile resumes on mouseup |
-| `keyboard-outline`                      | `OutlineEditor` outline nudges and direct sidebearing saves      | `outline`                             | Yes                                            | Yes                                           | `outline-only`    | `skip_features: true`, `skip_kerning: true`, `produce_varc_table: false` | Incremental sentinel JSON plus `update_cached_layer()`; cached subset key reused                      | Swap font blob and repaint only; skip HarfBuzz reshape        |
-| `mouse-drag-anchor`                     | `OutlineEditor` anchor drag                                      | `anchor`                              | No while drag is active; wake once on drag end | No while drag is active; schedule on drag end | `anchor-only`     | `skip_kerning: true`, `produce_varc_table: false`                        | Incremental layer state stays local during drag; worker/cache sync resumes after drag end             | Live layerData redraw during drag; compile resumes on mouseup |
-| `keyboard-anchor`                       | `OutlineEditor` anchor nudges                                    | `anchor`                              | Yes                                            | Yes                                           | `anchor-only`     | `skip_kerning: true`, `produce_varc_table: false`                        | Incremental sentinel JSON plus `update_cached_layer()`; cached subset key reused                      | Swap font blob, reshape text, repaint                         |
-| `mouse-drag-guide`                      | `OutlineEditor` guide drag                                       | `null`                                | No while drag is active; wake once on drag end | No                                            | `full`            | None                                                                     | Incremental layer state stays local during drag; worker/cache sync resumes after drag end             | Live guide redraw during drag; compile resumes on mouseup     |
-| `keyboard`                              | Generic `saveLayerData()` keyboard save without edit-type suffix | `null`                                | Yes                                            | No                                            | `full`            | None                                                                     | Incremental sentinel JSON plus `update_cached_layer()` because `compileSource` starts with `keyboard` | Full compile/render path                                      |
-| `text-input`                            | `GlyphCanvas` text shaping subset updates                        | Not derived through `saveLayerData()` | Immediate direct compile call                  | Yes, `scheduleTextInputFullCompile()`         | `text-input`      | `produce_varc_table: false`                                              | No full JSON transfer; worker reuses cached font and compiles against the updated subset key          | Specialized text-input path; keep shaping/layout intact       |
-| `text-input-full-compile`               | Deferred correctness pass after typing settles                   | `null`                                | Yes                                            | N/A, this is the debounce target              | `full`            | None                                                                     | Reuses cached font data when possible; full compile wake-up through dirty flag                        | Full compile/render path                                      |
-| Debounced post-interaction full compile | `FontManager.scheduleFullCompileDebounce()`                      | Reset to `null` before compile        | Yes, when debounce fires                       | N/A, this is the debounce target              | `full`            | None                                                                     | Uses latest synchronized babelfont JSON after pending sync is flushed                                 | Full compile/render path                                      |
+| Edit source                             | Origin                                                           | `lastEditType`                        | Immediate scheduling                             | Trailing debounce                                           | `compilationMode` | Option overrides                                                         | Worker font update path                                                                               | Canvas behavior                                                            |
+| --------------------------------------- | ---------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `mouse-drag-outline`                    | `OutlineEditor` drag of nodes and sidebearings                   | `outline`                             | Yes, via `autoCompileManager.checkAndSchedule()` | Yes, `scheduleFullCompileDebounce()` re-arms until drag end | `outline-only`    | `skip_features: true`, `skip_kerning: true`, `produce_varc_table: false` | Incremental sentinel JSON plus `update_cached_layer()`; cached subset key reused                      | Live editing compile during drag; trailing full compile waits for mouseup  |
+| `keyboard-outline`                      | `OutlineEditor` outline nudges and direct sidebearing saves      | `outline`                             | Yes                                              | Yes                                                         | `outline-only`    | `skip_features: true`, `skip_kerning: true`, `produce_varc_table: false` | Incremental sentinel JSON plus `update_cached_layer()`; cached subset key reused                      | Swap font blob and repaint only; skip HarfBuzz reshape                     |
+| `mouse-drag-anchor`                     | `OutlineEditor` anchor drag                                      | `anchor`                              | Yes                                              | Yes, re-arms until drag end                                 | `anchor-only`     | `skip_kerning: true`, `produce_varc_table: false`                        | Incremental sentinel JSON plus `update_cached_layer()`; cached subset key reused                      | Live editing compile during drag; trailing full compile waits for mouseup  |
+| `keyboard-anchor`                       | `OutlineEditor` anchor nudges                                    | `anchor`                              | Yes                                              | Yes                                                         | `anchor-only`     | `skip_kerning: true`, `produce_varc_table: false`                        | Incremental sentinel JSON plus `update_cached_layer()`; cached subset key reused                      | Swap font blob, reshape text, repaint                                      |
+| `mouse-drag-guide`                      | `OutlineEditor` guide drag                                       | `null`                                | Yes                                              | No                                                          | `full`            | None                                                                     | Incremental sentinel JSON plus `update_cached_layer()` because it is still an interactive layer save  | Editing compile may run during drag; full compile manager remains deferred |
+| `keyboard`                              | Generic `saveLayerData()` keyboard save without edit-type suffix | `null`                                | Yes                                              | No                                                          | `full`            | None                                                                     | Incremental sentinel JSON plus `update_cached_layer()` because `compileSource` starts with `keyboard` | Full compile/render path                                                   |
+| `text-input`                            | `GlyphCanvas` text shaping subset updates                        | Not derived through `saveLayerData()` | Immediate direct compile call                    | Yes, `scheduleTextInputFullCompile()`                       | `text-input`      | `produce_varc_table: false`                                              | No full JSON transfer; worker reuses cached font and compiles against the updated subset key          | Specialized text-input path; keep shaping/layout intact                    |
+| `text-input-full-compile`               | Deferred correctness pass after typing settles                   | `null`                                | Yes                                              | N/A, this is the debounce target                            | `full`            | None                                                                     | Reuses cached font data when possible; full compile wake-up through dirty flag                        | Full compile/render path                                                   |
+| Debounced post-interaction full compile | `FontManager.scheduleFullCompileDebounce()`                      | Reset to `null` before compile        | Yes, when debounce fires                         | N/A, this is the debounce target                            | `full`            | None                                                                     | Uses latest synchronized babelfont JSON after pending sync is flushed                                 | Full compile/render path                                                   |
 
 ## Scheduling Details
 
 ### Interactive layer saves
 
-`FontManager.saveLayerData()` does three separate things for interactive saves and all three are required once the interaction is ready to compile:
+`FontManager.saveLayerData()` does three separate things for interactive saves and all three are required:
 
 1. It marks the font dirty immediately.
-2. If a mouse drag is no longer active, it wakes `autoCompileManager` so compilation resumes from the settled drag state.
-3. For `outline` and `anchor` edits, if the drag is no longer active, it also schedules `scheduleFullCompileDebounce()` so the editor returns to a full compile after the interaction.
+2. It wakes `autoCompileManager` immediately so live editing compiles continue during dragging.
+3. For `outline` and `anchor` edits, it also schedules `scheduleFullCompileDebounce()` so the editor returns to a full compile after the interaction.
 
-While the pointer is still down for a mouse drag, step 2 and step 3 must stay suppressed. Mid-drag pauses must not trigger editing compiles, full compiles, or the JSON/model sync required to feed those compiles. The final mouseup save is the first point where compile wakeups may resume.
+While the pointer is still down for a mouse drag, the live editing compile path must remain active. What must stay suppressed is only the full-compile side: full compile execution itself and the JSON/model sync required to feed that full compile. Mid-drag pauses may continue to produce editing compiles, but must not flush `pendingBabelfontJsonSyncAfterDrag` or run full-font compilation until the drag ends.
 
 ### Debounced full compile
 
@@ -65,7 +66,7 @@ While the pointer is still down for a mouse drag, step 2 and step 3 must stay su
 
 If an outline or anchor drag is still active when the debounce fires, the debounce must re-arm itself and wait until the drag has ended before flushing `pendingBabelfontJsonSyncAfterDrag`. Flushing the pending JSON/model sync during an active drag is a regression because it can commit a stale mid-drag state into the trailing full-compile baseline and break undo.
 
-Separately, active mouse drags must not wake either compile manager in the first place. A paused drag should remain on live `layerData` rendering only, without any editing compile or full compile work until mouseup.
+Separately, active mouse drags must not let the full-font compile path run. The editing compile manager remains active during drag; only the trailing full compile and full-font compile manager must stay deferred until mouseup.
 
 ### Text input
 
@@ -116,12 +117,13 @@ Text input changes the shaping subset rather than the font data. It therefore by
 
 The following are required and should be covered by tests or explicit review whenever compilation code changes:
 
-1. `mouse-drag-outline` and `mouse-drag-anchor` do not wake compilation while the drag is active, but they do wake it from the final post-drag save and still schedule the trailing full compile.
-2. `keyboard-outline` and `keyboard-anchor` continue to wake compilation immediately and still schedule the trailing full compile.
-3. Interactive layer edits continue to use `update_cached_layer()` rather than full font JSON transfer in the steady state.
-4. The editing compile continues to use the subsetted `editing` target before fontc.
-5. `outline-only` still skips reshape and `anchor-only` still reshapes.
-6. Text input still uses the subset-only fast path and still schedules a deferred full compile.
+1. `mouse-drag-outline` and `mouse-drag-anchor` continue to wake live editing compilation during drag and still schedule the trailing full compile.
+2. The trailing full compile for drag edits does not execute, and its pending JSON/model sync does not flush, until the drag has ended.
+3. `keyboard-outline` and `keyboard-anchor` continue to wake compilation immediately and still schedule the trailing full compile.
+4. Interactive layer edits continue to use `update_cached_layer()` rather than full font JSON transfer in the steady state.
+5. The editing compile continues to use the subsetted `editing` target before fontc.
+6. `outline-only` still skips reshape and `anchor-only` still reshapes.
+7. Text input still uses the subset-only fast path and still schedules a deferred full compile.
 
 ## Change Control
 
