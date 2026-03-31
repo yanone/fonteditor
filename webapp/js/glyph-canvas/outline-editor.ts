@@ -6483,6 +6483,14 @@ export class OutlineEditor {
             return true;
         }
 
+        const selectedEndpointSeed = this.getSelectedOpenPathEndpointSeed();
+        if (
+            selectedEndpointSeed &&
+            this.isCommandPathCloseTarget(selectedEndpointSeed)
+        ) {
+            return this.closeActivePathDrawingSession(selectedEndpointSeed);
+        }
+
         if (!this.isNeutralCommandCanvasTarget()) {
             return false;
         }
@@ -6522,12 +6530,7 @@ export class OutlineEditor {
             return false;
         }
 
-        if (
-            !session.startedFromExistingPath &&
-            session.segmentCount > 1 &&
-            this.hoveredPointIndex?.contourIndex === session.shapeIndex &&
-            this.hoveredPointIndex.nodeIndex === session.originNodeIndex
-        ) {
+        if (this.isCommandPathCloseTarget(session)) {
             return this.closeActivePathDrawingSession(session);
         }
 
@@ -6537,6 +6540,34 @@ export class OutlineEditor {
 
         const { glyphX, glyphY } = this.transformMouseToComponentSpace();
         return this.appendLineToPathSession(session, { x: glyphX, y: glyphY });
+    }
+
+    private isCommandPathCloseTarget(
+        session: ActivePathDrawingSession
+    ): boolean {
+        const hoveredPoint = this.hoveredPointIndex;
+        if (!hoveredPoint || hoveredPoint.contourIndex !== session.shapeIndex) {
+            return false;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const contour = getEditableContour(
+            currentLayerData?.shapes?.[session.shapeIndex]
+        );
+        if (!contour || contour.closed || contour.nodes.length < 2) {
+            return false;
+        }
+
+        if (session.startedFromExistingPath) {
+            const oppositeEndpointIndex =
+                session.edge === 'start' ? contour.nodes.length - 1 : 0;
+            return hoveredPoint.nodeIndex === oppositeEndpointIndex;
+        }
+
+        return (
+            session.segmentCount > 1 &&
+            hoveredPoint.nodeIndex === session.originNodeIndex
+        );
     }
 
     private beginCommandPathDrawing(): boolean {
