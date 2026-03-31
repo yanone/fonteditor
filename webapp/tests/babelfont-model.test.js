@@ -3102,7 +3102,9 @@ describe('Babelfont Object Model', () => {
             const insertedNodeIndex = path._addPoint(3, 0.5);
 
             expect(insertedNodeIndex).toBe(4);
-            expect(path.nodes.map((node) => ({ x: node.x, y: node.y }))).toEqual([
+            expect(
+                path.nodes.map((node) => ({ x: node.x, y: node.y }))
+            ).toEqual([
                 { x: 0, y: 0 },
                 { x: 100, y: 0 },
                 { x: 100, y: 100 },

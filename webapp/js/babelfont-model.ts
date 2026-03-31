@@ -477,8 +477,8 @@ function replaceSegmentRunInNodeArray(
             ...nextNodes.slice(0, restoredStartIndex)
         ];
         const insertedNodeIndex =
-            ((1 + insertedNodeOffset - restoredStartIndex) %
-                restoredNodes.length +
+            (((1 + insertedNodeOffset - restoredStartIndex) %
+                restoredNodes.length) +
                 restoredNodes.length) %
             restoredNodes.length;
 
