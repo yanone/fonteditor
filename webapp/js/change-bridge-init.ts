@@ -249,7 +249,7 @@ function applyImmediateUndoSidebearingSync(
     layerId: string | null,
     historyItem: HistoryStackItem | null,
     previousWidth: number | null
-): void {
+): boolean {
     const gc = window.glyphCanvas;
     const fontModel = window.fontManager?.currentFont?.fontModel;
     const side = inferSidebearingSideFromHistoryItem(historyItem);
@@ -262,12 +262,12 @@ function applyImmediateUndoSidebearingSync(
         !side ||
         !editedGlyphName
     ) {
-        return;
+        return false;
     }
 
     const layer = fontModel.findGlyph(editedGlyphName)?.findLayerById(layerId);
     if (!layer || previousWidth === null) {
-        return;
+        return false;
     }
 
     syncModelSidebearingEditToCanvas(gc, {
@@ -280,6 +280,17 @@ function applyImmediateUndoSidebearingSync(
     gc.updatePropertyPanel?.();
     gc.outlineEditor.performHitDetection?.(null);
     gc.render?.();
+
+    return true;
+}
+
+function isDirectSidebearingUndoRedo(
+    historyItem: HistoryStackItem | null
+): boolean {
+    return (
+        historyItem?.transactionLabel === 'Set LSB' ||
+        historyItem?.transactionLabel === 'Set RSB'
+    );
 }
 
 function syncImmediateUndoOutlineLayerFromModel(
@@ -458,12 +469,13 @@ export function runBridgeUndoRedo(
             return;
         }
 
-        applyImmediateUndoSidebearingSync(
-            appliedChange.glyphName,
-            appliedChange.layerId,
-            appliedChange.historyItem as HistoryStackItem | null,
-            previousWidth
-        );
+        const appliedImmediateSidebearingSync =
+            applyImmediateUndoSidebearingSync(
+                appliedChange.glyphName,
+                appliedChange.layerId,
+                appliedChange.historyItem as HistoryStackItem | null,
+                previousWidth
+            );
 
         const recomputedGlyphNames = recomputeMetricsKeysAfterUndoRedo(
             bridge,
@@ -471,10 +483,19 @@ export function runBridgeUndoRedo(
             [appliedChange.glyphName, glyphName, editedGlyphName]
         );
 
-        syncImmediateUndoOutlineLayerFromModel(
-            appliedChange.glyphName,
-            appliedChange.layerId ?? layerId ?? null
-        );
+        if (
+            !(
+                appliedImmediateSidebearingSync &&
+                isDirectSidebearingUndoRedo(
+                    appliedChange.historyItem as HistoryStackItem | null
+                )
+            )
+        ) {
+            syncImmediateUndoOutlineLayerFromModel(
+                appliedChange.glyphName,
+                appliedChange.layerId ?? layerId ?? null
+            );
+        }
 
         refreshLiveTextRunAdvances(
             new Set(

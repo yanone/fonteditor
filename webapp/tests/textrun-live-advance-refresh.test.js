@@ -194,10 +194,12 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         const refreshGlyphAdvancesLive = jest.fn();
         const fetchLayerData = jest.fn().mockResolvedValue();
         const runDeterministicRefresh = jest.fn(async (task) => await task());
+        const syncCurrentOutlineLayerDataFromModel = jest.fn();
+        const render = jest.fn();
 
         const makeFontModel = (width) => ({
             findGlyph: jest.fn(() => ({
-                findLayerById: jest.fn(() => ({ width }))
+                findLayerById: jest.fn(() => ({ id: 'layer-1', width }))
             }))
         });
 
@@ -218,8 +220,12 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                 selectedLayerId: 'layer-1',
                 parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
                 fetchLayerData,
-                runDeterministicRefresh
+                runDeterministicRefresh,
+                performHitDetection: jest.fn()
             },
+            syncCurrentOutlineLayerDataFromModel,
+            updatePropertyPanel: jest.fn(),
+            render,
             requestRepaintAfterCompile
         };
         originalWindow.fontManager = {
@@ -236,7 +242,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
                     glyphName: 'a',
                     layerId: 'layer-1',
                     historyItem: {
-                        transactionLabel: 'Set sidebearing',
+                        transactionLabel: 'Set LSB',
                         entries: [
                             {
                                 oldValue: 'LEFT 40',
@@ -259,6 +265,8 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             { render: false }
         );
         expect(originalWindow.glyphCanvas.viewportManager.panX).toBe(60);
+        expect(syncCurrentOutlineLayerDataFromModel).toHaveBeenCalledTimes(1);
+        expect(render).toHaveBeenCalledTimes(1);
         expect(requestRepaintAfterCompile).toHaveBeenCalledTimes(1);
     });
 
