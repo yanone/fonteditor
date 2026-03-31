@@ -271,6 +271,51 @@ describe('FontManager saveLayerData', () => {
         ).toHaveBeenCalledTimes(1);
     });
 
+    test('postpones debounced full compile until drag ends', () => {
+        jest.useFakeTimers();
+
+        fontManager.scheduleFullCompileDebounce =
+            originalScheduleFullCompileDebounce;
+        fontManager.lastCompilationMode = 'outline-only';
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+
+        const requestRecompileSpy = jest.fn();
+        fontManager.currentFont.requestRecompileWithoutDataChange =
+            requestRecompileSpy;
+        const syncSpy = jest
+            .spyOn(fontManager, 'syncBabelfontJsonFromCurrentModel')
+            .mockReturnValue(true);
+
+        window.glyphCanvas = {
+            outlineEditor: {
+                draggingSomething: true
+            }
+        };
+
+        try {
+            fontManager.scheduleFullCompileDebounce();
+            jest.advanceTimersByTime(500);
+
+            expect(syncSpy).not.toHaveBeenCalled();
+            expect(requestRecompileSpy).not.toHaveBeenCalled();
+            expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
+
+            window.glyphCanvas.outlineEditor.draggingSomething = false;
+            jest.advanceTimersByTime(500);
+
+            expect(syncSpy).toHaveBeenCalledTimes(1);
+            expect(requestRecompileSpy).toHaveBeenCalledTimes(1);
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalledTimes(1);
+            expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
+        } finally {
+            syncSpy.mockRestore();
+            jest.useRealTimers();
+            delete window.glyphCanvas;
+        }
+    });
+
     test('refreshGlyphsAfterModelBatch updates a single edited layer without storing the whole font', async () => {
         const currentFont = fontManager.currentFont;
         const syncSpy = jest.spyOn(currentFont, 'syncJsonFromModel');

@@ -916,6 +916,8 @@ export class OutlineEditor {
     cursorStyleBeforePreview: string | null = null;
     isDraggingPoint: boolean = false;
     isSlidingSmoothPointAlongCurve: boolean = false;
+    /** Set when a remote change arrives during an active drag. After the drag ends, a full Rust cache + canvas refresh is triggered. */
+    pendingRemoteRefreshAfterDrag: boolean = false;
     isSnappedToCloseOpenPath: boolean = false;
     private _dragStartEndpointsCoincident: boolean = false;
 
@@ -3816,6 +3818,7 @@ export class OutlineEditor {
             this.selectedAnchors = [];
             this.selectedComponents = [];
             this.isDraggingSidebearing = true;
+            console.log('[DRAG-DEBUG] Drag START: sidebearing drag begun');
             this._hasMoved = false;
             this._dragType = 'sidebearing';
             const startingSidebearing = this.getCurrentDirectSidebearing(
@@ -3871,6 +3874,7 @@ export class OutlineEditor {
                 // If already in selection, keep all selected components, points, and anchors
 
                 this.isDraggingComponent = true;
+                console.log('[DRAG-DEBUG] Drag START: component drag begun');
                 this._hasMoved = false;
                 this._dragType = 'component';
                 this._preDragDesc = this._buildComponentDesc();
@@ -3948,6 +3952,7 @@ export class OutlineEditor {
                 this.selectedComponents = [];
                 this.isDraggingPoint = true;
                 this.isSlidingSmoothPointAlongCurve = true;
+                console.log('[DRAG-DEBUG] Drag START: slide-point drag begun');
                 this._hasMoved = false;
                 this._dragType = 'slide-point';
                 this._preDragDesc = this._buildNodeDesc();
@@ -4005,6 +4010,7 @@ export class OutlineEditor {
 
                 // Start dragging (all selected points and anchors)
                 this.isDraggingPoint = true;
+                console.log('[DRAG-DEBUG] Drag START: point drag begun');
                 this._hasMoved = false;
                 this._dragType = 'point';
                 this._dragStartEndpointsCoincident =
@@ -5138,16 +5144,23 @@ export class OutlineEditor {
 
         // Update worker font cache after dragging ends
         if (wasDragging) {
+            console.log(
+                `[DRAG-DEBUG] onMouseUp entered wasDragging block — dragType=${dragType}, hasMoved=${this._hasMoved}, selectedLayerId=${this.selectedLayerId}`
+            );
             // Flush the final saveLayerData that throttling may have skipped
             if (this._hasMoved && dragType !== 'guide') {
                 const dragChangeSource =
                     dragType === 'anchor'
                         ? 'mouse-drag-anchor'
                         : 'mouse-drag-outline';
+                console.log(
+                    `[DRAG-DEBUG] onMouseUp before saveLayerData — changeSource=${dragChangeSource}`
+                );
                 this.saveLayerData(dragChangeSource);
             }
 
             // Final property panel update
+            console.log('[DRAG-DEBUG] onMouseUp before updatePropertyPanel');
             this.glyphCanvas.updatePropertyPanel();
 
             // Only sync to Y.Doc if there was actual movement — avoids spurious undo entries
@@ -5253,6 +5266,9 @@ export class OutlineEditor {
                                   metricsKeySide === 'left' ? 'LEFT' : 'RIGHT'
                               } ${postDragDesc}`
                             : postDragDesc;
+                    console.log(
+                        `[DRAG-DEBUG] onMouseUp before _syncCurrentGlyphToYDoc — label=${label}, preDragDesc=${preDragDesc ?? 'null'}, postDragDesc=${encodedPostDesc ?? 'null'}`
+                    );
                     this._syncCurrentGlyphToYDoc(
                         label,
                         preDragDesc ?? undefined,
@@ -5261,6 +5277,7 @@ export class OutlineEditor {
                 }
             }
 
+            console.log('[DRAG-DEBUG] onMouseUp before endTransaction');
             window.changeBridge?.endTransaction();
             if (dragType === 'slide-point') {
                 const currentFont = fontManager.currentFont;
@@ -5296,6 +5313,9 @@ export class OutlineEditor {
                     );
                 }
             } else if (dragType !== 'guide') {
+                console.log(
+                    '[DRAG-DEBUG] onMouseUp before updateWorkerFontCache + flushPendingDebugEditingFontSaveAfterDrag'
+                );
                 fontManager.updateWorkerFontCache();
                 fontManager.flushPendingDebugEditingFontSaveAfterDrag();
             }
@@ -5304,6 +5324,19 @@ export class OutlineEditor {
             this._hasMoved = false;
             this._preDragDesc = null;
             this._dragType = null;
+
+            // A remote change was deferred during the drag to avoid resetting
+            // layerData mid-drag. Now that the drag is complete, run the refresh.
+            console.log(
+                `[DRAG-DEBUG] Drag END: mouseup — pendingRemoteRefreshAfterDrag=${this.pendingRemoteRefreshAfterDrag}`
+            );
+            if (this.pendingRemoteRefreshAfterDrag) {
+                console.warn(
+                    '[DRAG-DEBUG] Firing deferred remote refresh after drag end'
+                );
+                this.pendingRemoteRefreshAfterDrag = false;
+                void window.syncRustCacheAndRefreshCanvas?.();
+            }
         }
     }
 
@@ -9560,6 +9593,11 @@ export class OutlineEditor {
         rootGlyphName?: string,
         retryCount: number = 0
     ): Promise<void> {
+        const stackPreview = new Error().stack
+            ?.split('\n')
+            .slice(2, 6)
+            .map((line) => line.trim())
+            .join(' | ');
         // Reset interpolation request tracking since we're loading exact layer data
         fontInterpolation.resetRequestTracking();
 
@@ -9589,6 +9627,9 @@ export class OutlineEditor {
             return;
         }
 
+        console.log(
+            `[DRAG-DEBUG] fetchLayerData called — glyph="${glyphName}", layer=${this.selectedLayerId}, draggingSomething=${this.draggingSomething}, skipRender=${skipRender}, retryCount=${retryCount}, caller=${stackPreview ?? 'unknown'}`
+        );
         console.log(
             `🔍 Fetching ROOT layer data for glyph: "${glyphName}", layer: ${this.selectedLayerId}`
         );
@@ -9827,6 +9868,10 @@ export class OutlineEditor {
                     ? parsed[0].glyphName
                     : this.glyphCanvas.getCurrentGlyphName();
             const isNestedEditing = this.isEditingComponent();
+
+            console.log(
+                `[DRAG-DEBUG] OutlineEditor.saveLayerData called — changeSource=${changeSource}, rootGlyphName=${rootGlyphName}, selectedLayerId=${this.selectedLayerId}, draggingSomething=${this.draggingSomething}`
+            );
 
             if (!isNestedEditing) {
                 // Root editing mode: persist the root glyph layer.

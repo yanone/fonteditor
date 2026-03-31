@@ -1100,6 +1100,10 @@ export class ChangeBridge {
         update: Uint8Array,
         remoteEntries?: ChangeLogEntry[]
     ): void {
+        const oe = window.glyphCanvas?.outlineEditor;
+        console.log(
+            `[DRAG-DEBUG] applyRemoteUpdate called — draggingSomething=${oe?.draggingSomething}, isDraggingPoint=${oe?.isDraggingPoint}, isDraggingSidebearing=${oe?.isDraggingSidebearing}, isDraggingComponent=${oe?.isDraggingComponent}`
+        );
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
@@ -1275,6 +1279,10 @@ export class ChangeBridge {
     private _syncJsonFromYDoc(
         scopeHint?: { glyphName: string; layerId: string } | null
     ): void {
+        const oe = window.glyphCanvas?.outlineEditor;
+        console.log(
+            `[DRAG-DEBUG] _syncJsonFromYDoc called — scope=${scopeHint ? JSON.stringify(scopeHint) : 'full'}, draggingSomething=${oe?.draggingSomething}`
+        );
         if (!this._fontJson) return;
 
         const fingerprintTargets =

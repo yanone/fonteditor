@@ -189,6 +189,23 @@ export async function syncRustCacheAndRefreshCanvas(
     }
 
     if (gc) {
+        // If a drag is in progress, loading layer data from the model would
+        // reset layerData to the pre-drag (Y.Doc) state, corrupting the drag
+        // baseline and producing wrong undo history. Defer the refresh until
+        // the drag ends (onMouseUp checks pendingRemoteRefreshAfterDrag).
+        console.log(
+            `[DRAG-DEBUG] syncRustCacheAndRefreshCanvas: gc exists, oe?.draggingSomething=${oe?.draggingSomething}`
+        );
+        if (oe?.draggingSomething) {
+            console.warn(
+                '[DRAG-DEBUG] DRAG IN PROGRESS — deferring fetchLayerData, setting pendingRemoteRefreshAfterDrag'
+            );
+            if (oe) {
+                oe.pendingRemoteRefreshAfterDrag = true;
+            }
+            return;
+        }
+
         if (gc.outlineEditor?.runDeterministicRefresh) {
             await gc.outlineEditor.runDeterministicRefresh(async () => {
                 await gc.outlineEditor?.fetchLayerData(
@@ -566,6 +583,10 @@ function initializeBridge(detail: {
         if (!fm?.currentFont) return;
 
         // Reset compilation state so next compile is a clean full build
+        const oe2 = window.glyphCanvas?.outlineEditor;
+        console.log(
+            `[DRAG-DEBUG] onAfterSync called — draggingSomething=${oe2?.draggingSomething}`
+        );
         fm.lastChangeSource = null;
         fm.lastEditType = null;
         // Mark babelfontJson as stale; it will be rebuilt lazily (see comment above).
@@ -604,6 +625,10 @@ function initializeBridge(detail: {
     // babelfontJson and rebuilt the model, so auto-compile will
     // produce correct output once the dirty flag triggers it.
     bridge.onRemoteChange(() => {
+        const oeRef = window.glyphCanvas?.outlineEditor;
+        console.log(
+            `[DRAG-DEBUG] onRemoteChange fired — draggingSomething=${oeRef?.draggingSomething}, pendingRemoteRefreshAfterDrag=${oeRef?.pendingRemoteRefreshAfterDrag}`
+        );
         void queueRustCacheAndRefreshCanvas().then(() => {
             const fontManager = window.fontManager;
             if (!fontManager?.currentFont) {

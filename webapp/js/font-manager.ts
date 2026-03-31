@@ -1669,6 +1669,13 @@ class FontManager {
         }
         this.fullCompileDebounceTimer = setTimeout(() => {
             this.fullCompileDebounceTimer = null;
+            if (window.glyphCanvas?.outlineEditor?.draggingSomething) {
+                console.log(
+                    '[FontManager] Debounced full compile postponed until drag ends'
+                );
+                this.scheduleFullCompileDebounce();
+                return;
+            }
             if (this.lastCompilationMode !== 'full' && this.currentFont) {
                 console.log(
                     '[FontManager] Debounced full compile triggered after interactive editing'
@@ -1924,6 +1931,9 @@ class FontManager {
         layerData: Babelfont.Layer,
         changeSource: string = 'unknown'
     ) {
+        console.log(
+            `[DRAG-DEBUG] FontManager.saveLayerData called — glyph=${glyphName}, layer=${layerId}, changeSource=${changeSource}, pendingBabelfontJsonSyncAfterDrag=${this.pendingBabelfontJsonSyncAfterDrag}`
+        );
         const extractPathShape = (shape: any): any => {
             if (shape && typeof shape === 'object' && 'Path' in shape) {
                 return (shape as any).Path;
@@ -2172,6 +2182,10 @@ class FontManager {
                 window.glyphCanvas?.outlineEditor?.currentGlyphName;
             const currentLayerId =
                 window.glyphCanvas?.outlineEditor?.selectedLayerId;
+
+            console.log(
+                `[DRAG-DEBUG] FontManager.updateWorkerFontCache called — currentGlyphName=${currentGlyphName ?? 'null'}, currentLayerId=${currentLayerId ?? 'null'}, pendingBabelfontJsonSyncAfterDrag=${this.pendingBabelfontJsonSyncAfterDrag}`
+            );
 
             let updatedViaIncrementalLayer = false;
             if (

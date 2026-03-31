@@ -178,6 +178,13 @@ class GlyphCanvas {
             return;
         }
 
+        if (this.outlineEditor.draggingSomething) {
+            console.log(
+                '[DRAG-DEBUG] Skipping updatePropertiesUI from layerFingerprintChanged during drag'
+            );
+            return;
+        }
+
         void this.updatePropertiesUI();
     };
 
@@ -2979,6 +2986,9 @@ class GlyphCanvas {
                 );
             }
 
+            console.log(
+                '[DRAG-DEBUG] GlyphCanvas.refreshAfterPropertyPanelCommit before outlineEditor.fetchLayerData(true)'
+            );
             await this.outlineEditor.fetchLayerData(true);
         } catch (error) {
             console.warn(
@@ -3621,6 +3631,12 @@ class GlyphCanvas {
                 this.textRunEditor!.selectedGlyphIndex <
                     this.textRunEditor!.shapedGlyphs.length
             ) {
+                if (this.outlineEditor.draggingSomething) {
+                    console.log(
+                        '[DRAG-DEBUG] Skipping autoSelectMatchingLayer from updatePropertiesUI during drag'
+                    );
+                    return;
+                }
                 await this.outlineEditor.autoSelectMatchingLayer();
             }
         } finally {
@@ -5466,14 +5482,14 @@ function setupFontLoadingListener() {
                     gc.textRunEditor!.shapeText(true);
                     gc.reapplyActiveEditedGlyphAdvanceAfterShape();
 
-                    // After a mid-drag full compile, shapeText() resets all
+                    // After any full compile (mid-drag OR post-commit), shapeText() resets all
                     // shapedGlyphs advances from HarfBuzz. reapplyActiveEditedGlyphAdvanceAfterShape
                     // only re-applies the active glyph's model width. Glyphs that share
                     // the active glyph's metrics key (e.g. 'a', 'n' when dragging 'l')
                     // still hold HarfBuzz values instead of the live model values.
                     // Re-apply model widths for every glyph in the buffer so that the
                     // pre-existing panX (computed against model values) stays correct.
-                    if (isDragActive && gc.textRunEditor) {
+                    if (gc.outlineEditor?.active && gc.textRunEditor) {
                         const fontModel =
                             window.fontManager?.currentFont?.fontModel;
                         const selectedLayerId =
