@@ -6476,6 +6476,12 @@ export class OutlineEditor {
             hideOnClick: false,
             zIndex: 9999,
             getReferenceClientRect: null as any,
+            onHide: () => {
+                this.restoreFocus();
+            },
+            onHidden: () => {
+                this.canvasContextMenuTarget = null;
+            },
             onShown: (instance) => {
                 const menu = instance.popper.querySelector('.plugin-menu');
                 if (!menu) {

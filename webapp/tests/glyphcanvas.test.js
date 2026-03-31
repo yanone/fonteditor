@@ -4926,6 +4926,75 @@ describe('GlyphCanvas command path drawing visuals', () => {
         };
     });
 
+    describe('GlyphCanvas canvas context menu focus restoration', () => {
+        let canvas;
+
+        beforeEach(() => {
+            document.body.innerHTML = '<div id="test-container"></div>';
+            canvas = new GlyphCanvas('test-container');
+            canvas.outlineEditor.active = true;
+        });
+
+        afterEach(() => {
+            canvas.destroy();
+        });
+
+        test('restores canvas focus on hide and clears the target after the menu closes', async () => {
+            const focusSpy = jest.spyOn(canvas.canvas, 'focus');
+            const tippyInstance =
+                canvas.outlineEditor.ensureCanvasContextMenu();
+
+            canvas.outlineEditor.canvasContextMenuTarget = {
+                shapeIndex: 0,
+                pathIndex: 0,
+                nodeIndex: 1,
+                onCurveOrdinal: 1,
+                nodeType: 'Line',
+                intendedPoint: { x: 100, y: 0 },
+                canSetStartNode: true
+            };
+
+            tippyInstance.props.onHide(tippyInstance);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(canvas.outlineEditor.canvasContextMenuTarget).not.toBeNull();
+            expect(focusSpy).toHaveBeenCalled();
+
+            tippyInstance.props.onHidden(tippyInstance);
+
+            expect(canvas.outlineEditor.canvasContextMenuTarget).toBeNull();
+        });
+
+        test('keeps the context target available while a menu action runs', () => {
+            const tippyInstance =
+                canvas.outlineEditor.ensureCanvasContextMenu();
+
+            canvas.outlineEditor.canvasContextMenuTarget = {
+                shapeIndex: 0,
+                pathIndex: 0,
+                nodeIndex: 1,
+                onCurveOrdinal: 1,
+                nodeType: 'Line',
+                intendedPoint: { x: 100, y: 0 },
+                canSetStartNode: true
+            };
+
+            const reverseSpy = jest
+                .spyOn(canvas.outlineEditor, 'reverseContextMenuPathDirection')
+                .mockReturnValue(true);
+
+            tippyInstance.props.onHide(tippyInstance);
+            canvas.outlineEditor.handleCanvasContextMenuAction(
+                'reverse-path-direction'
+            );
+
+            expect(reverseSpy).toHaveBeenCalled();
+            expect(canvas.outlineEditor.canvasContextMenuTarget).not.toBeNull();
+
+            reverseSpy.mockRestore();
+        });
+    });
+
     afterEach(() => {
         canvas.destroy();
     });
