@@ -49,6 +49,7 @@ type SyntheticChangeOperation = {
     path: (string | number)[];
     oldValue: unknown;
     newValue: unknown;
+    visualAnchorSide?: 'left' | 'right' | null;
 };
 
 type BatchApplyMode = 'default' | 'glyph-snapshot' | 'layer-snapshot';
@@ -663,14 +664,16 @@ export class ChangeBridge {
         label: string,
         oldValue?: string,
         newValue?: string,
-        layerId?: string | null
+        layerId?: string | null,
+        visualAnchorSide?: 'left' | 'right' | null
     ): void {
         this.syncGlyphsFromJson(
             [glyphName],
             label,
             oldValue,
             newValue,
-            layerId
+            layerId,
+            visualAnchorSide
         );
     }
 
@@ -683,7 +686,8 @@ export class ChangeBridge {
         label: string,
         oldValue?: string,
         newValue?: string,
-        layerId?: string | null
+        layerId?: string | null,
+        visualAnchorSide?: 'left' | 'right' | null
     ): void {
         if (!this._fontJson || this._suppressRecording || this._isSyncing)
             return;
@@ -705,7 +709,8 @@ export class ChangeBridge {
                     layerId,
                     label,
                     oldValue,
-                    newValue
+                    newValue,
+                    visualAnchorSide
                 )
             ) {
                 return;
@@ -786,6 +791,7 @@ export class ChangeBridge {
                         undoScope === 'font'
                             ? cloneHistoryValue(target.glyphJson)
                             : cloneHistoryValue(newValue ?? label),
+                    visualAnchorSide,
                     applyPath: isLayerScope
                         ? ['glyphs', target.glyphName, 'layers', layerId]
                         : ['glyphs', target.glyphName],
@@ -822,7 +828,8 @@ export class ChangeBridge {
         layerId: string,
         label: string,
         oldValue?: string,
-        newValue?: string
+        newValue?: string,
+        visualAnchorSide?: 'left' | 'right' | null
     ): boolean {
         const glyphs = (this._fontJson as Unsafe).glyphs;
         if (!Array.isArray(glyphs)) return false;
@@ -872,6 +879,7 @@ export class ChangeBridge {
                     path: ['glyphs', glyphName, 'layers', layerId],
                     oldValue: cloneHistoryValue(oldValue ?? glyphName),
                     newValue: cloneHistoryValue(newValue ?? label),
+                    visualAnchorSide,
                     applyPath: ['glyphs', glyphName, 'layers', layerId],
                     applyNewValue: layerSnapshot,
                     applyMode: 'layer-snapshot'
@@ -1460,6 +1468,7 @@ export class ChangeBridge {
             path: [...operation.path],
             oldValue: cloneHistoryValue(operation.oldValue),
             newValue: cloneHistoryValue(operation.newValue),
+            visualAnchorSide: operation.visualAnchorSide ?? null,
             applyPath: operation.applyPath
                 ? [...operation.applyPath]
                 : undefined,
@@ -1517,6 +1526,7 @@ export class ChangeBridge {
                 path: operation.path.join('.'),
                 oldValue: operation.oldValue,
                 newValue: operation.newValue,
+                visualAnchorSide: operation.visualAnchorSide ?? null,
                 historyTargetType: operationHistoryTarget?.type ?? null,
                 historyTargetKey: operationHistoryTarget?.key ?? null,
                 historyTargetLabel: operationHistoryTarget?.label ?? null

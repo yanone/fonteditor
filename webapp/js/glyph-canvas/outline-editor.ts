@@ -947,6 +947,7 @@ export class OutlineEditor {
     _hasMoved: boolean = false;
     _preDragDesc: string | null = null;
     _metricsKeyEditedSide: SidebearingSide | null = null;
+    _metricsKeyInteractionSide: SidebearingSide | null = null;
     _dragType:
         | 'anchor'
         | 'point'
@@ -1483,6 +1484,9 @@ export class OutlineEditor {
         );
 
         this._metricsKeyEditedSide = editedSide;
+        if (editedSide) {
+            this._metricsKeyInteractionSide = editedSide;
+        }
 
         if (editedSide === 'left' && this.glyphCanvas.viewportManager) {
             const nextWidth = Number(currentLayerData.width) || 0;
@@ -3820,6 +3824,7 @@ export class OutlineEditor {
             this.isDraggingSidebearing = true;
             console.log('[DRAG-DEBUG] Drag START: sidebearing drag begun');
             this._hasMoved = false;
+            this._metricsKeyInteractionSide = null;
             this._dragType = 'sidebearing';
             const startingSidebearing = this.getCurrentDirectSidebearing(
                 this.hoveredSidebearingHandle.side
@@ -3876,6 +3881,7 @@ export class OutlineEditor {
                 this.isDraggingComponent = true;
                 console.log('[DRAG-DEBUG] Drag START: component drag begun');
                 this._hasMoved = false;
+                this._metricsKeyInteractionSide = null;
                 this._dragType = 'component';
                 this._preDragDesc = this._buildComponentDesc();
                 this._componentDragDeltaX = 0;
@@ -3954,6 +3960,7 @@ export class OutlineEditor {
                 this.isSlidingSmoothPointAlongCurve = true;
                 console.log('[DRAG-DEBUG] Drag START: slide-point drag begun');
                 this._hasMoved = false;
+                this._metricsKeyInteractionSide = null;
                 this._dragType = 'slide-point';
                 this._preDragDesc = this._buildNodeDesc();
                 window.changeBridge?.beginTransaction('Move point along curve');
@@ -4012,6 +4019,7 @@ export class OutlineEditor {
                 this.isDraggingPoint = true;
                 console.log('[DRAG-DEBUG] Drag START: point drag begun');
                 this._hasMoved = false;
+                this._metricsKeyInteractionSide = null;
                 this._dragType = 'point';
                 this._dragStartEndpointsCoincident =
                     this._areOpenPathEndpointsCoincident();
@@ -5253,11 +5261,13 @@ export class OutlineEditor {
                     // inferSidebearingSideFromHistoryItem can detect it on undo.
                     const metricsKeySide =
                         this._metricsKeyEditedSide ||
+                        this._metricsKeyInteractionSide ||
                         (hasLeftMetricsKeyPointDragDelta ||
                         hasLeftMetricsKeyComponentDragDelta
                             ? 'left'
                             : null);
                     this._metricsKeyEditedSide = null;
+                    this._metricsKeyInteractionSide = null;
                     this._pointDragDeltaX = 0;
                     this._componentDragDeltaX = 0;
                     const encodedPostDesc =
@@ -5272,7 +5282,8 @@ export class OutlineEditor {
                     this._syncCurrentGlyphToYDoc(
                         label,
                         preDragDesc ?? undefined,
-                        encodedPostDesc
+                        encodedPostDesc,
+                        metricsKeySide
                     );
                 }
             }
@@ -5324,6 +5335,7 @@ export class OutlineEditor {
             this._hasMoved = false;
             this._preDragDesc = null;
             this._dragType = null;
+            this._metricsKeyInteractionSide = null;
 
             // A remote change was deferred during the drag to avoid resetting
             // layerData mid-drag. Now that the drag is complete, run the refresh.
@@ -9026,11 +9038,16 @@ export class OutlineEditor {
                         this._metricsKeyEditedSide === 'left' ? 'LEFT' : 'RIGHT'
                     } ${postMoveDesc}`;
                 }
+                const visualAnchorSide =
+                    this._metricsKeyEditedSide ||
+                    this._metricsKeyInteractionSide;
                 this._metricsKeyEditedSide = null;
+                this._metricsKeyInteractionSide = null;
                 this._syncCurrentGlyphToYDoc(
                     'Arrow key',
                     preMoveDesc,
-                    postMoveDesc
+                    postMoveDesc,
+                    visualAnchorSide
                 );
                 return;
             }
@@ -9713,7 +9730,8 @@ export class OutlineEditor {
     private _syncCurrentGlyphToYDoc(
         label: string,
         oldValue?: string,
-        newValue?: string
+        newValue?: string,
+        visualAnchorSide?: SidebearingSide | null
     ): void {
         if (!window.changeBridge) return;
         const parsed = this.parseGlyphStack();
@@ -9731,7 +9749,8 @@ export class OutlineEditor {
             label,
             oldValue,
             newValue,
-            this.selectedLayerId
+            this.selectedLayerId,
+            visualAnchorSide
         );
     }
 

@@ -567,7 +567,8 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(syncSpy).toHaveBeenCalledWith(
                 'Drag point',
                 "node '(105, 282)'",
-                'LEFT (105, 282)'
+                'LEFT (105, 282)',
+                'left'
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
         } finally {
@@ -631,7 +632,8 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(syncSpy).toHaveBeenCalledWith(
                 'Drag point',
                 "node '(105, 282)'",
-                'LEFT (105, 282)'
+                'LEFT (105, 282)',
+                'left'
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
         } finally {
@@ -761,7 +763,8 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(syncSpy).toHaveBeenCalledWith(
                 'Drag point',
                 "node '(105, 282)'",
-                'LEFT (105, 282)'
+                'LEFT (105, 282)',
+                'left'
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
 
@@ -775,6 +778,63 @@ describe('GlyphCanvas onMouseUp', () => {
             saveLayerDataSpy.mockRestore();
             getCurrentLayerModelSpy.mockRestore();
             applyMetricsKeysSpy.mockRestore();
+        }
+    });
+
+    test('point drag keeps the last non-null interaction side for undo metadata when the final frame clears _metricsKeyEditedSide', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const syncSpy = jest.spyOn(
+            canvas.outlineEditor,
+            '_syncCurrentGlyphToYDoc'
+        );
+        const buildNodeDescSpy = jest
+            .spyOn(canvas.outlineEditor, '_buildNodeDesc')
+            .mockReturnValue('(205, 182)');
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.isDraggingPoint = true;
+            canvas.outlineEditor._dragType = 'point';
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor._preDragDesc = "node '(205, 182)'";
+            canvas.outlineEditor._metricsKeyEditedSide = null;
+            canvas.outlineEditor._metricsKeyInteractionSide = 'right';
+            canvas.outlineEditor._pointDragDeltaX = 0;
+
+            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+
+            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
+            expect(syncSpy).toHaveBeenCalledWith(
+                'Drag point',
+                "node '(205, 182)'",
+                'RIGHT (205, 182)',
+                'right'
+            );
+            expect(window.changeBridge.endTransaction).toHaveBeenCalled();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            buildNodeDescSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
         }
     });
 });

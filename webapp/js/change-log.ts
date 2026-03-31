@@ -83,6 +83,8 @@ export interface ChangeLogEntry {
     historyTargetKey: string | null;
     /** Human-readable target label */
     historyTargetLabel: string | null;
+    /** Which screen side stayed visually anchored for this edit */
+    visualAnchorSide?: 'left' | 'right' | null;
 }
 
 let _nextId = 1;
@@ -115,6 +117,7 @@ export function createLogEntry(
         historyTargetType?: HistoryTargetType | null;
         historyTargetKey?: string | null;
         historyTargetLabel?: string | null;
+        visualAnchorSide?: 'left' | 'right' | null;
     }
 ): ChangeLogEntry {
     const nextId = _nextId++;
@@ -137,7 +140,8 @@ export function createLogEntry(
         newValue: fields.newValue,
         historyTargetType: fields.historyTargetType ?? null,
         historyTargetKey: fields.historyTargetKey ?? null,
-        historyTargetLabel: fields.historyTargetLabel ?? null
+        historyTargetLabel: fields.historyTargetLabel ?? null,
+        visualAnchorSide: fields.visualAnchorSide ?? null
     });
 }
 
@@ -161,6 +165,7 @@ export type ChangeLogEntryLike = Omit<
     historyTargetType?: HistoryTargetType | null;
     historyTargetKey?: string | null;
     historyTargetLabel?: string | null;
+    visualAnchorSide?: 'left' | 'right' | null;
 };
 
 export interface HistoryStackItem {
@@ -792,6 +797,7 @@ export function normalizeChangeLogEntry(
         historyTargetType: entry.historyTargetType ?? null,
         historyTargetKey: entry.historyTargetKey ?? null,
         historyTargetLabel: entry.historyTargetLabel ?? null,
+        visualAnchorSide: entry.visualAnchorSide ?? null,
         windowRoleLabel: normalizeWindowRoleLabel(
             entry.windowRoleLabel,
             entry.windowId

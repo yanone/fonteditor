@@ -51,6 +51,13 @@ export function inferSidebearingSideFromHistoryItem(
     }
 
     for (const entry of historyItem.entries) {
+        if (entry.visualAnchorSide === 'left') {
+            return 'left';
+        }
+        if (entry.visualAnchorSide === 'right') {
+            return 'right';
+        }
+
         for (const value of [entry.oldValue, entry.newValue]) {
             if (typeof value !== 'string') {
                 continue;

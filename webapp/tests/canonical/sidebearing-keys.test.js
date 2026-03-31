@@ -40,7 +40,8 @@ const {
 const { LayerDataNormalizer } = require('../../js/layer-data-normalizer');
 const fontManager = require('../../js/font-manager').default;
 const {
-    inferSidebearingPanSideFromMetricsKeys
+    inferSidebearingPanSideFromMetricsKeys,
+    inferSidebearingSideFromHistoryItem
 } = require('../../js/sidebearing-utils');
 const {
     open_font_file,
@@ -1310,5 +1311,22 @@ describe('Sidebearing keys: component drags', () => {
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
         expect(canvas.outlineEditor._metricsKeyEditedSide).toBe('left');
+    });
+});
+
+describe('Sidebearing undo metadata', () => {
+    test('inferSidebearingSideFromHistoryItem prefers explicit visualAnchorSide metadata', () => {
+        const historyItem = {
+            transactionLabel: 'Drag point',
+            entries: [
+                {
+                    oldValue: 'node 0.6: (448, 283)',
+                    newValue: 'RIGHT (NaN, NaN)',
+                    visualAnchorSide: 'left'
+                }
+            ]
+        };
+
+        expect(inferSidebearingSideFromHistoryItem(historyItem)).toBe('left');
     });
 });
