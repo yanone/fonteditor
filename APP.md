@@ -45,14 +45,15 @@ Simultaneously, once a glyph’s sidebearing changes, all downstream glyphs who 
 
 Group any sidebearing changes of sidebearing inheritance in one history transaction and Yjs message.
 
-Update canvas panning: When sidebearings of the active glyph change, be it by editing outlines or components, or via the dedicated sidebearing handles on canvas, or via the property panel text fields, or via undo, update the canvas rendering as follows: If the RSB changes, anchor the canvas to the left edge of the glyph. If the LSB changes, anchor the canvas to the right edge of the glyph.
+Update canvas panning: When sidebearings of the active glyph change via explicit sidebearing edits, such as the dedicated sidebearing handles on canvas, the property panel text fields, or undo of those edits, anchor the opposite edge of the glyph on screen: If the RSB changes, anchor the canvas to the left edge of the glyph. If the LSB changes, anchor the canvas to the right edge of the glyph.
+When sidebearing changes are caused by keyed realignment during outline or component editing, anchor the canvas on the center of the active glyph layer's visual bounding box on screen, matching the same bbox-center anchoring behavior used during zooming and interpolation.
 Width adjustments and canvas anchoring must happen during one single animation frame so that no jiggle is visible on screen.
 
 The canvas must even be panned and anchored to the active glyph if only the right sidebearing gets edited and the width changes, because the entire line may contain other glyphs before it or repetitions of the same glyph whose width gets adjusted in the same transaction.
 
-When a sidebearing changes, update the sidebearings of all inheriting downstream glyphs both in the object model as well as their advance widths in the harfbuzz buffer before repainting the canvas, and anchoring the canvas to the opposite side of the sidebearing that was edited during the repaint.
+When a sidebearing changes, update the sidebearings of all inheriting downstream glyphs both in the object model as well as their advance widths in the harfbuzz buffer before repainting the canvas. For explicit sidebearing edits, anchor the canvas to the opposite side of the sidebearing that was edited during the repaint. For keyed realignment during outline or component edits, preserve the active glyph layer's bbox center on screen during the repaint.
 
-When downstream glyphs that appear **before** the active glyph in the harfbuzz buffer also change width (via metrics-key cascading), the active glyph's screen position shifts because its world position is the cumulative sum of all preceding advances. To keep the active glyph stationary, compute the total advance delta of all preceding buffer entries before and after refreshing advances, and compensate panX by `−precedingDelta × scale`. This preceding-advance compensation applies regardless of which side was edited (LSB or RSB), and is additive with the active glyph's own width compensation for LSB edits.
+When downstream glyphs that appear **before** the active glyph in the harfbuzz buffer also change width (via metrics-key cascading), the active glyph's screen position shifts because its world position is the cumulative sum of all preceding advances. The viewport anchoring must account for those preceding-advance shifts as part of the same single-frame repaint so the active glyph remains visually stationary at its intended anchor point.
 
 ##### Tests
 
@@ -62,7 +63,7 @@ For glyphs with no sidebearing keys, test that sidebearing edits via the handle 
 
 **Test 2: Keyed Sidebearing Edits**
 
-For glyphs with any of the defined sidebearing keys, test that outline or components edits always anchor the opposite glyph edge visually on the canvas. Outline edits on the left anchor the right layer edge visually on screen, and outline edits on the right anchor the left layer edge visually on screen.
+For glyphs with any of the defined sidebearing keys, test that outline or component edits always keep the active glyph layer's visual bounding-box center fixed on screen during keyed realignment.
 
 **Instructions for all sidebearing tests**
 

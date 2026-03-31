@@ -1390,6 +1390,33 @@ export class OutlineEditor {
         return glyphAdvances;
     }
 
+    private recomputeMetricsKeysForGlyph(
+        glyphName: string | null | undefined
+    ): Set<string> {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!glyphName || glyphName === 'undefined' || !fontModel) {
+            return new Set();
+        }
+
+        const affectedGlyphNames = new Set<string>([glyphName]);
+        const recompute = () => {
+            for (const recomputedGlyphName of fontModel.recomputeMetricsKeys(
+                new Set([glyphName])
+            )) {
+                affectedGlyphNames.add(recomputedGlyphName);
+            }
+        };
+
+        const bridge = window.changeBridge;
+        if (bridge?.runWithoutRecording) {
+            bridge.runWithoutRecording(recompute);
+        } else {
+            recompute();
+        }
+
+        return affectedGlyphNames;
+    }
+
     private applyMetricsKeysToCurrentEditedLayer(
         refreshGlyphAdvances: boolean = true
     ): {
@@ -1425,6 +1452,9 @@ export class OutlineEditor {
             return null;
         }
 
+        const bboxCenterAnchorScreen = refreshGlyphAdvances
+            ? this.getBoundingBoxCenterScreenPosition()
+            : null;
         const previousWidth = Number(currentLayerData.width) || 0;
         const previousSidebearings =
             this.getDirectSidebearingsForLayerData(currentLayerData);
@@ -1449,20 +1479,10 @@ export class OutlineEditor {
         layerModel.invalidateShapeCache();
 
         const affectedGlyphNames = new Set<string>([glyphName]);
-        const recomputeMetricsKeys = () => {
-            for (const recomputedGlyphName of fontModel.recomputeMetricsKeys(
-                new Set([glyphName])
-            )) {
-                affectedGlyphNames.add(recomputedGlyphName);
-            }
-        };
-        const bridge = window.changeBridge;
-        if (bridge) {
-            bridge.runWithoutRecording(() => {
-                recomputeMetricsKeys();
-            });
-        } else {
-            recomputeMetricsKeys();
+        for (const affectedGlyphName of this.recomputeMetricsKeysForGlyph(
+            glyphName
+        )) {
+            affectedGlyphNames.add(affectedGlyphName);
         }
 
         currentLayerData.width = rawLayer.width;
@@ -1488,19 +1508,15 @@ export class OutlineEditor {
             this._metricsKeyInteractionSide = editedSide;
         }
 
-        if (editedSide === 'left' && this.glyphCanvas.viewportManager) {
-            const nextWidth = Number(currentLayerData.width) || 0;
-            const widthDelta = nextWidth - previousWidth;
+        const nextWidth = Number(currentLayerData.width) || 0;
+        const widthDelta = nextWidth - previousWidth;
+
+        if (editedSide === 'left') {
             if (Math.abs(widthDelta) > 0.01) {
-                this.glyphCanvas.viewportManager.panX -=
-                    widthDelta * this.glyphCanvas.viewportManager.scale;
                 this._shiftSnapCandidateCacheX(widthDelta);
             }
         } else if (editedSide === 'right') {
-            const nextWidth = Number(currentLayerData.width) || 0;
-            const widthDelta = nextWidth - previousWidth;
             if (Math.abs(widthDelta) > 0.01) {
-                // RSB edit: only width changes, no geometry/viewport shift.
                 // Right-neighbor candidates move because the active glyph's
                 // advance changes, shifting the right neighbor's world position.
                 this._shiftSnapCandidateCacheX(widthDelta, 'right');
@@ -1519,15 +1535,6 @@ export class OutlineEditor {
         const adjacentSnapCandidateWidthDeltas =
             this._getAdjacentSnapCandidateWidthDeltas(glyphAdvances);
 
-        // Snapshot preceding-glyph advance delta BEFORE refreshing the
-        // buffer, so the current ax values reflect the pre-update state.
-        const precedingDelta =
-            refreshGlyphAdvances && Object.keys(glyphAdvances).length > 0
-                ? (this.glyphCanvas.textRunEditor?.computePrecedingAdvanceDelta(
-                      glyphAdvances
-                  ) ?? 0)
-                : 0;
-
         const advancesRefreshed =
             refreshGlyphAdvances &&
             Object.keys(glyphAdvances).length > 0 &&
@@ -1536,14 +1543,8 @@ export class OutlineEditor {
                 { render: false }
             );
 
-        // Compensate panX for advance changes in glyphs preceding the
-        // active glyph in the buffer (downstream metrics-key cascades).
-        if (
-            Math.abs(precedingDelta) > 0.01 &&
-            this.glyphCanvas.viewportManager
-        ) {
-            this.glyphCanvas.viewportManager.panX -=
-                precedingDelta * this.glyphCanvas.viewportManager.scale;
+        if (bboxCenterAnchorScreen) {
+            this.applyBoundingBoxCenterScreenAnchor(bboxCenterAnchorScreen);
         }
 
         if (editedSide === 'left') {
@@ -1569,6 +1570,111 @@ export class OutlineEditor {
             glyphAdvances,
             advancesRefreshed
         };
+    }
+
+    private getBoundingBoxCenterScreenPosition(): {
+        x: number;
+        y: number;
+    } | null {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const bbox = currentLayerData
+            ? Layer.calculateBoundingBox(currentLayerData, true)
+            : null;
+        if (!bbox) {
+            return null;
+        }
+
+        if (
+            !this.glyphCanvas.viewportManager ||
+            !this.glyphCanvas.textRunEditor ||
+            this.glyphCanvas.textRunEditor.selectedGlyphIndex < 0
+        ) {
+            return null;
+        }
+
+        const glyphPosition = this.glyphCanvas.textRunEditor._getGlyphPosition(
+            this.glyphCanvas.textRunEditor.selectedGlyphIndex
+        );
+
+        let localCenterX = bbox.minX + bbox.width / 2;
+        let localCenterY = bbox.minY + bbox.height / 2;
+
+        if (this.isEditingComponent()) {
+            const transform = this.getAccumulatedTransform();
+            const [a, b, c, d, tx, ty] = transform;
+            const transformedX = a * localCenterX + c * localCenterY + tx;
+            const transformedY = b * localCenterX + d * localCenterY + ty;
+            localCenterX = transformedX;
+            localCenterY = transformedY;
+        }
+
+        const worldCenterX =
+            glyphPosition.xPosition + glyphPosition.xOffset + localCenterX;
+        const worldCenterY = glyphPosition.yOffset + localCenterY;
+
+        return this.glyphCanvas.viewportManager.fontToScreenCoordinates(
+            worldCenterX,
+            worldCenterY
+        );
+    }
+
+    private applyBoundingBoxCenterScreenAnchor(
+        anchorScreen: {
+            x: number;
+            y: number;
+        } | null
+    ): void {
+        if (!anchorScreen || !this.glyphCanvas.viewportManager) {
+            return;
+        }
+
+        const currentScreenPos = this.getBoundingBoxCenterScreenPosition();
+        if (!currentScreenPos) {
+            return;
+        }
+
+        this.glyphCanvas.viewportManager.panX +=
+            anchorScreen.x - currentScreenPos.x;
+        this.glyphCanvas.viewportManager.panY +=
+            anchorScreen.y - currentScreenPos.y;
+    }
+
+    private refreshKeyedMetricsViewportAnchor(
+        affectedGlyphNames: Set<string>,
+        anchorScreen: {
+            x: number;
+            y: number;
+        } | null
+    ): void {
+        this.syncCurrentExactLayerDataFromModel();
+
+        if (!anchorScreen) {
+            return;
+        }
+
+        const currentLayerId = this.getCurrentLayerId();
+        const currentLayerModel = this.getCurrentLayerModel();
+        const masterId =
+            typeof currentLayerModel?.master === 'object' &&
+            currentLayerModel.master
+                ? currentLayerModel.master.master || null
+                : null;
+
+        if (currentLayerId) {
+            const glyphAdvances = this.collectLiveAdvanceWidths(
+                affectedGlyphNames,
+                currentLayerId,
+                masterId
+            );
+            if (Object.keys(glyphAdvances).length > 0) {
+                this.glyphCanvas.textRunEditor?.refreshGlyphAdvancesLive(
+                    glyphAdvances,
+                    { render: false }
+                );
+            }
+        }
+
+        this.applyBoundingBoxCenterScreenAnchor(anchorScreen);
     }
 
     private getCurrentMasterModel(): any | null {
@@ -4919,12 +5025,12 @@ export class OutlineEditor {
             this.applyMetricsKeysToCurrentEditedLayer();
         }
 
-        // After metrics key recomputation, if the viewport was panned
-        // (LSB key shifted shapes right + panned viewport left), recalculate
-        // lastGlyphX so the next frame's delta purely reflects mouse movement.
+        // After metrics key recomputation, the viewport may have been
+        // re-anchored to keep the bbox center fixed on screen. Recalculate
+        // lastGlyphX/Y so the next frame's delta purely reflects mouse movement.
         if (
             (this.isDraggingComponent || this.isDraggingPoint) &&
-            this._metricsKeyEditedSide === 'left'
+            this._metricsKeyEditedSide !== null
         ) {
             const recalc = this.isDraggingGuide
                 ? this.transformMouseToRootSpace()
@@ -7634,6 +7740,11 @@ export class OutlineEditor {
         }
 
         const currentFont = fontManager.currentFont;
+        const bboxCenterAnchorScreen =
+            this.getBoundingBoxCenterScreenPosition();
+        const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
+            currentGlyphModel.name
+        );
 
         // Sync JSON and update worker cache immediately (before endTransaction fires
         // dirty callbacks and before updatePropertyPanel triggers fetchLayerData →
@@ -7652,7 +7763,21 @@ export class OutlineEditor {
             }
             fontManager.lastChangeSource = 'close-open-path';
             fontManager.lastEditType = null;
-            void fontManager.forceFullWorkerCacheUpdate();
+            void fontManager.forceFullWorkerCacheUpdate().then(() => {
+                for (const glyphName of affectedGlyphNames) {
+                    if (glyphName === currentGlyphModel.name) {
+                        continue;
+                    }
+                    window.dispatchEvent(
+                        new CustomEvent('glyphChanged', {
+                            detail: {
+                                glyphName,
+                                layerId: this.getCurrentLayerId()
+                            }
+                        })
+                    );
+                }
+            });
         }
 
         const bridge = window.changeBridge;
@@ -7667,7 +7792,10 @@ export class OutlineEditor {
             }
         }
 
-        this.syncCurrentExactLayerDataFromModel();
+        this.refreshKeyedMetricsViewportAnchor(
+            affectedGlyphNames,
+            bboxCenterAnchorScreen
+        );
 
         if (currentFont) {
             currentFont.markDirty('close-open-path');
@@ -7724,6 +7852,11 @@ export class OutlineEditor {
         const currentFont = fontManager.currentFont;
         const layerId = this.getCurrentLayerId();
         const bridge = window.changeBridge;
+        const bboxCenterAnchorScreen =
+            this.getBoundingBoxCenterScreenPosition();
+        const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
+            currentGlyphModel?.name
+        );
         const label = pendingEdit.didDraw
             ? pendingEdit.didConvertLine
                 ? 'Edit path'
@@ -7764,7 +7897,21 @@ export class OutlineEditor {
                     return;
                 }
 
-                void fontManager.updateWorkerFontCache();
+                void fontManager.updateWorkerFontCache().then(() => {
+                    for (const glyphName of affectedGlyphNames) {
+                        if (glyphName === currentGlyphModel?.name) {
+                            continue;
+                        }
+                        window.dispatchEvent(
+                            new CustomEvent('glyphChanged', {
+                                detail: {
+                                    glyphName,
+                                    layerId
+                                }
+                            })
+                        );
+                    }
+                });
             }, 0);
         } else if (currentGlyphModel?.name) {
             window.dispatchEvent(
@@ -7777,6 +7924,10 @@ export class OutlineEditor {
             );
         }
 
+        this.refreshKeyedMetricsViewportAnchor(
+            affectedGlyphNames,
+            bboxCenterAnchorScreen
+        );
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
@@ -10621,53 +10772,7 @@ export class OutlineEditor {
             return;
         }
 
-        const bbox = this.calculateGlyphBoundingBox();
-        if (!bbox) {
-            this.autoPanAnchorScreen = null;
-            return;
-        }
-
-        // Check if we have a valid selected glyph
-        if (
-            !this.glyphCanvas.textRunEditor ||
-            this.glyphCanvas.textRunEditor.selectedGlyphIndex < 0
-        ) {
-            this.autoPanAnchorScreen = null;
-            return;
-        }
-
-        // Get glyph position in text run
-        const glyphPosition = this.glyphCanvas.textRunEditor!._getGlyphPosition(
-            this.glyphCanvas.textRunEditor!.selectedGlyphIndex
-        );
-
-        // Calculate bbox center in glyph-local space
-        let localCenterX = bbox.minX + bbox.width / 2;
-        let localCenterY = bbox.minY + bbox.height / 2;
-
-        // If editing a component, apply the component's transform to the local center
-        if (this.isEditingComponent()) {
-            const transform = this.getAccumulatedTransform();
-            const [a, b, c, d, tx, ty] = transform;
-            const transformedX = a * localCenterX + c * localCenterY + tx;
-            const transformedY = b * localCenterX + d * localCenterY + ty;
-            localCenterX = transformedX;
-            localCenterY = transformedY;
-        }
-
-        // Transform to world space (using CURRENT glyph position)
-        const worldCenterX =
-            glyphPosition.xPosition + glyphPosition.xOffset + localCenterX;
-        const worldCenterY = glyphPosition.yOffset + localCenterY;
-
-        // Convert to screen coordinates
-        const screenPos =
-            this.glyphCanvas.viewportManager!.fontToScreenCoordinates(
-                worldCenterX,
-                worldCenterY
-            );
-
-        this.autoPanAnchorScreen = screenPos;
+        this.autoPanAnchorScreen = this.getBoundingBoxCenterScreenPosition();
     }
 
     /**
@@ -10679,57 +10784,7 @@ export class OutlineEditor {
             return;
         }
 
-        const bbox = this.calculateGlyphBoundingBox();
-        if (!bbox) {
-            return;
-        }
-
-        // Check if we have a valid selected glyph
-        if (
-            !this.glyphCanvas.textRunEditor ||
-            this.glyphCanvas.textRunEditor.selectedGlyphIndex < 0
-        ) {
-            return;
-        }
-
-        // Get glyph position in text run
-        const glyphPosition = this.glyphCanvas.textRunEditor!._getGlyphPosition(
-            this.glyphCanvas.textRunEditor!.selectedGlyphIndex
-        );
-
-        // Calculate new bbox center in glyph-local space
-        let localCenterX = bbox.minX + bbox.width / 2;
-        let localCenterY = bbox.minY + bbox.height / 2;
-
-        // If editing a component, apply the component's transform to the local center
-        if (this.isEditingComponent()) {
-            const transform = this.getAccumulatedTransform();
-            const [a, b, c, d, tx, ty] = transform;
-            const transformedX = a * localCenterX + c * localCenterY + tx;
-            const transformedY = b * localCenterX + d * localCenterY + ty;
-            localCenterX = transformedX;
-            localCenterY = transformedY;
-        }
-
-        // Transform to world space (using CURRENT glyph position)
-        const worldCenterX =
-            glyphPosition.xPosition + glyphPosition.xOffset + localCenterX;
-        const worldCenterY = glyphPosition.yOffset + localCenterY;
-
-        // Convert to screen coordinates with current pan/scale
-        const currentScreenPos =
-            this.glyphCanvas.viewportManager!.fontToScreenCoordinates(
-                worldCenterX,
-                worldCenterY
-            );
-
-        // Calculate the offset between where the bbox center is now vs where it should be
-        const offsetX = this.autoPanAnchorScreen.x - currentScreenPos.x;
-        const offsetY = this.autoPanAnchorScreen.y - currentScreenPos.y;
-
-        // Apply the pan adjustment
-        this.glyphCanvas.viewportManager!.panX += offsetX;
-        this.glyphCanvas.viewportManager!.panY += offsetY;
+        this.applyBoundingBoxCenterScreenAnchor(this.autoPanAnchorScreen);
     }
 
     calculateGlyphBoundingBox(): {

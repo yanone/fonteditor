@@ -1785,6 +1785,194 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         applyMetricsSpy.mockRestore();
     });
 
+    test('finalizing a closed command-path edit recomputes keyed sidebearings on sibling layers', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                },
+                {
+                    id: 'master-2',
+                    name: { en: 'Bold' },
+                    location: { wght: 1 },
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 400,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 300, y: 0, nodetype: 'Line' },
+                                        { x: 300, y: 500, nodetype: 'Line' },
+                                        { x: 100, y: 500, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 520,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-2'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 120, y: 0, nodetype: 'Line' },
+                                        { x: 420, y: 0, nodetype: 'Line' },
+                                        { x: 420, y: 500, nodetype: 'Line' },
+                                        { x: 120, y: 500, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ],
+                    format_specific: {
+                        metric_left: '=50'
+                    }
+                }
+            ],
+            names: {
+                family_name: { en: 'Command Path Metrics Test' }
+            },
+            note: '',
+            date: '2026-03-31',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        const updateWorkerFontCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const updateDirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+
+        const getLayerBoundingBoxCenterScreen = () => {
+            const bbox = Layer.calculateBoundingBox(
+                canvas.outlineEditor.layerData,
+                true
+            );
+            if (!bbox) {
+                return null;
+            }
+
+            const glyphPosition = canvas.textRunEditor._getGlyphPosition(
+                canvas.textRunEditor.selectedGlyphIndex
+            );
+            const localCenterX = bbox.minX + bbox.width / 2;
+            const localCenterY = bbox.minY + bbox.height / 2;
+
+            return canvas.viewportManager.fontToScreenCoordinates(
+                glyphPosition.xPosition + glyphPosition.xOffset + localCenterX,
+                glyphPosition.yOffset + localCenterY
+            );
+        };
+
+        try {
+            currentFontSpy.mockRestore();
+            currentFontSpy = jest
+                .spyOn(fontManager, 'currentFont', 'get')
+                .mockReturnValue(currentFont);
+
+            const glyph = font.findGlyph('A');
+            const activeLayer = glyph.findLayerById('layer-1');
+            const siblingLayer = glyph.findLayerById('layer-2');
+            const addedPath = activeLayer.addPath(false);
+            addedPath._appendLine({ x: 70, y: 0 });
+            addedPath._appendLine({ x: 90, y: 0 });
+            addedPath._appendLine({ x: 90, y: 120 });
+            addedPath._closeOpenPath();
+
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+                { glyphName: 'A' }
+            ]);
+            canvas.getCurrentGlyphName = jest.fn(() => 'A');
+            canvas.viewportManager.scale = 2;
+            canvas.viewportManager.panX = 100;
+            canvas.textRunEditor.selectedGlyphIndex = 0;
+            canvas.textRunEditor.shapedGlyphs = [
+                { ax: 400, dx: 0, dy: 0, g: 0, cl: 0 }
+            ];
+            canvas.textRunEditor.glyphNameBuffer = ['A'];
+            canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(
+                (glyphAdvances) => {
+                    const width = glyphAdvances.A;
+                    if (typeof width === 'number') {
+                        canvas.textRunEditor.shapedGlyphs[0].ax = width;
+                    }
+                    return true;
+                }
+            );
+            canvas.outlineEditor.layerData = {
+                ...glyph.findLayerById('layer-1').toJSON(),
+                isInterpolated: false
+            };
+            const anchorScreen = getLayerBoundingBoxCenterScreen();
+            canvas.outlineEditor.pendingCommandPathEdit = {
+                didDraw: true,
+                didConvertLine: false
+            };
+            window.changeBridge = null;
+
+            canvas.outlineEditor.finalizePendingCommandPathEdit();
+
+            expect(activeLayer.lsb).toBe(50);
+            expect(siblingLayer.lsb).toBe(50);
+            expect(canvas.outlineEditor.layerData.width).toBe(
+                activeLayer.width
+            );
+            const currentScreen = getLayerBoundingBoxCenterScreen();
+            expect(currentScreen).not.toBeNull();
+            expect(currentScreen.x).toBeCloseTo(anchorScreen.x, 2);
+            expect(currentScreen.y).toBeCloseTo(anchorScreen.y, 2);
+        } finally {
+            updateWorkerFontCacheSpy.mockRestore();
+            updateDirtyIndicatorSpy.mockRestore();
+        }
+    });
+
     test('pressing ArrowRight on the left sidebearing handle decreases the sidebearing', () => {
         canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
         canvas.viewportManager.scale = 2;
