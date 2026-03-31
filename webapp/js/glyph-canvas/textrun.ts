@@ -1564,6 +1564,11 @@ export class TextRunEditor {
         }
     }
 
+    invalidateExplicitGlyphOutlineCache(): void {
+        this.explicitGlyphOutlineCache.clear();
+        this.explicitGlyphOutlinePending.clear();
+    }
+
     async setFont(fontData: Uint8Array, isInitialLoad: boolean = false) {
         console.log(
             '[TextRun]',
@@ -1575,6 +1580,7 @@ export class TextRunEditor {
 
         // Clean up old HarfBuzz objects before creating new ones to prevent memory leak
         this.destroyHarfbuzz();
+        this.invalidateExplicitGlyphOutlineCache();
 
         // Store font blob
         this.fontBlob = fontData;
@@ -1606,6 +1612,7 @@ export class TextRunEditor {
      */
     swapFontBlob(fontData: Uint8Array): void {
         this.destroyHarfbuzz();
+        this.invalidateExplicitGlyphOutlineCache();
         this.fontBlob = fontData;
         this.hbBlob = this.hb.createBlob(fontData);
         this.hbFace = this.hb.createFace(this.hbBlob, 0);

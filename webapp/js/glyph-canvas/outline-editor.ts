@@ -5479,6 +5479,7 @@ export class OutlineEditor {
                 const currentGlyphModel = this.getCurrentGlyphModel();
                 if (currentFont) {
                     currentFont.markDirty('keyboard-outline');
+                    this.prepareStructuralOutlineCompile();
                     void fontManager.updateDirtyIndicator();
                     window.setTimeout(() => {
                         if (fontManager.currentFont !== currentFont) {
@@ -5496,6 +5497,7 @@ export class OutlineEditor {
                         }
 
                         void fontManager.updateWorkerFontCache();
+                        this.wakeStructuralOutlineCompile();
                     }, 0);
                 } else if (currentGlyphModel?.name) {
                     window.dispatchEvent(
@@ -6428,6 +6430,7 @@ export class OutlineEditor {
 
         if (currentFont) {
             currentFont.markDirty('keyboard-outline');
+            this.prepareStructuralOutlineCompile();
             void fontManager.updateDirtyIndicator();
         }
 
@@ -6444,6 +6447,7 @@ export class OutlineEditor {
                 if (shouldUseIncrementalCacheRefresh) {
                     fontManager.pendingBabelfontJsonSyncAfterDrag = true;
                     void fontManager.updateWorkerFontCache();
+                    this.wakeStructuralOutlineCompile();
                     return;
                 }
 
@@ -6458,6 +6462,7 @@ export class OutlineEditor {
                 }
 
                 void fontManager.updateWorkerFontCache();
+                this.wakeStructuralOutlineCompile();
             }, 0);
         } else if (currentGlyphModel.name) {
             window.dispatchEvent(
@@ -7091,6 +7096,7 @@ export class OutlineEditor {
         const currentFont = fontManager.currentFont;
         if (currentFont) {
             currentFont.markDirty('keyboard-outline');
+            this.prepareStructuralOutlineCompile();
             void fontManager.updateDirtyIndicator();
         }
 
@@ -7115,6 +7121,7 @@ export class OutlineEditor {
                 }
 
                 void fontManager.updateWorkerFontCache();
+                this.wakeStructuralOutlineCompile();
             }, 0);
         } else if (currentGlyphModel.name) {
             window.dispatchEvent(
@@ -7463,6 +7470,9 @@ export class OutlineEditor {
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+        this.queueStructuralOutlineCompileFromModel(
+            'starting command path drawing'
+        );
         return !!activePath;
     }
 
@@ -7525,6 +7535,9 @@ export class OutlineEditor {
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+        this.queueStructuralOutlineCompileFromModel(
+            'extending command path drawing'
+        );
         return true;
     }
 
@@ -7579,6 +7592,9 @@ export class OutlineEditor {
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+        this.queueStructuralOutlineCompileFromModel(
+            'closing command path drawing'
+        );
         return true;
     }
 
@@ -7636,6 +7652,9 @@ export class OutlineEditor {
         this.performHitDetection(null);
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
+        this.queueStructuralOutlineCompileFromModel(
+            'converting line segment to curve'
+        );
         return true;
     }
 
@@ -7685,6 +7704,7 @@ export class OutlineEditor {
         const currentFont = fontManager.currentFont;
         if (currentFont) {
             currentFont.markDirty('keyboard-outline');
+            this.prepareStructuralOutlineCompile();
             void fontManager.updateDirtyIndicator();
         }
 
@@ -7722,6 +7742,7 @@ export class OutlineEditor {
                 }
 
                 void fontManager.updateWorkerFontCache();
+                this.wakeStructuralOutlineCompile();
             }, 0);
         } else if (currentGlyphModel.name) {
             window.dispatchEvent(
@@ -7792,8 +7813,6 @@ export class OutlineEditor {
                     error
                 );
             }
-            fontManager.lastChangeSource = 'close-open-path';
-            fontManager.lastEditType = null;
             void fontManager.forceFullWorkerCacheUpdate().then(() => {
                 for (const glyphName of affectedGlyphNames) {
                     if (glyphName === currentGlyphModel.name) {
@@ -7829,8 +7848,10 @@ export class OutlineEditor {
         );
 
         if (currentFont) {
-            currentFont.markDirty('close-open-path');
+            currentFont.markDirty('keyboard-outline');
+            this.prepareStructuralOutlineCompile();
             void fontManager.updateDirtyIndicator();
+            this.wakeStructuralOutlineCompile();
         }
 
         this.selectedPoints = [{ contourIndex, nodeIndex: 0 }];
@@ -7868,6 +7889,56 @@ export class OutlineEditor {
         } else {
             this.pendingCommandPathEdit.didConvertLine = true;
         }
+    }
+
+    private prepareStructuralOutlineCompile(
+        changeSource: 'keyboard-outline' = 'keyboard-outline'
+    ): void {
+        fontManager.lastChangeSource = changeSource;
+        fontManager.lastEditType = 'outline';
+        fontManager.forceFullEditingCacheRefresh = true;
+        fontManager.scheduleFullCompileDebounce();
+    }
+
+    private queueStructuralOutlineCompileFromModel(
+        errorLabel: string,
+        useFullWorkerCacheUpdate: boolean = false
+    ): void {
+        const currentFont = fontManager.currentFont;
+        if (!currentFont) {
+            return;
+        }
+
+        currentFont.markDirty('keyboard-outline');
+        this.prepareStructuralOutlineCompile();
+        void fontManager.updateDirtyIndicator();
+
+        window.setTimeout(() => {
+            if (fontManager.currentFont !== currentFont) {
+                return;
+            }
+
+            try {
+                currentFont.syncJsonFromModel();
+            } catch (error) {
+                console.error(
+                    `[OutlineEditor] Error syncing font JSON after ${errorLabel}:`,
+                    error
+                );
+                return;
+            }
+
+            if (useFullWorkerCacheUpdate) {
+                void fontManager.forceFullWorkerCacheUpdate();
+            } else {
+                void fontManager.updateWorkerFontCache();
+            }
+            this.wakeStructuralOutlineCompile();
+        }, 0);
+    }
+
+    private wakeStructuralOutlineCompile(): void {
+        window.autoCompileManager?.checkAndSchedule?.();
     }
 
     private finalizePendingCommandPathEdit(): void {
@@ -7911,6 +7982,7 @@ export class OutlineEditor {
 
         if (currentFont) {
             currentFont.markDirty('keyboard-outline');
+            this.prepareStructuralOutlineCompile();
             void fontManager.updateDirtyIndicator();
 
             window.setTimeout(() => {
@@ -7943,6 +8015,7 @@ export class OutlineEditor {
                         );
                     }
                 });
+                this.wakeStructuralOutlineCompile();
             }, 0);
         } else if (currentGlyphModel?.name) {
             window.dispatchEvent(
@@ -8904,6 +8977,7 @@ export class OutlineEditor {
 
         if (currentFont) {
             currentFont.markDirty('keyboard-outline');
+            this.prepareStructuralOutlineCompile();
             void fontManager.updateDirtyIndicator();
         }
 
@@ -8921,6 +8995,7 @@ export class OutlineEditor {
                 if (shouldUseIncrementalCacheRefresh) {
                     fontManager.pendingBabelfontJsonSyncAfterDrag = true;
                     void fontManager.updateWorkerFontCache();
+                    this.wakeStructuralOutlineCompile();
                     return;
                 }
 
@@ -8935,6 +9010,7 @@ export class OutlineEditor {
                 }
 
                 void fontManager.updateWorkerFontCache();
+                this.wakeStructuralOutlineCompile();
             }, 0);
         } else if (currentGlyphModel.name) {
             window.dispatchEvent(

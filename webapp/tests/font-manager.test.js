@@ -394,6 +394,168 @@ describe('FontManager saveLayerData', () => {
     });
 });
 
+describe('FontManager editing subset inclusion', () => {
+    let originalOpenedFonts;
+    let originalCurrentFontId;
+    let originalGlyphCanvas;
+    let compileEditingSpy;
+    let originalFontCompilationInitialized;
+    let saveEditingFontSpy;
+
+    beforeEach(() => {
+        originalOpenedFonts = fontManager.openedFonts;
+        originalCurrentFontId = fontManager.currentFontId;
+        originalGlyphCanvas = window.glyphCanvas;
+        originalFontCompilationInitialized = fontCompilation.isInitialized;
+
+        const fontData = {
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'a',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'n',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: { family_name: { en: 'Subset Test' } },
+            note: '',
+            date: '2026-03-31',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        };
+        const fakeCurrentFont = {
+            babelfontJson: JSON.stringify(fontData),
+            babelfontData: fontData,
+            fontModel: Font.fromData(fontData),
+            name: 'Sukoon',
+            compileRequestVersion: 1,
+            changeVersion: 1,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(function () {
+                this.babelfontJson = this.fontModel.toJSONString();
+            })
+        };
+
+        fontManager.openedFonts = new Map([['test-font', fakeCurrentFont]]);
+        fontManager.currentFontId = 'test-font';
+        fontCompilation.isInitialized = true;
+        compileEditingSpy = jest
+            .spyOn(fontCompilation, 'compileEditingFromJsonCached')
+            .mockResolvedValue({
+                result: new Uint8Array([1, 2, 3]),
+                filename: 'editing.ttf',
+                time_taken: 1,
+                fontRevisionKey: '1'
+            });
+        saveEditingFontSpy = jest
+            .spyOn(fontManager, 'saveEditingFontToFileSystem')
+            .mockImplementation(() => {});
+
+        window.glyphCanvas = {
+            outlineEditor: {
+                currentGlyphName: 'n',
+                selectedLayerId: 'layer-1',
+                draggingSomething: false
+            },
+            getCurrentGlyphName: jest.fn(() => 'n'),
+            textRunEditor: {
+                textBuffer: 'a',
+                glyphNameBuffer: ['a']
+            }
+        };
+    });
+
+    afterEach(() => {
+        compileEditingSpy?.mockRestore();
+        saveEditingFontSpy?.mockRestore();
+        fontManager.openedFonts = originalOpenedFonts;
+        fontManager.currentFontId = originalCurrentFontId;
+        window.glyphCanvas = originalGlyphCanvas;
+        fontCompilation.isInitialized = originalFontCompilationInitialized;
+    });
+
+    test('compileEditingFont adds the active edited glyph to the subset', async () => {
+        fontManager.lastChangeSource = 'keyboard-outline';
+        fontManager.lastEditType = 'outline';
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][2]).toEqual(['a', 'n']);
+    });
+
+    test('structural outline compiles keep outline-only mode but skip incremental dirty-layer patching', async () => {
+        fontManager.lastChangeSource = 'keyboard-outline';
+        fontManager.lastEditType = 'outline';
+        fontManager.forceFullEditingCacheRefresh = true;
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][2]).toEqual(['a', 'n']);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'keyboard-outline',
+            optionOverrides: {
+                skip_features: true,
+                skip_kerning: true,
+                produce_varc_table: false
+            }
+        });
+        expect(
+            compileEditingSpy.mock.calls[0][3].dirtyLayerData
+        ).toBeUndefined();
+        expect(fontManager.forceFullEditingCacheRefresh).toBe(false);
+    });
+});
+
 describe('FontManager loadFont', () => {
     let originalOpenedFonts;
     let originalCurrentFontId;

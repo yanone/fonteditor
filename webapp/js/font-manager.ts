@@ -385,6 +385,7 @@ class FontManager {
     pendingDebugEditingFontSaveAfterDrag: boolean;
     pendingBabelfontJsonSyncAfterDrag: boolean;
     workerCacheUpdatePromise: Promise<void> | null;
+    forceFullEditingCacheRefresh: boolean;
 
     constructor() {
         this.fontDisplay = null;
@@ -411,6 +412,7 @@ class FontManager {
         this.pendingDebugEditingFontSaveAfterDrag = false;
         this.pendingBabelfontJsonSyncAfterDrag = false;
         this.workerCacheUpdatePromise = null;
+        this.forceFullEditingCacheRefresh = false;
     }
     init() {
         this.fontDisplay = document.getElementById('current-font-display');
@@ -1186,6 +1188,17 @@ class FontManager {
                 this.updateEditingSubsetSnapshot(glyphsToInclude);
             }
 
+            const activeEditedGlyphName =
+                window.glyphCanvas?.outlineEditor?.currentGlyphName ||
+                window.glyphCanvas?.getCurrentGlyphName?.();
+            if (
+                activeEditedGlyphName &&
+                !glyphsToInclude.includes(activeEditedGlyphName)
+            ) {
+                glyphsToInclude = [...glyphsToInclude, activeEditedGlyphName];
+                this.updateEditingSubsetSnapshot(glyphsToInclude);
+            }
+
             if (startupOpenSessionActive) {
                 if (startupOpenSessionEditingCompileCount >= 1) {
                     console.log(
@@ -1240,14 +1253,21 @@ class FontManager {
                 );
                 const dragActiveAtRequest =
                     !!window.glyphCanvas?.outlineEditor?.draggingSomething;
+                const forceFullWorkerCompile =
+                    this.forceFullEditingCacheRefresh;
+                if (forceFullWorkerCompile) {
+                    this.forceFullEditingCacheRefresh = false;
+                }
                 let dirtyGlyphName: string | undefined;
                 let dirtyLayerId: string | undefined;
                 let dirtyLayerData: unknown;
                 const incrementalChangeSource = this.lastChangeSource;
-                const shouldSendIncrementalLayer =
+                const isInteractiveSource =
                     incrementalChangeSource !== null &&
                     (incrementalChangeSource.startsWith('mouse-drag') ||
                         incrementalChangeSource.startsWith('keyboard'));
+                const shouldSendIncrementalLayer =
+                    isInteractiveSource && !forceFullWorkerCompile;
                 const dragGlyphNames = shouldSendIncrementalLayer
                     ? [
                           window.glyphCanvas?.outlineEditor?.currentGlyphName ||
@@ -1284,7 +1304,7 @@ class FontManager {
 
                 // Determine compilation mode based on edit type
                 const isInteractiveEdit =
-                    shouldSendIncrementalLayer &&
+                    isInteractiveSource &&
                     (dragActiveAtRequest ||
                         (incrementalChangeSource !== null &&
                             incrementalChangeSource.startsWith('keyboard')));

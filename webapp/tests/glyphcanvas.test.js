@@ -4435,15 +4435,24 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const workerCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
             .mockResolvedValue();
+        const scheduleFullCompileDebounceSpy = jest
+            .spyOn(fontManager, 'scheduleFullCompileDebounce')
+            .mockImplementation(() => {});
         const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
         const segmentHitSpy = jest
             .spyOn(canvas.outlineEditor, 'findClosestPathSegmentHit')
             .mockReturnValue(null);
         const originalBridge = window.changeBridge;
         const originalFontModel = window.currentFontModel;
+        const originalAutoCompileManager = window.autoCompileManager;
+        const originalLastChangeSource = fontManager.lastChangeSource;
+        const originalLastEditType = fontManager.lastEditType;
 
         window.changeBridge = bridge;
         window.currentFontModel = font;
+        window.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
 
         const glyph = font.findGlyph('A');
         const currentLayer = glyph.findLayerById('layer-1');
@@ -4621,15 +4630,24 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const workerCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
             .mockResolvedValue();
+        const scheduleFullCompileDebounceSpy = jest
+            .spyOn(fontManager, 'scheduleFullCompileDebounce')
+            .mockImplementation(() => {});
         const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
         const segmentHitSpy = jest
             .spyOn(canvas.outlineEditor, 'findClosestPathSegmentHit')
             .mockReturnValue(null);
         const originalBridge = window.changeBridge;
         const originalFontModel = window.currentFontModel;
+        const originalAutoCompileManager = window.autoCompileManager;
+        const originalLastChangeSource = fontManager.lastChangeSource;
+        const originalLastEditType = fontManager.lastEditType;
 
         window.changeBridge = bridge;
         window.currentFontModel = font;
+        window.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
 
         const glyph = font.findGlyph('A');
         const currentLayer = glyph.findLayerById('layer-1');
@@ -4675,6 +4693,12 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 'Draw path'
             );
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
+            expect(fontManager.lastEditType).toBe('outline');
+            expect(scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalledTimes(1);
             expect(currentLayer.paths[0].closed).toBe(true);
             expect(linkedLayer.paths[0].closed).toBe(true);
             expect(
@@ -4687,8 +4711,12 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             segmentHitSpy.mockRestore();
             window.changeBridge = originalBridge;
             window.currentFontModel = originalFontModel;
+            window.autoCompileManager = originalAutoCompileManager;
+            fontManager.lastChangeSource = originalLastChangeSource;
+            fontManager.lastEditType = originalLastEditType;
             linkedLayersSpy.mockRestore();
             workerCacheSpy.mockRestore();
+            scheduleFullCompileDebounceSpy.mockRestore();
             dirtyIndicatorSpy.mockRestore();
             currentFontSpy.mockRestore();
         }
@@ -5424,6 +5452,601 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             workerCacheSpy.mockRestore();
             dirtyIndicatorSpy.mockRestore();
             currentFontSpy.mockRestore();
+        }
+    });
+});
+
+describe('OutlineEditor structural outline compile scheduling', () => {
+    let canvas;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        canvas.outlineEditor.active = true;
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+    });
+
+    function mockStructuralCompileEnvironment(font) {
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(),
+            hasUnsavedChanges: false
+        };
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const scheduleFullCompileDebounceSpy = jest
+            .spyOn(fontManager, 'scheduleFullCompileDebounce')
+            .mockImplementation(() => {});
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+        const originalBridge = window.changeBridge;
+        const originalFontModel = window.currentFontModel;
+        const originalAutoCompileManager = window.autoCompileManager;
+        const originalLastChangeSource = fontManager.lastChangeSource;
+        const originalLastEditType = fontManager.lastEditType;
+
+        window.changeBridge = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+        window.currentFontModel = font;
+        window.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        return {
+            currentFont,
+            currentFontSpy,
+            dirtyIndicatorSpy,
+            workerCacheSpy,
+            scheduleFullCompileDebounceSpy,
+            linkedLayersSpy,
+            bridge: window.changeBridge,
+            restore() {
+                window.changeBridge = originalBridge;
+                window.currentFontModel = originalFontModel;
+                window.autoCompileManager = originalAutoCompileManager;
+                fontManager.lastChangeSource = originalLastChangeSource;
+                fontManager.lastEditType = originalLastEditType;
+                linkedLayersSpy.mockRestore();
+                scheduleFullCompileDebounceSpy.mockRestore();
+                workerCacheSpy.mockRestore();
+                dirtyIndicatorSpy.mockRestore();
+                currentFontSpy.mockRestore();
+            }
+        };
+    }
+
+    async function flushStructuralCompileTick() {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    test('cmd path close recompiles immediately on the latest structural data before key release', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 40, y: 40, nodetype: 'Move' },
+                                        { x: 70, y: 90, nodetype: 'Line' },
+                                        { x: 100, y: 40, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 50, y: 50, nodetype: 'Move' },
+                                        { x: 80, y: 100, nodetype: 'Line' },
+                                        { x: 110, y: 50, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: { family_name: { en: 'Immediate Close Compile' } },
+            note: '',
+            date: '2026-03-31',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const env = mockStructuralCompileEnvironment(font);
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+        canvas.outlineEditor.hoveredPointIndex = {
+            contourIndex: 0,
+            nodeIndex: 2
+        };
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            await flushStructuralCompileTick();
+
+            expect(env.bridge.beginTransaction).not.toHaveBeenCalled();
+            expect(currentLayer.paths[0].closed).toBe(true);
+            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
+            expect(fontManager.lastEditType).toBe('outline');
+            expect(env.scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalledTimes(1);
+            expect(env.currentFont.markDirty).toHaveBeenCalledWith(
+                'keyboard-outline'
+            );
+            expect(env.currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(env.workerCacheSpy).toHaveBeenCalled();
+            expect(
+                env.currentFont.syncJsonFromModel.mock.invocationCallOrder[0]
+            ).toBeLessThan(env.workerCacheSpy.mock.invocationCallOrder[0]);
+        } finally {
+            env.restore();
+        }
+    });
+
+    test('opening a closed path recompiles immediately on synced outline data', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Line' },
+                                        { x: 50, y: 100, nodetype: 'Line' },
+                                        { x: 100, y: 0, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: { family_name: { en: 'Immediate Open Compile' } },
+            note: '',
+            date: '2026-03-31',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const env = mockStructuralCompileEnvironment(font);
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+
+        try {
+            expect(
+                canvas.outlineEditor.openClosedPathAtNode({
+                    contourIndex: 0,
+                    nodeIndex: 1
+                })
+            ).toBe(true);
+
+            await flushStructuralCompileTick();
+
+            expect(currentLayer.paths[0].closed).toBe(false);
+            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
+            expect(fontManager.lastEditType).toBe('outline');
+            expect(env.scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalledTimes(1);
+            expect(env.workerCacheSpy).toHaveBeenCalled();
+        } finally {
+            env.restore();
+        }
+    });
+
+    test('alt line-to-curve conversion recompiles immediately before alt release', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Move' },
+                                        { x: 100, y: 0, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: { family_name: { en: 'Immediate Convert Compile' } },
+            note: '',
+            date: '2026-03-31',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const env = mockStructuralCompileEnvironment(font);
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const descriptor = Layer.getPathSegmentDescriptors({
+            nodes: currentLayer.toJSON().shapes[0].nodes,
+            closed: false
+        })[0];
+        const segmentHitSpy = jest
+            .spyOn(canvas.outlineEditor, 'findClosestPathSegmentHit')
+            .mockReturnValue({
+                shapeIndex: 0,
+                pathIndex: 0,
+                descriptor,
+                projection: { x: 45, y: 0, t: 0.5, distance: 0 }
+            });
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: true,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            await flushStructuralCompileTick();
+
+            expect(env.bridge.beginTransaction).not.toHaveBeenCalled();
+            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
+            expect(fontManager.lastEditType).toBe('outline');
+            expect(env.scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalledTimes(1);
+            expect(env.currentFont.syncJsonFromModel).toHaveBeenCalled();
+            expect(env.workerCacheSpy).toHaveBeenCalled();
+            expect(
+                env.currentFont.syncJsonFromModel.mock.invocationCallOrder[0]
+            ).toBeLessThan(env.workerCacheSpy.mock.invocationCallOrder[0]);
+        } finally {
+            segmentHitSpy.mockRestore();
+            env.restore();
+        }
+    });
+
+    test('point insertion recompiles immediately on synced outline data', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Curve' },
+                                        { x: 30, y: 60, nodetype: 'OffCurve' },
+                                        { x: 70, y: 60, nodetype: 'OffCurve' },
+                                        { x: 100, y: 0, nodetype: 'Curve' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: { family_name: { en: 'Immediate Add Point Compile' } },
+            note: '',
+            date: '2026-03-31',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const env = mockStructuralCompileEnvironment(font);
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        canvas.outlineEditor.hoveredAddPointPreview = {
+            shapeIndex: 0,
+            pathIndex: 0,
+            segmentId: 0,
+            t: 0.5,
+            point: { x: 50, y: 45 },
+            segments: []
+        };
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            await flushStructuralCompileTick();
+
+            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
+            expect(fontManager.lastEditType).toBe('outline');
+            expect(env.scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalledTimes(1);
+            expect(env.workerCacheSpy).toHaveBeenCalled();
+        } finally {
+            env.restore();
+        }
+    });
+
+    test('point deletion recompiles immediately on synced outline data', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 0, y: 0, nodetype: 'Move' },
+                                        { x: 50, y: 100, nodetype: 'Line' },
+                                        { x: 100, y: 0, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: { family_name: { en: 'Immediate Delete Compile' } },
+            note: '',
+            date: '2026-03-31',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const env = mockStructuralCompileEnvironment(font);
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+
+        try {
+            await canvas.outlineEditor.deleteSelectedNodes();
+            await flushStructuralCompileTick();
+
+            expect(fontManager.lastChangeSource).toBe('keyboard-outline');
+            expect(fontManager.lastEditType).toBe('outline');
+            expect(env.scheduleFullCompileDebounceSpy).toHaveBeenCalledTimes(1);
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalledTimes(1);
+            expect(env.workerCacheSpy).toHaveBeenCalled();
+        } finally {
+            env.restore();
         }
     });
 });
