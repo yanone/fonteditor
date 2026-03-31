@@ -40,7 +40,6 @@ const {
 const { LayerDataNormalizer } = require('../../js/layer-data-normalizer');
 const fontManager = require('../../js/font-manager').default;
 const {
-    inferSidebearingPanSideFromMetricsKeys,
     inferSidebearingSideFromHistoryItem
 } = require('../../js/sidebearing-utils');
 const {
@@ -120,32 +119,6 @@ function setupCanvasForGlyph(font, glyphName) {
 }
 
 // ==================== Tests ====================
-
-describe('inferSidebearingPanSideFromMetricsKeys', () => {
-    test('returns null when no metrics keys are set', () => {
-        expect(
-            inferSidebearingPanSideFromMetricsKeys(undefined, undefined)
-        ).toBeNull();
-    });
-
-    test('returns null for RSB-only key (left edge already anchored at panX)', () => {
-        expect(
-            inferSidebearingPanSideFromMetricsKeys(undefined, '=n')
-        ).toBeNull();
-    });
-
-    test('returns null when both keys are set (glyph fully locked by keys)', () => {
-        expect(
-            inferSidebearingPanSideFromMetricsKeys('=l-5', '=l-10')
-        ).toBeNull();
-    });
-
-    test('returns left for LSB-only key (anchor right edge during width change)', () => {
-        expect(inferSidebearingPanSideFromMetricsKeys('=ref', undefined)).toBe(
-            'left'
-        );
-    });
-});
 
 describe('Sidebearing keys: live recompute during mouse drags', () => {
     test('dragging a point on a glyph with right sidebearing key adjusts width to preserve RSB', () => {
@@ -298,9 +271,9 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
         expect(result.glyphAdvances).toBeDefined();
     });
 
-    test('full-font recomputeMetricsKeys must NOT be called during live drags', () => {
+    test('live drag recompute seeds metrics-key recomputation from the active glyph', () => {
         const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
-        const { layer } = setupCanvasForGlyph(font, 'n');
+        setupCanvasForGlyph(font, 'n');
         const fullRecomputeSpy = jest.spyOn(font, 'recomputeMetricsKeys');
 
         // Simulate point drag
@@ -311,13 +284,13 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
 
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
-        expect(fullRecomputeSpy).not.toHaveBeenCalled();
+        expect(fullRecomputeSpy).toHaveBeenCalledWith(new Set(['n']));
         fullRecomputeSpy.mockRestore();
     });
 
-    test('downstream cascade: editing n updates a+adieresis+aring advances', () => {
+    test('editing fully keyed n does not spuriously cascade to a+adieresis+aring when n sidebearings stay locked', () => {
         const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
-        const { glyph, layer, masterId } = setupCanvasForGlyph(font, 'n');
+        const { masterId } = setupCanvasForGlyph(font, 'n');
 
         // record pre-drag widths
         const aWidthBefore = font
@@ -329,25 +302,36 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
             { contourIndex: 0, nodeIndex: 0 }
         ];
 
-        // Move rightmost point so RSB key adjusts width → changes n's RSB →
-        // which a inherits via metricRight = n
+        // Move only the rightmost node so n widens while its own keyed RSB
+        // stays fixed. Because a inherits n's sidebearing value rather than
+        // n's width, this must NOT cascade to a or its component dependents.
         const currentLayerData =
             canvas.outlineEditor.getCurrentLayerDataFromStack();
         const shapes = currentLayerData.shapes || [];
+        let maxX = -Infinity;
+        let rightmostNode = null;
         for (const shape of shapes) {
             const nodes = shape.nodes || (shape.Path && shape.Path.nodes) || [];
             const nodesArray = ensureParsedNodes(nodes);
             for (const node of nodesArray) {
-                node.x += 20; // shift all nodes right
+                if (node.x > maxX) {
+                    maxX = node.x;
+                    rightmostNode = node;
+                }
             }
         }
+
+        expect(rightmostNode).not.toBeNull();
+        rightmostNode.x += 20;
 
         const result =
             canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
         expect(result).not.toBeNull();
-        // a depends on n (metricRight = n), so a's advance should be in the result
-        expect(result.glyphAdvances).toHaveProperty('a');
+        expect(result.glyphAdvances).toEqual({ n: currentLayerData.width });
+        expect(font.findGlyph('a').findLayerByMasterId(masterId).width).toBe(
+            aWidthBefore
+        );
     });
 });
 
