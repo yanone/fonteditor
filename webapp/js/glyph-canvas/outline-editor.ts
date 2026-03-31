@@ -505,6 +505,62 @@ function getAltAnchorMoveDelta(
     );
 }
 
+function getOffCurveDragConstraintReference(
+    contour: EditableContour,
+    offcurveIndex: number
+): {
+    anchorX: number;
+    anchorY: number;
+    directionX: number;
+    directionY: number;
+} | null {
+    const offcurve = contour.nodes[offcurveIndex];
+    if (!isOffCurveNode(offcurve)) {
+        return null;
+    }
+
+    const prevIndex = getNeighborNodeIndex(
+        offcurveIndex,
+        -1,
+        contour.nodes.length,
+        contour.closed
+    );
+    const nextIndex = getNeighborNodeIndex(
+        offcurveIndex,
+        1,
+        contour.nodes.length,
+        contour.closed
+    );
+    const prevNode = prevIndex !== null ? contour.nodes[prevIndex] : null;
+    const nextNode = nextIndex !== null ? contour.nodes[nextIndex] : null;
+    const prevIsOnCurve = isOnCurveNode(prevNode);
+    const nextIsOnCurve = isOnCurveNode(nextNode);
+
+    // Cubic handles have exactly one adjacent on-curve anchor. If both sides
+    // are on-curve, there is no single anchor to constrain against here.
+    if (prevIsOnCurve === nextIsOnCurve) {
+        return null;
+    }
+
+    const anchor = prevIsOnCurve ? prevNode : nextNode;
+    if (!anchor || anchor.smooth) {
+        return null;
+    }
+
+    const directionX = offcurve.x - anchor.x;
+    const directionY = offcurve.y - anchor.y;
+    if (directionX === 0 && directionY === 0) {
+        return null;
+    }
+
+    return {
+        anchorX: anchor.x,
+        anchorY: anchor.y,
+        directionX,
+        directionY
+    };
+}
+
 function realignSmoothHandles(
     contour: EditableContour,
     anchorIndex: number
@@ -939,6 +995,14 @@ export class OutlineEditor {
     private _pointDragDeltaX: number = 0;
     private _componentDragDeltaX: number = 0;
     private _pointDragPreserveHandlePositions: boolean = false;
+    private _offCurveAltDragConstraint: {
+        contourIndex: number;
+        nodeIndex: number;
+        anchorX: number;
+        anchorY: number;
+        directionX: number;
+        directionY: number;
+    } | null = null;
     isDraggingComponent: boolean = false;
     isDraggingAnchor: boolean = false;
     isDraggingSidebearing: boolean = false;
@@ -4166,7 +4230,10 @@ export class OutlineEditor {
                 this.lastGlyphX = null; // Reset for delta calculation
                 this.lastGlyphY = null;
                 this.lastPointDragShiftKey = e.shiftKey;
-                this._pointDragPreserveHandlePositions = e.altKey;
+                this.altKeyPressed = e.altKey;
+                this._pointDragPreserveHandlePositions =
+                    e.altKey && !isOffCurveNode(hoveredNode);
+                this._captureOffCurveAltDragConstraint();
                 this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
             }
@@ -4687,6 +4754,99 @@ export class OutlineEditor {
     }
 
     /**
+     * Capture the original anchor ray for a single non-smooth off-curve drag.
+     */
+    private _captureOffCurveAltDragConstraint(): void {
+        this._offCurveAltDragConstraint = null;
+
+        if (this.selectedPoints.length !== 1) {
+            return;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return;
+        }
+
+        const { contourIndex, nodeIndex } = this.selectedPoints[0];
+        const contour = getEditableContour(
+            currentLayerData.shapes[contourIndex]
+        );
+        if (!contour) {
+            return;
+        }
+
+        const reference = getOffCurveDragConstraintReference(
+            contour,
+            nodeIndex
+        );
+        if (!reference) {
+            return;
+        }
+
+        this._offCurveAltDragConstraint = {
+            contourIndex,
+            nodeIndex,
+            ...reference
+        };
+    }
+
+    /**
+     * Re-evaluate the active off-curve drag at the current pointer when Alt
+     * changes so the handle updates immediately on press and release.
+     */
+    private _applyCurrentOffCurveAltConstraintState(): void {
+        const constraint = this._offCurveAltDragConstraint;
+        if (
+            !constraint ||
+            !this.isDraggingPoint ||
+            this.isSlidingSmoothPointAlongCurve
+        ) {
+            return;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return;
+        }
+
+        const contour = getEditableContour(
+            currentLayerData.shapes[constraint.contourIndex]
+        );
+        const node = contour?.nodes[constraint.nodeIndex];
+        if (!contour || !node || !isOffCurveNode(node)) {
+            return;
+        }
+
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const beforeX = node.x;
+        const beforeY = node.y;
+
+        this.applySelectedPointMove(
+            currentLayerData,
+            0,
+            0,
+            false,
+            false,
+            glyphX,
+            glyphY,
+            this.altKeyPressed
+        );
+
+        const appliedDeltaX = node.x - beforeX;
+        const appliedDeltaY = node.y - beforeY;
+        if (appliedDeltaX !== 0 || appliedDeltaY !== 0) {
+            this._hasMoved = true;
+            this.updatePointDragDeltaX(appliedDeltaX);
+            this.applyMetricsKeysToCurrentEditedLayer();
+        }
+
+        const recalc = this.transformMouseToComponentSpace();
+        this.lastGlyphX = recalc.glyphX;
+        this.lastGlyphY = recalc.glyphY;
+    }
+
+    /**
      * Compute snap-adjusted deltas for a point drag frame.
      *
      * Uses the absolute offset from drag-start (tracked with _snapDragStart*)
@@ -5015,7 +5175,8 @@ export class OutlineEditor {
                 this._pointDragPreserveHandlePositions,
                 e.shiftKey,
                 glyphX,
-                glyphY
+                glyphY,
+                e.altKey
             );
             this.updatePointDragDeltaX(effectiveDeltaX);
             this._checkOpenPathEndpointSnap();
@@ -5142,7 +5303,8 @@ export class OutlineEditor {
         preserveHandlePositions: boolean = false,
         snapSmoothHandleTriplet: boolean = false,
         pointerX?: number,
-        pointerY?: number
+        pointerY?: number,
+        constrainOffCurveToOriginalDirection: boolean = false
     ): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData || !currentLayerData.shapes) return;
@@ -5154,7 +5316,8 @@ export class OutlineEditor {
             preserveHandlePositions,
             snapSmoothHandleTriplet,
             pointerX,
-            pointerY
+            pointerY,
+            constrainOffCurveToOriginalDirection
         );
     }
 
@@ -5321,6 +5484,7 @@ export class OutlineEditor {
         this.isDraggingGuide = false;
         this.lastPointDragShiftKey = null;
         this._pointDragPreserveHandlePositions = false;
+        this._offCurveAltDragConstraint = null;
 
         // Reset node snap state
         this.activeSnapTarget = null;
@@ -6326,6 +6490,7 @@ export class OutlineEditor {
         this.altKeyPressed = pressed;
         if (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve) {
             this._rebuildSnapCandidateCache();
+            this._applyCurrentOffCurveAltConstraintState();
         }
         if (!pressed) {
             this.hoveredCommandCurvePreview = null;
@@ -8525,7 +8690,8 @@ export class OutlineEditor {
         preserveHandlePositions: boolean = false,
         snapSmoothHandleTriplet: boolean = false,
         pointerX?: number,
-        pointerY?: number
+        pointerY?: number,
+        constrainOffCurveToOriginalDirection: boolean = false
     ): void {
         const contourCache = new Map<number, EditableContour | null>();
         const getContourData = (
@@ -8592,10 +8758,43 @@ export class OutlineEditor {
                 continue;
             }
 
-            const adjustedDelta =
+            let adjustedDelta =
                 preserveHandlePositions && isOnCurveNode(node)
                     ? getAltAnchorMoveDelta(contour, nodeIndex, deltaX, deltaY)
                     : { deltaX, deltaY };
+
+            if (
+                this._offCurveAltDragConstraint &&
+                isOffCurveNode(node) &&
+                pointerX !== undefined &&
+                pointerY !== undefined &&
+                contourIndex === this._offCurveAltDragConstraint.contourIndex &&
+                nodeIndex === this._offCurveAltDragConstraint.nodeIndex
+            ) {
+                if (constrainOffCurveToOriginalDirection) {
+                    const projectedPointerDelta = projectDeltaOntoDirection(
+                        pointerX - this._offCurveAltDragConstraint.anchorX,
+                        pointerY - this._offCurveAltDragConstraint.anchorY,
+                        this._offCurveAltDragConstraint.directionX,
+                        this._offCurveAltDragConstraint.directionY
+                    );
+                    adjustedDelta = {
+                        deltaX:
+                            this._offCurveAltDragConstraint.anchorX +
+                            projectedPointerDelta.deltaX -
+                            node.x,
+                        deltaY:
+                            this._offCurveAltDragConstraint.anchorY +
+                            projectedPointerDelta.deltaY -
+                            node.y
+                    };
+                } else {
+                    adjustedDelta = {
+                        deltaX: pointerX - node.x,
+                        deltaY: pointerY - node.y
+                    };
+                }
+            }
 
             if (adjustedDelta.deltaX === 0 && adjustedDelta.deltaY === 0) {
                 continue;

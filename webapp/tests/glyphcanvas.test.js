@@ -673,6 +673,234 @@ describe('GlyphCanvas onMouseUp', () => {
         expect(canvas.outlineEditor.isDraggingPoint).toBe(false);
     });
 
+    test('alt-held drag constrains a non-smooth off-curve handle to its original direction', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.layerData = {
+                id: 'layer-1',
+                width: 520,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Curve', smooth: false },
+                            {
+                                x: 40,
+                                y: 0,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            {
+                                x: 80,
+                                y: 40,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            {
+                                x: 120,
+                                y: 0,
+                                nodetype: 'Curve',
+                                smooth: false
+                            }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            };
+            canvas.outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 1
+            };
+
+            let pointer = { glyphX: 40, glyphY: 0 };
+            const pointerSpy = jest
+                .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+                .mockImplementation(() => pointer);
+
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: true,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            canvas.outlineEditor.onMouseMove({
+                clientX: 11,
+                clientY: 21,
+                shiftKey: false,
+                altKey: true,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            pointer = { glyphX: 60, glyphY: 30 };
+            canvas.outlineEditor.onMouseMove({
+                clientX: 12,
+                clientY: 22,
+                shiftKey: false,
+                altKey: true,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            const draggedNode =
+                canvas.outlineEditor.layerData.shapes[0].nodes[1];
+            expect(draggedNode.x).toBe(60);
+            expect(draggedNode.y).toBe(0);
+
+            pointerSpy.mockRestore();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
+    test('alt toggle during non-smooth off-curve drag restores the original direction on re-press', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.layerData = {
+                id: 'layer-1',
+                width: 520,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Curve', smooth: false },
+                            {
+                                x: 40,
+                                y: 0,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            {
+                                x: 80,
+                                y: 40,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            {
+                                x: 120,
+                                y: 0,
+                                nodetype: 'Curve',
+                                smooth: false
+                            }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            };
+            canvas.outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 1
+            };
+
+            let pointer = { glyphX: 40, glyphY: 0 };
+            const pointerSpy = jest
+                .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+                .mockImplementation(() => pointer);
+
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            canvas.outlineEditor.onMouseMove({
+                clientX: 11,
+                clientY: 21,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            pointer = { glyphX: 60, glyphY: 30 };
+            canvas.outlineEditor.onMouseMove({
+                clientX: 12,
+                clientY: 22,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            let draggedNode = canvas.outlineEditor.layerData.shapes[0].nodes[1];
+            expect(draggedNode.x).toBe(60);
+            expect(draggedNode.y).toBe(30);
+
+            canvas.outlineEditor.setAltKeyPressed(true);
+            draggedNode = canvas.outlineEditor.layerData.shapes[0].nodes[1];
+            expect(draggedNode.x).toBe(60);
+            expect(draggedNode.y).toBe(0);
+
+            canvas.outlineEditor.setAltKeyPressed(false);
+            draggedNode = canvas.outlineEditor.layerData.shapes[0].nodes[1];
+            expect(draggedNode.x).toBe(60);
+            expect(draggedNode.y).toBe(30);
+
+            pointer = { glyphX: 90, glyphY: 50 };
+            canvas.outlineEditor.onMouseMove({
+                clientX: 13,
+                clientY: 23,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            draggedNode = canvas.outlineEditor.layerData.shapes[0].nodes[1];
+            expect(draggedNode.x).toBe(90);
+            expect(draggedNode.y).toBe(50);
+
+            canvas.outlineEditor.setAltKeyPressed(true);
+            draggedNode = canvas.outlineEditor.layerData.shapes[0].nodes[1];
+            expect(draggedNode.x).toBe(90);
+            expect(draggedNode.y).toBe(0);
+
+            pointerSpy.mockRestore();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
     test('point drag with metrics-key side change still syncs even if point description matches', () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
