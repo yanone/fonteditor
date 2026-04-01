@@ -8275,6 +8275,10 @@ export class OutlineEditor {
             return false;
         }
 
+        if (this.getHoveredOpenPathEndpointRef()) {
+            return false;
+        }
+
         const previewEndpoint = this.getCommandPathPreviewEndpointPoint();
         if (!previewEndpoint) {
             return false;

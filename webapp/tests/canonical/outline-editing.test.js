@@ -1795,7 +1795,7 @@ describe('Outline Editing canonical behavior', () => {
         pointerSpy.mockRestore();
     });
 
-    test('command-path preview line hides while cmd-hovering a different point', () => {
+    test('command-path preview line hides while cmd-hovering a different non-endpoint point', () => {
         const font = makeSinglePathFont(
             [
                 { x: 0, y: 0, nodetype: 'Move', smooth: false },
@@ -1848,6 +1848,56 @@ describe('Outline Editing canonical behavior', () => {
         });
 
         pointerSpy.mockRestore();
+    });
+
+    test('command-path preview line stays visible while cmd-hovering an open endpoint so closing remains prioritized', () => {
+        const font = makeFontWithShapes([
+            {
+                nodes: [
+                    { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 40, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            },
+            {
+                nodes: [
+                    { x: 120, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 80, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            }
+        ]);
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.hoveredPointIndex = {
+            contourIndex: 1,
+            nodeIndex: 1
+        };
+
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 80, glyphY: 0 });
+
+        try {
+            canvas.outlineEditor.setCommandKeyPressed(true);
+
+            expect(canvas.outlineEditor.getCommandPathPreviewLine()).toEqual({
+                start: { x: 40, y: 0 },
+                end: { x: 80, y: 0 }
+            });
+        } finally {
+            pointerSpy.mockRestore();
+            modelBinding.restore();
+        }
     });
 
     test('current command-path endpoint remains a node snap candidate when it sits on a vertical metric line', () => {
