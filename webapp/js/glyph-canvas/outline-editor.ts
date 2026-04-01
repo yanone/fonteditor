@@ -1815,6 +1815,51 @@ export class OutlineEditor {
         this.applyBoundingBoxCenterScreenAnchor(anchorScreen);
     }
 
+    private syncStructuralGlyphChangeTransaction(
+        changeLabel: string,
+        currentGlyphName: string | null | undefined,
+        affectedGlyphNames: Set<string>,
+        options: {
+            reuseTransaction?: boolean;
+            layerId?: string | null;
+        } = {}
+    ): void {
+        const bridge = window.changeBridge;
+        if (!bridge || !currentGlyphName) {
+            return;
+        }
+
+        const glyphNames = Array.from(
+            new Set([
+                currentGlyphName,
+                ...Array.from(affectedGlyphNames || []).filter(Boolean)
+            ])
+        );
+
+        if (!options.reuseTransaction) {
+            bridge.beginTransaction(changeLabel);
+        }
+
+        try {
+            if (
+                glyphNames.length > 1 &&
+                typeof bridge.syncGlyphsFromJson === 'function'
+            ) {
+                bridge.syncGlyphsFromJson(glyphNames, changeLabel);
+            } else {
+                bridge.syncGlyphFromJson(
+                    currentGlyphName,
+                    changeLabel,
+                    undefined,
+                    undefined,
+                    options.layerId ?? this.getCurrentLayerId()
+                );
+            }
+        } finally {
+            bridge.endTransaction();
+        }
+    }
+
     private getCurrentMasterModel(): any | null {
         const fontModel = fontManager.currentFont?.fontModel;
         const layer = this.getCurrentLayerModel();
@@ -8879,17 +8924,14 @@ export class OutlineEditor {
         const changeLabel =
             options.changeLabel ||
             (finalizedResult.closed ? 'Close path' : 'Connect path');
-        const bridge = window.changeBridge;
-        if (bridge && currentGlyphModel.name) {
-            if (!options.reuseTransaction) {
-                bridge.beginTransaction(changeLabel);
+        this.syncStructuralGlyphChangeTransaction(
+            changeLabel,
+            currentGlyphModel.name,
+            affectedGlyphNames,
+            {
+                reuseTransaction: options.reuseTransaction
             }
-            try {
-                bridge.syncGlyphFromJson(currentGlyphModel.name, changeLabel);
-            } finally {
-                bridge.endTransaction();
-            }
-        }
+        );
 
         this.refreshKeyedMetricsViewportAnchor(
             affectedGlyphNames,
@@ -9004,17 +9046,12 @@ export class OutlineEditor {
             });
         }
 
-        const bridge = window.changeBridge;
-        if (bridge && currentGlyphModel.name) {
-            if (!reuseTransaction) {
-                bridge.beginTransaction('Close path');
-            }
-            try {
-                bridge.syncGlyphFromJson(currentGlyphModel.name, 'Close path');
-            } finally {
-                bridge.endTransaction();
-            }
-        }
+        this.syncStructuralGlyphChangeTransaction(
+            'Close path',
+            currentGlyphModel.name,
+            affectedGlyphNames,
+            { reuseTransaction }
+        );
 
         this.refreshKeyedMetricsViewportAnchor(
             affectedGlyphNames,
@@ -9145,14 +9182,11 @@ export class OutlineEditor {
             return;
         }
 
-        if (bridge && currentGlyphModel?.name) {
-            bridge.beginTransaction(label);
-            try {
-                bridge.syncGlyphFromJson(currentGlyphModel.name, label);
-            } finally {
-                bridge.endTransaction();
-            }
-        }
+        this.syncStructuralGlyphChangeTransaction(
+            label,
+            currentGlyphModel?.name,
+            affectedGlyphNames
+        );
 
         if (currentFont) {
             currentFont.markDirty('keyboard-outline');
@@ -10229,20 +10263,34 @@ export class OutlineEditor {
             }
         });
 
-        // Sync changes to YDoc
-        if (bridge && currentGlyphModel.name) {
-            bridge.beginTransaction('Delete point(s)');
-            try {
-                bridge.syncGlyphFromJson(
-                    currentGlyphModel.name,
-                    'Delete point(s)'
-                );
-            } finally {
-                bridge.endTransaction();
-            }
+        const deletedPathGeometry = pointsByPath.size > 0;
+        let affectedGlyphNames = new Set<string>(
+            [currentGlyphModel.name].filter(Boolean) as string[]
+        );
+        let bboxCenterAnchorScreen: { x: number; y: number } | null = null;
+
+        if (deletedPathGeometry) {
+            this.syncCurrentExactLayerDataFromModel();
+            bboxCenterAnchorScreen = this.getBoundingBoxCenterScreenPosition();
+            affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
+                currentGlyphModel.name
+            );
         }
 
+        this.syncStructuralGlyphChangeTransaction(
+            'Delete point(s)',
+            currentGlyphModel.name,
+            affectedGlyphNames
+        );
+
         this.syncCurrentExactLayerDataFromModel();
+
+        if (deletedPathGeometry) {
+            this.refreshKeyedMetricsViewportAnchor(
+                affectedGlyphNames,
+                bboxCenterAnchorScreen
+            );
+        }
 
         // Clear selection
         this.selectedPoints = [];
@@ -10274,7 +10322,21 @@ export class OutlineEditor {
 
                 if (shouldUseIncrementalCacheRefresh) {
                     fontManager.pendingBabelfontJsonSyncAfterDrag = true;
-                    void fontManager.updateWorkerFontCache();
+                    void fontManager.updateWorkerFontCache().then(() => {
+                        for (const glyphName of affectedGlyphNames) {
+                            if (glyphName === currentGlyphModel.name) {
+                                continue;
+                            }
+                            window.dispatchEvent(
+                                new CustomEvent('glyphChanged', {
+                                    detail: {
+                                        glyphName,
+                                        layerId: this.getCurrentLayerId()
+                                    }
+                                })
+                            );
+                        }
+                    });
                     this.wakeStructuralOutlineCompile();
                     return;
                 }
@@ -10289,7 +10351,21 @@ export class OutlineEditor {
                     return;
                 }
 
-                void fontManager.updateWorkerFontCache();
+                void fontManager.updateWorkerFontCache().then(() => {
+                    for (const glyphName of affectedGlyphNames) {
+                        if (glyphName === currentGlyphModel.name) {
+                            continue;
+                        }
+                        window.dispatchEvent(
+                            new CustomEvent('glyphChanged', {
+                                detail: {
+                                    glyphName,
+                                    layerId: this.getCurrentLayerId()
+                                }
+                            })
+                        );
+                    }
+                });
                 this.wakeStructuralOutlineCompile();
             }, 0);
         } else if (currentGlyphModel.name) {

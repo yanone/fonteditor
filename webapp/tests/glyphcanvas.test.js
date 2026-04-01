@@ -2034,6 +2034,200 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         }
     });
 
+    test('deleting a full contour recomputes keyed widths and downstream dependents in one history item', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 400,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 50, y: 0, nodetype: 'Line' },
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 100, y: 80, nodetype: 'Line' },
+                                        { x: 50, y: 80, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                },
+                                {
+                                    nodes: [
+                                        { x: 300, y: 0, nodetype: 'Line' },
+                                        { x: 340, y: 0, nodetype: 'Line' },
+                                        { x: 340, y: 80, nodetype: 'Line' },
+                                        { x: 300, y: 80, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ],
+                    format_specific: {
+                        metric_right: '=60'
+                    }
+                },
+                {
+                    name: 'B',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-2',
+                            width: 150,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 20, y: 0, nodetype: 'Line' },
+                                        { x: 80, y: 0, nodetype: 'Line' },
+                                        { x: 80, y: 80, nodetype: 'Line' },
+                                        { x: 20, y: 80, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ],
+                    format_specific: {
+                        metric_right: '=A'
+                    }
+                }
+            ],
+            names: {
+                family_name: { en: 'Delete Path Metrics Test' }
+            },
+            note: '',
+            date: '2026-04-01',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+        const updateWorkerFontCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const updateDirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const bboxSpy = jest
+            .spyOn(canvas.outlineEditor, 'getBoundingBoxCenterScreenPosition')
+            .mockReturnValue({ x: 200, y: 120 });
+        const refreshViewportSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'refreshKeyedMetricsViewportAnchor'
+        );
+        const previousChangeBridge = window.changeBridge;
+        window.changeBridge = {
+            beginTransaction: jest.fn(),
+            recordChange: jest.fn(),
+            syncGlyphFromJson: jest.fn(),
+            syncGlyphsFromJson: jest.fn(),
+            endTransaction: jest.fn(),
+            runWithoutRecording: (fn) => fn()
+        };
+        window.currentFontModel = font;
+
+        const currentLayer = font.findGlyph('A').findLayerById('layer-1');
+        const dependentLayer = font.findGlyph('B').findLayerById('layer-2');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = {
+            ...JSON.parse(JSON.stringify(currentLayer.toJSON())),
+            isInterpolated: false
+        };
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 400, dx: 0, dy: 0, g: 0 },
+            { ax: 150, dx: 0, dy: 0, g: 1 }
+        ];
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 1, nodeIndex: 0 },
+            { contourIndex: 1, nodeIndex: 1 },
+            { contourIndex: 1, nodeIndex: 2 },
+            { contourIndex: 1, nodeIndex: 3 }
+        ];
+
+        try {
+            await canvas.outlineEditor.deleteSelectedNodes();
+
+            expect(currentLayer.shapes).toHaveLength(1);
+            expect(currentLayer.width).toBe(160);
+            expect(dependentLayer.width).toBe(140);
+            expect(refreshViewportSpy).toHaveBeenCalledWith(expect.any(Set), {
+                x: 200,
+                y: 120
+            });
+            expect(
+                canvas.textRunEditor.refreshGlyphAdvancesLive
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({ A: 160, B: 140 }),
+                { render: false }
+            );
+            expect(window.changeBridge.beginTransaction).toHaveBeenCalledTimes(
+                1
+            );
+            expect(window.changeBridge.syncGlyphsFromJson).toHaveBeenCalledWith(
+                expect.arrayContaining(['A', 'B']),
+                'Delete point(s)'
+            );
+            expect(
+                window.changeBridge.syncGlyphFromJson
+            ).not.toHaveBeenCalled();
+            expect(window.changeBridge.endTransaction).toHaveBeenCalledTimes(1);
+        } finally {
+            window.changeBridge = previousChangeBridge;
+            refreshViewportSpy.mockRestore();
+            bboxSpy.mockRestore();
+            updateWorkerFontCacheSpy.mockRestore();
+            updateDirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
     test('pressing ArrowRight on the left sidebearing handle decreases the sidebearing', () => {
         canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
         canvas.viewportManager.scale = 2;
