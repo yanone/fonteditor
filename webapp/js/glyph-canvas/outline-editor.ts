@@ -1141,6 +1141,7 @@ export class OutlineEditor {
     private pendingGlyphSwitchSourceLayerKey: string | null = null;
     private pendingGlyphSwitchSourceLayer: any | null = null;
     private activePathDrawingSession: ActivePathDrawingSession | null = null;
+    private suppressSelectedEndpointCommandSeedUntilCommandRelease: boolean = false;
     private pendingCommandPathEdit: PendingCommandPathEdit | null = null;
     private canvasContextMenuTippy: TippyInstance | null = null;
     private canvasContextMenuTarget: CanvasPathContextTarget | null = null;
@@ -3611,6 +3612,7 @@ export class OutlineEditor {
         this._componentDragDeltaX = 0;
         this._pointDragPreserveHandlePositions = false;
         this.activePathDrawingSession = null;
+        this.suppressSelectedEndpointCommandSeedUntilCommandRelease = false;
         this.pendingCommandPathEdit = null;
         this.resetMarqueeSelection();
         this.layerDataDirty = false;
@@ -6992,6 +6994,7 @@ export class OutlineEditor {
 
         this.cmdKeyPressed = pressed;
         if (!pressed) {
+            this.suppressSelectedEndpointCommandSeedUntilCommandRelease = false;
             this.hoveredAddPointPreview = null;
             this.finalizePendingCommandPathEdit();
         }
@@ -7280,6 +7283,19 @@ export class OutlineEditor {
         const currentLayerModel = this.getCurrentLayerModel();
 
         if (!currentLayerData || !currentLayerModel) {
+            return false;
+        }
+
+        const selectedPoint =
+            this.selectedPoints.length === 1 ? this.selectedPoints[0] : null;
+        if (
+            this.suppressSelectedEndpointCommandSeedUntilCommandRelease &&
+            selectedPoint &&
+            this.getOpenPathEndpointRef(
+                selectedPoint.contourIndex,
+                selectedPoint.nodeIndex
+            )
+        ) {
             return false;
         }
 
@@ -7989,6 +8005,10 @@ export class OutlineEditor {
     }
 
     private getSelectedOpenPathEndpointSeed(): ActivePathDrawingSession | null {
+        if (this.suppressSelectedEndpointCommandSeedUntilCommandRelease) {
+            return null;
+        }
+
         if (this.selectedPoints.length !== 1) {
             return null;
         }
@@ -8184,6 +8204,44 @@ export class OutlineEditor {
         );
     }
 
+    private getCommandPathPreviewEndpointPoint(): Point | null {
+        const session = this.getCommandPathPreviewSeed();
+        if (!session) {
+            return null;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const contour = getEditableContour(
+            currentLayerData?.shapes?.[session.shapeIndex]
+        );
+
+        if (!contour?.nodes.length) {
+            return null;
+        }
+
+        return {
+            contourIndex: session.shapeIndex,
+            nodeIndex: session.edge === 'start' ? 0 : contour.nodes.length - 1
+        };
+    }
+
+    private shouldHideCommandPathPreviewWhileHoveringPoint(): boolean {
+        if (!this.cmdKeyPressed || !this.hoveredPointIndex) {
+            return false;
+        }
+
+        const previewEndpoint = this.getCommandPathPreviewEndpointPoint();
+        if (!previewEndpoint) {
+            return false;
+        }
+
+        return (
+            this.hoveredPointIndex.contourIndex !==
+                previewEndpoint.contourIndex ||
+            this.hoveredPointIndex.nodeIndex !== previewEndpoint.nodeIndex
+        );
+    }
+
     private getCommandPathPreviewStartPoint(): { x: number; y: number } | null {
         const session = this.getCommandPathPreviewSeed();
         if (!session) {
@@ -8210,6 +8268,7 @@ export class OutlineEditor {
             this.active &&
             this.cmdKeyPressed &&
             !this.isPreviewMode &&
+            !this.shouldHideCommandPathPreviewWhileHoveringPoint() &&
             this.getCommandPathPreviewStartPoint()
         );
     }
@@ -8553,6 +8612,7 @@ export class OutlineEditor {
             void fontManager.updateDirtyIndicator();
         }
 
+        this.suppressSelectedEndpointCommandSeedUntilCommandRelease = true;
         this.selectedPoints = [selectedPoint];
         this.selectedAnchors = [];
         this.selectedComponents = [];

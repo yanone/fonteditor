@@ -1795,6 +1795,61 @@ describe('Outline Editing canonical behavior', () => {
         pointerSpy.mockRestore();
     });
 
+    test('command-path preview line hides while cmd-hovering a different point', () => {
+        const font = makeSinglePathFont(
+            [
+                { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                { x: 90, y: 30, nodetype: 'Line', smooth: false },
+                { x: 150, y: 60, nodetype: 'Line', smooth: false }
+            ],
+            false
+        );
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const layer = glyph.findLayerById('layer-1');
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 180, glyphY: 90 });
+
+        canvas.outlineEditor.setCommandKeyPressed(true);
+
+        expect(canvas.outlineEditor.getCommandPathPreviewLine()).toEqual({
+            start: { x: 150, y: 60 },
+            end: { x: 180, y: 90 }
+        });
+
+        canvas.outlineEditor.hoveredPointIndex = {
+            contourIndex: 0,
+            nodeIndex: 1
+        };
+
+        expect(canvas.outlineEditor.getCommandPathPreviewLine()).toBeNull();
+
+        canvas.outlineEditor.hoveredPointIndex = null;
+
+        expect(canvas.outlineEditor.getCommandPathPreviewLine()).toEqual({
+            start: { x: 150, y: 60 },
+            end: { x: 180, y: 90 }
+        });
+
+        pointerSpy.mockRestore();
+    });
+
     test('current command-path endpoint remains a node snap candidate when it sits on a vertical metric line', () => {
         const font = Font.fromData({
             upm: 1000,
@@ -2014,6 +2069,77 @@ describe('Outline Editing canonical behavior', () => {
                 { contourIndex: 1, nodeIndex: 0 }
             ]);
         } finally {
+            modelBinding.restore();
+        }
+    });
+
+    test('cmd-cut keeps the new endpoint selected but suppresses command-path preview until cmd is pressed again', () => {
+        const font = makeSinglePathFont(
+            [
+                { x: 0, y: 0, nodetype: 'Line', smooth: false },
+                { x: 20, y: 30, nodetype: 'OffCurve', smooth: false },
+                { x: 40, y: 30, nodetype: 'OffCurve', smooth: false },
+                { x: 60, y: 0, nodetype: 'Curve', smooth: true },
+                { x: 120, y: 0, nodetype: 'Line', smooth: false }
+            ],
+            true
+        );
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.outlineEditor.hoveredPointIndex = {
+            contourIndex: 0,
+            nodeIndex: 3
+        };
+
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 90, glyphY: 20 });
+        const compileSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'queueStructuralOutlineCompileFromModel'
+            )
+            .mockImplementation(() => {});
+
+        try {
+            canvas.outlineEditor.setCommandKeyPressed(true);
+
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            expect(canvas.outlineEditor.selectedPoints).toEqual([
+                {
+                    contourIndex: 0,
+                    nodeIndex: layer.paths[0].nodes.length - 1
+                }
+            ]);
+            expect(canvas.outlineEditor.getCommandPathPreviewLine()).toBeNull();
+            expect(canvas.outlineEditor.beginCommandPathDrawing()).toBe(false);
+
+            canvas.outlineEditor.setCommandKeyPressed(false);
+            canvas.outlineEditor.setCommandKeyPressed(true);
+
+            const selectedNode = layer.paths[0].nodes.at(-1);
+            expect(canvas.outlineEditor.getCommandPathPreviewLine()).toEqual({
+                start: { x: selectedNode.x, y: selectedNode.y },
+                end: { x: 90, y: 20 }
+            });
+        } finally {
+            compileSpy.mockRestore();
+            pointerSpy.mockRestore();
             modelBinding.restore();
         }
     });
