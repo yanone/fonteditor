@@ -6249,8 +6249,8 @@ describe('GlyphCanvas command path drawing visuals', () => {
         canvas.outlineEditor.setCommandKeyPressed(false);
     });
 
-    test('alt hover on a point uses a crosshair cursor for cut-open', () => {
-        canvas.outlineEditor.setAltKeyPressed(true);
+    test('cmd hover on a point uses a crosshair cursor for cut-open', () => {
+        canvas.outlineEditor.setCommandKeyPressed(true);
         canvas.outlineEditor.hoveredPointIndex = {
             contourIndex: 0,
             nodeIndex: 1
@@ -6260,7 +6260,7 @@ describe('GlyphCanvas command path drawing visuals', () => {
 
         expect(canvas.canvas.style.cursor).toBe('crosshair');
 
-        canvas.outlineEditor.setAltKeyPressed(false);
+        canvas.outlineEditor.setCommandKeyPressed(false);
     });
 
     test('drawOutlineEditor does not force-close open contours', () => {

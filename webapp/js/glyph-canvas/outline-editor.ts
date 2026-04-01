@@ -4210,9 +4210,9 @@ export class OutlineEditor {
             this.selectedGuideHandle = null;
             this.selectedSidebearingHandle = null;
             const hoveredPoint = this.hoveredPointIndex;
-            const isAltCutClick =
-                e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey;
-            if (isAltCutClick && this.cutPathAtNode(hoveredPoint)) {
+            const isCmdCutClick =
+                (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+            if (isCmdCutClick && this.cutPathAtNode(hoveredPoint)) {
                 return;
             }
 
@@ -6266,7 +6266,7 @@ export class OutlineEditor {
             this.canvas!.style.cursor = 'crosshair';
             return null;
         }
-        if (this.shouldShowAltCutCrosshair()) {
+        if (this.shouldShowCommandCutCrosshair()) {
             this.canvas!.style.cursor = 'crosshair';
             return null;
         }
@@ -8262,8 +8262,8 @@ export class OutlineEditor {
         return this.isNeutralCommandCanvasTarget();
     }
 
-    private shouldShowAltCutCrosshair(): boolean {
-        if (!this.active || !this.altKeyPressed || this.isPreviewMode) {
+    private shouldShowCommandCutCrosshair(): boolean {
+        if (!this.active || !this.cmdKeyPressed || this.isPreviewMode) {
             return false;
         }
 

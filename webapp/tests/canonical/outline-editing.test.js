@@ -1897,7 +1897,7 @@ describe('Outline Editing canonical behavior', () => {
         pointerSpy.mockRestore();
     });
 
-    test('alt-click on a smooth closed-path node opens the path and clears smoothness on both duplicates', () => {
+    test('cmd-click on a smooth closed-path node opens the path and clears smoothness on both duplicates', () => {
         const font = makeSinglePathFont(
             [
                 { x: 0, y: 0, nodetype: 'Line', smooth: false },
@@ -1934,8 +1934,8 @@ describe('Outline Editing canonical behavior', () => {
                 clientY: 0,
                 detail: 1,
                 shiftKey: false,
-                altKey: true,
-                metaKey: false,
+                altKey: false,
+                metaKey: true,
                 ctrlKey: false
             });
 
@@ -1958,7 +1958,7 @@ describe('Outline Editing canonical behavior', () => {
         }
     });
 
-    test('alt-click on an already-open path cuts it into two open paths at the clicked point', () => {
+    test('cmd-click on an already-open path cuts it into two open paths at the clicked point', () => {
         const font = makeFontWithShapes([
             {
                 nodes: [
@@ -1991,8 +1991,8 @@ describe('Outline Editing canonical behavior', () => {
                 clientY: 0,
                 detail: 1,
                 shiftKey: false,
-                altKey: true,
-                metaKey: false,
+                altKey: false,
+                metaKey: true,
                 ctrlKey: false
             });
 
