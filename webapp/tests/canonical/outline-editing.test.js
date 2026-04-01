@@ -6,7 +6,7 @@
  *   - Shift-constrained dragging of smooth off-curve triplets
  *   - Alt-constrained dragging of smooth on-curve points
  *   - Alt-constrained dragging of non-smooth off-curve points
- *   - Smooth eligibility and loss of smoothness when a curve side disappears
+ *   - One-sided smooth eligibility, alignment, and delete-to-line behavior
  *   - Neighbor-glyph snap candidates always participating in snapping,
  *     ordered by distance from the dragged node's original position
  */
@@ -81,7 +81,7 @@ function makeOneSidedCurveLayer() {
                 nodes: [
                     { x: 0, y: 0, nodetype: 'Move', smooth: false },
                     { x: 20, y: 20, nodetype: 'OffCurve', smooth: false },
-                    { x: 40, y: 60, nodetype: 'OffCurve', smooth: false },
+                    { x: 40, y: 40, nodetype: 'OffCurve', smooth: false },
                     { x: 60, y: 60, nodetype: 'Curve', smooth: false },
                     { x: 120, y: 60, nodetype: 'Line', smooth: false }
                 ],
@@ -353,6 +353,122 @@ describe('Outline Editing canonical behavior', () => {
         }
     });
 
+    test('alt toggling during one-sided smooth on-curve dragging freezes the handle and slides only the on-curve point on the fixed axis', () => {
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+
+        try {
+            activateEditableLayer(canvas, {
+                width: 520,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                            {
+                                x: 40,
+                                y: 40,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            { x: 60, y: 60, nodetype: 'QCurve', smooth: true },
+                            { x: 120, y: 60, nodetype: 'Line', smooth: false }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            });
+            canvas.outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 2
+            };
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+
+            let pointer = { glyphX: 60, glyphY: 60 };
+            const pointerSpy = jest
+                .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+                .mockImplementation(() => pointer);
+
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            canvas.outlineEditor.onMouseMove({
+                clientX: 11,
+                clientY: 21,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            pointer = { glyphX: 80, glyphY: 90 };
+            canvas.outlineEditor.onMouseMove({
+                clientX: 12,
+                clientY: 22,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            let nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+            expect(nodes[2].x).toBe(80);
+            expect(nodes[2].y).toBe(90);
+            const preAltHandle = { x: nodes[1].x, y: nodes[1].y };
+
+            canvas.outlineEditor.setAltKeyPressed(true);
+            nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+            expect(nodes[1].x).toBeCloseTo(preAltHandle.x, 5);
+            expect(nodes[1].y).toBeCloseTo(preAltHandle.y, 5);
+
+            pointer = { glyphX: 90, glyphY: 140 };
+            canvas.outlineEditor.onMouseMove({
+                clientX: 13,
+                clientY: 23,
+                shiftKey: false,
+                altKey: true,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+            expect(nodes[1].x).toBeCloseTo(preAltHandle.x, 5);
+            expect(nodes[1].y).toBeCloseTo(preAltHandle.y, 5);
+            expect(nodes[2].x).not.toBeCloseTo(80, 5);
+            expect(nodes[2].y).not.toBeCloseTo(90, 5);
+
+            const axisVector = {
+                x: 120 - preAltHandle.x,
+                y: 60 - preAltHandle.y
+            };
+            const constrainedVector = {
+                x: nodes[2].x - preAltHandle.x,
+                y: nodes[2].y - preAltHandle.y
+            };
+            expect(
+                constrainedVector.x * axisVector.y -
+                    constrainedVector.y * axisVector.x
+            ).toBeCloseTo(0, 5);
+
+            pointerSpy.mockRestore();
+        } finally {
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
     test('alt re-press during non-smooth off-curve dragging returns to the original drag-start direction', () => {
         const saveLayerDataSpy = jest
             .spyOn(canvas.outlineEditor, 'saveLayerData')
@@ -482,7 +598,7 @@ describe('Outline Editing canonical behavior', () => {
         expect(nodes[4].y).toBe(60);
     });
 
-    test('on-curve points with a curve on only one side cannot be toggled smooth', () => {
+    test('on-curve points with a curve on only one side can be toggled smooth and align to the straight segment', () => {
         activateEditableLayer(canvas, makeOneSidedCurveLayer());
         canvas.outlineEditor.saveLayerData = jest.fn();
 
@@ -491,30 +607,102 @@ describe('Outline Editing canonical behavior', () => {
             nodeIndex: 3
         });
 
-        expect(
-            canvas.outlineEditor.layerData.shapes[0].nodes[3].smooth
-        ).not.toBe(true);
+        const nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+        expect(nodes[3].smooth).toBe(true);
+        expect(nodes[2].y).toBe(60);
     });
 
-    test('deleting a handle into a line clears smooth on the affected on-curve points', () => {
+    test('moving the straight segment of a one-sided smooth node realigns the remaining handle', () => {
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                        { x: 40, y: 40, nodetype: 'OffCurve', smooth: false },
+                        { x: 60, y: 60, nodetype: 'QCurve', smooth: true },
+                        { x: 120, y: 60, nodetype: 'Line', smooth: false }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 3 }
+        ];
+        canvas.outlineEditor.applySelectedPointMove(
+            canvas.outlineEditor.layerData,
+            0,
+            60,
+            false,
+            false
+        );
+
+        const nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+        const handleVector = {
+            x: nodes[2].x - nodes[1].x,
+            y: nodes[2].y - nodes[1].y
+        };
+        const lineVector = {
+            x: nodes[3].x - nodes[2].x,
+            y: nodes[3].y - nodes[2].y
+        };
+
+        expect(
+            handleVector.x * lineVector.y - handleVector.y * lineVector.x
+        ).toBeCloseTo(0, 5);
+        expect(
+            handleVector.x * lineVector.x + handleVector.y * lineVector.y
+        ).toBeGreaterThan(0);
+    });
+
+    test('deleting a handle into a line keeps smooth when the remaining handle stays aligned', () => {
         const font = makeSinglePathFont(
             [
-                { x: 0, y: 0, nodetype: 'Curve', smooth: true },
-                { x: 30, y: 60, nodetype: 'OffCurve' },
-                { x: 70, y: 60, nodetype: 'OffCurve' },
-                { x: 100, y: 0, nodetype: 'Curve', smooth: true }
+                { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                { x: 30, y: 0, nodetype: 'OffCurve' },
+                { x: 60, y: 0, nodetype: 'QCurve', smooth: true },
+                { x: 90, y: 0, nodetype: 'OffCurve' },
+                { x: 120, y: 0, nodetype: 'QCurve', smooth: false }
             ],
             false
         );
         const path = font.glyphs[0].layers[0].paths[0];
 
-        expect(path._deleteNode(1)).toBe(true);
+        expect(path._deleteNode(3)).toBe(true);
         expect(path.nodes.map((node) => node.nodetype)).toEqual([
-            'Curve',
+            'Move',
+            'OffCurve',
+            'QCurve',
             'Line'
         ]);
-        expect(path.nodes[0].smooth).toBe(false);
-        expect(path.nodes[1].smooth).toBe(false);
+        expect(path.nodes[2].smooth).toBe(true);
+    });
+
+    test('deleting a handle into a line clears smooth when the remaining handle is misaligned', () => {
+        const font = makeSinglePathFont(
+            [
+                { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                { x: 30, y: 20, nodetype: 'OffCurve' },
+                { x: 60, y: 0, nodetype: 'QCurve', smooth: true },
+                { x: 90, y: 0, nodetype: 'OffCurve' },
+                { x: 120, y: 0, nodetype: 'QCurve', smooth: false }
+            ],
+            false
+        );
+        const path = font.glyphs[0].layers[0].paths[0];
+
+        expect(path._deleteNode(3)).toBe(true);
+        expect(path.nodes.map((node) => node.nodetype)).toEqual([
+            'Move',
+            'OffCurve',
+            'QCurve',
+            'Line'
+        ]);
+        expect(path.nodes[2].smooth).toBe(false);
     });
 
     test('neighbor glyph snap candidates always participate and remain globally sorted by distance from the drag origin', () => {

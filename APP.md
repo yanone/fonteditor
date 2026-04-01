@@ -40,7 +40,9 @@ Holding the alt key before or after selecting and moving an off-curve point that
 
 Double clicking an on-curve point of a triplet will toggle the smoothness state. Turning a non-smooth on-curve point of a triplet to smooth will align both off-curve points in a straight line around the on-curve point, with their direction being the average of the previous off-curve points’ directions. Turning a non-smooth on-curve point of a triplet when one of the two lines is in perfect horizontal or vertical direction will also align the other off-curve point’s direction to horizontal or vertical.
 
-An on-curve point with only one curve on either side (the other side being a straight line) must always be set to not smooth. If a smooth triplet loses a curve on one side by off-curve point deletion, the on-curve point must be set to not smooth.
+A node can be smooth with a curve segment only on one of its sides. In that case, the direction (angle) of the off-curve point is bound by the direction of the straight line segment on the other side of the smooth on-curve point, and the off-curve point's direction must be adjusted when either point of the straight line segment moves.
+If a smooth triplet loses a curve on one side by off-curve point deletion, the on-curve point must be kept smooth if the remaining on-curve point's direction matches the straight line segment's direction on the other side of the off-curve point (with a small angle error margin), otherwise be set to not smooth.
+Similar to editing a smooth on-curve point of a triplet, holding the alt key before or after selecting and moving a smooth on-curve point with a curve only one one one side will keep the off-curve point in place and move the smooth on-curve point on the fixed axis between the off-curve point and the line segment's opposite point.
 
 All operations must wrap around the start/end point of a closed path as if the point was nothing special at all.
 

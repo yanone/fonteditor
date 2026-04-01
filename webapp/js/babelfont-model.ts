@@ -660,12 +660,6 @@ function buildLineCollapsedSegmentNodeArray(
     closed: boolean
 ): Babelfont.Node[] {
     const clonedNodes = nodes.map((node) => cloneNodeData(node));
-    clonedNodes[descriptor.runStartNodeIndex] = cloneNodeData(
-        clonedNodes[descriptor.runStartNodeIndex],
-        {
-            smooth: false
-        }
-    );
 
     if (descriptor.type === 'cubic') {
         return replaceSegmentRunInNodeArray(
@@ -718,14 +712,6 @@ function buildLineCollapsedSegmentNodeArray(
 
     const targetPairIndex = descriptor.segmentIndexInRun * 2;
     const segmentEndNode = explicitRunNodes[targetPairIndex + 1];
-    if (targetPairIndex > 0) {
-        explicitRunNodes[targetPairIndex - 1] = cloneNodeData(
-            explicitRunNodes[targetPairIndex - 1],
-            {
-                smooth: false
-            }
-        );
-    }
 
     explicitRunNodes.splice(
         targetPairIndex,
@@ -1366,6 +1352,56 @@ function isOffCurveNodeType(type: string | undefined): boolean {
     return normalizedType === 'offcurve' || normalizedType === 'o';
 }
 
+const ONE_SIDED_SMOOTH_MAX_ANGLE_ERROR_RADIANS = (6 * Math.PI) / 180;
+
+/**
+ * Return the outgoing tangent direction at an on-curve node for a segment.
+ */
+function getOutgoingSegmentDirectionAtNode(
+    descriptor: PathSegmentDescriptor | null,
+    nodeIndex: number
+): SegmentPoint | null {
+    if (!descriptor || descriptor.points.length < 2) {
+        return null;
+    }
+
+    if (descriptor.endNodeIndex === nodeIndex) {
+        const endPoint = descriptor.points[descriptor.points.length - 1];
+        const previousPoint = descriptor.points[descriptor.points.length - 2];
+        return subtractPoints(endPoint, previousPoint);
+    }
+
+    if (descriptor.startNodeIndex === nodeIndex) {
+        return subtractPoints(descriptor.points[1], descriptor.points[0]);
+    }
+
+    return null;
+}
+
+/**
+ * Check whether two tangent directions are aligned within the one-sided smooth tolerance.
+ */
+function directionsMatchWithinSmoothAngleTolerance(
+    left: SegmentPoint | null,
+    right: SegmentPoint | null
+): boolean {
+    if (!left || !right) {
+        return false;
+    }
+
+    const leftLengthSquared = pointLengthSquared(left);
+    const rightLengthSquared = pointLengthSquared(right);
+    if (leftLengthSquared <= 0.000001 || rightLengthSquared <= 0.000001) {
+        return false;
+    }
+
+    const cosine =
+        dotPoints(left, right) /
+        Math.sqrt(leftLengthSquared * rightLengthSquared);
+    const clampedCosine = Math.max(-1, Math.min(1, cosine));
+    return Math.acos(clampedCosine) <= ONE_SIDED_SMOOTH_MAX_ANGLE_ERROR_RADIANS;
+}
+
 function canNodeRemainSmooth(
     nodes: Babelfont.Node[],
     nodeIndex: number,
@@ -1386,9 +1422,27 @@ function canNodeRemainSmooth(
         nodeIndex
     );
 
-    return (
+    if (
         isCurveSegmentDescriptor(leftDescriptor) &&
         isCurveSegmentDescriptor(rightDescriptor)
+    ) {
+        return true;
+    }
+
+    if (!leftDescriptor || !rightDescriptor) {
+        return false;
+    }
+
+    if (
+        isCurveSegmentDescriptor(leftDescriptor) ===
+        isCurveSegmentDescriptor(rightDescriptor)
+    ) {
+        return false;
+    }
+
+    return directionsMatchWithinSmoothAngleTolerance(
+        getOutgoingSegmentDirectionAtNode(leftDescriptor, nodeIndex),
+        getOutgoingSegmentDirectionAtNode(rightDescriptor, nodeIndex)
     );
 }
 

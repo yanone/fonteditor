@@ -512,11 +512,19 @@ function canOnCurvePointBeSmooth(
         contour.closed
     );
 
+    if (prevIndex === null || nextIndex === null) {
+        return false;
+    }
+
+    const prevNode = contour.nodes[prevIndex];
+    const nextNode = contour.nodes[nextIndex];
+    const prevIsHandle = isOffCurveNode(prevNode);
+    const nextIsHandle = isOffCurveNode(nextNode);
+
     return (
-        prevIndex !== null &&
-        nextIndex !== null &&
-        isOffCurveNode(contour.nodes[prevIndex]) &&
-        isOffCurveNode(contour.nodes[nextIndex])
+        (prevIsHandle && nextIsHandle) ||
+        (prevIsHandle && isOnCurveNode(nextNode)) ||
+        (nextIsHandle && isOnCurveNode(prevNode))
     );
 }
 
@@ -5163,24 +5171,41 @@ export class OutlineEditor {
 
         const prevNode = contour.nodes[prevIndex];
         const nextNode = contour.nodes[nextIndex];
-        if (!isOffCurveNode(prevNode) || !isOffCurveNode(nextNode)) {
+        let linePointX: number;
+        let linePointY: number;
+        let directionX: number;
+        let directionY: number;
+
+        if (isOffCurveNode(prevNode) && isOffCurveNode(nextNode)) {
+            linePointX = prevNode.x;
+            linePointY = prevNode.y;
+            directionX = nextNode.x - prevNode.x;
+            directionY = nextNode.y - prevNode.y;
+        } else if (isOffCurveNode(prevNode) && isOnCurveNode(nextNode)) {
+            linePointX = prevNode.x;
+            linePointY = prevNode.y;
+            directionX = nextNode.x - prevNode.x;
+            directionY = nextNode.y - prevNode.y;
+        } else if (isOnCurveNode(prevNode) && isOffCurveNode(nextNode)) {
+            linePointX = prevNode.x;
+            linePointY = prevNode.y;
+            directionX = nextNode.x - prevNode.x;
+            directionY = nextNode.y - prevNode.y;
+        } else {
             return;
         }
 
-        const direction = {
-            directionX: nextNode.x - prevNode.x,
-            directionY: nextNode.y - prevNode.y
-        };
-        if (direction.directionX === 0 && direction.directionY === 0) {
+        if (directionX === 0 && directionY === 0) {
             return;
         }
 
         this._smoothOnCurveAltDragConstraint = {
             contourIndex,
             nodeIndex,
-            linePointX: prevNode.x,
-            linePointY: prevNode.y,
-            ...direction
+            linePointX,
+            linePointY,
+            directionX,
+            directionY
         };
     }
 
