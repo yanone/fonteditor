@@ -44,6 +44,10 @@ An on-curve point with only one curve on either side (the other side being a str
 
 All operations must wrap around the start/end point of a closed path as if the point was nothing special at all.
 
+#### Node Snapping
+
+Both for dragging existing points as well as drawing new points (not for inserting new nodes into existing segments), points will snap horizontally and/or vertically to on-curve points of the active glyph, on-curve points of both neighbouring glyphs, as well as an extra phantom point on the dragged point’s original position, as well as to vertical metrics lines end the glyph edge. The snap distance is configurable in `settings.ts`.
+
 #### Sidebearing Keys
 
 Layer sidebearings can be linked to other glyphs’ sidebearings by curated keys such as `=n`or arithmetics like `=a+10` or fixed values `=50` etc.

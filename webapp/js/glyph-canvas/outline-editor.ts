@@ -41,7 +41,7 @@ type Point = { contourIndex: number; nodeIndex: number };
 type SnapCandidate = {
     x: number;
     y: number;
-    source: 'active' | 'left' | 'right' | 'origin' | 'metric';
+    source: 'active' | 'left' | 'right' | 'origin' | 'metric' | 'edge';
 };
 type ActiveSnapTarget = {
     /** Source node providing the X snap (null = X not snapped) */
@@ -53,6 +53,12 @@ type ActiveSnapTarget = {
     /** Final snapped Y position of the dragged node */
     snappedY: number;
 };
+type SnapVisualizationState = {
+    debugCandidates: SnapCandidate[];
+    snapTarget: ActiveSnapTarget | null;
+    naturalPos: { x: number; y: number } | null;
+    originPos: { x: number; y: number } | null;
+};
 type SnapCandidateCache = {
     /** Active-glyph-only drag candidates (excludes dragged nodes) */
     activeOnlyDragCandidates: SnapCandidate[];
@@ -62,6 +68,8 @@ type SnapCandidateCache = {
     debugCandidates: SnapCandidate[];
     /** Pre-computed snap distance in font units for this drag session */
     snapDistFontUnits: number;
+    /** Snap-to-edge X values for the active glyph (left edge and width). */
+    edgeXValues: number[];
     /** Vertical metric Y values (baseline, x-height, cap-height, etc.) */
     metricsYValues: number[];
 };
@@ -4550,10 +4558,17 @@ export class OutlineEditor {
         );
     }
 
-    private _buildSnapCandidateCache(anchor: {
-        x: number;
-        y: number;
-    }): SnapCandidateCache {
+    private _buildSnapCandidateCache(
+        anchor: {
+            x: number;
+            y: number;
+        },
+        includeOriginCandidate: boolean = true,
+        originCandidatePosition?: {
+            x: number;
+            y: number;
+        }
+    ): SnapCandidateCache {
         const distFn = (c: SnapCandidate) =>
             Math.hypot(c.x - anchor.x, c.y - anchor.y);
         const sortByDist = (arr: SnapCandidate[]) =>
@@ -4561,15 +4576,19 @@ export class OutlineEditor {
 
         // Origin: always first so snapping back to start is never blocked.
         const originCandidate: SnapCandidate = {
-            x: anchor.x,
-            y: anchor.y,
+            x: originCandidatePosition?.x ?? anchor.x,
+            y: originCandidatePosition?.y ?? anchor.y,
             source: 'origin'
         };
 
         // Active glyph on-curve nodes (split into dragged vs non-dragged)
-        const draggedKeys = new Set(
-            this.selectedPoints.map((p) => `${p.contourIndex}:${p.nodeIndex}`)
-        );
+        const draggedKeys = this.isDraggingPoint
+            ? new Set(
+                  this.selectedPoints.map(
+                      (p) => `${p.contourIndex}:${p.nodeIndex}`
+                  )
+              )
+            : new Set<string>();
         const activeNonDragged: SnapCandidate[] = [];
         const activeDragged: SnapCandidate[] = [];
 
@@ -4624,21 +4643,32 @@ export class OutlineEditor {
                 );
             }
         }
-        const activeOnlyDragCandidates = [originCandidate, ...activeNonDragged];
-        const allDragCandidates = [
-            originCandidate,
-            ...activeNonDragged,
-            ...leftCandidates,
-            ...rightCandidates
-        ];
+        const activeOnlyDragCandidates = includeOriginCandidate
+            ? [originCandidate, ...activeNonDragged]
+            : [...activeNonDragged];
+        const allDragCandidates = includeOriginCandidate
+            ? [
+                  originCandidate,
+                  ...activeNonDragged,
+                  ...leftCandidates,
+                  ...rightCandidates
+              ]
+            : [...activeNonDragged, ...leftCandidates, ...rightCandidates];
         // Debug includes ALL active nodes (including dragged ones) + neighbors
-        const debugCandidates = [
-            originCandidate,
-            ...activeNonDragged,
-            ...activeDragged,
-            ...leftCandidates,
-            ...rightCandidates
-        ];
+        const debugCandidates = includeOriginCandidate
+            ? [
+                  originCandidate,
+                  ...activeNonDragged,
+                  ...activeDragged,
+                  ...leftCandidates,
+                  ...rightCandidates
+              ]
+            : [
+                  ...activeNonDragged,
+                  ...activeDragged,
+                  ...leftCandidates,
+                  ...rightCandidates
+              ];
 
         sortByDist(activeOnlyDragCandidates);
         sortByDist(allDragCandidates);
@@ -4647,6 +4677,17 @@ export class OutlineEditor {
         const scale = this.glyphCanvas.viewportManager?.scale || 1;
         const snapDistFontUnits =
             APP_SETTINGS.OUTLINE_EDITOR.SNAP_DISTANCE_PX / scale;
+        const width = activeLayerData?.width;
+        const edgeXValues =
+            typeof width === 'number' && Number.isFinite(width)
+                ? Array.from(
+                      new Set(
+                          [0, Math.round(width)].filter((value) =>
+                              Number.isFinite(value)
+                          )
+                      )
+                  )
+                : [0];
         const metricsYValues = getVisibleVerticalMetricValues(
             this.renderVerticalMetrics
         );
@@ -4656,6 +4697,7 @@ export class OutlineEditor {
             allDragCandidates,
             debugCandidates,
             snapDistFontUnits,
+            edgeXValues,
             metricsYValues
         };
     }
@@ -4756,8 +4798,8 @@ export class OutlineEditor {
     }
 
     /**
-     * Return the position of the first selected on-curve node from the
-     * current live layer data, or null if none is available.
+     * Return the position of the first selected point from the current live
+     * layer data, or null if none is available.
      */
     private _getPrimaryDragNodePos(): { x: number; y: number } | null {
         const currentLayerData = this.getCurrentLayerDataFromStack();
@@ -4767,11 +4809,278 @@ export class OutlineEditor {
                 currentLayerData.shapes[contourIndex]
             );
             const node = contour?.nodes[nodeIndex];
-            if (node && isOnCurveNode(node)) {
+            if (node) {
                 return { x: node.x, y: node.y };
             }
         }
         return null;
+    }
+
+    /**
+     * Resolve the snapped X/Y position for a natural point position against a
+     * prepared snap candidate cache.
+     */
+    private _resolveSnappedPosition(
+        naturalX: number,
+        naturalY: number,
+        snapCandidateCache: SnapCandidateCache,
+        originPos: { x: number; y: number } | null
+    ): {
+        snappedX: number;
+        snappedY: number;
+        xSource: SnapCandidate | null;
+        ySource: SnapCandidate | null;
+    } {
+        const snapDist = snapCandidateCache.snapDistFontUnits;
+
+        const allCandidates = snapCandidateCache.allDragCandidates;
+        let bestSnapPoint: SnapCandidate | null = null;
+        let bestSnapPointDist = Number.POSITIVE_INFINITY;
+        let bestSnapXCandidate: SnapCandidate | null = null;
+        let bestSnapX: number | null = null;
+        let bestDistX = snapDist;
+        let bestSnapYCandidate: SnapCandidate | null = null;
+        let bestSnapY: number | null = null;
+        let bestDistY = snapDist;
+
+        for (const candidate of allCandidates) {
+            const distX = Math.abs(naturalX - candidate.x);
+            const distY = Math.abs(naturalY - candidate.y);
+
+            if (distX <= snapDist && distY <= snapDist) {
+                const pointDist = Math.hypot(distX, distY);
+                if (pointDist < bestSnapPointDist) {
+                    bestSnapPointDist = pointDist;
+                    bestSnapPoint = candidate;
+                }
+            }
+
+            if (distX < bestDistX) {
+                bestDistX = distX;
+                bestSnapX = candidate.x;
+                bestSnapXCandidate = candidate;
+            }
+            if (distY < bestDistY) {
+                bestDistY = distY;
+                bestSnapY = candidate.y;
+                bestSnapYCandidate = candidate;
+            }
+        }
+
+        for (const metricY of snapCandidateCache.metricsYValues) {
+            const distY = Math.abs(naturalY - metricY);
+            if (distY < bestDistY) {
+                bestDistY = distY;
+                bestSnapY = metricY;
+                if (originPos) {
+                    const distXFromOrigin = Math.abs(naturalX - originPos.x);
+                    if (distXFromOrigin <= snapDist) {
+                        const metricCandidate: SnapCandidate = {
+                            x: originPos.x,
+                            y: metricY,
+                            source: 'metric'
+                        };
+                        bestSnapYCandidate = metricCandidate;
+                        bestSnapX = originPos.x;
+                        bestSnapXCandidate = metricCandidate;
+                        bestDistX = distXFromOrigin;
+                    } else {
+                        bestSnapYCandidate = {
+                            x: naturalX,
+                            y: metricY,
+                            source: 'metric'
+                        };
+                    }
+                } else {
+                    bestSnapYCandidate = {
+                        x: naturalX,
+                        y: metricY,
+                        source: 'metric'
+                    };
+                }
+            }
+        }
+
+        for (const edgeX of snapCandidateCache.edgeXValues || []) {
+            const distX = Math.abs(naturalX - edgeX);
+            if (distX < bestDistX) {
+                bestDistX = distX;
+                bestSnapX = edgeX;
+                if (originPos) {
+                    const distYFromOrigin = Math.abs(naturalY - originPos.y);
+                    if (distYFromOrigin <= snapDist) {
+                        const edgeCandidate: SnapCandidate = {
+                            x: edgeX,
+                            y: originPos.y,
+                            source: 'edge'
+                        };
+                        bestSnapXCandidate = edgeCandidate;
+                        bestSnapY = originPos.y;
+                        bestSnapYCandidate = edgeCandidate;
+                        bestDistY = distYFromOrigin;
+                    } else {
+                        bestSnapXCandidate = {
+                            x: edgeX,
+                            y: naturalY,
+                            source: 'edge'
+                        };
+                    }
+                } else {
+                    bestSnapXCandidate = {
+                        x: edgeX,
+                        y: naturalY,
+                        source: 'edge'
+                    };
+                }
+            }
+        }
+
+        let snappedX = naturalX;
+        let snappedY = naturalY;
+        let xSource: SnapCandidate | null = null;
+        let ySource: SnapCandidate | null = null;
+
+        if (bestSnapPoint) {
+            const useExactX =
+                !bestSnapXCandidate ||
+                Math.abs(naturalX - bestSnapPoint.x) <= bestDistX;
+            const useExactY =
+                !bestSnapYCandidate ||
+                Math.abs(naturalY - bestSnapPoint.y) <= bestDistY;
+            xSource = useExactX ? bestSnapPoint : bestSnapXCandidate;
+            ySource = useExactY ? bestSnapPoint : bestSnapYCandidate;
+            snappedX = xSource ? xSource.x : naturalX;
+            snappedY = ySource ? ySource.y : naturalY;
+            if (!useExactX && bestSnapXCandidate) {
+                snappedX = bestSnapX!;
+            }
+            if (!useExactY && bestSnapYCandidate) {
+                snappedY = bestSnapY!;
+            }
+        } else {
+            if (bestSnapX !== null) {
+                snappedX = bestSnapX;
+                xSource = bestSnapXCandidate;
+            }
+            if (bestSnapY !== null) {
+                snappedY = bestSnapY;
+                ySource = bestSnapYCandidate;
+            }
+        }
+
+        return { snappedX, snappedY, xSource, ySource };
+    }
+
+    /**
+     * Snap a command-path drawing point against the same node and vertical
+     * metric and glyph-edge candidates used for dragging existing points, without adding a
+     * phantom origin candidate.
+     */
+    private _snapPointForDrawing(
+        point: {
+            x: number;
+            y: number;
+        },
+        originPoint?: { x: number; y: number } | null
+    ): { x: number; y: number } {
+        const cache = this._buildSnapCandidateCache(
+            point,
+            Boolean(originPoint),
+            originPoint || undefined
+        );
+        const resolved = this._resolveSnappedPosition(
+            Math.round(point.x),
+            Math.round(point.y),
+            cache,
+            originPoint || null
+        );
+        return {
+            x: resolved.snappedX,
+            y: resolved.snappedY
+        };
+    }
+
+    private getCommandPathOriginPoint(
+        session: ActivePathDrawingSession | null = this.getCommandPathPreviewSeed()
+    ): { x: number; y: number } | null {
+        if (!session) {
+            return null;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const contour = getEditableContour(
+            currentLayerData?.shapes?.[session.shapeIndex]
+        );
+        const node = contour?.nodes?.[session.originNodeIndex];
+        return node ? { x: node.x, y: node.y } : null;
+    }
+
+    /**
+     * Build snap visualization state for the current command-path preview.
+     */
+    private _getCommandPathPreviewSnapVisualizationState(): SnapVisualizationState | null {
+        if (!this.active || this.isPreviewMode || !this.cmdKeyPressed) {
+            return null;
+        }
+
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const naturalPos = {
+            x: Math.round(glyphX),
+            y: Math.round(glyphY)
+        };
+        const originPos = this.getCommandPathOriginPoint();
+        const cache = this._buildSnapCandidateCache(
+            naturalPos,
+            Boolean(originPos),
+            originPos || undefined
+        );
+        const { snappedX, snappedY, xSource, ySource } =
+            this._resolveSnappedPosition(
+                naturalPos.x,
+                naturalPos.y,
+                cache,
+                originPos
+            );
+
+        return {
+            debugCandidates: cache.debugCandidates.filter(
+                (candidate) => candidate.source !== 'active'
+            ),
+            snapTarget:
+                xSource || ySource
+                    ? {
+                          xSource,
+                          ySource,
+                          snappedX,
+                          snappedY
+                      }
+                    : null,
+            naturalPos,
+            originPos
+        };
+    }
+
+    /**
+     * Return the active snap visualization state for dragging or command-path preview.
+     */
+    getSnapVisualizationState(): SnapVisualizationState | null {
+        if (
+            this.isDraggingPoint &&
+            !this.isSlidingSmoothPointAlongCurve &&
+            this._snapCandidateCache
+        ) {
+            return {
+                debugCandidates:
+                    this._snapCandidateCache.debugCandidates.filter(
+                        (candidate) => candidate.source !== 'active'
+                    ),
+                snapTarget: this.activeSnapTarget,
+                naturalPos: this.snapDraggedNaturalPos,
+                originPos: this.snapDragStartNodePos
+            };
+        }
+
+        return this._getCommandPathPreviewSnapVisualizationState();
     }
 
     /**
@@ -5030,135 +5339,20 @@ export class OutlineEditor {
 
         this.snapDraggedNaturalPos = { x: naturalX, y: naturalY };
 
-        const snapDist = this._snapCandidateCache.snapDistFontUnits;
+        const {
+            snappedX: finalSnapX,
+            snappedY: finalSnapY,
+            xSource,
+            ySource
+        } = this._resolveSnappedPosition(
+            naturalX,
+            naturalY,
+            this._snapCandidateCache,
+            this._snapDragStartNodePos
+        );
 
-        // Single-pass scan: find the nearest XY exact point snap AND the
-        // best independent X/Y axis snaps in one loop over all candidates.
-        // allDragCandidates is already sorted by distance from the drag-start
-        // node position, so closer candidates win ties naturally.
-        const allCandidates = this._snapCandidateCache.allDragCandidates;
-        let bestSnapPoint: SnapCandidate | null = null;
-        let bestSnapPointDist = Number.POSITIVE_INFINITY;
-        let bestSnapXCandidate: SnapCandidate | null = null;
-        let bestSnapX: number | null = null;
-        let bestDistX = snapDist;
-        let bestSnapYCandidate: SnapCandidate | null = null;
-        let bestSnapY: number | null = null;
-        let bestDistY = snapDist;
-
-        for (const candidate of allCandidates) {
-            const distX = Math.abs(naturalX - candidate.x);
-            const distY = Math.abs(naturalY - candidate.y);
-
-            // XY exact point snap: both axes within threshold simultaneously
-            if (distX <= snapDist && distY <= snapDist) {
-                const pointDist = Math.hypot(distX, distY);
-                if (pointDist < bestSnapPointDist) {
-                    bestSnapPointDist = pointDist;
-                    bestSnapPoint = candidate;
-                }
-            }
-
-            if (distX < bestDistX) {
-                bestDistX = distX;
-                bestSnapX = candidate.x;
-                bestSnapXCandidate = candidate;
-            }
-            if (distY < bestDistY) {
-                bestDistY = distY;
-                bestSnapY = candidate.y;
-                bestSnapYCandidate = candidate;
-            }
-        }
-
-        // Pass 3: Vertical metrics Y snap — always active.
-        // When a metric Y wins:
-        //   - If the node is also within snapDist of the drag-start X (origin),
-        //     lock both axes to (originX, metricY) so the node can't drift
-        //     sideways while landing on the metric line.
-        //   - If the node has moved far enough sideways, only lock Y to the
-        //     metric line so the node can slide freely along it.
-        for (const metricY of this._snapCandidateCache.metricsYValues) {
-            const distY = Math.abs(naturalY - metricY);
-            if (distY < bestDistY) {
-                bestDistY = distY;
-                bestSnapY = metricY;
-                const originX = this._snapDragStartNodePos.x;
-                const distXFromOrigin = Math.abs(naturalX - originX);
-                if (distXFromOrigin <= snapDist) {
-                    // Within origin X range: lock both to (originX, metricY)
-                    const metricCandidate: SnapCandidate = {
-                        x: originX,
-                        y: metricY,
-                        source: 'metric'
-                    };
-                    bestSnapYCandidate = metricCandidate;
-                    bestSnapX = originX;
-                    bestSnapXCandidate = metricCandidate;
-                    bestDistX = distXFromOrigin;
-                } else {
-                    // Sideways of origin: only lock Y, slide freely along the
-                    // metric line. The metricCandidate X follows naturalX so
-                    // the snap guide draws vertically from the dragged point.
-                    const metricCandidate: SnapCandidate = {
-                        x: naturalX,
-                        y: metricY,
-                        source: 'metric'
-                    };
-                    bestSnapYCandidate = metricCandidate;
-                }
-            }
-        }
-
-        // Resolve final snapped position and per-axis sources.
-        // XY exact snap wins over independent axis snaps when both are active
-        // on the same axis, because it locks both axes to a single node.
-        //
-        // Baseline always uses the cumulative natural position rather than the
-        // per-frame raw delta.  For normal drags these are equivalent, but when
-        // a keyed metrics-key compensation pans the viewport between frames the
-        // raw delta becomes zero (the pan absorbs the mouse movement in screen
-        // space).  The cumulative formula is immune to that because it works
-        // from the fixed drag-start origin and is unaffected by viewport shifts.
         let adjustedDeltaX = naturalX - primaryNodeX;
         let adjustedDeltaY = naturalY - primaryNodeY;
-        let finalSnapX = naturalX;
-        let finalSnapY = naturalY;
-        let xSource: SnapCandidate | null = null;
-        let ySource: SnapCandidate | null = null;
-
-        if (bestSnapPoint) {
-            // Exact XY point snap: both axes lock to the same node.
-            // Individual axis snaps may still override if they are closer
-            // on their respective axis.
-            const useExactX =
-                !bestSnapXCandidate ||
-                Math.abs(naturalX - bestSnapPoint.x) <= bestDistX;
-            const useExactY =
-                !bestSnapYCandidate ||
-                Math.abs(naturalY - bestSnapPoint.y) <= bestDistY;
-            xSource = useExactX ? bestSnapPoint : bestSnapXCandidate;
-            ySource = useExactY ? bestSnapPoint : bestSnapYCandidate;
-            finalSnapX = xSource ? xSource.x : naturalX;
-            finalSnapY = ySource ? ySource.y : naturalY;
-            // If axis snap beat the exact snap on one axis, override
-            if (!useExactX && bestSnapXCandidate) {
-                finalSnapX = bestSnapX!;
-            }
-            if (!useExactY && bestSnapYCandidate) {
-                finalSnapY = bestSnapY!;
-            }
-        } else {
-            // Independent axis snaps (different sources allowed on X and Y).
-            if (bestSnapX !== null) {
-                finalSnapX = bestSnapX;
-                xSource = bestSnapXCandidate;
-            }
-            if (bestSnapY !== null) {
-                finalSnapY = bestSnapY;
-                ySource = bestSnapYCandidate;
-            }
-        }
 
         if (xSource) adjustedDeltaX = finalSnapX - primaryNodeX;
         if (ySource) adjustedDeltaY = finalSnapY - primaryNodeY;
@@ -5440,7 +5634,7 @@ export class OutlineEditor {
         pointerX?: number,
         pointerY?: number,
         constrainWithAltModifier: boolean = false,
-        allowSmoothPointerFallback: boolean = false
+        allowPointerFallback: boolean = false
     ): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData || !currentLayerData.shapes) return;
@@ -5454,7 +5648,7 @@ export class OutlineEditor {
             pointerX,
             pointerY,
             constrainWithAltModifier,
-            allowSmoothPointerFallback
+            allowPointerFallback
         );
     }
 
@@ -7717,13 +7911,22 @@ export class OutlineEditor {
             return null;
         }
 
-        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const previewSnapState =
+            this._getCommandPathPreviewSnapVisualizationState();
+        const snappedEnd = previewSnapState?.snapTarget
+            ? {
+                  x: previewSnapState.snapTarget.snappedX,
+                  y: previewSnapState.snapTarget.snappedY
+              }
+            : previewSnapState?.naturalPos ||
+              (() => {
+                  const { glyphX, glyphY } =
+                      this.transformMouseToComponentSpace();
+                  return { x: glyphX, y: glyphY };
+              })();
         return {
             start,
-            end: {
-                x: glyphX,
-                y: glyphY
-            }
+            end: snappedEnd
         };
     }
 
@@ -7752,7 +7955,12 @@ export class OutlineEditor {
         }
 
         const { glyphX, glyphY } = this.transformMouseToComponentSpace();
-        const snappedStart = { x: Math.round(glyphX), y: Math.round(glyphY) };
+        const snappedStart = this._snapPointForDrawing({
+            x: glyphX,
+            y: glyphY
+        });
+        snappedStart.x = Math.round(snappedStart.x);
+        snappedStart.y = Math.round(snappedStart.y);
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
         let activePath = null;
 
@@ -7808,10 +8016,12 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
-        const snappedPoint = {
-            x: Math.round(point.x),
-            y: Math.round(point.y)
-        };
+        const snappedPoint = this._snapPointForDrawing(
+            point,
+            this.getCommandPathOriginPoint(session)
+        );
+        snappedPoint.x = Math.round(snappedPoint.x);
+        snappedPoint.y = Math.round(snappedPoint.y);
         let insertedNodeIndex: number | null = null;
 
         withSuppressedModelRecording(() => {
@@ -8834,7 +9044,7 @@ export class OutlineEditor {
         pointerX?: number,
         pointerY?: number,
         constrainWithAltModifier: boolean = false,
-        allowSmoothPointerFallback: boolean = false
+        allowPointerFallback: boolean = false
     ): void {
         const contourCache = new Map<number, EditableContour | null>();
         const getContourData = (
@@ -8946,7 +9156,7 @@ export class OutlineEditor {
                             node.y
                     };
                 } else if (
-                    allowSmoothPointerFallback &&
+                    allowPointerFallback &&
                     pointerX !== undefined &&
                     pointerY !== undefined &&
                     adjustedDelta.deltaX === 0 &&
@@ -8984,7 +9194,13 @@ export class OutlineEditor {
                             projectedPointerDelta.deltaY -
                             node.y
                     };
-                } else {
+                } else if (
+                    allowPointerFallback &&
+                    pointerX !== undefined &&
+                    pointerY !== undefined &&
+                    adjustedDelta.deltaX === 0 &&
+                    adjustedDelta.deltaY === 0
+                ) {
                     adjustedDelta = {
                         deltaX: pointerX - node.x,
                         deltaY: pointerY - node.y

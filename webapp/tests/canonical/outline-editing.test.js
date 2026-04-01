@@ -629,11 +629,15 @@ describe('Outline Editing canonical behavior', () => {
             variation_sequences: [],
             format_specific: {}
         });
+        font.markDirty = jest.fn();
+        font.syncJsonFromModel = jest.fn();
+        font.hasUnsavedChanges = false;
+        font.fontModel = font;
 
         currentFontSpy.mockRestore();
         currentFontSpy = jest
             .spyOn(fontManager, 'currentFont', 'get')
-            .mockReturnValue({ fontModel: font });
+            .mockReturnValue(font);
         window.currentFontModel = font;
 
         activateEditableLayer(canvas, {
@@ -986,5 +990,622 @@ describe('Outline Editing canonical behavior', () => {
         } finally {
             saveLayerDataSpy.mockRestore();
         }
+    });
+
+    test('live off-curve dragging without alt snaps to candidate nodes', () => {
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+
+        try {
+            activateEditableLayer(canvas, {
+                width: 520,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Curve', smooth: false },
+                            {
+                                x: 90,
+                                y: 90,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            {
+                                x: 130,
+                                y: 90,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            {
+                                x: 170,
+                                y: 90,
+                                nodetype: 'Curve',
+                                smooth: false
+                            }
+                        ],
+                        closed: false
+                    },
+                    {
+                        nodes: [
+                            { x: 120, y: 90, nodetype: 'Line', smooth: false },
+                            { x: 160, y: 90, nodetype: 'Line', smooth: false },
+                            { x: 160, y: 130, nodetype: 'Line', smooth: false }
+                        ],
+                        closed: true
+                    }
+                ],
+                anchors: [],
+                guides: []
+            });
+            canvas.outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 1
+            };
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+
+            let pointer = { glyphX: 90, glyphY: 90 };
+            const pointerSpy = jest
+                .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+                .mockImplementation(() => pointer);
+
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            canvas.outlineEditor.onMouseMove({
+                clientX: 11,
+                clientY: 21,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            pointer = { glyphX: 118, glyphY: 93 };
+            canvas.outlineEditor.onMouseMove({
+                clientX: 12,
+                clientY: 22,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            const nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+            expect(nodes[1].x).toBe(120);
+            expect(nodes[1].y).toBe(90);
+            expect(canvas.outlineEditor.activeSnapTarget).toEqual(
+                expect.objectContaining({
+                    xSource: expect.objectContaining({ source: 'active' }),
+                    ySource: expect.objectContaining({ source: 'active' })
+                })
+            );
+
+            pointerSpy.mockRestore();
+        } finally {
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
+    test('command-path preview and appended points snap to candidate nodes when drawing new points', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 520,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 20, y: 30, nodetype: 'Move' },
+                                        { x: 90, y: 30, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                },
+                                {
+                                    nodes: [
+                                        { x: 120, y: 90, nodetype: 'Move' },
+                                        { x: 160, y: 90, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: { family_name: { en: 'Command Snap Canonical' } },
+            note: '',
+            date: '2026-04-01',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const layer = glyph.findLayerById('layer-1');
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 118, glyphY: 93 });
+        const compileSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'queueStructuralOutlineCompileFromModel'
+            )
+            .mockImplementation(() => {});
+
+        canvas.outlineEditor.setCommandKeyPressed(true);
+
+        expect(canvas.outlineEditor.getCommandPathPreviewLine()).toEqual({
+            start: { x: 90, y: 30 },
+            end: { x: 120, y: 90 }
+        });
+        expect(canvas.outlineEditor.getSnapVisualizationState()).toEqual(
+            expect.objectContaining({
+                naturalPos: { x: 118, y: 93 },
+                snapTarget: expect.objectContaining({
+                    xSource: expect.objectContaining({ source: 'active' }),
+                    ySource: expect.objectContaining({ source: 'active' }),
+                    snappedX: 120,
+                    snappedY: 90
+                })
+            })
+        );
+
+        expect(canvas.outlineEditor.beginCommandPathDrawing()).toBe(true);
+
+        const modelNodes = layer.paths[0].nodes;
+        expect(modelNodes[modelNodes.length - 1]).toEqual(
+            expect.objectContaining({ x: 120, y: 90, nodetype: 'Line' })
+        );
+
+        compileSpy.mockRestore();
+        pointerSpy.mockRestore();
+    });
+
+    test('cmd-hover exposes node and metric snapping before the first drawing point exists', () => {
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 120, y: 40, nodetype: 'Move' },
+                        { x: 160, y: 40, nodetype: 'Line' }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+        canvas.outlineEditor.renderVerticalMetrics = { xHeight: 90 };
+
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 118, glyphY: 88 });
+
+        canvas.outlineEditor.setCommandKeyPressed(true);
+
+        expect(canvas.outlineEditor.getCommandPathPreviewLine()).toBeNull();
+        expect(canvas.outlineEditor.getSnapVisualizationState()).toEqual(
+            expect.objectContaining({
+                naturalPos: { x: 118, y: 88 },
+                originPos: null,
+                snapTarget: expect.objectContaining({
+                    xSource: expect.objectContaining({ source: 'active' }),
+                    ySource: expect.objectContaining({ source: 'metric' }),
+                    snappedX: 120,
+                    snappedY: 90
+                })
+            })
+        );
+
+        pointerSpy.mockRestore();
+    });
+
+    test('cmd-hover repaints even before a preview line exists so metric snap feedback is visible', () => {
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [],
+            anchors: [],
+            guides: []
+        });
+        canvas.outlineEditor.renderVerticalMetrics = { xHeight: 90 };
+
+        const renderSpy = jest.spyOn(canvas, 'render');
+
+        canvas.outlineEditor.setCommandKeyPressed(true);
+        renderSpy.mockClear();
+
+        canvas.onMouseMoveHover({
+            clientX: 10,
+            clientY: 20,
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false
+        });
+
+        expect(canvas.outlineEditor.shouldRenderCommandPathPreview()).toBe(
+            false
+        );
+        expect(renderSpy).toHaveBeenCalled();
+
+        renderSpy.mockRestore();
+    });
+
+    test('cmd-hover snaps to the active glyph edge before the first drawing point exists', () => {
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [],
+            anchors: [],
+            guides: []
+        });
+
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 518, glyphY: 88 });
+
+        canvas.outlineEditor.setCommandKeyPressed(true);
+
+        expect(canvas.outlineEditor.getSnapVisualizationState()).toEqual(
+            expect.objectContaining({
+                naturalPos: { x: 518, y: 88 },
+                snapTarget: expect.objectContaining({
+                    xSource: expect.objectContaining({ source: 'edge' }),
+                    snappedX: 520,
+                    snappedY: 88
+                })
+            })
+        );
+
+        pointerSpy.mockRestore();
+    });
+
+    test('dragging an existing point snaps to the active glyph edge', () => {
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 500, y: 90, nodetype: 'Move', smooth: false },
+                        { x: 500, y: 130, nodetype: 'Line', smooth: false }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.isSlidingSmoothPointAlongCurve = false;
+        canvas.outlineEditor._snapDragStartMouseX = 500;
+        canvas.outlineEditor._snapDragStartMouseY = 90;
+        canvas.outlineEditor._snapDragStartNodePos = { x: 500, y: 90 };
+        canvas.outlineEditor._snapCandidateCache =
+            canvas.outlineEditor._buildSnapCandidateCache({ x: 500, y: 90 });
+
+        const snapped = canvas.outlineEditor._applySnapToDelta(
+            18,
+            0,
+            518,
+            90,
+            500,
+            90
+        );
+
+        expect(snapped).toEqual({ deltaX: 20, deltaY: 0 });
+        expect(canvas.outlineEditor.activeSnapTarget).toEqual(
+            expect.objectContaining({
+                xSource: expect.objectContaining({ source: 'edge' }),
+                snappedX: 520,
+                snappedY: 90
+            })
+        );
+    });
+
+    test('starting a command path snaps the first point to a vertical metric line', () => {
+        const font = makeSinglePathFont([], false);
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const layer = glyph.findLayerById('layer-1');
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.outlineEditor.renderVerticalMetrics = { xHeight: 90 };
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 54, glyphY: 88 });
+        const compileSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'queueStructuralOutlineCompileFromModel'
+            )
+            .mockImplementation(() => {});
+
+        canvas.outlineEditor.setCommandKeyPressed(true);
+        expect(canvas.outlineEditor.getSnapVisualizationState()).toEqual(
+            expect.objectContaining({
+                snapTarget: expect.objectContaining({
+                    ySource: expect.objectContaining({ source: 'metric' }),
+                    snappedY: 90
+                })
+            })
+        );
+
+        expect(canvas.outlineEditor.beginCommandPathDrawing()).toBe(true);
+
+        const liveShape = canvas.outlineEditor.layerData.shapes.at(-1);
+        expect(liveShape.nodes[0]).toEqual(
+            expect.objectContaining({ x: 54, y: 90 })
+        );
+
+        const liveLayer = glyph.findLayerById('layer-1');
+        expect(liveLayer.paths.at(-1).nodes[0]).toEqual(
+            expect.objectContaining({ x: 54, y: 90 })
+        );
+
+        compileSpy.mockRestore();
+        pointerSpy.mockRestore();
+    });
+
+    test('command-path preview includes the drawing origin as a snap candidate after the first point', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 520,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: { family_name: { en: 'Command Origin Canonical' } },
+            note: '',
+            date: '2026-04-01',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const layer = glyph.findLayerById('layer-1');
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+
+        let pointer = { glyphX: 90, glyphY: 30 };
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockImplementation(() => pointer);
+        const compileSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'queueStructuralOutlineCompileFromModel'
+            )
+            .mockImplementation(() => {});
+
+        canvas.outlineEditor.setCommandKeyPressed(true);
+        expect(canvas.outlineEditor.beginCommandPathDrawing()).toBe(true);
+
+        pointer = { glyphX: 92, glyphY: 32 };
+
+        expect(canvas.outlineEditor.getSnapVisualizationState()).toEqual(
+            expect.objectContaining({
+                naturalPos: { x: 92, y: 32 },
+                originPos: { x: 90, y: 30 },
+                snapTarget: expect.objectContaining({
+                    xSource: expect.objectContaining({ source: 'origin' }),
+                    ySource: expect.objectContaining({ source: 'origin' }),
+                    snappedX: 90,
+                    snappedY: 30
+                })
+            })
+        );
+
+        compileSpy.mockRestore();
+        pointerSpy.mockRestore();
+    });
+
+    test('current command-path endpoint remains a node snap candidate when it sits on a vertical metric line', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 520,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 80, y: 90, nodetype: 'Move' },
+                                        { x: 120, y: 90, nodetype: 'Line' }
+                                    ],
+                                    closed: false
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: { family_name: { en: 'Command Endpoint Candidate' } },
+            note: '',
+            date: '2026-04-01',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const layer = glyph.findLayerById('layer-1');
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.outlineEditor.renderVerticalMetrics = { xHeight: 90 };
+        canvas.outlineEditor.activePathDrawingSession = {
+            shapeIndex: 0,
+            pathIndex: 0,
+            edge: 'end',
+            startedFromExistingPath: false,
+            originNodeIndex: 0,
+            segmentCount: 1
+        };
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 118, glyphY: 88 });
+
+        canvas.outlineEditor.setCommandKeyPressed(true);
+
+        expect(canvas.outlineEditor.getSnapVisualizationState()).toEqual(
+            expect.objectContaining({
+                naturalPos: { x: 118, y: 88 },
+                snapTarget: expect.objectContaining({
+                    xSource: expect.objectContaining({ source: 'active' }),
+                    ySource: expect.objectContaining({ source: 'active' }),
+                    snappedX: 120,
+                    snappedY: 90
+                })
+            })
+        );
+
+        pointerSpy.mockRestore();
     });
 });

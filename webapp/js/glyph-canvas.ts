@@ -1405,8 +1405,11 @@ class GlyphCanvas {
         this.updateCursorStyle(e);
 
         // Re-render when auxiliary overlays depend on the pointer position.
+        // Command-path snapping needs this even before a preview line exists,
+        // because Cmd-hover alone can show snap guides/candidates.
         if (
             this.measurementKeyPressed ||
+            this.outlineEditor.cmdKeyPressed ||
             this.outlineEditor.shouldRenderCommandPathPreview()
         ) {
             this.render();

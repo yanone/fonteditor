@@ -3010,12 +3010,12 @@ export class GlyphCanvasRenderer {
         this.ctx.save();
         this.ctx.translate(x, y);
 
-        // ---- Neighboring glyph snap nodes: shown whenever dragging a point ----
-        // collectDebugSnapCandidates() returns [] when not dragging, so this
-        // is automatically a no-op outside of point drags.
+        const snapVisualizationState =
+            this.glyphCanvas.outlineEditor.getSnapVisualizationState();
+
+        // ---- Neighboring glyph snap nodes ----
         {
-            const candidates =
-                this.glyphCanvas.outlineEditor.collectDebugSnapCandidates();
+            const candidates = snapVisualizationState?.debugCandidates || [];
 
             if (candidates.length > 0) {
                 const dotRadius = 3 * invScale;
@@ -3033,8 +3033,8 @@ export class GlyphCanvasRenderer {
         // ---- Snap highlight: one guide per active snap axis ----
         // xSource and ySource may be different nodes (independent axis snaps)
         // or the same node (exact XY point snap). Draw a guide for each.
-        const snapTarget = this.glyphCanvas.outlineEditor.activeSnapTarget;
-        const naturalPos = this.glyphCanvas.outlineEditor.snapDraggedNaturalPos;
+        const snapTarget = snapVisualizationState?.snapTarget || null;
+        const naturalPos = snapVisualizationState?.naturalPos || null;
 
         if (snapTarget && naturalPos) {
             const highlightRadius = 5 * invScale;
@@ -3046,12 +3046,13 @@ export class GlyphCanvasRenderer {
             // Draw one guide: line from dragged node → snap candidate, circle
             // on the snap candidate.
             //
-            // Exception — metric sources (baseline, x-height, etc.): the snap
-            // is to an infinite horizontal line, not a specific point. In that
-            // case the target circle is drawn ON the dragged node and the line
-            // runs from the natural (unsnapped) position to the dragged node.
+            // Exception — metric/edge sources: the snap is to an infinite line,
+            // not a specific point. In that case the target circle is drawn on
+            // the dragged node and the line runs from the natural position to
+            // the dragged node.
             const drawGuide = (source: SnapSrc) => {
-                const isMetric = source.source === 'metric';
+                const isLineSource =
+                    source.source === 'metric' || source.source === 'edge';
 
                 let lineStartX: number,
                     lineStartY: number,
@@ -3060,7 +3061,7 @@ export class GlyphCanvasRenderer {
                     targetX: number,
                     targetY: number;
 
-                if (isMetric) {
+                if (isLineSource) {
                     // Line: natural pos → snap result (shows the "pull")
                     lineStartX = naturalPos.x;
                     lineStartY = naturalPos.y;
@@ -3125,14 +3126,13 @@ export class GlyphCanvasRenderer {
             // metricY on Y), also draw a line from the snapped position back to
             // the original node position so the user can see how far they've
             // moved vertically from the origin.
-            const originPos =
-                this.glyphCanvas.outlineEditor.snapDragStartNodePos;
-            const isMetricXY =
+            const originPos = snapVisualizationState?.originPos || null;
+            const isLineSnapXY =
                 xSource &&
                 ySource &&
                 xSource === ySource &&
-                xSource.source === 'metric';
-            if (isMetricXY && originPos) {
+                (xSource.source === 'metric' || xSource.source === 'edge');
+            if (isLineSnapXY && originPos) {
                 // Only draw if the origin differs from the current snapped pos
                 if (originPos.x !== snappedX || originPos.y !== snappedY) {
                     this.ctx.save();
