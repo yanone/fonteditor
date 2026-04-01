@@ -5248,11 +5248,15 @@ export class OutlineEditor {
     }
 
     /**
-     * Re-evaluate the active off-curve drag at the current pointer when Alt
-     * changes so the handle updates immediately on press and release.
+     * Shared body for both alt-drag constraint re-application methods.
+     * When the Alt key is pressed or released mid-drag, re-evaluates the
+     * current pointer position against the stored constraint so the handle
+     * or on-curve point updates immediately.
      */
-    private _applyCurrentOffCurveAltConstraintState(): void {
-        const constraint = this._offCurveAltDragConstraint;
+    private _applyCurrentAltConstraintStateForNode(
+        constraint: { contourIndex: number; nodeIndex: number } | null,
+        checkNodeType: (node: Babelfont.Node | null | undefined) => boolean
+    ): void {
         if (
             !constraint ||
             !this.isDraggingPoint ||
@@ -5270,7 +5274,7 @@ export class OutlineEditor {
             currentLayerData.shapes[constraint.contourIndex]
         );
         const node = contour?.nodes[constraint.nodeIndex];
-        if (!contour || !node || !isOffCurveNode(node)) {
+        if (!contour || !node || !checkNodeType(node)) {
             return;
         }
 
@@ -5304,59 +5308,25 @@ export class OutlineEditor {
     }
 
     /**
+     * Re-evaluate the active off-curve drag at the current pointer when Alt
+     * changes so the handle updates immediately on press and release.
+     */
+    private _applyCurrentOffCurveAltConstraintState(): void {
+        this._applyCurrentAltConstraintStateForNode(
+            this._offCurveAltDragConstraint,
+            isOffCurveNode
+        );
+    }
+
+    /**
      * Re-evaluate the active smooth on-curve drag at the current pointer when
      * Alt changes so the constrained/free state updates immediately.
      */
     private _applyCurrentSmoothOnCurveAltConstraintState(): void {
-        const constraint = this._smoothOnCurveAltDragConstraint;
-        if (
-            !constraint ||
-            !this.isDraggingPoint ||
-            this.isSlidingSmoothPointAlongCurve
-        ) {
-            return;
-        }
-
-        const currentLayerData = this.getCurrentLayerDataFromStack();
-        if (!currentLayerData?.shapes) {
-            return;
-        }
-
-        const contour = getEditableContour(
-            currentLayerData.shapes[constraint.contourIndex]
+        this._applyCurrentAltConstraintStateForNode(
+            this._smoothOnCurveAltDragConstraint,
+            isOnCurveNode
         );
-        const node = contour?.nodes[constraint.nodeIndex];
-        if (!contour || !node || !isOnCurveNode(node)) {
-            return;
-        }
-
-        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
-        const beforeX = node.x;
-        const beforeY = node.y;
-
-        this.applySelectedPointMove(
-            currentLayerData,
-            0,
-            0,
-            false,
-            false,
-            glyphX,
-            glyphY,
-            this.altKeyPressed,
-            !this.altKeyPressed
-        );
-
-        const appliedDeltaX = node.x - beforeX;
-        const appliedDeltaY = node.y - beforeY;
-        if (appliedDeltaX !== 0 || appliedDeltaY !== 0) {
-            this._hasMoved = true;
-            this.updatePointDragDeltaX(appliedDeltaX);
-            this.applyMetricsKeysToCurrentEditedLayer();
-        }
-
-        const recalc = this.transformMouseToComponentSpace();
-        this.lastGlyphX = recalc.glyphX;
-        this.lastGlyphY = recalc.glyphY;
     }
 
     /**
@@ -8553,6 +8523,76 @@ export class OutlineEditor {
         return isOnCurveNode(node);
     }
 
+    /**
+     * Commit a structural single-path cut or split to the bridge, refresh
+     * exact layer data, schedule a structural recompile, select the node
+     * produced by the operation, re-render, and queue the deferred cache
+     * rebuild.  Used by both openClosedPathAtNode and splitOpenPathAtNode.
+     */
+    private _finalizePathCutOrSplitEdit(
+        label: string,
+        currentGlyphModel: any,
+        selectedPoint: Point
+    ): void {
+        const bridge = window.changeBridge;
+        if (bridge && currentGlyphModel.name) {
+            bridge.beginTransaction(label);
+            try {
+                bridge.syncGlyphFromJson(currentGlyphModel.name, label);
+            } finally {
+                bridge.endTransaction();
+            }
+        }
+
+        this.syncCurrentExactLayerDataFromModel();
+
+        const currentFont = fontManager.currentFont;
+        if (currentFont) {
+            currentFont.markDirty('keyboard-outline');
+            this.prepareStructuralOutlineCompile();
+            void fontManager.updateDirtyIndicator();
+        }
+
+        this.selectedPoints = [selectedPoint];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+
+        if (currentFont) {
+            window.setTimeout(() => {
+                if (fontManager.currentFont !== currentFont) {
+                    return;
+                }
+
+                try {
+                    currentFont.syncJsonFromModel();
+                } catch (error) {
+                    console.error(
+                        `[OutlineEditor] Error syncing font JSON after ${label.toLowerCase()}:`,
+                        error
+                    );
+                    return;
+                }
+
+                void fontManager.updateWorkerFontCache();
+                this.wakeStructuralOutlineCompile();
+            }, 0);
+        } else if (currentGlyphModel.name) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: currentGlyphModel.name,
+                        layerId: this.getCurrentLayerId()
+                    }
+                })
+            );
+        }
+    }
+
     private openClosedPathAtNode(point: Point): boolean {
         const currentLayerModel = this.getCurrentLayerModel();
         const currentGlyphModel = this.getCurrentGlyphModel();
@@ -8589,71 +8629,13 @@ export class OutlineEditor {
             return false;
         }
 
-        const bridge = window.changeBridge;
-        if (bridge && currentGlyphModel.name) {
-            bridge.beginTransaction('Open path');
-            try {
-                bridge.syncGlyphFromJson(currentGlyphModel.name, 'Open path');
-            } finally {
-                bridge.endTransaction();
-            }
-        }
-
-        this.syncCurrentExactLayerDataFromModel();
-
-        const currentFont = fontManager.currentFont;
-        if (currentFont) {
-            currentFont.markDirty('keyboard-outline');
-            this.prepareStructuralOutlineCompile();
-            void fontManager.updateDirtyIndicator();
-        }
-
         // Select only the new end node (the duplicate at the end)
         const newPath = currentLayerModel.paths?.[point.contourIndex];
         const lastNodeIndex = newPath ? newPath.nodes.length - 1 : 0;
-        this.selectedPoints = [
-            {
-                contourIndex: point.contourIndex,
-                nodeIndex: lastNodeIndex
-            }
-        ];
-        this.selectedAnchors = [];
-        this.selectedComponents = [];
-        this.selectedGuideHandle = null;
-        this.selectedSidebearingHandle = null;
-        this.performHitDetection(null);
-        this.glyphCanvas.updatePropertyPanel();
-        this.glyphCanvas.render();
-
-        if (currentFont) {
-            window.setTimeout(() => {
-                if (fontManager.currentFont !== currentFont) {
-                    return;
-                }
-
-                try {
-                    currentFont.syncJsonFromModel();
-                } catch (error) {
-                    console.error(
-                        '[OutlineEditor] Error syncing font JSON after opening path:',
-                        error
-                    );
-                    return;
-                }
-
-                void fontManager.updateWorkerFontCache();
-                this.wakeStructuralOutlineCompile();
-            }, 0);
-        } else if (currentGlyphModel.name) {
-            window.dispatchEvent(
-                new CustomEvent('glyphChanged', {
-                    detail: {
-                        glyphName: currentGlyphModel.name,
-                        layerId: this.getCurrentLayerId()
-                    }
-                })
-            );
-        }
+        this._finalizePathCutOrSplitEdit('Open path', currentGlyphModel, {
+            contourIndex: point.contourIndex,
+            nodeIndex: lastNodeIndex
+        });
         return true;
     }
 
@@ -8702,69 +8684,10 @@ export class OutlineEditor {
             insertedShapeIndex: number;
         };
 
-        const bridge = window.changeBridge;
-        if (bridge && currentGlyphModel.name) {
-            bridge.beginTransaction('Split path');
-            try {
-                bridge.syncGlyphFromJson(currentGlyphModel.name, 'Split path');
-            } finally {
-                bridge.endTransaction();
-            }
-        }
-
-        this.syncCurrentExactLayerDataFromModel();
-
-        const currentFont = fontManager.currentFont;
-        if (currentFont) {
-            currentFont.markDirty('keyboard-outline');
-            this.prepareStructuralOutlineCompile();
-            void fontManager.updateDirtyIndicator();
-        }
-
-        this.selectedPoints = [
-            {
-                contourIndex: finalizedSplitResult.insertedShapeIndex,
-                nodeIndex: 0
-            }
-        ];
-        this.selectedAnchors = [];
-        this.selectedComponents = [];
-        this.selectedGuideHandle = null;
-        this.selectedSidebearingHandle = null;
-        this.performHitDetection(null);
-        this.glyphCanvas.updatePropertyPanel();
-        this.glyphCanvas.render();
-
-        if (currentFont) {
-            window.setTimeout(() => {
-                if (fontManager.currentFont !== currentFont) {
-                    return;
-                }
-
-                try {
-                    currentFont.syncJsonFromModel();
-                } catch (error) {
-                    console.error(
-                        '[OutlineEditor] Error syncing font JSON after splitting path:',
-                        error
-                    );
-                    return;
-                }
-
-                void fontManager.updateWorkerFontCache();
-                this.wakeStructuralOutlineCompile();
-            }, 0);
-        } else if (currentGlyphModel.name) {
-            window.dispatchEvent(
-                new CustomEvent('glyphChanged', {
-                    detail: {
-                        glyphName: currentGlyphModel.name,
-                        layerId: this.getCurrentLayerId()
-                    }
-                })
-            );
-        }
-
+        this._finalizePathCutOrSplitEdit('Split path', currentGlyphModel, {
+            contourIndex: finalizedSplitResult.insertedShapeIndex,
+            nodeIndex: 0
+        });
         return true;
     }
 
