@@ -136,6 +136,13 @@ type ActivePathDrawingSession = {
     segmentCount: number;
 };
 
+type OpenPathEndpointRef = {
+    shapeIndex: number;
+    pathIndex: number;
+    nodeIndex: number;
+    edge: 'start' | 'end';
+};
+
 type CanvasPathContextTarget = {
     shapeIndex: number;
     pathIndex: number;
@@ -514,6 +521,13 @@ function canOnCurvePointBeSmooth(
 
     if (prevIndex === null || nextIndex === null) {
         return false;
+    }
+
+    if (!contour.closed) {
+        const lastIndex = contour.nodes.length - 1;
+        if (nodeIndex === 0 || nodeIndex === lastIndex) {
+            return false;
+        }
     }
 
     const prevNode = contour.nodes[prevIndex];
@@ -1022,6 +1036,9 @@ export class OutlineEditor {
     pendingRemoteRefreshAfterDrag: boolean = false;
     isSnappedToCloseOpenPath: boolean = false;
     private _dragStartEndpointsCoincident: boolean = false;
+    private _dragConnectionSourcePoint: Point | null = null;
+    private _dragSeparatedFromCoincidentEndpointPair: boolean = false;
+    private _snappedOpenPathEndpointTarget: OpenPathEndpointRef | null = null;
 
     /** Active snap target during a point drag – includes the snapped point and the source node it snapped from. */
     activeSnapTarget: ActiveSnapTarget | null = null;
@@ -4024,17 +4041,17 @@ export class OutlineEditor {
             return;
         }
 
-        const isCmdClick = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
-        if (isCmdClick && this.hoveredAddPointPreview) {
-            void this.commitHoveredAddPointPreview();
-            return;
-        }
-
         if (this.handleAltCurveConversionGesture(e)) {
             return;
         }
 
         if (this.handleCommandPathGesture(e)) {
+            return;
+        }
+
+        const isCmdClick = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+        if (isCmdClick && this.hoveredAddPointPreview) {
+            void this.commitHoveredAddPointPreview();
             return;
         }
 
@@ -4193,9 +4210,15 @@ export class OutlineEditor {
             this.selectedGuideHandle = null;
             this.selectedSidebearingHandle = null;
             const hoveredPoint = this.hoveredPointIndex;
-            const isCmdClick = e.metaKey || e.ctrlKey;
+            const isAltCutClick =
+                e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey;
+            if (isAltCutClick && this.cutPathAtNode(hoveredPoint)) {
+                return;
+            }
+
             if (
-                isCmdClick &&
+                (e.metaKey || e.ctrlKey) &&
+                !e.altKey &&
                 !e.shiftKey &&
                 this.canSlideSmoothPointOnCurve(hoveredPoint)
             ) {
@@ -4219,13 +4242,6 @@ export class OutlineEditor {
                 this.glyphCanvas.updatePropertyPanel();
                 this.glyphCanvas.render();
                 return;
-            }
-
-            // Cmd+click on on-curve node of closed path: open path at that node
-            if (isCmdClick && !e.shiftKey) {
-                if (this.openClosedPathAtNode(hoveredPoint)) {
-                    return;
-                }
             }
 
             const existingIndex = this.selectedPoints.findIndex(
@@ -4274,8 +4290,18 @@ export class OutlineEditor {
                 this._hasMoved = false;
                 this._metricsKeyInteractionSide = null;
                 this._dragType = 'point';
+                this._dragConnectionSourcePoint = this.getOpenPathEndpointRef(
+                    hoveredPoint.contourIndex,
+                    hoveredPoint.nodeIndex
+                )
+                    ? { ...hoveredPoint }
+                    : null;
                 this._dragStartEndpointsCoincident =
-                    this._areOpenPathEndpointsCoincident();
+                    this._areOpenPathEndpointsCoincident(
+                        this._dragConnectionSourcePoint
+                    );
+                this._dragSeparatedFromCoincidentEndpointPair =
+                    !this._dragStartEndpointsCoincident;
                 this._preDragDesc = this._buildNodeDesc();
                 this._pointDragDeltaX = 0;
                 window.changeBridge?.beginTransaction('Drag point');
@@ -4812,6 +4838,18 @@ export class OutlineEditor {
     private _getPrimaryDragNodePos(): { x: number; y: number } | null {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData?.shapes) return null;
+        if (this._dragConnectionSourcePoint) {
+            const contour = getEditableContour(
+                currentLayerData.shapes[
+                    this._dragConnectionSourcePoint.contourIndex
+                ]
+            );
+            const node =
+                contour?.nodes?.[this._dragConnectionSourcePoint.nodeIndex];
+            if (node) {
+                return { x: node.x, y: node.y };
+            }
+        }
         for (const { contourIndex, nodeIndex } of this.selectedPoints) {
             const contour = getEditableContour(
                 currentLayerData.shapes[contourIndex]
@@ -5503,10 +5541,40 @@ export class OutlineEditor {
             );
             effectiveDeltaX = snapped.deltaX;
             effectiveDeltaY = this.isDraggingSidebearing ? 0 : snapped.deltaY;
+
+            const predictedTargetX =
+                (primaryPos?.x ?? glyphX) + effectiveDeltaX;
+            const predictedTargetY =
+                (primaryPos?.y ?? glyphY) + effectiveDeltaY;
+            const endpointSnapTarget = this.findOpenPathEndpointSnapTarget(
+                predictedTargetX,
+                predictedTargetY
+            );
+            if (endpointSnapTarget && primaryPos) {
+                const currentLayerData = this.getCurrentLayerDataFromStack();
+                const targetContour = getEditableContour(
+                    currentLayerData?.shapes?.[endpointSnapTarget.shapeIndex]
+                );
+                const targetNode =
+                    targetContour?.nodes?.[endpointSnapTarget.nodeIndex];
+                if (targetNode) {
+                    effectiveDeltaX = targetNode.x - primaryPos.x;
+                    effectiveDeltaY = this.isDraggingSidebearing
+                        ? 0
+                        : targetNode.y - primaryPos.y;
+                    this.isSnappedToCloseOpenPath = true;
+                    this._snappedOpenPathEndpointTarget = endpointSnapTarget;
+                }
+            } else {
+                this.isSnappedToCloseOpenPath = false;
+                this._snappedOpenPathEndpointTarget = null;
+            }
         } else {
             this.activeSnapTarget = null;
             this.snapDraggedNaturalPos = null;
             this._snapCandidateCache = null;
+            this.isSnappedToCloseOpenPath = false;
+            this._snappedOpenPathEndpointTarget = null;
         }
 
         // Track whether any actual movement occurred (to avoid spurious undo entries)
@@ -5533,7 +5601,6 @@ export class OutlineEditor {
                 false
             );
             this.updatePointDragDeltaX(effectiveDeltaX);
-            this._checkOpenPathEndpointSnap();
         }
         this._updateDraggedAnchors(deltaX, deltaY);
         this._updateDraggedSidebearing(effectiveDeltaX);
@@ -5677,12 +5744,134 @@ export class OutlineEditor {
         );
     }
 
+    private findOpenPathEndpointSnapTarget(
+        draggedPointX: number,
+        draggedPointY: number
+    ): OpenPathEndpointRef | null {
+        if (
+            !this.isDraggingPoint ||
+            !this.getCurrentLayerDataFromStack()?.shapes
+        ) {
+            return null;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return null;
+        }
+
+        const sourcePoint =
+            this._dragConnectionSourcePoint ||
+            (this.selectedPoints.length === 1 ? this.selectedPoints[0] : null);
+        if (!sourcePoint) {
+            return null;
+        }
+
+        const { contourIndex, nodeIndex } = sourcePoint;
+        const contour = getEditableContour(
+            currentLayerData.shapes[contourIndex]
+        );
+        if (!contour || contour.closed || contour.nodes.length < 2) {
+            return null;
+        }
+
+        const lastIndex = contour.nodes.length - 1;
+        const isStartNode = nodeIndex === 0;
+        const isEndNode = nodeIndex === lastIndex;
+        if (!isStartNode && !isEndNode) {
+            return null;
+        }
+
+        if (
+            this._dragStartEndpointsCoincident &&
+            !this._dragSeparatedFromCoincidentEndpointPair
+        ) {
+            const sourceNode = contour.nodes[nodeIndex];
+            const oppositeNode = contour.nodes[isStartNode ? lastIndex : 0];
+            if (
+                sourceNode &&
+                oppositeNode &&
+                (Math.abs(sourceNode.x - oppositeNode.x) > 0.000001 ||
+                    Math.abs(sourceNode.y - oppositeNode.y) > 0.000001)
+            ) {
+                this._dragSeparatedFromCoincidentEndpointPair = true;
+            }
+        }
+
+        const snapRadius = 10 / this.glyphCanvas.viewportManager!.scale;
+        let bestTarget: OpenPathEndpointRef | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        for (
+            let shapeIndex = 0;
+            shapeIndex < currentLayerData.shapes.length;
+            shapeIndex++
+        ) {
+            const candidateContour = getEditableContour(
+                currentLayerData.shapes[shapeIndex]
+            );
+            if (
+                !candidateContour ||
+                candidateContour.closed ||
+                candidateContour.nodes.length < 2
+            ) {
+                continue;
+            }
+
+            const candidateIndexes = [0, candidateContour.nodes.length - 1];
+            for (const candidateNodeIndex of candidateIndexes) {
+                if (
+                    shapeIndex === contourIndex &&
+                    candidateNodeIndex === nodeIndex
+                ) {
+                    continue;
+                }
+
+                if (
+                    this._dragStartEndpointsCoincident &&
+                    !this._dragSeparatedFromCoincidentEndpointPair &&
+                    shapeIndex === contourIndex
+                ) {
+                    continue;
+                }
+
+                const candidateNode =
+                    candidateContour.nodes[candidateNodeIndex];
+                const distance = Math.sqrt(
+                    (draggedPointX - candidateNode.x) ** 2 +
+                        (draggedPointY - candidateNode.y) ** 2
+                );
+                if (distance > snapRadius || distance >= bestDistance) {
+                    continue;
+                }
+
+                const targetEndpoint = this.getOpenPathEndpointRef(
+                    shapeIndex,
+                    candidateNodeIndex
+                );
+                if (!targetEndpoint) {
+                    continue;
+                }
+
+                bestTarget = targetEndpoint;
+                bestDistance = distance;
+            }
+        }
+
+        return bestTarget;
+    }
+
     /**
      * Check whether the selected point is an endpoint of an open path
      * and the two endpoints are at the same position.
      */
-    private _areOpenPathEndpointsCoincident(): boolean {
-        if (this.selectedPoints.length !== 1) {
+    private _areOpenPathEndpointsCoincident(
+        point: Point | null = null
+    ): boolean {
+        const targetPoint =
+            point ||
+            (this.selectedPoints.length === 1 ? this.selectedPoints[0] : null);
+        if (!targetPoint) {
             return false;
         }
 
@@ -5691,7 +5880,7 @@ export class OutlineEditor {
             return false;
         }
 
-        const { contourIndex, nodeIndex } = this.selectedPoints[0];
+        const { contourIndex, nodeIndex } = targetPoint;
         const contour = getEditableContour(
             currentLayerData.shapes[contourIndex]
         );
@@ -5716,50 +5905,23 @@ export class OutlineEditor {
      */
     _checkOpenPathEndpointSnap(): void {
         this.isSnappedToCloseOpenPath = false;
+        this._snappedOpenPathEndpointTarget = null;
 
-        if (
-            !this.isDraggingPoint ||
-            this.selectedPoints.length !== 1 ||
-            this._dragStartEndpointsCoincident
-        ) {
+        const primaryPos = this._getPrimaryDragNodePos();
+        if (!primaryPos) {
             return;
         }
 
-        const currentLayerData = this.getCurrentLayerDataFromStack();
-        if (!currentLayerData?.shapes) {
-            return;
-        }
-
-        const { contourIndex, nodeIndex } = this.selectedPoints[0];
-        const contour = getEditableContour(
-            currentLayerData.shapes[contourIndex]
+        const bestTarget = this.findOpenPathEndpointSnapTarget(
+            primaryPos.x,
+            primaryPos.y
         );
-        if (!contour || contour.closed || contour.nodes.length < 2) {
+        if (!bestTarget) {
             return;
         }
 
-        const lastIndex = contour.nodes.length - 1;
-        const isStartNode = nodeIndex === 0;
-        const isEndNode = nodeIndex === lastIndex;
-        if (!isStartNode && !isEndNode) {
-            return;
-        }
-
-        const oppositeIndex = isStartNode ? lastIndex : 0;
-        const draggedNode = contour.nodes[nodeIndex];
-        const oppositeNode = contour.nodes[oppositeIndex];
-        const snapRadius = 10 / this.glyphCanvas.viewportManager!.scale;
-        const dist = Math.sqrt(
-            (draggedNode.x - oppositeNode.x) ** 2 +
-                (draggedNode.y - oppositeNode.y) ** 2
-        );
-
-        if (dist <= snapRadius) {
-            // Snap the dragged node onto the opposite node
-            draggedNode.x = oppositeNode.x;
-            draggedNode.y = oppositeNode.y;
-            this.isSnappedToCloseOpenPath = true;
-        }
+        this.isSnappedToCloseOpenPath = true;
+        this._snappedOpenPathEndpointTarget = bestTarget;
     }
 
     _updateDraggedAnchors(deltaX: number, deltaY: number): void {
@@ -5826,14 +5988,15 @@ export class OutlineEditor {
         const preDragDesc = this._preDragDesc;
         const draggedGuideScope = this.selectedGuideHandle?.scope ?? null;
         const wasSnappedToClose = this.isSnappedToCloseOpenPath;
-        const snappedContourIndex =
-            wasSnappedToClose && this.selectedPoints.length === 1
-                ? this.selectedPoints[0].contourIndex
-                : -1;
+        const snappedEndpointTarget = this._snappedOpenPathEndpointTarget;
+        const dragConnectionSourcePoint = this._dragConnectionSourcePoint;
 
         this.isDraggingPoint = false;
         this.isSlidingSmoothPointAlongCurve = false;
         this.isSnappedToCloseOpenPath = false;
+        this._snappedOpenPathEndpointTarget = null;
+        this._dragConnectionSourcePoint = null;
+        this._dragSeparatedFromCoincidentEndpointPair = false;
         this.isDraggingAnchor = false;
         this.isDraggingComponent = false;
         this.isDraggingSidebearing = false;
@@ -5855,13 +6018,40 @@ export class OutlineEditor {
 
         // If we were snapped to close an open path, abort the normal
         // drag sync and perform a merge-close instead.
-        if (wasSnappedToClose && wasDragging && snappedContourIndex >= 0) {
+        if (wasSnappedToClose && wasDragging && snappedEndpointTarget) {
+            const sourcePoint =
+                dragConnectionSourcePoint ||
+                (this.selectedPoints.length === 1
+                    ? this.selectedPoints[0]
+                    : null);
+            const sourceEndpoint = sourcePoint
+                ? this.getOpenPathEndpointRef(
+                      sourcePoint.contourIndex,
+                      sourcePoint.nodeIndex
+                  )
+                : null;
+            if (!sourceEndpoint) {
+                return;
+            }
+
             // Don't end the drag transaction — reuse it so
             // drag + close appear as a single undo entry.
             this._hasMoved = false;
             this._preDragDesc = null;
             this._dragType = null;
-            this.closeOpenPathByMerge(snappedContourIndex, true);
+            this.completeOpenPathEndpointConnection(
+                sourceEndpoint,
+                snappedEndpointTarget,
+                {
+                    reuseTransaction: true,
+                    cascadeCoincidentConnections: true,
+                    compileReason:
+                        sourceEndpoint.pathIndex ===
+                        snappedEndpointTarget.pathIndex
+                            ? 'closing dragged open path'
+                            : 'connecting dragged open paths'
+                }
+            );
             return;
         }
 
@@ -6103,6 +6293,10 @@ export class OutlineEditor {
     cursorStyle(): string | null {
         if (!this.active) return null;
         if (this.cmdKeyPressed && this.hoveredAddPointPreview) {
+            this.canvas!.style.cursor = 'crosshair';
+            return null;
+        }
+        if (this.shouldShowAltCutCrosshair()) {
             this.canvas!.style.cursor = 'crosshair';
             return null;
         }
@@ -6691,6 +6885,11 @@ export class OutlineEditor {
             return;
         }
 
+        if (this.getCommandPathPreviewSeed()) {
+            this.clearHoveredAddPointPreview();
+            return;
+        }
+
         if (
             this.hoveredGuideHandle ||
             this.hoveredSidebearingHandle ||
@@ -7086,28 +7285,23 @@ export class OutlineEditor {
     private isCommandPathCloseTarget(
         session: ActivePathDrawingSession
     ): boolean {
-        const hoveredPoint = this.hoveredPointIndex;
-        if (!hoveredPoint || hoveredPoint.contourIndex !== session.shapeIndex) {
-            return false;
-        }
-
-        const currentLayerData = this.getCurrentLayerDataFromStack();
-        const contour = getEditableContour(
-            currentLayerData?.shapes?.[session.shapeIndex]
-        );
-        if (!contour || contour.closed || contour.nodes.length < 2) {
+        const targetEndpoint = this.getHoveredOpenPathEndpointRef();
+        if (!targetEndpoint) {
             return false;
         }
 
         if (session.startedFromExistingPath) {
-            const oppositeEndpointIndex =
-                session.edge === 'start' ? contour.nodes.length - 1 : 0;
-            return hoveredPoint.nodeIndex === oppositeEndpointIndex;
+            if (targetEndpoint.pathIndex !== session.pathIndex) {
+                return true;
+            }
+
+            return targetEndpoint.edge !== session.edge;
         }
 
         return (
             session.segmentCount > 1 &&
-            hoveredPoint.nodeIndex === session.originNodeIndex
+            targetEndpoint.pathIndex === session.pathIndex &&
+            targetEndpoint.nodeIndex === session.originNodeIndex
         );
     }
 
@@ -7830,37 +8024,164 @@ export class OutlineEditor {
         }
 
         const selectedPoint = this.selectedPoints[0];
+        const endpoint = this.getOpenPathEndpointRef(
+            selectedPoint.contourIndex,
+            selectedPoint.nodeIndex
+        );
+        if (!endpoint) {
+            return null;
+        }
+
+        return {
+            shapeIndex: endpoint.shapeIndex,
+            pathIndex: endpoint.pathIndex,
+            edge: endpoint.edge,
+            startedFromExistingPath: true,
+            originNodeIndex: endpoint.nodeIndex,
+            segmentCount: 0
+        };
+    }
+
+    private getOpenPathEndpointRef(
+        shapeIndex: number,
+        nodeIndex: number
+    ): OpenPathEndpointRef | null {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const contour = getEditableContour(
-            currentLayerData?.shapes?.[selectedPoint.contourIndex]
+            currentLayerData?.shapes?.[shapeIndex]
         );
 
         if (!contour || contour.closed || contour.nodes.length < 1) {
             return null;
         }
 
-        if (
-            selectedPoint.nodeIndex !== 0 &&
-            selectedPoint.nodeIndex !== contour.nodes.length - 1
-        ) {
+        const edge =
+            nodeIndex === 0
+                ? 'start'
+                : nodeIndex === contour.nodes.length - 1
+                  ? 'end'
+                  : null;
+        if (!edge) {
             return null;
         }
 
-        const pathIndex = this.getPathIndexForShapeIndex(
-            selectedPoint.contourIndex
-        );
+        const pathIndex = this.getPathIndexForShapeIndex(shapeIndex);
         if (pathIndex === null) {
             return null;
         }
 
         return {
-            shapeIndex: selectedPoint.contourIndex,
+            shapeIndex,
             pathIndex,
-            edge: selectedPoint.nodeIndex === 0 ? 'start' : 'end',
-            startedFromExistingPath: true,
-            originNodeIndex: selectedPoint.nodeIndex,
-            segmentCount: 0
+            nodeIndex,
+            edge
         };
+    }
+
+    private findCoincidentOpenPathEndpointPairInLayerModel(
+        layerModel: Babelfont.Layer
+    ): {
+        sourceEndpoint: OpenPathEndpointRef;
+        targetEndpoint: OpenPathEndpointRef;
+    } | null {
+        const positionToEndpoints = new Map<
+            string,
+            Array<OpenPathEndpointRef>
+        >();
+        const shapes = (layerModel.shapes || []) as Array<
+            Babelfont.Shape & {
+                isPath?: () => boolean;
+                asPath?: () => {
+                    closed: boolean;
+                    nodes: Babelfont.Node[];
+                } | null;
+            }
+        >;
+        let pathIndex = 0;
+
+        for (let shapeIndex = 0; shapeIndex < shapes.length; shapeIndex++) {
+            const shape = shapes[shapeIndex];
+            if (!shape?.isPath?.()) {
+                continue;
+            }
+
+            const path = shape.asPath?.();
+
+            if (!path?.closed && path?.nodes.length) {
+                const startNode = path.nodes[0];
+                const startKey = `${startNode.x},${startNode.y}`;
+                const startEndpoints = positionToEndpoints.get(startKey) || [];
+                startEndpoints.push({
+                    shapeIndex,
+                    pathIndex,
+                    nodeIndex: 0,
+                    edge: 'start'
+                });
+                positionToEndpoints.set(startKey, startEndpoints);
+
+                const lastIndex = path.nodes.length - 1;
+                if (lastIndex > 0) {
+                    const endNode = path.nodes[lastIndex];
+                    const endKey = `${endNode.x},${endNode.y}`;
+                    const endEndpoints = positionToEndpoints.get(endKey) || [];
+                    endEndpoints.push({
+                        shapeIndex,
+                        pathIndex,
+                        nodeIndex: lastIndex,
+                        edge: 'end'
+                    });
+                    positionToEndpoints.set(endKey, endEndpoints);
+                }
+            }
+
+            pathIndex += 1;
+        }
+
+        for (const endpoints of positionToEndpoints.values()) {
+            if (endpoints.length < 2) {
+                continue;
+            }
+
+            for (
+                let sourceIndex = 0;
+                sourceIndex < endpoints.length;
+                sourceIndex++
+            ) {
+                for (
+                    let targetIndex = sourceIndex + 1;
+                    targetIndex < endpoints.length;
+                    targetIndex++
+                ) {
+                    const sourceEndpoint = endpoints[sourceIndex];
+                    const targetEndpoint = endpoints[targetIndex];
+                    if (
+                        sourceEndpoint.pathIndex === targetEndpoint.pathIndex &&
+                        sourceEndpoint.edge === targetEndpoint.edge
+                    ) {
+                        continue;
+                    }
+
+                    return {
+                        sourceEndpoint,
+                        targetEndpoint
+                    };
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private getHoveredOpenPathEndpointRef(): OpenPathEndpointRef | null {
+        const hoveredPoint = this.hoveredPointIndex;
+        if (!hoveredPoint) {
+            return null;
+        }
+
+        return this.getOpenPathEndpointRef(
+            hoveredPoint.contourIndex,
+            hoveredPoint.nodeIndex
+        );
     }
 
     private getPathIndexForShapeIndex(shapeIndex: number): number | null {
@@ -7969,6 +8290,14 @@ export class OutlineEditor {
         }
 
         return this.isNeutralCommandCanvasTarget();
+    }
+
+    private shouldShowAltCutCrosshair(): boolean {
+        if (!this.active || !this.altKeyPressed || this.isPreviewMode) {
+            return false;
+        }
+
+        return this.isCuttablePoint(this.hoveredPointIndex);
     }
 
     private startNewPathDrawingSession(): boolean {
@@ -8096,58 +8425,38 @@ export class OutlineEditor {
     private closeActivePathDrawingSession(
         session: ActivePathDrawingSession
     ): boolean {
-        const currentLayerModel = this.getCurrentLayerModel();
-        if (!currentLayerModel) {
+        const targetEndpoint = this.getHoveredOpenPathEndpointRef();
+        if (!targetEndpoint) {
             return false;
         }
 
-        const activePath = currentLayerModel.paths?.[session.pathIndex];
-        if (!activePath) {
-            return false;
-        }
-
-        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
-        let changed = false;
-
-        withSuppressedModelRecording(() => {
-            changed = activePath._closeOpenPath();
-            if (!changed) {
-                return;
-            }
-
-            for (const linkedLayer of linkedLayers) {
-                const linkedPath = linkedLayer.paths?.[session.pathIndex];
-                linkedPath?._closeOpenPath();
-            }
-        });
-
-        if (!changed) {
-            return false;
-        }
-
-        this.notePendingCommandPathEdit('draw');
-        this.activePathDrawingSession = null;
-        this.syncCurrentContourDataFromModel(
-            session.pathIndex,
-            session.shapeIndex
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const contour = getEditableContour(
+            currentLayerData?.shapes?.[session.shapeIndex]
         );
-        this.selectedPoints = [
+        if (!contour?.nodes.length) {
+            return false;
+        }
+
+        const sourceEndpoint = this.getOpenPathEndpointRef(
+            session.shapeIndex,
+            session.edge === 'start' ? 0 : contour.nodes.length - 1
+        );
+        if (!sourceEndpoint) {
+            return false;
+        }
+
+        return this.completeOpenPathEndpointConnection(
+            sourceEndpoint,
+            targetEndpoint,
             {
-                contourIndex: session.shapeIndex,
-                nodeIndex: session.originNodeIndex
+                pendingCommandEdit: true,
+                compileReason:
+                    sourceEndpoint.pathIndex === targetEndpoint.pathIndex
+                        ? 'closing command path drawing'
+                        : 'connecting command path drawing'
             }
-        ];
-        this.selectedAnchors = [];
-        this.selectedComponents = [];
-        this.selectedGuideHandle = null;
-        this.selectedSidebearingHandle = null;
-        this.performHitDetection(null);
-        this.glyphCanvas.updatePropertyPanel();
-        this.glyphCanvas.render();
-        this.queueStructuralOutlineCompileFromModel(
-            'closing command path drawing'
         );
-        return true;
     }
 
     private convertLineSegmentToCurve(hit: PathSegmentHit): boolean {
@@ -8210,6 +8519,40 @@ export class OutlineEditor {
         return true;
     }
 
+    private cutPathAtNode(point: Point): boolean {
+        if (!this.isCuttablePoint(point)) {
+            return false;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const contour = getEditableContour(
+            currentLayerData?.shapes?.[point.contourIndex]
+        );
+        if (!contour) {
+            return false;
+        }
+
+        return contour.closed
+            ? this.openClosedPathAtNode(point)
+            : this.splitOpenPathAtNode(point);
+    }
+
+    private isCuttablePoint(point: Point | null): boolean {
+        if (!point) {
+            return false;
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const contour = getEditableContour(
+            currentLayerData?.shapes?.[point.contourIndex]
+        );
+        const node = contour?.nodes?.[point.nodeIndex] as
+            | Babelfont.Node
+            | undefined;
+
+        return isOnCurveNode(node);
+    }
+
     private openClosedPathAtNode(point: Point): boolean {
         const currentLayerModel = this.getCurrentLayerModel();
         const currentGlyphModel = this.getCurrentGlyphModel();
@@ -8217,7 +8560,12 @@ export class OutlineEditor {
             return false;
         }
 
-        const activePath = currentLayerModel.paths?.[point.contourIndex];
+        const pathIndex = this.getPathIndexForShapeIndex(point.contourIndex);
+        if (pathIndex === null) {
+            return false;
+        }
+
+        const activePath = currentLayerModel.paths?.[pathIndex];
         if (!activePath || !activePath.closed) {
             return false;
         }
@@ -8232,7 +8580,7 @@ export class OutlineEditor {
             }
 
             for (const linkedLayer of linkedLayers) {
-                const linkedPath = linkedLayer.paths?.[point.contourIndex];
+                const linkedPath = linkedLayer.paths?.[pathIndex];
                 linkedPath?._openClosedPathAtNode(point.nodeIndex);
             }
         });
@@ -8306,6 +8654,297 @@ export class OutlineEditor {
                 })
             );
         }
+        return true;
+    }
+
+    private splitOpenPathAtNode(point: Point): boolean {
+        const currentLayerModel = this.getCurrentLayerModel();
+        const currentGlyphModel = this.getCurrentGlyphModel();
+        if (!currentLayerModel || !currentGlyphModel) {
+            return false;
+        }
+
+        const pathIndex = this.getPathIndexForShapeIndex(point.contourIndex);
+        if (pathIndex === null) {
+            return false;
+        }
+
+        const activePath = currentLayerModel.paths?.[pathIndex];
+        if (!activePath || activePath.closed) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        let splitResult: {
+            shapeIndex: number;
+            insertedShapeIndex: number;
+        } | null = null;
+
+        withSuppressedModelRecording(() => {
+            splitResult = currentLayerModel.splitOpenPathAtNode(
+                pathIndex,
+                point.nodeIndex
+            );
+            if (!splitResult) {
+                return;
+            }
+
+            for (const linkedLayer of linkedLayers) {
+                linkedLayer.splitOpenPathAtNode(pathIndex, point.nodeIndex);
+            }
+        });
+
+        if (!splitResult) {
+            return false;
+        }
+        const finalizedSplitResult = splitResult as {
+            shapeIndex: number;
+            insertedShapeIndex: number;
+        };
+
+        const bridge = window.changeBridge;
+        if (bridge && currentGlyphModel.name) {
+            bridge.beginTransaction('Split path');
+            try {
+                bridge.syncGlyphFromJson(currentGlyphModel.name, 'Split path');
+            } finally {
+                bridge.endTransaction();
+            }
+        }
+
+        this.syncCurrentExactLayerDataFromModel();
+
+        const currentFont = fontManager.currentFont;
+        if (currentFont) {
+            currentFont.markDirty('keyboard-outline');
+            this.prepareStructuralOutlineCompile();
+            void fontManager.updateDirtyIndicator();
+        }
+
+        this.selectedPoints = [
+            {
+                contourIndex: finalizedSplitResult.insertedShapeIndex,
+                nodeIndex: 0
+            }
+        ];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+
+        if (currentFont) {
+            window.setTimeout(() => {
+                if (fontManager.currentFont !== currentFont) {
+                    return;
+                }
+
+                try {
+                    currentFont.syncJsonFromModel();
+                } catch (error) {
+                    console.error(
+                        '[OutlineEditor] Error syncing font JSON after splitting path:',
+                        error
+                    );
+                    return;
+                }
+
+                void fontManager.updateWorkerFontCache();
+                this.wakeStructuralOutlineCompile();
+            }, 0);
+        } else if (currentGlyphModel.name) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: currentGlyphModel.name,
+                        layerId: this.getCurrentLayerId()
+                    }
+                })
+            );
+        }
+
+        return true;
+    }
+
+    private completeOpenPathEndpointConnection(
+        sourceEndpoint: OpenPathEndpointRef,
+        targetEndpoint: OpenPathEndpointRef,
+        options: {
+            reuseTransaction?: boolean;
+            pendingCommandEdit?: boolean;
+            compileReason: string;
+            changeLabel?: string;
+            cascadeCoincidentConnections?: boolean;
+        }
+    ): boolean {
+        const currentLayerModel = this.getCurrentLayerModel();
+        const currentGlyphModel = this.getCurrentGlyphModel();
+        if (!currentLayerModel || !currentGlyphModel) {
+            return false;
+        }
+
+        const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
+        let result: {
+            shapeIndex: number;
+            boundaryNodeIndex: number;
+            closed: boolean;
+        } | null = null;
+
+        withSuppressedModelRecording(() => {
+            let pendingPair: {
+                sourceEndpoint: OpenPathEndpointRef;
+                targetEndpoint: OpenPathEndpointRef;
+            } | null = {
+                sourceEndpoint,
+                targetEndpoint
+            };
+
+            while (pendingPair) {
+                result = currentLayerModel.connectOpenPathEndpoints(
+                    pendingPair.sourceEndpoint.pathIndex,
+                    pendingPair.sourceEndpoint.edge,
+                    pendingPair.targetEndpoint.pathIndex,
+                    pendingPair.targetEndpoint.edge
+                );
+                if (!result) {
+                    return;
+                }
+
+                for (const linkedLayer of linkedLayers) {
+                    linkedLayer.connectOpenPathEndpoints(
+                        pendingPair.sourceEndpoint.pathIndex,
+                        pendingPair.sourceEndpoint.edge,
+                        pendingPair.targetEndpoint.pathIndex,
+                        pendingPair.targetEndpoint.edge
+                    );
+                }
+
+                pendingPair = options.cascadeCoincidentConnections
+                    ? this.findCoincidentOpenPathEndpointPairInLayerModel(
+                          currentLayerModel
+                      )
+                    : null;
+            }
+        });
+
+        if (!result) {
+            return false;
+        }
+        const finalizedResult = result as {
+            shapeIndex: number;
+            boundaryNodeIndex: number;
+            closed: boolean;
+        };
+
+        this.syncCurrentExactLayerDataFromModel();
+
+        if (options.pendingCommandEdit) {
+            this.notePendingCommandPathEdit('draw');
+            this.activePathDrawingSession = null;
+            this.selectedPoints = [
+                {
+                    contourIndex: finalizedResult.shapeIndex,
+                    nodeIndex: finalizedResult.boundaryNodeIndex
+                }
+            ];
+            this.selectedAnchors = [];
+            this.selectedComponents = [];
+            this.selectedGuideHandle = null;
+            this.selectedSidebearingHandle = null;
+            this.performHitDetection(null);
+            this.glyphCanvas.updatePropertyPanel();
+            this.glyphCanvas.render();
+            this.queueStructuralOutlineCompileFromModel(options.compileReason);
+            return true;
+        }
+
+        const currentFont = fontManager.currentFont;
+        const bboxCenterAnchorScreen =
+            this.getBoundingBoxCenterScreenPosition();
+        const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
+            currentGlyphModel.name
+        );
+
+        if (currentFont) {
+            try {
+                currentFont.syncJsonFromModel();
+            } catch (error) {
+                console.error(
+                    '[OutlineEditor] Error syncing font JSON after connecting path endpoints:',
+                    error
+                );
+            }
+            void fontManager.forceFullWorkerCacheUpdate().then(() => {
+                for (const glyphName of affectedGlyphNames) {
+                    if (glyphName === currentGlyphModel.name) {
+                        continue;
+                    }
+                    window.dispatchEvent(
+                        new CustomEvent('glyphChanged', {
+                            detail: {
+                                glyphName,
+                                layerId: this.getCurrentLayerId()
+                            }
+                        })
+                    );
+                }
+            });
+        }
+
+        const changeLabel =
+            options.changeLabel ||
+            (finalizedResult.closed ? 'Close path' : 'Connect path');
+        const bridge = window.changeBridge;
+        if (bridge && currentGlyphModel.name) {
+            if (!options.reuseTransaction) {
+                bridge.beginTransaction(changeLabel);
+            }
+            try {
+                bridge.syncGlyphFromJson(currentGlyphModel.name, changeLabel);
+            } finally {
+                bridge.endTransaction();
+            }
+        }
+
+        this.refreshKeyedMetricsViewportAnchor(
+            affectedGlyphNames,
+            bboxCenterAnchorScreen
+        );
+
+        if (currentFont) {
+            currentFont.markDirty('keyboard-outline');
+            this.prepareStructuralOutlineCompile();
+            void fontManager.updateDirtyIndicator();
+            this.wakeStructuralOutlineCompile();
+        }
+
+        this.selectedPoints = [
+            {
+                contourIndex: finalizedResult.shapeIndex,
+                nodeIndex: finalizedResult.boundaryNodeIndex
+            }
+        ];
+        this.selectedAnchors = [];
+        this.selectedComponents = [];
+        this.selectedGuideHandle = null;
+        this.selectedSidebearingHandle = null;
+        this.performHitDetection(null);
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+
+        if (!currentFont && currentGlyphModel.name) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: currentGlyphModel.name,
+                        layerId: this.getCurrentLayerId()
+                    }
+                })
+            );
+        }
+
         return true;
     }
 

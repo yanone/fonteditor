@@ -1521,7 +1521,8 @@ function normalizePathNodeArray<T extends Babelfont.Node>(
 
     if (
         normalizedNodes.length &&
-        (normalizedNodes[0].nodetype || '').toString().toLowerCase() === 'line'
+        !isOffCurveNodeType(normalizedNodes[0].nodetype) &&
+        normalizedNodes[0].nodetype !== 'Move'
     ) {
         normalizedNodes[0] = cloneNodeData(normalizedNodes[0], {
             nodetype: 'Move' as Babelfont.NodeType
@@ -1543,6 +1544,50 @@ function normalizePathNodeArray<T extends Babelfont.Node>(
         normalizedNodes.splice(lastOnCurveIndex + 1);
     }
 
+    for (let index = 1; index < normalizedNodes.length; index++) {
+        const node = normalizedNodes[index];
+        if (!node || isOffCurveNodeType(node.nodetype)) {
+            continue;
+        }
+
+        let offCurveCount = 0;
+        let previousIndex = index - 1;
+        while (
+            previousIndex >= 0 &&
+            isOffCurveNodeType(normalizedNodes[previousIndex].nodetype)
+        ) {
+            offCurveCount++;
+            previousIndex--;
+        }
+
+        const expectedNodeType =
+            offCurveCount === 0
+                ? ('Line' as Babelfont.NodeType)
+                : offCurveCount === 2
+                  ? ('Curve' as Babelfont.NodeType)
+                  : ('QCurve' as Babelfont.NodeType);
+
+        if (node.nodetype !== expectedNodeType) {
+            normalizedNodes[index] = cloneNodeData(node, {
+                nodetype: expectedNodeType
+            } as Partial<T>);
+        }
+    }
+
+    if (normalizedNodes.length) {
+        normalizedNodes[0] = cloneNodeData(normalizedNodes[0], {
+            smooth: false
+        } as Partial<T>);
+    }
+    if (normalizedNodes.length > 1) {
+        normalizedNodes[normalizedNodes.length - 1] = cloneNodeData(
+            normalizedNodes[normalizedNodes.length - 1],
+            {
+                smooth: false
+            } as Partial<T>
+        );
+    }
+
     for (let index = 0; index < normalizedNodes.length; index++) {
         const node = normalizedNodes[index];
         if (
@@ -1556,6 +1601,201 @@ function normalizePathNodeArray<T extends Babelfont.Node>(
     }
 
     return normalizedNodes;
+}
+
+function promoteNodeToSmoothWhenEligible<T extends Babelfont.Node>(
+    nodes: T[],
+    nodeIndex: number,
+    closed: boolean
+): T[] {
+    if (nodeIndex < 0 || nodeIndex >= nodes.length) {
+        return nodes;
+    }
+
+    const node = nodes[nodeIndex];
+    if (
+        !node ||
+        isOffCurveNodeType(node.nodetype) ||
+        node.nodetype === 'Move' ||
+        !canNodeRemainSmooth(nodes as Babelfont.Node[], nodeIndex, closed)
+    ) {
+        return nodes;
+    }
+
+    if (node.smooth) {
+        return nodes;
+    }
+
+    const nextNodes = nodes.slice();
+    nextNodes[nodeIndex] = cloneNodeData(node, {
+        smooth: true
+    } as Partial<T>);
+    return nextNodes;
+}
+
+function reverseOpenPathNodeArray<T extends Babelfont.Node>(nodes: T[]): T[] {
+    const descriptors = buildPathSegmentDescriptors({
+        nodes: nodes as Babelfont.Node[],
+        closed: false
+    });
+    if (!descriptors.length) {
+        return normalizePathNodeArray(
+            nodes.map((node) => cloneNodeData(node)) as T[],
+            false
+        );
+    }
+
+    const reverseControlNodes = (descriptor: PathSegmentDescriptor) =>
+        descriptor.controlNodeIndices
+            .slice()
+            .reverse()
+            .map((controlNodeIndex) =>
+                cloneNodeData(nodes[controlNodeIndex], {
+                    nodetype: 'OffCurve' as Babelfont.NodeType
+                } as Partial<T>)
+            );
+
+    const orderedDescriptors = descriptors.slice().reverse();
+    const firstDescriptor = orderedDescriptors[0];
+    const reversedNodes: Babelfont.Node[] = [
+        cloneNodeData(nodes[firstDescriptor.endNodeIndex], {
+            nodetype: 'Move' as Babelfont.NodeType,
+            smooth: false
+        } as Partial<T>)
+    ];
+
+    for (const descriptor of orderedDescriptors) {
+        reversedNodes.push(...reverseControlNodes(descriptor));
+        reversedNodes.push(cloneNodeData(nodes[descriptor.startNodeIndex]));
+    }
+
+    const normalizedNodes = normalizePathNodeArray(reversedNodes as T[], false);
+    if (normalizedNodes.length) {
+        normalizedNodes[0] = cloneNodeData(normalizedNodes[0], {
+            nodetype: 'Move' as Babelfont.NodeType,
+            smooth: false
+        } as Partial<T>);
+    }
+    return normalizedNodes;
+}
+
+function splitOpenPathNodeArray<T extends Babelfont.Node>(
+    nodes: T[],
+    nodeIndex: number
+): { firstNodes: T[]; secondNodes: T[] } | null {
+    if (nodeIndex <= 0 || nodeIndex >= nodes.length - 1) {
+        return null;
+    }
+
+    const targetNode = nodes[nodeIndex];
+    if (!targetNode || isOffCurveNodeType(targetNode.nodetype)) {
+        return null;
+    }
+
+    const firstNodes = nodes.slice(0, nodeIndex + 1).map((node) => {
+        if (node === targetNode) {
+            return cloneNodeData(node, { smooth: false } as Partial<T>) as T;
+        }
+        return cloneNodeData(node) as T;
+    });
+    const secondNodes = [
+        cloneNodeData(targetNode, {
+            nodetype: 'Move' as Babelfont.NodeType,
+            smooth: false
+        } as Partial<T>) as T,
+        ...nodes.slice(nodeIndex + 1).map((node) => cloneNodeData(node) as T)
+    ];
+
+    const normalizedFirstNodes = normalizePathNodeArray(firstNodes, false);
+    const normalizedSecondNodes = normalizePathNodeArray(secondNodes, false);
+    if (normalizedFirstNodes.length < 2 || normalizedSecondNodes.length < 2) {
+        return null;
+    }
+
+    normalizedFirstNodes[normalizedFirstNodes.length - 1] = cloneNodeData(
+        normalizedFirstNodes[normalizedFirstNodes.length - 1],
+        {
+            smooth: false
+        } as Partial<T>
+    );
+    normalizedSecondNodes[0] = cloneNodeData(normalizedSecondNodes[0], {
+        nodetype: 'Move' as Babelfont.NodeType,
+        smooth: false
+    } as Partial<T>);
+
+    return {
+        firstNodes: normalizedFirstNodes,
+        secondNodes: normalizedSecondNodes
+    };
+}
+
+function connectOpenPathNodeArrays<T extends Babelfont.Node>(
+    sourceNodes: T[],
+    sourceEdge: 'start' | 'end',
+    targetNodes: T[],
+    targetEdge: 'start' | 'end'
+): { nodes: T[]; boundaryNodeIndex: number } | null {
+    if (!sourceNodes.length || !targetNodes.length) {
+        return null;
+    }
+
+    const orientedSourceNodes =
+        sourceEdge === 'end'
+            ? normalizePathNodeArray(
+                  sourceNodes.map((node) => cloneNodeData(node)) as T[],
+                  false
+              )
+            : reverseOpenPathNodeArray(sourceNodes);
+    const orientedTargetNodes =
+        targetEdge === 'start'
+            ? normalizePathNodeArray(
+                  targetNodes.map((node) => cloneNodeData(node)) as T[],
+                  false
+              )
+            : reverseOpenPathNodeArray(targetNodes);
+
+    if (!orientedSourceNodes.length || !orientedTargetNodes.length) {
+        return null;
+    }
+
+    const sourceEndpoint = orientedSourceNodes[orientedSourceNodes.length - 1];
+    const targetEndpoint = orientedTargetNodes[0];
+    const boundaryNodeIndex = orientedSourceNodes.length - 1;
+    const mergedNodes = [
+        ...orientedSourceNodes.slice(0, -1),
+        cloneNodeData(sourceEndpoint, {
+            x: targetEndpoint.x,
+            y: targetEndpoint.y,
+            smooth: false
+        } as Partial<T>) as T,
+        ...orientedTargetNodes.slice(1).map((node) => cloneNodeData(node) as T)
+    ];
+
+    const normalizedNodes = normalizePathNodeArray(mergedNodes, false);
+    if (
+        !normalizedNodes.length ||
+        boundaryNodeIndex >= normalizedNodes.length
+    ) {
+        return null;
+    }
+
+    normalizedNodes[boundaryNodeIndex] = cloneNodeData(
+        normalizedNodes[boundaryNodeIndex],
+        {
+            smooth: false
+        } as Partial<T>
+    );
+
+    const smoothedNodes = promoteNodeToSmoothWhenEligible(
+        normalizedNodes,
+        boundaryNodeIndex,
+        false
+    );
+
+    return {
+        nodes: smoothedNodes,
+        boundaryNodeIndex
+    };
 }
 
 function deleteNodeFromNodeArray<T extends Babelfont.Node>(
@@ -3866,18 +4106,32 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
                 .slice(0, -1)
                 .map((node) => cloneNodeData(node));
 
-            nextNodes[0] = cloneNodeData(nextNodes[0], {
-                nodetype:
-                    nextNodes[0].nodetype === 'Move'
-                        ? ('Line' as Babelfont.NodeType)
-                        : nextNodes[0].nodetype,
-                smooth: false
-            });
+            const normalizedNodes = normalizePathNodeArray(nextNodes, true);
+            if (!normalizedNodes.length) {
+                return false;
+            }
 
-            this.data.nodes = nextNodes;
+            if (normalizedNodes[0].nodetype === 'Move') {
+                normalizedNodes[0] = cloneNodeData(normalizedNodes[0], {
+                    nodetype: 'Line' as Babelfont.NodeType,
+                    smooth: false
+                });
+            } else if (normalizedNodes[0].smooth) {
+                normalizedNodes[0] = cloneNodeData(normalizedNodes[0], {
+                    smooth: false
+                });
+            }
+
+            const finalizedNodes = promoteNodeToSmoothWhenEligible(
+                normalizedNodes,
+                0,
+                true
+            );
+
+            this.data.nodes = finalizedNodes;
             this.data.closed = true;
             this._nodeWrappers = null;
-            recordAndMarkDirty(this, 'nodes', oldNodes, nextNodes);
+            recordAndMarkDirty(this, 'nodes', oldNodes, finalizedNodes);
             recordAndMarkDirty(this, 'closed', oldClosed, true);
             return true;
         });
@@ -3930,6 +4184,30 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
             recordAndMarkDirty(this, 'nodes', oldNodes, rotated);
             recordAndMarkDirty(this, 'closed', oldClosed, false);
             return true;
+        });
+    }
+
+    _splitOpenPathAtNode(nodeIndex: number): Babelfont.Path | null {
+        return this.withLayerFingerprintChangeEvent(() => {
+            if (this.closed) {
+                return null;
+            }
+
+            const nodeArray = this.ensureNodesArray();
+            const splitNodes = splitOpenPathNodeArray(nodeArray, nodeIndex);
+            if (!splitNodes) {
+                return null;
+            }
+
+            const oldNodes = nodeArray.map((node) => cloneNodeData(node));
+            this.data.nodes = splitNodes.firstNodes;
+            this._nodeWrappers = null;
+            recordAndMarkDirty(this, 'nodes', oldNodes, splitNodes.firstNodes);
+
+            return {
+                nodes: splitNodes.secondNodes,
+                closed: false
+            };
         });
     }
 
@@ -6252,6 +6530,241 @@ export class Layer extends ArrayElementBase {
         }
 
         return null;
+    }
+
+    private resolvePathShapeIndex(
+        pathOrIndex: number | Shape | Path
+    ): number | null {
+        if (typeof pathOrIndex === 'number') {
+            const shapes = this.shapes || [];
+            let pathIndex = 0;
+
+            for (let shapeIndex = 0; shapeIndex < shapes.length; shapeIndex++) {
+                if (!shapes[shapeIndex].isPath()) {
+                    continue;
+                }
+
+                if (pathIndex === pathOrIndex) {
+                    return shapeIndex;
+                }
+
+                pathIndex += 1;
+            }
+
+            return null;
+        }
+
+        const shapeIndex = this.resolveShapeIndex(pathOrIndex);
+        if (shapeIndex === null) {
+            return null;
+        }
+
+        const shape = this.shapes?.[shapeIndex];
+        return shape?.isPath() ? shapeIndex : null;
+    }
+
+    private getPathIndexForShapeIndex(shapeIndex: number): number | null {
+        const shapes = this.shapes || [];
+        if (shapeIndex < 0 || shapeIndex >= shapes.length) {
+            return null;
+        }
+
+        let pathIndex = 0;
+        for (let index = 0; index < shapes.length; index++) {
+            if (!shapes[index].isPath()) {
+                continue;
+            }
+
+            if (index === shapeIndex) {
+                return pathIndex;
+            }
+
+            pathIndex += 1;
+        }
+
+        return null;
+    }
+
+    /**
+     * Insert a new shape at the specified index
+     */
+    insertShapeAt(index: number, shape: Babelfont.Shape): Shape {
+        return this.withFingerprintChangeEvent(() => {
+            if (!this.data.shapes) {
+                this.data.shapes = [];
+            }
+
+            const boundedIndex = Math.max(
+                0,
+                Math.min(index, this.data.shapes.length)
+            );
+            this.data.shapes.splice(boundedIndex, 0, shape);
+            this._shapeWrappers = null;
+            recordAddAndMarkDirty(
+                [...this.getPath(), 'shapes', boundedIndex],
+                shape
+            );
+            return new Shape(this.data.shapes, boundedIndex, this);
+        });
+    }
+
+    /**
+     * Split an open path into two open paths at an interior on-curve node.
+     */
+    splitOpenPathAtNode(
+        pathOrIndex: number | Shape | Path,
+        nodeIndex: number
+    ): { shapeIndex: number; insertedShapeIndex: number } | null {
+        return this.withFingerprintChangeEvent(() => {
+            const shapeIndex = this.resolvePathShapeIndex(pathOrIndex);
+            if (shapeIndex === null) {
+                return null;
+            }
+
+            const shape = this.shapes?.[shapeIndex];
+            const path = shape?.isPath() ? shape.asPath() : null;
+            if (!path || path.closed) {
+                return null;
+            }
+
+            const splitPath = path._splitOpenPathAtNode(nodeIndex);
+            if (!splitPath) {
+                return null;
+            }
+
+            const insertedShapeIndex = shapeIndex + 1;
+            const insertedShape: Babelfont.Shape = splitPath;
+            if (!this.data.shapes) {
+                this.data.shapes = [];
+            }
+            this.data.shapes.splice(insertedShapeIndex, 0, insertedShape);
+            this._shapeWrappers = null;
+            recordAddAndMarkDirty(
+                [...this.getPath(), 'shapes', insertedShapeIndex],
+                insertedShape
+            );
+
+            return { shapeIndex, insertedShapeIndex };
+        });
+    }
+
+    /**
+     * Connect two open-path endpoints or close a single open path by merging its endpoints.
+     */
+    connectOpenPathEndpoints(
+        sourcePathOrIndex: number | Shape | Path,
+        sourceEdge: 'start' | 'end',
+        targetPathOrIndex: number | Shape | Path,
+        targetEdge: 'start' | 'end'
+    ): {
+        shapeIndex: number;
+        boundaryNodeIndex: number;
+        closed: boolean;
+    } | null {
+        return this.withFingerprintChangeEvent(() => {
+            const sourceShapeIndex =
+                this.resolvePathShapeIndex(sourcePathOrIndex);
+            const targetShapeIndex =
+                this.resolvePathShapeIndex(targetPathOrIndex);
+            if (sourceShapeIndex === null || targetShapeIndex === null) {
+                return null;
+            }
+
+            const sourceShape = this.shapes?.[sourceShapeIndex];
+            const targetShape = this.shapes?.[targetShapeIndex];
+            const sourcePath = sourceShape?.isPath()
+                ? sourceShape.asPath()
+                : null;
+            const targetPath = targetShape?.isPath()
+                ? targetShape.asPath()
+                : null;
+            if (
+                !sourcePath ||
+                !targetPath ||
+                sourcePath.closed ||
+                targetPath.closed
+            ) {
+                return null;
+            }
+
+            const sourcePathData = sourcePath.toJSON();
+            const targetPathData = targetPath.toJSON();
+            const sourceNodes = Array.isArray(sourcePathData.nodes)
+                ? sourcePathData.nodes.map((node) => cloneNodeData(node))
+                : [];
+            const targetNodes = Array.isArray(targetPathData.nodes)
+                ? targetPathData.nodes.map((node) => cloneNodeData(node))
+                : [];
+
+            if (sourceShapeIndex === targetShapeIndex) {
+                if (sourceEdge === targetEdge) {
+                    return null;
+                }
+
+                const changed = sourcePath._closeOpenPathByMerge();
+                if (!changed) {
+                    return null;
+                }
+
+                return {
+                    shapeIndex: sourceShapeIndex,
+                    boundaryNodeIndex: 0,
+                    closed: true
+                };
+            }
+
+            const connectedNodes = connectOpenPathNodeArrays(
+                sourceNodes,
+                sourceEdge,
+                targetNodes,
+                targetEdge
+            );
+            if (!connectedNodes) {
+                return null;
+            }
+
+            const removeShapeIndexes = [
+                sourceShapeIndex,
+                targetShapeIndex
+            ].sort((left, right) => right - left);
+            const insertedShapeIndex = Math.min(
+                sourceShapeIndex,
+                targetShapeIndex
+            );
+            const connectedShape: Babelfont.Shape = {
+                nodes: connectedNodes.nodes,
+                closed: false
+            };
+
+            if (!this.data.shapes) {
+                return null;
+            }
+
+            for (const shapeIndex of removeShapeIndexes) {
+                const removedShape = this.data.shapes[shapeIndex];
+                if (removedShape === undefined) {
+                    return null;
+                }
+                this.data.shapes.splice(shapeIndex, 1);
+                recordRemoveAndMarkDirty(
+                    [...this.getPath(), 'shapes', shapeIndex],
+                    removedShape
+                );
+            }
+
+            this.data.shapes.splice(insertedShapeIndex, 0, connectedShape);
+            this._shapeWrappers = null;
+            recordAddAndMarkDirty(
+                [...this.getPath(), 'shapes', insertedShapeIndex],
+                connectedShape
+            );
+
+            return {
+                shapeIndex: insertedShapeIndex,
+                boundaryNodeIndex: connectedNodes.boundaryNodeIndex,
+                closed: false
+            };
+        });
     }
 
     /**

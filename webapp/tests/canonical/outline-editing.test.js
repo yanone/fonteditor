@@ -7,6 +7,9 @@
  *   - Alt-constrained dragging of smooth on-curve points
  *   - Alt-constrained dragging of non-smooth off-curve points
  *   - One-sided smooth eligibility, alignment, and delete-to-line behavior
+ *   - Cmd-cut opening/splitting paths and clearing smoothness on duplicated cut nodes
+ *   - Cmd drawing taking priority over add-point insertion while path drawing can continue
+ *   - Connecting open-path endpoints by cmd drawing or endpoint dragging
  *   - Neighbor-glyph snap candidates always participating in snapping,
  *     ordered by distance from the dragged node's original position
  */
@@ -139,6 +142,74 @@ function makeSinglePathFont(nodes, closed = false) {
         variation_sequences: [],
         format_specific: {}
     });
+}
+
+function makeFontWithShapes(shapes) {
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [
+            {
+                id: 'master-1',
+                name: { en: 'Regular' },
+                location: {},
+                guides: [],
+                metrics: {},
+                kerning: new Map()
+            }
+        ],
+        glyphs: [
+            {
+                name: 'A',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'layer-1',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'master-1'
+                        },
+                        shapes,
+                        anchors: [],
+                        guides: []
+                    }
+                ]
+            }
+        ],
+        names: { family_name: { en: 'Outline Editing Canonical' } },
+        note: '',
+        date: '2026-04-01',
+        features: {},
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
+function bindActiveGlyphModel(canvas, font) {
+    const glyph = font.findGlyph('A');
+    const layer = glyph.findLayerById('layer-1');
+    const layerSpy = jest
+        .spyOn(canvas.outlineEditor, 'getCurrentLayerModel')
+        .mockReturnValue(layer);
+    const glyphSpy = jest
+        .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
+        .mockReturnValue(glyph);
+
+    return {
+        glyph,
+        layer,
+        restore() {
+            layerSpy.mockRestore();
+            glyphSpy.mockRestore();
+        }
+    };
 }
 
 describe('Outline Editing canonical behavior', () => {
@@ -610,6 +681,35 @@ describe('Outline Editing canonical behavior', () => {
         const nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
         expect(nodes[3].smooth).toBe(true);
         expect(nodes[2].y).toBe(60);
+    });
+
+    test('open-path endpoints cannot be toggled smooth', () => {
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                        { x: 20, y: 20, nodetype: 'OffCurve', smooth: false },
+                        { x: 40, y: 20, nodetype: 'OffCurve', smooth: false },
+                        { x: 60, y: 0, nodetype: 'Curve', smooth: false }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+        canvas.outlineEditor.saveLayerData = jest.fn();
+
+        canvas.outlineEditor.togglePointSmooth({
+            contourIndex: 0,
+            nodeIndex: 3
+        });
+
+        expect(canvas.outlineEditor.layerData.shapes[0].nodes[3].smooth).toBe(
+            false
+        );
     });
 
     test('moving the straight segment of a one-sided smooth node realigns the remaining handle', () => {
@@ -1795,5 +1895,677 @@ describe('Outline Editing canonical behavior', () => {
         );
 
         pointerSpy.mockRestore();
+    });
+
+    test('alt-click on a smooth closed-path node opens the path and clears smoothness on both duplicates', () => {
+        const font = makeSinglePathFont(
+            [
+                { x: 0, y: 0, nodetype: 'Line', smooth: false },
+                { x: 20, y: 30, nodetype: 'OffCurve', smooth: false },
+                { x: 40, y: 30, nodetype: 'OffCurve', smooth: false },
+                { x: 60, y: 0, nodetype: 'Curve', smooth: true },
+                { x: 120, y: 0, nodetype: 'Line', smooth: false }
+            ],
+            true
+        );
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { glyph, layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.outlineEditor.hoveredPointIndex = {
+            contourIndex: 0,
+            nodeIndex: 3
+        };
+
+        const compileSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'queueStructuralOutlineCompileFromModel'
+            )
+            .mockImplementation(() => {});
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: true,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            expect(layer.shapes).toHaveLength(1);
+            expect(layer.paths[0].closed).toBe(false);
+            expect(layer.paths[0].nodes[0]).toEqual(
+                expect.objectContaining({
+                    x: 60,
+                    y: 0,
+                    nodetype: 'Move',
+                    smooth: false
+                })
+            );
+            expect(
+                layer.paths[0].nodes[layer.paths[0].nodes.length - 1]
+            ).toEqual(expect.objectContaining({ x: 60, y: 0, smooth: false }));
+        } finally {
+            compileSpy.mockRestore();
+            modelBinding.restore();
+        }
+    });
+
+    test('alt-click on an already-open path cuts it into two open paths at the clicked point', () => {
+        const font = makeFontWithShapes([
+            {
+                nodes: [
+                    { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 20, y: 30, nodetype: 'OffCurve', smooth: false },
+                    { x: 40, y: 30, nodetype: 'OffCurve', smooth: false },
+                    { x: 60, y: 0, nodetype: 'Curve', smooth: true },
+                    { x: 120, y: 0, nodetype: 'Line', smooth: false },
+                    { x: 0, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            }
+        ]);
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { glyph, layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.outlineEditor.hoveredPointIndex = {
+            contourIndex: 0,
+            nodeIndex: 3
+        };
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: true,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            expect(layer.shapes).toHaveLength(2);
+            expect(layer.paths[0].closed).toBe(false);
+            expect(layer.paths[1].closed).toBe(false);
+            expect(
+                layer.paths[0].nodes[layer.paths[0].nodes.length - 1]
+            ).toEqual(expect.objectContaining({ x: 60, y: 0, smooth: false }));
+            expect(layer.paths[1].nodes[0]).toEqual(
+                expect.objectContaining({
+                    x: 60,
+                    y: 0,
+                    nodetype: 'Move',
+                    smooth: false
+                })
+            );
+            expect(canvas.outlineEditor.selectedPoints).toEqual([
+                { contourIndex: 1, nodeIndex: 0 }
+            ]);
+        } finally {
+            modelBinding.restore();
+        }
+    });
+
+    test('cmd drawing extends the active path instead of inserting an add-point previewed node', () => {
+        const font = makeFontWithShapes([
+            {
+                nodes: [
+                    { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 40, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            },
+            {
+                nodes: [
+                    { x: 100, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 160, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            }
+        ]);
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { glyph, layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.outlineEditor.activePathDrawingSession = {
+            shapeIndex: 0,
+            pathIndex: 0,
+            edge: 'end',
+            startedFromExistingPath: false,
+            originNodeIndex: 0,
+            segmentCount: 0
+        };
+        canvas.outlineEditor.hoveredAddPointPreview = {
+            shapeIndex: 1,
+            pathIndex: 1,
+            segmentId: 0,
+            t: 0.5,
+            point: { x: 130, y: 0 },
+            segments: []
+        };
+
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 80, glyphY: 20 });
+        const commitSpy = jest.spyOn(
+            canvas.outlineEditor,
+            'commitHoveredAddPointPreview'
+        );
+        const compileSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'queueStructuralOutlineCompileFromModel'
+            )
+            .mockImplementation(() => {});
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            expect(commitSpy).not.toHaveBeenCalled();
+            expect(layer.paths[0].nodes).toHaveLength(3);
+            expect(layer.paths[0].nodes[2]).toEqual(
+                expect.objectContaining({ x: 80, y: 20, nodetype: 'Line' })
+            );
+            expect(layer.paths[1].nodes).toHaveLength(2);
+        } finally {
+            compileSpy.mockRestore();
+            commitSpy.mockRestore();
+            pointerSpy.mockRestore();
+            modelBinding.restore();
+        }
+    });
+
+    test('cmd drawing from a selected endpoint connects to another open path endpoint regardless of target direction', () => {
+        const font = makeFontWithShapes([
+            {
+                nodes: [
+                    { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 40, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            },
+            {
+                nodes: [
+                    { x: 120, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 80, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            }
+        ]);
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { glyph, layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.hoveredPointIndex = {
+            contourIndex: 1,
+            nodeIndex: 1
+        };
+
+        const compileSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'queueStructuralOutlineCompileFromModel'
+            )
+            .mockImplementation(() => {});
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            expect(layer.shapes).toHaveLength(1);
+            expect(layer.paths[0].closed).toBe(false);
+            expect(layer.paths[0].nodes.map((node) => node.x)).toEqual([
+                0, 80, 120
+            ]);
+            expect(canvas.outlineEditor.selectedPoints).toEqual([
+                { contourIndex: 0, nodeIndex: 1 }
+            ]);
+        } finally {
+            compileSpy.mockRestore();
+            modelBinding.restore();
+        }
+    });
+
+    test('dragging an open endpoint onto another path endpoint connects the two paths and combines the nodes', () => {
+        const font = makeFontWithShapes([
+            {
+                nodes: [
+                    { x: 80, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 120, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            },
+            {
+                nodes: [
+                    { x: 40, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 0, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            }
+        ]);
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { glyph, layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.layerData.shapes[0].nodes[0].x = 40;
+        canvas.outlineEditor.layerData.shapes[0].nodes[0].y = 0;
+
+        try {
+            canvas.outlineEditor._checkOpenPathEndpointSnap();
+            canvas.outlineEditor.onMouseUp({});
+
+            expect(layer.shapes).toHaveLength(1);
+            expect(layer.paths[0].closed).toBe(false);
+            expect(layer.paths[0].nodes.map((node) => node.x)).toEqual([
+                120, 40, 0
+            ]);
+            expect(canvas.outlineEditor.selectedPoints).toEqual([
+                { contourIndex: 0, nodeIndex: 1 }
+            ]);
+        } finally {
+            modelBinding.restore();
+        }
+    });
+
+    test('dragging an open curved endpoint onto another curved endpoint smooths the combined node when both handles align', () => {
+        const font = makeFontWithShapes([
+            {
+                nodes: [
+                    { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 20, y: 0, nodetype: 'OffCurve', smooth: false },
+                    { x: 40, y: 0, nodetype: 'OffCurve', smooth: false },
+                    { x: 60, y: 0, nodetype: 'Curve', smooth: false }
+                ],
+                closed: false
+            },
+            {
+                nodes: [
+                    { x: 100, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 120, y: 0, nodetype: 'OffCurve', smooth: false },
+                    { x: 140, y: 0, nodetype: 'OffCurve', smooth: false },
+                    { x: 160, y: 0, nodetype: 'Curve', smooth: false }
+                ],
+                closed: false
+            }
+        ]);
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 3 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.layerData.shapes[0].nodes[3].x = 100;
+        canvas.outlineEditor.layerData.shapes[0].nodes[3].y = 0;
+
+        try {
+            canvas.outlineEditor._checkOpenPathEndpointSnap();
+            canvas.outlineEditor.onMouseUp({});
+
+            expect(layer.shapes).toHaveLength(1);
+            expect(layer.paths[0].closed).toBe(false);
+            expect(layer.paths[0].nodes[3]).toEqual(
+                expect.objectContaining({ x: 100, y: 0, smooth: true })
+            );
+        } finally {
+            modelBinding.restore();
+        }
+    });
+
+    test('dragging an endpoint as part of a multi-point selection still connects open paths', () => {
+        const font = makeFontWithShapes([
+            {
+                nodes: [
+                    { x: 80, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 120, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            },
+            {
+                nodes: [
+                    { x: 40, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 0, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            }
+        ]);
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 },
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor._dragConnectionSourcePoint = {
+            contourIndex: 0,
+            nodeIndex: 0
+        };
+        canvas.outlineEditor.layerData.shapes[0].nodes[0].x = 40;
+        canvas.outlineEditor.layerData.shapes[0].nodes[0].y = 0;
+
+        try {
+            canvas.outlineEditor._checkOpenPathEndpointSnap();
+            canvas.outlineEditor.onMouseUp({});
+
+            expect(layer.shapes).toHaveLength(1);
+            expect(layer.paths[0].nodes.map((node) => node.x)).toEqual([
+                120, 40, 0
+            ]);
+        } finally {
+            modelBinding.restore();
+        }
+    });
+
+    test('lifting a coincident open endpoint away and returning it in the same drag closes the contour and restores smoothness when aligned', () => {
+        const font = makeFontWithShapes([
+            {
+                nodes: [
+                    { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 100, y: 0, nodetype: 'Line', smooth: false },
+                    { x: 60, y: 0, nodetype: 'OffCurve', smooth: false },
+                    { x: -20, y: 0, nodetype: 'OffCurve', smooth: false },
+                    { x: 0, y: 0, nodetype: 'Curve', smooth: false }
+                ],
+                closed: false
+            }
+        ]);
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor._dragConnectionSourcePoint = {
+            contourIndex: 0,
+            nodeIndex: 0
+        };
+        canvas.outlineEditor._dragStartEndpointsCoincident = true;
+        canvas.outlineEditor._dragSeparatedFromCoincidentEndpointPair = false;
+
+        try {
+            canvas.outlineEditor.layerData.shapes[0].nodes[0].x = 200;
+            canvas.outlineEditor.layerData.shapes[0].nodes[0].y = 0;
+            canvas.outlineEditor._checkOpenPathEndpointSnap();
+            expect(canvas.outlineEditor.isSnappedToCloseOpenPath).toBe(false);
+
+            canvas.outlineEditor.layerData.shapes[0].nodes[0].x = 0;
+            canvas.outlineEditor.layerData.shapes[0].nodes[0].y = 0;
+            canvas.outlineEditor._checkOpenPathEndpointSnap();
+            expect(canvas.outlineEditor.isSnappedToCloseOpenPath).toBe(true);
+
+            canvas.outlineEditor.onMouseUp({});
+
+            expect(layer.paths[0].closed).toBe(true);
+            expect(layer.paths[0].nodes[0].x).toBe(0);
+            expect(layer.paths[0].nodes[0].y).toBe(0);
+            expect(layer.paths[0].nodes[0].smooth).toBe(true);
+        } finally {
+            modelBinding.restore();
+        }
+    });
+
+    test('dragging an endpoint connection also connects any other coincident open endpoints in the same sync', () => {
+        const font = makeFontWithShapes([
+            {
+                nodes: [
+                    { x: 80, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 120, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            },
+            {
+                nodes: [
+                    { x: 40, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 0, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            },
+            {
+                nodes: [
+                    { x: 240, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 200, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            },
+            {
+                nodes: [
+                    { x: 200, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 160, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            }
+        ]);
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        window.changeBridge = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 0 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.layerData.shapes[0].nodes[0].x = 40;
+        canvas.outlineEditor.layerData.shapes[0].nodes[0].y = 0;
+
+        try {
+            canvas.outlineEditor._checkOpenPathEndpointSnap();
+            canvas.outlineEditor.onMouseUp({});
+
+            expect(layer.shapes).toHaveLength(2);
+            expect(layer.paths[0].nodes.map((node) => node.x)).toEqual([
+                120, 40, 0
+            ]);
+            expect(layer.paths[1].nodes.map((node) => node.x)).toEqual([
+                240, 200, 160
+            ]);
+            expect(window.changeBridge.syncGlyphFromJson).toHaveBeenCalledTimes(
+                1
+            );
+        } finally {
+            modelBinding.restore();
+        }
+    });
+
+    test('drawOutlineEditor marks duplicate node positions with a red circle underline even across separate paths', () => {
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 520, dx: 0, dy: 0, g: 0 }];
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [{ x: 40, y: 0, nodetype: 'Move', smooth: false }],
+                    closed: false
+                },
+                {
+                    nodes: [{ x: 40, y: 0, nodetype: 'Move', smooth: false }],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+
+        canvas.renderer.ctx.arc.mockClear();
+        canvas.renderer.ctx.lineTo.mockClear();
+        canvas.renderer.ctx.stroke.mockClear();
+
+        canvas.renderer.drawOutlineEditor();
+
+        expect(canvas.renderer.ctx.arc).toHaveBeenCalledWith(
+            0,
+            0,
+            expect.any(Number),
+            0,
+            Math.PI * 2
+        );
+        expect(canvas.renderer.ctx.lineTo).toHaveBeenCalledTimes(1);
+        expect(canvas.renderer.ctx.stroke).toHaveBeenCalled();
+    });
+
+    test('a snapped curved open endpoint does not keep dragging its attached handle after the endpoint is pinned', () => {
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                        { x: 20, y: 30, nodetype: 'OffCurve', smooth: false },
+                        { x: 40, y: 30, nodetype: 'OffCurve', smooth: false },
+                        { x: 60, y: 0, nodetype: 'Curve', smooth: false }
+                    ],
+                    closed: false
+                },
+                {
+                    nodes: [
+                        { x: 100, y: 0, nodetype: 'Move', smooth: false },
+                        { x: 120, y: 30, nodetype: 'OffCurve', smooth: false },
+                        { x: 140, y: 30, nodetype: 'OffCurve', smooth: false },
+                        { x: 160, y: 0, nodetype: 'Curve', smooth: false }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 3 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.lastGlyphX = null;
+        canvas.outlineEditor.lastGlyphY = null;
+        canvas.outlineEditor._snapDragStartMouseX = null;
+        canvas.outlineEditor._snapDragStartMouseY = null;
+        canvas.outlineEditor._snapDragStartNodePos = null;
+        canvas.outlineEditor._snapCandidateCache = null;
+        canvas.outlineEditor._dragStartEndpointsCoincident = false;
+
+        let pointer = { glyphX: 100, glyphY: 0 };
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockImplementation(() => pointer);
+        const renderSpy = jest
+            .spyOn(canvas, 'render')
+            .mockImplementation(() => {});
+        const propertySpy = jest
+            .spyOn(canvas, 'updatePropertyPanel')
+            .mockImplementation(() => {});
+        const saveSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+
+        try {
+            canvas.outlineEditor._handleDrag({
+                clientX: 0,
+                clientY: 0,
+                shiftKey: false,
+                altKey: false
+            });
+
+            const snappedHandle = {
+                x: canvas.outlineEditor.layerData.shapes[0].nodes[2].x,
+                y: canvas.outlineEditor.layerData.shapes[0].nodes[2].y
+            };
+            expect(canvas.outlineEditor.layerData.shapes[0].nodes[3]).toEqual(
+                expect.objectContaining({ x: 100, y: 0 })
+            );
+
+            pointer = { glyphX: 104, glyphY: 2 };
+            canvas.outlineEditor._handleDrag({
+                clientX: 0,
+                clientY: 0,
+                shiftKey: false,
+                altKey: false
+            });
+
+            expect(canvas.outlineEditor.layerData.shapes[0].nodes[3]).toEqual(
+                expect.objectContaining({ x: 100, y: 0 })
+            );
+            expect(canvas.outlineEditor.layerData.shapes[0].nodes[2]).toEqual(
+                expect.objectContaining(snappedHandle)
+            );
+        } finally {
+            pointerSpy.mockRestore();
+            renderSpy.mockRestore();
+            propertySpy.mockRestore();
+            saveSpy.mockRestore();
+        }
     });
 });

@@ -2103,6 +2103,144 @@ describe('Babelfont Object Model', () => {
             ]);
         });
 
+        test('Path._closeOpenPathByMerge restores a reopened curve node instead of forcing it to a line and smooths it when eligible', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 300, y: 500, nodetype: 'Line', smooth: false },
+                    { x: 360, y: 500, nodetype: 'OffCurve', smooth: false },
+                    { x: 409, y: 500, nodetype: 'OffCurve', smooth: false },
+                    { x: 479, y: 430, nodetype: 'Curve', smooth: true },
+                    { x: 540, y: 360, nodetype: 'Line', smooth: false }
+                ],
+                true
+            );
+            const path = testFont.glyphs[0].layers[0].paths[0];
+
+            expect(path._openClosedPathAtNode(3)).toBe(true);
+            expect(path.closed).toBe(false);
+            expect(path.nodes[0]).toEqual(
+                expect.objectContaining({ nodetype: 'Move', smooth: false })
+            );
+            expect(path.nodes[path.nodes.length - 1]).toEqual(
+                expect.objectContaining({ x: 479, y: 430, smooth: false })
+            );
+
+            expect(path._closeOpenPathByMerge()).toBe(true);
+            expect(path.closed).toBe(true);
+            expect(path.nodes[0].x).toBe(479);
+            expect(path.nodes[0].y).toBe(430);
+            expect(path.nodes[0].nodetype).toBe('Curve');
+            expect(path.nodes[0].smooth).toBe(true);
+            expect(path.nodes.slice(-2).map((node) => node.nodetype)).toEqual([
+                'OffCurve',
+                'OffCurve'
+            ]);
+        });
+
+        test('Layer.connectOpenPathEndpoints does not leave a Move node after the first point when connecting reversed open paths', () => {
+            const testFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                cross_axis_mappings: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'testGlyph',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 500,
+                                id: 'layer-1',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: [
+                                            {
+                                                x: 0,
+                                                y: 0,
+                                                nodetype: 'Move',
+                                                smooth: false
+                                            },
+                                            {
+                                                x: 20,
+                                                y: 20,
+                                                nodetype: 'OffCurve',
+                                                smooth: false
+                                            },
+                                            {
+                                                x: 40,
+                                                y: 20,
+                                                nodetype: 'OffCurve',
+                                                smooth: false
+                                            },
+                                            {
+                                                x: 60,
+                                                y: 0,
+                                                nodetype: 'Curve',
+                                                smooth: false
+                                            }
+                                        ],
+                                        closed: false
+                                    },
+                                    {
+                                        nodes: [
+                                            {
+                                                x: 100,
+                                                y: 0,
+                                                nodetype: 'Move',
+                                                smooth: false
+                                            },
+                                            {
+                                                x: 160,
+                                                y: 0,
+                                                nodetype: 'Line',
+                                                smooth: false
+                                            }
+                                        ],
+                                        closed: false
+                                    }
+                                ],
+                                anchors: []
+                            }
+                        ]
+                    }
+                ],
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: {
+                    classes: {},
+                    prefixes: {},
+                    features: []
+                }
+            });
+
+            const layer = testFont.glyphs[0].layers[0];
+            const result = layer.connectOpenPathEndpoints(0, 'start', 1, 'end');
+
+            expect(result).not.toBeNull();
+            expect(layer.paths).toHaveLength(1);
+            expect(layer.paths[0].nodes[0].nodetype).toBe('Move');
+            expect(
+                layer.paths[0].nodes.slice(1).map((node) => node.nodetype)
+            ).not.toContain('Move');
+        });
+
         test('Path._deleteNode should convert line-curve to curve', () => {
             // Create line followed by curve
             const testFont = makeFontWithSinglePath(

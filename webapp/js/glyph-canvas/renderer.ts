@@ -13,6 +13,8 @@ import { LayerDataNormalizer } from '../layer-data-normalizer';
 import { getVisibleVerticalMetricValues } from './vertical-metrics';
 import type { Babelfont } from '../babelfont';
 
+const DUPLICATE_NODE_WARNING_COLOR = '#ff3b30';
+
 /**
  * Extract nodes array from a Shape union type with proper type checking
  */
@@ -53,6 +55,42 @@ function getNodesFromOutlineShape(shape: any): Babelfont.Node[] | undefined {
     }
 
     return undefined;
+}
+
+function getNodePositionKey(x: number, y: number): string {
+    return `${x},${y}`;
+}
+
+function collectDuplicateNodePositionKeys(
+    shapes: Babelfont.Shape[] | undefined
+): Set<string> {
+    const counts = new Map<string, number>();
+
+    if (!Array.isArray(shapes)) {
+        return new Set();
+    }
+
+    for (const shape of shapes) {
+        if ('reference' in shape) {
+            continue;
+        }
+
+        const nodes = getNodesFromShape(shape);
+        if (!nodes?.length) {
+            continue;
+        }
+
+        for (const node of nodes) {
+            const key = getNodePositionKey(node.x, node.y);
+            counts.set(key, (counts.get(key) || 0) + 1);
+        }
+    }
+
+    return new Set(
+        [...counts.entries()]
+            .filter(([, count]) => count > 1)
+            .map(([key]) => key)
+    );
 }
 
 function getClosedFromOutlineShape(shape: any): boolean {
@@ -1772,6 +1810,10 @@ export class GlyphCanvasRenderer {
             anchorSize: number;
             fontSize: number;
         }> = [];
+        const duplicateNodePositionKeys = collectDuplicateNodePositionKeys(
+            currentLayerData.shapes
+        );
+        const drawnDuplicateNodeWarningKeys = new Set<string>();
 
         // Only draw shapes if they exist (empty glyphs like space won't have shapes)
         if (currentLayerData.shapes && Array.isArray(currentLayerData.shapes)) {
@@ -1783,7 +1825,13 @@ export class GlyphCanvasRenderer {
                     currentLayerData?.isInterpolated);
 
             currentLayerData.shapes.forEach((shape, contourIndex: number) =>
-                this.drawShape(shape, contourIndex, !!isInterpolated)
+                this.drawShape(
+                    shape,
+                    contourIndex,
+                    !!isInterpolated,
+                    duplicateNodePositionKeys,
+                    drawnDuplicateNodeWarningKeys
+                )
             );
 
             // Draw components
@@ -2066,7 +2114,9 @@ export class GlyphCanvasRenderer {
     drawShape(
         shape: Babelfont.Shape,
         contourIndex: number,
-        isInterpolated: boolean
+        isInterpolated: boolean,
+        duplicateNodePositionKeys: Set<string> | null = null,
+        drawnDuplicateNodeWarningKeys: Set<string> | null = null
     ) {
         const invScale = 1 / this.viewportManager.scale;
         const isDarkTheme =
@@ -2480,6 +2530,28 @@ export class GlyphCanvasRenderer {
                 this.ctx.arc(0, 0, pointSize * 0.4, 0, Math.PI * 2);
                 this.ctx.fillStyle = smoothColor;
                 this.ctx.fill();
+            }
+
+            const nodePositionKey = getNodePositionKey(x, y);
+            if (
+                duplicateNodePositionKeys?.has(nodePositionKey) &&
+                !drawnDuplicateNodeWarningKeys?.has(nodePositionKey)
+            ) {
+                const warningRadius = pointSize * 2.175;
+                const underlineY = warningRadius + pointSize * 0.5;
+
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, warningRadius, 0, Math.PI * 2);
+                this.ctx.strokeStyle = DUPLICATE_NODE_WARNING_COLOR;
+                this.ctx.lineWidth = Math.max(invScale, pointSize * 0.33);
+                this.ctx.stroke();
+
+                this.ctx.beginPath();
+                this.ctx.moveTo(-warningRadius * 0.8, underlineY);
+                this.ctx.lineTo(warningRadius * 0.8, underlineY);
+                this.ctx.stroke();
+
+                drawnDuplicateNodeWarningKeys?.add(nodePositionKey);
             }
 
             this.ctx.restore();

@@ -6249,6 +6249,20 @@ describe('GlyphCanvas command path drawing visuals', () => {
         canvas.outlineEditor.setCommandKeyPressed(false);
     });
 
+    test('alt hover on a point uses a crosshair cursor for cut-open', () => {
+        canvas.outlineEditor.setAltKeyPressed(true);
+        canvas.outlineEditor.hoveredPointIndex = {
+            contourIndex: 0,
+            nodeIndex: 1
+        };
+
+        canvas.updateCursorStyle();
+
+        expect(canvas.canvas.style.cursor).toBe('crosshair');
+
+        canvas.outlineEditor.setAltKeyPressed(false);
+    });
+
     test('drawOutlineEditor does not force-close open contours', () => {
         canvas.renderer.ctx.closePath.mockClear();
         canvas.renderer.ctx.stroke.mockClear();

@@ -22,11 +22,17 @@ The test files must be named (and renamed) according to their topic and tests re
 
 Every function must be accompanied by a human-readable description, which must also be kept up-to-date.
 
+Wherever the `cmd` key is mentioned, on Windows and Linux the `ctrl` key is to be used instead.
+
 ## Glyphs
 
 ### Layers
 
-#### Drawing Outlines
+#### Drawing New Outlines
+
+Pressing the `cmd` key and hovering the mouse over clear glyph space (not over existing outlines) will draw new paths point by point. Once a new path drawing is in progress (hovering line visible from last selected node to mouse pointer with `cmd` key pressed), prioritize extending the new path over adding nodes to existing paths when hovering over existing paths segments (but not open end points, see below).
+
+Selecting either end point of an open path while pressing the `cmd` key will continue the drawing from the selected point. When a line is drawn from a selected node onto an open path’s end node, the path will be closed (if it's the same path) or connected (if it's a different open path).
 
 #### Editing Existing Outlines
 
@@ -34,15 +40,24 @@ A point triplet is defined as a middle on-curve point with off-curve points on b
 
 Holding the shift key before or after selecting and moving an off-curve point of a smooth point triplet will restrict the triplet's direction to horizontal/vertical direction, rotated around the on-curve point.
 
-Holding the alt key before or after selecting and moving a smooth on-curve point will keep its two off-curve points fixed in place and restrict the on-curve point to sliding on the straight line between those two off-curve points. Lifting the alt key while still dragging returns to free movement and lets the off-curve points follow again. Pressing the alt key again while still dragging freezes the off-curve points at their current positions and again restricts the on-curve point to the line between them.
+Holding the `alt` key before or after selecting and moving a smooth on-curve point will keep its two off-curve points fixed in place and restrict the on-curve point to sliding on the straight line between those two off-curve points. Lifting the `alt` key while still dragging returns to free movement and lets the off-curve points follow again. Pressing the `alt` key again while still dragging freezes the off-curve points at their current positions and again restricts the on-curve point to the line between them.
 
-Holding the alt key before or after selecting and moving an off-curve point that’s not connected to a smooth point will keep the movement restricted to its original direction from the on-curve point. Lifting the alt key while still dragging allows free movement, but pressing the alt key again while still dragging return to the original direction, not the direction at the moment of re-pressing the alt key.
+Holding the `alt` key before or after selecting and moving an off-curve point that’s not connected to a smooth point will keep the movement restricted to its original direction from the on-curve point. Lifting the `alt` key while still dragging allows free movement, but pressing the `alt` key again while still dragging return to the original direction, not the direction at the moment of re-pressing the `alt` key.
 
 Double clicking an on-curve point of a triplet will toggle the smoothness state. Turning a non-smooth on-curve point of a triplet to smooth will align both off-curve points in a straight line around the on-curve point, with their direction being the average of the previous off-curve points’ directions. Turning a non-smooth on-curve point of a triplet when one of the two lines is in perfect horizontal or vertical direction will also align the other off-curve point’s direction to horizontal or vertical.
 
 A node can be smooth with a curve segment only on one of its sides. In that case, the direction (angle) of the off-curve point is bound by the direction of the straight line segment on the other side of the smooth on-curve point, and the off-curve point's direction must be adjusted when either point of the straight line segment moves.
 If a smooth triplet loses a curve on one side by off-curve point deletion, the on-curve point must be kept smooth if the remaining on-curve point's direction matches the straight line segment's direction on the other side of the off-curve point (with a small angle error margin), otherwise be set to not smooth.
-Similar to editing a smooth on-curve point of a triplet, holding the alt key before or after selecting and moving a smooth on-curve point with a curve only one one one side will keep the off-curve point in place and move the smooth on-curve point on the fixed axis between the off-curve point and the line segment's opposite point.
+Similar to editing a smooth on-curve point of a triplet, holding the `alt` key before or after selecting and moving a smooth on-curve point with a curve only one one one side will keep the off-curve point in place and move the smooth on-curve point on the fixed axis between the off-curve point and the line segment's opposite point.
+Open path end points can never be smooth.
+
+Clicking on an on-curve point with `alt` key pressed will cut the path open at that point by duplicating the point in the same location and making it the path’s new start and end point. In case that point was a smooth on-curve point, both new points must be set to not smooth. While the `alt` key is pressed and such a node is hovered, the mouse pointer must become a crosshair. Cutting the same path open again in another point will separate the path into two separate paths.
+
+Dragging an open path’s end node onto another end node of an open path (regardless of path direction and whether or not it’s the same path or a different open path) will connect or close the path and combine the two nodes into one. This must work during any point dragging, even while dragging several selected nodes at once or during one and the same dragging process after an end point got lifted from the other end point's position and returned to it, which signals intent to close the contour. If it so happens that after connecting or closing a path this way two other end nodes also sit on top of each other, connect those as well, and save all path changes in the same history transaction.
+
+If the new combined node is a triplet with two off-curve points and the two off-curve points and the on-curve point are in a straight line (with a small error margin), or the end points sits in a straight line between a straight line segment and an off-curve point on the other side (with a small error margin), set the on-curve point to smooth after connecting it.
+
+Two nodes with identical positions must be underlined with a red circle as notification, regardless of whether they belong to the same path or separate paths.
 
 All operations must wrap around the start/end point of a closed path as if the point was nothing special at all.
 
