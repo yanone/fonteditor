@@ -4034,20 +4034,20 @@ export class OutlineEditor {
         )
             return;
 
+        if (this.handleAltCurveConversionGesture(e)) {
+            return;
+        }
+
+        if (this.handleCommandPathGesture(e)) {
+            return;
+        }
+
         const selectedGlyphIndex =
             this.glyphCanvas.textRunEditor?.selectedGlyphIndex ?? -1;
         if (
             this.hoveredGlyphIndex >= 0 &&
             this.hoveredGlyphIndex !== selectedGlyphIndex
         ) {
-            return;
-        }
-
-        if (this.handleAltCurveConversionGesture(e)) {
-            return;
-        }
-
-        if (this.handleCommandPathGesture(e)) {
             return;
         }
 

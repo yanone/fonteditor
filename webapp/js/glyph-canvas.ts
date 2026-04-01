@@ -1485,6 +1485,14 @@ class GlyphCanvas {
             return;
         }
 
+        if (this.outlineEditor.active && this.outlineEditor.cmdKeyPressed) {
+            if (this.outlineEditor.hoveredGlyphIndex !== -1) {
+                this.outlineEditor.hoveredGlyphIndex = -1;
+                this.render();
+            }
+            return;
+        }
+
         if (this.stackPreviewAnimator.hoveredLayerTreeIndex !== null) {
             this.stackPreviewAnimator.hoveredLayerTreeIndex = null;
         }

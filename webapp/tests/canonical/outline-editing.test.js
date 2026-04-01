@@ -2225,6 +2225,69 @@ describe('Outline Editing canonical behavior', () => {
         }
     });
 
+    test('cmd drawing extends the active path even when a neighboring glyph is hovered', () => {
+        const font = makeFontWithShapes([
+            {
+                nodes: [
+                    { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 40, y: 0, nodetype: 'Line', smooth: false }
+                ],
+                closed: false
+            }
+        ]);
+        window.currentFontModel = font;
+        const modelBinding = bindActiveGlyphModel(canvas, font);
+        const { layer } = modelBinding;
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        activateEditableLayer(
+            canvas,
+            JSON.parse(JSON.stringify(layer.toJSON()))
+        );
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 1 }
+        ];
+        canvas.outlineEditor.hoveredGlyphIndex = 1;
+
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockReturnValue({ glyphX: 560, glyphY: 20 });
+        const compileSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'queueStructuralOutlineCompileFromModel'
+            )
+            .mockImplementation(() => {});
+
+        try {
+            canvas.outlineEditor.onSingleClick({
+                clientX: 0,
+                clientY: 0,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            expect(layer.paths[0].nodes).toHaveLength(3);
+            expect(layer.paths[0].nodes[2]).toEqual(
+                expect.objectContaining({ x: 560, y: 20, nodetype: 'Line' })
+            );
+            expect(canvas.outlineEditor.activePathDrawingSession).toEqual(
+                expect.objectContaining({
+                    shapeIndex: 0,
+                    pathIndex: 0,
+                    edge: 'end'
+                })
+            );
+        } finally {
+            compileSpy.mockRestore();
+            pointerSpy.mockRestore();
+            modelBinding.restore();
+        }
+    });
+
     test('cmd drawing from a selected endpoint connects to another open path endpoint regardless of target direction', () => {
         const font = makeFontWithShapes([
             {
