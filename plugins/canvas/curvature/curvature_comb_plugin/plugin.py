@@ -134,13 +134,44 @@ class CurvatureCombPlugin(BaseCanvasPlugin):
             {
                 "type": "slider",
                 "id": "exponent",
-                "label": "Exponent",
+                "label": "Power",
                 "min": 1,
                 "max": 5,
                 "step": 0.1,
                 "default": 1,
             },
         ]
+
+    def _remap_tooth_length_curvature(self, curvature, min_curvature, max_curvature):
+        """
+        Remap curvature for tooth length using a contrast-style power curve.
+
+        A power value of 1 preserves the original tooth length. Higher values
+        compress lower curvature values and expand higher ones while preserving
+        the original minimum and maximum curvature endpoints.
+
+        Args:
+            curvature: Absolute curvature magnitude at a sample point
+            min_curvature: Minimum absolute curvature for the current path
+            max_curvature: Maximum absolute curvature for the current path
+
+        Returns:
+            Adjusted absolute curvature magnitude for tooth length
+        """
+        curvature_range = max_curvature - min_curvature
+        if curvature_range < 1e-10:
+            return curvature
+
+        t = (curvature - min_curvature) / curvature_range
+        t = max(0, min(1, t))
+        power = self.get_parameter("exponent")
+
+        if t < 0.5:
+            adjusted_t = 0.5 * pow(t * 2, power)
+        else:
+            adjusted_t = 1 - 0.5 * pow((1 - t) * 2, power)
+
+        return min_curvature + adjusted_t * curvature_range
 
     def draw_below(self, layer_data, glyph_name, ctx, viewport_manager):
         """
@@ -506,16 +537,22 @@ class CurvatureCombPlugin(BaseCanvasPlugin):
                     t_i = max(0, min(1, t_i))
                     t_next = max(0, min(1, t_next))
 
-                    # Use raw curvature for tooth length (no exponent applied)
-                    # Use signed curvature direction with original magnitude
+                    tooth_curvature_i = self._remap_tooth_length_curvature(
+                        abs_curv_i, min_curvature, max_curvature
+                    )
+                    tooth_curvature_next = self._remap_tooth_length_curvature(
+                        abs_curv_next, min_curvature, max_curvature
+                    )
+
+                    # Use signed curvature direction with power-adjusted magnitude.
                     tooth_length_i = (
                         (signed_curv_i / abs_curv_i if abs_curv_i > 0 else 0)
-                        * abs_curv_i
+                        * tooth_curvature_i
                         * self.SCALE_FACTOR
                     )
                     tooth_length_next = (
                         (signed_curv_next / abs_curv_next if abs_curv_next > 0 else 0)
-                        * abs_curv_next
+                        * tooth_curvature_next
                         * self.SCALE_FACTOR
                     )
 

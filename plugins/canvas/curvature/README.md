@@ -31,11 +31,14 @@ This helps font designers:
 
 ## UI Controls
 
-After activating the plugin, a slider appears in the plugin dropdown:
+After activating the plugin, sliders appear in the plugin dropdown:
 
 - **Scale** (1000-10000, default 5000): Controls the visual scale of the curvature visualization
   - Lower values = smaller visualization
   - Higher values = larger visualization for fine details
+- **Power** (1-5, default 1): Increases tooth-length contrast and preserves the existing color mapping
+  - `1` = current tooth-length behavior
+  - Higher values = shorter teeth for lower curvature and longer teeth for higher curvature
 
 ## Mathematics
 
