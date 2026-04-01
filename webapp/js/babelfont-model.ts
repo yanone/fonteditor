@@ -1366,6 +1366,32 @@ function isOffCurveNodeType(type: string | undefined): boolean {
     return normalizedType === 'offcurve' || normalizedType === 'o';
 }
 
+function canNodeRemainSmooth(
+    nodes: Babelfont.Node[],
+    nodeIndex: number,
+    closed: boolean
+): boolean {
+    const targetNode = nodes[nodeIndex];
+    if (
+        !targetNode ||
+        isOffCurveNodeType(targetNode.nodetype) ||
+        targetNode.nodetype === 'Move'
+    ) {
+        return false;
+    }
+
+    const descriptors = buildPathSegmentDescriptors({ nodes, closed });
+    const { leftDescriptor, rightDescriptor } = getAdjacentPathDescriptors(
+        descriptors,
+        nodeIndex
+    );
+
+    return (
+        isCurveSegmentDescriptor(leftDescriptor) &&
+        isCurveSegmentDescriptor(rightDescriptor)
+    );
+}
+
 function normalizePathNodeArray<T extends Babelfont.Node>(
     nodes: T[],
     closed: boolean
@@ -1412,6 +1438,18 @@ function normalizePathNodeArray<T extends Babelfont.Node>(
             }
         }
 
+        for (let index = 0; index < normalizedNodes.length; index++) {
+            const node = normalizedNodes[index];
+            if (
+                node?.smooth &&
+                !canNodeRemainSmooth(normalizedNodes, index, true)
+            ) {
+                normalizedNodes[index] = cloneNodeData(node, {
+                    smooth: false
+                } as Partial<T>);
+            }
+        }
+
         return normalizedNodes;
     }
 
@@ -1449,6 +1487,18 @@ function normalizePathNodeArray<T extends Babelfont.Node>(
         lastOnCurveIndex < normalizedNodes.length - 1
     ) {
         normalizedNodes.splice(lastOnCurveIndex + 1);
+    }
+
+    for (let index = 0; index < normalizedNodes.length; index++) {
+        const node = normalizedNodes[index];
+        if (
+            node?.smooth &&
+            !canNodeRemainSmooth(normalizedNodes, index, false)
+        ) {
+            normalizedNodes[index] = cloneNodeData(node, {
+                smooth: false
+            } as Partial<T>);
+        }
     }
 
     return normalizedNodes;

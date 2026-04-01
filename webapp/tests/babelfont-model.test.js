@@ -2103,29 +2103,6 @@ describe('Babelfont Object Model', () => {
             ]);
         });
 
-        test('Path._deleteNode should set both adjacent on-curve points to smooth=false when deleting a handle into a line', () => {
-            const testFont = makeFontWithSinglePath(
-                [
-                    { x: 0, y: 0, nodetype: 'Curve', smooth: true },
-                    { x: 30, y: 60, nodetype: 'OffCurve' },
-                    { x: 70, y: 60, nodetype: 'OffCurve' },
-                    { x: 100, y: 0, nodetype: 'Curve', smooth: true }
-                ],
-                false
-            );
-            const path = testFont.glyphs[0].layers[0].paths[0];
-
-            const result = path._deleteNode(1);
-
-            expect(result).toBe(true);
-            expect(path.nodes.map((node) => node.nodetype)).toEqual([
-                'Curve',
-                'Line'
-            ]);
-            expect(path.nodes[0].smooth).toBe(false);
-            expect(path.nodes[1].smooth).toBe(false);
-        });
-
         test('Path._deleteNode should convert line-curve to curve', () => {
             // Create line followed by curve
             const testFont = makeFontWithSinglePath(

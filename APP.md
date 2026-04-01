@@ -26,6 +26,24 @@ Every function must be accompanied by a human-readable description, which must a
 
 ### Layers
 
+#### Drawing Outlines
+
+#### Editing Existing Outlines
+
+A point triplet is defined as a middle on-curve point with off-curve points on both sides. All three nodes are enforced to be aligned if the on-curve point is set to smooth, otherwise the off-curve points of the triplet may be moved freely.
+
+Holding the shift key before or after selecting and moving an off-curve point of a smooth point triplet will restrict the triplet's direction to horizontal/vertical direction, rotated around the on-curve point.
+
+Holding the alt key before or after selecting and moving a smooth on-curve point will restrict its movement on the axis between its two off-curve points.
+
+Holding the alt key before or after selecting and moving an off-curve point that’s not connected to a smooth point will keep the movement restricted to its original direction from the on-curve point. Lifting the alt key while still dragging allows free movement, but pressing the alt key again while still dragging return to the original direction, not the direction at the moment of re-pressing the alt key.
+
+Double clicking an on-curve point of a triplet will toggle the smoothness state. Turning a non-smooth on-curve point of a triplet to smooth will align both off-curve points in a straight line around the on-curve point, with their direction being the average of the previous off-curve points’ directions. Turning a non-smooth on-curve point of a triplet when one of the two lines is in perfect horizontal or vertical direction will also align the other off-curve point’s direction to horizontal or vertical.
+
+An on-curve point with only one curve on either side (the other side being a straight line) must always be set to not smooth. If a smooth triplet loses a curve on one side by off-curve point deletion, the on-curve point must be set to not smooth.
+
+All operations must wrap around the start/end point of a closed path as if the point was nothing special at all.
+
 #### Sidebearing Keys
 
 Layer sidebearings can be linked to other glyphs’ sidebearings by curated keys such as `=n`or arithmetics like `=a+10` or fixed values `=50` etc.
