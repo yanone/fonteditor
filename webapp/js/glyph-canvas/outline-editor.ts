@@ -751,7 +751,10 @@ function getAngleBetweenVectors(
 
     const cosine = Math.max(
         -1,
-        Math.min(1, (leftX * rightX + leftY * rightY) / (leftLength * rightLength))
+        Math.min(
+            1,
+            (leftX * rightX + leftY * rightY) / (leftLength * rightLength)
+        )
     );
     return Math.acos(cosine);
 }
