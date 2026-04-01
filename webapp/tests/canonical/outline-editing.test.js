@@ -232,7 +232,7 @@ describe('Outline Editing canonical behavior', () => {
         }
     });
 
-    test('alt toggling during smooth on-curve dragging constrains and restores movement on the handle axis', () => {
+    test('alt toggling during smooth on-curve dragging freezes the handles and slides only the on-curve point between them', () => {
         const saveLayerDataSpy = jest
             .spyOn(canvas.outlineEditor, 'saveLayerData')
             .mockResolvedValue(undefined);
@@ -290,20 +290,62 @@ describe('Outline Editing canonical behavior', () => {
             expect(nodes[3].y).toBe(90);
             expect(nodes[2].y).toBe(90);
             expect(nodes[4].y).toBe(90);
+            expect(nodes[2].x).toBe(70);
+            expect(nodes[4].x).toBe(110);
 
             canvas.outlineEditor.setAltKeyPressed(true);
             nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
             expect(nodes[3].x).toBe(90);
-            expect(nodes[3].y).toBe(60);
-            expect(nodes[2].y).toBe(60);
-            expect(nodes[4].y).toBe(60);
+            expect(nodes[3].y).toBe(90);
+            expect(nodes[2].x).toBe(70);
+            expect(nodes[2].y).toBe(90);
+            expect(nodes[4].x).toBe(110);
+            expect(nodes[4].y).toBe(90);
+
+            pointer = { glyphX: 95, glyphY: 120 };
+            canvas.outlineEditor.onMouseMove({
+                clientX: 13,
+                clientY: 23,
+                shiftKey: false,
+                altKey: true,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+            expect(nodes[3].x).toBe(95);
+            expect(nodes[3].y).toBe(90);
+            expect(nodes[2].x).toBe(70);
+            expect(nodes[2].y).toBe(90);
+            expect(nodes[4].x).toBe(110);
+            expect(nodes[4].y).toBe(90);
 
             canvas.outlineEditor.setAltKeyPressed(false);
             nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
-            expect(nodes[3].x).toBe(90);
-            expect(nodes[3].y).toBe(90);
-            expect(nodes[2].y).toBe(90);
-            expect(nodes[4].y).toBe(90);
+            expect(nodes[3].x).toBe(95);
+            expect(nodes[3].y).toBe(120);
+            expect(nodes[2].x).toBe(70);
+            expect(nodes[2].y).toBe(120);
+            expect(nodes[4].x).toBe(110);
+            expect(nodes[4].y).toBe(120);
+
+            pointer = { glyphX: 100, glyphY: 130 };
+            canvas.outlineEditor.onMouseMove({
+                clientX: 14,
+                clientY: 24,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+            expect(nodes[3].x).toBe(100);
+            expect(nodes[3].y).toBe(130);
+            expect(nodes[2].x).toBe(75);
+            expect(nodes[2].y).toBe(130);
+            expect(nodes[4].x).toBe(115);
+            expect(nodes[4].y).toBe(130);
 
             pointerSpy.mockRestore();
         } finally {
@@ -670,5 +712,279 @@ describe('Outline Editing canonical behavior', () => {
                 ySource: expect.objectContaining({ source: 'right' })
             })
         );
+    });
+
+    test('alt-constrained smooth on-curve dragging still honors reachable snap candidates', () => {
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                        { x: 70, y: 90, nodetype: 'OffCurve', smooth: false },
+                        { x: 90, y: 90, nodetype: 'Curve', smooth: true },
+                        { x: 110, y: 90, nodetype: 'OffCurve', smooth: false },
+                        { x: 150, y: 90, nodetype: 'Curve', smooth: false }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.isSlidingSmoothPointAlongCurve = false;
+        canvas.outlineEditor.altKeyPressed = true;
+        canvas.outlineEditor._snapDragStartMouseX = 90;
+        canvas.outlineEditor._snapDragStartMouseY = 90;
+        canvas.outlineEditor._snapDragStartNodePos = { x: 90, y: 90 };
+        canvas.outlineEditor._smoothOnCurveAltDragConstraint = {
+            contourIndex: 0,
+            nodeIndex: 2,
+            linePointX: 70,
+            linePointY: 90,
+            directionX: 40,
+            directionY: 0
+        };
+        canvas.outlineEditor._snapCandidateCache = {
+            activeOnlyDragCandidates: [
+                { x: 90, y: 90, source: 'origin' },
+                { x: 120, y: 90, source: 'active' }
+            ],
+            allDragCandidates: [
+                { x: 90, y: 90, source: 'origin' },
+                { x: 120, y: 90, source: 'active' }
+            ],
+            debugCandidates: [
+                { x: 90, y: 90, source: 'origin' },
+                { x: 120, y: 90, source: 'active' }
+            ],
+            snapDistFontUnits: 5,
+            metricsYValues: []
+        };
+
+        const snapped = canvas.outlineEditor._applySnapToDelta(
+            28,
+            3,
+            118,
+            93,
+            90,
+            90
+        );
+
+        canvas.outlineEditor.applySelectedPointMove(
+            canvas.outlineEditor.layerData,
+            snapped.deltaX,
+            snapped.deltaY,
+            false,
+            false,
+            118,
+            93,
+            true
+        );
+
+        const nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+        expect(nodes[2].x).toBe(120);
+        expect(nodes[2].y).toBe(90);
+        expect(nodes[1].x).toBe(70);
+        expect(nodes[1].y).toBe(90);
+        expect(nodes[3].x).toBe(110);
+        expect(nodes[3].y).toBe(90);
+        expect(canvas.outlineEditor.activeSnapTarget).toEqual(
+            expect.objectContaining({
+                xSource: expect.objectContaining({ source: 'active' }),
+                ySource: expect.objectContaining({ source: 'active' })
+            })
+        );
+    });
+
+    test('smooth on-curve dragging honors reachable snap candidates without alt', () => {
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                        { x: 70, y: 90, nodetype: 'OffCurve', smooth: false },
+                        { x: 90, y: 90, nodetype: 'Curve', smooth: true },
+                        { x: 110, y: 90, nodetype: 'OffCurve', smooth: false },
+                        { x: 150, y: 90, nodetype: 'Curve', smooth: false }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [],
+            guides: []
+        });
+
+        canvas.outlineEditor.selectedPoints = [
+            { contourIndex: 0, nodeIndex: 2 }
+        ];
+        canvas.outlineEditor.isDraggingPoint = true;
+        canvas.outlineEditor.isSlidingSmoothPointAlongCurve = false;
+        canvas.outlineEditor.altKeyPressed = false;
+        canvas.outlineEditor._snapDragStartMouseX = 90;
+        canvas.outlineEditor._snapDragStartMouseY = 90;
+        canvas.outlineEditor._snapDragStartNodePos = { x: 90, y: 90 };
+        canvas.outlineEditor._smoothOnCurveAltDragConstraint = {
+            contourIndex: 0,
+            nodeIndex: 2,
+            linePointX: 70,
+            linePointY: 90,
+            directionX: 40,
+            directionY: 0
+        };
+        canvas.outlineEditor._snapCandidateCache = {
+            activeOnlyDragCandidates: [
+                { x: 90, y: 90, source: 'origin' },
+                { x: 120, y: 90, source: 'active' }
+            ],
+            allDragCandidates: [
+                { x: 90, y: 90, source: 'origin' },
+                { x: 120, y: 90, source: 'active' }
+            ],
+            debugCandidates: [
+                { x: 90, y: 90, source: 'origin' },
+                { x: 120, y: 90, source: 'active' }
+            ],
+            snapDistFontUnits: 5,
+            metricsYValues: []
+        };
+
+        const snapped = canvas.outlineEditor._applySnapToDelta(
+            28,
+            3,
+            118,
+            93,
+            90,
+            90
+        );
+
+        canvas.outlineEditor.applySelectedPointMove(
+            canvas.outlineEditor.layerData,
+            snapped.deltaX,
+            snapped.deltaY,
+            false,
+            false,
+            118,
+            93,
+            false
+        );
+
+        const nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+        expect(nodes[2].x).toBe(120);
+        expect(nodes[2].y).toBe(90);
+        expect(nodes[1].x).toBe(100);
+        expect(nodes[1].y).toBe(90);
+        expect(nodes[3].x).toBe(140);
+        expect(nodes[3].y).toBe(90);
+        expect(canvas.outlineEditor.activeSnapTarget).toEqual(
+            expect.objectContaining({
+                xSource: expect.objectContaining({ source: 'active' }),
+                ySource: expect.objectContaining({ source: 'active' })
+            })
+        );
+    });
+
+    test('live smooth on-curve dragging without alt snaps to candidate nodes instead of raw pointer increments', () => {
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+
+        try {
+            activateEditableLayer(canvas, {
+                width: 520,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                            {
+                                x: 70,
+                                y: 90,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            { x: 90, y: 90, nodetype: 'Curve', smooth: true },
+                            {
+                                x: 110,
+                                y: 90,
+                                nodetype: 'OffCurve',
+                                smooth: false
+                            },
+                            { x: 120, y: 90, nodetype: 'Curve', smooth: false },
+                            { x: 160, y: 90, nodetype: 'Line', smooth: false }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            });
+            canvas.outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 2
+            };
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+
+            let pointer = { glyphX: 90, glyphY: 90 };
+            const pointerSpy = jest
+                .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+                .mockImplementation(() => pointer);
+
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            canvas.outlineEditor.onMouseMove({
+                clientX: 11,
+                clientY: 21,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            pointer = { glyphX: 118, glyphY: 93 };
+            canvas.outlineEditor.onMouseMove({
+                clientX: 12,
+                clientY: 22,
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false
+            });
+
+            const nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+            expect(nodes[2].x).toBe(120);
+            expect(nodes[2].y).toBe(90);
+            expect(nodes[1].x).toBe(100);
+            expect(nodes[1].y).toBe(90);
+            expect(nodes[3].x).toBe(140);
+            expect(nodes[3].y).toBe(90);
+            expect(canvas.outlineEditor.activeSnapTarget).toEqual(
+                expect.objectContaining({
+                    xSource: expect.objectContaining({ source: 'active' }),
+                    ySource: expect.objectContaining({ source: 'active' })
+                })
+            );
+
+            pointerSpy.mockRestore();
+        } finally {
+            saveLayerDataSpy.mockRestore();
+        }
     });
 });

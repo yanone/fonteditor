@@ -34,7 +34,7 @@ A point triplet is defined as a middle on-curve point with off-curve points on b
 
 Holding the shift key before or after selecting and moving an off-curve point of a smooth point triplet will restrict the triplet's direction to horizontal/vertical direction, rotated around the on-curve point.
 
-Holding the alt key before or after selecting and moving a smooth on-curve point will restrict its movement on the axis between its two off-curve points.
+Holding the alt key before or after selecting and moving a smooth on-curve point will keep its two off-curve points fixed in place and restrict the on-curve point to sliding on the straight line between those two off-curve points. Lifting the alt key while still dragging returns to free movement and lets the off-curve points follow again. Pressing the alt key again while still dragging freezes the off-curve points at their current positions and again restricts the on-curve point to the line between them.
 
 Holding the alt key before or after selecting and moving an off-curve point that’s not connected to a smooth point will keep the movement restricted to its original direction from the on-curve point. Lifting the alt key while still dragging allows free movement, but pressing the alt key again while still dragging return to the original direction, not the direction at the moment of re-pressing the alt key.
 

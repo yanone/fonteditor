@@ -1036,6 +1036,8 @@ export class OutlineEditor {
     private _smoothOnCurveAltDragConstraint: {
         contourIndex: number;
         nodeIndex: number;
+        linePointX: number;
+        linePointY: number;
         directionX: number;
         directionY: number;
     } | null = null;
@@ -4811,7 +4813,8 @@ export class OutlineEditor {
     }
 
     /**
-     * Capture the drag-start axis for a single smooth on-curve point.
+     * Capture the current handle line for a single smooth on-curve point so
+     * Alt can freeze the off-curve points and slide only the anchor.
      */
     private _captureSmoothOnCurveAltDragConstraint(): void {
         this._smoothOnCurveAltDragConstraint = null;
@@ -4833,17 +4836,41 @@ export class OutlineEditor {
             return;
         }
 
-        const direction = getSmoothAnchorConstraintDirection(
-            contour,
-            nodeIndex
+        const prevIndex = getNeighborNodeIndex(
+            nodeIndex,
+            -1,
+            contour.nodes.length,
+            contour.closed
         );
-        if (!direction) {
+        const nextIndex = getNeighborNodeIndex(
+            nodeIndex,
+            1,
+            contour.nodes.length,
+            contour.closed
+        );
+        if (prevIndex === null || nextIndex === null) {
+            return;
+        }
+
+        const prevNode = contour.nodes[prevIndex];
+        const nextNode = contour.nodes[nextIndex];
+        if (!isOffCurveNode(prevNode) || !isOffCurveNode(nextNode)) {
+            return;
+        }
+
+        const direction = {
+            directionX: nextNode.x - prevNode.x,
+            directionY: nextNode.y - prevNode.y
+        };
+        if (direction.directionX === 0 && direction.directionY === 0) {
             return;
         }
 
         this._smoothOnCurveAltDragConstraint = {
             contourIndex,
             nodeIndex,
+            linePointX: prevNode.x,
+            linePointY: prevNode.y,
             ...direction
         };
     }
@@ -4887,7 +4914,8 @@ export class OutlineEditor {
             false,
             glyphX,
             glyphY,
-            this.altKeyPressed
+            this.altKeyPressed,
+            !this.altKeyPressed
         );
 
         const appliedDeltaX = node.x - beforeX;
@@ -4942,7 +4970,8 @@ export class OutlineEditor {
             false,
             glyphX,
             glyphY,
-            this.altKeyPressed
+            this.altKeyPressed,
+            !this.altKeyPressed
         );
 
         const appliedDeltaX = node.x - beforeX;
@@ -5281,7 +5310,8 @@ export class OutlineEditor {
                 e.shiftKey,
                 glyphX,
                 glyphY,
-                e.altKey
+                e.altKey,
+                false
             );
             this.updatePointDragDeltaX(effectiveDeltaX);
             this._checkOpenPathEndpointSnap();
@@ -5409,7 +5439,8 @@ export class OutlineEditor {
         snapSmoothHandleTriplet: boolean = false,
         pointerX?: number,
         pointerY?: number,
-        constrainWithAltModifier: boolean = false
+        constrainWithAltModifier: boolean = false,
+        allowSmoothPointerFallback: boolean = false
     ): void {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         if (!currentLayerData || !currentLayerData.shapes) return;
@@ -5422,7 +5453,8 @@ export class OutlineEditor {
             snapSmoothHandleTriplet,
             pointerX,
             pointerY,
-            constrainWithAltModifier
+            constrainWithAltModifier,
+            allowSmoothPointerFallback
         );
     }
 
@@ -6596,6 +6628,9 @@ export class OutlineEditor {
         this.altKeyPressed = pressed;
         if (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve) {
             this._rebuildSnapCandidateCache();
+            if (pressed) {
+                this._captureSmoothOnCurveAltDragConstraint();
+            }
             this._applyCurrentSmoothOnCurveAltConstraintState();
             this._applyCurrentOffCurveAltConstraintState();
         }
@@ -8798,7 +8833,8 @@ export class OutlineEditor {
         snapSmoothHandleTriplet: boolean = false,
         pointerX?: number,
         pointerY?: number,
-        constrainWithAltModifier: boolean = false
+        constrainWithAltModifier: boolean = false,
+        allowSmoothPointerFallback: boolean = false
     ): void {
         const contourCache = new Map<number, EditableContour | null>();
         const getContourData = (
@@ -8865,6 +8901,14 @@ export class OutlineEditor {
                 continue;
             }
 
+            const freezeAdjacentHandlesForSmoothAlt =
+                constrainWithAltModifier &&
+                !!this._smoothOnCurveAltDragConstraint &&
+                isOnCurveNode(node) &&
+                contourIndex ===
+                    this._smoothOnCurveAltDragConstraint.contourIndex &&
+                nodeIndex === this._smoothOnCurveAltDragConstraint.nodeIndex;
+
             let adjustedDelta =
                 preserveHandlePositions && isOnCurveNode(node)
                     ? getAltAnchorMoveDelta(contour, nodeIndex, deltaX, deltaY)
@@ -8873,8 +8917,6 @@ export class OutlineEditor {
             if (
                 this._smoothOnCurveAltDragConstraint &&
                 isOnCurveNode(node) &&
-                pointerX !== undefined &&
-                pointerY !== undefined &&
                 this._snapDragStartNodePos &&
                 this._snapDragStartMouseX !== null &&
                 this._snapDragStartMouseY !== null &&
@@ -8883,25 +8925,33 @@ export class OutlineEditor {
                 nodeIndex === this._smoothOnCurveAltDragConstraint.nodeIndex
             ) {
                 if (constrainWithAltModifier) {
+                    const snappedTargetX = node.x + adjustedDelta.deltaX;
+                    const snappedTargetY = node.y + adjustedDelta.deltaY;
                     const projectedPointerDelta = projectDeltaOntoDirection(
-                        Math.round(pointerX) -
-                            Math.round(this._snapDragStartMouseX),
-                        Math.round(pointerY) -
-                            Math.round(this._snapDragStartMouseY),
+                        snappedTargetX -
+                            this._smoothOnCurveAltDragConstraint.linePointX,
+                        snappedTargetY -
+                            this._smoothOnCurveAltDragConstraint.linePointY,
                         this._smoothOnCurveAltDragConstraint.directionX,
                         this._smoothOnCurveAltDragConstraint.directionY
                     );
                     adjustedDelta = {
                         deltaX:
-                            this._snapDragStartNodePos.x +
+                            this._smoothOnCurveAltDragConstraint.linePointX +
                             projectedPointerDelta.deltaX -
                             node.x,
                         deltaY:
-                            this._snapDragStartNodePos.y +
+                            this._smoothOnCurveAltDragConstraint.linePointY +
                             projectedPointerDelta.deltaY -
                             node.y
                     };
-                } else {
+                } else if (
+                    allowSmoothPointerFallback &&
+                    pointerX !== undefined &&
+                    pointerY !== undefined &&
+                    adjustedDelta.deltaX === 0 &&
+                    adjustedDelta.deltaY === 0
+                ) {
                     adjustedDelta = {
                         deltaX: pointerX - node.x,
                         deltaY: pointerY - node.y
@@ -8951,7 +9001,8 @@ export class OutlineEditor {
             if (
                 isOnCurveNode(node) &&
                 node.smooth &&
-                !preserveHandlePositions
+                !preserveHandlePositions &&
+                !freezeAdjacentHandlesForSmoothAlt
             ) {
                 smoothAnchorsToRealign.add(`${contourIndex}:${nodeIndex}`);
             }
@@ -8990,7 +9041,11 @@ export class OutlineEditor {
                 }
             }
 
-            if (isOffCurveNode(node) || preserveHandlePositions) {
+            if (
+                isOffCurveNode(node) ||
+                preserveHandlePositions ||
+                freezeAdjacentHandlesForSmoothAlt
+            ) {
                 continue;
             }
 
