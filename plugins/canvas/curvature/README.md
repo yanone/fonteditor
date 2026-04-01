@@ -18,9 +18,9 @@ A curvature comb is a visualization tool that shows how the curvature of a curve
 - **Shape size** represents the magnitude of curvature at that point
 - **Shape direction** extends perpendicular to the curve's tangent
 - **Color gradient** indicates curvature intensity:
-  - **Gray**: Low curvature (gentle curves)
-  - **Yellow**: Medium curvature
-  - **Red**: High curvature (sharp curves)
+    - **Gray**: Low curvature (gentle curves)
+    - **Yellow**: Medium curvature
+    - **Red**: High curvature (sharp curves)
 
 This helps font designers:
 
@@ -34,11 +34,11 @@ This helps font designers:
 After activating the plugin, sliders appear in the plugin dropdown:
 
 - **Scale** (1000-10000, default 5000): Controls the visual scale of the curvature visualization
-  - Lower values = smaller visualization
-  - Higher values = larger visualization for fine details
+    - Lower values = smaller visualization
+    - Higher values = larger visualization for fine details
 - **Power** (1-5, default 1): Increases tooth-length contrast and preserves the existing color mapping
-  - `1` = current tooth-length behavior
-  - Higher values = shorter teeth for lower curvature and longer teeth for higher curvature
+    - `1` = current tooth-length behavior
+    - Higher values = shorter teeth for lower curvature and longer teeth for higher curvature
 
 ## Mathematics
 

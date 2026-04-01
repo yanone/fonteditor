@@ -1857,7 +1857,44 @@ function deleteNodeFromNodeArray<T extends Babelfont.Node>(
         return null;
     }
 
-    return normalizePathNodeArray(mergedNodes, closed);
+    const normalizedMergedNodes = normalizePathNodeArray(mergedNodes, closed);
+    if (!closed && normalizedMergedNodes?.length && nodeIndex > 0) {
+        const originalStartNode = nodes[0];
+        const normalizedStartNode = normalizedMergedNodes[0];
+        if (
+            originalStartNode &&
+            originalStartNode.nodetype !== 'Move' &&
+            originalStartNode.nodetype !== 'Line' &&
+            normalizedStartNode &&
+            normalizedStartNode.x === originalStartNode.x &&
+            normalizedStartNode.y === originalStartNode.y
+        ) {
+            normalizedMergedNodes[0] = cloneNodeData(normalizedStartNode, {
+                nodetype: originalStartNode.nodetype,
+                smooth: Boolean(originalStartNode.smooth)
+            } as Partial<T>);
+        }
+
+        const originalEndNode = nodes[nodes.length - 1];
+        const normalizedEndNode =
+            normalizedMergedNodes[normalizedMergedNodes.length - 1];
+        if (
+            originalEndNode &&
+            !isOffCurveNodeType(originalEndNode.nodetype) &&
+            originalEndNode.nodetype !== 'Line' &&
+            normalizedEndNode &&
+            normalizedEndNode.x === originalEndNode.x &&
+            normalizedEndNode.y === originalEndNode.y
+        ) {
+            normalizedMergedNodes[normalizedMergedNodes.length - 1] =
+                cloneNodeData(normalizedEndNode, {
+                    nodetype: originalEndNode.nodetype,
+                    smooth: Boolean(originalEndNode.smooth)
+                } as Partial<T>);
+        }
+    }
+
+    return normalizedMergedNodes;
 }
 
 function getAdjacentPathDescriptors(
@@ -4066,12 +4103,22 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
             const oldClosed = this.data.closed;
             const nextNodes = nodeArray.map((node) => cloneNodeData(node));
 
+            const normalizedFirstNodeType =
+                nextNodes[0].nodetype === 'Move'
+                    ? nextNodes.length >= 4 &&
+                      nextNodes[1]?.nodetype === 'OffCurve' &&
+                      nextNodes[nextNodes.length - 1]?.nodetype !== 'OffCurve'
+                        ? (nextNodes[nextNodes.length - 1]
+                              ?.nodetype as Babelfont.NodeType)
+                        : ('Line' as Babelfont.NodeType)
+                    : nextNodes[0].nodetype;
+
             nextNodes[0] = cloneNodeData(nextNodes[0], {
-                nodetype:
-                    nextNodes[0].nodetype === 'Move'
-                        ? ('Line' as Babelfont.NodeType)
-                        : nextNodes[0].nodetype,
-                smooth: false
+                nodetype: normalizedFirstNodeType,
+                smooth:
+                    normalizedFirstNodeType === 'Line'
+                        ? false
+                        : Boolean(nextNodes[0].smooth)
             });
 
             this.data.nodes = nextNodes;

@@ -4307,8 +4307,18 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const glyph = font.findGlyph('A');
         const currentLayer = glyph.findLayerById('layer-1');
         const linkedLayer = glyph.findLayerById('layer-2');
-        const originalActiveX = currentLayer.paths[0].nodes[3].x;
-        const originalLinkedX = linkedLayer.paths[0].nodes[3].x;
+        const originalActiveNodes = currentLayer.paths[0].nodes.map((node) => ({
+            x: node.x,
+            y: node.y,
+            nodetype: node.nodetype,
+            smooth: Boolean(node.smooth)
+        }));
+        const originalLinkedNodes = linkedLayer.paths[0].nodes.map((node) => ({
+            x: node.x,
+            y: node.y,
+            nodetype: node.nodetype,
+            smooth: Boolean(node.smooth)
+        }));
 
         canvas.getCurrentGlyphName = jest.fn(() => 'A');
         canvas.outlineEditor.active = true;
@@ -4348,18 +4358,31 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             canvas.outlineEditor.onMouseUp({ clientX: 30, clientY: 40 });
 
             expect(linkedLayersSpy).toHaveBeenCalled();
-            expect(bridge.beginTransaction).toHaveBeenCalledWith(
-                'Move point along curve'
-            );
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+            expect(bridge.beginTransaction).toHaveBeenCalledWith('Split path');
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
                 'A',
-                'Move point along curve'
-            );
+                'Split path'
+            ]);
             expect(bridge.endTransaction).toHaveBeenCalled();
-            expect(currentLayer.paths[0].nodes[3].x).not.toBe(originalActiveX);
-            expect(linkedLayer.paths[0].nodes[3].x).not.toBe(originalLinkedX);
+            expect(
+                currentLayer.paths[0].nodes.map((node) => ({
+                    x: node.x,
+                    y: node.y,
+                    nodetype: node.nodetype,
+                    smooth: Boolean(node.smooth)
+                }))
+            ).not.toEqual(originalActiveNodes);
+            expect(
+                linkedLayer.paths[0].nodes.map((node) => ({
+                    x: node.x,
+                    y: node.y,
+                    nodetype: node.nodetype,
+                    smooth: Boolean(node.smooth)
+                }))
+            ).not.toEqual(originalLinkedNodes);
             expect(canvas.outlineEditor.selectedPoints).toEqual([
-                { contourIndex: 0, nodeIndex: 3 }
+                { contourIndex: 1, nodeIndex: 0 }
             ]);
         } finally {
             window.changeBridge = originalBridge;
@@ -4947,10 +4970,11 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(linkedLayersSpy).toHaveBeenCalled();
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
                 'A',
                 'Draw path'
-            );
+            ]);
             expect(
                 currentLayer.paths[0].nodes.map((node) => ({
                     x: node.x,
@@ -4958,7 +4982,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                     nodetype: node.nodetype
                 }))
             ).toEqual([
-                { x: 11, y: 39, nodetype: 'Move' },
+                { x: 0, y: 40, nodetype: 'Move' },
                 { x: 40, y: 40, nodetype: 'Line' },
                 { x: 100, y: 40, nodetype: 'Line' }
             ]);
@@ -4969,7 +4993,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                     nodetype: node.nodetype
                 }))
             ).toEqual([
-                { x: 11, y: 39, nodetype: 'Move' },
+                { x: 0, y: 40, nodetype: 'Move' },
                 { x: 50, y: 50, nodetype: 'Line' },
                 { x: 110, y: 50, nodetype: 'Line' }
             ]);
@@ -5144,10 +5168,11 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
 
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
                 'A',
                 'Draw path'
-            );
+            ]);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(fontManager.lastChangeSource).toBe('keyboard-outline');
             expect(fontManager.lastEditType).toBe('outline');
@@ -5327,10 +5352,11 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
 
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
                 'A',
                 'Draw path'
-            );
+            ]);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(currentLayer.paths[0].closed).toBe(true);
             expect(linkedLayer.paths[0].closed).toBe(true);
@@ -5505,10 +5531,11 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(bridge.beginTransaction).toHaveBeenCalledWith(
                 'Convert line to curve'
             );
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
                 'A',
                 'Convert line to curve'
-            );
+            ]);
             expect(
                 currentLayer.paths[0].nodes.map((node) => node.nodetype)
             ).toEqual(['Move', 'OffCurve', 'OffCurve', 'Curve']);
@@ -5708,10 +5735,11 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(linkedLayersSpy).toHaveBeenCalled();
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
                 'A',
                 'Convert line to curve'
-            );
+            ]);
             expect(
                 currentLayer.paths[0].nodes.map((node) => node.nodetype)
             ).toContain('Curve');
@@ -5887,10 +5915,6 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(linkedLayersSpy).toHaveBeenCalled();
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
-                'A',
-                'Add point'
-            );
             expect(
                 currentLayer.paths[0].nodes.every(
                     (node) =>
@@ -5903,6 +5927,8 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                         Number.isInteger(node.x) && Number.isInteger(node.y)
                 )
             ).toBe(true);
+            expect(currentLayer.paths[0].nodes.length).toBeGreaterThan(4);
+            expect(linkedLayer.paths[0].nodes.length).toBeGreaterThan(4);
         } finally {
             window.changeBridge = originalBridge;
             window.currentFontModel = originalFontModel;

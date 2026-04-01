@@ -1847,12 +1847,18 @@ export class OutlineEditor {
             ) {
                 bridge.syncGlyphsFromJson(glyphNames, changeLabel);
             } else {
+                const syncLayerId = Object.prototype.hasOwnProperty.call(
+                    options,
+                    'layerId'
+                )
+                    ? options.layerId
+                    : this.getCurrentLayerId();
                 bridge.syncGlyphFromJson(
                     currentGlyphName,
                     changeLabel,
                     undefined,
                     undefined,
-                    options.layerId ?? this.getCurrentLayerId()
+                    syncLayerId
                 );
             }
         } finally {
@@ -7249,6 +7255,10 @@ export class OutlineEditor {
             return this.closeActivePathDrawingSession(selectedEndpointSeed);
         }
 
+        if (this.hoveredAddPointPreview) {
+            return false;
+        }
+
         if (!this.isNeutralCommandCanvasTarget()) {
             return false;
         }
@@ -8933,7 +8943,8 @@ export class OutlineEditor {
             currentGlyphModel.name,
             affectedGlyphNames,
             {
-                reuseTransaction: options.reuseTransaction
+                reuseTransaction: options.reuseTransaction,
+                layerId: null
             }
         );
 
@@ -9054,7 +9065,7 @@ export class OutlineEditor {
             'Close path',
             currentGlyphModel.name,
             affectedGlyphNames,
-            { reuseTransaction }
+            { reuseTransaction, layerId: null }
         );
 
         this.refreshKeyedMetricsViewportAnchor(
@@ -9189,7 +9200,8 @@ export class OutlineEditor {
         this.syncStructuralGlyphChangeTransaction(
             label,
             currentGlyphModel?.name,
-            affectedGlyphNames
+            affectedGlyphNames,
+            { layerId: null }
         );
 
         if (currentFont) {
@@ -10284,7 +10296,8 @@ export class OutlineEditor {
         this.syncStructuralGlyphChangeTransaction(
             'Delete point(s)',
             currentGlyphModel.name,
-            affectedGlyphNames
+            affectedGlyphNames,
+            { layerId: null }
         );
 
         this.syncCurrentExactLayerDataFromModel();
