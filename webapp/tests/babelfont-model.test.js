@@ -2137,6 +2137,44 @@ describe('Babelfont Object Model', () => {
             ]);
         });
 
+        test('Layer.connectOpenPathEndpoints closes a same-path contour without dropping a distinct final corner', () => {
+            const testFont = makeFontWithSinglePath(
+                [
+                    { x: 0, y: 0, nodetype: 'Move' },
+                    { x: 100, y: 0, nodetype: 'Line' },
+                    { x: 100, y: 100, nodetype: 'Line' },
+                    { x: 0, y: 100, nodetype: 'Line' }
+                ],
+                false
+            );
+            const layer = testFont.glyphs[0].layers[0];
+
+            const result = layer.connectOpenPathEndpoints(0, 'end', 0, 'start');
+
+            expect(result).toEqual({
+                shapeIndex: 0,
+                boundaryNodeIndex: 0,
+                closed: true
+            });
+            expect(layer.paths).toHaveLength(1);
+            expect(layer.paths[0].closed).toBe(true);
+            expect(layer.paths[0].nodes).toHaveLength(4);
+            expect(
+                layer.paths[0].nodes.map((node) => [node.x, node.y])
+            ).toEqual([
+                [0, 0],
+                [100, 0],
+                [100, 100],
+                [0, 100]
+            ]);
+            expect(layer.paths[0].nodes.map((node) => node.nodetype)).toEqual([
+                'Line',
+                'Line',
+                'Line',
+                'Line'
+            ]);
+        });
+
         test('Layer.connectOpenPathEndpoints does not leave a Move node after the first point when connecting reversed open paths', () => {
             const testFont = Font.fromData({
                 upm: 1000,

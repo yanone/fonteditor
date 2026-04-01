@@ -4531,10 +4531,11 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
 
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
-            expect(bridge.syncGlyphFromJson).toHaveBeenCalledWith(
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
                 'A',
                 'Draw path'
-            );
+            ]);
             expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
             expect(currentLayer.paths).toHaveLength(1);
             expect(linkedLayer.paths).toHaveLength(1);
@@ -4546,6 +4547,240 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
             expect(
                 linkedLayer.paths[0].nodes.map((node) => node.nodetype)
             ).toEqual(['Line', 'Line', 'Line']);
+        } finally {
+            transformSpy.mockRestore();
+            window.changeBridge = originalBridge;
+            window.currentFontModel = originalFontModel;
+            linkedLayersSpy.mockRestore();
+            workerCacheSpy.mockRestore();
+            dirtyIndicatorSpy.mockRestore();
+            currentFontSpy.mockRestore();
+        }
+    });
+
+    test('cmd-click drawing a four-corner shape closes on the first point without dropping the last corner', async () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'A',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'layer-2',
+                            width: 500,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Rectangle Draw Test' }
+            },
+            note: '',
+            date: '2026-04-01',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const bridge = {
+            beginTransaction: jest.fn(),
+            endTransaction: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(),
+            hasUnsavedChanges: false
+        };
+        const currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+        const dirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const workerCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const linkedLayersSpy = jest.spyOn(Layer.prototype, '_getLinkedLayers');
+        const originalBridge = window.changeBridge;
+        const originalFontModel = window.currentFontModel;
+
+        window.changeBridge = bridge;
+        window.currentFontModel = font;
+
+        const glyph = font.findGlyph('A');
+        const currentLayer = glyph.findLayerById('layer-1');
+        const linkedLayer = glyph.findLayerById('layer-2');
+
+        canvas.getCurrentGlyphName = jest.fn(() => 'A');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.glyphStack = 'A@layer-1';
+        canvas.outlineEditor.layerData = JSON.parse(
+            JSON.stringify(currentLayer.toJSON())
+        );
+
+        let pointerPosition = { glyphX: 10, glyphY: 20 };
+        const transformSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockImplementation(() => pointerPosition);
+
+        try {
+            pointerPosition = { glyphX: 10, glyphY: 20 };
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.hoveredPointIndex = null;
+            pointerPosition = { glyphX: 80, glyphY: 20 };
+            canvas.outlineEditor.onSingleClick({
+                clientX: 20,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.hoveredPointIndex = null;
+            pointerPosition = { glyphX: 80, glyphY: 90 };
+            canvas.outlineEditor.onSingleClick({
+                clientX: 20,
+                clientY: 30,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.hoveredPointIndex = null;
+            pointerPosition = { glyphX: 10, glyphY: 90 };
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 30,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+
+            expect(currentLayer.paths[0].closed).toBe(false);
+            expect(currentLayer.paths[0].nodes).toHaveLength(4);
+            expect(
+                currentLayer.paths[0].nodes.map((node) => [node.x, node.y])
+            ).toEqual([
+                [0, 20],
+                [80, 20],
+                [80, 90],
+                [0, 90]
+            ]);
+            expect(canvas.outlineEditor.activePathDrawingSession).toEqual(
+                expect.objectContaining({
+                    shapeIndex: 0,
+                    pathIndex: 0,
+                    edge: 'end',
+                    segmentCount: 3
+                })
+            );
+
+            canvas.outlineEditor.hoveredPointIndex = {
+                contourIndex: 0,
+                nodeIndex: 0
+            };
+            canvas.outlineEditor.onSingleClick({
+                clientX: 10,
+                clientY: 20,
+                detail: 1,
+                shiftKey: false,
+                altKey: false,
+                metaKey: true,
+                ctrlKey: false
+            });
+            canvas.outlineEditor.setCommandKeyPressed(false);
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(linkedLayersSpy).toHaveBeenCalled();
+            expect(bridge.beginTransaction).toHaveBeenCalledTimes(1);
+            expect(bridge.beginTransaction).toHaveBeenCalledWith('Draw path');
+            expect(bridge.syncGlyphFromJson).toHaveBeenCalledTimes(1);
+            expect(bridge.syncGlyphFromJson.mock.calls[0].slice(0, 2)).toEqual([
+                'A',
+                'Draw path'
+            ]);
+            expect(bridge.endTransaction).toHaveBeenCalledTimes(1);
+            expect(currentLayer.paths).toHaveLength(1);
+            expect(linkedLayer.paths).toHaveLength(1);
+            expect(currentLayer.paths[0].closed).toBe(true);
+            expect(linkedLayer.paths[0].closed).toBe(true);
+            expect(currentLayer.paths[0].nodes).toHaveLength(4);
+            expect(linkedLayer.paths[0].nodes).toHaveLength(4);
+            expect(
+                currentLayer.paths[0].nodes.map((node) => [node.x, node.y])
+            ).toEqual([
+                [0, 20],
+                [80, 20],
+                [80, 90],
+                [0, 90]
+            ]);
+            expect(
+                linkedLayer.paths[0].nodes.map((node) => [node.x, node.y])
+            ).toEqual([
+                [0, 20],
+                [80, 20],
+                [80, 90],
+                [0, 90]
+            ]);
+            expect(
+                currentLayer.paths[0].nodes.map((node) => node.nodetype)
+            ).toEqual(['Line', 'Line', 'Line', 'Line']);
+            expect(
+                linkedLayer.paths[0].nodes.map((node) => node.nodetype)
+            ).toEqual(['Line', 'Line', 'Line', 'Line']);
         } finally {
             transformSpy.mockRestore();
             window.changeBridge = originalBridge;

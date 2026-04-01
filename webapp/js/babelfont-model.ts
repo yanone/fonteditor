@@ -6701,7 +6701,17 @@ export class Layer extends ArrayElementBase {
                     return null;
                 }
 
-                const changed = sourcePath._closeOpenPathByMerge();
+                const startNode = sourceNodes[0] || null;
+                const endNode = sourceNodes[sourceNodes.length - 1] || null;
+                const shouldMergeCoincidentEndpoints = Boolean(
+                    startNode &&
+                    endNode &&
+                    startNode.x === endNode.x &&
+                    startNode.y === endNode.y
+                );
+                const changed = shouldMergeCoincidentEndpoints
+                    ? sourcePath._closeOpenPathByMerge()
+                    : sourcePath._closeOpenPath();
                 if (!changed) {
                     return null;
                 }
