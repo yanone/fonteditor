@@ -735,6 +735,108 @@ function getAxisAlignedHandleDirection(
     return null;
 }
 
+const TOGGLE_SMOOTH_AXIS_SNAP_MAX_ANGLE_RADIANS = (10 * Math.PI) / 180;
+
+function getAngleBetweenVectors(
+    leftX: number,
+    leftY: number,
+    rightX: number,
+    rightY: number
+): number | null {
+    const leftLength = Math.hypot(leftX, leftY);
+    const rightLength = Math.hypot(rightX, rightY);
+    if (!leftLength || !rightLength) {
+        return null;
+    }
+
+    const cosine = Math.max(
+        -1,
+        Math.min(1, (leftX * rightX + leftY * rightY) / (leftLength * rightLength))
+    );
+    return Math.acos(cosine);
+}
+
+function getNearestAxisDirectionWithinThreshold(
+    directionX: number,
+    directionY: number,
+    thresholdRadians: number
+): { directionX: number; directionY: number } | null {
+    const length = Math.hypot(directionX, directionY);
+    if (!length) {
+        return null;
+    }
+
+    const absoluteX = Math.abs(directionX);
+    const absoluteY = Math.abs(directionY);
+    const angleToHorizontal = Math.atan2(absoluteY, absoluteX || 0);
+    const angleToVertical = Math.atan2(absoluteX, absoluteY || 0);
+
+    if (
+        angleToHorizontal <= thresholdRadians &&
+        angleToHorizontal <= angleToVertical
+    ) {
+        return {
+            directionX: directionX < 0 ? -1 : 1,
+            directionY: 0
+        };
+    }
+
+    if (angleToVertical <= thresholdRadians) {
+        return {
+            directionX: 0,
+            directionY: directionY < 0 ? -1 : 1
+        };
+    }
+
+    return null;
+}
+
+function snapToggleSmoothedTripletToAxisWhenEligible(
+    anchor: Babelfont.Node,
+    prevHandle: Babelfont.Node,
+    nextHandle: Babelfont.Node,
+    originalIncomingX: number,
+    originalIncomingY: number,
+    originalOutgoingX: number,
+    originalOutgoingY: number
+): boolean {
+    const originalDirectionMismatch = getAngleBetweenVectors(
+        originalIncomingX,
+        originalIncomingY,
+        originalOutgoingX,
+        originalOutgoingY
+    );
+    if (
+        originalDirectionMismatch === null ||
+        originalDirectionMismatch <= TOGGLE_SMOOTH_AXIS_SNAP_MAX_ANGLE_RADIANS
+    ) {
+        return false;
+    }
+
+    const snappedAxisDirection = getNearestAxisDirectionWithinThreshold(
+        nextHandle.x - anchor.x,
+        nextHandle.y - anchor.y,
+        TOGGLE_SMOOTH_AXIS_SNAP_MAX_ANGLE_RADIANS
+    );
+    if (!snappedAxisDirection) {
+        return false;
+    }
+
+    alignHandleAlongDirection(
+        anchor,
+        prevHandle,
+        -snappedAxisDirection.directionX,
+        -snappedAxisDirection.directionY
+    );
+    alignHandleAlongDirection(
+        anchor,
+        nextHandle,
+        snappedAxisDirection.directionX,
+        snappedAxisDirection.directionY
+    );
+    return true;
+}
+
 function realignSmoothHandlesForToggle(
     contour: EditableContour,
     anchorIndex: number
@@ -769,6 +871,10 @@ function realignSmoothHandlesForToggle(
     if (prevHandleIndex !== null && nextHandleIndex !== null) {
         const prevHandle = contour.nodes[prevHandleIndex];
         const nextHandle = contour.nodes[nextHandleIndex];
+        const originalIncomingX = anchor.x - prevHandle.x;
+        const originalIncomingY = anchor.y - prevHandle.y;
+        const originalOutgoingX = nextHandle.x - anchor.x;
+        const originalOutgoingY = nextHandle.y - anchor.y;
         const prevAxisDirection = getAxisAlignedHandleDirection(
             anchor,
             prevHandle
@@ -796,6 +902,22 @@ function realignSmoothHandlesForToggle(
             );
             return true;
         }
+
+        const changed = realignSmoothHandles(contour, anchorIndex);
+        if (!changed) {
+            return false;
+        }
+
+        snapToggleSmoothedTripletToAxisWhenEligible(
+            anchor,
+            prevHandle,
+            nextHandle,
+            originalIncomingX,
+            originalIncomingY,
+            originalOutgoingX,
+            originalOutgoingY
+        );
+        return true;
     }
 
     return realignSmoothHandles(contour, anchorIndex);

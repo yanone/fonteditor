@@ -76,6 +76,28 @@ function makeEligibleToggleLayer() {
     };
 }
 
+function makeNearAxisSnapToggleLayer() {
+    return {
+        width: 520,
+        shapes: [
+            {
+                nodes: [
+                    { x: 0, y: 0, nodetype: 'Move', smooth: false },
+                    { x: 20, y: 20, nodetype: 'OffCurve', smooth: false },
+                    { x: 40, y: 57, nodetype: 'OffCurve', smooth: false },
+                    { x: 60, y: 60, nodetype: 'Curve', smooth: false },
+                    { x: 80, y: 57, nodetype: 'OffCurve', smooth: false },
+                    { x: 100, y: 20, nodetype: 'OffCurve', smooth: false },
+                    { x: 120, y: 0, nodetype: 'Curve', smooth: false }
+                ],
+                closed: false
+            }
+        ],
+        anchors: [],
+        guides: []
+    };
+}
+
 function makeOneSidedCurveLayer() {
     return {
         width: 520,
@@ -666,6 +688,21 @@ describe('Outline Editing canonical behavior', () => {
 
         const nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
         expect(nodes[3].smooth).toBe(true);
+        expect(nodes[4].y).toBe(60);
+    });
+
+    test('triplet smooth toggling fully snaps to horizontal or vertical when the averaged direction lands within 10 degrees of an axis after previously divergent handles are aligned', () => {
+        activateEditableLayer(canvas, makeNearAxisSnapToggleLayer());
+        canvas.outlineEditor.saveLayerData = jest.fn();
+
+        canvas.outlineEditor.togglePointSmooth({
+            contourIndex: 0,
+            nodeIndex: 3
+        });
+
+        const nodes = canvas.outlineEditor.layerData.shapes[0].nodes;
+        expect(nodes[3].smooth).toBe(true);
+        expect(nodes[2].y).toBe(60);
         expect(nodes[4].y).toBe(60);
     });
 
