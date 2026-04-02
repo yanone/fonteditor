@@ -32,8 +32,15 @@ When working with Python, these shortcuts streamline common operations:
 
 ## Editor Outline Actions
 
+- Hold `Cmd/Ctrl` in empty glyph space to start drawing a new contour point by point
+- Hold `Cmd/Ctrl` on a selected open end point to continue an open contour from that end
 - `Cmd/Ctrl + Click` on a segment adds a point to that segment
-- `Alt + Click` on a straight segment converts it into a curve
+- `Cmd/Ctrl + Click` on an on-curve point cuts the contour open at that point
+- Drag one open end point onto another open end point to connect or close a contour
+- `Alt/Option + Click` on a straight segment converts it into a curve
+- Double-click an on-curve point toggles smooth and corner behavior
+- Hold `Shift` while dragging an off-curve handle of a smooth point to constrain it horizontally or vertically
+- Hold `Alt/Option` while dragging a smooth on-curve point to slide it along its existing handle axis
 
 ## Notes for Beginners
 
@@ -62,4 +69,5 @@ Keep in mind that some shortcuts may only be available when certain views are ac
 ## Related Pages
 
 - [Workspace Tour](../getting-started/03-workspace-tour.md)
+- [Outline Drawing and Editing](../editor/04-outline-drawing-and-editing.md)
 - [Script Editor Workflow](../python/02-script-editor-workflow.md)

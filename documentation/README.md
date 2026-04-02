@@ -16,6 +16,7 @@ This documentation is designed as a practical user guide for real font-productio
 4. [Workspace Tour](getting-started/03-workspace-tour.md)
 5. [Files View Basics](files/01-files-view-basics.md)
 6. [Glyph Editor Basics](editor/01-glyph-editor-basics.md)
+7. [Outline Drawing and Editing](editor/04-outline-drawing-and-editing.md)
 
 ### Path B: Production Workflow
 
@@ -52,6 +53,7 @@ This documentation is designed as a practical user guide for real font-productio
 ### Editor
 
 - [Glyph Editor Basics](editor/01-glyph-editor-basics.md)
+- [Outline Drawing and Editing](editor/04-outline-drawing-and-editing.md)
 - [Axes, Masters, and Interpolation](editor/02-axes-masters-interpolation.md)
 - [Sidebearing Arithmetics](editor/03-sidebearing-arithmetics.md)
 

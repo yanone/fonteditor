@@ -37,5 +37,6 @@ When beginning, consider opening a simple glyph such as **H** or **O**, then mov
 
 ## Related Pages
 
+- [Outline Drawing and Editing](04-outline-drawing-and-editing.md)
 - [Axes, Masters, and Interpolation](02-axes-masters-interpolation.md)
 - [Keyboard Shortcuts](../reference/keyboard-shortcuts.md)
