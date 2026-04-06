@@ -175,7 +175,7 @@ function getAutomaticComponentTransform(
 function isAutomaticAlignedComponent(component: Component): boolean {
     const value =
         getModelFormatSpecific(component)?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
-    return value === undefined || value === 0;
+    return value === 0;
 }
 
 type InterpolationFontCacheEntry = {

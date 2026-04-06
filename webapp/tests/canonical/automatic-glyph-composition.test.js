@@ -14,8 +14,9 @@
  *   - anchor edits on source glyphs rebuild downstream automatic composites
  *   - automatic layers reject direct sidebearing inputs and only accept
  *     =+/- and ==+/- adjustments
- *   - automatic components expose anchor overrides and lock translation fields
- *     in the property panel
+ *   - fully automatic layers expose anchor overrides and lock component
+ *     translation fields in the property panel, while mixed layers keep
+ *     components movable
  *   - automatic components are rendered differently from manual components
  */
 
@@ -282,6 +283,82 @@ function setupCanvasForLayer(canvas, font, glyphName, layerId) {
 }
 
 describe('Automatic Glyph Composition canonical behavior', () => {
+    test('components without an explicit automatic-alignment flag stay manual', () => {
+        const font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [makeMaster()],
+            glyphs: [
+                {
+                    name: 'dotaccentcomb',
+                    category: 'Mark',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'DOT0',
+                            width: 200,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [makeRectPath(0, 0, 60, 60)],
+                            anchors: [{ name: '_top', x: 30, y: 30 }],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'dieresiscomb',
+                    category: 'Mark',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'DIER0',
+                            width: 200,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'M0'
+                            },
+                            shapes: [
+                                {
+                                    reference: 'dotaccentcomb',
+                                    transform: [1, 0, 0, 1, 0, 0]
+                                },
+                                {
+                                    reference: 'dotaccentcomb',
+                                    transform: [1, 0, 0, 1, 120, 0]
+                                }
+                            ],
+                            anchors: [],
+                            guides: [],
+                            format_specific: {}
+                        }
+                    ],
+                    format_specific: {}
+                }
+            ],
+            names: { family_name: { en: 'Automatic Alignment Explicit Only' } },
+            note: '',
+            date: '2026-04-06',
+            features: { classes: {}, prefixes: {}, features: [] },
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
+        const layer = font.findGlyph('dieresiscomb').layers[0];
+
+        expect(layer.components[0].isAutomaticAligned()).toBe(false);
+        expect(layer.components[1].isAutomaticAligned()).toBe(false);
+        expect(layer.isAutomaticAlignedLayer()).toBe(false);
+    });
+
     test('only component-only layers with all-auto components participate in automatic composition', () => {
         const font = makeAutomaticCompositionFont();
 
@@ -413,7 +490,7 @@ describe('Automatic component editing canonical behavior', () => {
         canvas.destroy();
     });
 
-    test('property panel disables automatic component translation and exposes anchor override choices', () => {
+    test('property panel disables component translation for fully automatic layers and exposes anchor override choices', () => {
         const layer = setupCanvasForLayer(canvas, font, 'adieresis', 'AD0');
         canvas.outlineEditor.selectedComponents = [1];
         canvas.outlineEditor.selectedPoints = [];
@@ -443,6 +520,48 @@ describe('Automatic component editing canonical behavior', () => {
         expect(
             Array.from(anchorSelect.options).map((option) => option.value)
         ).toEqual(['', 'top', 'top_alt']);
+    });
+
+    test('mixed layers keep automatic-marked components movable', () => {
+        const layer = setupCanvasForLayer(
+            canvas,
+            font,
+            'manualComposite',
+            'MC0'
+        );
+        canvas.outlineEditor.saveLayerData = jest.fn();
+        canvas.outlineEditor.selectedComponents = [0];
+        canvas.outlineEditor.selectedPoints = [];
+        canvas.outlineEditor.selectedAnchors = [];
+
+        canvas.updatePropertyPanel();
+
+        const translateX = canvas.propertyPanel.querySelector(
+            'input[data-property-field="component-translateX"]'
+        );
+        const translateY = canvas.propertyPanel.querySelector(
+            'input[data-property-field="component-translateY"]'
+        );
+        const anchorSelect = canvas.propertyPanel.querySelector(
+            'select[data-property-field="component-anchor"]'
+        );
+
+        expect(layer.isAutomaticAlignedLayer()).toBe(false);
+        expect(layer.components[0].isAutomaticAligned()).toBe(true);
+        expect(translateX).toBeTruthy();
+        expect(translateY).toBeTruthy();
+        expect(translateX.disabled).toBe(false);
+        expect(translateY.disabled).toBe(false);
+        expect(anchorSelect).toBeNull();
+
+        canvas.outlineEditor.moveSelectedComponents(15, 25);
+
+        expect(
+            canvas.outlineEditor.layerData.shapes[0].transform.translation[0]
+        ).toBe(15);
+        expect(
+            canvas.outlineEditor.layerData.shapes[0].transform.translation[1]
+        ).toBe(25);
     });
 
     test('renderer uses distinct fill styling for automatic components', () => {

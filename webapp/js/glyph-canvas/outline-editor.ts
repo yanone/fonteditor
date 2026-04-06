@@ -1542,22 +1542,6 @@ export class OutlineEditor {
         return !!this.getCurrentLayerModel()?.isAutomaticAlignedLayer?.();
     }
 
-    private isAutomaticComponentAtIndex(componentIndex: number): boolean {
-        const layer = this.getCurrentLayerModel();
-        const shape = layer?.shapes?.[componentIndex];
-        return (
-            !!shape?.isComponent?.() && shape.asComponent().isAutomaticAligned()
-        );
-    }
-
-    private selectionContainsAutomaticComponent(
-        componentIndices: number[] = this.selectedComponents
-    ): boolean {
-        return componentIndices.some((index) =>
-            this.isAutomaticComponentAtIndex(index)
-        );
-    }
-
     private hasActiveMetricsKey(side: SidebearingSide): boolean {
         const resolution =
             this.getCurrentLayerModel()?.resolveMetricsKey?.(side);
@@ -4518,7 +4502,7 @@ export class OutlineEditor {
                 }
                 // If already in selection, keep all selected components, points, and anchors
 
-                if (this.selectionContainsAutomaticComponent(nextSelection)) {
+                if (this.isAutomaticComposedLayer()) {
                     this.glyphCanvas.updatePropertyPanel();
                     this.glyphCanvas.render();
                     return;
@@ -9842,7 +9826,7 @@ export class OutlineEditor {
             return;
         }
 
-        if (this.selectionContainsAutomaticComponent()) {
+        if (this.isAutomaticComposedLayer()) {
             this.glyphCanvas.updatePropertyPanel();
             this.glyphCanvas.render();
             return;

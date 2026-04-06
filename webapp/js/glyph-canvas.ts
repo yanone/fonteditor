@@ -2969,16 +2969,11 @@ class GlyphCanvas {
         return components;
     }
 
-    private selectionContainsAutomaticComponent(
-        components: Component[]
-    ): boolean {
-        return components.some((component) => component.isAutomaticAligned());
-    }
-
     private canEditSelectedComponentTranslation(
+        layer: Layer,
         components: Component[]
     ): boolean {
-        return !this.selectionContainsAutomaticComponent(components);
+        return components.length > 0 && !layer.isAutomaticAlignedLayer();
     }
 
     private getAutomaticComponentAnchorOverrideOptions(
@@ -3086,7 +3081,7 @@ class GlyphCanvas {
     private getComponentAutoAlignmentValue(component: Component): boolean {
         const value =
             component.format_specific?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
-        return value === undefined || value === 0;
+        return value === 0;
     }
 
     private setComponentAutoAlignmentValue(
@@ -3178,7 +3173,7 @@ class GlyphCanvas {
 
         if (
             (field === 'translateX' || field === 'translateY') &&
-            !this.canEditSelectedComponentTranslation(selectedComponents)
+            !this.canEditSelectedComponentTranslation(layer, selectedComponents)
         ) {
             this.updatePropertyPanel();
             return;
@@ -3652,8 +3647,10 @@ class GlyphCanvas {
 
             const content = document.createElement('div');
             content.className = 'glyph-component-property-panel-content';
-            const translationLocked =
-                !this.canEditSelectedComponentTranslation(selectedComponents);
+            const translationLocked = !this.canEditSelectedComponentTranslation(
+                currentLayer,
+                selectedComponents
+            );
             const anchorOverrideOptions =
                 this.getAutomaticComponentAnchorOverrideOptions(
                     currentLayer,

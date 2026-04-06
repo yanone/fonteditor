@@ -1300,6 +1300,30 @@ describe('Babelfont Object Model', () => {
             expect(glyphE.rightMetricsKey).toBe('=c@200');
         });
 
+        test('imports Fustat dieresiscomb components as manual when no explicit automatic flag is present', () => {
+            const glyph = font.findGlyph('dieresiscomb');
+            const layer = glyph.layers[0];
+
+            expect(layer.components).toHaveLength(2);
+            expect(
+                layer.components.map((component) => component.reference)
+            ).toEqual(['dotaccentcomb', 'dotaccentcomb']);
+            expect(
+                layer.components.map(
+                    (component) => component.toJSON().format_specific
+                )
+            ).toEqual([
+                { 'com.schriftgestalt.Glyphs.alignment': 0 },
+                undefined
+            ]);
+            expect(
+                layer.components.map((component) =>
+                    component.isAutomaticAligned()
+                )
+            ).toEqual([true, false]);
+            expect(layer.isAutomaticAlignedLayer()).toBe(false);
+        });
+
         test('changing l rsb recomputes dependent glyph metrics', () => {
             const glyphL = metricsKeysFont.findGlyph('l');
             const glyphN = metricsKeysFont.findGlyph('n');
