@@ -5029,8 +5029,8 @@ export class GlyphCanvasRenderer {
     }
 
     /**
-     * Draw component with flattened outline shapes (blue filled boxes)
-     * Reusable method for both normal editing mode and stack preview
+     * Draw component with flattened outline shapes using explicit path fill and stroke.
+     * Reusable method for both normal editing mode and stack preview.
      */
     private drawComponentWithOutlines(
         shapes: any[],
@@ -5145,6 +5145,8 @@ export class GlyphCanvasRenderer {
             fillColor = desaturateColor(fillColor);
         }
 
+        const strokeColor = adjustGlyphRestingColor(fillColor, -35);
+
         // Fill
         this.ctx.shadowBlur = 0;
         this.ctx.shadowColor = 'transparent';
@@ -5171,5 +5173,30 @@ export class GlyphCanvasRenderer {
         });
         this.ctx.fillStyle = fillColor;
         this.ctx.fill();
+
+        // Stroke all explicit component paths so manual and automatic components
+        // stay visually distinct from neighboring inactive glyph fills.
+        this.ctx.beginPath();
+        outlineShapes.forEach(({ nodes, transform, closed }) => {
+            if (transform) {
+                this.ctx.save();
+                this.ctx.transform(
+                    transform[0],
+                    transform[1],
+                    transform[2],
+                    transform[3],
+                    transform[4],
+                    transform[5]
+                );
+            }
+            this.buildPathFromNodes(nodes, closed);
+            if (closed) {
+                this.ctx.closePath();
+            }
+            if (transform) this.ctx.restore();
+        });
+        this.ctx.strokeStyle = strokeColor;
+        this.ctx.lineWidth = 2 * invScale;
+        this.ctx.stroke();
     }
 }

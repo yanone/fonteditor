@@ -17,7 +17,8 @@
  *   - fully automatic layers expose anchor overrides and lock component
  *     translation fields in the property panel, while mixed layers keep
  *     components movable
- *   - automatic components are rendered differently from manual components
+ *   - automatic and manual components are rendered with distinct fill and
+ *     explicit stroke styling
  */
 
 const { Font } = require('../../js/babelfont-model');
@@ -564,15 +565,35 @@ describe('Automatic component editing canonical behavior', () => {
         ).toBe(25);
     });
 
-    test('renderer uses distinct fill styling for automatic components', () => {
+    test('renderer uses distinct fill and stroke styling for automatic and manual components', () => {
         const assignedFillStyles = [];
+        const assignedStrokeStyles = [];
+        const assignedLineWidths = [];
         let fillStyleValue = '';
+        let strokeStyleValue = '';
+        let lineWidthValue = 1;
         Object.defineProperty(canvas.renderer.ctx, 'fillStyle', {
             configurable: true,
             get: () => fillStyleValue,
             set: (value) => {
                 fillStyleValue = value;
                 assignedFillStyles.push(value);
+            }
+        });
+        Object.defineProperty(canvas.renderer.ctx, 'strokeStyle', {
+            configurable: true,
+            get: () => strokeStyleValue,
+            set: (value) => {
+                strokeStyleValue = value;
+                assignedStrokeStyles.push(value);
+            }
+        });
+        Object.defineProperty(canvas.renderer.ctx, 'lineWidth', {
+            configurable: true,
+            get: () => lineWidthValue,
+            set: (value) => {
+                lineWidthValue = value;
+                assignedLineWidths.push(value);
             }
         });
 
@@ -598,6 +619,10 @@ describe('Automatic component editing canonical behavior', () => {
             false
         );
         const manualFill = assignedFillStyles[assignedFillStyles.length - 1];
+        const manualStroke =
+            assignedStrokeStyles[assignedStrokeStyles.length - 1];
+        const manualLineWidth =
+            assignedLineWidths[assignedLineWidths.length - 1];
 
         canvas.renderer.drawComponentWithOutlines(
             outlineShapes,
@@ -609,10 +634,21 @@ describe('Automatic component editing canonical behavior', () => {
             false
         );
         const automaticFill = assignedFillStyles[assignedFillStyles.length - 1];
+        const automaticStroke =
+            assignedStrokeStyles[assignedStrokeStyles.length - 1];
+        const automaticLineWidth =
+            assignedLineWidths[assignedLineWidths.length - 1];
 
         expect(manualFill).toBeTruthy();
         expect(automaticFill).toBeTruthy();
+        expect(manualStroke).toBeTruthy();
+        expect(automaticStroke).toBeTruthy();
         expect(automaticFill).not.toBe(manualFill);
+        expect(automaticStroke).not.toBe(manualStroke);
+        expect(manualStroke).not.toBe(manualFill);
+        expect(automaticStroke).not.toBe(automaticFill);
+        expect(manualLineWidth).toBe(2);
+        expect(automaticLineWidth).toBe(2);
         expect(automaticFill).toContain('143');
         expect(
             APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT.COMPONENT_FILL_AUTO_NORMAL

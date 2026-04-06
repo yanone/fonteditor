@@ -135,4 +135,4 @@ Automatic alignment applies only when every component in a component-only layer 
 
 Sidebearings of automatically composed layers cannot be edited directly because they are derived from the base glyph. However, the automatic sidebearings may be adjusted using `=+` and `=-` glyph-wide operators, or `==+` and `==-` layer-local overrides.
 
-Automatically aligned components must be visually distinguished from manually positioned components in the editor so their derived placement is apparent at a glance.
+Automatically aligned components must be visually distinguished from manually positioned components in the editor so their derived placement is apparent at a glance. Both kinds of components must draw their explicit path outlines with a 2 px stroke. Automatically aligned components use a gray stroke darker than their fill, while manually positioned components use a blue stroke darker than their fill.
