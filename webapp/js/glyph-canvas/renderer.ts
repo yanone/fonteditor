@@ -2662,7 +2662,7 @@ export class GlyphCanvasRenderer {
         this.ctx.font = '12px monospace';
 
         // Draw text buffer info (top left)
-        if (this.textRunEditor.textBuffer) {
+        if (this.textRunEditor.textBuffer && !window.isTestMode?.()) {
             const textInfo = `Text: "${this.textRunEditor.textBuffer}" (${this.textRunEditor.shapedGlyphs.length} glyphs)`;
             this.ctx.fillText(textInfo, 10, 20);
         }
