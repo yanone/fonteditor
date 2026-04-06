@@ -9736,6 +9736,12 @@ export class Font extends ModelBase {
         return rebuiltGlyphNames;
     }
 
+    rebuildAutomaticCompositesForGlyphs(
+        changedGlyphNames?: Set<string>
+    ): Set<string> {
+        return this.rebuildAutomaticComposites(changedGlyphNames);
+    }
+
     recomputeMetricsKeys(changedGlyphNames?: Set<string>): Set<string> {
         if (this._isRecomputingMetricsKeys) {
             return new Set();

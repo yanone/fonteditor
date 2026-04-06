@@ -1183,6 +1183,7 @@ export class OutlineEditor {
     private _pointDragDeltaX: number = 0;
     private _componentDragDeltaX: number = 0;
     private _sidebearingAffectedGlyphNames: Set<string> = new Set();
+    private _anchorAffectedGlyphNames: Set<string> = new Set();
     private _pointDragPreserveHandlePositions: boolean = false;
     private _offCurveAltDragConstraint: {
         contourIndex: number;
@@ -1888,6 +1889,119 @@ export class OutlineEditor {
         } catch (error) {
             console.error(
                 '[OutlineEditor] Error syncing font JSON after sidebearing edit:',
+                error
+            );
+            return;
+        }
+
+        void fontManager.forceFullWorkerCacheUpdate().then(() => {
+            for (const affectedGlyphName of uniqueGlyphNames) {
+                if (affectedGlyphName === glyphName) {
+                    continue;
+                }
+
+                window.dispatchEvent(
+                    new CustomEvent('glyphChanged', {
+                        detail: {
+                            glyphName: affectedGlyphName,
+                            layerId: this.getCurrentLayerId()
+                        }
+                    })
+                );
+            }
+        });
+    }
+
+    private rebuildAutomaticCompositesForCurrentEditedGlyph(): Set<string> {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerId = this.getCurrentLayerId();
+        const parsed = this.parseGlyphStack();
+        const glyphName =
+            parsed.length > 0
+                ? parsed[parsed.length - 1].glyphName
+                : this.glyphCanvas.getCurrentGlyphName();
+        const fontModel = fontManager.currentFont?.fontModel;
+
+        if (
+            !currentLayerData ||
+            currentLayerData.isInterpolated ||
+            !currentLayerId ||
+            !glyphName ||
+            !fontModel
+        ) {
+            return new Set();
+        }
+
+        const glyph = fontModel.findGlyph(glyphName);
+        const layerModel = glyph?.findLayerById(currentLayerId);
+        const rawLayer = layerModel?.toJSON?.();
+        if (!glyph || !layerModel || !rawLayer) {
+            return new Set();
+        }
+
+        rawLayer.width = currentLayerData.width;
+        rawLayer.height = currentLayerData.height;
+        rawLayer.vertWidth = currentLayerData.vertWidth;
+        rawLayer.shapes = currentLayerData.shapes;
+
+        if (currentLayerData.anchors !== undefined) {
+            rawLayer.anchors = currentLayerData.anchors;
+        }
+        if (currentLayerData.guides !== undefined) {
+            rawLayer.guides = currentLayerData.guides;
+        }
+        if (currentLayerData.format_specific !== undefined) {
+            rawLayer.format_specific = currentLayerData.format_specific;
+        }
+
+        layerModel.invalidateShapeCache();
+
+        const affectedGlyphNames = new Set<string>([glyphName]);
+        const rebuild = () => {
+            for (const affectedGlyphName of fontModel.rebuildAutomaticCompositesForGlyphs(
+                new Set([glyphName])
+            )) {
+                affectedGlyphNames.add(affectedGlyphName);
+            }
+        };
+
+        const bridge = window.changeBridge;
+        if (bridge?.runWithoutRecording) {
+            bridge.runWithoutRecording(rebuild);
+        } else {
+            rebuild();
+        }
+
+        return affectedGlyphNames;
+    }
+
+    private syncDependentGlyphsAfterAnchorEdit(
+        glyphName: string | null | undefined,
+        affectedGlyphNames: Set<string>
+    ): void {
+        const uniqueGlyphNames = new Set(
+            [...Array.from(affectedGlyphNames || []), glyphName || ''].filter(
+                Boolean
+            ) as string[]
+        );
+        if (uniqueGlyphNames.size <= 1) {
+            return;
+        }
+
+        const currentFont = fontManager.currentFont;
+        if (!currentFont) {
+            return;
+        }
+
+        fontManager.forceFullEditingCacheRefresh = true;
+        currentFont.requestRecompileWithoutDataChange();
+        window.autoCompileManager?.checkAndSchedule?.();
+
+        try {
+            currentFont.syncJsonFromModel();
+        } catch (error) {
+            console.error(
+                '[OutlineEditor] Error syncing font JSON after anchor edit:',
                 error
             );
             return;
@@ -6479,6 +6593,13 @@ export class OutlineEditor {
                         this.getCurrentGlyphModel()?.name,
                         this._sidebearingAffectedGlyphNames
                     );
+                } else if (dragType === 'anchor') {
+                    this._anchorAffectedGlyphNames =
+                        this.rebuildAutomaticCompositesForCurrentEditedGlyph();
+                    this.syncDependentGlyphsAfterAnchorEdit(
+                        this.getCurrentGlyphModel()?.name,
+                        this._anchorAffectedGlyphNames
+                    );
                 }
                 fontManager.updateWorkerFontCache();
                 fontManager.flushPendingDebugEditingFontSaveAfterDrag();
@@ -6486,6 +6607,7 @@ export class OutlineEditor {
             this._pointDragDeltaX = 0;
             this._componentDragDeltaX = 0;
             this._sidebearingAffectedGlyphNames = new Set();
+            this._anchorAffectedGlyphNames = new Set();
             this._hasMoved = false;
             this._preDragDesc = null;
             this._dragType = null;
@@ -9698,6 +9820,12 @@ export class OutlineEditor {
 
         // Save to object model (non-blocking)
         this.saveLayerData('keyboard-anchor');
+        this._anchorAffectedGlyphNames =
+            this.rebuildAutomaticCompositesForCurrentEditedGlyph();
+        this.syncDependentGlyphsAfterAnchorEdit(
+            this.getCurrentGlyphModel()?.name,
+            this._anchorAffectedGlyphNames
+        );
         this.glyphCanvas.render();
     }
 

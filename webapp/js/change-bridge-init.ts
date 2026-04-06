@@ -327,8 +327,9 @@ function shouldForceFullRustSyncAfterUndoRedo(
     }
 
     return (
-        historyItem?.transactionLabel === 'Drag point' &&
-        inferSidebearingSideFromHistoryItem(historyItem) !== null
+        (historyItem?.transactionLabel === 'Drag point' &&
+            inferSidebearingSideFromHistoryItem(historyItem) !== null) ||
+        historyItem?.transactionLabel === 'Drag anchor'
     );
 }
 
@@ -362,7 +363,23 @@ function recomputeMetricsKeysAfterUndoRedo(
         return new Set();
     }
 
-    const recompute = () => fontModel.recomputeMetricsKeys(seedGlyphNames);
+    const rebuildAutomaticComposites = () =>
+        typeof fontModel.rebuildAutomaticCompositesForGlyphs === 'function'
+            ? fontModel.rebuildAutomaticCompositesForGlyphs(seedGlyphNames)
+            : new Set<string>();
+
+    const recompute = () => {
+        const affectedGlyphNames = new Set<string>();
+        for (const glyphName of rebuildAutomaticComposites()) {
+            affectedGlyphNames.add(glyphName);
+        }
+        for (const glyphName of fontModel.recomputeMetricsKeys(
+            seedGlyphNames
+        )) {
+            affectedGlyphNames.add(glyphName);
+        }
+        return affectedGlyphNames;
+    };
     if (typeof bridge.runWithoutRecording === 'function') {
         return bridge.runWithoutRecording(recompute);
     }
