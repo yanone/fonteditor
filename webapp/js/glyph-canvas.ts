@@ -3127,6 +3127,13 @@ class GlyphCanvas {
         field: ComponentTransformField,
         value: string
     ): Promise<void> {
+        // During canvas drag operations, transform changes are already tracked
+        // by the drag transaction in OutlineEditor. Avoid creating a second
+        // history item from property-panel blur/change events.
+        if (this.outlineEditor.draggingSomething) {
+            return;
+        }
+
         const layer = this.getCurrentEditingLayerModel();
         if (!layer) {
             return;
@@ -3604,6 +3611,10 @@ class GlyphCanvas {
                 });
 
                 input.addEventListener('change', () => {
+                    if (this.outlineEditor.draggingSomething) {
+                        return;
+                    }
+
                     if (input.dataset.skipNextPropertyCommit === 'true') {
                         delete input.dataset.skipNextPropertyCommit;
                         return;
