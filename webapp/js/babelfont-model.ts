@@ -94,6 +94,7 @@ const GLYPHS_GLYPH_METRIC_RIGHT_KEY = 'metric_right';
 const GLYPHS_LAYER_METRIC_LEFT_KEY = 'com.schriftgestalt.Glyphs.metricLeft';
 const GLYPHS_LAYER_METRIC_RIGHT_KEY = 'com.schriftgestalt.Glyphs.metricRight';
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
+const GLYPHS_COMPONENT_ANCHOR_KEY = 'com.schriftgestalt.Glyphs.componentAnchor';
 const METRIC_UPDATE_EPSILON = 0.01;
 let suppressModelRecordingDepth = 0;
 let suppressMetricsKeyRecomputeDepth = 0;
@@ -4713,6 +4714,24 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         const old = this.data.location;
         this.data.location = value;
         recordAndMarkDirty(this, 'location', old, value);
+    }
+
+    /**
+     * Glyphs attachment anchor name stored in format_specific.
+     */
+    get anchor(): string | undefined {
+        const value =
+            getModelFormatSpecific(this)?.[GLYPHS_COMPONENT_ANCHOR_KEY];
+        return typeof value === 'string' ? value : undefined;
+    }
+
+    set anchor(value: string | undefined) {
+        const trimmed = value?.trim();
+        setFormatSpecificKey(
+            this,
+            GLYPHS_COMPONENT_ANCHOR_KEY,
+            trimmed ? trimmed : undefined
+        );
     }
 
     get format_specific(): Record<string, Unsafe> | undefined {

@@ -114,3 +114,7 @@ Ensure that ongoing mouse drags that take a break are not committing data to the
 #### Editing Components
 
 Components, like paths, must be of identical structure across the layers of a glyph to be compatible. Their decomposed transformations (translation, rotation, etc.) can be edited via the property panel of the editor view. All transformation edits stay local to a layer, even if the edited layer is linked with other layers, while changing the automatic alignment status of a component is updated across all linked layers.
+
+#### Automatic Glyph Composition
+
+Layers with only components and no paths, where all components are set to be automatically aligned, will be composed by the editor automatically.

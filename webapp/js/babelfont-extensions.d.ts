@@ -17,6 +17,12 @@ declare module './babelfont' {
              * Used for rendering and intersection calculations
              */
             layerData?: Layer;
+
+            /**
+             * Glyphs attachment anchor name exposed via the object model.
+             * Persisted in format_specific as com.schriftgestalt.Glyphs.componentAnchor.
+             */
+            anchor?: string;
         }
 
         /**
