@@ -3505,6 +3505,12 @@ export class OutlineEditor {
                 this.getPreferredComponentLayer(componentGlyph, masterId) ||
                 componentGlyph.layers[0];
 
+            if (componentLayer?.isAutomaticAlignedLayer?.()) {
+                withSuppressedModelRecording(() => {
+                    componentLayer.rebuildAutomaticComposition?.();
+                });
+            }
+
             const rawLayerData =
                 componentLayer?.toJSON?.() || componentLayer || null;
             const nestedLayerData = rawLayerData

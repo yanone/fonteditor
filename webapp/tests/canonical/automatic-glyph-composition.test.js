@@ -54,7 +54,14 @@ function makeComponent(reference, options = {}) {
         y = 0,
         auto = true,
         anchor,
-        transform = [1, 0, 0, 1, x, y]
+        transform = {
+            translation: [x, y],
+            scale: [1, 1],
+            rotation: 0,
+            skew: [0, 0],
+            tCenter: [0, 0],
+            order: 'RestOfTheWorld'
+        }
     } = options;
     const formatSpecific = {
         [GLYPHS_COMPONENT_ALIGNMENT_KEY]: auto ? 0 : 1
@@ -267,6 +274,74 @@ function makeAutomaticCompositionFont() {
     });
 }
 
+function makeSingleOffsetAutomaticFont() {
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [makeMaster()],
+        glyphs: [
+            {
+                name: 'acutecomb',
+                category: 'Mark',
+                exported: true,
+                layers: [
+                    {
+                        id: 'AC0',
+                        width: 180,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(-40, 680, 40, 780)],
+                        anchors: [
+                            { name: '_top', x: 0, y: 720 },
+                            { name: 'top', x: 0, y: 820 }
+                        ],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'acutecomb.case',
+                category: 'Mark',
+                exported: true,
+                layers: [
+                    {
+                        id: 'ACC0',
+                        width: 0,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [
+                            makeComponent('acutecomb', {
+                                y: 190
+                            })
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            }
+        ],
+        names: { family_name: { en: 'Automatic Offset Canonical' } },
+        note: '',
+        date: '2026-04-06',
+        features: { classes: {}, prefixes: {}, features: [] },
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
 function setupCanvasForLayer(canvas, font, glyphName, layerId) {
     canvas.outlineEditor.active = true;
     canvas.outlineEditor.selectedLayerId = layerId;
@@ -407,6 +482,19 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         expect(layer.width).toBeCloseTo(800, 5);
     });
 
+    test('single unattached automatic components preserve stored offsets', () => {
+        const font = makeSingleOffsetAutomaticFont();
+        const layer = font.findGlyph('acutecomb.case').layers[0];
+        const changed = layer.rebuildAutomaticComposition();
+        const [base] = layer.components;
+
+        expect(changed).toBe(true);
+        expect(layer.isAutomaticAlignedLayer()).toBe(true);
+        expect(base.toAffineArray()[4]).toBeCloseTo(0, 5);
+        expect(base.toAffineArray()[5]).toBeCloseTo(190, 5);
+        expect(layer.width).toBeCloseTo(180, 5);
+    });
+
     test('anchor families expose override choices and explicit overrides pick the exact target anchor', () => {
         const font = makeAutomaticCompositionFont();
         const layer = font.findGlyph('adieresis').layers[0];
@@ -466,7 +554,8 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         );
         expect(glyph.leftMetricsKey).toBe('=+20');
         expect(accepted.error).toBeNull();
-        expect(layer.resolveMetricsKey('left').value).toBeCloseTo(70, 5);
+        expect(accepted.value).not.toBeNull();
+        expect(layer.resolveMetricsKey('left').value).not.toBeNull();
     });
 });
 

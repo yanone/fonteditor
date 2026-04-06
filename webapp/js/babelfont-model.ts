@@ -5979,11 +5979,12 @@ export class Layer extends ArrayElementBase {
                 continue;
             }
 
-            const baseTransform = Array.from(
+            const originalTransform = Array.from(
                 DecomposedAffineTransform.toAffine(
                     getAutomaticComponentTransform(component)
                 )
             );
+            const baseTransform = [...originalTransform];
             baseTransform[4] = 0;
             baseTransform[5] = 0;
 
@@ -5993,8 +5994,11 @@ export class Layer extends ArrayElementBase {
                 availableAnchors
             );
 
-            let translationX = baseAdvanceWidth;
-            let translationY = 0;
+            let translationX =
+                baseAdvanceWidth === 0
+                    ? originalTransform[4]
+                    : baseAdvanceWidth;
+            let translationY = originalTransform[5];
             let attached = false;
 
             if (attachment) {

@@ -8225,6 +8225,38 @@ describe('OutlineEditor exact layerData parity', () => {
             canonicalizeLayerDataForComparison(rustLayerData)
         );
     });
+
+    test('rebuilds nested automatic component layerData for Fustat Adieresis exact rendering', () => {
+        const glyph = fustatFont.findGlyph('Adieresis');
+        expect(glyph).toBeTruthy();
+
+        const regularLayer =
+            glyph.findLayerByMasterId(glyph.layers[0].master.master) ||
+            glyph.layers[0];
+
+        canvas.outlineEditor.selectedLayerId = regularLayer.id;
+        canvas.outlineEditor.glyphStack = `Adieresis@${regularLayer.id}`;
+
+        const exactLayerData =
+            canvas.outlineEditor.getExactLayerDataForSelection(
+                glyph.name,
+                regularLayer.id
+            );
+
+        const accentComponent = exactLayerData.shapes.find(
+            (shape) => shape.reference === 'dieresiscomb.case'
+        );
+        expect(accentComponent).toBeTruthy();
+        expect(accentComponent.transform.translation).toEqual([162, 0]);
+
+        const nestedDieresisComponent = accentComponent.layerData.shapes.find(
+            (shape) => shape.reference === 'dieresiscomb'
+        );
+        expect(nestedDieresisComponent).toBeTruthy();
+        expect(
+            nestedDieresisComponent.transform?.translation ?? [0, 0]
+        ).toEqual([0, 190]);
+    });
 });
 
 describe('OutlineEditor per-layer selection memory', () => {
