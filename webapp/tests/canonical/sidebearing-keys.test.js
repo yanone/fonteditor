@@ -353,7 +353,10 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
         const nWidthBefore = nLayerBefore.width;
 
         canvas.outlineEditor.isDraggingSidebearing = true;
-        canvas.outlineEditor.selectedSidebearingHandle = { side: 'right' };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'right',
+            editable: true
+        };
 
         // Move RSB by 17 (same as existing test — increases width by 17)
         canvas.outlineEditor._updateDraggedSidebearing(17);
@@ -840,7 +843,10 @@ describe('Sidebearing keys: viewport anchoring', () => {
         canvas.viewportManager.panX = initialPanX;
 
         canvas.outlineEditor.isDraggingSidebearing = true;
-        canvas.outlineEditor.selectedSidebearingHandle = { side: 'right' };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'right',
+            editable: true
+        };
 
         canvas.outlineEditor._updateDraggedSidebearing(20);
 
@@ -889,7 +895,10 @@ describe('Sidebearing keys: viewport anchoring', () => {
         canvas.textRunEditor.selectedGlyphIndex = 2;
 
         canvas.outlineEditor.isDraggingSidebearing = true;
-        canvas.outlineEditor.selectedSidebearingHandle = { side: 'right' };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'right',
+            editable: true
+        };
         // Drag RSB of l rightward by 20 pixels at scale 2 → +20 units RSB delta.
         canvas.outlineEditor._updateDraggedSidebearing(20);
 
@@ -938,7 +947,10 @@ describe('Sidebearing keys: viewport anchoring', () => {
         const widthBefore = layerData.width;
 
         canvas.outlineEditor.isDraggingSidebearing = true;
-        canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
 
         // LSB decreases by 15 (positive deltaX → left handle right → LSB shrinks)
         canvas.outlineEditor._updateDraggedSidebearing(15);

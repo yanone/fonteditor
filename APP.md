@@ -115,6 +115,8 @@ Ensure that ongoing mouse drags that take a break are not committing data to the
 
 Components, like paths, must be of identical structure across the layers of a glyph to be compatible. Their decomposed transformations can be edited via the property panel of the editor view. For automatically aligned components, translation is derived from automatic composition and therefore not directly editable, while rotation, scale, and skew remain editable. All transformation edits stay local to a layer, even if the edited layer is linked with other layers, while changing the automatic alignment status of a component is updated across all linked layers.
 
+When an automatically aligned component has more than one eligible target anchor in the current composition, the property panel must offer an anchor override control backed by `Component.anchor`. Leaving that control unset keeps the component on the default automatic target selection for its anchor family.
+
 #### Automatic Glyph Composition
 
 Layers that contain only components and no paths, and where every component is set to automatic alignment, must be composed by the editor automatically.
@@ -127,6 +129,10 @@ Automatic composition is intended for three common cases: a single base componen
 
 Automatic alignment keeps composite metrics derived from their base components. Changing the metrics of a base glyph must therefore update compatible automatically composed glyphs that reference it. Mark components attached through anchors must not expand the automatically derived sidebearings. If extra spacing is needed beyond the automatic metrics, that spacing must be expressed as an explicit adjustment on the composite rather than by letting attached marks redefine the sidebearings.
 
+Automatic composition also depends on anchor positions. Moving an anchor on a glyph must therefore rebuild any compatible automatically composed downstream glyphs that attach to that anchor family, update the editing font from that rebuilt data, and do so both for direct edits and for undo or redo of those edits.
+
 Automatic alignment is on by default for component-only layers with every component set to automatic alignment. Disabling automatic alignment on any component in a layer takes that layer out of automatic composition and allows manual placement. Re-enabling automatic alignment on all components returns the layer to automatic composition. Changing automatic alignment state or a component's explicit target-anchor override must rebuild the automatic composition immediately.
 
 Sidebearings of automatically composed layers cannot be edited directly because they are derived from the base glyph. However, the automatic sidebearings may be adjusted using `=+` and `=-` glyph-wide operators, or `==+` and `==-` layer-local overrides.
+
+Automatically aligned components must be visually distinguished from manually positioned components in the editor so their derived placement is apparent at a glance.

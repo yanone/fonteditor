@@ -749,4 +749,150 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             sendMessageSpy.mockRestore();
         }
     });
+
+    test('undo anchor drag rebuilds downstream composites and schedules an editing-font refresh', async () => {
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
+        const sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue(undefined);
+        const submitLayerToWorkerCache = jest.fn().mockResolvedValue(true);
+        const refreshGlyphAdvancesLive = jest.fn(() => true);
+        const rebuildAutomaticCompositesForGlyphs = jest.fn(
+            () => new Set(['adieresis'])
+        );
+        const recomputeMetricsKeys = jest.fn(() => new Set(['adieresis']));
+
+        const makeFontModel = () => ({
+            rebuildAutomaticCompositesForGlyphs,
+            recomputeMetricsKeys,
+            findGlyphsUsingComponent: jest.fn((glyphName) =>
+                glyphName === 'a' ? ['adieresis'] : []
+            ),
+            findGlyph: jest.fn((glyphName) => {
+                if (glyphName === 'a') {
+                    return {
+                        findLayerById: jest.fn(() => ({
+                            id: 'layer-1',
+                            width: 500
+                        }))
+                    };
+                }
+
+                if (glyphName === 'adieresis') {
+                    return {
+                        findLayerById: jest.fn(() => ({
+                            id: 'layer-1',
+                            width: 500
+                        }))
+                    };
+                }
+
+                return null;
+            })
+        });
+
+        const currentFont = {
+            babelfontJson: '{"glyphs":[]}',
+            fontModel: makeFontModel(),
+            requestRecompileWithoutDataChange: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.lastStoredFontJson = 'cached-json';
+
+        originalWindow.glyphCanvas = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive
+            },
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                fetchLayerData: jest.fn().mockResolvedValue(),
+                runDeterministicRefresh: jest.fn(async (task) => await task()),
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: jest.fn(() => 'a'),
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            updatePropertyPanel: jest.fn(),
+            render: jest.fn(),
+            requestRepaintAfterCompile: jest.fn()
+        };
+
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            submitLayerToWorkerCache,
+            pendingBabelfontJsonSyncAfterDrag: false,
+            lastChangeSource: null,
+            lastEditType: null
+        };
+
+        originalWindow.changeBridge = {
+            runWithoutRecording: jest.fn((fn) => fn()),
+            undo: jest.fn(() => {
+                currentFont.fontModel = makeFontModel();
+                return {
+                    scope: 'layer',
+                    glyphName: 'a',
+                    layerId: 'layer-1',
+                    historyItem: {
+                        transactionLabel: 'Drag anchor',
+                        touchedPaths: ['glyphs.a.layers.layer-1.anchors.0'],
+                        entries: [
+                            {
+                                oldValue: 'top 320 700',
+                                newValue: 'top 360 700'
+                            }
+                        ]
+                    }
+                };
+            })
+        };
+
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        try {
+            await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
+
+            expect(rebuildAutomaticCompositesForGlyphs).toHaveBeenCalled();
+            expect(
+                rebuildAutomaticCompositesForGlyphs.mock.calls[0][0]
+            ).toEqual(new Set(['a']));
+            expect(recomputeMetricsKeys).toHaveBeenCalled();
+            expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
+                expect.objectContaining({ a: 500, adieresis: 500 }),
+                { render: false }
+            );
+            expect(
+                currentFont.requestRecompileWithoutDataChange
+            ).toHaveBeenCalled();
+            expect(
+                originalWindow.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalled();
+            expect(submitLayerToWorkerCache).not.toHaveBeenCalled();
+            expect(sendMessageSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'storeFontJson',
+                    forceStore: true,
+                    babelfontJson: currentFont.babelfontJson
+                })
+            );
+            expect(
+                originalWindow.glyphCanvas.outlineEditor.fetchLayerData
+            ).toHaveBeenCalledWith(true, 'a');
+        } finally {
+            fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
+            sendMessageSpy.mockRestore();
+        }
+    });
 });
