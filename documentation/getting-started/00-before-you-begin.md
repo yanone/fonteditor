@@ -29,7 +29,7 @@ For full functionality, your browser needs to support:
 
 Chrome and Chromium-based browsers have the most complete and reliable implementation of these standards.
 
-If you don’re need hot-reloading of files because you’re only ever working directly in the editor, **Edge** and **Safari** are your second-best options. Other browsers are not recommended.
+If you don’t need hot-reloading of files because you’re only ever working directly in the editor, **Edge** and **Safari** are your second-best options. Other browsers are not recommended.
 
 ## Install as a Progressive Web App (PWA)
 
