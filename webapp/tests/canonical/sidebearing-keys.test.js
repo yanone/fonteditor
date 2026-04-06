@@ -1173,6 +1173,9 @@ function buildComponentFont() {
         rotation: 0,
         skew: [0, 0]
     });
+    const manualComponentFormat = {
+        'com.schriftgestalt.Glyphs.alignment': 1
+    };
 
     return {
         upm: 1000,
@@ -1246,14 +1249,16 @@ function buildComponentFont() {
                         shapes: [
                             {
                                 reference: 'base',
-                                transform: identityTransform()
+                                transform: identityTransform(),
+                                format_specific: manualComponentFormat
                             },
                             {
                                 reference: 'accent',
                                 transform: {
                                     ...identityTransform(),
                                     translation: [200, 700]
-                                }
+                                },
+                                format_specific: manualComponentFormat
                             }
                         ],
                         anchors: [],
@@ -1277,14 +1282,16 @@ function buildComponentFont() {
                         shapes: [
                             {
                                 reference: 'base',
-                                transform: identityTransform()
+                                transform: identityTransform(),
+                                format_specific: manualComponentFormat
                             },
                             {
                                 reference: 'accent',
                                 transform: {
                                     ...identityTransform(),
                                     translation: [420, 700]
-                                }
+                                },
+                                format_specific: manualComponentFormat
                             }
                         ],
                         anchors: [],
@@ -1319,7 +1326,8 @@ function buildComponentFont() {
                                 transform: {
                                     ...identityTransform(),
                                     translation: [300, 700]
-                                }
+                                },
+                                format_specific: manualComponentFormat
                             }
                         ],
                         anchors: [],

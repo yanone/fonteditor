@@ -388,7 +388,10 @@ describe('GlyphCanvas onMouseUp', () => {
 
             canvas.outlineEditor.active = true;
             canvas.outlineEditor.selectedLayerId = 'layer-1';
-            canvas.outlineEditor.hoveredSidebearingHandle = { side: 'left' };
+            canvas.outlineEditor.hoveredSidebearingHandle = {
+                side: 'left',
+                editable: true
+            };
             canvas.outlineEditor.layerData = {
                 width: 520,
                 shapes: [{ nodes: [{ x: 40, y: 0, type: 'l' }] }],
@@ -406,7 +409,10 @@ describe('GlyphCanvas onMouseUp', () => {
             );
 
             canvas.outlineEditor.isDraggingSidebearing = true;
-            canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+            canvas.outlineEditor.selectedSidebearingHandle = {
+                side: 'left',
+                editable: true
+            };
             canvas.outlineEditor._dragType = 'sidebearing';
             canvas.outlineEditor._hasMoved = true;
 
@@ -935,7 +941,10 @@ describe('OutlineEditor marquee selection', () => {
             scope: 'layer',
             index: 0
         };
-        canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
 
         jest.spyOn(
             canvas.outlineEditor,
@@ -1061,6 +1070,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
     test('commitPropertyPanelValue keeps layer-local sidebearing keys on the incremental layer path', async () => {
         const layer = {
             width: 500,
+            isAutomaticAlignedLayer: jest.fn(() => false),
             applySidebearingInput: jest.fn(() => {
                 fontManager.currentFont.changeVersion = 2;
                 layer.width = 640;
@@ -1119,6 +1129,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
     test('commitPropertyPanelValue uses full-font refresh for glyph-wide sidebearing keys', async () => {
         const layer = {
             width: 500,
+            isAutomaticAlignedLayer: jest.fn(() => false),
             applySidebearingInput: jest.fn(() => {
                 fontManager.currentFont.changeVersion = 2;
                 layer.width = 640;
@@ -1172,6 +1183,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
     test('commitPropertyPanelValue pans the viewport for left sidebearing edits', async () => {
         const layer = {
             width: 500,
+            isAutomaticAlignedLayer: jest.fn(() => false),
             applySidebearingInput: jest.fn(() => {
                 fontManager.currentFont.changeVersion = 2;
                 layer.width = 520;
@@ -1221,6 +1233,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         const layer = {
             id: 'layer-1',
             width: 500,
+            isAutomaticAlignedLayer: jest.fn(() => false),
             toJSON: jest.fn(() => ({
                 id: 'layer-1',
                 width: 520,
@@ -1287,7 +1300,9 @@ describe('GlyphCanvas property panel metrics edits', () => {
             .spyOn(canvas.outlineEditor, 'setSidebearingValue')
             .mockReturnValue(true);
 
-        canvas.getCurrentLayerModel = jest.fn();
+        canvas.getCurrentLayerModel = jest.fn(() => ({
+            isAutomaticAlignedLayer: jest.fn(() => false)
+        }));
         window.fontManager.refreshGlyphsAfterModelBatch = jest
             .fn()
             .mockResolvedValue();
@@ -1299,7 +1314,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         await canvas.commitPropertyPanelValue('left', '20');
 
         expect(setSidebearingValueSpy).toHaveBeenCalledWith('left', 20);
-        expect(canvas.getCurrentLayerModel).not.toHaveBeenCalled();
+        expect(canvas.getCurrentLayerModel).toHaveBeenCalledTimes(1);
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
         ).not.toHaveBeenCalled();
@@ -1598,7 +1613,8 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.outlineEditor.updateHoveredSidebearingHandle();
 
         expect(canvas.outlineEditor.hoveredSidebearingHandle).toEqual({
-            side: 'left'
+            side: 'left',
+            editable: true
         });
     });
 
@@ -1769,8 +1785,65 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         expect(canvas.outlineEditor.hoveredSidebearingHandle).toBe(null);
     });
 
+    test('Fustat glyph a manual LSB handle stays selectable for dragging', () => {
+        const font = Font.fromData(loadFontFixture('Fustat.glyphs'));
+        const glyph = font.findGlyph('a');
+        const layer = glyph.layers[0];
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: font });
+
+        canvas.outlineEditor.layerData = {
+            ...layer.toJSON(),
+            isInterpolated: false
+        };
+        canvas.outlineEditor.selectedLayerId = layer.id;
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: glyph.name }
+        ]);
+        canvas.getCurrentGlyphName = jest.fn(() => glyph.name);
+
+        const handles = canvas.outlineEditor.getVisibleSidebearingHandles();
+        const leftHandle = handles.find((handle) => handle.side === 'left');
+        const rightHandle = handles.find((handle) => handle.side === 'right');
+
+        expect(leftHandle).toBeTruthy();
+        expect(leftHandle.editable).toBe(true);
+        expect(rightHandle).toBeTruthy();
+        expect(rightHandle.editable).toBe(false);
+
+        canvas.outlineEditor.transformMouseToComponentSpace = jest.fn(() => ({
+            glyphX: leftHandle.x,
+            glyphY: leftHandle.y
+        }));
+
+        canvas.outlineEditor.updateHoveredSidebearingHandle();
+
+        expect(canvas.outlineEditor.hoveredSidebearingHandle).toEqual({
+            side: 'left',
+            editable: true
+        });
+
+        canvas.outlineEditor.onSingleClick({
+            clientX: 10,
+            clientY: 20,
+            detail: 1
+        });
+
+        expect(canvas.outlineEditor.selectedSidebearingHandle).toEqual({
+            side: 'left',
+            editable: true
+        });
+        expect(canvas.outlineEditor.isDraggingSidebearing).toBe(true);
+    });
+
     test('moving the left sidebearing handle right decreases the sidebearing', () => {
-        canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
         canvas.outlineEditor.isDraggingSidebearing = true;
         canvas.viewportManager.scale = 2;
         canvas.viewportManager.panX = 100;
@@ -1805,7 +1878,10 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.outlineEditor.parseGlyphStack = jest.fn(() => [{ glyphName }]);
         canvas.getCurrentGlyphName = jest.fn(() => glyphName);
         canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
-        canvas.outlineEditor.selectedSidebearingHandle = { side: 'right' };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'right',
+            editable: true
+        };
         canvas.outlineEditor.isDraggingSidebearing = true;
         window.changeBridge = null;
 
@@ -2229,7 +2305,10 @@ describe('GlyphCanvas sidebearing handle movement', () => {
     });
 
     test('pressing ArrowRight on the left sidebearing handle decreases the sidebearing', () => {
-        canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
         canvas.viewportManager.scale = 2;
         canvas.viewportManager.panX = 100;
 
@@ -2278,7 +2357,10 @@ describe('GlyphCanvas sidebearing handle movement', () => {
             scope: 'layer',
             index: 0
         };
-        canvas.outlineEditor.selectedSidebearingHandle = { side: 'left' };
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'left',
+            editable: true
+        };
 
         const event = {
             key: 'a',
@@ -3542,6 +3624,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const previousChangeBridge = window.changeBridge;
         window.changeBridge = {
             beginTransaction: jest.fn(),
+            recordChange: jest.fn(),
             syncGlyphFromJson: jest.fn(),
             endTransaction: jest.fn()
         };
@@ -3697,6 +3780,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         const previousChangeBridge = window.changeBridge;
         window.changeBridge = {
             beginTransaction: jest.fn(),
+            recordChange: jest.fn(),
             syncGlyphFromJson: jest.fn(),
             endTransaction: jest.fn()
         };
@@ -7302,7 +7386,7 @@ describe('GlyphCanvas property panel', () => {
 
         const inputs = document.querySelectorAll('.glyph-property-input');
         expect(inputs[1].value).toBe('');
-        expect(inputs[1].getAttribute('placeholder')).toBe('auto');
+        expect(inputs[1].getAttribute('placeholder')).toBe('=+0 or ==+0');
     });
 
     test('hides sidebearing controls when a guide is selected', () => {

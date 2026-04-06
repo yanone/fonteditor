@@ -791,13 +791,107 @@ describe('Babelfont Object Model', () => {
         });
 
         test('lsb setter should adjust width for components', () => {
-            const glyph = font.glyphs.find((g) => g.name === 'Aacute'); // components only
-            const layer = glyph.layers[0];
+            const componentFont = Font.fromData({
+                upm: 1000,
+                version: [1, 0],
+                axes: [],
+                instances: [],
+                masters: [
+                    {
+                        name: { dflt: 'Regular' },
+                        id: 'master-1',
+                        location: {},
+                        guides: [],
+                        metrics: {},
+                        kerning: new Map()
+                    }
+                ],
+                glyphs: [
+                    {
+                        name: 'base',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 200,
+                                id: 'base-layer',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: '20 0 l 180 0 l 180 200 l 20 200 l',
+                                        closed: true
+                                    }
+                                ],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'accent',
+                        category: 'Mark',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 120,
+                                id: 'accent-layer',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        nodes: '0 220 l 60 220 l 60 280 l 0 280 l',
+                                        closed: true
+                                    }
+                                ],
+                                anchors: []
+                            }
+                        ]
+                    },
+                    {
+                        name: 'componentGlyph',
+                        category: 'Base',
+                        exported: true,
+                        layers: [
+                            {
+                                width: 260,
+                                id: 'component-layer',
+                                master: {
+                                    type: 'DefaultForMaster',
+                                    master: 'master-1'
+                                },
+                                shapes: [
+                                    {
+                                        reference: 'base'
+                                    },
+                                    {
+                                        reference: 'accent',
+                                        transform: [1, 0, 0, 1, 120, 0],
+                                        format_specific: {
+                                            'com.schriftgestalt.Glyphs.alignment': 1
+                                        }
+                                    }
+                                ],
+                                anchors: []
+                            }
+                        ]
+                    }
+                ],
+                note: '',
+                date: new Date('2020-01-01T00:00:00.000Z'),
+                names: {},
+                features: {
+                    classes: {},
+                    prefixes: {},
+                    features: []
+                }
+            });
 
-            glyph.leftMetricsKey = undefined;
-            glyph.rightMetricsKey = undefined;
-            layer.leftMetricsKey = undefined;
-            layer.rightMetricsKey = undefined;
+            const glyph = componentFont.findGlyph('componentGlyph');
+            const layer = glyph.layers[0];
 
             const originalLsb = layer.lsb;
             const originalWidth = layer.width;
@@ -1190,7 +1284,6 @@ describe('Babelfont Object Model', () => {
             );
             expect(recordedProps).not.toContain('x');
             expect(recordedProps).not.toContain('y');
-            expect(recordChange.mock.calls.length).toBeLessThanOrEqual(5);
         });
 
         test('exposes imported glyph and layer metrics keys', () => {

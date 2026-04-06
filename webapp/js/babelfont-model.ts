@@ -173,10 +173,9 @@ function getAutomaticComponentTransform(
 }
 
 function isAutomaticAlignedComponent(component: Component): boolean {
-    return (
-        getModelFormatSpecific(component)?.[GLYPHS_COMPONENT_ALIGNMENT_KEY] ===
-        0
-    );
+    const value =
+        getModelFormatSpecific(component)?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
+    return value === undefined || value === 0;
 }
 
 type InterpolationFontCacheEntry = {
@@ -5700,6 +5699,11 @@ export class Layer extends ArrayElementBase {
                                 if (!component.transform) {
                                     component.transform =
                                         DecomposedAffineTransform.identity();
+                                } else if (Array.isArray(component.transform)) {
+                                    component.transform =
+                                        DecomposedAffineTransform.fromAffine(
+                                            component.transform
+                                        );
                                 }
                                 return component.transform;
                             },
@@ -9680,7 +9684,8 @@ export class Font extends ModelBase {
     }
 
     private rebuildAutomaticComposites(
-        changedGlyphNames?: Set<string>
+        changedGlyphNames?: Set<string>,
+        options?: { skipSelfGlyphNames?: Set<string> }
     ): Set<string> {
         const rebuiltGlyphNames = new Set<string>();
         const queue =
@@ -9703,6 +9708,13 @@ export class Font extends ModelBase {
             ]);
 
             for (const candidateGlyphName of candidateGlyphNames) {
+                if (
+                    candidateGlyphName === nextGlyphName &&
+                    options?.skipSelfGlyphNames?.has(candidateGlyphName)
+                ) {
+                    continue;
+                }
+
                 const glyph = this.findGlyph(candidateGlyphName);
                 if (!glyph) {
                     continue;
@@ -9764,13 +9776,17 @@ export class Font extends ModelBase {
         this._isRecomputingMetricsKeys = true;
         const recomputedGlyphNames = new Set<string>();
         try {
+            const skipSelfAutomaticRebuildGlyphNames = new Set<string>();
             let pendingGlyphNames =
                 changedGlyphNames && changedGlyphNames.size > 0
                     ? new Set(changedGlyphNames)
                     : new Set(this.glyphs.map((glyph) => glyph.name));
 
             for (const glyphName of this.rebuildAutomaticComposites(
-                pendingGlyphNames
+                pendingGlyphNames,
+                {
+                    skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames
+                }
             )) {
                 recomputedGlyphNames.add(glyphName);
                 pendingGlyphNames.add(glyphName);
@@ -9789,7 +9805,10 @@ export class Font extends ModelBase {
                 pass++
             ) {
                 for (const glyphName of this.rebuildAutomaticComposites(
-                    pendingGlyphNames
+                    pendingGlyphNames,
+                    {
+                        skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames
+                    }
                 )) {
                     recomputedGlyphNames.add(glyphName);
                     pendingGlyphNames.add(glyphName);
@@ -9810,6 +9829,7 @@ export class Font extends ModelBase {
                     const glyph = layer.parent() as Glyph;
                     const glyphName = glyph?.name;
                     let layerChanged = false;
+                    let changedOnlyByAutomaticOffset = true;
 
                     for (const side of ['left', 'right'] as SidebearingSide[]) {
                         const key =
@@ -9864,6 +9884,9 @@ export class Font extends ModelBase {
 
                         layer.setDirectSidebearing(side, applied.value);
                         layerChanged = true;
+                        if (parsed.kind !== 'automatic-offset') {
+                            changedOnlyByAutomaticOffset = false;
+                        }
                         if (glyphName) {
                             recomputedGlyphNames.add(glyphName);
                         }
@@ -9874,10 +9897,22 @@ export class Font extends ModelBase {
                         glyphName &&
                         !processedGlyphNames.has(glyphName)
                     ) {
+                        if (changedOnlyByAutomaticOffset) {
+                            skipSelfAutomaticRebuildGlyphNames.add(glyphName);
+                        } else {
+                            skipSelfAutomaticRebuildGlyphNames.delete(
+                                glyphName
+                            );
+                        }
+
                         nextGlyphNames.add(glyphName);
 
                         for (const rebuiltGlyphName of this.rebuildAutomaticComposites(
-                            new Set([glyphName])
+                            new Set([glyphName]),
+                            {
+                                skipSelfGlyphNames:
+                                    skipSelfAutomaticRebuildGlyphNames
+                            }
                         )) {
                             recomputedGlyphNames.add(rebuiltGlyphName);
                             nextGlyphNames.add(rebuiltGlyphName);

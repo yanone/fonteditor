@@ -1963,23 +1963,31 @@ describe('Model setter change recording', () => {
             const target = resolveModelObject(font, spec);
             const oldValue = cloneValue(target[spec.property]);
             const candidateValue = mutateValue(oldValue);
+            const isComponentAnchorAlias =
+                spec.className === 'Component' && spec.property === 'anchor';
+            const expectedProperty = isComponentAnchorAlias
+                ? 'componentAnchor'
+                : spec.property;
 
             target[spec.property] = cloneValue(candidateValue);
 
             const expectedValue = cloneValue(target[spec.property]);
+            const expectedYPath = isComponentAnchorAlias
+                ? target
+                      .getPath()
+                      .concat([
+                          'format_specific',
+                          'com.schriftgestalt.Glyphs.componentAnchor'
+                      ])
+                : target.getPath().concat(spec.property);
             const log = bridge.getChangeLog();
 
             expect(log).toHaveLength(1);
-            expect(log[0].property).toBe(spec.property);
+            expect(log[0].property).toBe(expectedProperty);
             expect(log[0].oldValue).toEqual(oldValue);
             expect(log[0].newValue).toEqual(expectedValue);
             expect(
-                normalizeYValue(
-                    getYPath(
-                        bridge.fontMap,
-                        target.getPath().concat(spec.property)
-                    )
-                )
+                normalizeYValue(getYPath(bridge.fontMap, expectedYPath))
             ).toEqual(expectedValue);
         }
     );

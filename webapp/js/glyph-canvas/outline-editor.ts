@@ -3667,7 +3667,7 @@ export class OutlineEditor {
         left: SidebearingHandle | null,
         right: SidebearingHandle | null
     ): boolean {
-        return left?.side === right?.side;
+        return left?.side === right?.side && left?.editable === right?.editable;
     }
 
     private getSidebearingHandleRadiusScreen(): number {
@@ -6771,7 +6771,10 @@ export class OutlineEditor {
         const foundHandle = this._findHoveredItem(
             visibleHandles,
             (handle) => ({ x: handle.x, y: handle.y }),
-            (handle) => ({ side: handle.side }),
+            (handle) => ({
+                side: handle.side,
+                editable: handle.editable
+            }),
             this.getSidebearingHandleRadiusScreen()
         );
 
