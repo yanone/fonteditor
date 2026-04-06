@@ -163,7 +163,7 @@ function transformPointWithAffine(
 function getAutomaticAdvanceDeltaX(transform: number[], width: number): number {
     const start = transformPointWithAffine(transform, 0, 0);
     const end = transformPointWithAffine(transform, width, 0);
-    return end.x - start.x;
+    return Math.abs(end.x - start.x);
 }
 
 function getAutomaticComponentTransform(
