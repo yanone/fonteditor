@@ -342,6 +342,81 @@ function makeSingleOffsetAutomaticFont() {
     });
 }
 
+function makeRotatedAutomaticBaseFont() {
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [makeMaster()],
+        glyphs: [
+            {
+                name: 'n',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'N0',
+                        width: 571,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(40, 0, 531, 492)],
+                        anchors: [
+                            { name: 'bottom', x: 260, y: 0 },
+                            { name: 'top', x: 280, y: 492 }
+                        ],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'u',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'U0',
+                        width: 0,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [
+                            makeComponent('n', {
+                                transform: {
+                                    translation: [571, 492],
+                                    scale: [1, 1],
+                                    rotation: Math.PI,
+                                    skew: [0, 0],
+                                    tCenter: [0, 0],
+                                    order: 'Glyphs'
+                                }
+                            })
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            }
+        ],
+        names: { family_name: { en: 'Automatic Rotated Base Canonical' } },
+        note: '',
+        date: '2026-04-06',
+        features: { classes: {}, prefixes: {}, features: [] },
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
 function setupCanvasForLayer(canvas, font, glyphName, layerId) {
     canvas.outlineEditor.active = true;
     canvas.outlineEditor.selectedLayerId = layerId;
@@ -493,6 +568,21 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         expect(base.toAffineArray()[4]).toBeCloseTo(0, 5);
         expect(base.toAffineArray()[5]).toBeCloseTo(190, 5);
         expect(layer.width).toBeCloseTo(180, 5);
+    });
+
+    test('rotated unattached automatic bases keep positive width and in-width placement', () => {
+        const font = makeRotatedAutomaticBaseFont();
+        const layer = font.findGlyph('u').layers[0];
+        const changed = layer.rebuildAutomaticComposition();
+        const [base] = layer.components;
+
+        expect(changed).toBe(true);
+        expect(layer.isAutomaticAlignedLayer()).toBe(true);
+        expect(base.toAffineArray()[4]).toBeCloseTo(571, 5);
+        expect(base.toAffineArray()[5]).toBeCloseTo(492, 5);
+        expect(layer.width).toBeCloseTo(571, 5);
+        expect(layer.lsb).toBeCloseTo(40, 5);
+        expect(layer.rsb).toBeCloseTo(40, 5);
     });
 
     test('anchor families expose override choices and explicit overrides pick the exact target anchor', () => {
