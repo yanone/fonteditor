@@ -110,3 +110,7 @@ Test structural outline operations that trigger keyed realignment after the stru
 
 Ensure that undo operations of the same edits result in the same edge anchoring as during edits, by storing in the history item which side got edited and using that for undo-time visual anchoring of the opposite edge.
 Ensure that ongoing mouse drags that take a break are not committing data to the history items such that an undo restores an already altered state. Undos must restore each state cleanly.
+
+#### Editing Components
+
+Components, like paths, must be of identical structure across the layers of a glyph to be compatible. Their decomposed transformations (translation, rotation, etc.) can be edited via the property panel of the editor view. All transformation edits stay local to a layer, even if the edited layer is linked with other layers, while changing the automatic alignment status of a component is updated across all linked layers.

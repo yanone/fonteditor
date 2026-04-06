@@ -15,7 +15,12 @@ import { Logger } from './logger';
 import APP_SETTINGS from './settings';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
-import { Glyph, Layer } from './babelfont-model';
+import {
+    Component,
+    DecomposedAffineTransform,
+    Glyph,
+    Layer
+} from './babelfont-model';
 import { updateUrlState, encodeLocation } from './url-state';
 import { isSyncEnabled } from './state-sync';
 import { timelineMark } from './perf-timeline';
@@ -35,6 +40,22 @@ function isPlainNumericInputValue(value: string): boolean {
     return /^[+-]?\d+(?:\.\d+)?$/.test(value.trim());
 }
 
+const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
+
+function getSharedNumericValue(
+    values: number[],
+    epsilon = 0.000001
+): number | null {
+    if (values.length === 0) {
+        return null;
+    }
+
+    const first = values[0];
+    return values.every((value) => Math.abs(value - first) <= epsilon)
+        ? first
+        : null;
+}
+
 type QCGlyphProblem = {
     glyphName: string;
     userspaceLocation: UserspaceLocation | null;
@@ -42,9 +63,28 @@ type QCGlyphProblem = {
 };
 
 type ActivePropertyInputState = {
-    side: 'left' | 'right';
+    fieldKey: string;
     selectionStart: number | null;
     selectionEnd: number | null;
+};
+
+type ComponentTransformField =
+    | 'translateX'
+    | 'translateY'
+    | 'rotation'
+    | 'scaleX'
+    | 'scaleY'
+    | 'skewX'
+    | 'skewY';
+
+type ComponentCheckboxState = boolean | 'mixed';
+
+type NormalizedDecomposedTransform = {
+    translation: [number, number];
+    scale: [number, number];
+    rotation: number;
+    skew: [number, number];
+    order: 'Glyphs' | 'RestOfTheWorld';
 };
 
 export type QCCanvasMarker = {
@@ -2885,6 +2925,322 @@ class GlyphCanvas {
 
         return glyph.findLayerById(this.outlineEditor.selectedLayerId) || null;
     }
+
+    private getCurrentEditingLayerModel(): Layer | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel) {
+            return null;
+        }
+
+        const parsedStack = this.outlineEditor.parseGlyphStack();
+        const currentStackItem =
+            parsedStack.length > 0 ? parsedStack[parsedStack.length - 1] : null;
+        const glyphName =
+            currentStackItem?.glyphName ?? this.getCurrentGlyphName();
+        const layerId =
+            currentStackItem?.layerId ?? this.outlineEditor.selectedLayerId;
+
+        if (!glyphName || !layerId) {
+            return null;
+        }
+
+        const glyph = fontModel.findGlyph(glyphName);
+        if (!glyph) {
+            return null;
+        }
+
+        return glyph.findLayerById(layerId) || null;
+    }
+
+    private getSelectedComponentModels(layer: Layer): Component[] {
+        const componentIndices = this.outlineEditor.selectedComponents;
+        if (componentIndices.length === 0) {
+            return [];
+        }
+
+        const components: Component[] = [];
+        for (const componentIndex of componentIndices) {
+            const shape = layer.shapes?.[componentIndex];
+            if (shape?.isComponent()) {
+                components.push(shape.asComponent());
+            }
+        }
+
+        return components;
+    }
+
+    private getNormalizedComponentTransform(
+        component: Component
+    ): NormalizedDecomposedTransform {
+        const transform =
+            component.transform || DecomposedAffineTransform.identity();
+        return {
+            translation: [
+                transform.translation?.[0] ?? 0,
+                transform.translation?.[1] ?? 0
+            ],
+            scale: [transform.scale?.[0] ?? 1, transform.scale?.[1] ?? 1],
+            rotation: transform.rotation ?? 0,
+            skew: [transform.skew?.[0] ?? 0, transform.skew?.[1] ?? 0],
+            order: (transform.order ?? 'RestOfTheWorld') as
+                | 'Glyphs'
+                | 'RestOfTheWorld'
+        };
+    }
+
+    private getComponentTransformFieldValue(
+        component: Component,
+        field: ComponentTransformField
+    ): number {
+        const transform = this.getNormalizedComponentTransform(component);
+        switch (field) {
+            case 'translateX':
+                return transform.translation[0];
+            case 'translateY':
+                return transform.translation[1];
+            case 'rotation':
+                return (transform.rotation * 180) / Math.PI;
+            case 'scaleX':
+                return transform.scale[0];
+            case 'scaleY':
+                return transform.scale[1];
+            case 'skewX':
+                return (transform.skew[0] * 180) / Math.PI;
+            case 'skewY':
+                return (transform.skew[1] * 180) / Math.PI;
+        }
+    }
+
+    private setComponentTransformFieldValue(
+        component: Component,
+        field: ComponentTransformField,
+        value: number
+    ): boolean {
+        const transform = this.getNormalizedComponentTransform(component);
+        const next = {
+            ...transform,
+            translation: [
+                transform.translation[0],
+                transform.translation[1]
+            ] as [number, number],
+            scale: [transform.scale[0], transform.scale[1]] as [number, number],
+            skew: [transform.skew[0], transform.skew[1]] as [number, number]
+        };
+
+        switch (field) {
+            case 'translateX':
+                next.translation[0] = value;
+                break;
+            case 'translateY':
+                next.translation[1] = value;
+                break;
+            case 'rotation':
+                next.rotation = (value * Math.PI) / 180;
+                break;
+            case 'scaleX':
+                next.scale[0] = value;
+                break;
+            case 'scaleY':
+                next.scale[1] = value;
+                break;
+            case 'skewX':
+                next.skew[0] = (value * Math.PI) / 180;
+                break;
+            case 'skewY':
+                next.skew[1] = (value * Math.PI) / 180;
+                break;
+        }
+
+        const previous = this.getComponentTransformFieldValue(component, field);
+        if (Math.abs(previous - value) <= 0.000001) {
+            return false;
+        }
+
+        component.transform = next as Component['transform'];
+        return true;
+    }
+
+    private getComponentAutoAlignmentValue(component: Component): boolean {
+        return (
+            component.format_specific?.[GLYPHS_COMPONENT_ALIGNMENT_KEY] === 0
+        );
+    }
+
+    private setComponentAutoAlignmentValue(
+        component: Component,
+        enabled: boolean
+    ): boolean {
+        const currentValue = this.getComponentAutoAlignmentValue(component);
+        if (currentValue === enabled) {
+            return false;
+        }
+
+        const formatSpecific = {
+            ...(component.format_specific || {})
+        } as Record<string, unknown>;
+        formatSpecific[GLYPHS_COMPONENT_ALIGNMENT_KEY] = enabled ? 0 : 1;
+        component.format_specific = formatSpecific;
+        return true;
+    }
+
+    private getComponentAutoAlignmentState(
+        components: Component[]
+    ): ComponentCheckboxState {
+        if (components.length === 0) {
+            return false;
+        }
+
+        const values = components.map((component) =>
+            this.getComponentAutoAlignmentValue(component)
+        );
+        const first = values[0];
+        return values.every((value) => value === first) ? first : 'mixed';
+    }
+
+    private async finalizeComponentPropertyPanelMutation(
+        glyphName: string,
+        layerId: string | null
+    ): Promise<void> {
+        fontManager.lastChangeSource = 'keyboard';
+        fontManager.lastEditType = 'outline';
+        fontManager.scheduleFullCompileDebounce();
+
+        try {
+            await window.fontManager?.refreshGlyphsAfterModelBatch?.(
+                [glyphName],
+                layerId || undefined
+            );
+            await this.outlineEditor.fetchLayerData(true);
+        } catch (error) {
+            console.warn(
+                'Failed to refresh layer after component property-panel update',
+                error
+            );
+        }
+
+        this.updatePropertyPanel();
+        this.outlineEditor.performHitDetection(null);
+        this.render();
+    }
+
+    private async commitComponentTransformPropertyPanelValue(
+        field: ComponentTransformField,
+        value: string
+    ): Promise<void> {
+        const layer = this.getCurrentEditingLayerModel();
+        if (!layer) {
+            return;
+        }
+
+        const trimmedValue = value.trim();
+        if (!isPlainNumericInputValue(trimmedValue)) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const numericValue = Number(trimmedValue);
+        const selectedComponents = this.getSelectedComponentModels(layer);
+        if (selectedComponents.length === 0) {
+            return;
+        }
+
+        let changed = false;
+        window.changeBridge?.beginTransaction('Set component transform');
+        try {
+            for (const component of selectedComponents) {
+                if (
+                    this.setComponentTransformFieldValue(
+                        component,
+                        field,
+                        numericValue
+                    )
+                ) {
+                    changed = true;
+                }
+            }
+        } finally {
+            window.changeBridge?.endTransaction();
+        }
+
+        if (!changed) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const glyphName = layer.parent()?.name;
+        if (!glyphName) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        await this.finalizeComponentPropertyPanelMutation(
+            glyphName,
+            layer.id ?? null
+        );
+    }
+
+    private async commitComponentAutoAlignmentPropertyPanelValue(
+        checked: boolean
+    ): Promise<void> {
+        const currentLayer = this.getCurrentEditingLayerModel();
+        if (!currentLayer) {
+            return;
+        }
+
+        const glyph = currentLayer.parent();
+        if (!glyph) {
+            return;
+        }
+
+        const componentIndices = this.outlineEditor.selectedComponents;
+        if (componentIndices.length === 0) {
+            return;
+        }
+
+        let changed = false;
+        window.changeBridge?.beginTransaction(
+            'Set component automatic alignment'
+        );
+        try {
+            for (const layer of glyph.layers || []) {
+                for (const componentIndex of componentIndices) {
+                    const shape = layer.shapes?.[componentIndex];
+                    if (!shape?.isComponent()) {
+                        continue;
+                    }
+
+                    const component = shape.asComponent();
+                    if (
+                        this.setComponentAutoAlignmentValue(component, checked)
+                    ) {
+                        changed = true;
+                    }
+                }
+            }
+        } finally {
+            window.changeBridge?.endTransaction();
+        }
+
+        if (!changed) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        await this.finalizeComponentPropertyPanelMutation(
+            glyph.name,
+            currentLayer.id ?? null
+        );
+    }
+
+    private hasComponentOnlySelection(): boolean {
+        return (
+            this.outlineEditor.selectedComponents.length > 0 &&
+            this.outlineEditor.selectedPoints.length === 0 &&
+            this.outlineEditor.selectedAnchors.length === 0 &&
+            this.outlineEditor.selectedGuideHandle === null
+        );
+    }
+
     reapplyActiveEditedGlyphAdvanceAfterShape(): boolean {
         if (!this.outlineEditor.active || !this.textRunEditor) {
             return false;
@@ -2913,7 +3269,6 @@ class GlyphCanvas {
         return (
             this.outlineEditor.selectedPoints.length > 0 ||
             this.outlineEditor.selectedAnchors.length > 0 ||
-            this.outlineEditor.selectedComponents.length > 0 ||
             this.outlineEditor.selectedGuideHandle !== null
         );
     }
@@ -3046,13 +3401,13 @@ class GlyphCanvas {
             return null;
         }
 
-        const side = activeElement.dataset.sidebearingSide;
-        if (side !== 'left' && side !== 'right') {
+        const fieldKey = activeElement.dataset.propertyField;
+        if (!fieldKey) {
             return null;
         }
 
         return {
-            side,
+            fieldKey,
             selectionStart: activeElement.selectionStart,
             selectionEnd: activeElement.selectionEnd
         };
@@ -3066,7 +3421,7 @@ class GlyphCanvas {
         }
 
         const replacementInput = this.propertyPanel.querySelector(
-            `.glyph-property-input[data-sidebearing-side="${activeInputState.side}"]`
+            `.glyph-property-input[data-property-field="${activeInputState.fieldKey}"]`
         ) as HTMLInputElement | null;
         if (!replacementInput) {
             return;
@@ -3143,6 +3498,7 @@ class GlyphCanvas {
         }
 
         const activeInputState = this.getActivePropertyInputState();
+        this.propertyPanel.classList.remove('component-properties');
 
         this.propertyPanel.textContent = '';
 
@@ -3153,10 +3509,213 @@ class GlyphCanvas {
 
         this.propertyPanel.classList.remove('hidden');
 
-        if (this.hasInspectableSelection()) {
+        const isComponentOnlySelection = this.hasComponentOnlySelection();
+        if (this.hasInspectableSelection() && !isComponentOnlySelection) {
             const placeholder = document.createElement('div');
             placeholder.className = 'glyph-property-panel-placeholder';
             this.propertyPanel.appendChild(placeholder);
+            return;
+        }
+
+        if (isComponentOnlySelection) {
+            const currentLayer = this.getCurrentEditingLayerModel();
+            if (!currentLayer) {
+                return;
+            }
+
+            const selectedComponents =
+                this.getSelectedComponentModels(currentLayer);
+            if (selectedComponents.length === 0) {
+                return;
+            }
+
+            this.propertyPanel.classList.add('component-properties');
+
+            const content = document.createElement('div');
+            content.className = 'glyph-component-property-panel-content';
+
+            const createComponentFieldControl = (
+                field: ComponentTransformField,
+                labelText: string
+            ) => {
+                const wrapper = document.createElement('label');
+                wrapper.className = 'glyph-component-property-control';
+
+                const label = document.createElement('span');
+                label.className = 'glyph-property-control-label';
+                label.textContent = labelText;
+                const labelTooltips: Record<ComponentTransformField, string> = {
+                    translateX: 'Component translation on X axis',
+                    translateY: 'Component translation on Y axis',
+                    rotation: 'Component rotation in degrees',
+                    scaleX: 'Component scale on X axis',
+                    scaleY: 'Component scale on Y axis',
+                    skewX: 'Component skew on X axis in degrees',
+                    skewY: 'Component skew on Y axis in degrees'
+                };
+                label.title = labelTooltips[field];
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'glyph-property-input';
+                input.dataset.propertyField = `component-${field}`;
+
+                const sharedValue = getSharedNumericValue(
+                    selectedComponents.map((component) =>
+                        this.getComponentTransformFieldValue(component, field)
+                    )
+                );
+
+                if (sharedValue === null) {
+                    input.value = '';
+                    input.placeholder = 'Multiple values';
+                    input.classList.add('glyph-property-input-mixed');
+                } else {
+                    input.value = String(Number(sharedValue.toFixed(4)));
+                }
+
+                const arrowInputController = new ArrowAdjustableTextInput({
+                    input,
+                    getValue: () => {
+                        const trimmedValue = input.value.trim();
+                        if (isPlainNumericInputValue(trimmedValue)) {
+                            return Number(trimmedValue);
+                        }
+
+                        return (
+                            sharedValue ??
+                            this.getComponentTransformFieldValue(
+                                selectedComponents[0],
+                                field
+                            )
+                        );
+                    },
+                    applyValue: async (nextValue) => {
+                        input.dataset.skipNextPropertyCommit = 'true';
+                        await this.commitComponentTransformPropertyPanelValue(
+                            field,
+                            String(nextValue)
+                        );
+                    },
+                    findReplacementInput: () =>
+                        this.propertyPanel?.querySelector(
+                            `.glyph-property-input[data-property-field="component-${field}"]`
+                        ) as HTMLInputElement | null
+                });
+
+                input.addEventListener('change', () => {
+                    if (input.dataset.skipNextPropertyCommit === 'true') {
+                        delete input.dataset.skipNextPropertyCommit;
+                        return;
+                    }
+
+                    void this.commitComponentTransformPropertyPanelValue(
+                        field,
+                        input.value
+                    );
+                });
+
+                input.addEventListener('keydown', (event) => {
+                    if (this.handlePropertyInputUndoRedo(event)) {
+                        return;
+                    }
+
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.outlineEditor.restoreFocus();
+                        return;
+                    }
+
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        this.restoreCanvasFocusAfterPropertyCommit = true;
+                        input.dataset.skipNextPropertyCommit = 'true';
+                        void this.commitComponentTransformPropertyPanelValue(
+                            field,
+                            input.value
+                        );
+                        input.blur();
+                    }
+                });
+
+                input.addEventListener('blur', () => {
+                    setTimeout(() => {
+                        if (this.restoreCanvasFocusAfterPropertyCommit) {
+                            this.restoreCanvasFocusAfterPropertyCommit = false;
+                            if (!arrowInputController.isApplyingStep) {
+                                this.outlineEditor.restoreFocus();
+                            }
+                            return;
+                        }
+
+                        const activeElement =
+                            document.activeElement as HTMLElement | null;
+                        if (
+                            activeElement &&
+                            this.isTextInputElement(activeElement)
+                        ) {
+                            return;
+                        }
+
+                        if (!arrowInputController.isApplyingStep) {
+                            this.outlineEditor.restoreFocus();
+                        }
+                    }, 0);
+                });
+
+                wrapper.appendChild(label);
+                wrapper.appendChild(input);
+                return wrapper;
+            };
+
+            const fieldsRow = document.createElement('div');
+            fieldsRow.className = 'glyph-component-property-grid';
+            fieldsRow.appendChild(
+                createComponentFieldControl('translateX', 'X')
+            );
+            fieldsRow.appendChild(
+                createComponentFieldControl('translateY', 'Y')
+            );
+            fieldsRow.appendChild(createComponentFieldControl('rotation', 'R'));
+            fieldsRow.appendChild(createComponentFieldControl('scaleX', 'SX'));
+            fieldsRow.appendChild(createComponentFieldControl('scaleY', 'SY'));
+            fieldsRow.appendChild(createComponentFieldControl('skewX', 'KX'));
+            fieldsRow.appendChild(createComponentFieldControl('skewY', 'KY'));
+
+            const alignmentState =
+                this.getComponentAutoAlignmentState(selectedComponents);
+            const alignmentControl = document.createElement('label');
+            alignmentControl.className =
+                'glyph-component-property-control glyph-component-property-checkbox';
+
+            const alignmentInput = document.createElement('input');
+            alignmentInput.type = 'checkbox';
+            alignmentInput.className =
+                'glyph-component-property-checkbox-input';
+            alignmentInput.dataset.propertyField = 'component-auto-alignment';
+            alignmentInput.checked = alignmentState === true;
+            alignmentInput.indeterminate = alignmentState === 'mixed';
+
+            const alignmentLabel = document.createElement('span');
+            alignmentLabel.className = 'glyph-property-control-label';
+            alignmentLabel.textContent = 'Auto Align';
+            alignmentLabel.title =
+                'Enable automatic component alignment for selected components';
+
+            alignmentInput.addEventListener('change', () => {
+                void this.commitComponentAutoAlignmentPropertyPanelValue(
+                    alignmentInput.checked
+                );
+            });
+
+            alignmentControl.appendChild(alignmentInput);
+            alignmentControl.appendChild(alignmentLabel);
+
+            content.appendChild(fieldsRow);
+            fieldsRow.appendChild(alignmentControl);
+            this.propertyPanel.appendChild(content);
+            this.restoreActivePropertyInput(activeInputState);
             return;
         }
 
@@ -3175,11 +3734,14 @@ class GlyphCanvas {
             const label = document.createElement('span');
             label.className = 'glyph-property-control-label';
             label.textContent = shortLabel;
+            label.title =
+                side === 'left' ? 'Left sidebearing' : 'Right sidebearing';
 
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'glyph-property-input';
             input.dataset.sidebearingSide = side;
+            input.dataset.propertyField = `side-${side}`;
 
             const resolution = layer.resolveMetricsKey(side);
             const glyph = layer.parent();
@@ -3221,7 +3783,7 @@ class GlyphCanvas {
                 },
                 findReplacementInput: () =>
                     this.propertyPanel?.querySelector(
-                        `.glyph-property-input[data-sidebearing-side="${side}"]`
+                        `.glyph-property-input[data-property-field="side-${side}"]`
                     ) as HTMLInputElement | null
             });
 
@@ -3297,6 +3859,7 @@ class GlyphCanvas {
             const label = document.createElement('span');
             label.className = 'glyph-property-control-label';
             label.textContent = 'W';
+            label.title = 'Advance width';
 
             const valueLabel = document.createElement('span');
             valueLabel.className = 'glyph-property-display-value';

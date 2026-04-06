@@ -273,6 +273,11 @@ addTippyBackdropSupport(tippyInstance, backdrop, {
 - Implement custom backdrop click handlers separately
 - Create tippy menus without backdrop support
 
+**Property Panel Numeric Inputs:**
+
+- Numeric text fields in the editor property panel (for example sidebearings and component transform controls) MUST use `ArrowAdjustableTextInput` so Up/Down keyboard adjustments behave consistently.
+- Reuse the same input-step behavior and replacement-input lookup pattern already used by sidebearing fields in `webapp/js/glyph-canvas.ts`.
+
 ### CSS
 
 **NEVER use hard-coded color values. ALWAYS use CSS variables.**
