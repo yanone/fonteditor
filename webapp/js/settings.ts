@@ -120,6 +120,9 @@ const APP_SETTINGS = {
             COMPONENT_FILL_NORMAL: '#75b5c6cc',
             COMPONENT_FILL_HOVERED: '#75b5c6aa',
             COMPONENT_FILL_SELECTED: '#2f8ceaff',
+            COMPONENT_FILL_AUTO_NORMAL: '#8f8f8fcc',
+            COMPONENT_FILL_AUTO_HOVERED: '#a3a3a3cc',
+            COMPONENT_FILL_AUTO_SELECTED: '#7a7a7aff',
 
             // Measurement tool
             MEASUREMENT_TOOL_LINE: '#000000',
@@ -190,6 +193,9 @@ const APP_SETTINGS = {
             COMPONENT_FILL_NORMAL: '#75b5c6cc',
             COMPONENT_FILL_HOVERED: '#75b5c6aa',
             COMPONENT_FILL_SELECTED: '#2f8ceaff',
+            COMPONENT_FILL_AUTO_NORMAL: '#8f8f8fcc',
+            COMPONENT_FILL_AUTO_HOVERED: '#a3a3a3cc',
+            COMPONENT_FILL_AUTO_SELECTED: '#7a7a7aff',
 
             // Measurement tool
             MEASUREMENT_TOOL_LINE: '#ffffff',

@@ -80,7 +80,7 @@ Since sidebearings are not supposed to change when a user edits anything on a la
 
 During edits from mouse-dragging, the width of the active glyph in the harfbuzz buffer must be updated live and without any lag by adjusting all occurrences of its advance width in the harfbuzz buffer and immediately redrawing, while scheduling repeated editing font compilations as during outline edits so that the GPOS table can update.
 
-Simultaneously, once a glyph’s sidebearing changes, all downstream glyphs who inherit the active glyph’s sidebearings must be updated as well. Only update if the value actually changed in the end. Don’t propagate no-ops.
+Simultaneously, once a glyph’s sidebearing changes, all downstream glyphs who inherit the active glyph’s sidebearings must be updated as well. This includes both glyphs that inherit sidebearings explicitly through sidebearing keys and glyphs whose metrics depend implicitly on the glyph through automatic alignment of component-only composite layers. Only update if the value actually changed in the end. Don’t propagate no-ops.
 
 Group any sidebearing changes of sidebearing inheritance in one history transaction and Yjs message. When a structural path operation triggers keyed realignment, keep the path operation itself and all resulting width changes of the active glyph and downstream dependent glyphs in that same single history transaction and Yjs message.
 
@@ -91,7 +91,7 @@ Width adjustments and canvas anchoring must happen during one single animation f
 
 The canvas must even be panned and anchored to the active glyph if only the right sidebearing gets edited and the width changes, because the entire line may contain other glyphs before it or repetitions of the same glyph whose width gets adjusted in the same transaction.
 
-When a sidebearing changes, update the sidebearings of all inheriting downstream glyphs both in the object model as well as their advance widths in the harfbuzz buffer before repainting the canvas. For explicit sidebearing edits and keyed realignment during outline or component dragging, anchor the canvas to the opposite side of the sidebearing that changed during the repaint. For structural outline operations that trigger keyed realignment only after the structure update is complete, preserve the active glyph layer's bbox center on screen during that repaint.
+When a sidebearing changes, update the sidebearings of all inheriting downstream glyphs both in the object model as well as their advance widths in the harfbuzz buffer before repainting the canvas. This downstream propagation must include both explicit metrics-key inheritance and implicit automatic-alignment dependencies. For explicit sidebearing edits and keyed realignment during outline or component dragging, anchor the canvas to the opposite side of the sidebearing that changed during the repaint. For structural outline operations that trigger keyed realignment only after the structure update is complete, preserve the active glyph layer's bbox center on screen during that repaint.
 
 When downstream glyphs that appear **before** the active glyph in the harfbuzz buffer also change width (via metrics-key cascading), the active glyph's screen position shifts because its world position is the cumulative sum of all preceding advances. The viewport anchoring must account for those preceding-advance shifts as part of the same single-frame repaint so the active glyph remains visually stationary at its intended anchor point.
 
@@ -113,8 +113,20 @@ Ensure that ongoing mouse drags that take a break are not committing data to the
 
 #### Editing Components
 
-Components, like paths, must be of identical structure across the layers of a glyph to be compatible. Their decomposed transformations (translation, rotation, etc.) can be edited via the property panel of the editor view. All transformation edits stay local to a layer, even if the edited layer is linked with other layers, while changing the automatic alignment status of a component is updated across all linked layers.
+Components, like paths, must be of identical structure across the layers of a glyph to be compatible. Their decomposed transformations can be edited via the property panel of the editor view. For automatically aligned components, translation is derived from automatic composition and therefore not directly editable, while rotation, scale, and skew remain editable. All transformation edits stay local to a layer, even if the edited layer is linked with other layers, while changing the automatic alignment status of a component is updated across all linked layers.
 
 #### Automatic Glyph Composition
 
-Layers with only components and no paths, where all components are set to be automatically aligned, will be composed by the editor automatically.
+Layers that contain only components and no paths, and where every component is set to automatic alignment, must be composed by the editor automatically.
+
+Anchors serve both OpenType GPOS attachment features and automatic component arrangement in the editor at design-time. A base component may expose anchors such as `top` or `bottom`, and a mark component may expose matching attachment anchors such as `_top` or `_bottom`. During automatic composition, a mark component must snap to the matching base anchor in the same way mark-to-base positioning would attach the mark glyph.
+
+If a glyph layer contains multiple anchors of the same family, alternative anchors are distinguished by a freely chosen suffix after an underscore, such as `top_alt` or `top_viet`. A component may explicitly choose one of these alternative target anchors via the `Component.anchor` attribute. The editor must treat the unsuffixed anchor and all suffixed variants as one anchor family for attachment purposes, while preserving the exact chosen target name on the component.
+
+Automatic composition is intended for three common cases: a single base component, a base component followed by one or more mark components, or multiple base components. In base-plus-mark compositions, the base component must come first and combining mark components after it. When multiple marks are present, they stack in shape order. For stacking to work, a mark glyph must usually contain both its attachment anchor such as `_top` and its own outgoing anchor such as `top`, so later marks can attach to it in turn.
+
+Automatic alignment keeps composite metrics derived from their base components. Changing the metrics of a base glyph must therefore update compatible automatically composed glyphs that reference it. Mark components attached through anchors must not expand the automatically derived sidebearings. If extra spacing is needed beyond the automatic metrics, that spacing must be expressed as an explicit adjustment on the composite rather than by letting attached marks redefine the sidebearings.
+
+Automatic alignment is on by default for component-only layers with every component set to automatic alignment. Disabling automatic alignment on any component in a layer takes that layer out of automatic composition and allows manual placement. Re-enabling automatic alignment on all components returns the layer to automatic composition. Changing automatic alignment state or a component's explicit target-anchor override must rebuild the automatic composition immediately.
+
+Sidebearings of automatically composed layers cannot be edited directly because they are derived from the base glyph. However, the automatic sidebearings may be adjusted using `=+` and `=-` glyph-wide operators, or `==+` and `==-` layer-local overrides.

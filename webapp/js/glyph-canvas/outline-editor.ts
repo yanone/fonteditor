@@ -74,7 +74,7 @@ type SnapCandidateCache = {
     metricsYValues: number[];
 };
 type GuideHandle = { scope: 'master' | 'layer'; index: number };
-type SidebearingHandle = { side: SidebearingSide };
+type SidebearingHandle = { side: SidebearingSide; editable?: boolean };
 type LayerSelectionState = {
     points: Point[];
     anchors: number[];
@@ -1182,6 +1182,7 @@ export class OutlineEditor {
     private _pendingDragMetricsUpdate: boolean = false;
     private _pointDragDeltaX: number = 0;
     private _componentDragDeltaX: number = 0;
+    private _sidebearingAffectedGlyphNames: Set<string> = new Set();
     private _pointDragPreserveHandlePositions: boolean = false;
     private _offCurveAltDragConstraint: {
         contourIndex: number;
@@ -1536,6 +1537,26 @@ export class OutlineEditor {
         return glyph.findLayerById?.(layerId) || null;
     }
 
+    private isAutomaticComposedLayer(): boolean {
+        return !!this.getCurrentLayerModel()?.isAutomaticAlignedLayer?.();
+    }
+
+    private isAutomaticComponentAtIndex(componentIndex: number): boolean {
+        const layer = this.getCurrentLayerModel();
+        const shape = layer?.shapes?.[componentIndex];
+        return (
+            !!shape?.isComponent?.() && shape.asComponent().isAutomaticAligned()
+        );
+    }
+
+    private selectionContainsAutomaticComponent(
+        componentIndices: number[] = this.selectedComponents
+    ): boolean {
+        return componentIndices.some((index) =>
+            this.isAutomaticComponentAtIndex(index)
+        );
+    }
+
     private hasActiveMetricsKey(side: SidebearingSide): boolean {
         const resolution =
             this.getCurrentLayerModel()?.resolveMetricsKey?.(side);
@@ -1685,6 +1706,7 @@ export class OutlineEditor {
         nextWidth: number;
         glyphAdvances: Record<string, number>;
         advancesRefreshed: boolean;
+        affectedGlyphNames: Set<string>;
     } | null {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const currentLayerId = this.getCurrentLayerId();
@@ -1831,8 +1853,62 @@ export class OutlineEditor {
             glyphName,
             nextWidth: currentLayerData.width || 0,
             glyphAdvances,
-            advancesRefreshed
+            advancesRefreshed,
+            affectedGlyphNames
         };
+    }
+
+    private syncDependentGlyphsAfterSidebearingEdit(
+        glyphName: string | null | undefined,
+        affectedGlyphNames: Set<string>
+    ): void {
+        const uniqueGlyphNames = new Set(
+            [...Array.from(affectedGlyphNames || []), glyphName || ''].filter(
+                Boolean
+            ) as string[]
+        );
+        if (uniqueGlyphNames.size <= 1) {
+            return;
+        }
+
+        const currentFont = fontManager.currentFont;
+        if (!currentFont) {
+            return;
+        }
+
+        // Downstream automatic composites were rebuilt in the model, so the
+        // next editing compile must not reuse the single-layer interactive
+        // cache path. Force a full cache refresh + full compile request.
+        fontManager.forceFullEditingCacheRefresh = true;
+        currentFont.requestRecompileWithoutDataChange();
+        window.autoCompileManager?.checkAndSchedule?.();
+
+        try {
+            currentFont.syncJsonFromModel();
+        } catch (error) {
+            console.error(
+                '[OutlineEditor] Error syncing font JSON after sidebearing edit:',
+                error
+            );
+            return;
+        }
+
+        void fontManager.forceFullWorkerCacheUpdate().then(() => {
+            for (const affectedGlyphName of uniqueGlyphNames) {
+                if (affectedGlyphName === glyphName) {
+                    continue;
+                }
+
+                window.dispatchEvent(
+                    new CustomEvent('glyphChanged', {
+                        detail: {
+                            glyphName: affectedGlyphName,
+                            layerId: this.getCurrentLayerId()
+                        }
+                    })
+                );
+            }
+        });
     }
 
     private getBoundingBoxCenterScreenPosition(): {
@@ -3555,6 +3631,7 @@ export class OutlineEditor {
         const handleY = -(clampedHandleScreenY - panY) / scale;
         const width = Number(currentLayerData.width);
         const handles: VisibleSidebearingHandle[] = [];
+        const automaticLayer = currentLayerModel.isAutomaticAlignedLayer();
 
         const leftResolution = currentLayerModel.resolveMetricsKey('left');
         if (!leftResolution.error && leftResolution.value !== null) {
@@ -3562,7 +3639,7 @@ export class OutlineEditor {
                 side: 'left',
                 x: 0,
                 y: handleY,
-                editable: !leftResolution.input
+                editable: !automaticLayer && !leftResolution.input
             });
         }
 
@@ -3576,7 +3653,7 @@ export class OutlineEditor {
                 side: 'right',
                 x: width,
                 y: handleY,
-                editable: !rightResolution.input
+                editable: !automaticLayer && !rightResolution.input
             });
         }
 
@@ -4254,6 +4331,12 @@ export class OutlineEditor {
         }
 
         if (this.hoveredSidebearingHandle) {
+            if (!this.hoveredSidebearingHandle.editable) {
+                this.glyphCanvas.updatePropertyPanel();
+                this.glyphCanvas.render();
+                return;
+            }
+
             this.selectedGuideHandle = null;
             this.selectedSidebearingHandle = {
                 ...this.hoveredSidebearingHandle
@@ -4310,6 +4393,9 @@ export class OutlineEditor {
                 const isInSelection = this.selectedComponents.includes(
                     this.hoveredComponentIndex
                 );
+                const nextSelection = isInSelection
+                    ? [...this.selectedComponents]
+                    : [this.hoveredComponentIndex];
 
                 if (!isInSelection) {
                     this.selectedComponents = [this.hoveredComponentIndex];
@@ -4317,6 +4403,12 @@ export class OutlineEditor {
                     this.selectedAnchors = [];
                 }
                 // If already in selection, keep all selected components, points, and anchors
+
+                if (this.selectionContainsAutomaticComponent(nextSelection)) {
+                    this.glyphCanvas.updatePropertyPanel();
+                    this.glyphCanvas.render();
+                    return;
+                }
 
                 this.isDraggingComponent = true;
                 console.log('[DRAG-DEBUG] Drag START: component drag begun');
@@ -6382,11 +6474,18 @@ export class OutlineEditor {
                 console.log(
                     '[DRAG-DEBUG] onMouseUp before updateWorkerFontCache + flushPendingDebugEditingFontSaveAfterDrag'
                 );
+                if (dragType === 'sidebearing') {
+                    this.syncDependentGlyphsAfterSidebearingEdit(
+                        this.getCurrentGlyphModel()?.name,
+                        this._sidebearingAffectedGlyphNames
+                    );
+                }
                 fontManager.updateWorkerFontCache();
                 fontManager.flushPendingDebugEditingFontSaveAfterDrag();
             }
             this._pointDragDeltaX = 0;
             this._componentDragDeltaX = 0;
+            this._sidebearingAffectedGlyphNames = new Set();
             this._hasMoved = false;
             this._preDragDesc = null;
             this._dragType = null;
@@ -9612,6 +9711,12 @@ export class OutlineEditor {
             return;
         }
 
+        if (this.selectionContainsAutomaticComponent()) {
+            this.glyphCanvas.updatePropertyPanel();
+            this.glyphCanvas.render();
+            return;
+        }
+
         for (const compIndex of this.selectedComponents) {
             const shape = this.layerData.shapes[compIndex];
             if (shape && 'reference' in shape) {
@@ -9782,6 +9887,9 @@ export class OutlineEditor {
             (parsed.length > 0
                 ? parsed[parsed.length - 1].glyphName
                 : this.glyphCanvas.getCurrentGlyphName());
+        this._sidebearingAffectedGlyphNames =
+            metricsUpdate?.affectedGlyphNames ||
+            new Set([glyphName].filter(Boolean) as string[]);
 
         const { widthDelta } = applyLiveSidebearingVisualSync(
             this.glyphCanvas,
@@ -9808,6 +9916,10 @@ export class OutlineEditor {
     }
 
     setSidebearingValue(side: 'left' | 'right', targetValue: number): boolean {
+        if (this.isAutomaticComposedLayer()) {
+            return false;
+        }
+
         const currentSidebearing = this.getCurrentDirectSidebearing(side);
         if (currentSidebearing === null) {
             return false;
@@ -9820,6 +9932,10 @@ export class OutlineEditor {
         }
 
         this.saveLayerData('keyboard-outline');
+        this.syncDependentGlyphsAfterSidebearingEdit(
+            this.getCurrentGlyphModel()?.name,
+            this._sidebearingAffectedGlyphNames
+        );
         this._syncCurrentGlyphToYDoc(
             'Set sidebearing',
             formatSidebearingHistoryValue(side, currentSidebearing),
@@ -9829,7 +9945,11 @@ export class OutlineEditor {
     }
 
     private adjustSelectedSidebearing(deltaX: number): boolean {
-        if (!this.selectedSidebearingHandle || deltaX === 0) {
+        if (
+            !this.selectedSidebearingHandle ||
+            !this.selectedSidebearingHandle.editable ||
+            deltaX === 0
+        ) {
             return false;
         }
 
@@ -9845,6 +9965,10 @@ export class OutlineEditor {
         }
 
         this.saveLayerData('keyboard-outline');
+        this.syncDependentGlyphsAfterSidebearingEdit(
+            this.getCurrentGlyphModel()?.name,
+            this._sidebearingAffectedGlyphNames
+        );
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }

@@ -2969,6 +2969,29 @@ class GlyphCanvas {
         return components;
     }
 
+    private selectionContainsAutomaticComponent(
+        components: Component[]
+    ): boolean {
+        return components.some((component) => component.isAutomaticAligned());
+    }
+
+    private canEditSelectedComponentTranslation(
+        components: Component[]
+    ): boolean {
+        return !this.selectionContainsAutomaticComponent(components);
+    }
+
+    private getAutomaticComponentAnchorOverrideOptions(
+        layer: Layer,
+        components: Component[]
+    ): string[] {
+        if (components.length !== 1 || !components[0].isAutomaticAligned()) {
+            return [];
+        }
+
+        return layer.getAutomaticComponentTargetAnchorOptions(components[0]);
+    }
+
     private getNormalizedComponentTransform(
         component: Component
     ): NormalizedDecomposedTransform {
@@ -3098,7 +3121,7 @@ class GlyphCanvas {
     }
 
     private async finalizeComponentPropertyPanelMutation(
-        glyphName: string,
+        affectedGlyphNames: string[],
         layerId: string | null
     ): Promise<void> {
         fontManager.lastChangeSource = 'keyboard';
@@ -3106,10 +3129,12 @@ class GlyphCanvas {
         fontManager.scheduleFullCompileDebounce();
 
         try {
-            await window.fontManager?.refreshGlyphsAfterModelBatch?.(
-                [glyphName],
-                layerId || undefined
-            );
+            if (affectedGlyphNames.length > 0) {
+                await window.fontManager?.refreshGlyphsAfterModelBatch?.(
+                    affectedGlyphNames,
+                    layerId || undefined
+                );
+            }
             await this.outlineEditor.fetchLayerData(true);
         } catch (error) {
             console.warn(
@@ -3151,7 +3176,16 @@ class GlyphCanvas {
             return;
         }
 
+        if (
+            (field === 'translateX' || field === 'translateY') &&
+            !this.canEditSelectedComponentTranslation(selectedComponents)
+        ) {
+            this.updatePropertyPanel();
+            return;
+        }
+
         let changed = false;
+        const affectedGlyphNames = new Set<string>();
         window.changeBridge?.beginTransaction('Set component transform');
         try {
             for (const component of selectedComponents) {
@@ -3163,6 +3197,16 @@ class GlyphCanvas {
                     )
                 ) {
                     changed = true;
+                }
+            }
+
+            const glyphName = layer.parent()?.name;
+            if (glyphName) {
+                affectedGlyphNames.add(glyphName);
+                for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
+                    new Set([glyphName])
+                ) || []) {
+                    affectedGlyphNames.add(affectedGlyphName);
                 }
             }
         } finally {
@@ -3181,7 +3225,11 @@ class GlyphCanvas {
         }
 
         await this.finalizeComponentPropertyPanelMutation(
-            glyphName,
+            Array.from(
+                affectedGlyphNames.size > 0
+                    ? affectedGlyphNames
+                    : new Set([glyphName])
+            ),
             layer.id ?? null
         );
     }
@@ -3205,6 +3253,7 @@ class GlyphCanvas {
         }
 
         let changed = false;
+        const affectedGlyphNames = new Set<string>([glyph.name]);
         window.changeBridge?.beginTransaction(
             'Set component automatic alignment'
         );
@@ -3224,6 +3273,12 @@ class GlyphCanvas {
                     }
                 }
             }
+
+            for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
+                new Set([glyph.name])
+            ) || []) {
+                affectedGlyphNames.add(affectedGlyphName);
+            }
         } finally {
             window.changeBridge?.endTransaction();
         }
@@ -3234,7 +3289,54 @@ class GlyphCanvas {
         }
 
         await this.finalizeComponentPropertyPanelMutation(
-            glyph.name,
+            Array.from(affectedGlyphNames),
+            currentLayer.id ?? null
+        );
+    }
+
+    private async commitComponentAnchorPropertyPanelValue(
+        value: string
+    ): Promise<void> {
+        const currentLayer = this.getCurrentEditingLayerModel();
+        if (!currentLayer) {
+            return;
+        }
+
+        const selectedComponents =
+            this.getSelectedComponentModels(currentLayer);
+        if (selectedComponents.length !== 1) {
+            return;
+        }
+
+        const component = selectedComponents[0];
+        const trimmedValue = value.trim();
+        const nextAnchor = trimmedValue || undefined;
+        if ((component.anchor || undefined) === nextAnchor) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const glyphName = currentLayer.parent()?.name;
+        if (!glyphName) {
+            this.updatePropertyPanel();
+            return;
+        }
+
+        const affectedGlyphNames = new Set<string>([glyphName]);
+        window.changeBridge?.beginTransaction('Set component anchor override');
+        try {
+            component.anchor = nextAnchor;
+            for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
+                new Set([glyphName])
+            ) || []) {
+                affectedGlyphNames.add(affectedGlyphName);
+            }
+        } finally {
+            window.changeBridge?.endTransaction();
+        }
+
+        await this.finalizeComponentPropertyPanelMutation(
+            Array.from(affectedGlyphNames),
             currentLayer.id ?? null
         );
     }
@@ -3286,9 +3388,14 @@ class GlyphCanvas {
     ): Promise<void> {
         const trimmedValue = value.trim();
 
+        const layer = this.getCurrentLayerModel();
+        if (!layer) {
+            return;
+        }
+
         if (
-            isPlainNumericInputValue(trimmedValue) &&
-            this.outlineEditor.setSidebearingValue(side, Number(trimmedValue))
+            layer.isAutomaticAlignedLayer() &&
+            (!trimmedValue || !/^==?[+-]/.test(trimmedValue))
         ) {
             this.updatePropertyPanel();
             this.outlineEditor.performHitDetection(null);
@@ -3296,8 +3403,13 @@ class GlyphCanvas {
             return;
         }
 
-        const layer = this.getCurrentLayerModel();
-        if (!layer) {
+        if (
+            isPlainNumericInputValue(trimmedValue) &&
+            this.outlineEditor.setSidebearingValue(side, Number(trimmedValue))
+        ) {
+            this.updatePropertyPanel();
+            this.outlineEditor.performHitDetection(null);
+            this.render();
             return;
         }
 
@@ -3540,6 +3652,13 @@ class GlyphCanvas {
 
             const content = document.createElement('div');
             content.className = 'glyph-component-property-panel-content';
+            const translationLocked =
+                !this.canEditSelectedComponentTranslation(selectedComponents);
+            const anchorOverrideOptions =
+                this.getAutomaticComponentAnchorOverrideOptions(
+                    currentLayer,
+                    selectedComponents
+                );
 
             const createComponentFieldControl = (
                 field: ComponentTransformField,
@@ -3581,34 +3700,45 @@ class GlyphCanvas {
                     input.value = String(Number(sharedValue.toFixed(4)));
                 }
 
-                const arrowInputController = new ArrowAdjustableTextInput({
-                    input,
-                    getValue: () => {
-                        const trimmedValue = input.value.trim();
-                        if (isPlainNumericInputValue(trimmedValue)) {
-                            return Number(trimmedValue);
-                        }
+                const isTranslationField =
+                    field === 'translateX' || field === 'translateY';
+                if (translationLocked && isTranslationField) {
+                    input.disabled = true;
+                    input.title =
+                        'Automatic component translation is derived from anchor alignment';
+                }
 
-                        return (
-                            sharedValue ??
-                            this.getComponentTransformFieldValue(
-                                selectedComponents[0],
-                                field
-                            )
-                        );
-                    },
-                    applyValue: async (nextValue) => {
-                        input.dataset.skipNextPropertyCommit = 'true';
-                        await this.commitComponentTransformPropertyPanelValue(
-                            field,
-                            String(nextValue)
-                        );
-                    },
-                    findReplacementInput: () =>
-                        this.propertyPanel?.querySelector(
-                            `.glyph-property-input[data-property-field="component-${field}"]`
-                        ) as HTMLInputElement | null
-                });
+                const arrowInputController =
+                    translationLocked && isTranslationField
+                        ? null
+                        : new ArrowAdjustableTextInput({
+                              input,
+                              getValue: () => {
+                                  const trimmedValue = input.value.trim();
+                                  if (isPlainNumericInputValue(trimmedValue)) {
+                                      return Number(trimmedValue);
+                                  }
+
+                                  return (
+                                      sharedValue ??
+                                      this.getComponentTransformFieldValue(
+                                          selectedComponents[0],
+                                          field
+                                      )
+                                  );
+                              },
+                              applyValue: async (nextValue) => {
+                                  input.dataset.skipNextPropertyCommit = 'true';
+                                  await this.commitComponentTransformPropertyPanelValue(
+                                      field,
+                                      String(nextValue)
+                                  );
+                              },
+                              findReplacementInput: () =>
+                                  this.propertyPanel?.querySelector(
+                                      `.glyph-property-input[data-property-field="component-${field}"]`
+                                  ) as HTMLInputElement | null
+                          });
 
                 input.addEventListener('change', () => {
                     if (this.outlineEditor.draggingSomething) {
@@ -3654,7 +3784,7 @@ class GlyphCanvas {
                     setTimeout(() => {
                         if (this.restoreCanvasFocusAfterPropertyCommit) {
                             this.restoreCanvasFocusAfterPropertyCommit = false;
-                            if (!arrowInputController.isApplyingStep) {
+                            if (!arrowInputController?.isApplyingStep) {
                                 this.outlineEditor.restoreFocus();
                             }
                             return;
@@ -3669,7 +3799,7 @@ class GlyphCanvas {
                             return;
                         }
 
-                        if (!arrowInputController.isApplyingStep) {
+                        if (!arrowInputController?.isApplyingStep) {
                             this.outlineEditor.restoreFocus();
                         }
                     }, 0);
@@ -3725,6 +3855,45 @@ class GlyphCanvas {
 
             content.appendChild(fieldsRow);
             fieldsRow.appendChild(alignmentControl);
+
+            if (anchorOverrideOptions.length > 1) {
+                const anchorWrapper = document.createElement('label');
+                anchorWrapper.className = 'glyph-component-property-control';
+
+                const anchorLabel = document.createElement('span');
+                anchorLabel.className = 'glyph-property-control-label';
+                anchorLabel.textContent = 'Anchor';
+                anchorLabel.title =
+                    'Choose which eligible target anchor this automatic component attaches to';
+
+                const anchorSelect = document.createElement('select');
+                anchorSelect.className = 'glyph-property-input';
+                anchorSelect.dataset.propertyField = 'component-anchor';
+
+                const automaticOption = document.createElement('option');
+                automaticOption.value = '';
+                automaticOption.textContent = 'Automatic';
+                anchorSelect.appendChild(automaticOption);
+
+                for (const anchorName of anchorOverrideOptions) {
+                    const option = document.createElement('option');
+                    option.value = anchorName;
+                    option.textContent = anchorName;
+                    anchorSelect.appendChild(option);
+                }
+
+                anchorSelect.value = selectedComponents[0].anchor || '';
+                anchorSelect.addEventListener('change', () => {
+                    void this.commitComponentAnchorPropertyPanelValue(
+                        anchorSelect.value
+                    );
+                });
+
+                anchorWrapper.appendChild(anchorLabel);
+                anchorWrapper.appendChild(anchorSelect);
+                content.appendChild(anchorWrapper);
+            }
+
             this.propertyPanel.appendChild(content);
             this.restoreActivePropertyInput(activeInputState);
             return;
@@ -3737,6 +3906,7 @@ class GlyphCanvas {
 
         const content = document.createElement('div');
         content.className = 'glyph-property-panel-content';
+        const automaticLayer = layer.isAutomaticAlignedLayer();
 
         const createControl = (side: 'left' | 'right', shortLabel: string) => {
             const wrapper = document.createElement('label');
@@ -3760,15 +3930,18 @@ class GlyphCanvas {
                 side === 'left'
                     ? (layer.leftMetricsKey ?? glyph?.leftMetricsKey)
                     : (layer.rightMetricsKey ?? glyph?.rightMetricsKey);
-            const showAutoPlaceholder =
-                !metricsKey && layer.isAutomaticAlignedLayer();
+            const showAutoPlaceholder = !metricsKey && automaticLayer;
             const displayedValue = showAutoPlaceholder
                 ? ''
                 : (metricsKey ??
                   String(side === 'left' ? layer.lsb : layer.rsb));
             input.value = displayedValue;
             if (showAutoPlaceholder) {
-                input.placeholder = 'auto';
+                input.placeholder = '=+0 or ==+0';
+            }
+            if (automaticLayer) {
+                input.title =
+                    'Automatic layers only accept =+/- or ==+/- sidebearing adjustments';
             }
             if (resolution.error) {
                 input.classList.add('invalid');
@@ -3777,26 +3950,28 @@ class GlyphCanvas {
             const getResolvedValue = () =>
                 resolution.value ?? (side === 'left' ? layer.lsb : layer.rsb);
 
-            const arrowInputController = new ArrowAdjustableTextInput({
-                input,
-                getValue: () => {
-                    const trimmedValue = input.value.trim();
-                    return isPlainNumericInputValue(trimmedValue)
-                        ? Number(trimmedValue)
-                        : getResolvedValue();
-                },
-                applyValue: async (nextValue) => {
-                    input.dataset.skipNextPropertyCommit = 'true';
-                    await this.commitPropertyPanelValue(
-                        side,
-                        String(nextValue)
-                    );
-                },
-                findReplacementInput: () =>
-                    this.propertyPanel?.querySelector(
-                        `.glyph-property-input[data-property-field="side-${side}"]`
-                    ) as HTMLInputElement | null
-            });
+            const arrowInputController = automaticLayer
+                ? null
+                : new ArrowAdjustableTextInput({
+                      input,
+                      getValue: () => {
+                          const trimmedValue = input.value.trim();
+                          return isPlainNumericInputValue(trimmedValue)
+                              ? Number(trimmedValue)
+                              : getResolvedValue();
+                      },
+                      applyValue: async (nextValue) => {
+                          input.dataset.skipNextPropertyCommit = 'true';
+                          await this.commitPropertyPanelValue(
+                              side,
+                              String(nextValue)
+                          );
+                      },
+                      findReplacementInput: () =>
+                          this.propertyPanel?.querySelector(
+                              `.glyph-property-input[data-property-field="side-${side}"]`
+                          ) as HTMLInputElement | null
+                  });
 
             input.addEventListener('change', () => {
                 if (input.dataset.skipNextPropertyCommit === 'true') {
@@ -3830,7 +4005,7 @@ class GlyphCanvas {
                 setTimeout(() => {
                     if (this.restoreCanvasFocusAfterPropertyCommit) {
                         this.restoreCanvasFocusAfterPropertyCommit = false;
-                        if (!arrowInputController.isApplyingStep) {
+                        if (!arrowInputController?.isApplyingStep) {
                             this.outlineEditor.restoreFocus();
                         }
                         return;
@@ -3845,7 +4020,7 @@ class GlyphCanvas {
                         return;
                     }
 
-                    if (!arrowInputController.isApplyingStep) {
+                    if (!arrowInputController?.isApplyingStep) {
                         this.outlineEditor.restoreFocus();
                     }
                 }, 0);

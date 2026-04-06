@@ -99,6 +99,86 @@ const METRIC_UPDATE_EPSILON = 0.01;
 let suppressModelRecordingDepth = 0;
 let suppressMetricsKeyRecomputeDepth = 0;
 
+type AutomaticCompositionAnchorPoint = {
+    name: string;
+    x: number;
+    y: number;
+};
+
+type AutomaticCompositionPlacement = {
+    translationX: number;
+    translationY: number;
+    attached: boolean;
+};
+
+type AutomaticCompositionLayout = {
+    placements: AutomaticCompositionPlacement[];
+    baseBounds: {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+        width: number;
+        height: number;
+    } | null;
+    baseAdvanceWidth: number;
+};
+
+function getAutomaticAnchorFamily(
+    anchorName: string | undefined
+): string | null {
+    if (!anchorName) {
+        return null;
+    }
+
+    const normalizedName = anchorName.startsWith('_')
+        ? anchorName.slice(1)
+        : anchorName;
+    if (!normalizedName) {
+        return null;
+    }
+
+    const separatorIndex = normalizedName.indexOf('_');
+    return separatorIndex >= 0
+        ? normalizedName.slice(0, separatorIndex)
+        : normalizedName;
+}
+
+function isAutomaticAttachmentAnchor(anchorName: string | undefined): boolean {
+    return Boolean(anchorName && anchorName.startsWith('_'));
+}
+
+function transformPointWithAffine(
+    transform: number[],
+    x: number,
+    y: number
+): { x: number; y: number } {
+    const [a, b, c, d, tx, ty] = transform;
+    return {
+        x: a * x + c * y + tx,
+        y: b * x + d * y + ty
+    };
+}
+
+function getAutomaticAdvanceDeltaX(transform: number[], width: number): number {
+    const start = transformPointWithAffine(transform, 0, 0);
+    const end = transformPointWithAffine(transform, width, 0);
+    return end.x - start.x;
+}
+
+function getAutomaticComponentTransform(
+    component: Component
+): Babelfont.DecomposedAffine {
+    return component.transform || DecomposedAffineTransform.identity();
+}
+
+function isAutomaticAlignedComponent(component: Component): boolean {
+    return (
+        getModelFormatSpecific(component)?.[GLYPHS_COMPONENT_ALIGNMENT_KEY] ===
+        0
+    );
+}
+
 type InterpolationFontCacheEntry = {
     serializedFont: string;
     version: number;
@@ -4734,6 +4814,10 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         );
     }
 
+    isAutomaticAligned(): boolean {
+        return isAutomaticAlignedComponent(this);
+    }
+
     get format_specific(): Record<string, Unsafe> | undefined {
         return getLiveMutableValue(
             this,
@@ -5704,21 +5788,401 @@ export class Layer extends ArrayElementBase {
     }
 
     isAutomaticAlignedLayer(): boolean {
-        const components = (this.shapes || []).filter((shape) =>
-            shape.isComponent()
-        );
-        if (components.length === 0) {
+        const shapes = this.shapes || [];
+        if (shapes.length === 0) {
             return false;
         }
 
-        return components.every((shape) => {
-            const component = shape.asComponent();
-            return (
-                getModelFormatSpecific(component)?.[
-                    GLYPHS_COMPONENT_ALIGNMENT_KEY
-                ] === 0
-            );
+        const components = shapes.filter((shape) => shape.isComponent());
+        if (components.length === 0 || components.length !== shapes.length) {
+            return false;
+        }
+
+        return components.every((shape) =>
+            shape.asComponent().isAutomaticAligned()
+        );
+    }
+
+    private getAutomaticComponentLayer(
+        component: Component
+    ): Layer | undefined {
+        return (
+            this.getMatchingLayerOnGlyph(component.reference) ??
+            this.getInterpolatedLayerOnGlyph(component.reference) ??
+            this.getFont()?.findGlyph(component.reference)?.layers?.[0]
+        );
+    }
+
+    private getAutomaticComponentAnchorChoices(
+        incomingAnchorName: string,
+        availableAnchors: Map<string, AutomaticCompositionAnchorPoint>,
+        overrideAnchorName?: string
+    ): string[] {
+        const family = getAutomaticAnchorFamily(incomingAnchorName);
+        if (!family) {
+            return [];
+        }
+
+        const matchingAnchorNames = [...availableAnchors.keys()].filter(
+            (anchorName) => getAutomaticAnchorFamily(anchorName) === family
+        );
+        if (matchingAnchorNames.length <= 1) {
+            return matchingAnchorNames;
+        }
+
+        const exactFamilyName = family;
+        const ordered = matchingAnchorNames.sort((left, right) => {
+            if (left === overrideAnchorName) {
+                return -1;
+            }
+            if (right === overrideAnchorName) {
+                return 1;
+            }
+            if (left === exactFamilyName) {
+                return -1;
+            }
+            if (right === exactFamilyName) {
+                return 1;
+            }
+            return left.localeCompare(right);
         });
+
+        return ordered;
+    }
+
+    private resolveAutomaticComponentAttachment(
+        component: Component,
+        componentLayer: Layer,
+        availableAnchors: Map<string, AutomaticCompositionAnchorPoint>
+    ): {
+        sourceAnchor: Anchor;
+        targetAnchorName: string;
+        targetAnchor: AutomaticCompositionAnchorPoint;
+    } | null {
+        const incomingAnchors = (componentLayer.anchors || []).filter(
+            (anchor) => isAutomaticAttachmentAnchor(anchor.name)
+        );
+
+        for (const incomingAnchor of incomingAnchors) {
+            if (!incomingAnchor.name) {
+                continue;
+            }
+
+            const choices = this.getAutomaticComponentAnchorChoices(
+                incomingAnchor.name,
+                availableAnchors,
+                component.anchor
+            );
+            if (choices.length === 0) {
+                continue;
+            }
+
+            const preferredTargetName =
+                component.anchor && choices.includes(component.anchor)
+                    ? component.anchor
+                    : choices[0];
+            const targetAnchor = availableAnchors.get(preferredTargetName);
+            if (!targetAnchor) {
+                continue;
+            }
+
+            return {
+                sourceAnchor: incomingAnchor,
+                targetAnchorName: preferredTargetName,
+                targetAnchor
+            };
+        }
+
+        return null;
+    }
+
+    private collectAutomaticComponentAnchors(
+        componentLayer: Layer,
+        componentTransform: number[]
+    ): AutomaticCompositionAnchorPoint[] {
+        const anchorPoints: AutomaticCompositionAnchorPoint[] = [];
+        for (const anchor of componentLayer.anchors || []) {
+            if (!anchor.name || isAutomaticAttachmentAnchor(anchor.name)) {
+                continue;
+            }
+
+            const position = transformPointWithAffine(
+                componentTransform,
+                anchor.x,
+                anchor.y
+            );
+            anchorPoints.push({
+                name: anchor.name,
+                x: position.x,
+                y: position.y
+            });
+        }
+
+        return anchorPoints;
+    }
+
+    private setComponentTranslation(
+        component: Component,
+        translationX: number,
+        translationY: number
+    ): boolean {
+        const transform = getAutomaticComponentTransform(component);
+        const currentX = transform.translation?.[0] ?? 0;
+        const currentY = transform.translation?.[1] ?? 0;
+        if (
+            Math.abs(currentX - translationX) <= METRIC_UPDATE_EPSILON &&
+            Math.abs(currentY - translationY) <= METRIC_UPDATE_EPSILON
+        ) {
+            return false;
+        }
+
+        component.transform = {
+            ...transform,
+            translation: [
+                roundMetricValue(translationX),
+                roundMetricValue(translationY)
+            ]
+        };
+        return true;
+    }
+
+    private getAutomaticCompositionLayout(): AutomaticCompositionLayout | null {
+        if (!this.isAutomaticAlignedLayer()) {
+            return null;
+        }
+
+        const components = this.components;
+        if (components.length === 0) {
+            return null;
+        }
+
+        const availableAnchors = new Map<
+            string,
+            AutomaticCompositionAnchorPoint
+        >();
+        const placements: AutomaticCompositionPlacement[] = [];
+        let baseBounds: AutomaticCompositionLayout['baseBounds'] = null;
+        let baseAdvanceWidth = 0;
+
+        for (const component of components) {
+            const componentLayer = this.getAutomaticComponentLayer(component);
+            if (!componentLayer) {
+                placements.push({
+                    translationX: 0,
+                    translationY: 0,
+                    attached: false
+                });
+                continue;
+            }
+
+            const baseTransform = Array.from(
+                DecomposedAffineTransform.toAffine(
+                    getAutomaticComponentTransform(component)
+                )
+            );
+            baseTransform[4] = 0;
+            baseTransform[5] = 0;
+
+            const attachment = this.resolveAutomaticComponentAttachment(
+                component,
+                componentLayer,
+                availableAnchors
+            );
+
+            let translationX = baseAdvanceWidth;
+            let translationY = 0;
+            let attached = false;
+
+            if (attachment) {
+                const sourcePosition = transformPointWithAffine(
+                    baseTransform,
+                    attachment.sourceAnchor.x,
+                    attachment.sourceAnchor.y
+                );
+                translationX = attachment.targetAnchor.x - sourcePosition.x;
+                translationY = attachment.targetAnchor.y - sourcePosition.y;
+                attached = true;
+            }
+
+            placements.push({
+                translationX: roundMetricValue(translationX),
+                translationY: roundMetricValue(translationY),
+                attached
+            });
+
+            const appliedTransform = [...baseTransform];
+            appliedTransform[4] = translationX;
+            appliedTransform[5] = translationY;
+
+            if (!attached) {
+                const componentShapes = componentLayer.toJSON().shapes;
+                if (componentShapes) {
+                    const componentBounds = Layer.calculateShapeBounds(
+                        componentShapes,
+                        appliedTransform
+                    );
+                    if (componentBounds) {
+                        baseBounds = baseBounds
+                            ? {
+                                  minX: Math.min(
+                                      baseBounds.minX,
+                                      componentBounds.minX
+                                  ),
+                                  minY: Math.min(
+                                      baseBounds.minY,
+                                      componentBounds.minY
+                                  ),
+                                  maxX: Math.max(
+                                      baseBounds.maxX,
+                                      componentBounds.maxX
+                                  ),
+                                  maxY: Math.max(
+                                      baseBounds.maxY,
+                                      componentBounds.maxY
+                                  ),
+                                  width: 0,
+                                  height: 0
+                              }
+                            : { ...componentBounds };
+                    }
+                }
+
+                baseAdvanceWidth = roundMetricValue(
+                    baseAdvanceWidth +
+                        getAutomaticAdvanceDeltaX(
+                            appliedTransform,
+                            componentLayer.width
+                        )
+                );
+            }
+
+            for (const anchorPoint of this.collectAutomaticComponentAnchors(
+                componentLayer,
+                appliedTransform
+            )) {
+                availableAnchors.set(anchorPoint.name, anchorPoint);
+            }
+        }
+
+        if (baseBounds) {
+            baseBounds.width = baseBounds.maxX - baseBounds.minX;
+            baseBounds.height = baseBounds.maxY - baseBounds.minY;
+        }
+
+        return {
+            placements,
+            baseBounds,
+            baseAdvanceWidth: roundMetricValue(baseAdvanceWidth)
+        };
+    }
+
+    getAutomaticComponentTargetAnchorOptions(component: Component): string[] {
+        if (!this.isAutomaticAlignedLayer()) {
+            return [];
+        }
+
+        const components = this.components;
+        const targetIndex = components.findIndex((item) =>
+            areSameModelObject(item, component)
+        );
+        if (targetIndex < 0) {
+            return [];
+        }
+
+        const availableAnchors = new Map<
+            string,
+            AutomaticCompositionAnchorPoint
+        >();
+
+        for (let index = 0; index < targetIndex; index++) {
+            const currentComponent = components[index];
+            const componentLayer =
+                this.getAutomaticComponentLayer(currentComponent);
+            if (!componentLayer) {
+                continue;
+            }
+
+            const layout = this.getAutomaticCompositionLayout();
+            const placement = layout?.placements[index];
+            if (!placement) {
+                continue;
+            }
+
+            const transform = Array.from(
+                DecomposedAffineTransform.toAffine(
+                    getAutomaticComponentTransform(currentComponent)
+                )
+            );
+            transform[4] = placement.translationX;
+            transform[5] = placement.translationY;
+
+            for (const anchorPoint of this.collectAutomaticComponentAnchors(
+                componentLayer,
+                transform
+            )) {
+                availableAnchors.set(anchorPoint.name, anchorPoint);
+            }
+        }
+
+        const componentLayer = this.getAutomaticComponentLayer(component);
+        if (!componentLayer) {
+            return [];
+        }
+
+        for (const incomingAnchor of componentLayer.anchors || []) {
+            if (!isAutomaticAttachmentAnchor(incomingAnchor.name)) {
+                continue;
+            }
+
+            if (!incomingAnchor.name) {
+                continue;
+            }
+
+            const choices = this.getAutomaticComponentAnchorChoices(
+                incomingAnchor.name,
+                availableAnchors,
+                component.anchor
+            );
+            if (choices.length > 0) {
+                return choices;
+            }
+        }
+
+        return [];
+    }
+
+    rebuildAutomaticComposition(): boolean {
+        const layout = this.getAutomaticCompositionLayout();
+        if (!layout) {
+            return false;
+        }
+
+        let changed = false;
+        const components = this.components;
+        for (let index = 0; index < components.length; index++) {
+            const placement = layout.placements[index];
+            if (!placement) {
+                continue;
+            }
+
+            if (
+                this.setComponentTranslation(
+                    components[index],
+                    placement.translationX,
+                    placement.translationY
+                )
+            ) {
+                changed = true;
+            }
+        }
+
+        const nextWidth = roundMetricValue(layout.baseAdvanceWidth);
+        if (Math.abs(this.width - nextWidth) > METRIC_UPDATE_EPSILON) {
+            this.width = nextWidth;
+            changed = true;
+        }
+
+        return changed;
     }
 
     private getPrimaryAutoAlignedComponentLayer(): Layer | undefined {
@@ -5735,6 +6199,25 @@ export class Layer extends ArrayElementBase {
         }
 
         return this.getMetricsReferenceLayerOnGlyph(reference);
+    }
+
+    private getAutomaticDerivedSidebearing(
+        side: SidebearingSide
+    ): number | null {
+        const layout = this.getAutomaticCompositionLayout();
+        if (!layout) {
+            return null;
+        }
+
+        const baseBounds = layout.baseBounds;
+        const automaticWidth = layout.baseAdvanceWidth;
+        if (!baseBounds) {
+            return side === 'left' ? 0 : automaticWidth;
+        }
+
+        return side === 'left'
+            ? roundMetricValue(baseBounds.minX)
+            : roundMetricValue(automaticWidth - baseBounds.maxX);
     }
 
     private getEffectiveDesignspaceLocation(): DesignspaceLocation | undefined {
@@ -5867,17 +6350,24 @@ export class Layer extends ArrayElementBase {
                     };
                 }
 
-                const baseLayer = this.getPrimaryAutoAlignedComponentLayer();
-                const baseSidebearing = baseLayer
-                    ? (() => {
-                          const componentResolution =
-                              baseLayer.resolveMetricsKey(side, stack);
-                          return componentResolution.error ||
-                              componentResolution.value === null
-                              ? baseLayer.getDirectSidebearing(side)
-                              : componentResolution.value;
-                      })()
-                    : this.getDirectSidebearing(side);
+                const baseSidebearing =
+                    this.getAutomaticDerivedSidebearing(side) ??
+                    (() => {
+                        const baseLayer =
+                            this.getPrimaryAutoAlignedComponentLayer();
+                        if (!baseLayer) {
+                            return this.getDirectSidebearing(side);
+                        }
+
+                        const componentResolution = baseLayer.resolveMetricsKey(
+                            side,
+                            stack
+                        );
+                        return componentResolution.error ||
+                            componentResolution.value === null
+                            ? baseLayer.getDirectSidebearing(side)
+                            : componentResolution.value;
+                    })();
 
                 return {
                     input,
@@ -5997,6 +6487,22 @@ export class Layer extends ArrayElementBase {
         const suppressDerivedHistory = forceLocal;
         const updateScope: 'layer' | 'font' =
             !isPlainNumericInput && !useLocalKeyStorage ? 'font' : 'layer';
+        const glyphNameList = [glyphName].filter(Boolean) as string[];
+
+        if (
+            this.isAutomaticAlignedLayer() &&
+            (!input || !/^==?[+-]/.test(input))
+        ) {
+            return {
+                input,
+                value: null,
+                error: 'Automatic sidebearings only accept =+/- or ==+/- adjustments',
+                referencedGlyphNames: [],
+                isLocal: this.hasLocalSidebearingKey(side),
+                updateScope: 'layer',
+                affectedGlyphNames: glyphNameList
+            };
+        }
 
         const recomputeDependentMetrics = (
             affectedGlyphNames: Set<string>
@@ -6047,7 +6553,7 @@ export class Layer extends ArrayElementBase {
                 return {
                     ...resolution,
                     updateScope,
-                    affectedGlyphNames: glyphName ? [glyphName] : []
+                    affectedGlyphNames: glyphNameList
                 };
             }
 
@@ -6062,7 +6568,7 @@ export class Layer extends ArrayElementBase {
                     value: null,
                     error: applied.error,
                     updateScope,
-                    affectedGlyphNames: glyphName ? [glyphName] : []
+                    affectedGlyphNames: glyphNameList
                 };
             }
 
@@ -9173,6 +9679,63 @@ export class Font extends ModelBase {
         );
     }
 
+    private rebuildAutomaticComposites(
+        changedGlyphNames?: Set<string>
+    ): Set<string> {
+        const rebuiltGlyphNames = new Set<string>();
+        const queue =
+            changedGlyphNames && changedGlyphNames.size > 0
+                ? new Set(changedGlyphNames)
+                : new Set(this.glyphs.map((glyph) => glyph.name));
+        const visitedGlyphNames = new Set<string>();
+
+        while (queue.size > 0) {
+            const nextGlyphName = queue.values().next().value as string;
+            queue.delete(nextGlyphName);
+            if (!nextGlyphName || visitedGlyphNames.has(nextGlyphName)) {
+                continue;
+            }
+            visitedGlyphNames.add(nextGlyphName);
+
+            const candidateGlyphNames = new Set<string>([
+                nextGlyphName,
+                ...this.findGlyphsUsingComponent(nextGlyphName)
+            ]);
+
+            for (const candidateGlyphName of candidateGlyphNames) {
+                const glyph = this.findGlyph(candidateGlyphName);
+                if (!glyph) {
+                    continue;
+                }
+
+                let glyphChanged = false;
+                for (const layer of glyph.layers || []) {
+                    if (
+                        layer.isAutomaticAlignedLayer() &&
+                        layer.rebuildAutomaticComposition()
+                    ) {
+                        glyphChanged = true;
+                    }
+                }
+
+                if (!glyphChanged) {
+                    continue;
+                }
+
+                rebuiltGlyphNames.add(candidateGlyphName);
+                for (const dependentGlyphName of this.findGlyphsUsingComponent(
+                    candidateGlyphName
+                )) {
+                    if (!visitedGlyphNames.has(dependentGlyphName)) {
+                        queue.add(dependentGlyphName);
+                    }
+                }
+            }
+        }
+
+        return rebuiltGlyphNames;
+    }
+
     recomputeMetricsKeys(changedGlyphNames?: Set<string>): Set<string> {
         if (this._isRecomputingMetricsKeys) {
             return new Set();
@@ -9192,10 +9755,6 @@ export class Font extends ModelBase {
             }
         }
 
-        if (layersWithKeys.length === 0) {
-            return new Set();
-        }
-
         this._isRecomputingMetricsKeys = true;
         const recomputedGlyphNames = new Set<string>();
         try {
@@ -9203,6 +9762,17 @@ export class Font extends ModelBase {
                 changedGlyphNames && changedGlyphNames.size > 0
                     ? new Set(changedGlyphNames)
                     : new Set(this.glyphs.map((glyph) => glyph.name));
+
+            for (const glyphName of this.rebuildAutomaticComposites(
+                pendingGlyphNames
+            )) {
+                recomputedGlyphNames.add(glyphName);
+                pendingGlyphNames.add(glyphName);
+            }
+
+            if (layersWithKeys.length === 0) {
+                return recomputedGlyphNames;
+            }
 
             const processedGlyphNames = new Set<string>();
             const maxPasses = Math.max(layersWithKeys.length + 2, 4);
@@ -9212,6 +9782,13 @@ export class Font extends ModelBase {
                 pass < maxPasses && pendingGlyphNames.size > 0;
                 pass++
             ) {
+                for (const glyphName of this.rebuildAutomaticComposites(
+                    pendingGlyphNames
+                )) {
+                    recomputedGlyphNames.add(glyphName);
+                    pendingGlyphNames.add(glyphName);
+                }
+
                 const autoAlignedDependents = new Set<string>();
                 for (const glyphName of pendingGlyphNames) {
                     for (const dependentName of this.findGlyphsUsingComponent(
@@ -9292,6 +9869,13 @@ export class Font extends ModelBase {
                         !processedGlyphNames.has(glyphName)
                     ) {
                         nextGlyphNames.add(glyphName);
+
+                        for (const rebuiltGlyphName of this.rebuildAutomaticComposites(
+                            new Set([glyphName])
+                        )) {
+                            recomputedGlyphNames.add(rebuiltGlyphName);
+                            nextGlyphNames.add(rebuiltGlyphName);
+                        }
                     }
                 }
 

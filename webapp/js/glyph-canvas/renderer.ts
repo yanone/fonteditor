@@ -1883,6 +1883,9 @@ export class GlyphCanvasRenderer {
                         shape.layerData.shapes,
                         isSelected,
                         isHovered,
+                        shape.format_specific?.[
+                            'com.schriftgestalt.Glyphs.alignment'
+                        ] === 0,
                         !!isInterpolated,
                         invScale,
                         isDarkTheme
@@ -4932,6 +4935,9 @@ export class GlyphCanvasRenderer {
                 shape.layerData.shapes,
                 false,
                 false,
+                shape.format_specific?.[
+                    'com.schriftgestalt.Glyphs.alignment'
+                ] === 0,
                 false,
                 invScale,
                 isDarkTheme
@@ -5010,6 +5016,9 @@ export class GlyphCanvasRenderer {
                 shape.layerData.shapes,
                 isSelected,
                 isHovered,
+                shape.format_specific?.[
+                    'com.schriftgestalt.Glyphs.alignment'
+                ] === 0,
                 false,
                 invScale,
                 isDarkTheme
@@ -5027,6 +5036,7 @@ export class GlyphCanvasRenderer {
         shapes: any[],
         isSelected: boolean,
         isHovered: boolean,
+        isAutomatic: boolean,
         isInterpolated: boolean,
         invScale: number,
         isDarkTheme: boolean
@@ -5116,11 +5126,17 @@ export class GlyphCanvasRenderer {
             ? APP_SETTINGS.OUTLINE_EDITOR.COLORS_DARK
             : APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT;
 
-        let fillColor = isSelected
-            ? colors.COMPONENT_FILL_SELECTED
-            : isHovered
-              ? colors.COMPONENT_FILL_HOVERED
-              : colors.COMPONENT_FILL_NORMAL;
+        let fillColor = isAutomatic
+            ? isSelected
+                ? colors.COMPONENT_FILL_AUTO_SELECTED
+                : isHovered
+                  ? colors.COMPONENT_FILL_AUTO_HOVERED
+                  : colors.COMPONENT_FILL_AUTO_NORMAL
+            : isSelected
+              ? colors.COMPONENT_FILL_SELECTED
+              : isHovered
+                ? colors.COMPONENT_FILL_HOVERED
+                : colors.COMPONENT_FILL_NORMAL;
 
         // Convert to rgba format for consistent alpha handling
         fillColor = toRgba(fillColor);
