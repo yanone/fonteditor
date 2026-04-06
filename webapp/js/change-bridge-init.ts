@@ -556,6 +556,17 @@ export function runBridgeUndoRedo(
             }
         );
 
+        // Undo/redo can request a compile before the Rust cache refresh above
+        // has finished, which risks compiling against stale worker data.
+        // Re-request compilation after the refresh completes so the editing
+        // font is rebuilt from the restored state.
+        if (fm?.currentFont) {
+            fm.lastChangeSource = 'undo-redo';
+            fm.lastEditType = null;
+            fm.currentFont.requestRecompileWithoutDataChange();
+            window.autoCompileManager?.checkAndSchedule?.();
+        }
+
         await refreshGlyphOverviewAfterUndoRedo(
             appliedChange.historyItem,
             appliedChange.layerId ?? layerId ?? null,

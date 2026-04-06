@@ -50,6 +50,15 @@ When these files disagree with this document, treat that as a bug and reconcile 
 
 ## Scheduling Details
 
+### Undo/redo
+
+Undo/redo must request an editing-font compile immediately so the auto-compile
+loop wakes up, and must request it again after `syncRustCacheAndRefreshCanvas()`
+completes. The second request is required because undo/redo first patches the
+model/Yjs state and only then refreshes the Rust worker cache. Without the
+post-refresh request, the first compile can run against stale worker cache data
+and leave the editing font one undo step behind.
+
 ### Interactive layer saves
 
 `FontManager.saveLayerData()` does three separate things for interactive saves and all three are required:
