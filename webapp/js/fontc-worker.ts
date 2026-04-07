@@ -77,9 +77,7 @@ function normalizeIncrementalLayerUpdates(
     );
 }
 
-function applyIncrementalLayerUpdates(
-    updates: IncrementalLayerUpdate[]
-): void {
+function applyIncrementalLayerUpdates(updates: IncrementalLayerUpdate[]): void {
     for (const update of updates) {
         update_cached_layer(
             update.glyphName,
@@ -1064,12 +1062,14 @@ self.onmessage = async (event) => {
                     dirtyLayerData,
                     forceStoreFontJson
                 } = data;
-                const dirtyLayerUpdates =
-                    normalizeIncrementalLayerUpdates(rawDirtyLayerUpdates, {
+                const dirtyLayerUpdates = normalizeIncrementalLayerUpdates(
+                    rawDirtyLayerUpdates,
+                    {
                         glyphName: dirtyGlyphName,
                         layerId: dirtyLayerId,
                         layerData: dirtyLayerData
-                    });
+                    }
+                );
 
                 const isIncrementalSentinel =
                     babelfontJson === '__incremental_layer__';
@@ -1139,9 +1139,7 @@ self.onmessage = async (event) => {
                         let storedViaFullFont = false;
                         if (canApplyIncrementalLayerUpdate) {
                             try {
-                                applyIncrementalLayerUpdates(
-                                    dirtyLayerUpdates
-                                );
+                                applyIncrementalLayerUpdates(dirtyLayerUpdates);
                                 timelineMark(
                                     'font.worker.compileEditingCached.ensureFontCached.updatedLayers'
                                 );
@@ -1255,9 +1253,7 @@ self.onmessage = async (event) => {
                     'font.worker.compileEditingCached.compileCachedFont'
                 );
                 const dirtyGlyphNames = Array.from(
-                    new Set(
-                        dirtyLayerUpdates.map((update) => update.glyphName)
-                    )
+                    new Set(dirtyLayerUpdates.map((update) => update.glyphName))
                 );
                 const optionsWithDirtyGlyphs = {
                     ...(options || {}),
@@ -1495,9 +1491,7 @@ self.onmessage = async (event) => {
                 }
 
                 if (!updates.length) {
-                    throw new Error(
-                        'Missing updates for storeLayerUpdates'
-                    );
+                    throw new Error('Missing updates for storeLayerUpdates');
                 }
 
                 applyIncrementalLayerUpdates(updates);
