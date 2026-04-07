@@ -1068,6 +1068,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
     });
 
     test('commitPropertyPanelValue keeps layer-local sidebearing keys on the incremental layer path', async () => {
+        const requestRecompileWithoutDataChange = jest.fn();
         const layer = {
             width: 500,
             isAutomaticAlignedLayer: jest.fn(() => false),
@@ -1086,7 +1087,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
             [
                 'test-font',
                 {
-                    changeVersion: 1
+                    changeVersion: 1,
+                    requestRecompileWithoutDataChange
                 }
             ]
         ]);
@@ -1109,24 +1111,33 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         await canvas.commitPropertyPanelValue('left', '==50');
 
-        expect(fontManager.lastChangeSource).toBe('keyboard');
-        expect(fontManager.lastEditType).toBe('outline');
-        expect(fontManager.scheduleFullCompileDebounce).toHaveBeenCalledTimes(
-            1
-        );
+        expect(fontManager.lastChangeSource).toBe('metrics-key');
+        expect(fontManager.lastEditType).toBeNull();
+        expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
         expect(
             window.autoCompileManager.checkAndSchedule
-        ).not.toHaveBeenCalled();
+        ).toHaveBeenCalledTimes(1);
         expect(
             canvas.textRunEditor.refreshGlyphAdvancesLive
         ).toHaveBeenCalledWith({ a: 640 }, { render: false });
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
         ).toHaveBeenCalledWith(['a'], 'layer-1');
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(
+            requestRecompileWithoutDataChange.mock.invocationCallOrder[0]
+        ).toBeGreaterThan(
+            window.fontManager.refreshGlyphsAfterModelBatch.mock
+                .invocationCallOrder[0]
+        );
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
         expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
     });
 
     test('commitPropertyPanelValue uses full-font refresh for glyph-wide sidebearing keys', async () => {
+        const requestRecompileWithoutDataChange = jest.fn();
         const layer = {
             width: 500,
             isAutomaticAlignedLayer: jest.fn(() => false),
@@ -1145,7 +1156,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
             [
                 'test-font',
                 {
-                    changeVersion: 1
+                    changeVersion: 1,
+                    requestRecompileWithoutDataChange
                 }
             ]
         ]);
@@ -1171,6 +1183,13 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(fontManager.lastChangeSource).toBe('metrics-key');
         expect(fontManager.lastEditType).toBeNull();
         expect(fontManager.scheduleFullCompileDebounce).not.toHaveBeenCalled();
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(
+            requestRecompileWithoutDataChange.mock.invocationCallOrder[0]
+        ).toBeGreaterThan(
+            window.fontManager.refreshGlyphsAfterModelBatch.mock
+                .invocationCallOrder[0]
+        );
         expect(
             window.autoCompileManager.checkAndSchedule
         ).toHaveBeenCalledTimes(1);
@@ -1233,6 +1252,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
     });
 
     test('commitPropertyPanelValue allows deleting automatic sidebearing override keys', async () => {
+        const requestRecompileWithoutDataChange = jest.fn();
         const layer = {
             width: 500,
             isAutomaticAlignedLayer: jest.fn(() => true),
@@ -1252,7 +1272,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
             [
                 'test-font',
                 {
-                    changeVersion: 1
+                    changeVersion: 1,
+                    requestRecompileWithoutDataChange
                 }
             ]
         ]);
@@ -1277,10 +1298,145 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         expect(layer.applySidebearingInput).toHaveBeenCalledWith('left', '');
         expect(fontManager.lastChangeSource).toBe('metrics-key');
+        expect(fontManager.lastEditType).toBeNull();
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
         ).toHaveBeenCalledWith(['a'], undefined);
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(
+            requestRecompileWithoutDataChange.mock.invocationCallOrder[0]
+        ).toBeGreaterThan(
+            window.fontManager.refreshGlyphsAfterModelBatch.mock
+                .invocationCallOrder[0]
+        );
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
         expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
+    });
+
+    test('commitPropertyPanelValue waits for glyph-wide sidebearing key refresh before recompiling the editing font', async () => {
+        let resolveRefresh;
+        const refreshPromise = new Promise((resolve) => {
+            resolveRefresh = resolve;
+        });
+        const requestRecompileWithoutDataChange = jest.fn();
+        const layer = {
+            width: 500,
+            isAutomaticAlignedLayer: jest.fn(() => false),
+            applySidebearingInput: jest.fn(() => {
+                fontManager.currentFont.changeVersion = 2;
+                return {
+                    affectedGlyphNames: ['a', 'adieresis'],
+                    error: null,
+                    updateScope: 'font'
+                };
+            })
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1,
+                    requestRecompileWithoutDataChange
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockReturnValue(refreshPromise);
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+
+        const commitPromise = canvas.commitPropertyPanelValue('left', '=50');
+
+        expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).not.toHaveBeenCalled();
+
+        resolveRefresh();
+        await commitPromise;
+
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
+    });
+
+    test('commitPropertyPanelValue recompiles automatic sidebearing-key edits even when changeVersion does not advance', async () => {
+        let resolveRefresh;
+        const refreshPromise = new Promise((resolve) => {
+            resolveRefresh = resolve;
+        });
+        const requestRecompileWithoutDataChange = jest.fn();
+        const layer = {
+            id: 'layer-1',
+            width: 500,
+            isAutomaticAlignedLayer: jest.fn(() => true),
+            applySidebearingInput: jest.fn(() => ({
+                affectedGlyphNames: ['adieresis'],
+                error: null,
+                value: 70,
+                updateScope: 'font'
+            }))
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1,
+                    requestRecompileWithoutDataChange
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        fontManager.lastChangeSource = 'previous-source';
+        fontManager.lastEditType = 'outline';
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockReturnValue(refreshPromise);
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'adieresis');
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => false);
+
+        const commitPromise = canvas.commitPropertyPanelValue('left', '=+20');
+
+        expect(requestRecompileWithoutDataChange).not.toHaveBeenCalled();
+
+        resolveRefresh();
+        await commitPromise;
+
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(fontManager.lastChangeSource).toBe('metrics-key');
+        expect(fontManager.lastEditType).toBeNull();
+        expect(
+            requestRecompileWithoutDataChange.mock.invocationCallOrder[0]
+        ).toBeGreaterThan(
+            window.fontManager.refreshGlyphsAfterModelBatch.mock
+                .invocationCallOrder[0]
+        );
+        expect(
+            window.autoCompileManager.checkAndSchedule
+        ).toHaveBeenCalledTimes(1);
     });
 
     test('commitPropertyPanelValue pans the viewport for left sidebearing edits', async () => {
@@ -1314,7 +1470,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
 
         canvas.viewportManager.scale = 2;
         canvas.viewportManager.panX = 100;
-        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
         canvas.getCurrentGlyphName = jest.fn(() => 'a');
         canvas.outlineEditor.selectedLayerId = 'layer-1';
         canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
@@ -1380,7 +1536,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             guides: [],
             isInterpolated: false
         };
-        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
         canvas.getCurrentGlyphName = jest.fn(() => 'a');
         canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
         canvas.outlineEditor.performHitDetection = jest.fn();
@@ -1398,12 +1554,111 @@ describe('GlyphCanvas property panel metrics edits', () => {
         await commitPromise;
     });
 
+    test('commitPropertyPanelValue rerenders after async refresh applies automatic sidebearing-key composition changes', async () => {
+        let resolveRefresh;
+        const refreshPromise = new Promise((resolve) => {
+            resolveRefresh = resolve;
+        });
+        const requestRecompileWithoutDataChange = jest.fn();
+        const layer = {
+            id: 'layer-1',
+            width: 500,
+            isAutomaticAlignedLayer: jest.fn(() => true),
+            toJSON: jest.fn(() => ({
+                id: 'layer-1',
+                width: 500,
+                shapes: [
+                    {
+                        reference: 'baseComponent',
+                        transform: [1, 0, 0, 1, 0, 0]
+                    }
+                ],
+                anchors: [],
+                guides: []
+            })),
+            applySidebearingInput: jest.fn(() => {
+                fontManager.currentFont.changeVersion = 2;
+                return {
+                    affectedGlyphNames: ['adieresis'],
+                    error: null,
+                    value: 70,
+                    updateScope: 'font'
+                };
+            })
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1,
+                    requestRecompileWithoutDataChange
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockReturnValue(refreshPromise);
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 500,
+            shapes: [
+                {
+                    reference: 'baseComponent',
+                    transform: [1, 0, 0, 1, 0, 0]
+                }
+            ],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'adieresis');
+        canvas.outlineEditor.fetchLayerData = jest.fn(async () => {
+            canvas.outlineEditor.layerData = {
+                id: 'layer-1',
+                width: 520,
+                shapes: [
+                    {
+                        reference: 'baseComponent',
+                        transform: [1, 0, 0, 1, 20, 0]
+                    }
+                ],
+                anchors: [],
+                guides: [],
+                isInterpolated: false
+            };
+        });
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => false);
+
+        const commitPromise = canvas.commitPropertyPanelValue('left', '=+20');
+
+        expect(canvas.outlineEditor.layerData.width).toBe(500);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(0);
+        expect(canvas.render).toHaveBeenCalledTimes(1);
+
+        resolveRefresh();
+        await commitPromise;
+
+        expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
+        expect(canvas.outlineEditor.layerData.width).toBe(520);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(20);
+        expect(canvas.render).toHaveBeenCalledTimes(2);
+    });
+
     test('commitPropertyPanelValue reuses the direct outline-editor path for plain numeric sidebearings', async () => {
         const setSidebearingValueSpy = jest
             .spyOn(canvas.outlineEditor, 'setSidebearingValue')
             .mockReturnValue(true);
 
-        canvas.getCurrentLayerModel = jest.fn(() => ({
+        canvas.getCurrentEditingLayerModel = jest.fn(() => ({
             isAutomaticAlignedLayer: jest.fn(() => false)
         }));
         window.fontManager.refreshGlyphsAfterModelBatch = jest
@@ -1417,7 +1672,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         await canvas.commitPropertyPanelValue('left', '20');
 
         expect(setSidebearingValueSpy).toHaveBeenCalledWith('left', 20);
-        expect(canvas.getCurrentLayerModel).toHaveBeenCalledTimes(1);
+        expect(canvas.getCurrentEditingLayerModel).toHaveBeenCalledTimes(1);
         expect(
             window.fontManager.refreshGlyphsAfterModelBatch
         ).not.toHaveBeenCalled();
@@ -7886,6 +8141,95 @@ describe('OutlineEditor exact selected layers', () => {
             format_specific: {}
         });
 
+    const makeAutomaticOffsetComponentFont = () =>
+        Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Regular' },
+                    location: {},
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'componentGlyph',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'component-layer',
+                            width: 300,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 20, y: 0, nodetype: 'Line' },
+                                        { x: 280, y: 0, nodetype: 'Line' },
+                                        { x: 280, y: 400, nodetype: 'Line' },
+                                        { x: 20, y: 400, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ],
+                    format_specific: {}
+                },
+                {
+                    name: 'autoGlyph',
+                    category: 'Base',
+                    exported: true,
+                    format_specific: {
+                        metric_left: '=+100'
+                    },
+                    layers: [
+                        {
+                            id: 'auto-layer',
+                            width: 0,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    reference: 'componentGlyph',
+                                    transform: [1, 0, 0, 1, 0, 0],
+                                    format_specific: {
+                                        'com.schriftgestalt.Glyphs.alignment': 0
+                                    }
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Automatic Offset Exact Layer Test' }
+            },
+            note: '',
+            date: '2026-04-07',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+
     beforeEach(() => {
         document.body.innerHTML = '<div id="test-container"></div>';
         canvas = new GlyphCanvas('test-container');
@@ -7995,6 +8339,49 @@ describe('OutlineEditor exact selected layers', () => {
             descender: -200,
             WinDescent: -200
         });
+    });
+
+    test('keeps exact selected layer component transforms for automatic LSB sidebearing offsets when interpolation is stale', async () => {
+        const font = makeAutomaticOffsetComponentFont();
+
+        currentFontSpy.mockReturnValue({ fontModel: font });
+        fetchGlyphDataSpy.mockResolvedValue({
+            glyphName: 'autoGlyph',
+            layers: font
+                .findGlyph('autoGlyph')
+                .layers.map((layer) => layer.toJSON())
+        });
+        canvas.getCurrentGlyphName = jest.fn(() => 'autoGlyph');
+        canvas.outlineEditor.selectedLayerId = 'auto-layer';
+        canvas.outlineEditor.glyphStack = 'autoGlyph@auto-layer';
+
+        interpolateSpy.mockResolvedValueOnce({
+            width: 770,
+            shapes: [
+                {
+                    reference: 'componentGlyph',
+                    transform: [1, 0, 0, 1, 0, 0],
+                    layerData: {
+                        width: 300,
+                        shapes: [
+                            {
+                                nodes: '20 0 l 280 0 l 280 400 l 20 400 l'
+                            }
+                        ],
+                        anchors: [],
+                        guides: []
+                    }
+                }
+            ],
+            anchors: [],
+            guides: [],
+            _verticalMetrics: {}
+        });
+
+        await canvas.outlineEditor.fetchLayerData(true);
+
+        expect(canvas.outlineEditor.layerData.width).toBe(400);
+        expect(canvas.outlineEditor.layerData.shapes[0].transform[4]).toBe(100);
     });
 
     test('resolves normal component layer data from the object model before interpolation returns', async () => {

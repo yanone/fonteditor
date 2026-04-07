@@ -76,6 +76,14 @@ function makeComponent(reference, options = {}) {
     };
 }
 
+function getSerializedTranslationX(shape) {
+    const shapeData = 'Component' in shape ? shape.Component : shape;
+    const transform = shapeData?.transform;
+    return Array.isArray(transform)
+        ? transform[4]
+        : (transform?.translation?.[0] ?? 0);
+}
+
 function makeAutomaticCompositionFont() {
     return Font.fromData({
         upm: 1000,
@@ -909,6 +917,9 @@ describe('Automatic Glyph Composition canonical behavior', () => {
 
         expect(layer.lsb).toBeCloseTo(45, 5);
         expect(layer.rsb).toBeCloseTo(60, 5);
+        expect(layer.components[0].toAffineArray()[4]).toBeCloseTo(0, 5);
+        expect(layer.components[1].toAffineArray()[4]).toBeCloseTo(310, 5);
+        expect(layer.width).toBeCloseTo(670, 5);
 
         const leftAdjusted = layer.applySidebearingInput('left', '=+10');
         const rightAdjusted = layer.applySidebearingInput('right', '=-10');
@@ -917,6 +928,51 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         expect(rightAdjusted.error).toBeNull();
         expect(layer.resolveMetricsKey('left').value).toBeCloseTo(55, 5);
         expect(layer.resolveMetricsKey('right').value).toBeCloseTo(50, 5);
+
+        const serialized = layer.toJSON();
+        expect(getSerializedTranslationX(serialized.shapes[0])).toBeCloseTo(
+            10,
+            5
+        );
+        expect(getSerializedTranslationX(serialized.shapes[1])).toBeCloseTo(
+            320,
+            5
+        );
+        expect(serialized.width).toBeCloseTo(670, 5);
+    });
+
+    test('automatic LSB offsets move serialized component positions while RSB offsets only widen the serialized advance', () => {
+        const leftFont = makeChainedBaseSidebearingKeyFont();
+        const leftLayer = leftFont.findGlyph('sidebearingChain').layers[0];
+
+        leftLayer.rebuildAutomaticComposition();
+        leftLayer.applySidebearingInput('left', '=+100');
+
+        const leftSerialized = leftLayer.toJSON();
+        expect(getSerializedTranslationX(leftSerialized.shapes[0])).toBeCloseTo(
+            100,
+            5
+        );
+        expect(getSerializedTranslationX(leftSerialized.shapes[1])).toBeCloseTo(
+            410,
+            5
+        );
+        expect(leftSerialized.width).toBeCloseTo(770, 5);
+
+        const rightFont = makeChainedBaseSidebearingKeyFont();
+        const rightLayer = rightFont.findGlyph('sidebearingChain').layers[0];
+
+        rightLayer.rebuildAutomaticComposition();
+        rightLayer.applySidebearingInput('right', '=+100');
+
+        const rightSerialized = rightLayer.toJSON();
+        expect(
+            getSerializedTranslationX(rightSerialized.shapes[0])
+        ).toBeCloseTo(0, 5);
+        expect(
+            getSerializedTranslationX(rightSerialized.shapes[1])
+        ).toBeCloseTo(310, 5);
+        expect(rightSerialized.width).toBeCloseTo(770, 5);
     });
 
     test('automatic layers clear sidebearing override keys back to implicit auto when input is deleted', () => {

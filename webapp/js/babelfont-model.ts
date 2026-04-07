@@ -5351,6 +5351,69 @@ export class Layer extends ArrayElementBase {
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
 
+    toJSON(): Unsafe {
+        const data = super.toJSON() as Unsafe;
+        if (!this.isAutomaticAlignedLayer()) {
+            return data;
+        }
+
+        const leftAdjustment = this.getAutomaticSidebearingAdjustment('left');
+        const rightAdjustment = this.getAutomaticSidebearingAdjustment('right');
+        if (!leftAdjustment && !rightAdjustment) {
+            return data;
+        }
+
+        const layout = this.getAutomaticCompositionLayout();
+        if (!layout) {
+            return data;
+        }
+
+        const layerData = cloneForHistory(data);
+        const shapes = (layerData.shapes || []) as Unsafe[];
+        const components = this.components;
+
+        for (let index = 0; index < components.length; index++) {
+            const placement = layout.placements[index];
+            const shape = shapes[index];
+            if (!placement || !shape) {
+                continue;
+            }
+
+            const shapeData = (
+                'Component' in shape ? shape.Component : shape
+            ) as Unsafe;
+            if (!shapeData || !('reference' in shapeData)) {
+                continue;
+            }
+
+            const translationX = roundMetricValue(
+                placement.translationX + leftAdjustment
+            );
+            const translationY = roundMetricValue(placement.translationY);
+            const currentTransform = shapeData.transform;
+            if (Array.isArray(currentTransform)) {
+                const affine = Array.from(
+                    DecomposedAffineTransform.toAffine(
+                        getAutomaticComponentTransform(components[index])
+                    )
+                );
+                affine[4] = translationX;
+                affine[5] = translationY;
+                shapeData.transform = affine;
+            } else {
+                shapeData.transform = {
+                    ...getAutomaticComponentTransform(components[index]),
+                    translation: [translationX, translationY]
+                };
+            }
+        }
+
+        layerData.width = roundMetricValue(
+            layout.baseAdvanceWidth + leftAdjustment + rightAdjustment
+        );
+        return layerData;
+    }
+
     /**
      * Force shape wrapper rebuild on next access.
      * Call after replacing `data.shapes` externally so that
@@ -6157,6 +6220,34 @@ export class Layer extends ArrayElementBase {
             baseBounds,
             baseAdvanceWidth: roundMetricValue(baseAdvanceWidth)
         };
+    }
+
+    private getAutomaticSidebearingAdjustment(side: SidebearingSide): number {
+        const glyph = this.parent() as Glyph | undefined;
+        const layerFormatSpecific = this.data.format_specific as
+            | Record<string, Unsafe>
+            | undefined;
+        const glyphFormatSpecific = (glyph as Unsafe)?._data
+            ?.format_specific as Record<string, Unsafe> | undefined;
+        const key = normalizeMetricsKeyValue(
+            (layerFormatSpecific?.[getLayerMetricFormatSpecificKey(side)] as
+                | string
+                | undefined) ??
+                (glyphFormatSpecific?.[
+                    getGlyphMetricFormatSpecificKey(side)
+                ] as string | undefined)
+        );
+        const font = this.getFont();
+        if (!key || !font || !isAutomaticSidebearingOverrideKey(key)) {
+            return 0;
+        }
+
+        const parsed = parseMetricsKey(font, key);
+        if ('error' in parsed || parsed.kind !== 'automatic-offset') {
+            return 0;
+        }
+
+        return parsed.delta;
     }
 
     getAutomaticComponentTargetAnchorOptions(component: Component): string[] {
@@ -9979,11 +10070,11 @@ export class Font extends ModelBase {
                             layer.setDirectSidebearing(side, applied.value);
                         }
                         layerChanged = true;
-                        if (parsed.kind !== 'automatic-offset') {
-                            changedOnlyByAutomaticOffset = false;
-                        }
                         if (glyphName) {
                             recomputedGlyphNames.add(glyphName);
+                        }
+                        if (parsed.kind !== 'automatic-offset') {
+                            changedOnlyByAutomaticOffset = false;
                         }
                     }
 

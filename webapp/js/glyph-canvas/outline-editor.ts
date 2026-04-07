@@ -3173,7 +3173,8 @@ export class OutlineEditor {
 
     private mergeSelectedLayerShapes(
         exactShapes: Babelfont.Shape[],
-        interpolatedShapes: Babelfont.Shape[]
+        interpolatedShapes: Babelfont.Shape[],
+        preferExactComponentTransforms: boolean = false
     ): Babelfont.Shape[] {
         const interpolatedComponentsByReference = new Map<
             string,
@@ -3208,18 +3209,47 @@ export class OutlineEditor {
             return {
                 ...interpolatedShape,
                 ...exactShape,
-                transform: interpolatedShape?.transform ||
-                    exactShape.transform || [1, 0, 0, 1, 0, 0],
+                transform: (preferExactComponentTransforms
+                    ? exactShape.transform || interpolatedShape?.transform
+                    : interpolatedShape?.transform || exactShape.transform) || [
+                    1, 0, 0, 1, 0, 0
+                ],
                 ...(mergedLayerData ? { layerData: mergedLayerData } : {}),
                 isInterpolated: false
             };
         });
     }
 
+    private shouldPreferExactSelectedLayerComponentTransforms(
+        layer: Layer | null | undefined
+    ): boolean {
+        if (!layer?.isAutomaticAlignedLayer?.()) {
+            return false;
+        }
+
+        const leftResolution = layer.resolveMetricsKey?.('left');
+        if (
+            !leftResolution ||
+            leftResolution.error ||
+            !leftResolution.input ||
+            !/^==?[+-]/.test(leftResolution.input)
+        ) {
+            return false;
+        }
+
+        const delta = Number.parseFloat(
+            leftResolution.input.replace(/^==?/, '')
+        );
+
+        return Number.isFinite(delta) && Math.abs(delta) > 0.01;
+    }
+
     private applyExactSelectedLayerData(
         exactLayerData: any,
         interpolatedResult?: any | null
     ): void {
+        const preferExactComponentTransforms =
+            exactLayerData?.__preferExactComponentTransforms === true;
         const exactNormalized = LayerDataNormalizer.normalize(
             exactLayerData,
             false
@@ -3232,7 +3262,8 @@ export class OutlineEditor {
         if (exactNormalized?.shapes && interpolatedNormalized?.shapes?.length) {
             exactNormalized.shapes = this.mergeSelectedLayerShapes(
                 exactNormalized.shapes,
-                interpolatedNormalized.shapes
+                interpolatedNormalized.shapes,
+                preferExactComponentTransforms
             );
         }
 
@@ -3565,6 +3596,8 @@ export class OutlineEditor {
 
         const serializedLayerData =
             this.serializeLayerDataAsInterpolationPayload(exactLayerData);
+        serializedLayerData.__preferExactComponentTransforms =
+            this.shouldPreferExactSelectedLayerComponentTransforms(layer);
 
         const verticalMetrics = this.getVerticalMetricsForLayer(
             layer,
@@ -9670,10 +9703,16 @@ export class OutlineEditor {
             return;
         }
 
+        const preferExactComponentTransforms =
+            this.shouldPreferExactSelectedLayerComponentTransforms(
+                currentLayerModel
+            );
+
         if (exactNormalized.shapes && currentLayerData.shapes?.length) {
             exactNormalized.shapes = this.mergeSelectedLayerShapes(
                 exactNormalized.shapes,
-                currentLayerData.shapes
+                currentLayerData.shapes,
+                preferExactComponentTransforms
             );
         }
 

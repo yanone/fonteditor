@@ -993,4 +993,105 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             fontCompilation.isInitialized = originalIsInitialized;
         }
     });
+
+    test('undo glyph-wide sidebearing key change resyncs babelfont JSON before the forced Rust refresh and recompiles again after it', async () => {
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
+        const sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue(undefined);
+        const requestRecompileWithoutDataChange = jest.fn();
+
+        const currentFont = {
+            babelfontJson: '{"glyphs":[{"name":"stale"}]}',
+            fontModel: {
+                findGlyph: jest.fn(() => ({
+                    findLayerById: jest.fn(() => ({
+                        id: 'layer-1',
+                        width: 500
+                    }))
+                }))
+            },
+            requestRecompileWithoutDataChange,
+            syncJsonFromModel: jest.fn(() => {
+                currentFont.babelfontJson = '{"glyphs":[{"name":"fresh"}]}';
+            })
+        };
+
+        originalWindow.glyphCanvas = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive: jest.fn()
+            },
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                fetchLayerData: jest.fn().mockResolvedValue(),
+                runDeterministicRefresh: jest.fn(async (task) => await task()),
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: jest.fn(() => 'a'),
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            updatePropertyPanel: jest.fn(),
+            render: jest.fn(),
+            requestRepaintAfterCompile: jest.fn()
+        };
+
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            pendingBabelfontJsonSyncAfterDrag: false,
+            lastChangeSource: null,
+            lastEditType: null
+        };
+
+        originalWindow.changeBridge = {
+            undo: jest.fn(() => ({
+                scope: 'font',
+                glyphName: 'a',
+                layerId: 'layer-1',
+                historyItem: {
+                    transactionLabel: 'Set LSB',
+                    entries: [
+                        {
+                            oldValue: '=n+20',
+                            newValue: ''
+                        }
+                    ]
+                }
+            }))
+        };
+
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        fontCompilation.isInitialized = true;
+        fontCompilation.lastStoredFontJson = 'cached-json';
+
+        try {
+            await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
+
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
+            expect(sendMessageSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'storeFontJson',
+                    forceStore: true,
+                    babelfontJson: '{"glyphs":[{"name":"fresh"}]}'
+                })
+            );
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(2);
+            expect(
+                requestRecompileWithoutDataChange.mock.invocationCallOrder[1]
+            ).toBeGreaterThan(sendMessageSpy.mock.invocationCallOrder[0]);
+        } finally {
+            fontCompilation.isInitialized = originalIsInitialized;
+            fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
+            sendMessageSpy.mockRestore();
+        }
+    });
 });

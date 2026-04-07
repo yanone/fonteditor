@@ -169,8 +169,10 @@ export async function syncRustCacheAndRefreshCanvas(
                 // (undo/redo/remote sync marks pendingBabelfontJsonSyncAfterDrag
                 // instead of calling syncJsonFromModel() synchronously).
                 const fm = window.fontManager;
-                if (fm?.pendingBabelfontJsonSyncAfterDrag) {
+                if (fm?.currentFont?.syncJsonFromModel) {
                     fm.currentFont?.syncJsonFromModel();
+                }
+                if (fm) {
                     fm.pendingBabelfontJsonSyncAfterDrag = false;
                 }
                 // Force this explicit sync to reach Rust even when the JSON text
