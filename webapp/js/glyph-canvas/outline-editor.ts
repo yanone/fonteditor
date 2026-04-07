@@ -1896,7 +1896,9 @@ export class OutlineEditor {
         });
     }
 
-    private rebuildAutomaticCompositesForCurrentEditedGlyph(): Set<string> {
+    private rebuildAutomaticCompositesForCurrentEditedGlyph(options?: {
+        limitToDragVisibleGlyphs?: boolean;
+    }): Set<string> {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const currentLayerId = this.getCurrentLayerId();
         const parsed = this.parseGlyphStack();
@@ -1941,9 +1943,16 @@ export class OutlineEditor {
         layerModel.invalidateShapeCache();
 
         const affectedGlyphNames = new Set<string>([glyphName]);
+        const allowedGlyphNames = options?.limitToDragVisibleGlyphs
+            ? fontManager.getAutomaticCompositionDragScopeGlyphNames(
+                  glyphName,
+                  fontModel
+              )
+            : undefined;
         const rebuild = () => {
             for (const affectedGlyphName of fontModel.rebuildAutomaticCompositesForGlyphs(
-                new Set([glyphName])
+                new Set([glyphName]),
+                allowedGlyphNames ? { allowedGlyphNames } : undefined
             )) {
                 affectedGlyphNames.add(affectedGlyphName);
             }
@@ -1961,7 +1970,8 @@ export class OutlineEditor {
 
     private syncDependentGlyphsAfterAnchorEdit(
         glyphName: string | null | undefined,
-        affectedGlyphNames: Set<string>
+        affectedGlyphNames: Set<string>,
+        options?: { liveVisibleOnly?: boolean }
     ): void {
         const uniqueGlyphNames = new Set(
             [...Array.from(affectedGlyphNames || []), glyphName || ''].filter(
@@ -1977,10 +1987,6 @@ export class OutlineEditor {
             return;
         }
 
-        fontManager.forceFullEditingCacheRefresh = true;
-        currentFont.requestRecompileWithoutDataChange();
-        window.autoCompileManager?.checkAndSchedule?.();
-
         try {
             currentFont.syncJsonFromModel();
         } catch (error) {
@@ -1990,6 +1996,18 @@ export class OutlineEditor {
             );
             return;
         }
+
+        if (options?.liveVisibleOnly) {
+            void fontManager.refreshGlyphsAfterModelBatch(
+                Array.from(uniqueGlyphNames),
+                this.getCurrentLayerId()
+            );
+            return;
+        }
+
+        fontManager.forceFullEditingCacheRefresh = true;
+        currentFont.requestRecompileWithoutDataChange();
+        window.autoCompileManager?.checkAndSchedule?.();
 
         void fontManager.forceFullWorkerCacheUpdate().then(() => {
             for (const affectedGlyphName of uniqueGlyphNames) {

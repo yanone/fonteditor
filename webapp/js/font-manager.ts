@@ -1008,6 +1008,110 @@ class FontManager {
         return [...this.editingSubsetSnapshotGlyphs];
     }
 
+    getLiveVisibleGlyphNames(): string[] {
+        const glyphNameBuffer =
+            window.glyphCanvas?.textRunEditor?.glyphNameBuffer || [];
+        const activeGlyphName =
+            window.glyphCanvas?.outlineEditor?.currentGlyphName ||
+            window.glyphCanvas?.getCurrentGlyphName?.() ||
+            null;
+
+        return this.normalizeSubsetGlyphs([
+            ...this.getEditingSubsetSnapshot(),
+            ...glyphNameBuffer,
+            ...(activeGlyphName ? [activeGlyphName] : [])
+        ]);
+    }
+
+    getAutomaticCompositionDragScopeGlyphNames(
+        sourceGlyphName: string,
+        fontModel:
+            | Pick<Font, 'findGlyphsUsingComponent'>
+            | null
+            | undefined = this.currentFont?.fontModel
+    ): Set<string> {
+        const scopedGlyphNames = new Set<string>();
+        if (!sourceGlyphName || !fontModel) {
+            return scopedGlyphNames;
+        }
+
+        const visibleGlyphNames = new Set(this.getLiveVisibleGlyphNames());
+        visibleGlyphNames.add(sourceGlyphName);
+        scopedGlyphNames.add(sourceGlyphName);
+
+        const visibilityMemo = new Map<string, boolean>();
+        const visitingGlyphNames = new Set<string>();
+
+        const reachesVisibleGlyph = (glyphName: string): boolean => {
+            if (visibilityMemo.has(glyphName)) {
+                return visibilityMemo.get(glyphName)!;
+            }
+            if (visitingGlyphNames.has(glyphName)) {
+                return false;
+            }
+
+            visitingGlyphNames.add(glyphName);
+
+            let hasVisibleDependent = false;
+            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
+                glyphName
+            )) {
+                if (
+                    typeof dependentGlyphName !== 'string' ||
+                    !dependentGlyphName.length
+                ) {
+                    continue;
+                }
+
+                const dependentIsVisible =
+                    visibleGlyphNames.has(dependentGlyphName);
+                const dependentReachesVisible =
+                    reachesVisibleGlyph(dependentGlyphName);
+
+                if (dependentIsVisible || dependentReachesVisible) {
+                    scopedGlyphNames.add(dependentGlyphName);
+                    hasVisibleDependent = true;
+                }
+            }
+
+            visitingGlyphNames.delete(glyphName);
+            visibilityMemo.set(glyphName, hasVisibleDependent);
+            return hasVisibleDependent;
+        };
+
+        reachesVisibleGlyph(sourceGlyphName);
+        return scopedGlyphNames;
+    }
+
+    private syncSerializedLayerIntoObjectModel(
+        glyphName: string,
+        layerId: string,
+        layerData: Babelfont.Layer
+    ): Babelfont.Layer | null {
+        const currentFont = this.currentFont;
+        const modelLayer = currentFont?.fontModel
+            ?.findGlyph(glyphName)
+            ?.findLayerById(layerId);
+
+        if (!modelLayer) {
+            return null;
+        }
+
+        const rawLayerData = modelLayer.toJSON() as Babelfont.Layer &
+            Record<string, unknown>;
+        for (const key of Object.keys(rawLayerData)) {
+            if (!(key in layerData)) {
+                delete rawLayerData[key];
+            }
+        }
+
+        Object.assign(rawLayerData, layerData);
+
+        modelLayer.invalidateContentCaches();
+
+        return rawLayerData;
+    }
+
     private normalizeShapeForRust(shape: any): any {
         if (!shape || typeof shape !== 'object' || Array.isArray(shape)) {
             return shape;
@@ -2361,7 +2465,13 @@ class FontManager {
             );
             return;
         }
-        glyph.layers[layerIndex] = layerDataCopy;
+
+        const syncedModelLayer = this.syncSerializedLayerIntoObjectModel(
+            glyphName,
+            layerId,
+            layerDataCopy
+        );
+        glyph.layers[layerIndex] = syncedModelLayer || layerDataCopy;
 
         const isInteractiveEdit =
             changeSource.startsWith('mouse-drag') ||

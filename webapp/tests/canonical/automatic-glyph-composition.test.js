@@ -282,6 +282,113 @@ function makeAutomaticCompositionFont() {
     });
 }
 
+function makeVisibleAnchorCascadeFont() {
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [makeMaster()],
+        glyphs: [
+            {
+                name: 'A',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'A0',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(0, 0, 500, 700)],
+                        anchors: [{ name: 'top', x: 250, y: 700 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'acutecomb',
+                category: 'Mark',
+                exported: true,
+                layers: [
+                    {
+                        id: 'AC0',
+                        width: 180,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(0, 0, 80, 120)],
+                        anchors: [{ name: '_top', x: 40, y: 0 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'visibleComposite',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'VC0',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [
+                            makeComponent('A'),
+                            makeComponent('acutecomb')
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'hiddenComposite',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'HC0',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [
+                            makeComponent('A'),
+                            makeComponent('acutecomb')
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            }
+        ],
+        names: { family_name: { en: 'Visible Anchor Cascade' } },
+        note: '',
+        date: '2026-04-07',
+        features: { classes: {}, prefixes: {}, features: [] },
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
 function makeSingleOffsetAutomaticFont() {
     return Font.fromData({
         upm: 1000,
@@ -1011,9 +1118,9 @@ describe('Automatic Glyph Composition canonical behavior', () => {
 
         // Baseline: before any key, toJSONString must have base positions (x=0 for first component)
         const baseJson = JSON.parse(font.toJSONString());
-        const baseLayer = baseJson.glyphs
-            .find((g) => g.name === 'sidebearingChain')
-            .layers[0];
+        const baseLayer = baseJson.glyphs.find(
+            (g) => g.name === 'sidebearingChain'
+        ).layers[0];
         expect(getSerializedTranslationX(baseLayer.shapes[0])).toBeCloseTo(
             0,
             5
@@ -1026,9 +1133,9 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         // After applying the key, toJSONString must carry the offset-applied positions
         // so the Rust compiler sees the correct component placement.
         const adjustedJson = JSON.parse(font.toJSONString());
-        const adjustedLayer = adjustedJson.glyphs
-            .find((g) => g.name === 'sidebearingChain')
-            .layers[0];
+        const adjustedLayer = adjustedJson.glyphs.find(
+            (g) => g.name === 'sidebearingChain'
+        ).layers[0];
 
         expect(getSerializedTranslationX(adjustedLayer.shapes[0])).toBeCloseTo(
             100,
@@ -1049,9 +1156,9 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         layer.applySidebearingInput('right', '=+100');
 
         const adjustedJson = JSON.parse(font.toJSONString());
-        const adjustedLayer = adjustedJson.glyphs
-            .find((g) => g.name === 'sidebearingChain')
-            .layers[0];
+        const adjustedLayer = adjustedJson.glyphs.find(
+            (g) => g.name === 'sidebearingChain'
+        ).layers[0];
 
         // RSB offset widens the advance but does not shift component positions
         expect(getSerializedTranslationX(adjustedLayer.shapes[0])).toBeCloseTo(
@@ -1074,9 +1181,9 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         layer.applySidebearingInput('left', '');
 
         const clearedJson = JSON.parse(font.toJSONString());
-        const clearedLayer = clearedJson.glyphs
-            .find((g) => g.name === 'sidebearingChain')
-            .layers[0];
+        const clearedLayer = clearedJson.glyphs.find(
+            (g) => g.name === 'sidebearingChain'
+        ).layers[0];
 
         expect(getSerializedTranslationX(clearedLayer.shapes[0])).toBeCloseTo(
             0,
@@ -1293,5 +1400,132 @@ describe('Automatic component editing canonical behavior', () => {
         expect(inputs[1].value).toBe('');
         expect(inputs[0].getAttribute('placeholder')).toBe('=+0 or ==+0');
         expect(inputs[1].getAttribute('placeholder')).toBe('=+0 or ==+0');
+    });
+
+    test('anchor drag limits downstream automatic recomposition to visible glyphs and uses incremental cache refresh', () => {
+        const dragFont = makeVisibleAnchorCascadeFont();
+        const currentFont = {
+            fontModel: dragFont,
+            syncJsonFromModel: jest.fn(),
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+
+        const refreshGlyphsAfterModelBatchSpy = jest
+            .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
+            .mockResolvedValue();
+        const forceFullWorkerCacheUpdateSpy = jest
+            .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
+            .mockResolvedValue();
+
+        try {
+            setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
+            fontManager.updateEditingSubsetSnapshot(['visibleComposite']);
+            canvas.textRunEditor.glyphNameBuffer = ['visibleComposite'];
+
+            const topAnchor = canvas.outlineEditor.layerData.anchors.find(
+                (anchor) => anchor.name === 'top'
+            );
+            topAnchor.x = 320;
+
+            const affectedGlyphNames =
+                canvas.outlineEditor.rebuildAutomaticCompositesForCurrentEditedGlyph(
+                    {
+                        limitToDragVisibleGlyphs: true
+                    }
+                );
+
+            expect(Array.from(affectedGlyphNames)).toEqual([
+                'A',
+                'visibleComposite'
+            ]);
+
+            canvas.outlineEditor.syncDependentGlyphsAfterAnchorEdit(
+                'A',
+                affectedGlyphNames,
+                { liveVisibleOnly: true }
+            );
+
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
+            expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
+            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
+                'A',
+                'visibleComposite'
+            ]);
+            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
+            expect(
+                currentFont.requestRecompileWithoutDataChange
+            ).not.toHaveBeenCalled();
+            expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
+        } finally {
+            refreshGlyphsAfterModelBatchSpy.mockRestore();
+            forceFullWorkerCacheUpdateSpy.mockRestore();
+            fontManager.updateEditingSubsetSnapshot([]);
+        }
+    });
+
+    test('anchor drag mouseup still performs the full downstream settle for hidden composites', () => {
+        const dragFont = makeVisibleAnchorCascadeFont();
+        const currentFont = {
+            fontModel: dragFont,
+            syncJsonFromModel: jest.fn(),
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+
+        const refreshGlyphsAfterModelBatchSpy = jest
+            .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
+            .mockResolvedValue();
+        const forceFullWorkerCacheUpdateSpy = jest
+            .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
+            .mockResolvedValue();
+        const updateWorkerFontCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const flushPendingDebugEditingFontSaveAfterDragSpy = jest
+            .spyOn(fontManager, 'flushPendingDebugEditingFontSaveAfterDrag')
+            .mockImplementation(() => {});
+
+        try {
+            setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
+            fontManager.updateEditingSubsetSnapshot(['visibleComposite']);
+            canvas.textRunEditor.glyphNameBuffer = ['visibleComposite'];
+            const topAnchor = canvas.outlineEditor.layerData.anchors.find(
+                (anchor) => anchor.name === 'top'
+            );
+            topAnchor.x = 320;
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.isDraggingAnchor = true;
+            canvas.outlineEditor._dragType = 'anchor';
+            canvas.outlineEditor._hasMoved = false;
+            canvas.outlineEditor.glyphCanvas.updatePropertyPanel = jest.fn();
+            canvas.outlineEditor.onMouseUp({});
+
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
+            expect(
+                currentFont.requestRecompileWithoutDataChange
+            ).toHaveBeenCalledTimes(1);
+            expect(forceFullWorkerCacheUpdateSpy).toHaveBeenCalledTimes(1);
+            expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
+            expect(updateWorkerFontCacheSpy).toHaveBeenCalledTimes(1);
+            expect(
+                flushPendingDebugEditingFontSaveAfterDragSpy
+            ).toHaveBeenCalledTimes(1);
+        } finally {
+            refreshGlyphsAfterModelBatchSpy.mockRestore();
+            forceFullWorkerCacheUpdateSpy.mockRestore();
+            updateWorkerFontCacheSpy.mockRestore();
+            flushPendingDebugEditingFontSaveAfterDragSpy.mockRestore();
+            fontManager.updateEditingSubsetSnapshot([]);
+        }
     });
 });

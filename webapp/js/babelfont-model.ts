@@ -5423,6 +5423,12 @@ export class Layer extends ArrayElementBase {
         this._shapeWrappers = null;
     }
 
+    invalidateContentCaches(): void {
+        this._shapeWrappers = null;
+        this._anchorWrappers = null;
+        this._guideWrappers = null;
+    }
+
     private withFingerprintChangeEvent<T>(fn: () => T): T {
         const previousFingerprint = this.fingerprint;
         const result = fn();
@@ -9873,7 +9879,10 @@ export class Font extends ModelBase {
 
     private rebuildAutomaticComposites(
         changedGlyphNames?: Set<string>,
-        options?: { skipSelfGlyphNames?: Set<string> }
+        options?: {
+            skipSelfGlyphNames?: Set<string>;
+            allowedGlyphNames?: Set<string>;
+        }
     ): Set<string> {
         const rebuiltGlyphNames = new Set<string>();
         const queue =
@@ -9896,6 +9905,13 @@ export class Font extends ModelBase {
             ]);
 
             for (const candidateGlyphName of candidateGlyphNames) {
+                if (
+                    options?.allowedGlyphNames &&
+                    !options.allowedGlyphNames.has(candidateGlyphName)
+                ) {
+                    continue;
+                }
+
                 if (
                     candidateGlyphName === nextGlyphName &&
                     options?.skipSelfGlyphNames?.has(candidateGlyphName)
@@ -9926,6 +9942,13 @@ export class Font extends ModelBase {
                 for (const dependentGlyphName of this.findGlyphsUsingComponent(
                     candidateGlyphName
                 )) {
+                    if (
+                        options?.allowedGlyphNames &&
+                        !options.allowedGlyphNames.has(dependentGlyphName)
+                    ) {
+                        continue;
+                    }
+
                     if (!visitedGlyphNames.has(dependentGlyphName)) {
                         queue.add(dependentGlyphName);
                     }
@@ -9937,9 +9960,10 @@ export class Font extends ModelBase {
     }
 
     rebuildAutomaticCompositesForGlyphs(
-        changedGlyphNames?: Set<string>
+        changedGlyphNames?: Set<string>,
+        options?: { allowedGlyphNames?: Set<string> }
     ): Set<string> {
-        return this.rebuildAutomaticComposites(changedGlyphNames);
+        return this.rebuildAutomaticComposites(changedGlyphNames, options);
     }
 
     recomputeMetricsKeys(changedGlyphNames?: Set<string>): Set<string> {

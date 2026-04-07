@@ -183,6 +183,39 @@ describe('FontManager saveLayerData', () => {
         ).toHaveBeenCalledTimes(1);
     });
 
+    test('updates the live object model layer during interactive saves', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        const editedLayer = cloneJson(layer);
+        editedLayer.width = 612;
+        editedLayer.anchors = (editedLayer.anchors || []).map((anchor) =>
+            anchor.name === 'top'
+                ? { ...anchor, x: 333, y: anchor.y }
+                : anchor
+        );
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            editedLayer,
+            'mouse-drag-anchor'
+        );
+
+        const modelLayer = fontManager.currentFont.fontModel
+            .findGlyph('a')
+            .findLayerById(layer.id);
+        const topAnchor = (modelLayer.anchors || []).find(
+            (anchor) => anchor.name === 'top'
+        );
+
+        expect(modelLayer.toJSON().width).toBe(612);
+        expect(topAnchor?.x).toBe(333);
+    });
+
     test('keeps live auto-compile for interactive keyboard outline saves', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
@@ -626,6 +659,7 @@ describe('FontManager editing subset inclusion', () => {
     afterEach(() => {
         compileEditingSpy?.mockRestore();
         saveEditingFontSpy?.mockRestore();
+        fontManager.updateEditingSubsetSnapshot([]);
         fontManager.openedFonts = originalOpenedFonts;
         fontManager.currentFontId = originalCurrentFontId;
         window.glyphCanvas = originalGlyphCanvas;
@@ -673,6 +707,52 @@ describe('FontManager editing subset inclusion', () => {
             compileEditingSpy.mock.calls[0][3].dirtyLayerUpdates
         ).toBeUndefined();
         expect(fontManager.forceFullEditingCacheRefresh).toBe(false);
+    });
+
+    test('getLiveVisibleGlyphNames merges subset snapshot, rendered run, and active glyph', () => {
+        fontManager.updateEditingSubsetSnapshot(['adieresis', 'visibleAccent']);
+        window.glyphCanvas.textRunEditor.glyphNameBuffer = [
+            'visibleAccent',
+            'runOnlyGlyph'
+        ];
+        window.glyphCanvas.outlineEditor.currentGlyphName = 'editedGlyph';
+        window.glyphCanvas.getCurrentGlyphName = jest.fn(() => 'editedGlyph');
+
+        expect(fontManager.getLiveVisibleGlyphNames()).toEqual([
+            'adieresis',
+            'visibleAccent',
+            'runOnlyGlyph',
+            'editedGlyph'
+        ]);
+    });
+
+    test('getAutomaticCompositionDragScopeGlyphNames keeps only visible dependents and required bridges', () => {
+        fontManager.updateEditingSubsetSnapshot(['visibleLeaf']);
+        window.glyphCanvas.textRunEditor.glyphNameBuffer = [];
+        window.glyphCanvas.outlineEditor.currentGlyphName = 'sourceGlyph';
+        window.glyphCanvas.getCurrentGlyphName = jest.fn(() => 'sourceGlyph');
+
+        const dependencyGraph = {
+            sourceGlyph: ['bridgeGlyph', 'hiddenSibling'],
+            bridgeGlyph: ['visibleLeaf'],
+            hiddenSibling: ['hiddenLeaf'],
+            visibleLeaf: [],
+            hiddenLeaf: []
+        };
+
+        const scopedGlyphNames =
+            fontManager.getAutomaticCompositionDragScopeGlyphNames(
+                'sourceGlyph',
+                {
+                    findGlyphsUsingComponent: jest.fn(
+                        (glyphName) => dependencyGraph[glyphName] || []
+                    )
+                }
+            );
+
+        expect(scopedGlyphNames).toEqual(
+            new Set(['sourceGlyph', 'bridgeGlyph', 'visibleLeaf'])
+        );
     });
 });
 
