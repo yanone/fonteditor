@@ -3383,7 +3383,7 @@ class GlyphCanvas {
     ): Promise<void> {
         const trimmedValue = value.trim();
 
-        const layer = this.getCurrentLayerModel();
+        const layer = this.getCurrentEditingLayerModel();
         if (!layer) {
             return;
         }
@@ -3415,7 +3415,10 @@ class GlyphCanvas {
         const previousChangeVersion = fontManager.currentFont?.changeVersion;
 
         const resolution = layer.applySidebearingInput(side, value);
-        const glyphName = this.getCurrentGlyphName();
+        const glyphName =
+            (typeof layer.parent === 'function'
+                ? layer.parent()?.name
+                : null) ?? this.getCurrentGlyphName();
         const usesIncrementalLayerRefresh = resolution.updateScope === 'layer';
 
         const { advancesRefreshed } = syncModelSidebearingEditToCanvas(this, {
@@ -3897,7 +3900,7 @@ class GlyphCanvas {
             return;
         }
 
-        const layer = this.getCurrentLayerModel();
+        const layer = this.getCurrentEditingLayerModel();
         if (!layer) {
             return;
         }

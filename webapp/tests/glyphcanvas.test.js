@@ -1098,7 +1098,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             .mockResolvedValue();
         fontManager.scheduleFullCompileDebounce = jest.fn();
 
-        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
         canvas.getCurrentGlyphName = jest.fn(() => 'a');
         canvas.outlineEditor.selectedLayerId = 'layer-1';
         canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
@@ -1157,7 +1157,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             .mockResolvedValue();
         fontManager.scheduleFullCompileDebounce = jest.fn();
 
-        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
         canvas.getCurrentGlyphName = jest.fn(() => 'a');
         canvas.outlineEditor.selectedLayerId = 'layer-1';
         canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
@@ -1178,6 +1178,58 @@ describe('GlyphCanvas property panel metrics edits', () => {
             window.fontManager.refreshGlyphsAfterModelBatch
         ).toHaveBeenCalledWith(['a', 'adieresis'], undefined);
         expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
+    });
+
+    test('commitPropertyPanelValue refreshes the active nested glyph instead of the root glyph', async () => {
+        const layer = {
+            width: 500,
+            parent: jest.fn(() => ({ name: 'baseComponent' })),
+            isAutomaticAlignedLayer: jest.fn(() => false),
+            applySidebearingInput: jest.fn(() => {
+                fontManager.currentFont.changeVersion = 2;
+                layer.width = 640;
+                return {
+                    affectedGlyphNames: [],
+                    error: null,
+                    updateScope: 'font'
+                };
+            })
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        fontManager.lastChangeSource = 'previous-source';
+        fontManager.lastEditType = 'outline';
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockResolvedValue();
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'panelGlyph');
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+
+        await canvas.commitPropertyPanelValue('left', '=50');
+
+        expect(layer.applySidebearingInput).toHaveBeenCalledWith('left', '=50');
+        expect(
+            canvas.textRunEditor.refreshGlyphAdvancesLive
+        ).toHaveBeenCalledWith({ baseComponent: 640 }, { render: false });
+        expect(
+            window.fontManager.refreshGlyphsAfterModelBatch
+        ).toHaveBeenCalledWith(['baseComponent'], undefined);
     });
 
     test('commitPropertyPanelValue allows deleting automatic sidebearing override keys', async () => {
@@ -1212,7 +1264,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
             .mockResolvedValue();
         fontManager.scheduleFullCompileDebounce = jest.fn();
 
-        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentEditingLayerModel = jest.fn(() => layer);
         canvas.getCurrentGlyphName = jest.fn(() => 'a');
         canvas.outlineEditor.selectedLayerId = 'layer-1';
         canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
@@ -7438,6 +7490,25 @@ describe('GlyphCanvas property panel', () => {
         const inputs = document.querySelectorAll('.glyph-property-input');
         expect(inputs[1].value).toBe('');
         expect(inputs[1].getAttribute('placeholder')).toBe('=+0 or ==+0');
+    });
+
+    test('shows sidebearing values for the active nested glyph in glyphStack', () => {
+        canvas.outlineEditor.glyphStack =
+            'panelGlyph@layer-1 / baseComponent@layer-1';
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'panelGlyph', layerId: 'layer-1' },
+            { glyphName: 'baseComponent', layerId: 'layer-1' }
+        ]);
+
+        canvas.updatePropertyPanel();
+
+        const inputs = document.querySelectorAll('.glyph-property-input');
+        const values = document.querySelectorAll('.glyph-property-value');
+
+        expect(inputs[0].value).toBe('100');
+        expect(inputs[1].value).toBe('100');
+        expect(values[0].textContent).toBe('100');
+        expect(values[1].textContent).toBe('100');
     });
 
     test('hides sidebearing controls when a guide is selected', () => {
