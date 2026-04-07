@@ -3390,7 +3390,8 @@ class GlyphCanvas {
 
         if (
             layer.isAutomaticAlignedLayer() &&
-            (!trimmedValue || !/^==?[+-]/.test(trimmedValue))
+            trimmedValue &&
+            !/^==?[+-]/.test(trimmedValue)
         ) {
             this.updatePropertyPanel();
             this.outlineEditor.performHitDetection(null);
@@ -3922,11 +3923,7 @@ class GlyphCanvas {
             input.dataset.propertyField = `side-${side}`;
 
             const resolution = layer.resolveMetricsKey(side);
-            const glyph = layer.parent();
-            const metricsKey =
-                side === 'left'
-                    ? (layer.leftMetricsKey ?? glyph?.leftMetricsKey)
-                    : (layer.rightMetricsKey ?? glyph?.rightMetricsKey);
+            const metricsKey = resolution.input || undefined;
             const showAutoPlaceholder = !metricsKey && automaticLayer;
             const displayedValue = showAutoPlaceholder
                 ? ''

@@ -1180,6 +1180,57 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
     });
 
+    test('commitPropertyPanelValue allows deleting automatic sidebearing override keys', async () => {
+        const layer = {
+            width: 500,
+            isAutomaticAlignedLayer: jest.fn(() => true),
+            applySidebearingInput: jest.fn(() => {
+                fontManager.currentFont.changeVersion = 2;
+                return {
+                    affectedGlyphNames: ['a'],
+                    error: null,
+                    input: '',
+                    value: 50,
+                    updateScope: 'font'
+                };
+            })
+        };
+
+        fontManager.openedFonts = new Map([
+            [
+                'test-font',
+                {
+                    changeVersion: 1
+                }
+            ]
+        ]);
+        fontManager.currentFontId = 'test-font';
+        fontManager.lastChangeSource = 'previous-source';
+        fontManager.lastEditType = 'outline';
+        window.fontManager.refreshGlyphsAfterModelBatch = jest
+            .fn()
+            .mockResolvedValue();
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+
+        canvas.getCurrentLayerModel = jest.fn(() => layer);
+        canvas.getCurrentGlyphName = jest.fn(() => 'a');
+        canvas.outlineEditor.selectedLayerId = 'layer-1';
+        canvas.outlineEditor.fetchLayerData = jest.fn().mockResolvedValue();
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.updatePropertyPanel = jest.fn();
+        canvas.render = jest.fn();
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn();
+
+        await canvas.commitPropertyPanelValue('left', '');
+
+        expect(layer.applySidebearingInput).toHaveBeenCalledWith('left', '');
+        expect(fontManager.lastChangeSource).toBe('metrics-key');
+        expect(
+            window.fontManager.refreshGlyphsAfterModelBatch
+        ).toHaveBeenCalledWith(['a'], undefined);
+        expect(canvas.outlineEditor.fetchLayerData).toHaveBeenCalledWith(true);
+    });
+
     test('commitPropertyPanelValue pans the viewport for left sidebearing edits', async () => {
         const layer = {
             width: 500,

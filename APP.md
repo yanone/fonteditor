@@ -135,6 +135,16 @@ Automatic composition also depends on anchor positions. Moving an anchor on a gl
 
 Automatic alignment applies only when every component in a component-only layer is explicitly set to automatic alignment. Components without an explicit automatic-alignment flag remain manually placed. Disabling automatic alignment on any component in a layer takes that layer out of automatic composition and allows manual placement of all components in that layer, even components that still carry an automatic-alignment flag. Re-enabling automatic alignment on all components returns the layer to automatic composition. Changing automatic alignment state or a component's explicit target-anchor override must rebuild the automatic composition immediately.
 
-Sidebearings of automatically composed layers cannot be edited directly because they are derived from the base glyph. However, the automatic sidebearings may be adjusted using `=+` and `=-` glyph-wide operators, or `==+` and `==-` layer-local overrides.
+Sidebearings of automatically composed layers cannot be edited directly because they are derived from the base glyph. The property panel must therefore present those fields as automatic unless the user has supplied an explicit automatic-offset override. Imported non-operator metrics keys that merely restate the implicit automatic derivation, such as direct references to the first or last chained base glyph, must not appear as explicit keys on an automatic layer and must not replace the implicit automatic sidebearings. However, the automatic sidebearings may be adjusted using `=+` and `=-` glyph-wide operators, or `==+` and `==-` layer-local overrides.
 
 Automatically aligned components must be visually distinguished from manually positioned components in the editor so their derived placement is apparent at a glance. Both kinds of components must draw their explicit path outlines with a 2 px stroke. Automatically aligned components use a gray stroke darker than their fill, while manually positioned components use a blue stroke darker than their fill.
+
+#### Chained Base Components
+
+Automatic composition must also support left-to-right chains of multiple base components connected by `#exit` and `#entry` anchors. A preceding base component may expose `#exit`, and the following base component may expose `#entry`. The composer must align those two anchors exactly. More than two base components may be chained in shape order; any middle base component must therefore expose both `#entry` and `#exit`, while the first chained base needs `#exit` and the last chained base needs `#entry`.
+
+This chained-base behavior only participates in automatic composition when those base components are automatic too. If any base component in the chain is not automatically aligned, the layer is no longer an automatically composed layer and the chained-base placement rule does not apply.
+
+For chained base components, derived metrics must come from the base chain itself rather than from summing standalone advances blindly. The automatically composed glyph must use the LSB of the first base glyph in the chain and the RSB of the last base glyph in the chain, with interior overlaps or joins determined by the aligned `#exit`/`#entry` anchors.
+
+Changes to chained-base source glyphs, including metrics changes and edits to `#entry` or `#exit` anchor positions, must rebuild inheriting automatic composites immediately and in the same transaction path as the existing automatic glyph composer.

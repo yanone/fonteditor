@@ -417,6 +417,198 @@ function makeRotatedAutomaticBaseFont() {
     });
 }
 
+function makeChainedBaseAutomaticFont() {
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [makeMaster()],
+        glyphs: [
+            {
+                name: 'leftBase',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'LB0',
+                        width: 400,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(40, 0, 360, 300)],
+                        anchors: [{ name: '#exit', x: 340, y: 150 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'middleBase',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'MB0',
+                        width: 350,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(20, 0, 320, 300)],
+                        anchors: [
+                            { name: '#entry', x: 20, y: 150 },
+                            { name: '#exit', x: 300, y: 150 }
+                        ],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'rightBase',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'RB0',
+                        width: 280,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(10, 0, 250, 300)],
+                        anchors: [{ name: '#entry', x: 30, y: 150 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'chainedWord',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'CW0',
+                        width: 0,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [
+                            makeComponent('leftBase'),
+                            makeComponent('middleBase'),
+                            makeComponent('rightBase')
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            }
+        ],
+        names: { family_name: { en: 'Automatic Chained Bases Canonical' } },
+        note: '',
+        date: '2026-04-07',
+        features: { classes: {}, prefixes: {}, features: [] },
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
+function makeChainedBaseSidebearingKeyFont() {
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [makeMaster()],
+        glyphs: [
+            {
+                name: 'leftChainBase',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'LCB0',
+                        width: 420,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(45, 0, 365, 300)],
+                        anchors: [{ name: '#exit', x: 340, y: 150 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'rightChainBase',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'RCB0',
+                        width: 360,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(30, 0, 300, 300)],
+                        anchors: [{ name: '#entry', x: 30, y: 150 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'sidebearingChain',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'SBC0',
+                        width: 0,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [
+                            makeComponent('leftChainBase'),
+                            makeComponent('rightChainBase')
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            }
+        ],
+        names: { family_name: { en: 'Automatic Chained Sidebearing Keys' } },
+        note: '',
+        date: '2026-04-07',
+        features: { classes: {}, prefixes: {}, features: [] },
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
 function setupCanvasForLayer(canvas, font, glyphName, layerId) {
     canvas.outlineEditor.active = true;
     canvas.outlineEditor.selectedLayerId = layerId;
@@ -585,6 +777,22 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         expect(layer.rsb).toBeCloseTo(40, 5);
     });
 
+    test('chained base components align by #exit and #entry and derive metrics from the chain ends', () => {
+        const font = makeChainedBaseAutomaticFont();
+        const layer = font.findGlyph('chainedWord').layers[0];
+        const changed = layer.rebuildAutomaticComposition();
+        const [leftBase, middleBase, rightBase] = layer.components;
+
+        expect(changed).toBe(true);
+        expect(layer.isAutomaticAlignedLayer()).toBe(true);
+        expect(leftBase.toAffineArray()[4]).toBeCloseTo(0, 5);
+        expect(middleBase.toAffineArray()[4]).toBeCloseTo(320, 5);
+        expect(rightBase.toAffineArray()[4]).toBeCloseTo(590, 5);
+        expect(layer.width).toBeCloseTo(870, 5);
+        expect(layer.lsb).toBeCloseTo(40, 5);
+        expect(layer.rsb).toBeCloseTo(30, 5);
+    });
+
     test('anchor families expose override choices and explicit overrides pick the exact target anchor', () => {
         const font = makeAutomaticCompositionFont();
         const layer = font.findGlyph('adieresis').layers[0];
@@ -630,6 +838,34 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         );
     });
 
+    test('editing chained base anchors rebuilds inheriting composites in the same automatic recomposition pass', () => {
+        const font = makeChainedBaseAutomaticFont();
+        const middleBaseLayer = font.findGlyph('middleBase').layers[0];
+        const compositeLayer = font.findGlyph('chainedWord').layers[0];
+
+        compositeLayer.rebuildAutomaticComposition();
+        expect(compositeLayer.components[2].toAffineArray()[4]).toBeCloseTo(
+            590,
+            5
+        );
+
+        const exitAnchor = middleBaseLayer.anchors.find(
+            (anchor) => anchor.name === '#exit'
+        );
+        exitAnchor.x = 330;
+
+        const rebuiltGlyphNames = font.rebuildAutomaticCompositesForGlyphs(
+            new Set(['middleBase'])
+        );
+
+        expect(rebuiltGlyphNames.has('chainedWord')).toBe(true);
+        expect(compositeLayer.components[2].toAffineArray()[4]).toBeCloseTo(
+            620,
+            5
+        );
+        expect(compositeLayer.width).toBeCloseTo(900, 5);
+    });
+
     test('automatic layers reject direct sidebearing values and accept automatic offsets', () => {
         const font = makeAutomaticCompositionFont();
         const glyph = font.findGlyph('adieresis');
@@ -646,6 +882,66 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         expect(accepted.error).toBeNull();
         expect(accepted.value).not.toBeNull();
         expect(layer.resolveMetricsKey('left').value).not.toBeNull();
+    });
+
+    test('automatic chained layers ignore imported direct-reference metrics keys and keep implicit derived sidebearings', () => {
+        const font = makeChainedBaseAutomaticFont();
+        const glyph = font.findGlyph('chainedWord');
+        const layer = glyph.layers[0];
+
+        glyph.leftMetricsKey = '=leftBase';
+        glyph.rightMetricsKey = '=rightBase';
+
+        layer.rebuildAutomaticComposition();
+
+        expect(layer.resolveMetricsKey('left').input).toBe('');
+        expect(layer.resolveMetricsKey('right').input).toBe('');
+        expect(layer.resolveMetricsKey('left').value).toBeCloseTo(40, 5);
+        expect(layer.resolveMetricsKey('right').value).toBeCloseTo(30, 5);
+    });
+
+    test('automatic chained layers apply sidebearing key offsets from the implicitly derived chain sidebearings', () => {
+        const font = makeChainedBaseSidebearingKeyFont();
+        const glyph = font.findGlyph('sidebearingChain');
+        const layer = glyph.layers[0];
+
+        layer.rebuildAutomaticComposition();
+
+        expect(layer.lsb).toBeCloseTo(45, 5);
+        expect(layer.rsb).toBeCloseTo(60, 5);
+
+        const leftAdjusted = layer.applySidebearingInput('left', '=+10');
+        const rightAdjusted = layer.applySidebearingInput('right', '=-10');
+
+        expect(leftAdjusted.error).toBeNull();
+        expect(rightAdjusted.error).toBeNull();
+        expect(layer.resolveMetricsKey('left').value).toBeCloseTo(55, 5);
+        expect(layer.resolveMetricsKey('right').value).toBeCloseTo(50, 5);
+    });
+
+    test('automatic layers clear sidebearing override keys back to implicit auto when input is deleted', () => {
+        const font = makeChainedBaseSidebearingKeyFont();
+        const glyph = font.findGlyph('sidebearingChain');
+        const layer = glyph.layers[0];
+
+        layer.rebuildAutomaticComposition();
+        layer.applySidebearingInput('left', '=+10');
+        layer.applySidebearingInput('right', '=-10');
+
+        expect(layer.resolveMetricsKey('left').value).toBeCloseTo(55, 5);
+        expect(layer.resolveMetricsKey('right').value).toBeCloseTo(50, 5);
+
+        const clearedLeft = layer.applySidebearingInput('left', '');
+        const clearedRight = layer.applySidebearingInput('right', '');
+
+        expect(clearedLeft.error).toBeNull();
+        expect(clearedRight.error).toBeNull();
+        expect(glyph.leftMetricsKey).toBeUndefined();
+        expect(glyph.rightMetricsKey).toBeUndefined();
+        expect(layer.resolveMetricsKey('left').input).toBe('');
+        expect(layer.resolveMetricsKey('right').input).toBe('');
+        expect(layer.resolveMetricsKey('left').value).toBeCloseTo(45, 5);
+        expect(layer.resolveMetricsKey('right').value).toBeCloseTo(60, 5);
     });
 });
 
@@ -832,5 +1128,29 @@ describe('Automatic component editing canonical behavior', () => {
         expect(
             APP_SETTINGS.OUTLINE_EDITOR.COLORS_LIGHT.COMPONENT_FILL_AUTO_NORMAL
         ).toBe('#8f8f8fcc');
+    });
+
+    test('automatic chained layers show auto placeholders instead of imported direct-reference metrics keys', () => {
+        const chainedFont = makeChainedBaseAutomaticFont();
+        const glyph = chainedFont.findGlyph('chainedWord');
+        const layer = glyph.layers[0];
+
+        glyph.leftMetricsKey = '=leftBase';
+        glyph.rightMetricsKey = '=rightBase';
+        layer.rebuildAutomaticComposition();
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: chainedFont });
+
+        setupCanvasForLayer(canvas, chainedFont, 'chainedWord', 'CW0');
+        canvas.updatePropertyPanel();
+
+        const inputs = document.querySelectorAll('.glyph-property-input');
+        expect(inputs[0].value).toBe('');
+        expect(inputs[1].value).toBe('');
+        expect(inputs[0].getAttribute('placeholder')).toBe('=+0 or ==+0');
+        expect(inputs[1].getAttribute('placeholder')).toBe('=+0 or ==+0');
     });
 });

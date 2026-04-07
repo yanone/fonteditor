@@ -95,6 +95,8 @@ const GLYPHS_LAYER_METRIC_LEFT_KEY = 'com.schriftgestalt.Glyphs.metricLeft';
 const GLYPHS_LAYER_METRIC_RIGHT_KEY = 'com.schriftgestalt.Glyphs.metricRight';
 const GLYPHS_COMPONENT_ALIGNMENT_KEY = 'com.schriftgestalt.Glyphs.alignment';
 const GLYPHS_COMPONENT_ANCHOR_KEY = 'com.schriftgestalt.Glyphs.componentAnchor';
+const CHAINED_BASE_ENTRY_ANCHOR = '#entry';
+const CHAINED_BASE_EXIT_ANCHOR = '#exit';
 const METRIC_UPDATE_EPSILON = 0.01;
 let suppressModelRecordingDepth = 0;
 let suppressMetricsKeyRecomputeDepth = 0;
@@ -109,6 +111,13 @@ type AutomaticCompositionPlacement = {
     translationX: number;
     translationY: number;
     attached: boolean;
+};
+
+type AutomaticCompositionAttachment = {
+    sourceAnchor: Anchor;
+    targetAnchorName: string;
+    targetAnchor: AutomaticCompositionAnchorPoint;
+    kind: 'mark' | 'chained-base';
 };
 
 type AutomaticCompositionLayout = {
@@ -148,6 +157,14 @@ function isAutomaticAttachmentAnchor(anchorName: string | undefined): boolean {
     return Boolean(anchorName && anchorName.startsWith('_'));
 }
 
+function isChainedBaseEntryAnchor(anchorName: string | undefined): boolean {
+    return anchorName === CHAINED_BASE_ENTRY_ANCHOR;
+}
+
+function isChainedBaseExitAnchor(anchorName: string | undefined): boolean {
+    return anchorName === CHAINED_BASE_EXIT_ANCHOR;
+}
+
 function transformPointWithAffine(
     transform: number[],
     x: number,
@@ -176,6 +193,11 @@ function isAutomaticAlignedComponent(component: Component): boolean {
     const value =
         getModelFormatSpecific(component)?.[GLYPHS_COMPONENT_ALIGNMENT_KEY];
     return value === 0;
+}
+
+function isAutomaticSidebearingOverrideKey(value: string | undefined): boolean {
+    const normalizedValue = normalizeMetricsKeyValue(value);
+    return Boolean(normalizedValue && /^==?[+-]/.test(normalizedValue));
 }
 
 type InterpolationFontCacheEntry = {
@@ -5599,10 +5621,19 @@ export class Layer extends ArrayElementBase {
     private getEffectiveSidebearingKey(
         side: SidebearingSide
     ): string | undefined {
-        return (
+        const metricsKey =
             this.getLocalSidebearingKey(side) ??
-            this.getGlobalSidebearingKey(side)
-        );
+            this.getGlobalSidebearingKey(side);
+
+        if (
+            metricsKey &&
+            this.isAutomaticAlignedLayer() &&
+            !isAutomaticSidebearingOverrideKey(metricsKey)
+        ) {
+            return undefined;
+        }
+
+        return metricsKey;
     }
 
     private clearEffectiveSidebearingKey(side: SidebearingSide): void {
@@ -5785,6 +5816,11 @@ export class Layer extends ArrayElementBase {
                 continue;
             }
 
+            if (this.isAutomaticAlignedLayer()) {
+                changed = true;
+                continue;
+            }
+
             this.setDirectSidebearing(side, applied.value);
             changed = true;
         }
@@ -5858,11 +5894,24 @@ export class Layer extends ArrayElementBase {
         component: Component,
         componentLayer: Layer,
         availableAnchors: Map<string, AutomaticCompositionAnchorPoint>
-    ): {
-        sourceAnchor: Anchor;
-        targetAnchorName: string;
-        targetAnchor: AutomaticCompositionAnchorPoint;
-    } | null {
+    ): AutomaticCompositionAttachment | null {
+        const chainedBaseEntryAnchor = (componentLayer.anchors || []).find(
+            (anchor) => isChainedBaseEntryAnchor(anchor.name)
+        );
+        if (chainedBaseEntryAnchor) {
+            const chainedBaseTargetAnchor = availableAnchors.get(
+                CHAINED_BASE_EXIT_ANCHOR
+            );
+            if (chainedBaseTargetAnchor) {
+                return {
+                    sourceAnchor: chainedBaseEntryAnchor,
+                    targetAnchorName: CHAINED_BASE_EXIT_ANCHOR,
+                    targetAnchor: chainedBaseTargetAnchor,
+                    kind: 'chained-base'
+                };
+            }
+        }
+
         const incomingAnchors = (componentLayer.anchors || []).filter(
             (anchor) => isAutomaticAttachmentAnchor(anchor.name)
         );
@@ -5893,7 +5942,8 @@ export class Layer extends ArrayElementBase {
             return {
                 sourceAnchor: incomingAnchor,
                 targetAnchorName: preferredTargetName,
-                targetAnchor
+                targetAnchor,
+                kind: 'mark'
             };
         }
 
@@ -5967,6 +6017,9 @@ export class Layer extends ArrayElementBase {
         const placements: AutomaticCompositionPlacement[] = [];
         let baseBounds: AutomaticCompositionLayout['baseBounds'] = null;
         let baseAdvanceWidth = 0;
+        let baseAdvanceCursor = 0;
+        let baseAdvanceMinX: number | null = null;
+        let baseAdvanceMaxX: number | null = null;
 
         for (const component of components) {
             const componentLayer = this.getAutomaticComponentLayer(component);
@@ -5995,11 +6048,13 @@ export class Layer extends ArrayElementBase {
             );
 
             let translationX =
-                baseAdvanceWidth === 0
+                baseAdvanceCursor === 0
                     ? originalTransform[4]
-                    : baseAdvanceWidth;
+                    : baseAdvanceCursor;
             let translationY = originalTransform[5];
             let attached = false;
+            const contributesBaseMetrics =
+                !attachment || attachment.kind === 'chained-base';
 
             if (attachment) {
                 const sourcePosition = transformPointWithAffine(
@@ -6009,7 +6064,7 @@ export class Layer extends ArrayElementBase {
                 );
                 translationX = attachment.targetAnchor.x - sourcePosition.x;
                 translationY = attachment.targetAnchor.y - sourcePosition.y;
-                attached = true;
+                attached = attachment.kind === 'mark';
             }
 
             placements.push({
@@ -6022,7 +6077,7 @@ export class Layer extends ArrayElementBase {
             appliedTransform[4] = translationX;
             appliedTransform[5] = translationY;
 
-            if (!attached) {
+            if (contributesBaseMetrics) {
                 const componentShapes = componentLayer.toJSON().shapes;
                 if (componentShapes) {
                     const componentBounds = Layer.calculateShapeBounds(
@@ -6055,12 +6110,32 @@ export class Layer extends ArrayElementBase {
                     }
                 }
 
+                const advanceStart = transformPointWithAffine(
+                    appliedTransform,
+                    0,
+                    0
+                );
+                const advanceEnd = transformPointWithAffine(
+                    appliedTransform,
+                    componentLayer.width,
+                    0
+                );
+                const advanceMin = Math.min(advanceStart.x, advanceEnd.x);
+                const advanceMax = Math.max(advanceStart.x, advanceEnd.x);
+
+                baseAdvanceMinX =
+                    baseAdvanceMinX === null
+                        ? advanceMin
+                        : Math.min(baseAdvanceMinX, advanceMin);
+                baseAdvanceMaxX =
+                    baseAdvanceMaxX === null
+                        ? advanceMax
+                        : Math.max(baseAdvanceMaxX, advanceMax);
+                baseAdvanceCursor = roundMetricValue(
+                    Math.max(baseAdvanceCursor, advanceMax)
+                );
                 baseAdvanceWidth = roundMetricValue(
-                    baseAdvanceWidth +
-                        getAutomaticAdvanceDeltaX(
-                            appliedTransform,
-                            componentLayer.width
-                        )
+                    (baseAdvanceMaxX ?? 0) - (baseAdvanceMinX ?? 0)
                 );
             }
 
@@ -6497,21 +6572,6 @@ export class Layer extends ArrayElementBase {
             !isPlainNumericInput && !useLocalKeyStorage ? 'font' : 'layer';
         const glyphNameList = [glyphName].filter(Boolean) as string[];
 
-        if (
-            this.isAutomaticAlignedLayer() &&
-            (!input || !/^==?[+-]/.test(input))
-        ) {
-            return {
-                input,
-                value: null,
-                error: 'Automatic sidebearings only accept =+/- or ==+/- adjustments',
-                referencedGlyphNames: [],
-                isLocal: this.hasLocalSidebearingKey(side),
-                updateScope: 'layer',
-                affectedGlyphNames: glyphNameList
-            };
-        }
-
         const recomputeDependentMetrics = (
             affectedGlyphNames: Set<string>
         ): void => {
@@ -6529,6 +6589,31 @@ export class Layer extends ArrayElementBase {
         };
 
         return withBridgeTransaction(label, () => {
+            if (!input) {
+                this.clearEffectiveSidebearingKey(side);
+                const affectedGlyphNames = new Set<string>(
+                    [glyphName].filter(Boolean) as string[]
+                );
+                recomputeDependentMetrics(affectedGlyphNames);
+                return {
+                    ...this.resolveMetricsKey(side),
+                    updateScope,
+                    affectedGlyphNames: [...affectedGlyphNames]
+                };
+            }
+
+            if (this.isAutomaticAlignedLayer() && !/^==?[+-]/.test(input)) {
+                return {
+                    input,
+                    value: null,
+                    error: 'Automatic sidebearings only accept =+/- or ==+/- adjustments',
+                    referencedGlyphNames: [],
+                    isLocal: this.hasLocalSidebearingKey(side),
+                    updateScope: 'layer',
+                    affectedGlyphNames: glyphNameList
+                };
+            }
+
             if (isPlainNumericInput) {
                 this.clearEffectiveSidebearingKey(side);
                 this.setDirectSidebearing(side, Number(input));
@@ -6580,10 +6665,14 @@ export class Layer extends ArrayElementBase {
                 };
             }
 
-            this.setDirectSidebearing(side, applied.value);
             const affectedGlyphNames = new Set<string>(
                 [glyphName].filter(Boolean) as string[]
             );
+
+            if (!this.isAutomaticAlignedLayer()) {
+                this.setDirectSidebearing(side, applied.value);
+            }
+
             recomputeDependentMetrics(affectedGlyphNames);
             return {
                 ...resolution,
@@ -9886,7 +9975,9 @@ export class Font extends ModelBase {
                             continue;
                         }
 
-                        layer.setDirectSidebearing(side, applied.value);
+                        if (!layer.isAutomaticAlignedLayer()) {
+                            layer.setDirectSidebearing(side, applied.value);
+                        }
                         layerChanged = true;
                         if (parsed.kind !== 'automatic-offset') {
                             changedOnlyByAutomaticOffset = false;
