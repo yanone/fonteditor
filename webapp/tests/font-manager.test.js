@@ -193,9 +193,7 @@ describe('FontManager saveLayerData', () => {
         const editedLayer = cloneJson(layer);
         editedLayer.width = 612;
         editedLayer.anchors = (editedLayer.anchors || []).map((anchor) =>
-            anchor.name === 'top'
-                ? { ...anchor, x: 333, y: anchor.y }
-                : anchor
+            anchor.name === 'top' ? { ...anchor, x: 333, y: anchor.y } : anchor
         );
 
         await fontManager.saveLayerData(
