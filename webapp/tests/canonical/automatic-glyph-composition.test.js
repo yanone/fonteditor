@@ -985,7 +985,7 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         layer.applySidebearingInput('right', '=-10');
 
         expect(layer.resolveMetricsKey('left').value).toBeCloseTo(55, 5);
-        expect(layer.resolveMetricsKey('right').value).toBeCloseTo(50, 5);
+        expect(layer.resolveMetricsKey('right').value).toBeCloseTo(60 - 10, 5);
 
         const clearedLeft = layer.applySidebearingInput('left', '');
         const clearedRight = layer.applySidebearingInput('right', '');
@@ -998,6 +998,91 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         expect(layer.resolveMetricsKey('right').input).toBe('');
         expect(layer.resolveMetricsKey('left').value).toBeCloseTo(45, 5);
         expect(layer.resolveMetricsKey('right').value).toBeCloseTo(60, 5);
+    });
+
+    test('Font.toJSONString() includes offset-applied component positions for automatic layers with =+ sidebearing keys', () => {
+        // This test guards against the regression where Font.toJSONString() serialized
+        // raw _data (base component positions) instead of Layer.toJSON() output
+        // (offset-applied positions), causing the editing font to compile with wrong data.
+        const font = makeChainedBaseSidebearingKeyFont();
+        const layer = font.findGlyph('sidebearingChain').layers[0];
+
+        layer.rebuildAutomaticComposition();
+
+        // Baseline: before any key, toJSONString must have base positions (x=0 for first component)
+        const baseJson = JSON.parse(font.toJSONString());
+        const baseLayer = baseJson.glyphs
+            .find((g) => g.name === 'sidebearingChain')
+            .layers[0];
+        expect(getSerializedTranslationX(baseLayer.shapes[0])).toBeCloseTo(
+            0,
+            5
+        );
+        expect(baseLayer.width).toBeCloseTo(670, 5);
+
+        // Apply a left sidebearing offset of +100
+        layer.applySidebearingInput('left', '=+100');
+
+        // After applying the key, toJSONString must carry the offset-applied positions
+        // so the Rust compiler sees the correct component placement.
+        const adjustedJson = JSON.parse(font.toJSONString());
+        const adjustedLayer = adjustedJson.glyphs
+            .find((g) => g.name === 'sidebearingChain')
+            .layers[0];
+
+        expect(getSerializedTranslationX(adjustedLayer.shapes[0])).toBeCloseTo(
+            100,
+            5
+        );
+        expect(getSerializedTranslationX(adjustedLayer.shapes[1])).toBeCloseTo(
+            410,
+            5
+        );
+        expect(adjustedLayer.width).toBeCloseTo(770, 5);
+    });
+
+    test('Font.toJSONString() includes offset-applied width for automatic layers with =+ RSB keys', () => {
+        const font = makeChainedBaseSidebearingKeyFont();
+        const layer = font.findGlyph('sidebearingChain').layers[0];
+
+        layer.rebuildAutomaticComposition();
+        layer.applySidebearingInput('right', '=+100');
+
+        const adjustedJson = JSON.parse(font.toJSONString());
+        const adjustedLayer = adjustedJson.glyphs
+            .find((g) => g.name === 'sidebearingChain')
+            .layers[0];
+
+        // RSB offset widens the advance but does not shift component positions
+        expect(getSerializedTranslationX(adjustedLayer.shapes[0])).toBeCloseTo(
+            0,
+            5
+        );
+        expect(getSerializedTranslationX(adjustedLayer.shapes[1])).toBeCloseTo(
+            310,
+            5
+        );
+        expect(adjustedLayer.width).toBeCloseTo(770, 5);
+    });
+
+    test('Font.toJSONString() reverts to base positions after the sidebearing key is cleared', () => {
+        const font = makeChainedBaseSidebearingKeyFont();
+        const layer = font.findGlyph('sidebearingChain').layers[0];
+
+        layer.rebuildAutomaticComposition();
+        layer.applySidebearingInput('left', '=+100');
+        layer.applySidebearingInput('left', '');
+
+        const clearedJson = JSON.parse(font.toJSONString());
+        const clearedLayer = clearedJson.glyphs
+            .find((g) => g.name === 'sidebearingChain')
+            .layers[0];
+
+        expect(getSerializedTranslationX(clearedLayer.shapes[0])).toBeCloseTo(
+            0,
+            5
+        );
+        expect(clearedLayer.width).toBeCloseTo(670, 5);
     });
 });
 

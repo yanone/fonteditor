@@ -6350,7 +6350,11 @@ export class Layer extends ArrayElementBase {
             }
         }
 
-        const nextWidth = roundMetricValue(layout.baseAdvanceWidth);
+        const leftAdjustment = this.getAutomaticSidebearingAdjustment('left');
+        const rightAdjustment = this.getAutomaticSidebearingAdjustment('right');
+        const nextWidth = roundMetricValue(
+            layout.baseAdvanceWidth + leftAdjustment + rightAdjustment
+        );
         if (Math.abs(this.width - nextWidth) > METRIC_UPDATE_EPSILON) {
             this.width = nextWidth;
             changed = true;
@@ -10477,9 +10481,39 @@ export class Font extends ModelBase {
      * Serialize the font back to JSON string
      */
     toJSONString(): string {
+        // Build a WeakMap mapping raw layer _data objects to their offset-applied Layer.toJSON()
+        // output for automatic layers that carry a sidebearing offset key (=+/- or ==+/-).
+        // Font._data holds base component positions; Layer.toJSON() applies the offset.
+        // The replacer below substitutes adjusted layer data so the Rust compiler receives
+        // the correct (offset-applied) component positions and advance width.
+        const layerDataOverrides = new WeakMap<object, Unsafe>();
+        for (const glyph of this.glyphs) {
+            for (const layer of glyph.layers ?? []) {
+                if (!layer.isAutomaticAlignedLayer()) continue;
+                const adjustedData = layer.toJSON() as Unsafe;
+                // Layer.toJSON() returns this._data by reference when there are no
+                // adjustments; it returns a different (cloned) object when adjustments exist.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const rawLayerData = (layer as any)._data as object;
+                if ((adjustedData as object) !== rawLayerData) {
+                    layerDataOverrides.set(rawLayerData, adjustedData);
+                }
+            }
+        }
+
         return JSON.stringify(
             this._data,
             (key, value) => {
+                // Substitute offset-applied layer data for automatic layers with sidebearing keys
+                if (
+                    value &&
+                    typeof value === 'object' &&
+                    !Array.isArray(value) &&
+                    layerDataOverrides.has(value)
+                ) {
+                    return layerDataOverrides.get(value);
+                }
+
                 // When serializing shape objects, normalize normalizer wrappers
                 // back to plain (untagged) babelfont Shape objects.
                 //
