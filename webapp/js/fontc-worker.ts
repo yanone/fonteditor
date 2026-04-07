@@ -33,12 +33,60 @@ let lastStoreFontAtMs = 0;
 let dragCompilesSinceStore = 0;
 const PERF_TRACE_CONTEXT_GLOBAL_KEY = '__cpPerfTraceContext';
 
+type IncrementalLayerUpdate = {
+    glyphName: string;
+    layerId: string;
+    layerData: unknown;
+};
+
 function payloadDebugPrefix(payload: string): string {
     const snippet = payload.slice(0, 32).replace(/\n/g, '\\n');
     const byteCodes = Array.from(payload.slice(0, 16), (ch) =>
         ch.charCodeAt(0).toString(16).padStart(2, '0')
     ).join(' ');
     return `len=${payload.length} prefix="${snippet}" codes=${byteCodes}`;
+}
+
+function normalizeIncrementalLayerUpdates(
+    rawUpdates: unknown,
+    fallback?: {
+        glyphName?: unknown;
+        layerId?: unknown;
+        layerData?: unknown;
+    }
+): IncrementalLayerUpdate[] {
+    const updates = Array.isArray(rawUpdates)
+        ? rawUpdates
+        : fallback &&
+            typeof fallback.glyphName === 'string' &&
+            fallback.glyphName.length > 0 &&
+            typeof fallback.layerId === 'string' &&
+            fallback.layerId.length > 0 &&
+            fallback.layerData !== undefined
+          ? [fallback]
+          : [];
+
+    return updates.filter(
+        (update): update is IncrementalLayerUpdate =>
+            !!update &&
+            typeof update.glyphName === 'string' &&
+            update.glyphName.length > 0 &&
+            typeof update.layerId === 'string' &&
+            update.layerId.length > 0 &&
+            update.layerData !== undefined
+    );
+}
+
+function applyIncrementalLayerUpdates(
+    updates: IncrementalLayerUpdate[]
+): void {
+    for (const update of updates) {
+        update_cached_layer(
+            update.glyphName,
+            update.layerId,
+            JSON.stringify(update.layerData)
+        );
+    }
 }
 
 type TimelineTraceContext = {
@@ -1010,11 +1058,18 @@ self.onmessage = async (event) => {
                     fontRevisionKey,
                     dragActive,
                     compileSource,
+                    dirtyLayerUpdates: rawDirtyLayerUpdates,
                     dirtyGlyphName,
                     dirtyLayerId,
                     dirtyLayerData,
                     forceStoreFontJson
                 } = data;
+                const dirtyLayerUpdates =
+                    normalizeIncrementalLayerUpdates(rawDirtyLayerUpdates, {
+                        glyphName: dirtyGlyphName,
+                        layerId: dirtyLayerId,
+                        layerData: dirtyLayerData
+                    });
 
                 const isIncrementalSentinel =
                     babelfontJson === '__incremental_layer__';
@@ -1077,29 +1132,23 @@ self.onmessage = async (event) => {
                     if (needsStore) {
                         const canApplyIncrementalLayerUpdate =
                             isIncrementalLayerMode &&
-                            typeof dirtyGlyphName === 'string' &&
-                            dirtyGlyphName.length > 0 &&
-                            typeof dirtyLayerId === 'string' &&
-                            dirtyLayerId.length > 0 &&
-                            dirtyLayerData !== undefined &&
+                            dirtyLayerUpdates.length > 0 &&
                             (isIncrementalSentinel ||
                                 cachedBabelfontJson !== null);
 
                         let storedViaFullFont = false;
                         if (canApplyIncrementalLayerUpdate) {
                             try {
-                                update_cached_layer(
-                                    dirtyGlyphName,
-                                    dirtyLayerId,
-                                    JSON.stringify(dirtyLayerData)
+                                applyIncrementalLayerUpdates(
+                                    dirtyLayerUpdates
                                 );
                                 timelineMark(
-                                    'font.worker.compileEditingCached.ensureFontCached.updatedLayer'
+                                    'font.worker.compileEditingCached.ensureFontCached.updatedLayers'
                                 );
                             } catch (_incrementalError) {
                                 if (isIncrementalSentinel) {
                                     throw new Error(
-                                        'Incremental layer update failed and no full JSON available'
+                                        'Incremental layer updates failed and no full JSON available'
                                     );
                                 }
                                 store_font(babelfontJson);
@@ -1205,10 +1254,11 @@ self.onmessage = async (event) => {
                 const compileCachedSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.compileCachedFont'
                 );
-                const dirtyGlyphNames =
-                    typeof dirtyGlyphName === 'string' && dirtyGlyphName.length
-                        ? [dirtyGlyphName]
-                        : [];
+                const dirtyGlyphNames = Array.from(
+                    new Set(
+                        dirtyLayerUpdates.map((update) => update.glyphName)
+                    )
+                );
                 const optionsWithDirtyGlyphs = {
                     ...(options || {}),
                     dirty_glyphs: dirtyGlyphNames
@@ -1423,48 +1473,46 @@ self.onmessage = async (event) => {
             return;
         }
 
-        if (data.type === 'storeLayerData') {
+        if (
+            data.type === 'storeLayerUpdates' ||
+            data.type === 'storeLayerData'
+        ) {
             const storeLayerSpanId = timelineSpanStart(
-                'font.worker.storeLayerData'
+                'font.worker.storeLayerUpdates'
             );
-            const { id, glyphName, layerId, layerData } = data;
+            const { id } = data;
+            const updates = normalizeIncrementalLayerUpdates(data.updates, {
+                glyphName: data.glyphName,
+                layerId: data.layerId,
+                layerData: data.layerData
+            });
 
             try {
-                timelineMark('font.worker.storeLayerData.started');
+                timelineMark('font.worker.storeLayerUpdates.started');
 
                 if (!initialized) {
                     await initializeWasm();
                 }
 
-                if (
-                    typeof glyphName !== 'string' ||
-                    glyphName.length === 0 ||
-                    typeof layerId !== 'string' ||
-                    layerId.length === 0 ||
-                    layerData === undefined
-                ) {
+                if (!updates.length) {
                     throw new Error(
-                        'Missing glyphName/layerId/layerData for storeLayerData'
+                        'Missing updates for storeLayerUpdates'
                     );
                 }
 
-                update_cached_layer(
-                    glyphName,
-                    layerId,
-                    JSON.stringify(layerData)
-                );
+                applyIncrementalLayerUpdates(updates);
 
                 self.postMessage({
                     id,
-                    type: 'storeLayerData',
+                    type: 'storeLayerUpdates',
                     success: true
                 });
-                timelineMark('font.worker.storeLayerData.success');
+                timelineMark('font.worker.storeLayerUpdates.success');
             } catch (e: any) {
-                timelineMark('font.worker.storeLayerData.failed');
+                timelineMark('font.worker.storeLayerUpdates.failed');
                 self.postMessage({
                     id,
-                    type: 'storeLayerData',
+                    type: 'storeLayerUpdates',
                     success: false,
                     error: e.toString()
                 });

@@ -11806,7 +11806,7 @@ export class OutlineEditor {
 
             // Fetch via Rust WASM — same path as interpolation.
             // The Rust FONT_CACHE is already up-to-date via incremental
-            // update_cached_layer during edits and storeFontJson at font-open time.
+            // incremental layer-update batches during edits and storeFontJson at font-open time.
             const rustResult = await fontInterpolation.interpolateGlyph(
                 glyphName,
                 userspaceLocation

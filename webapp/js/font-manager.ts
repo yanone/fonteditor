@@ -53,6 +53,12 @@ export type FontQCSummary = {
     infos: number;
 };
 
+type LayerCacheUpdate = {
+    glyphName: string;
+    layerId: string;
+    layerData: Babelfont.Layer;
+};
+
 type ReloadCurrentFontOptions = {
     preserveUiState?: boolean;
 };
@@ -386,6 +392,7 @@ class FontManager {
     pendingBabelfontJsonSyncAfterDrag: boolean;
     workerCacheUpdatePromise: Promise<void> | null;
     forceFullEditingCacheRefresh: boolean;
+    workerLayerFingerprintCache: Map<string, string>;
 
     constructor() {
         this.fontDisplay = null;
@@ -413,6 +420,7 @@ class FontManager {
         this.pendingBabelfontJsonSyncAfterDrag = false;
         this.workerCacheUpdatePromise = null;
         this.forceFullEditingCacheRefresh = false;
+        this.workerLayerFingerprintCache = new Map();
     }
     init() {
         this.fontDisplay = document.getElementById('current-font-display');
@@ -1131,7 +1139,8 @@ class FontManager {
 
         const compileSource = this.lastChangeSource || 'unknown';
         const isIncrementalEditingCompile =
-            compileSource === 'mouse-drag' || compileSource === 'keyboard';
+            compileSource.startsWith('mouse-drag') ||
+            compileSource.startsWith('keyboard');
 
         if (!isIncrementalEditingCompile) {
             if (!this.syncBabelfontJsonFromCurrentModel()) {
@@ -1258,9 +1267,13 @@ class FontManager {
                 if (forceFullWorkerCompile) {
                     this.forceFullEditingCacheRefresh = false;
                 }
-                let dirtyGlyphName: string | undefined;
-                let dirtyLayerId: string | undefined;
-                let dirtyLayerData: unknown;
+                let dirtyLayerUpdates:
+                    | Array<{
+                          glyphName: string;
+                          layerId: string;
+                          layerData: unknown;
+                      }>
+                    | undefined;
                 const incrementalChangeSource = this.lastChangeSource;
                 const isInteractiveSource =
                     incrementalChangeSource !== null &&
@@ -1280,8 +1293,8 @@ class FontManager {
                     : [];
 
                 if (dragGlyphNames.length === 1) {
-                    dirtyGlyphName = dragGlyphNames[0];
-                    dirtyLayerId =
+                    const dirtyGlyphName = dragGlyphNames[0];
+                    const dirtyLayerId =
                         window.glyphCanvas?.outlineEditor?.selectedLayerId ||
                         undefined;
                     const dirtyGlyph = this.currentFont.fontModel?.glyphs?.find(
@@ -1296,8 +1309,16 @@ class FontManager {
                                 typeof dirtyLayer.toJSON === 'function'
                                     ? dirtyLayer.toJSON()
                                     : dirtyLayer;
-                            dirtyLayerData =
-                                this.normalizeLayerForRust(rawDirtyLayer);
+                            dirtyLayerUpdates = [
+                                {
+                                    glyphName: dirtyGlyphName,
+                                    layerId: dirtyLayerId,
+                                    layerData:
+                                        this.normalizeLayerForRust(
+                                            rawDirtyLayer
+                                        )
+                                }
+                            ];
                         }
                     }
                 }
@@ -1354,9 +1375,7 @@ class FontManager {
                     {
                         dragActive: dragActiveAtRequest,
                         compileSource: this.lastChangeSource || undefined,
-                        dirtyGlyphName,
-                        dirtyLayerId,
-                        dirtyLayerData,
+                        dirtyLayerUpdates,
                         forceStoreFontJson: shouldForceStoreFontJson,
                         optionOverrides
                     }
@@ -1548,7 +1567,8 @@ class FontManager {
 
         const changeSource = this.lastChangeSource || 'unknown';
         const isOutlineIncrementalChange =
-            changeSource === 'mouse-drag' || changeSource === 'keyboard';
+            changeSource.startsWith('mouse-drag') ||
+            changeSource.startsWith('keyboard');
 
         let subsetGlyphs = this.getEditingSubsetSnapshot();
 
@@ -1847,6 +1867,354 @@ class FontManager {
         return glyph;
     }
 
+    private serializeLayerForStorage(
+        glyphName: string,
+        layerId: string,
+        layerData: Babelfont.Layer
+    ): Babelfont.Layer | null {
+        const extractPathShape = (shape: any): any => {
+            if (shape && typeof shape === 'object' && 'Path' in shape) {
+                return (shape as any).Path;
+            }
+            return shape;
+        };
+
+        const extractComponentShape = (shape: any): any => {
+            if (shape && typeof shape === 'object' && 'Component' in shape) {
+                return (shape as any).Component;
+            }
+            return shape;
+        };
+
+        const cleanShapeForSaving = (shape: Babelfont.Shape): any => {
+            const pathCandidate = extractPathShape(shape as any);
+            if (
+                pathCandidate &&
+                typeof pathCandidate === 'object' &&
+                'nodes' in pathCandidate
+            ) {
+                let nodesValue: string | Babelfont.Node[] = pathCandidate.nodes;
+
+                if (Array.isArray(nodesValue)) {
+                    nodesValue = Path.nodesToString(nodesValue);
+                }
+
+                return {
+                    nodes: nodesValue as string,
+                    closed: pathCandidate.closed,
+                    ...(pathCandidate.format_specific && {
+                        format_specific: pathCandidate.format_specific
+                    })
+                };
+            }
+
+            const componentCandidate = extractComponentShape(shape as any);
+            if (
+                componentCandidate &&
+                typeof componentCandidate === 'object' &&
+                'reference' in componentCandidate
+            ) {
+                return {
+                    reference: componentCandidate.reference,
+                    transform: componentCandidate.transform,
+                    ...(componentCandidate.location && {
+                        location: componentCandidate.location
+                    }),
+                    ...(componentCandidate.format_specific && {
+                        format_specific: componentCandidate.format_specific
+                    })
+                };
+            }
+
+            const isObject =
+                shape && typeof shape === 'object' && !Array.isArray(shape);
+            if (isObject) {
+                return { ...(shape as object) } as Babelfont.Shape;
+            }
+            return shape;
+        };
+
+        const originalLayer = this.getGlyph(glyphName)?.layers?.find(
+            (entry: any) => entry.id === layerId
+        );
+        if (!originalLayer && !layerData) {
+            return null;
+        }
+
+        const cleanAnchors = layerData.anchors?.map((anchor) => ({
+            name: anchor.name,
+            x: anchor.x,
+            y: anchor.y
+        }));
+
+        const cleanGuides = layerData.guides?.map((guide) => ({
+            pos: {
+                x: guide.pos.x,
+                y: guide.pos.y,
+                angle: guide.pos.angle
+            },
+            name: guide.name,
+            ...(guide.color && { color: guide.color })
+        }));
+
+        return {
+            width: layerData.width,
+            height: layerData.height,
+            vertWidth: layerData.vertWidth,
+            name: layerData.name ?? originalLayer?.name,
+            id: layerId,
+            master: originalLayer?.master ?? layerData.master,
+            shapes: layerData.shapes?.map(cleanShapeForSaving) || [],
+            isInterpolated: false,
+            ...(cleanAnchors && { anchors: cleanAnchors }),
+            ...(cleanGuides && { guides: cleanGuides }),
+            ...((layerData.color ?? originalLayer?.color) && {
+                color: layerData.color ?? originalLayer?.color
+            }),
+            ...(layerData.layer_index !== undefined && {
+                layer_index: layerData.layer_index
+            }),
+            ...(layerData.is_background !== undefined && {
+                is_background: layerData.is_background
+            }),
+            ...((layerData.background_layer_id ??
+                originalLayer?.background_layer_id) && {
+                background_layer_id:
+                    layerData.background_layer_id ??
+                    originalLayer?.background_layer_id
+            }),
+            ...((layerData.location ?? originalLayer?.location) && {
+                location: {
+                    ...(layerData.location ?? originalLayer?.location)
+                }
+            }),
+            ...((layerData.format_specific ??
+                originalLayer?.format_specific) && {
+                format_specific:
+                    layerData.format_specific ?? originalLayer?.format_specific
+            }),
+            ...((layerData as any).master && {
+                master: (layerData as any).master
+            })
+        };
+    }
+
+    private updateStoredLayerData(
+        glyphName: string,
+        layerId: string,
+        layerData: Babelfont.Layer
+    ): boolean {
+        const glyph = this.getGlyph(glyphName);
+        if (!glyph?.layers) {
+            return false;
+        }
+
+        const layerIndex = glyph.layers.findIndex(
+            (layer) => layer.id === layerId
+        );
+        if (layerIndex === -1) {
+            return false;
+        }
+
+        glyph.layers[layerIndex] = layerData;
+        return true;
+    }
+
+    private getWorkerLayerFingerprintKey(
+        glyphName: string,
+        layerId: string
+    ): string {
+        return `${glyphName}::${layerId}`;
+    }
+
+    private getLayerWorkerFingerprint(layerData: Babelfont.Layer): string {
+        return JSON.stringify(this.normalizeLayerForRust(layerData));
+    }
+
+    private getLayerFingerprintsFromStoredJson(
+        glyphNames: Iterable<string>
+    ): Map<string, string> {
+        const currentFont = this.currentFont;
+        const fingerprints = new Map<string, string>();
+        if (!currentFont?.babelfontJson) {
+            return fingerprints;
+        }
+
+        try {
+            const storedData = JSON.parse(currentFont.babelfontJson);
+            const glyphNameSet = new Set(glyphNames);
+
+            for (const glyph of storedData.glyphs || []) {
+                if (!glyphNameSet.has(glyph?.name)) {
+                    continue;
+                }
+
+                for (const layer of glyph.layers || []) {
+                    if (typeof layer?.id !== 'string' || !layer.id) {
+                        continue;
+                    }
+
+                    fingerprints.set(
+                        this.getWorkerLayerFingerprintKey(glyph.name, layer.id),
+                        this.getLayerWorkerFingerprint(layer)
+                    );
+                }
+            }
+        } catch (error) {
+            console.warn(
+                '[FontManager] Failed to parse babelfontJson baseline for incremental layer refresh:',
+                error
+            );
+        }
+
+        return fingerprints;
+    }
+
+    private collectChangedLayerUpdatesFromModel(
+        glyphNames: Iterable<string>,
+        preferredLayerId?: string | null
+    ): LayerCacheUpdate[] | null {
+        const currentFont = this.currentFont;
+        if (!currentFont) {
+            return null;
+        }
+
+        const updates: LayerCacheUpdate[] = [];
+        const glyphNameList = Array.from(glyphNames);
+        const storedJsonFingerprints =
+            this.getLayerFingerprintsFromStoredJson(glyphNameList);
+        const sourceGlyphName =
+            window.glyphCanvas?.outlineEditor?.currentGlyphName ||
+            window.glyphCanvas?.getCurrentGlyphName?.() ||
+            glyphNameList[0] ||
+            null;
+        const sourceLayer =
+            preferredLayerId && sourceGlyphName
+                ? currentFont.fontModel
+                      ?.findGlyph(sourceGlyphName)
+                      ?.layers?.find(
+                          (layer: any) => layer?.id === preferredLayerId
+                      )
+                : null;
+
+        for (const glyphName of glyphNameList) {
+            const modelGlyph = currentFont.fontModel?.glyphs?.find(
+                (entry: any) => entry?.name === glyphName
+            );
+            const storedGlyph = this.getGlyph(glyphName);
+            if (!modelGlyph || !storedGlyph?.layers) {
+                return null;
+            }
+
+            const modelLayers = preferredLayerId
+                ? [
+                      glyphName === sourceGlyphName
+                          ? sourceLayer
+                          : sourceLayer?.getMatchingLayerOnGlyph?.(glyphName) ||
+                            modelGlyph.layers?.find(
+                                (layer: any) => layer?.id === preferredLayerId
+                            )
+                  ].filter(Boolean)
+                : modelGlyph.layers || [];
+
+            for (const modelLayer of modelLayers) {
+                const layerId = modelLayer?.id;
+                if (typeof layerId !== 'string' || !layerId) {
+                    return null;
+                }
+
+                const rawLayerData =
+                    typeof modelLayer.toJSON === 'function'
+                        ? modelLayer.toJSON()
+                        : modelLayer;
+                const serializedLayer = this.serializeLayerForStorage(
+                    glyphName,
+                    layerId,
+                    rawLayerData
+                );
+                if (!serializedLayer) {
+                    return null;
+                }
+
+                const fingerprintKey = this.getWorkerLayerFingerprintKey(
+                    glyphName,
+                    layerId
+                );
+                const modelFingerprint =
+                    this.getLayerWorkerFingerprint(serializedLayer);
+                const baselineFingerprint =
+                    this.workerLayerFingerprintCache.get(fingerprintKey) ??
+                    storedJsonFingerprints.get(fingerprintKey) ??
+                    null;
+
+                if (
+                    !(preferredLayerId && glyphName === sourceGlyphName) &&
+                    baselineFingerprint === modelFingerprint
+                ) {
+                    continue;
+                }
+
+                if (
+                    !this.updateStoredLayerData(
+                        glyphName,
+                        layerId,
+                        serializedLayer
+                    )
+                ) {
+                    return null;
+                }
+
+                updates.push({
+                    glyphName,
+                    layerId,
+                    layerData: serializedLayer
+                });
+            }
+        }
+
+        return updates;
+    }
+
+    private async submitLayerUpdatesToWorkerCache(
+        updates: LayerCacheUpdate[]
+    ): Promise<boolean> {
+        if (!this.currentFont || !fontCompilation?.isInitialized) {
+            return false;
+        }
+
+        try {
+            await fontCompilation.sendMessage({
+                type: 'storeLayerUpdates',
+                updates: updates.map((update) => ({
+                    glyphName: update.glyphName,
+                    layerId: update.layerId,
+                    layerData: this.normalizeLayerForRust(update.layerData)
+                }))
+            });
+
+            for (const update of updates) {
+                this.workerLayerFingerprintCache.set(
+                    this.getWorkerLayerFingerprintKey(
+                        update.glyphName,
+                        update.layerId
+                    ),
+                    this.getLayerWorkerFingerprint(update.layerData)
+                );
+            }
+            return true;
+        } catch (error) {
+            console.warn(
+                '[FontManager] Failed to submit layer batch to worker cache:',
+                updates.map(({ glyphName, layerId }) => ({
+                    glyphName,
+                    layerId
+                })),
+                error
+            );
+            return false;
+        }
+    }
+
     /**
      * Looks for a font-level format_specific key in the current font
      *
@@ -1954,147 +2322,18 @@ class FontManager {
         console.log(
             `[DRAG-DEBUG] FontManager.saveLayerData called — glyph=${glyphName}, layer=${layerId}, changeSource=${changeSource}, pendingBabelfontJsonSyncAfterDrag=${this.pendingBabelfontJsonSyncAfterDrag}`
         );
-        const extractPathShape = (shape: any): any => {
-            if (shape && typeof shape === 'object' && 'Path' in shape) {
-                return (shape as any).Path;
-            }
-            return shape;
-        };
-
-        const extractComponentShape = (shape: any): any => {
-            if (shape && typeof shape === 'object' && 'Component' in shape) {
-                return (shape as any).Component;
-            }
-            return shape;
-        };
-
-        // Helper function to recursively clean shapes for saving
-        const cleanShapeForSaving = (shape: Babelfont.Shape): any => {
-            const pathCandidate = extractPathShape(shape as any);
-            if (
-                pathCandidate &&
-                typeof pathCandidate === 'object' &&
-                'nodes' in pathCandidate
-            ) {
-                // For Path shapes, convert nodes to string format and strip runtime properties
-                let nodesValue: string | Babelfont.Node[] = pathCandidate.nodes;
-
-                // Convert array to string if needed
-                if (Array.isArray(nodesValue)) {
-                    nodesValue = Path.nodesToString(nodesValue);
-                }
-
-                return {
-                    nodes: nodesValue as string,
-                    closed: pathCandidate.closed,
-                    ...(pathCandidate.format_specific && {
-                        format_specific: pathCandidate.format_specific
-                    })
-                    // Omit isInterpolated and other runtime properties
-                };
-            }
-
-            const componentCandidate = extractComponentShape(shape as any);
-            if (
-                componentCandidate &&
-                typeof componentCandidate === 'object' &&
-                'reference' in componentCandidate
-            ) {
-                // Strip the layerData property from components before saving
-                // layerData is only for internal rendering, not part of the font format
-                return {
-                    reference: componentCandidate.reference,
-                    transform: componentCandidate.transform,
-                    ...(componentCandidate.location && {
-                        location: componentCandidate.location
-                    }),
-                    ...(componentCandidate.format_specific && {
-                        format_specific: componentCandidate.format_specific
-                    })
-                    // Note: layerData and isInterpolated are intentionally omitted
-                };
-            }
-
-            // For other shape types (Anchor, etc.), create a clean copy
-            // Avoid JSON.parse(JSON.stringify()) which can fail on circular refs
-            const isObject =
-                shape && typeof shape === 'object' && !Array.isArray(shape);
-            if (isObject) {
-                return { ...(shape as object) } as Babelfont.Shape;
-            }
-            return shape;
-        };
-
-        // Convert nodes array back to string format and strip internal properties
-        let newShapes = layerData.shapes?.map(cleanShapeForSaving);
-
-        // Deep copy anchors and guides to avoid circular references
-        const cleanAnchors = layerData.anchors?.map((anchor) => ({
-            name: anchor.name,
-            x: anchor.x,
-            y: anchor.y
-        }));
-
-        const cleanGuides = layerData.guides?.map((guide) => ({
-            pos: {
-                x: guide.pos.x,
-                y: guide.pos.y,
-                angle: guide.pos.angle
-            },
-            name: guide.name,
-            ...(guide.color && { color: guide.color })
-        }));
-
-        // Create a clean copy of the layer data with only serializable properties
-        // Don't save isInterpolated flag - it's runtime state only.
-        // Use layerId and master from the *original* layer, not from the Rust-derived
-        // layerData, because interpolate_glyph may return a reference-master id and
-        // LayerType::FreeFloating instead of the actual layer metadata.
-        const originalLayer = this.getGlyph(glyphName)?.layers?.find(
-            (l: any) => l.id === layerId
+        const layerDataCopy = this.serializeLayerForStorage(
+            glyphName,
+            layerId,
+            layerData
         );
-        let layerDataCopy: Babelfont.Layer = {
-            width: layerData.width,
-            height: layerData.height,
-            vertWidth: layerData.vertWidth,
-            name: layerData.name ?? originalLayer?.name,
-            id: layerId, // Always use the canonical layerId, not Rust's id
-            master: originalLayer?.master ?? layerData.master, // Preserve original master type
-            shapes: newShapes || [],
-            isInterpolated: false, // Always false for saved data
-            // Copy other optional properties if they exist
-            ...(cleanAnchors && { anchors: cleanAnchors }),
-            ...(cleanGuides && { guides: cleanGuides }),
-            ...((layerData.color ?? originalLayer?.color) && {
-                color: layerData.color ?? originalLayer?.color
-            }),
-            ...(layerData.layer_index !== undefined && {
-                layer_index: layerData.layer_index
-            }),
-            ...(layerData.is_background !== undefined && {
-                is_background: layerData.is_background
-            }),
-            ...((layerData.background_layer_id ??
-                originalLayer?.background_layer_id) && {
-                background_layer_id:
-                    layerData.background_layer_id ??
-                    originalLayer?.background_layer_id
-            }),
-            ...((layerData.location ?? originalLayer?.location) && {
-                location: {
-                    ...(layerData.location ?? originalLayer?.location)
-                }
-            }),
-            ...((layerData.format_specific ??
-                originalLayer?.format_specific) && {
-                format_specific:
-                    layerData.format_specific ?? originalLayer?.format_specific
-            }),
-            // Preserve the tagged master property
-            ...((layerData as any).master && {
-                master: (layerData as any).master
-            })
-        };
+        if (!layerDataCopy) {
+            console.error(
+                '[FontManager]',
+                `Failed to serialize layer ${layerId} in glyph ${glyphName}`
+            );
+            return;
+        }
 
         let glyph = this.getGlyph(glyphName);
         if (!glyph) {
@@ -2114,7 +2353,7 @@ class FontManager {
         }
 
         // Update the layer in the current font's babelfontData
-        let layerIndex = glyph.layers.findIndex((l) => l.id === layerId);
+        const layerIndex = glyph.layers.findIndex((l) => l.id === layerId);
         if (layerIndex === -1) {
             console.error(
                 `[FontManager]`,
@@ -2122,7 +2361,6 @@ class FontManager {
             );
             return;
         }
-        // Directly assign the cleaned layer data (no need for JSON.parse/stringify)
         glyph.layers[layerIndex] = layerDataCopy;
 
         const isInteractiveEdit =
@@ -2229,10 +2467,14 @@ class FontManager {
                         const layerDataCopy =
                             this.normalizeLayerForRust(rawLayerData);
                         await fontCompilation.sendMessage({
-                            type: 'storeLayerData',
-                            glyphName: currentGlyphName,
-                            layerId: currentLayerId,
-                            layerData: layerDataCopy
+                            type: 'storeLayerUpdates',
+                            updates: [
+                                {
+                                    glyphName: currentGlyphName,
+                                    layerId: currentLayerId,
+                                    layerData: layerDataCopy
+                                }
+                            ]
                         });
                         updatedViaIncrementalLayer = true;
 
@@ -2403,18 +2645,21 @@ class FontManager {
             return;
         }
 
+        const pendingLayerUpdates = this.collectChangedLayerUpdatesFromModel(
+            uniqueGlyphNames,
+            layerId
+        );
+
         let updatedIncrementally = false;
-        if (layerId && uniqueGlyphNames.length === 1) {
-            updatedIncrementally = await this.submitLayerToWorkerCache(
-                uniqueGlyphNames[0],
-                layerId
-            );
+        if (pendingLayerUpdates && pendingLayerUpdates.length > 0) {
+            updatedIncrementally =
+                await this.submitLayerUpdatesToWorkerCache(pendingLayerUpdates);
 
             if (updatedIncrementally) {
-                // storeLayerData mutates the worker's font cache without changing
-                // the main-thread storeFontJson payload tracker.
                 fontCompilation.lastStoredFontJson = null;
             }
+        } else if (pendingLayerUpdates) {
+            updatedIncrementally = true;
         }
 
         if (!updatedIncrementally) {
@@ -2463,10 +2708,14 @@ class FontManager {
                 typeof layer.toJSON === 'function' ? layer.toJSON() : layer;
             const layerDataCopy = this.normalizeLayerForRust(rawLayerData);
             await fontCompilation.sendMessage({
-                type: 'storeLayerData',
-                glyphName,
-                layerId,
-                layerData: layerDataCopy
+                type: 'storeLayerUpdates',
+                updates: [
+                    {
+                        glyphName,
+                        layerId,
+                        layerData: layerDataCopy
+                    }
+                ]
             });
             return true;
         } catch (error) {

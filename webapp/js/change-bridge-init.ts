@@ -540,7 +540,7 @@ export function runBridgeUndoRedo(
             window.autoCompileManager?.checkAndSchedule?.();
         }
 
-        // For layer-scoped undo/redo, the incremental storeLayerData path
+        // For layer-scoped undo/redo, the incremental layer-update batch path
         // is sufficient (reads directly from the model, no babelfontJson needed).
         // For glyph/font scope, force a full Rust font cache refresh.
         const forceFullRustSync = shouldForceFullRustSyncAfterUndoRedo(
@@ -627,7 +627,7 @@ function initializeBridge(detail: {
     // Rebuilds the Font model from the already-patched babelfontData.
     // babelfontJson is marked stale and rebuilt lazily:
     //   • For layer-scoped undo/redo, syncRustCacheAndRefreshCanvas uses the
-    //     incremental storeLayerData path which reads directly from the model
+    //     incremental layer-update batch path which reads directly from the model
     //     (no babelfontJson needed).
     //   • If the fallback full-sync path is needed, syncRustCacheAndRefreshCanvas
     //     rebuilds babelfontJson just before sending it to the Rust worker.

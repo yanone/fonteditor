@@ -39,6 +39,12 @@ interface CompilationOptions {
     produce_varc_table?: boolean;
 }
 
+type IncrementalLayerUpdate = {
+    glyphName: string;
+    layerId: string;
+    layerData: unknown;
+};
+
 type TimelineTraceContext = {
     process?: string;
     traceId?: string;
@@ -775,9 +781,7 @@ class FontCompilation {
         requestMeta?: {
             dragActive?: boolean;
             compileSource?: string;
-            dirtyGlyphName?: string;
-            dirtyLayerId?: string;
-            dirtyLayerData?: unknown;
+            dirtyLayerUpdates?: IncrementalLayerUpdate[];
             forceStoreFontJson?: boolean;
             optionOverrides?: {
                 skip_features?: boolean;
@@ -827,12 +831,25 @@ class FontCompilation {
 
             // During incremental layer updates (drag/keyboard) or text-input
             // recompilations, skip transferring the full font JSON to the worker.
-            // - drag/keyboard: worker uses update_cached_layer() with dirty layer data
+            // - drag/keyboard: worker uses update_cached_layer() with dirty layer updates
             // - text-input: font data hasn't changed, only the subset changed;
             //   worker reuses its cached font with the new subset
+            const normalizedDirtyLayerUpdates = Array.isArray(
+                requestMeta?.dirtyLayerUpdates
+            )
+                ? requestMeta.dirtyLayerUpdates.filter(
+                      (update): update is IncrementalLayerUpdate =>
+                          !!update &&
+                          typeof update.glyphName === 'string' &&
+                          update.glyphName.length > 0 &&
+                          typeof update.layerId === 'string' &&
+                          update.layerId.length > 0 &&
+                          update.layerData !== undefined
+                  )
+                : [];
             const isIncrementalLayer =
-                requestMeta?.dirtyLayerData !== undefined &&
                 requestMeta?.compileSource !== undefined &&
+                normalizedDirtyLayerUpdates.length > 0 &&
                 (requestMeta.compileSource.startsWith('mouse-drag') ||
                     requestMeta.compileSource.startsWith('keyboard'));
             const isTextInput = requestMeta?.compileSource === 'text-input';
@@ -850,9 +867,7 @@ class FontCompilation {
                 fontRevisionKey,
                 dragActive: !!requestMeta?.dragActive,
                 compileSource: requestMeta?.compileSource,
-                dirtyGlyphName: requestMeta?.dirtyGlyphName,
-                dirtyLayerId: requestMeta?.dirtyLayerId,
-                dirtyLayerData: requestMeta?.dirtyLayerData,
+                dirtyLayerUpdates: normalizedDirtyLayerUpdates,
                 forceStoreFontJson: requestMeta?.forceStoreFontJson === true,
                 filename: 'editing-font.ttf'
             });

@@ -335,10 +335,14 @@ describe('FontManager saveLayerData', () => {
         expect(syncSpy).not.toHaveBeenCalled();
         expect(sendMessageSpy).toHaveBeenCalledTimes(1);
         expect(sendMessageSpy).toHaveBeenCalledWith({
-            type: 'storeLayerData',
-            glyphName: 'a',
-            layerId,
-            layerData: expect.any(Object)
+            type: 'storeLayerUpdates',
+            updates: [
+                {
+                    glyphName: 'a',
+                    layerId,
+                    layerData: expect.any(Object)
+                }
+            ]
         });
         expect(fontCompilation.lastStoredFontJson).toBeNull();
         expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
@@ -375,22 +379,129 @@ describe('FontManager saveLayerData', () => {
         await fontManager.refreshGlyphsAfterModelBatch(['a'], layerId);
 
         expect(sendMessageSpy).toHaveBeenCalledWith({
-            type: 'storeLayerData',
-            glyphName: 'a',
-            layerId,
-            layerData: expect.objectContaining({
-                shapes: [
-                    {
-                        nodes: '0 0 l 100 0 l',
-                        closed: false
-                    },
-                    {
-                        nodes: '0 0 l 50 50 l',
-                        closed: false
-                    }
-                ]
-            })
+            type: 'storeLayerUpdates',
+            updates: [
+                {
+                    glyphName: 'a',
+                    layerId,
+                    layerData: expect.objectContaining({
+                        shapes: [
+                            {
+                                nodes: '0 0 l 100 0 l',
+                                closed: false
+                            },
+                            {
+                                nodes: '0 0 l 50 50 l',
+                                closed: false
+                            }
+                        ]
+                    })
+                }
+            ]
         });
+    });
+
+    test('refreshGlyphsAfterModelBatch incrementally patches multiple changed glyph layers', async () => {
+        const currentFont = fontManager.currentFont;
+        const syncSpy = jest.spyOn(currentFont, 'syncJsonFromModel');
+        const glyphChangedHandler = jest.fn();
+        const [firstGlyph, secondGlyph] = currentFont.fontModel.glyphs;
+
+        expect(firstGlyph).toBeDefined();
+        expect(secondGlyph).toBeDefined();
+
+        const firstLayer = firstGlyph.layers[0];
+        const secondLayer = secondGlyph.layers[0];
+
+        firstLayer.width += 11;
+        secondLayer.width += 17;
+
+        window.addEventListener('glyphChanged', glyphChangedHandler);
+
+        try {
+            await fontManager.refreshGlyphsAfterModelBatch(
+                [firstGlyph.name, secondGlyph.name],
+                firstLayer.id
+            );
+        } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
+            syncSpy.mockRestore();
+        }
+
+        expect(syncSpy).not.toHaveBeenCalled();
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith({
+            type: 'storeLayerUpdates',
+            updates: [
+                {
+                    glyphName: firstGlyph.name,
+                    layerId: firstLayer.id,
+                    layerData: expect.objectContaining({
+                        width: firstLayer.width
+                    })
+                },
+                {
+                    glyphName: secondGlyph.name,
+                    layerId: secondLayer.id,
+                    layerData: expect.objectContaining({
+                        width: secondLayer.width
+                    })
+                }
+            ]
+        });
+        expect(fontCompilation.lastStoredFontJson).toBeNull();
+        expect(
+            fontManager.currentFont.babelfontData.glyphs
+                .find((entry) => entry.name === firstGlyph.name)
+                .layers.find((entry) => entry.id === firstLayer.id).width
+        ).toBe(firstLayer.width);
+        expect(
+            fontManager.currentFont.babelfontData.glyphs
+                .find((entry) => entry.name === secondGlyph.name)
+                .layers.find((entry) => entry.id === secondLayer.id).width
+        ).toBe(secondLayer.width);
+        expect(glyphChangedHandler).toHaveBeenCalledTimes(2);
+        expect(glyphChangedHandler.mock.calls[0][0].detail.glyphName).toBe(
+            firstGlyph.name
+        );
+        expect(glyphChangedHandler.mock.calls[1][0].detail.glyphName).toBe(
+            secondGlyph.name
+        );
+    });
+
+    test('updateWorkerFontCache batches the incremental post-drag layer refresh', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+        window.glyphCanvas = {
+            outlineEditor: {
+                currentGlyphName: 'a',
+                selectedLayerId: layerId
+            },
+            getCurrentGlyphName: jest.fn(() => 'a')
+        };
+        window.currentFontModel = currentFont.fontModel;
+
+        try {
+            await fontManager.updateWorkerFontCache();
+        } finally {
+            delete window.glyphCanvas;
+            delete window.currentFontModel;
+        }
+
+        expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith({
+            type: 'storeLayerUpdates',
+            updates: [
+                {
+                    glyphName: 'a',
+                    layerId,
+                    layerData: expect.any(Object)
+                }
+            ]
+        });
+        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
     });
 });
 
@@ -426,7 +537,6 @@ describe('FontManager editing subset inclusion', () => {
             glyphs: [
                 {
                     name: 'a',
-                    category: 'Base',
                     exported: true,
                     layers: [
                         {
@@ -530,6 +640,16 @@ describe('FontManager editing subset inclusion', () => {
 
         expect(compileEditingSpy).toHaveBeenCalledTimes(1);
         expect(compileEditingSpy.mock.calls[0][2]).toEqual(['a', 'n']);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'keyboard-outline',
+            dirtyLayerUpdates: [
+                {
+                    glyphName: 'n',
+                    layerId: 'layer-1',
+                    layerData: expect.any(Object)
+                }
+            ]
+        });
     });
 
     test('structural outline compiles keep outline-only mode but skip incremental dirty-layer patching', async () => {
@@ -550,7 +670,7 @@ describe('FontManager editing subset inclusion', () => {
             }
         });
         expect(
-            compileEditingSpy.mock.calls[0][3].dirtyLayerData
+            compileEditingSpy.mock.calls[0][3].dirtyLayerUpdates
         ).toBeUndefined();
         expect(fontManager.forceFullEditingCacheRefresh).toBe(false);
     });
