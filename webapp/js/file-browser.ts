@@ -169,6 +169,7 @@ let resolveFileBrowserReady: (() => void) | null = null;
 const fileBrowserReadyPromise = new Promise<void>((resolve) => {
     resolveFileBrowserReady = resolve;
 });
+const PYTHON_READY_POLL_INTERVAL_MS = 100;
 
 function markFileBrowserReady(): void {
     if (fileBrowserReady) {
@@ -198,6 +199,36 @@ async function waitForFileBrowserReady(timeoutMs = 30000): Promise<void> {
             }, timeoutMs);
         })
     ]);
+}
+
+async function waitForPythonEnvironmentReady(timeoutMs = 30000): Promise<void> {
+    if (window.pyodide) {
+        return;
+    }
+
+    const startedAt = performance.now();
+
+    await new Promise<void>((resolve, reject) => {
+        const checkReadiness = () => {
+            if (window.pyodide) {
+                resolve();
+                return;
+            }
+
+            if (performance.now() - startedAt >= timeoutMs) {
+                reject(
+                    new Error(
+                        'Timed out waiting for Python environment to initialize'
+                    )
+                );
+                return;
+            }
+
+            window.setTimeout(checkReadiness, PYTHON_READY_POLL_INTERVAL_MS);
+        };
+
+        checkReadiness();
+    });
 }
 
 function normalizeObservedPath(path: string): string {
@@ -918,17 +949,19 @@ async function openFont(
     fileHandle?: FileSystemFileHandle,
     options: OpenFontOptions = {}
 ) {
-    if (!window.pyodide) {
-        alert('Python not ready yet. Please wait a moment and try again.');
-        return;
-    }
-
     // Set loading cursor
     beginLoadingCursor();
     const openSpan = timelineSpanStart('font.open');
     timelineMark('font.open.requested');
 
     try {
+        const pythonReadySpan = timelineSpanStart('font.open.waitForPython');
+        try {
+            await waitForPythonEnvironmentReady();
+        } finally {
+            timelineSpanEnd(pythonReadySpan);
+        }
+
         const startTime = performance.now();
         console.log('[FileBrowser]', `Opening font: ${path}`);
 
@@ -2581,7 +2614,7 @@ async function initFileBrowser() {
 
 // Auto-initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(initFileBrowser, 1500); // Wait a bit longer for Pyodide to be ready
+    void initFileBrowser();
     (async () => {
         try {
             await waitForFileBrowserReady();

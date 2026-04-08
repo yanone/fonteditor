@@ -431,6 +431,7 @@ import './state-sync'; // URL state synchronization
 import './state-restore'; // URL state restoration
 import './glyph-canvas';
 import './history-view';
+import './view-settings';
 import './keyboard-navigation';
 import './matplotlib-handler';
 import './memory-monitor';
@@ -445,7 +446,6 @@ import './save-button';
 import './script-editor';
 import './share-button';
 import './theme-switcher';
-import './view-settings';
 import './window-buttons';
 import { initViewTitleButtons } from './view-title-buttons';
 

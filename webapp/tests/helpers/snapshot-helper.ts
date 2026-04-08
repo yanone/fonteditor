@@ -106,14 +106,128 @@ export async function waitForCanvasReady(page: any) {
     // Additional check to ensure canvas is actually ready
     await page.waitForFunction(
         () => {
+            const win = window as any;
             return (
-                window.glyphCanvas &&
-                window.glyphCanvas.canvas &&
-                window.glyphCanvas.renderer
+                win.glyphCanvas &&
+                win.glyphCanvas.canvas &&
+                win.glyphCanvas.renderer
             );
         },
         { timeout: 5000 }
     );
+
+    await page.waitForFunction(
+        () => {
+            const win = window as any;
+            return !!win.VIEW_SETTINGS && !!win.getCurrentFocusedView;
+        },
+        { timeout: 5000 }
+    );
+
+    await page.evaluate(async () => {
+        const win = window as any;
+        if (typeof win.initFileBrowser === 'function') {
+            await win.initFileBrowser();
+        }
+        if (typeof win.waitForFileBrowserReady === 'function') {
+            await win.waitForFileBrowserReady(10000);
+        }
+    });
+}
+
+export async function waitForFileBrowserReady(page: any) {
+    await page.evaluate(async () => {
+        const win = window as any;
+        if (typeof win.initFileBrowser === 'function') {
+            await win.initFileBrowser();
+        }
+        if (typeof win.waitForFileBrowserReady === 'function') {
+            await win.waitForFileBrowserReady(10000);
+        }
+    });
+}
+
+export async function focusView(page: any, shortcut: string, viewId: string) {
+    await page.keyboard.press(shortcut);
+    await page.waitForFunction(
+        (expectedViewId: string) => {
+            const win = window as any;
+            return win.getCurrentFocusedView?.() === expectedViewId;
+        },
+        viewId,
+        { timeout: 5000 }
+    );
+}
+
+export async function collapseView(page: any, viewId: string) {
+    await page.evaluate((targetViewId: string) => {
+        const win = window as any;
+        win.collapseActiveView?.(targetViewId);
+    }, viewId);
+
+    await page.waitForFunction(
+        (targetViewId: string) => {
+            const view = document.getElementById(targetViewId);
+            if (!view) {
+                return true;
+            }
+
+            const isTopRow = view.closest('.top-row') !== null;
+            const isBottomRow = view.closest('.bottom-row') !== null;
+
+            if (isTopRow) {
+                return view.getBoundingClientRect().width <= 30;
+            }
+
+            if (isBottomRow) {
+                return view.getBoundingClientRect().height <= 30;
+            }
+
+            return !view.classList.contains('focused');
+        },
+        viewId,
+        { timeout: 5000 }
+    );
+}
+
+export async function openFileFromFilesView(page: any, fileName: string) {
+    await focusView(page, 'Meta+Shift+F', 'view-files');
+    await waitForFileBrowserReady(page);
+
+    const fileItem = page
+        .locator(`.file-item[data-name="${fileName}"]`)
+        .first();
+
+    const waitForTargetFile = async () => {
+        await page.waitForFunction(
+            (targetFileName: string) => {
+                const items = Array.from(
+                    document.querySelectorAll('.file-item[data-name]')
+                ) as HTMLElement[];
+                return items.some(
+                    (item) => item.getAttribute('data-name') === targetFileName
+                );
+            },
+            fileName,
+            { timeout: 10000 }
+        );
+        await fileItem.waitFor({ state: 'visible', timeout: 10000 });
+    };
+
+    try {
+        await waitForTargetFile();
+    } catch {
+        await page.evaluate(async () => {
+            const win = window as any;
+            if (typeof win.refreshFileSystem === 'function') {
+                await win.refreshFileSystem();
+            }
+        });
+        await waitForFileBrowserReady(page);
+        await waitForTargetFile();
+    }
+
+    await fileItem.dblclick();
 }
 
 /**

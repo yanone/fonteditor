@@ -3974,7 +3974,14 @@ class GlyphCanvas {
             input.dataset.propertyField = `side-${side}`;
 
             const resolution = layer.resolveMetricsKey(side);
-            const metricsKey = resolution.input || undefined;
+            const storedMetricsKey =
+                (side === 'left'
+                    ? layer.leftMetricsKey || layer.parent()?.leftMetricsKey
+                    : layer.rightMetricsKey ||
+                      layer.parent()?.rightMetricsKey) || undefined;
+            const metricsKey = resolution.input
+                ? storedMetricsKey || resolution.input
+                : undefined;
             const showAutoPlaceholder = !metricsKey && automaticLayer;
             const displayedValue = showAutoPlaceholder
                 ? ''

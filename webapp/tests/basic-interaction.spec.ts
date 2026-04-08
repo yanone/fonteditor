@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 import {
+    collapseView,
     captureSnapshot,
+    focusView,
+    openFileFromFilesView,
     snapshotForComparison,
     takeSnapshot,
     waitForCanvasReady,
@@ -63,7 +66,7 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // Click on editor view to activate it (prevents popups in screenshots)
         console.log('[Test] Clicking canvas');
-        await page.keyboard.press('Meta+Shift+E');
+        await focusView(page, 'Meta+Shift+E', 'view-editor');
 
         // Wait for rendering to complete
         await page.waitForTimeout(500);
@@ -240,8 +243,7 @@ test.describe('Font Editor Basic Workflow', () => {
     test('files view keeps font opening to new tabs once a font is loaded', async ({
         page
     }) => {
-        await page.keyboard.press('Meta+Shift+F');
-        await page.waitForTimeout(200);
+        await focusView(page, 'Meta+Shift+F', 'view-files');
 
         const firstFontItem = page.locator(
             '.file-item[data-name="Fustat.glyphs"]'
@@ -294,10 +296,7 @@ test.describe('Font Editor Basic Workflow', () => {
     }) => {
         console.log('[Test] Opening YanoneKaffeesatz.glyphspackage');
 
-        await page.keyboard.press('Meta+Shift+F');
-        await page.waitForTimeout(200);
-
-        await page.getByText('YanoneKaffeesatz.glyphspackage').dblclick();
+        await openFileFromFilesView(page, 'YanoneKaffeesatz.glyphspackage');
         await page.waitForTimeout(200);
 
         await waitForFontLoaded(page);
@@ -323,10 +322,7 @@ test.describe('Font Editor Basic Workflow', () => {
     }) => {
         console.log('[Test] Opening YanoneKaffeesatz.designspace');
 
-        await page.keyboard.press('Meta+Shift+F');
-        await page.waitForTimeout(200);
-
-        await page.getByText('YanoneKaffeesatz.designspace').dblclick();
+        await openFileFromFilesView(page, 'YanoneKaffeesatz.designspace');
         await page.waitForTimeout(200);
 
         await waitForFontLoaded(page);
@@ -363,8 +359,7 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // Activate files view with Cmd+Shift+F
         console.log('[Test] Activating files view');
-        await page.keyboard.press('Meta+Shift+F');
-        await page.waitForTimeout(200);
+        await focusView(page, 'Meta+Shift+F', 'view-files');
 
         // Load font by right-clicking on a file and selecting "Open" from context menu
         console.log('[Test] Double-clicking on first .glyphs file');
@@ -377,7 +372,7 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // Re-activate editor view by clicking canvas
         console.log('[Test] Re-activating editor view');
-        await page.keyboard.press('Meta+Shift+E');
+        await focusView(page, 'Meta+Shift+E', 'view-editor');
         await page.waitForTimeout(200);
 
         // Cmd+0
@@ -850,35 +845,29 @@ test.describe('Font Editor Basic Workflow', () => {
         // Final stack preview screenshot on Fustat (requested for deep nesting visibility).
         // Close Overview and Font Info views before setting text.
         console.log('[Test] Closing overview view');
-        await page.keyboard.press('Meta+Shift+O');
-        await page.waitForTimeout(100);
-        await page.keyboard.press('Meta+Escape');
+        await collapseView(page, 'view-overview');
         await page.waitForTimeout(100);
 
         console.log('[Test] Closing font info view');
-        await page.keyboard.press('Meta+Shift+I');
-        await page.waitForTimeout(100);
-        await page.keyboard.press('Meta+Escape');
+        await collapseView(page, 'view-fontinfo');
         await page.waitForTimeout(100);
 
         // Collapse bottom row views so screenshot framing stays consistent.
         const bottomViewsToCollapse = [
-            { label: 'files', shortcut: 'Meta+Shift+F' },
-            { label: 'assistant', shortcut: 'Meta+Shift+A' },
-            { label: 'scripts', shortcut: 'Meta+Shift+S' },
-            { label: 'console', shortcut: 'Meta+Shift+K' }
+            { label: 'files', viewId: 'view-files' },
+            { label: 'assistant', viewId: 'view-assistant' },
+            { label: 'scripts', viewId: 'view-scripts' },
+            { label: 'console', viewId: 'view-console' }
         ];
 
         for (const view of bottomViewsToCollapse) {
             console.log(`[Test] Collapsing ${view.label} view`);
-            await page.keyboard.press(view.shortcut);
-            await page.waitForTimeout(80);
-            await page.keyboard.press('Meta+Escape');
+            await collapseView(page, view.viewId);
             await page.waitForTimeout(80);
         }
 
         console.log('[Test] Returning to editor view for Fustat stack preview');
-        await page.keyboard.press('Meta+Shift+E');
+        await focusView(page, 'Meta+Shift+E', 'view-editor');
         await page.waitForTimeout(120);
 
         console.log('[Test] Setting text buffer to Ä');
@@ -944,6 +933,22 @@ test.describe('Font Editor Basic Workflow', () => {
         await page.waitForFunction(
             () =>
                 !!window.glyphCanvas?.stackPreviewAnimator?.shouldRenderStackPreview?.(),
+            { timeout: 5000 }
+        );
+        await page.waitForFunction(
+            () => {
+                const win = window as any;
+                const textRunEditor = win.glyphCanvas?.textRunEditor;
+                const overviewView = document.getElementById('view-overview');
+                const fontInfoView = document.getElementById('view-fontinfo');
+                return (
+                    win.getCurrentFocusedView?.() === 'view-editor' &&
+                    textRunEditor?.textBuffer === 'Ä' &&
+                    textRunEditor?.selectedGlyphIndex === 0 &&
+                    (overviewView?.getBoundingClientRect().width ?? 0) <= 30 &&
+                    (fontInfoView?.getBoundingClientRect().width ?? 0) <= 30
+                );
+            },
             { timeout: 5000 }
         );
         await page.waitForTimeout(120);

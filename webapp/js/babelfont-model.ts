@@ -5690,19 +5690,10 @@ export class Layer extends ArrayElementBase {
     private getEffectiveSidebearingKey(
         side: SidebearingSide
     ): string | undefined {
-        const metricsKey =
+        return (
             this.getLocalSidebearingKey(side) ??
-            this.getGlobalSidebearingKey(side);
-
-        if (
-            metricsKey &&
-            this.isAutomaticAlignedLayer() &&
-            !isAutomaticSidebearingOverrideKey(metricsKey)
-        ) {
-            return undefined;
-        }
-
-        return metricsKey;
+            this.getGlobalSidebearingKey(side)
+        );
     }
 
     private clearEffectiveSidebearingKey(side: SidebearingSide): void {
@@ -6513,10 +6504,27 @@ export class Layer extends ArrayElementBase {
                 };
             }
 
+            const automaticDerivedSidebearing =
+                this.isAutomaticAlignedLayer() &&
+                !isAutomaticSidebearingOverrideKey(input)
+                    ? this.getAutomaticDerivedSidebearing(side)
+                    : null;
+
             if (parsed.kind === 'constant') {
+                const resolvedValue = roundMetricValue(parsed.value);
+                if (automaticDerivedSidebearing === resolvedValue) {
+                    return {
+                        input: '',
+                        value: automaticDerivedSidebearing,
+                        error: null,
+                        referencedGlyphNames: parsed.referencedGlyphNames,
+                        isLocal: false
+                    };
+                }
+
                 return {
                     input,
-                    value: roundMetricValue(parsed.value),
+                    value: resolvedValue,
                     error: null,
                     referencedGlyphNames: parsed.referencedGlyphNames,
                     isLocal: this.hasLocalSidebearingKey(side)
@@ -6646,9 +6654,20 @@ export class Layer extends ArrayElementBase {
                 };
             }
 
+            const roundedResolvedValue = roundMetricValue(resolvedValue);
+            if (automaticDerivedSidebearing === roundedResolvedValue) {
+                return {
+                    input: '',
+                    value: automaticDerivedSidebearing,
+                    error: null,
+                    referencedGlyphNames: parsed.referencedGlyphNames,
+                    isLocal: false
+                };
+            }
+
             return {
                 input,
-                value: roundMetricValue(resolvedValue),
+                value: roundedResolvedValue,
                 error: null,
                 referencedGlyphNames: parsed.referencedGlyphNames,
                 isLocal: this.hasLocalSidebearingKey(side)

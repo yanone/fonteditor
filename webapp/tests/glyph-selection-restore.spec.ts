@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
+    focusView,
+    openFileFromFilesView,
     waitForCanvasReady,
     waitForFontLoaded,
     waitForOpenSessionReady
@@ -8,12 +10,10 @@ import {
 async function openYanoneFont(page: any) {
     await page.goto('/?test=true');
     await waitForCanvasReady(page);
-    await page.keyboard.press('Meta+Shift+F');
-    await page.waitForTimeout(200);
-    await page.getByText('YanoneKaffeesatz.designspace').dblclick();
+    await openFileFromFilesView(page, 'YanoneKaffeesatz.designspace');
     await waitForFontLoaded(page);
     await waitForOpenSessionReady(page, 'YanoneKaffeesatz.designspace');
-    await page.keyboard.press('Meta+Shift+E');
+    await focusView(page, 'Meta+Shift+E', 'view-editor');
     await page.waitForTimeout(300);
 }
 

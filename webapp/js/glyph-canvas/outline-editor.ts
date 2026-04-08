@@ -1683,10 +1683,11 @@ export class OutlineEditor {
 
         const affectedGlyphNames = new Set<string>([glyphName]);
         const recompute = () => {
-            for (const recomputedGlyphName of fontModel.recomputeMetricsKeys(
-                new Set([glyphName]),
-                options
-            )) {
+            const recomputedGlyphNames = options
+                ? fontModel.recomputeMetricsKeys(new Set([glyphName]), options)
+                : fontModel.recomputeMetricsKeys(new Set([glyphName]));
+
+            for (const recomputedGlyphName of recomputedGlyphNames) {
                 affectedGlyphNames.add(recomputedGlyphName);
             }
         };
@@ -3696,8 +3697,9 @@ export class OutlineEditor {
 
         const serializedLayerData =
             this.serializeLayerDataAsInterpolationPayload(exactLayerData);
-        serializedLayerData.__preferExactComponentTransforms =
-            this.shouldPreferExactSelectedLayerComponentTransforms(layer);
+        if (this.shouldPreferExactSelectedLayerComponentTransforms(layer)) {
+            serializedLayerData.__preferExactComponentTransforms = true;
+        }
 
         const verticalMetrics = this.getVerticalMetricsForLayer(
             layer,
