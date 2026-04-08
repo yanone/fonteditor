@@ -2470,6 +2470,13 @@ export class TextRunEditor {
             return;
         }
 
+        // Drag-time editing compiles share the same worker as explicit-token
+        // outline prefetch. Let the live editing compile win and refill any
+        // missing token outlines after the drag settles.
+        if (window.glyphCanvas?.outlineEditor?.draggingSomething) {
+            return;
+        }
+
         const fontComp = (window as any).fontCompilation;
         if (!fontComp || typeof fontComp.sendMessage !== 'function') {
             return;

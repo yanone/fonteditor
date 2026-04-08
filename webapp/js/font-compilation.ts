@@ -405,7 +405,14 @@ class FontCompilation {
         }
 
         // Handle compilation messages
-        const { id, result, error, errorPayload, time_taken } = e.data;
+        const {
+            id,
+            result,
+            error,
+            errorPayload,
+            time_taken,
+            workerPostedAtMs
+        } = e.data;
 
         const normalizeCompiledResult = (
             value: unknown
@@ -431,6 +438,30 @@ class FontCompilation {
             this.pendingCompilations.delete(id);
             if (spanId) {
                 timelineSpanEnd(spanId);
+            }
+
+            timelineMark('fontCompilation.workerResponse.received', {
+                ...traceContext,
+                process: 'main'
+            });
+
+            if (typeof workerPostedAtMs === 'number') {
+                const deliveryLatencyMs =
+                    performance.timeOrigin +
+                    performance.now() -
+                    workerPostedAtMs;
+                console.log(
+                    'Worker response delivery latency',
+                    deliveryLatencyMs.toFixed(2),
+                    'ms'
+                );
+                timelineMark(
+                    'fontCompilation.workerResponse.deliveryLatencyMeasured',
+                    {
+                        ...traceContext,
+                        process: 'main'
+                    }
+                );
             }
 
             if (error !== undefined || errorPayload !== undefined) {
@@ -467,7 +498,16 @@ class FontCompilation {
                 // For compilation messages, wrap in { result, time_taken, filename }
                 // For other message types, return the full data
                 if (result !== undefined) {
+                    const normalizeResultSpanId = timelineSpanStart(
+                        'fontCompilation.workerResponse.normalizeCompiledResult',
+                        undefined,
+                        {
+                            ...traceContext,
+                            process: 'main'
+                        }
+                    );
                     const normalizedResult = normalizeCompiledResult(result);
+                    timelineSpanEnd(normalizeResultSpanId);
                     if (!normalizedResult) {
                         reject(
                             new Error(
@@ -476,14 +516,32 @@ class FontCompilation {
                         );
                         return;
                     }
+                    const resolveSpanId = timelineSpanStart(
+                        'fontCompilation.workerResponse.resolveCompilation',
+                        { byteLength: normalizedResult.byteLength },
+                        {
+                            ...traceContext,
+                            process: 'main'
+                        }
+                    );
                     resolve({
                         ...e.data,
                         result: normalizedResult,
                         time_taken,
                         filename
                     });
+                    timelineSpanEnd(resolveSpanId);
                 } else {
+                    const resolveSpanId = timelineSpanStart(
+                        'fontCompilation.workerResponse.resolveMessage',
+                        undefined,
+                        {
+                            ...traceContext,
+                            process: 'main'
+                        }
+                    );
                     resolve(e.data);
+                    timelineSpanEnd(resolveSpanId);
                 }
             }
         }

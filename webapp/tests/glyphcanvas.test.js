@@ -828,6 +828,152 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
+    test('point drag throttles metrics-key recompute to persisted drag frames and mouseup', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const applyMetricsKeysSpy = jest
+            .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
+            .mockReturnValue(null);
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockResolvedValue(undefined);
+        const syncSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+        const buildNodeDescSpy = jest
+            .spyOn(canvas.outlineEditor, '_buildNodeDesc')
+            .mockReturnValue('(95, 282)');
+        const renderSpy = jest
+            .spyOn(canvas, 'render')
+            .mockImplementation(() => {});
+        const propertySpy = jest
+            .spyOn(canvas, 'updatePropertyPanel')
+            .mockImplementation(() => {});
+        const pointerSpy = jest
+            .spyOn(canvas.outlineEditor, 'transformMouseToComponentSpace')
+            .mockImplementationOnce(() => ({ glyphX: 105, glyphY: 282 }))
+            .mockImplementationOnce(() => ({ glyphX: 100, glyphY: 282 }))
+            .mockImplementationOnce(() => ({ glyphX: 95, glyphY: 282 }))
+            .mockImplementationOnce(() => ({ glyphX: 90, glyphY: 282 }));
+        const scheduledFlushes = [];
+        const setTimeoutSpy = jest
+            .spyOn(window, 'setTimeout')
+            .mockImplementation((callback) => {
+                scheduledFlushes.push(callback);
+                return 1;
+            });
+        const clearTimeoutSpy = jest
+            .spyOn(window, 'clearTimeout')
+            .mockImplementation(() => {});
+        const nowSpy = jest
+            .spyOn(performance, 'now')
+            .mockImplementationOnce(() => 10)
+            .mockImplementationOnce(() => 20)
+            .mockImplementationOnce(() => 60)
+            .mockImplementationOnce(() => 60)
+            .mockImplementationOnce(() => 110)
+            .mockImplementation(() => 110);
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.layerData = {
+                id: 'layer-1',
+                width: 520,
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 80, y: 180, nodetype: 'Line', smooth: false },
+                            { x: 105, y: 282, nodetype: 'Line', smooth: false },
+                            { x: 160, y: 210, nodetype: 'Line', smooth: false }
+                        ],
+                        closed: false
+                    }
+                ],
+                anchors: [],
+                guides: []
+            };
+            canvas.outlineEditor.selectedPoints = [
+                { contourIndex: 0, nodeIndex: 1 }
+            ];
+            canvas.outlineEditor.isDraggingPoint = true;
+            canvas.outlineEditor._dragType = 'point';
+            canvas.outlineEditor._preDragDesc = "node '(105, 282)'";
+            canvas.outlineEditor.lastGlyphX = null;
+            canvas.outlineEditor.lastGlyphY = null;
+            canvas.outlineEditor._lastDragSaveTime = 0;
+
+            canvas.outlineEditor._handleDrag({
+                clientX: 11,
+                clientY: 21,
+                shiftKey: false,
+                altKey: false
+            });
+            canvas.outlineEditor._handleDrag({
+                clientX: 12,
+                clientY: 22,
+                shiftKey: false,
+                altKey: false
+            });
+            canvas.outlineEditor._handleDrag({
+                clientX: 13,
+                clientY: 23,
+                shiftKey: false,
+                altKey: false
+            });
+
+            expect(applyMetricsKeysSpy).toHaveBeenCalledTimes(0);
+            expect(saveLayerDataSpy).toHaveBeenCalledTimes(0);
+            expect(scheduledFlushes).toHaveLength(1);
+
+            scheduledFlushes.shift()();
+
+            expect(applyMetricsKeysSpy).toHaveBeenCalledTimes(1);
+            expect(saveLayerDataSpy).toHaveBeenCalledTimes(1);
+            expect(saveLayerDataSpy).toHaveBeenNthCalledWith(
+                1,
+                'mouse-drag-outline'
+            );
+
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+
+            expect(applyMetricsKeysSpy).toHaveBeenCalledTimes(2);
+            expect(saveLayerDataSpy).toHaveBeenCalledTimes(2);
+            expect(saveLayerDataSpy).toHaveBeenNthCalledWith(
+                2,
+                'mouse-drag-outline'
+            );
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            applyMetricsKeysSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+            syncSpy.mockRestore();
+            buildNodeDescSpy.mockRestore();
+            renderSpy.mockRestore();
+            propertySpy.mockRestore();
+            pointerSpy.mockRestore();
+            setTimeoutSpy.mockRestore();
+            clearTimeoutSpy.mockRestore();
+            nowSpy.mockRestore();
+        }
+    });
+
     test('point drag keeps the last non-null interaction side for undo metadata when the final frame clears _metricsKeyEditedSide', () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
@@ -1735,6 +1881,26 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(setFontSpy).not.toHaveBeenCalled();
         expect(canvas.requestRepaintAfterCompile).not.toHaveBeenCalled();
     });
+
+    test('setFont skips properties UI refresh when requested', async () => {
+        canvas.initialFontLoaded = true;
+        canvas.textRunEditor.setFont = jest.fn().mockResolvedValue({});
+        canvas.textRunEditor.rebuildEditingFontNameToGid = jest.fn();
+        canvas.textRunEditor.shapeText = jest.fn();
+        canvas.axesManager.updateAxesUI = jest.fn().mockResolvedValue();
+        canvas.reapplyActiveEditedGlyphAdvanceAfterShape = jest.fn();
+        canvas.updatePropertiesUI = jest.fn().mockResolvedValue();
+
+        await canvas.setFont(new Uint8Array([1, 2, 3]).buffer, {
+            skipInitialShapeRender: true,
+            skipPropertiesUIUpdate: true
+        });
+
+        expect(canvas.textRunEditor.setFont).toHaveBeenCalledTimes(1);
+        expect(canvas.axesManager.updateAxesUI).toHaveBeenCalledTimes(1);
+        expect(canvas.textRunEditor.shapeText).toHaveBeenCalledWith(true);
+        expect(canvas.updatePropertiesUI).not.toHaveBeenCalled();
+    });
 });
 
 // ==================== Hit Testing Tests ====================
@@ -2262,22 +2428,41 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         );
     });
 
-    test('point drags recompute keyed sidebearings live before mouseup', () => {
+    test('point drags schedule keyed sidebearing recompute before mouseup', () => {
         const applyMetricsSpy = jest
             .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
             .mockReturnValue(null);
+        const scheduledFlushes = [];
+        const setTimeoutSpy = jest
+            .spyOn(window, 'setTimeout')
+            .mockImplementation((callback) => {
+                scheduledFlushes.push(callback);
+                return 1;
+            });
+        const clearTimeoutSpy = jest
+            .spyOn(window, 'clearTimeout')
+            .mockImplementation(() => {});
 
-        canvas.outlineEditor.isDraggingPoint = true;
-        canvas.outlineEditor.selectedPoints = [
-            { contourIndex: 0, nodeIndex: 0 }
-        ];
+        try {
+            canvas.outlineEditor.isDraggingPoint = true;
+            canvas.outlineEditor.selectedPoints = [
+                { contourIndex: 0, nodeIndex: 0 }
+            ];
 
-        canvas.onMouseMove({ clientX: 10, clientY: 20 });
-        canvas.onMouseMove({ clientX: 25, clientY: 15 });
+            canvas.onMouseMove({ clientX: 10, clientY: 20 });
+            canvas.onMouseMove({ clientX: 25, clientY: 15 });
 
-        expect(applyMetricsSpy).toHaveBeenCalled();
+            expect(applyMetricsSpy).not.toHaveBeenCalled();
+            expect(scheduledFlushes).toHaveLength(1);
 
-        applyMetricsSpy.mockRestore();
+            scheduledFlushes[0]();
+
+            expect(applyMetricsSpy).toHaveBeenCalled();
+        } finally {
+            applyMetricsSpy.mockRestore();
+            setTimeoutSpy.mockRestore();
+            clearTimeoutSpy.mockRestore();
+        }
     });
 
     test('finalizing a closed command-path edit recomputes keyed sidebearings on sibling layers', () => {

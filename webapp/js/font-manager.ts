@@ -1340,6 +1340,8 @@ class FontManager {
             let responseRevisionKey = String(
                 this.currentFont.compileRequestVersion
             );
+            let incrementalChangeSource = this.lastChangeSource;
+            let dragActiveAtRequest = false;
             let compilationMode:
                 | 'full'
                 | 'outline-only'
@@ -1364,7 +1366,16 @@ class FontManager {
                 const requestedRevisionKey = String(
                     this.currentFont.compileRequestVersion
                 );
-                const dragActiveAtRequest =
+                incrementalChangeSource = this.lastChangeSource;
+                const editTypeAtRequest = this.lastEditType;
+                const isMouseDragSource =
+                    incrementalChangeSource !== null &&
+                    incrementalChangeSource.startsWith('mouse-drag');
+                const isKeyboardSource =
+                    incrementalChangeSource !== null &&
+                    incrementalChangeSource.startsWith('keyboard');
+                dragActiveAtRequest =
+                    isMouseDragSource ||
                     !!window.glyphCanvas?.outlineEditor?.draggingSomething;
                 const forceFullWorkerCompile =
                     this.forceFullEditingCacheRefresh;
@@ -1378,11 +1389,8 @@ class FontManager {
                           layerData: unknown;
                       }>
                     | undefined;
-                const incrementalChangeSource = this.lastChangeSource;
                 const isInteractiveSource =
-                    incrementalChangeSource !== null &&
-                    (incrementalChangeSource.startsWith('mouse-drag') ||
-                        incrementalChangeSource.startsWith('keyboard'));
+                    isMouseDragSource || isKeyboardSource;
                 const shouldSendIncrementalLayer =
                     isInteractiveSource && !forceFullWorkerCompile;
                 const dragGlyphNames = shouldSendIncrementalLayer
@@ -1430,9 +1438,7 @@ class FontManager {
                 // Determine compilation mode based on edit type
                 const isInteractiveEdit =
                     isInteractiveSource &&
-                    (dragActiveAtRequest ||
-                        (incrementalChangeSource !== null &&
-                            incrementalChangeSource.startsWith('keyboard')));
+                    (dragActiveAtRequest || isKeyboardSource);
                 const isTextInputEdit =
                     incrementalChangeSource === 'text-input';
                 compilationMode = 'full';
@@ -1445,7 +1451,7 @@ class FontManager {
                     | undefined;
                 const shouldForceStoreFontJson =
                     fontCompilation.lastStoredFontJson === null;
-                if (isInteractiveEdit && this.lastEditType === 'outline') {
+                if (isInteractiveEdit && editTypeAtRequest === 'outline') {
                     compilationMode = 'outline-only';
                     optionOverrides = {
                         skip_features: true,
@@ -1454,7 +1460,7 @@ class FontManager {
                     };
                 } else if (
                     isInteractiveEdit &&
-                    this.lastEditType === 'anchor'
+                    editTypeAtRequest === 'anchor'
                 ) {
                     compilationMode = 'anchor-only';
                     optionOverrides = {
@@ -1478,11 +1484,15 @@ class FontManager {
                     subsetForCompile ?? [],
                     {
                         dragActive: dragActiveAtRequest,
-                        compileSource: this.lastChangeSource || undefined,
+                        compileSource: incrementalChangeSource || undefined,
                         dirtyLayerUpdates,
                         forceStoreFontJson: shouldForceStoreFontJson,
                         optionOverrides
                     }
+                );
+
+                timelineMark(
+                    'font.compileEditing.closureToCompileBridge.compileResultReceived'
                 );
 
                 const currentRevisionKey = String(
@@ -1502,11 +1512,16 @@ class FontManager {
                 timelineSpanEnd(closureToCompileBridgeSpanId);
             }
 
+            const applyCompiledResultSpanId = timelineSpanStart(
+                'font.compileEditing.applyCompiledResult',
+                { byteLength: result.result.byteLength }
+            );
             this.editingFont = new Uint8Array(result.result);
+            timelineSpanEnd(applyCompiledResultSpanId);
             const duration = (performance.now() - startTime).toFixed(2);
 
-            const sourceInfo = this.lastChangeSource
-                ? ` [triggered by: ${this.lastChangeSource}]`
+            const sourceInfo = incrementalChangeSource
+                ? ` [triggered by: ${incrementalChangeSource}]`
                 : '';
             console.log(
                 `✅ Editing font compiled in ${duration}ms (${this.editingFont.length} bytes)${sourceInfo}`
@@ -1516,17 +1531,23 @@ class FontManager {
             sidebarErrorDisplay.hideError();
 
             // Save debug editing font unless we're actively dragging points/anchors/components
-            const isOutlineDragActive =
-                this.lastChangeSource !== null &&
-                this.lastChangeSource.startsWith('mouse-drag') &&
-                !!window.glyphCanvas?.outlineEditor?.draggingSomething;
+            const isOutlineDragActive = dragActiveAtRequest;
 
+            const debugSaveSpanId = timelineSpanStart(
+                'font.compileEditing.debugFontSaveCheck',
+                {
+                    saveDebugFonts:
+                        APP_SETTINGS.FONT_MANAGER?.SAVE_DEBUG_FONTS === true,
+                    isOutlineDragActive
+                }
+            );
             if (isOutlineDragActive) {
                 this.pendingDebugEditingFontSaveAfterDrag = true;
             } else {
                 this.saveEditingFontToFileSystem();
                 this.pendingDebugEditingFontSaveAfterDrag = false;
             }
+            timelineSpanEnd(debugSaveSpanId);
 
             // Track compilation mode for axis/layer switch gating
             this.lastCompilationMode = compilationMode;
@@ -1541,11 +1562,7 @@ class FontManager {
                         fontBytes: this.editingFont,
                         duration: duration,
                         fontRevisionKey: responseRevisionKey,
-                        dragActive:
-                            this.lastChangeSource !== null &&
-                            this.lastChangeSource.startsWith('mouse-drag') &&
-                            !!window.glyphCanvas?.outlineEditor
-                                ?.draggingSomething,
+                        dragActive: dragActiveAtRequest,
                         compilationMode
                     }
                 })

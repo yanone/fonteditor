@@ -58,8 +58,9 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     const DEBOUNCE_MS = 350;
     const MONITOR_MS = 200;
 
-    function isCompilationBlockedByActiveDrag(): boolean {
-        return !!window.glyphCanvas?.outlineEditor?.draggingSomething;
+    function isCompilationBlockedByEditingSession(): boolean {
+        const outlineEditor = window.glyphCanvas?.outlineEditor;
+        return !!outlineEditor?.draggingSomething || !!outlineEditor?.active;
     }
 
     function isValidProfile(profile: string): profile is QcProfile {
@@ -139,7 +140,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
             return;
         }
 
-        if (isCompilationBlockedByActiveDrag()) {
+        if (isCompilationBlockedByEditingSession()) {
             return;
         }
 
@@ -159,7 +160,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
             return;
         }
 
-        if (isCompilationBlockedByActiveDrag()) {
+        if (isCompilationBlockedByEditingSession()) {
             return;
         }
 
@@ -195,7 +196,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
                     break;
                 }
 
-                if (isCompilationBlockedByActiveDrag()) {
+                if (isCompilationBlockedByEditingSession()) {
                     scheduleCompilation(MONITOR_MS);
                     break;
                 }

@@ -23,7 +23,11 @@ import {
 } from './babelfont-model';
 import { updateUrlState, encodeLocation } from './url-state';
 import { isSyncEnabled } from './state-sync';
-import { timelineMark } from './perf-timeline';
+import {
+    timelineMark,
+    timelineSpanEnd,
+    timelineSpanStart
+} from './perf-timeline';
 import { SavedVariationState } from './saved-variation-state';
 import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
 import { LayerDataNormalizer } from './layer-data-normalizer';
@@ -1676,7 +1680,10 @@ class GlyphCanvas {
 
     setFont(
         fontArrayBuffer: ArrayBuffer,
-        options?: { skipInitialShapeRender?: boolean }
+        options?: {
+            skipInitialShapeRender?: boolean;
+            skipPropertiesUIUpdate?: boolean;
+        }
     ): Promise<void> {
         if (!fontArrayBuffer) {
             console.error('No font data provided');
@@ -1704,31 +1711,53 @@ class GlyphCanvas {
             // Create HarfBuzz blob, face, and font for the editing font
             // Pass initialFontLoaded flag to only load text from font on first load
             // Return the Promise so callers can await font loading completion
+            const loadFontSpanId = timelineSpanStart(
+                'canvas.setFont.loadHarfBuzz'
+            );
             return this.textRunEditor!.setFont(
                 fontBytesArray,
                 !this.initialFontLoaded
             ).then(async (hbFont) => {
+                timelineSpanEnd(loadFontSpanId);
                 // Rebuild editing font name→GID map for Stage 2 shaping
+                const gidMapSpanId = timelineSpanStart(
+                    'canvas.setFont.rebuildNameToGidMap'
+                );
                 this.textRunEditor!.rebuildEditingFontNameToGid();
+                timelineSpanEnd(gidMapSpanId);
 
                 // Restore previous variation settings before updating UI
                 this.axesManager!.variationSettings = previousVariationSettings;
 
+                const axesUiSpanId = timelineSpanStart(
+                    'canvas.setFont.updateAxesUI'
+                );
                 await this.axesManager!.updateAxesUI();
+                timelineSpanEnd(axesUiSpanId);
 
                 // Shape text with new editing font
                 // (Stage 2 will use the rebuilt name→GID map)
+                const shapeTextSpanId = timelineSpanStart(
+                    'canvas.setFont.shapeText'
+                );
                 this.textRunEditor!.shapeText(
                     options?.skipInitialShapeRender === true
                 );
                 this.reapplyActiveEditedGlyphAdvanceAfterShape();
+                timelineSpanEnd(shapeTextSpanId);
                 console.log(
                     '[GlyphCanvas]',
                     'Shaped text after editing font reload'
                 );
 
                 // Update properties UI to show master list in text mode
-                await this.updatePropertiesUI();
+                if (!options?.skipPropertiesUIUpdate) {
+                    const propertiesUiSpanId = timelineSpanStart(
+                        'canvas.setFont.updatePropertiesUI'
+                    );
+                    await this.updatePropertiesUI();
+                    timelineSpanEnd(propertiesUiSpanId);
+                }
 
                 // Auto-select first master on initial load
                 if (
@@ -4700,6 +4729,7 @@ class GlyphCanvas {
                 return;
             }
 
+            timelineMark('canvas.compileRepaint.executingRender');
             this.render();
             timelineMark('canvas.compileRepaint.completed');
         };
@@ -6215,7 +6245,11 @@ function setupFontLoadingListener() {
                     if (gc.featuresManager) {
                         gc.featuresManager.editingFontBytes = detail.fontBytes;
                         if (!isDragActive) {
+                            const featuresUiSpanId = timelineSpanStart(
+                                'canvas.editingFontCompiled.updateFeaturesUI'
+                            );
                             await gc.featuresManager.updateFeaturesUI();
+                            timelineSpanEnd(featuresUiSpanId);
                         }
                     }
 
@@ -6223,9 +6257,14 @@ function setupFontLoadingListener() {
                         gc.pendingFeatureChangeAnchor.editing ||
                         gc.pendingFeatureChangeAnchor.text;
 
+                    const setFontSpanId = timelineSpanStart(
+                        'canvas.editingFontCompiled.setFont'
+                    );
                     await window.glyphCanvas.setFont(arrayBuffer, {
-                        skipInitialShapeRender: true
+                        skipInitialShapeRender: true,
+                        skipPropertiesUIUpdate: isDragActive
                     });
+                    timelineSpanEnd(setFontSpanId);
                     timelineMark('canvas.editingFontCompiled.fontApplied');
                     console.log(
                         '[GlyphCanvas]',
@@ -6264,8 +6303,12 @@ function setupFontLoadingListener() {
                         );
                     }
 
+                    const forceShapeTextSpanId = timelineSpanStart(
+                        'canvas.editingFontCompiled.forceShapeText'
+                    );
                     gc.textRunEditor!.shapeText(true);
                     gc.reapplyActiveEditedGlyphAdvanceAfterShape();
+                    timelineSpanEnd(forceShapeTextSpanId);
 
                     // After any full compile (mid-drag OR post-commit), shapeText() resets all
                     // shapedGlyphs advances from HarfBuzz. reapplyActiveEditedGlyphAdvanceAfterShape
@@ -6292,10 +6335,14 @@ function setupFontLoadingListener() {
                                 }
                             }
                             if (Object.keys(allAdvances).length > 0) {
+                                const refreshAdvancesSpanId = timelineSpanStart(
+                                    'canvas.editingFontCompiled.refreshAllAdvances'
+                                );
                                 gc.textRunEditor.refreshGlyphAdvancesLive(
                                     allAdvances,
                                     { render: false }
                                 );
+                                timelineSpanEnd(refreshAdvancesSpanId);
                             }
                         }
                     }

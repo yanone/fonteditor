@@ -707,6 +707,32 @@ describe('FontManager editing subset inclusion', () => {
         expect(fontManager.forceFullEditingCacheRefresh).toBe(false);
     });
 
+    test('mouse-drag outline compiles keep the outline-only fast path even when dragging getter is false at compile time', async () => {
+        fontManager.lastChangeSource = 'mouse-drag-outline';
+        fontManager.lastEditType = 'outline';
+        window.glyphCanvas.outlineEditor.draggingSomething = false;
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'mouse-drag-outline',
+            dragActive: true,
+            optionOverrides: {
+                skip_features: true,
+                skip_kerning: true,
+                produce_varc_table: false
+            },
+            dirtyLayerUpdates: [
+                {
+                    glyphName: 'n',
+                    layerId: 'layer-1',
+                    layerData: expect.any(Object)
+                }
+            ]
+        });
+    });
+
     test('getLiveVisibleGlyphNames merges subset snapshot, rendered run, and active glyph', () => {
         fontManager.updateEditingSubsetSnapshot(['adieresis', 'visibleAccent']);
         window.glyphCanvas.textRunEditor.glyphNameBuffer = [

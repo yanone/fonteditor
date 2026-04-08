@@ -92,6 +92,10 @@ class GlyphOverview {
     private highlightScrollSyncRafId: number | null = null;
     private highlightScrollSyncAttempts = 0;
     private readonly maxHighlightScrollSyncAttempts = 8;
+    private pendingChangedGlyphNames: Set<string> = new Set();
+    private pendingChangedGlyphRefreshTimer: number | null = null;
+    private readonly deferredGlyphRefreshDelayMs = 16;
+    private readonly activeEditGlyphRefreshDelayMs = 120;
     // Tile size control
     private currentSizeStep: number = 2; // Default to middle (step 2 of 11)
     private sizeSlider: HTMLInputElement | null = null;
@@ -1217,44 +1221,9 @@ class GlyphOverview {
 
         if (!targetTile) return;
 
-        // Re-fetch and render the glyph outline
-        try {
-            const fontComp = window.fontCompilation;
-            if (!fontComp) return;
-
-            const response = await fontComp.sendMessage({
-                type: 'getGlyphOutlines',
-                glyphNames: [glyphName],
-                location: this.currentLocation,
-                flattenComponents: false // Don't flatten - preserve component structure with layerData
-            });
-
-            if (response.error) {
-                console.error(
-                    '[GlyphOverview]',
-                    `Failed to refresh tile for ${glyphName}:`,
-                    response.error
-                );
-                return;
-            }
-
-            const outlines = JSON.parse(response.outlinesJson);
-            if (outlines.length > 0) {
-                const dims = this.getTileDimensions();
-                this.renderTile(
-                    targetTile,
-                    outlines[0],
-                    dims.width,
-                    dims.height
-                );
-            }
-        } catch (error) {
-            console.error(
-                '[GlyphOverview]',
-                `Error refreshing tile for ${glyphName}:`,
-                error
-            );
-        }
+        targetTile.cachedData = undefined;
+        this.pendingChangedGlyphNames.add(glyphName);
+        this.schedulePendingChangedGlyphRefresh();
     }
 
     /**
@@ -1300,6 +1269,105 @@ class GlyphOverview {
         if (mode === 'text') {
             // Clear editing highlight when switching to text mode
             this.setEditingHighlight(null);
+            this.schedulePendingChangedGlyphRefresh(true);
+        }
+    }
+
+    private isOutlineEditingActive(): boolean {
+        return !!(window as any).glyphCanvas?.outlineEditor?.active;
+    }
+
+    private schedulePendingChangedGlyphRefresh(forceImmediate = false): void {
+        if (this.pendingChangedGlyphRefreshTimer !== null) {
+            clearTimeout(this.pendingChangedGlyphRefreshTimer);
+        }
+
+        const delay = forceImmediate
+            ? 0
+            : this.isOutlineEditingActive()
+              ? this.activeEditGlyphRefreshDelayMs
+              : this.deferredGlyphRefreshDelayMs;
+
+        this.pendingChangedGlyphRefreshTimer = window.setTimeout(() => {
+            this.pendingChangedGlyphRefreshTimer = null;
+
+            if (!forceImmediate && this.isOutlineEditingActive()) {
+                this.schedulePendingChangedGlyphRefresh();
+                return;
+            }
+
+            void this.flushPendingChangedGlyphRefreshes();
+        }, delay);
+    }
+
+    private async flushPendingChangedGlyphRefreshes(): Promise<void> {
+        if (!this.pendingChangedGlyphNames.size) {
+            return;
+        }
+
+        const glyphNameToTile: Map<string, GlyphTile> = new Map();
+        for (const glyphName of this.pendingChangedGlyphNames) {
+            for (const tile of this.tiles.values()) {
+                if (tile.glyphName === glyphName) {
+                    glyphNameToTile.set(glyphName, tile);
+                    break;
+                }
+            }
+        }
+
+        const glyphNames = Array.from(glyphNameToTile.keys());
+        this.pendingChangedGlyphNames.clear();
+
+        if (!glyphNames.length) {
+            return;
+        }
+
+        try {
+            const fontComp = window.fontCompilation;
+            if (!fontComp) {
+                return;
+            }
+
+            const response = await fontComp.sendMessage({
+                type: 'getGlyphOutlines',
+                glyphNames,
+                location: this.currentLocation,
+                flattenComponents: false
+            });
+
+            if (response.error) {
+                console.error(
+                    '[GlyphOverview]',
+                    'Failed to refresh changed glyph tiles:',
+                    response.error
+                );
+                return;
+            }
+
+            const outlines = JSON.parse(response.outlinesJson || '[]');
+            if (!Array.isArray(outlines) || !outlines.length) {
+                return;
+            }
+
+            const dims = this.getTileDimensions();
+            for (const outline of outlines) {
+                if (!outline?.name) {
+                    continue;
+                }
+
+                const tile = glyphNameToTile.get(outline.name);
+                if (!tile) {
+                    continue;
+                }
+
+                this.renderTile(tile, outline, dims.width, dims.height);
+            }
+        } catch (error) {
+            console.error(
+                '[GlyphOverview]',
+                'Error refreshing changed glyph tiles:',
+                error
+            );
         }
     }
 
@@ -2824,6 +2892,10 @@ class GlyphOverview {
         if (this.intersectionObserver) {
             this.intersectionObserver.disconnect();
             this.intersectionObserver = null;
+        }
+        if (this.pendingChangedGlyphRefreshTimer !== null) {
+            clearTimeout(this.pendingChangedGlyphRefreshTimer);
+            this.pendingChangedGlyphRefreshTimer = null;
         }
         window.removeEventListener(
             'glyphChanged',

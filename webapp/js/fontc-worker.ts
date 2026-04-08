@@ -564,11 +564,13 @@ function postCompiledResult(
         fontRevisionKey?: string;
         closureGlyphCount?: number;
         compileSource?: string;
+        workerPostedAtMs?: number;
     },
     bytes: Uint8Array
 ) {
     const transferSpanId = timelineSpanStart(
-        'font.worker.compiledResult.transfer'
+        'font.worker.compiledResult.transfer',
+        { byteLength: bytes.byteLength }
     );
     const prepareSpanId = timelineSpanStart(
         'font.worker.compiledResult.prepareTransferBuffer'
@@ -583,6 +585,9 @@ function postCompiledResult(
         {
             type: 'compiled',
             ...payload,
+            workerPostedAtMs:
+                payload.workerPostedAtMs ??
+                performance.timeOrigin + performance.now(),
             result: resultBuffer
         },
         [resultBuffer]
@@ -1263,6 +1268,12 @@ self.onmessage = async (event) => {
                     compile_cached_font_from_last_layout_closure(
                         optionsWithDirtyGlyphs
                     );
+                timelineMark(
+                    'font.worker.compileEditingCached.compileCachedFont.resultReady',
+                    {
+                        parentSpanId: compileCachedSpanId
+                    }
+                );
                 // Phase A4 benchmark point: filter-pipeline FEA parses (SubsetLayout +
                 // GlyphsNumberValue) ran on a cache miss inside WASM.
                 timelineMark(

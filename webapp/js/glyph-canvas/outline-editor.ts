@@ -1180,6 +1180,7 @@ export class OutlineEditor {
     private _lastDragSaveTime: number = 0;
     private _lastPropertyPanelUpdateTime: number = 0;
     private _pendingDragMetricsUpdate: boolean = false;
+    private _dragMetricsFlushTimer: number | null = null;
     private _pointDragDeltaX: number = 0;
     private _componentDragDeltaX: number = 0;
     private _sidebearingAffectedGlyphNames: Set<string> = new Set();
@@ -1657,8 +1658,23 @@ export class OutlineEditor {
         return glyphAdvances;
     }
 
+    private getVisibleGlyphNamesForDragMetricsRefresh(
+        glyphName: string
+    ): Set<string> {
+        const visibleGlyphNames = new Set<string>([glyphName]);
+        for (const visibleGlyphName of this.glyphCanvas.textRunEditor
+            ?.glyphNameBuffer || []) {
+            if (visibleGlyphName) {
+                visibleGlyphNames.add(visibleGlyphName);
+            }
+        }
+
+        return visibleGlyphNames;
+    }
+
     private recomputeMetricsKeysForGlyph(
-        glyphName: string | null | undefined
+        glyphName: string | null | undefined,
+        options?: { allowedGlyphNames?: Set<string> }
     ): Set<string> {
         const fontModel = fontManager.currentFont?.fontModel;
         if (!glyphName || glyphName === 'undefined' || !fontModel) {
@@ -1668,7 +1684,8 @@ export class OutlineEditor {
         const affectedGlyphNames = new Set<string>([glyphName]);
         const recompute = () => {
             for (const recomputedGlyphName of fontModel.recomputeMetricsKeys(
-                new Set([glyphName])
+                new Set([glyphName]),
+                options
             )) {
                 affectedGlyphNames.add(recomputedGlyphName);
             }
@@ -1685,7 +1702,8 @@ export class OutlineEditor {
     }
 
     private applyMetricsKeysToCurrentEditedLayer(
-        refreshGlyphAdvances: boolean = true
+        refreshGlyphAdvances: boolean = true,
+        options?: { useVisibleDragScope?: boolean }
     ): {
         glyphName: string;
         nextWidth: number;
@@ -1743,9 +1761,13 @@ export class OutlineEditor {
         // on the current editing shapes (not stale cached wrappers).
         layerModel.invalidateShapeCache();
 
+        const allowedGlyphNames = options?.useVisibleDragScope
+            ? this.getVisibleGlyphNamesForDragMetricsRefresh(glyphName)
+            : undefined;
         const affectedGlyphNames = new Set<string>([glyphName]);
         for (const affectedGlyphName of this.recomputeMetricsKeysForGlyph(
-            glyphName
+            glyphName,
+            allowedGlyphNames ? { allowedGlyphNames } : undefined
         )) {
             affectedGlyphNames.add(affectedGlyphName);
         }
@@ -1841,6 +1863,66 @@ export class OutlineEditor {
             advancesRefreshed,
             affectedGlyphNames
         };
+    }
+
+    private schedulePendingDragMetricsUpdate(): void {
+        this._pendingDragMetricsUpdate = true;
+        if (this._dragMetricsFlushTimer !== null) {
+            return;
+        }
+
+        const elapsed = performance.now() - this._lastDragSaveTime;
+        const delay = Math.max(0, 50 - elapsed);
+        this._dragMetricsFlushTimer = window.setTimeout(() => {
+            this._dragMetricsFlushTimer = null;
+            if (!this._pendingDragMetricsUpdate) {
+                return;
+            }
+            if (
+                !this.draggingSomething ||
+                !(this.isDraggingComponent || this.isDraggingPoint)
+            ) {
+                return;
+            }
+
+            this.flushPendingDragMetricsUpdate('mouse-drag-outline');
+        }, delay);
+    }
+
+    private flushPendingDragMetricsUpdate(
+        changeSource: string,
+        forceMetricsRecompute: boolean = false
+    ): void {
+        this._pendingDragMetricsUpdate = false;
+        this._lastDragSaveTime = performance.now();
+
+        if (
+            forceMetricsRecompute ||
+            this.isDraggingComponent ||
+            (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve)
+        ) {
+            this.applyMetricsKeysToCurrentEditedLayer(true, {
+                useVisibleDragScope: !forceMetricsRecompute
+            });
+
+            if (this._metricsKeyEditedSide !== null) {
+                const recalc = this.isDraggingGuide
+                    ? this.transformMouseToRootSpace()
+                    : this.transformMouseToComponentSpace();
+                this.lastGlyphX = recalc.glyphX;
+                this.lastGlyphY = recalc.glyphY;
+            }
+        }
+
+        this.saveLayerData(changeSource);
+    }
+
+    private cancelPendingDragMetricsUpdate(): void {
+        this._pendingDragMetricsUpdate = false;
+        if (this._dragMetricsFlushTimer !== null) {
+            window.clearTimeout(this._dragMetricsFlushTimer);
+            this._dragMetricsFlushTimer = null;
+        }
     }
 
     private syncDependentGlyphsAfterSidebearingEdit(
@@ -4015,7 +4097,7 @@ export class OutlineEditor {
         this._snapCandidateCache = null;
         this._lastDragSaveTime = 0;
         this._lastPropertyPanelUpdateTime = 0;
-        this._pendingDragMetricsUpdate = false;
+        this.cancelPendingDragMetricsUpdate();
         this._pointDragDeltaX = 0;
         this._componentDragDeltaX = 0;
         this._pointDragPreserveHandlePositions = false;
@@ -6000,34 +6082,21 @@ export class OutlineEditor {
         this._updateDraggedAnchors(deltaX, deltaY);
         this._updateDraggedSidebearing(effectiveDeltaX);
 
+        const now = performance.now();
+        const shouldPersistDragFrame = now - this._lastDragSaveTime >= 50;
+
         if (this.isDraggingComponent) {
-            const metricsResult = this.applyMetricsKeysToCurrentEditedLayer();
-            if (metricsResult) {
-                this.updateComponentDragDeltaX(deltaX);
-            }
-        } else if (
-            this.isDraggingPoint &&
-            !this.isSlidingSmoothPointAlongCurve
-        ) {
-            this.applyMetricsKeysToCurrentEditedLayer();
+            this.updateComponentDragDeltaX(deltaX);
         }
 
-        // After metrics key recomputation, the viewport may have been
-        // re-anchored to keep the bbox center fixed on screen. Recalculate
-        // lastGlyphX/Y so the next frame's delta purely reflects mouse movement.
         if (
-            (this.isDraggingComponent || this.isDraggingPoint) &&
-            this._metricsKeyEditedSide !== null
+            this.isDraggingComponent ||
+            (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve)
         ) {
-            const recalc = this.isDraggingGuide
-                ? this.transformMouseToRootSpace()
-                : this.transformMouseToComponentSpace();
-            this.lastGlyphX = recalc.glyphX;
-            this.lastGlyphY = recalc.glyphY;
+            this.schedulePendingDragMetricsUpdate();
         }
 
         // Throttle saveLayerData during drag (every 50ms) — final save on mouseUp
-        const now = performance.now();
         if (this.isDraggingGuide) {
             if (this.selectedGuideHandle?.scope === 'layer') {
                 this.saveLayerData('mouse-drag-guide');
@@ -6036,7 +6105,12 @@ export class OutlineEditor {
             // Sliding a smooth point is applied directly to the model so linked
             // layers stay in sync. Persist once on mouse up.
         } else {
-            if (now - this._lastDragSaveTime >= 50) {
+            if (
+                shouldPersistDragFrame &&
+                !this._pendingDragMetricsUpdate &&
+                !this.isDraggingComponent &&
+                !this.isDraggingPoint
+            ) {
                 this._lastDragSaveTime = now;
                 const dragChangeSource = this.isDraggingAnchor
                     ? 'mouse-drag-anchor'
@@ -6410,6 +6484,7 @@ export class OutlineEditor {
         this._snapCandidateCache = null;
         this._lastDragSaveTime = 0;
         this._lastPropertyPanelUpdateTime = 0;
+        this.cancelPendingDragMetricsUpdate();
 
         // If we were snapped to close an open path, abort the normal
         // drag sync and perform a merge-close instead.
@@ -6461,10 +6536,16 @@ export class OutlineEditor {
                     dragType === 'anchor'
                         ? 'mouse-drag-anchor'
                         : 'mouse-drag-outline';
+                if (dragType === 'point' || dragType === 'component') {
+                    this.cancelPendingDragMetricsUpdate();
+                    this.flushPendingDragMetricsUpdate(dragChangeSource, true);
+                } else {
+                    this._lastDragSaveTime = performance.now();
+                    this.saveLayerData(dragChangeSource);
+                }
                 console.log(
                     `[DRAG-DEBUG] onMouseUp before saveLayerData — changeSource=${dragChangeSource}`
                 );
-                this.saveLayerData(dragChangeSource);
             }
 
             // Final property panel update

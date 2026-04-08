@@ -9966,13 +9966,23 @@ export class Font extends ModelBase {
         return this.rebuildAutomaticComposites(changedGlyphNames, options);
     }
 
-    recomputeMetricsKeys(changedGlyphNames?: Set<string>): Set<string> {
+    recomputeMetricsKeys(
+        changedGlyphNames?: Set<string>,
+        options?: { allowedGlyphNames?: Set<string> }
+    ): Set<string> {
         if (this._isRecomputingMetricsKeys) {
             return new Set();
         }
 
         const layersWithKeys: Layer[] = [];
         for (const glyph of this.glyphs) {
+            if (
+                options?.allowedGlyphNames &&
+                !options.allowedGlyphNames.has(glyph.name)
+            ) {
+                continue;
+            }
+
             for (const layer of glyph.layers || []) {
                 if (
                     layer.leftMetricsKey ||
@@ -9991,13 +10001,28 @@ export class Font extends ModelBase {
             const skipSelfAutomaticRebuildGlyphNames = new Set<string>();
             let pendingGlyphNames =
                 changedGlyphNames && changedGlyphNames.size > 0
-                    ? new Set(changedGlyphNames)
-                    : new Set(this.glyphs.map((glyph) => glyph.name));
+                    ? new Set(
+                          [...changedGlyphNames].filter(
+                              (glyphName) =>
+                                  !options?.allowedGlyphNames ||
+                                  options.allowedGlyphNames.has(glyphName)
+                          )
+                      )
+                    : new Set(
+                          this.glyphs
+                              .map((glyph) => glyph.name)
+                              .filter(
+                                  (glyphName) =>
+                                      !options?.allowedGlyphNames ||
+                                      options.allowedGlyphNames.has(glyphName)
+                              )
+                      );
 
             for (const glyphName of this.rebuildAutomaticComposites(
                 pendingGlyphNames,
                 {
-                    skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames
+                    skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames,
+                    allowedGlyphNames: options?.allowedGlyphNames
                 }
             )) {
                 recomputedGlyphNames.add(glyphName);
@@ -10019,7 +10044,8 @@ export class Font extends ModelBase {
                 for (const glyphName of this.rebuildAutomaticComposites(
                     pendingGlyphNames,
                     {
-                        skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames
+                        skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames,
+                        allowedGlyphNames: options?.allowedGlyphNames
                     }
                 )) {
                     recomputedGlyphNames.add(glyphName);
@@ -10031,6 +10057,13 @@ export class Font extends ModelBase {
                     for (const dependentName of this.findGlyphsUsingComponent(
                         glyphName
                     )) {
+                        if (
+                            options?.allowedGlyphNames &&
+                            !options.allowedGlyphNames.has(dependentName)
+                        ) {
+                            continue;
+                        }
+
                         autoAlignedDependents.add(dependentName);
                     }
                 }
@@ -10125,7 +10158,8 @@ export class Font extends ModelBase {
                             new Set([glyphName]),
                             {
                                 skipSelfGlyphNames:
-                                    skipSelfAutomaticRebuildGlyphNames
+                                    skipSelfAutomaticRebuildGlyphNames,
+                                allowedGlyphNames: options?.allowedGlyphNames
                             }
                         )) {
                             recomputedGlyphNames.add(rebuiltGlyphName);

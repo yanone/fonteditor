@@ -5,6 +5,8 @@ const { fontCompilation } = require('../js/font-compilation');
 
 describe('TextRunEditor live advance refresh', () => {
     let editor;
+    let originalGlyphCanvas;
+    let originalFontCompilation;
 
     beforeEach(() => {
         const featuresManager = {
@@ -35,6 +37,14 @@ describe('TextRunEditor live advance refresh', () => {
                 isAtomicCluster: false
             }
         ];
+
+        originalGlyphCanvas = window.glyphCanvas;
+        originalFontCompilation = window.fontCompilation;
+    });
+
+    afterEach(() => {
+        window.glyphCanvas = originalGlyphCanvas;
+        window.fontCompilation = originalFontCompilation;
     });
 
     test('updates matching glyph advances and rerenders the line', () => {
@@ -98,6 +108,31 @@ describe('TextRunEditor live advance refresh', () => {
         expect(buildClusterMapSpy).toHaveBeenCalledTimes(1);
         expect(updateCursorSpy).toHaveBeenCalledTimes(1);
         expect(renderCallback).not.toHaveBeenCalled();
+    });
+
+    test('skips explicit outline prefetch while an outline drag is active', async () => {
+        const sendMessage = jest.fn();
+        window.fontCompilation = { sendMessage };
+        window.glyphCanvas = {
+            outlineEditor: {
+                draggingSomething: true
+            }
+        };
+
+        editor.shapedGlyphs = [
+            {
+                ax: 500,
+                dx: 0,
+                dy: 0,
+                g: 0,
+                cl: 0,
+                explicitGlyphName: 'adieresis'
+            }
+        ];
+
+        await editor.prefetchExplicitGlyphOutlinesForCurrentState();
+
+        expect(sendMessage).not.toHaveBeenCalled();
     });
 });
 
