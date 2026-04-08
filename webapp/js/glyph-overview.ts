@@ -51,8 +51,21 @@ interface GridLayoutData {
     visibleIds: string[];
 }
 
+type ResizeFocusAnchor =
+    | {
+          type: 'selection';
+          glyphIds: string[];
+      }
+    | {
+          type: 'active';
+          glyphName: string;
+      };
+
 class GlyphOverview {
     private container: HTMLDivElement | null = null;
+    private resizeObserver: ResizeObserver | null = null;
+    private resizeSyncRafId: number | null = null;
+    private lastContainerWidth = 0;
     private tiles: Map<string, GlyphTile> = new Map();
     private isDragging = false;
     private hasDragged = false;
@@ -138,6 +151,7 @@ class GlyphOverview {
         this.container.id = 'glyph-overview-container';
 
         parentElement.appendChild(this.container);
+        this.setupResizeObserver();
 
         // Set up mouse event listeners for drag selection
         this.container.addEventListener(
@@ -181,6 +195,45 @@ class GlyphOverview {
             });
         });
         observer.observe(document.documentElement, { attributes: true });
+    }
+
+    private setupResizeObserver(): void {
+        if (!this.container) {
+            return;
+        }
+
+        this.lastContainerWidth = this.container.clientWidth;
+        this.resizeObserver = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (!entry || !this.container) {
+                return;
+            }
+
+            const nextWidth = Math.round(entry.contentRect.width);
+            if (nextWidth <= 0 || nextWidth === this.lastContainerWidth) {
+                return;
+            }
+
+            this.lastContainerWidth = nextWidth;
+            this.scheduleResizeFocusSync();
+        });
+        this.resizeObserver.observe(this.container);
+    }
+
+    private scheduleResizeFocusSync(): void {
+        if (this.resizeSyncRafId !== null) {
+            cancelAnimationFrame(this.resizeSyncRafId);
+        }
+
+        this.resizeSyncRafId = requestAnimationFrame(() => {
+            this.resizeSyncRafId = null;
+
+            if (this.linesVirtualizationActive) {
+                this.renderVirtualizedLinesWindow(true);
+            }
+
+            this.applyResizeFocusAnchor(this.getResizeFocusAnchor());
+        });
     }
 
     private initSizeControl(): void {
@@ -739,7 +792,14 @@ class GlyphOverview {
     }
 
     private updateTileSize(): void {
+        const resizeFocusAnchor = this.getResizeFocusAnchor();
         const dims = this.getTileDimensions();
+
+        if (this.highlightScrollSyncRafId !== null) {
+            cancelAnimationFrame(this.highlightScrollSyncRafId);
+            this.highlightScrollSyncRafId = null;
+        }
+        this.highlightScrollSyncAttempts = 0;
 
         // Update CSS custom properties for tile sizing
         if (this.container) {
@@ -766,7 +826,117 @@ class GlyphOverview {
             if (this.linesVirtualizationActive) {
                 this.renderVirtualizedLinesWindow(true);
             }
+
+            this.applyResizeFocusAnchor(resizeFocusAnchor);
         });
+    }
+
+    private getResizeFocusAnchor(): ResizeFocusAnchor | null {
+        const selectedGlyphIds = this.getSelectedGlyphs().filter((glyphId) =>
+            this.visibleGlyphIds.includes(glyphId)
+        );
+        if (selectedGlyphIds.length > 0) {
+            return {
+                type: 'selection',
+                glyphIds: selectedGlyphIds
+            };
+        }
+
+        const activeGlyphName = this.getCurrentActiveGlyphName();
+        if (activeGlyphName) {
+            return {
+                type: 'active',
+                glyphName: activeGlyphName
+            };
+        }
+
+        return null;
+    }
+
+    private getCurrentActiveGlyphName(): string | null {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const isEditMode = glyphCanvas?.outlineEditor?.active;
+        if (!isEditMode) {
+            return this.highlightedGlyphName;
+        }
+
+        if (glyphCanvas?.outlineEditor?.parseGlyphStack) {
+            const parsed = glyphCanvas.outlineEditor.parseGlyphStack();
+            if (parsed.length > 0) {
+                return parsed[parsed.length - 1].glyphName;
+            }
+        }
+
+        return this.highlightedGlyphName;
+    }
+
+    private applyResizeFocusAnchor(anchor: ResizeFocusAnchor | null): void {
+        if (!anchor) {
+            return;
+        }
+
+        if (anchor.type === 'selection') {
+            this.centerGlyphIdsInView(anchor.glyphIds);
+            return;
+        }
+
+        const activeTile = Array.from(this.tiles.values()).find(
+            (tile) => tile.glyphName === anchor.glyphName
+        );
+        if (!activeTile) {
+            return;
+        }
+
+        this.scrollToTile(activeTile.element, false);
+    }
+
+    private centerGlyphIdsInView(glyphIds: string[]): void {
+        if (!this.container || !glyphIds.length) {
+            return;
+        }
+
+        const visibleSelectedGlyphIds = glyphIds.filter((glyphId) =>
+            this.visibleGlyphIds.includes(glyphId)
+        );
+        if (!visibleSelectedGlyphIds.length) {
+            return;
+        }
+
+        const visibleIndexes = visibleSelectedGlyphIds
+            .map((glyphId) => this.visibleGlyphIds.indexOf(glyphId))
+            .filter((index) => index !== -1)
+            .sort((a, b) => a - b);
+        if (!visibleIndexes.length) {
+            return;
+        }
+
+        const averageIndex =
+            visibleIndexes.reduce((sum, index) => sum + index, 0) /
+            visibleIndexes.length;
+        const dims = this.getTileDimensions();
+        const columns = Math.max(1, this.getGridColumns());
+        const rowHeight = dims.height + 2;
+        const averageRow = averageIndex / columns;
+        const selectionCenterY = averageRow * rowHeight + dims.height / 2;
+
+        this.setCenteredScrollTop(selectionCenterY);
+    }
+
+    private setCenteredScrollTop(contentCenterY: number): void {
+        if (!this.container) {
+            return;
+        }
+
+        const targetScroll = Math.max(
+            0,
+            contentCenterY - this.container.clientHeight / 2
+        );
+        const maxScroll = Math.max(
+            0,
+            this.container.scrollHeight - this.container.clientHeight
+        );
+        this.container.scrollTop = Math.min(targetScroll, maxScroll);
+        this.renderVirtualizedLinesWindow(true);
     }
 
     private isViewActive(): boolean {
@@ -1512,7 +1682,7 @@ class GlyphOverview {
     /**
      * Fast smooth scroll to tile element
      */
-    private scrollToTile(element: HTMLElement): void {
+    private scrollToTile(element: HTMLElement, animate: boolean = true): void {
         if (!this.container) return;
 
         const glyphId = element.dataset.glyphId;
@@ -1565,6 +1735,19 @@ class GlyphOverview {
         const targetScroll =
             elementTop - containerRect.height / 2 + elementRect.height / 2;
 
+        if (!animate) {
+            const maxScroll = Math.max(
+                0,
+                this.container.scrollHeight - this.container.clientHeight
+            );
+            this.container.scrollTop = Math.min(
+                Math.max(0, targetScroll),
+                maxScroll
+            );
+            this.renderVirtualizedLinesWindow(true);
+            return;
+        }
+
         // Animate scroll with 150ms duration
         const startScroll = this.container.scrollTop;
         const distance = targetScroll - startScroll;
@@ -1585,7 +1768,10 @@ class GlyphOverview {
         requestAnimationFrame(animateScroll);
     }
 
-    private scrollToGlyphId(glyphId: string): void {
+    private scrollToGlyphId(
+        glyphId: string,
+        forceCenter: boolean = false
+    ): void {
         if (!this.container) return;
         if (this.container.clientHeight <= 0) return;
 
@@ -1601,7 +1787,11 @@ class GlyphOverview {
         const viewportTop = this.container.scrollTop;
         const viewportBottom = viewportTop + this.container.clientHeight;
 
-        if (tileTop >= viewportTop && tileBottom <= viewportBottom) {
+        if (
+            !forceCenter &&
+            tileTop >= viewportTop &&
+            tileBottom <= viewportBottom
+        ) {
             return;
         }
 

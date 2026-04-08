@@ -411,10 +411,23 @@ const queueOverviewRefresh = (
         try {
             if (glyphOverviewInstance && window.currentFontModel?.glyphs) {
                 const glyphData = await updateOverviewTiles();
+                const renderReason =
+                    openSessionId !== null
+                        ? `${reason}-open-session`
+                        : `${reason}-no-session`;
+                const renderSuccess = await renderOverviewAndEmit(
+                    renderReason,
+                    openSessionId
+                );
 
-                if (!pendingInitialOpenSession) {
-                    await renderOverviewAndEmit(`${reason}-no-session`);
-                } else {
+                if (
+                    renderSuccess &&
+                    openSessionId &&
+                    pendingInitialOpenSession === openSessionId
+                ) {
+                    pendingInitialOpenSession = null;
+                    pendingInitialOpenStartedAt = null;
+                } else if (pendingInitialOpenSession) {
                     scheduleFallbackRender(pendingInitialOpenSession, 1200);
                 }
 
