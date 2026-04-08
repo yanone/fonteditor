@@ -135,12 +135,22 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
     if (location && glyphCanvas.axesManager) {
         console.log('Applying location:', location);
 
+        const appliedLocation: UserspaceLocation = {};
+
         for (const [tag, value] of Object.entries(location)) {
-            glyphCanvas.axesManager.setAxisValue(tag, Number(value));
+            const numericValue = Number(value);
+            appliedLocation[tag] = numericValue;
+            glyphCanvas.axesManager.setAxisValue(tag, numericValue);
         }
 
         // Update UI and trigger layer selection if in editing mode
         glyphCanvas.axesManager.updateAxisSliders();
+
+        window.dispatchEvent(
+            new CustomEvent('variationLocationChanged', {
+                detail: { location: appliedLocation }
+            })
+        );
 
         // If we're going to be in editing mode, select matching layer
         const mode = window.stateManager.editor_mode;

@@ -46,6 +46,28 @@ let queuedRenderRequest: {
 let pendingFallbackAttempts = 0;
 const maxFallbackAttempts = 4;
 
+function resolveCurrentOverviewLocation() {
+    const axesLocation = window.glyphCanvas?.axesManager?.variationSettings;
+    if (axesLocation && Object.keys(axesLocation).length > 0) {
+        const resolvedLocation: Record<string, number> = {};
+        for (const [tag, value] of Object.entries(axesLocation)) {
+            resolvedLocation[tag] = Number(value);
+        }
+        return resolvedLocation;
+    }
+
+    const stateLocation = window.stateManager?.editor_variation_location;
+    if (stateLocation && Object.keys(stateLocation).length > 0) {
+        const resolvedLocation: Record<string, number> = {};
+        for (const [tag, value] of Object.entries(stateLocation)) {
+            resolvedLocation[tag] = Number(value);
+        }
+        return resolvedLocation;
+    }
+
+    return {};
+}
+
 function buildGlyphData() {
     if (!window.currentFontModel?.glyphs) {
         return [];
@@ -159,7 +181,9 @@ async function renderOverviewAndEmit(
     let success = false;
 
     try {
-        await glyphOverviewInstance.renderGlyphOutlines();
+        await glyphOverviewInstance.renderGlyphOutlines(
+            resolveCurrentOverviewLocation()
+        );
         success = true;
 
         const renderDurationMs = performance.now() - renderStart;
@@ -323,11 +347,26 @@ async function initOverviewView() {
         // CSS handles sidebar background color changes based on .view.focused
         const overviewView = document.querySelector('#view-overview');
         if (overviewView) {
+            let wasCollapsed: boolean | null = null;
             const updateCollapsedState = () => {
                 const isCollapsed =
                     overviewView.classList.contains('collapsed-width');
                 // Hide entire container when view is collapsed
                 mainContainer.style.display = isCollapsed ? 'none' : 'flex';
+
+                if (
+                    wasCollapsed === true &&
+                    !isCollapsed &&
+                    glyphOverviewInstance &&
+                    window.currentFontModel?.glyphs
+                ) {
+                    void (async () => {
+                        await renderOverviewAndEmit('view-opened');
+                        glyphOverviewInstance.syncActiveGlyphFocus?.();
+                    })();
+                }
+
+                wasCollapsed = isCollapsed;
             };
 
             const observer = new MutationObserver(

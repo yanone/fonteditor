@@ -1237,7 +1237,10 @@ class GlyphOverview {
             return;
         }
 
-        // Only show editing highlight when in edit mode (outline editor active)
+        this.syncActiveGlyphFocus();
+    }
+
+    public syncActiveGlyphFocus(): void {
         const glyphCanvas = (window as any).glyphCanvas;
         const isEditMode = glyphCanvas?.outlineEditor?.active;
 
@@ -1252,6 +1255,11 @@ class GlyphOverview {
             const parsed = glyphCanvas.outlineEditor.parseGlyphStack();
             if (parsed.length > 0) {
                 const editingGlyph = parsed[parsed.length - 1].glyphName;
+                if (editingGlyph === this.highlightedGlyphName) {
+                    this.scheduleHighlightedGlyphVisibilitySync();
+                    return;
+                }
+
                 this.setEditingHighlight(editingGlyph);
             } else {
                 this.setEditingHighlight(null);
