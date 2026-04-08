@@ -32,7 +32,8 @@ describe('GlyphOverview glyphChanged refresh scheduling', () => {
         };
         window.glyphCanvas = {
             outlineEditor: {
-                active: true
+                active: true,
+                draggingSomething: true
             }
         };
 
@@ -65,7 +66,7 @@ describe('GlyphOverview glyphChanged refresh scheduling', () => {
         delete window.GlyphOverview;
     });
 
-    test('defers glyph outline refreshes while outline editing is active and flushes once on text mode', async () => {
+    test('defers glyph outline refreshes while dragging and flushes once after drag ends', async () => {
         window.dispatchEvent(
             new CustomEvent('glyphChanged', {
                 detail: { glyphName: 'a' }
@@ -77,14 +78,8 @@ describe('GlyphOverview glyphChanged refresh scheduling', () => {
 
         expect(window.fontCompilation.sendMessage).not.toHaveBeenCalled();
 
-        window.glyphCanvas.outlineEditor.active = false;
-        window.dispatchEvent(
-            new CustomEvent('editorModeChanged', {
-                detail: { mode: 'text' }
-            })
-        );
-
-        jest.advanceTimersByTime(0);
+        window.glyphCanvas.outlineEditor.draggingSomething = false;
+        jest.advanceTimersByTime(120);
         await Promise.resolve();
         await Promise.resolve();
 

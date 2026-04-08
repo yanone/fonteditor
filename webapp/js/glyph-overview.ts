@@ -95,7 +95,7 @@ class GlyphOverview {
     private pendingChangedGlyphNames: Set<string> = new Set();
     private pendingChangedGlyphRefreshTimer: number | null = null;
     private readonly deferredGlyphRefreshDelayMs = 16;
-    private readonly activeEditGlyphRefreshDelayMs = 120;
+    private readonly activeDragGlyphRefreshDelayMs = 120;
     // Tile size control
     private currentSizeStep: number = 2; // Default to middle (step 2 of 11)
     private sizeSlider: HTMLInputElement | null = null;
@@ -1273,8 +1273,8 @@ class GlyphOverview {
         }
     }
 
-    private isOutlineEditingActive(): boolean {
-        return !!(window as any).glyphCanvas?.outlineEditor?.active;
+    private isOutlineDragActive(): boolean {
+        return !!(window as any).glyphCanvas?.outlineEditor?.draggingSomething;
     }
 
     private schedulePendingChangedGlyphRefresh(forceImmediate = false): void {
@@ -1284,14 +1284,14 @@ class GlyphOverview {
 
         const delay = forceImmediate
             ? 0
-            : this.isOutlineEditingActive()
-              ? this.activeEditGlyphRefreshDelayMs
+            : this.isOutlineDragActive()
+              ? this.activeDragGlyphRefreshDelayMs
               : this.deferredGlyphRefreshDelayMs;
 
         this.pendingChangedGlyphRefreshTimer = window.setTimeout(() => {
             this.pendingChangedGlyphRefreshTimer = null;
 
-            if (!forceImmediate && this.isOutlineEditingActive()) {
+            if (!forceImmediate && this.isOutlineDragActive()) {
                 this.schedulePendingChangedGlyphRefresh();
                 return;
             }
