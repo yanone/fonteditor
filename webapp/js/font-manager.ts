@@ -25,6 +25,11 @@ import {
     timelineSpanStart
 } from './perf-timeline';
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
+import { ensureStartupStateReady } from './state-restore';
+import {
+    beginStartupInteractionLock,
+    endStartupInteractionLock
+} from './startup-interaction-lock';
 
 const console = new Logger('FontManager');
 
@@ -2920,10 +2925,9 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
     let fullCompileDeferredTimer: number | null = null;
     let canvasReadyListener: ((event: Event) => void) | null = null;
-    let overviewReadyListener: ((event: Event) => void) | null = null;
     let startupReleased = false;
+    let startupFinalizeStarted = false;
     let canvasReady = false;
-    let overviewReady = false;
     let fontReadyDispatched = false;
     let activeOpenSessionDetail: {
         path: string;
@@ -2954,12 +2958,28 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         emitOpenLifecycle(openSessionId, 'fontReadyDispatched');
     };
 
-    const tryReleaseStartupGates = (openSessionId: string) => {
-        if (!canvasReady || !overviewReady) {
+    const finalizeStartupReadiness = async (openSessionId: string) => {
+        if (startupFinalizeStarted || !canvasReady) {
             return;
         }
 
-        releaseStartupGates(openSessionId, 'canvas+overview-ready', true);
+        startupFinalizeStarted = true;
+
+        try {
+            if (window.glyphCanvas) {
+                await ensureStartupStateReady(window.glyphCanvas);
+            }
+
+            emitOpenLifecycle(openSessionId, 'startupStateReady');
+            releaseStartupGates(openSessionId, 'canvas+state-ready', true);
+        } catch (error) {
+            console.warn(
+                '[FontManager]',
+                'Startup state restore failed before fontReady; continuing:',
+                error
+            );
+            releaseStartupGates(openSessionId, 'canvas+state-error', true);
+        }
     };
 
     const releaseStartupGates = (
@@ -2984,14 +3004,6 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             canvasReadyListener = null;
         }
 
-        if (overviewReadyListener) {
-            window.removeEventListener(
-                'overviewInitialRenderComplete',
-                overviewReadyListener
-            );
-            overviewReadyListener = null;
-        }
-
         if (fullCompileDeferredTimer !== null) {
             clearTimeout(fullCompileDeferredTimer);
             fullCompileDeferredTimer = null;
@@ -3009,6 +3021,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             scheduleFullCompile
         });
 
+        endStartupInteractionLock();
         endLoadingCursor();
 
         timelineSpanEnd(openSessionSpanId);
@@ -3029,6 +3042,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
         startupOpenSessionActive = true;
         startupOpenSessionEditingCompileCount = 0;
+        beginStartupInteractionLock();
 
         emitOpenLifecycle(openSessionId, 'fontLoaded', {
             path: detail.path,
@@ -3086,34 +3100,10 @@ window.addEventListener('fontLoaded', async (event: Event) => {
 
             canvasReady = true;
             emitOpenLifecycle(openSessionId, 'canvasInitialReady');
-            tryReleaseStartupGates(openSessionId);
+            void finalizeStartupReadiness(openSessionId);
         };
 
         window.addEventListener('canvasInitialReady', canvasReadyListener);
-
-        overviewReadyListener = (overviewEvent: Event) => {
-            const overviewDetail = (overviewEvent as CustomEvent).detail;
-            if (
-                overviewDetail?.openSessionId &&
-                overviewDetail.openSessionId !== openSessionId
-            ) {
-                return;
-            }
-
-            overviewReady = true;
-            emitOpenLifecycle(openSessionId, 'overviewInitialRenderComplete', {
-                reason: overviewDetail?.reason,
-                glyphCount: overviewDetail?.glyphCount,
-                renderDurationMs: overviewDetail?.renderDurationMs,
-                totalElapsedMs: overviewDetail?.totalElapsedMs
-            });
-            tryReleaseStartupGates(openSessionId);
-        };
-
-        window.addEventListener(
-            'overviewInitialRenderComplete',
-            overviewReadyListener
-        );
 
         // Update display
         await fontManager!.onOpened();
@@ -3129,16 +3119,6 @@ window.addEventListener('fontLoaded', async (event: Event) => {
                 emitOpenLifecycle(openSessionId, 'editingCompileComplete', {
                     elapsedMs: editingCompileElapsedMs
                 });
-                window.dispatchEvent(
-                    new CustomEvent('fontOpenEditingCompiled', {
-                        detail: {
-                            path: detail.path,
-                            openSessionId,
-                            openedAt,
-                            elapsedMs: editingCompileElapsedMs
-                        }
-                    })
-                );
             },
             { once: true }
         );
@@ -3154,7 +3134,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         fullCompileDeferredTimer = window.setTimeout(() => {
             emitOpenLifecycle(openSessionId, 'startup-ready-timeout-waiting', {
                 canvasReady,
-                overviewReady
+                startupFinalizeStarted
             });
             releaseStartupGates(openSessionId, 'startup-ready-timeout', true);
         }, 8000);

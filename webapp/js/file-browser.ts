@@ -944,6 +944,59 @@ function getParentPath(path: string): string {
     return idx >= 0 ? path.slice(0, idx) : '';
 }
 
+function hideLoadingOverlayForUrlOpen(): void {
+    const extendedWindow = window as Window & {
+        __unsupportedBrowserWarningRequired?: boolean;
+        __unsupportedBrowserWarningAcknowledged?: boolean;
+    };
+
+    if (
+        extendedWindow.__unsupportedBrowserWarningRequired === true &&
+        extendedWindow.__unsupportedBrowserWarningAcknowledged !== true
+    ) {
+        return;
+    }
+
+    const loadingOverlay = document.getElementById('loading-overlay');
+    if (!loadingOverlay || loadingOverlay.classList.contains('hidden')) {
+        return;
+    }
+
+    loadingOverlay.classList.add('hidden');
+}
+
+function waitForUrlOpenFontReady(fontPath: string): Promise<void> {
+    return new Promise((resolve) => {
+        let settled = false;
+
+        const finish = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            window.removeEventListener('fontReady', onFontReady);
+            clearTimeout(timeoutId);
+            resolve();
+        };
+
+        const onFontReady = (event: Event) => {
+            const detail = (event as CustomEvent<{ path?: string }>).detail;
+            if (detail?.path !== fontPath) {
+                return;
+            }
+
+            hideLoadingOverlayForUrlOpen();
+            finish();
+        };
+
+        const timeoutId = window.setTimeout(() => {
+            finish();
+        }, 12000);
+
+        window.addEventListener('fontReady', onFontReady);
+    });
+}
+
 async function openFont(
     path: string,
     fileHandle?: FileSystemFileHandle,
@@ -2714,7 +2767,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 // Open the font
+                const urlOpenReadyPromise = waitForUrlOpenFontReady(fontPath);
                 await openFont(fontPath);
+                await urlOpenReadyPromise;
 
                 // Show home button since we opened from URL
                 updateHomeButtonVisibility();
@@ -2908,58 +2963,8 @@ window.addEventListener('fontReady', async () => {
     }
 });
 
-// Listen for fontReady event (fires after FontManager.loadFont completes)
 window.addEventListener('fontReady', async () => {
     updateHomeButtonVisibility();
-
-    // Initialize state synchronization and restore state from URL
-    if (
-        window.glyphCanvas &&
-        !(window.glyphCanvas as any).hasInitializedStateSync
-    ) {
-        // Mark as initialized to avoid duplicate initialization
-        (window.glyphCanvas as any).hasInitializedStateSync = true;
-
-        // Initialize state sync (must come first)
-        if ((window as any).initStateSync) {
-            (window as any).initStateSync(window.glyphCanvas);
-        }
-
-        // Restore state from URL after initial editing font compile completes.
-        // This avoids late initialization/compile steps resetting restored mode/location.
-        const restoreOnce = async () => {
-            if ((window as any).restoreStateFromUrl && window.glyphCanvas) {
-                await (window as any).restoreStateFromUrl(window.glyphCanvas);
-            }
-            // Enable sync after restoration is complete
-            if ((window as any).enableSync) {
-                (window as any).enableSync();
-            }
-        };
-
-        let restored = false;
-        const runRestoreOnce = async () => {
-            if (restored) {
-                return;
-            }
-            restored = true;
-            await restoreOnce();
-        };
-
-        // Preferred: wait for first editing font compilation to finish.
-        window.addEventListener(
-            'editingFontCompiled',
-            async () => {
-                await runRestoreOnce();
-            },
-            { once: true }
-        );
-
-        // Fallback: if event doesn't arrive, restore after a safety timeout.
-        setTimeout(async () => {
-            await runRestoreOnce();
-        }, 2000);
-    }
 });
 
 // Listen for plugin title bar redraw event

@@ -442,73 +442,19 @@ const queueOverviewRefresh = (
     }, 100);
 };
 
-window.addEventListener('fontOpenLifecycle', (event: Event) => {
-    const detail =
-        (
-            event as CustomEvent<{
-                phase?: string;
-                openSessionId?: string;
-                openedAt?: number;
-            }>
-        ).detail || {};
-
-    if (detail.phase !== 'loadFontComplete' || !detail.openSessionId) {
-        return;
-    }
-
-    console.log(
-        '[OverviewView]',
-        'Load font complete, scheduling overview refresh'
-    );
-
-    const spanId = timelineSpanStartSafe('overview.loadFontCompleteHandler');
-    queueOverviewRefresh(
-        spanId,
-        'loadFontComplete',
-        detail.openSessionId,
-        typeof detail.openedAt === 'number' ? detail.openedAt : null
-    );
-});
-
 window.addEventListener('fontReady', (event: Event) => {
     const detail =
         (event as CustomEvent<{ openSessionId?: string; openedAt?: number }>)
             .detail || {};
 
-    if (detail.openSessionId) {
-        return;
-    }
-
-    console.log('[OverviewView]', 'Font ready (no session), updating overview');
+    console.log('[OverviewView]', 'Font ready, updating overview');
     const spanId = timelineSpanStartSafe('overview.fontReadyHandler');
-    queueOverviewRefresh(spanId, 'fontReady', null, null);
-});
-
-window.addEventListener('fontOpenEditingCompiled', async (event: Event) => {
-    const detail =
-        (event as CustomEvent<{ openSessionId?: string }>).detail || {};
-    const openSessionId = detail.openSessionId;
-
-    if (!openSessionId || !pendingInitialOpenSession) {
-        return;
-    }
-
-    if (openSessionId !== pendingInitialOpenSession) {
-        return;
-    }
-
-    if (!glyphOverviewInstance || !window.currentFontModel?.glyphs) {
-        return;
-    }
-
-    const success = await renderOverviewAndEmit(
-        'editing-compile-ready',
-        openSessionId
+    queueOverviewRefresh(
+        spanId,
+        'fontReady',
+        detail.openSessionId || null,
+        typeof detail.openedAt === 'number' ? detail.openedAt : null
     );
-    if (success && pendingInitialOpenSession === openSessionId) {
-        pendingInitialOpenSession = null;
-        pendingInitialOpenStartedAt = null;
-    }
 });
 
 window.addEventListener('diskFolderAccessChanged', async () => {

@@ -5,8 +5,51 @@ import { readUrlState, decodeLocation, decodeFeatures } from './url-state';
 import { Logger } from './logger';
 import type { GlyphCanvas } from './glyph-canvas';
 import type { UserspaceLocation } from './locations';
+import { enableSync, initStateSync } from './state-sync';
 
 const console = new Logger('StateRestore');
+let startupStateReady = false;
+let startupStateReadyPromise: Promise<void> | null = null;
+
+function waitForNextAnimationFrame(): Promise<void> {
+    return new Promise((resolve) => {
+        requestAnimationFrame(() => resolve());
+    });
+}
+
+export async function ensureStartupStateReady(
+    glyphCanvas: GlyphCanvas
+): Promise<void> {
+    if (startupStateReady) {
+        return;
+    }
+
+    if (startupStateReadyPromise) {
+        return startupStateReadyPromise;
+    }
+
+    startupStateReadyPromise = (async () => {
+        if (!(glyphCanvas as any).hasInitializedStateSync) {
+            (glyphCanvas as any).hasInitializedStateSync = true;
+            initStateSync(glyphCanvas);
+        }
+
+        await restoreStateFromUrl(glyphCanvas);
+        enableSync();
+        await waitForNextAnimationFrame();
+        await waitForNextAnimationFrame();
+
+        startupStateReady = true;
+    })();
+
+    try {
+        await startupStateReadyPromise;
+    } finally {
+        if (!startupStateReady) {
+            startupStateReadyPromise = null;
+        }
+    }
+}
 
 /**
  * Restore application state from URL parameters
