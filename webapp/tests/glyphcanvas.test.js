@@ -3457,6 +3457,7 @@ describe('GlyphCanvas snap debug candidates', () => {
     let canvas;
     let font;
     let currentFontSpy;
+    let originalFontCompilation;
 
     beforeEach(() => {
         document.body.innerHTML = '<div id="test-container"></div>';
@@ -3539,6 +3540,27 @@ describe('GlyphCanvas snap debug candidates', () => {
                     exported: true,
                     layers: [
                         {
+                            id: 'right-associated-layer',
+                            width: 320,
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 40, y: 70, nodetype: 'Line' },
+                                        { x: 90, y: 70, nodetype: 'Line' },
+                                        { x: 90, y: 160, nodetype: 'Line' },
+                                        { x: 40, y: 160, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
                             id: 'right-layer',
                             width: 320,
                             master: {
@@ -3578,16 +3600,18 @@ describe('GlyphCanvas snap debug candidates', () => {
             .spyOn(fontManager, 'currentFont', 'get')
             .mockReturnValue({ fontModel: font });
         window.currentFontModel = font;
+        originalFontCompilation = window.fontCompilation;
     });
 
     afterEach(() => {
         canvas.destroy();
         currentFontSpy.mockRestore();
         window.currentFontModel = null;
+        window.fontCompilation = originalFontCompilation;
     });
 
-    function setupTextRun() {
-        canvas.outlineEditor.layerData = {
+    function setupTextRun(options = {}) {
+        canvas.outlineEditor.layerData = options.layerData || {
             id: 'active-layer',
             width: 400,
             master: {
@@ -3608,7 +3632,11 @@ describe('GlyphCanvas snap debug candidates', () => {
             anchors: [],
             guides: []
         };
-        canvas.outlineEditor.selectedLayerId = 'active-layer';
+        canvas.outlineEditor.selectedLayerId =
+            options.selectedLayerId || 'active-layer';
+        canvas.outlineEditor.glyphStack =
+            options.glyphStack ||
+            `activeGlyph@${canvas.outlineEditor.selectedLayerId}`;
         canvas.textRunEditor.selectedMasterId = 'master-1';
         canvas.textRunEditor.glyphNameBuffer = [
             'leftGlyph',
@@ -3621,6 +3649,7 @@ describe('GlyphCanvas snap debug candidates', () => {
             { ax: 320, dx: 0, dy: 0, g: 13 }
         ];
         canvas.textRunEditor.selectedGlyphIndex = 1;
+        canvas.axesManager.variationSettings = options.variationSettings || {};
     }
 
     function simulateDragStart(contourIndex, nodeIndex) {
@@ -3631,6 +3660,7 @@ describe('GlyphCanvas snap debug candidates', () => {
         canvas.outlineEditor._snapDragStartMouseX = 100;
         canvas.outlineEditor._snapDragStartMouseY = 0;
         canvas.outlineEditor._snapDragStartNodePos = { x: 100, y: 0 };
+        canvas.outlineEditor._beginAdjacentSnapInterpolationSession();
         canvas.outlineEditor._rebuildSnapCandidateCache();
     }
 
@@ -3641,7 +3671,7 @@ describe('GlyphCanvas snap debug candidates', () => {
         expect(candidates).toEqual([]);
     });
 
-    test('collectDebugSnapCandidates includes neighboring glyph nodes from object-model contour outlines', () => {
+    test('collectDebugSnapCandidates prefers the exact default master layer over associated same-master layers', () => {
         setupTextRun();
         simulateDragStart(0, 0);
 
@@ -3670,6 +3700,265 @@ describe('GlyphCanvas snap debug candidates', () => {
                     source: 'right',
                     x: 440,
                     y: 30
+                })
+            ])
+        );
+    });
+
+    test('collectDebugSnapCandidates loads neighboring intermediate outlines from Rust when no exact layer exists', async () => {
+        font = Font.fromData({
+            upm: 1000,
+            version: [1, 0],
+            axes: [
+                {
+                    name: { en: 'Weight' },
+                    tag: 'wght',
+                    min: 0,
+                    default: 0,
+                    max: 1000
+                }
+            ],
+            instances: [],
+            masters: [
+                {
+                    id: 'master-1',
+                    name: { en: 'Light' },
+                    location: { wght: 0 },
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                },
+                {
+                    id: 'master-2',
+                    name: { en: 'Bold' },
+                    location: { wght: 1000 },
+                    guides: [],
+                    metrics: {},
+                    kerning: new Map()
+                }
+            ],
+            glyphs: [
+                {
+                    name: 'leftGlyph',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'left-layer',
+                            width: 300,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 20, y: 10, nodetype: 'Line' },
+                                        { x: 80, y: 10, nodetype: 'Line' },
+                                        { x: 80, y: 70, nodetype: 'Line' },
+                                        { x: 20, y: 70, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'activeGlyph',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'active-default-layer',
+                            width: 400,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 260, y: 0, nodetype: 'Line' },
+                                        { x: 260, y: 200, nodetype: 'Line' },
+                                        { x: 100, y: 200, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'active-brace-layer',
+                            width: 400,
+                            master: {
+                                type: 'AssociatedWithMaster',
+                                master: 'master-1'
+                            },
+                            location: { wght: 500 },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 100, y: 0, nodetype: 'Line' },
+                                        { x: 260, y: 0, nodetype: 'Line' },
+                                        { x: 260, y: 200, nodetype: 'Line' },
+                                        { x: 100, y: 200, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                },
+                {
+                    name: 'rightGlyph',
+                    category: 'Base',
+                    exported: true,
+                    layers: [
+                        {
+                            id: 'right-light-layer',
+                            width: 320,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-1'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 40, y: 10, nodetype: 'Line' },
+                                        { x: 90, y: 10, nodetype: 'Line' },
+                                        { x: 90, y: 120, nodetype: 'Line' },
+                                        { x: 40, y: 120, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        },
+                        {
+                            id: 'right-bold-layer',
+                            width: 320,
+                            master: {
+                                type: 'DefaultForMaster',
+                                master: 'master-2'
+                            },
+                            shapes: [
+                                {
+                                    nodes: [
+                                        { x: 40, y: 110, nodetype: 'Line' },
+                                        { x: 90, y: 110, nodetype: 'Line' },
+                                        { x: 90, y: 220, nodetype: 'Line' },
+                                        { x: 40, y: 220, nodetype: 'Line' }
+                                    ],
+                                    closed: true
+                                }
+                            ],
+                            anchors: [],
+                            guides: []
+                        }
+                    ]
+                }
+            ],
+            names: {
+                family_name: { en: 'Intermediate Snap Test' }
+            },
+            note: '',
+            date: '2026-04-08',
+            features: {},
+            first_kern_groups: {},
+            second_kern_groups: {},
+            custom_ot_values: [],
+            variation_sequences: [],
+            format_specific: {}
+        });
+        currentFontSpy.mockReturnValue({ fontModel: font });
+        window.currentFontModel = font;
+
+        const sendMessage = jest.fn().mockResolvedValue({
+            outlinesJson: JSON.stringify([
+                {
+                    name: 'rightGlyph',
+                    width: 320,
+                    shapes: [
+                        {
+                            nodes: [
+                                { x: 40, y: 60, nodetype: 'Line' },
+                                { x: 90, y: 60, nodetype: 'Line' },
+                                { x: 90, y: 170, nodetype: 'Line' },
+                                { x: 40, y: 170, nodetype: 'Line' }
+                            ],
+                            closed: true
+                        }
+                    ]
+                }
+            ])
+        });
+        window.fontCompilation = { sendMessage };
+
+        setupTextRun({
+            layerData: {
+                id: 'active-brace-layer',
+                width: 400,
+                master: {
+                    type: 'AssociatedWithMaster',
+                    master: 'master-1'
+                },
+                location: { wght: 500 },
+                shapes: [
+                    {
+                        nodes: [
+                            { x: 100, y: 0, nodetype: 'Line' },
+                            { x: 260, y: 0, nodetype: 'Line' },
+                            { x: 260, y: 200, nodetype: 'Line' },
+                            { x: 100, y: 200, nodetype: 'Line' }
+                        ],
+                        closed: true
+                    }
+                ],
+                anchors: [],
+                guides: []
+            },
+            selectedLayerId: 'active-brace-layer',
+            glyphStack: 'activeGlyph@active-brace-layer',
+            variationSettings: { wght: 500 }
+        });
+
+        simulateDragStart(0, 0);
+
+        let candidates = canvas.outlineEditor.collectDebugSnapCandidates();
+        expect(
+            candidates.some((candidate) => candidate.source === 'right')
+        ).toBe(false);
+
+        await Promise.all(
+            sendMessage.mock.results.map((result) => result.value)
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+
+        candidates = canvas.outlineEditor.collectDebugSnapCandidates();
+
+        expect(sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'getGlyphOutlines',
+                glyphNames: ['rightGlyph'],
+                location: { wght: 500 },
+                flattenComponents: true
+            })
+        );
+        expect(candidates).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    source: 'right',
+                    x: 440,
+                    y: 60
                 })
             ])
         );

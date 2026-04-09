@@ -1177,6 +1177,13 @@ export class OutlineEditor {
         return this._snapDragStartNodePos;
     }
     private _snapCandidateCache: SnapCandidateCache | null = null;
+    private _adjacentSnapInterpolatedLayerCache: Map<
+        string,
+        Babelfont.Layer | null
+    > = new Map();
+    private _pendingAdjacentSnapInterpolatedLayerRequests: Set<string> =
+        new Set();
+    private _adjacentSnapInterpolationSessionId: number = 0;
     private _lastDragSaveTime: number = 0;
     private _lastPropertyPanelUpdateTime: number = 0;
     private _pendingDragMetricsUpdate: boolean = false;
@@ -5022,6 +5029,301 @@ export class OutlineEditor {
         return candidates;
     }
 
+    private _beginAdjacentSnapInterpolationSession(): void {
+        this._adjacentSnapInterpolationSessionId += 1;
+        this._adjacentSnapInterpolatedLayerCache.clear();
+        this._pendingAdjacentSnapInterpolatedLayerRequests.clear();
+    }
+
+    private _serializeAdjacentSnapUserspaceLocation(
+        location: UserspaceLocation
+    ): string {
+        const keys = Object.keys(location).sort();
+        const normalized: Record<string, number> = {};
+
+        for (const key of keys) {
+            normalized[key] = Number(location[key]);
+        }
+
+        return JSON.stringify(normalized);
+    }
+
+    private _makeAdjacentSnapInterpolationCacheKey(
+        glyphName: string,
+        location: UserspaceLocation
+    ): string {
+        return `${glyphName}|${this._serializeAdjacentSnapUserspaceLocation(location)}`;
+    }
+
+    private _getCurrentAdjacentSnapUserspaceLocation(): UserspaceLocation | null {
+        const rootGlyphName =
+            this.parseGlyphStack()[0]?.glyphName ||
+            this.glyphCanvas.getCurrentGlyphName();
+
+        if (this.selectedLayerId && rootGlyphName) {
+            const layerLocation = this.getUserspaceLocationForLayer(
+                this.selectedLayerId,
+                rootGlyphName
+            );
+            if (layerLocation) {
+                return layerLocation;
+            }
+        }
+
+        const textRunLocation =
+            this.glyphCanvas.textRunEditor?.getCurrentVariationLocationSnapshot?.();
+        return textRunLocation && Object.keys(textRunLocation).length >= 0
+            ? textRunLocation
+            : null;
+    }
+
+    private _findMatchingLayerForGlyphAtUserspaceLocation(
+        glyphName: string,
+        userspaceLocation: UserspaceLocation
+    ): any | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel?.glyphs?.length) {
+            return null;
+        }
+
+        const glyph = fontModel.glyphs.find((candidate: any) => {
+            return candidate.name === glyphName;
+        });
+        if (!glyph?.layers?.length) {
+            return null;
+        }
+
+        const masters: Babelfont.Master[] = (fontModel.masters || []) as any;
+        if (!masters.length) {
+            return null;
+        }
+
+        const currentDesignspaceLocation = userspaceToDesignspace(
+            userspaceLocation,
+            fontModel.axes || []
+        );
+        const axisTags = (fontModel.axes || []).map((axis) => axis.tag);
+
+        const matchingLayers = glyph.layers.filter((layer: any) => {
+            const masterId = layer.master?.master;
+            const hasLayerLocation =
+                !!layer.location && Object.keys(layer.location).length > 0;
+            const master = masters.find(
+                (candidate) => candidate.id === masterId
+            );
+            const effectiveDesignLocation = hasLayerLocation
+                ? layer.location
+                : master?.location;
+
+            return locationsMatchWithinTolerance(
+                effectiveDesignLocation,
+                currentDesignspaceLocation,
+                axisTags
+            );
+        });
+
+        if (!matchingLayers.length) {
+            return null;
+        }
+
+        matchingLayers.sort((left: any, right: any) => {
+            const leftHasLayerLocation =
+                !!left.location && Object.keys(left.location).length > 0;
+            const rightHasLayerLocation =
+                !!right.location && Object.keys(right.location).length > 0;
+
+            const leftPriority = leftHasLayerLocation
+                ? 0
+                : left.master?.type === 'DefaultForMaster'
+                  ? 1
+                  : left.master?.type === 'AssociatedWithMaster'
+                    ? 2
+                    : 3;
+            const rightPriority = rightHasLayerLocation
+                ? 0
+                : right.master?.type === 'DefaultForMaster'
+                  ? 1
+                  : right.master?.type === 'AssociatedWithMaster'
+                    ? 2
+                    : 3;
+
+            if (leftPriority !== rightPriority) {
+                return leftPriority - rightPriority;
+            }
+
+            return String(left.id || '').localeCompare(String(right.id || ''));
+        });
+
+        return matchingLayers[0] || null;
+    }
+
+    private _requestAdjacentSnapInterpolatedLayer(
+        glyphName: string,
+        userspaceLocation: UserspaceLocation
+    ): void {
+        const fontCompilation = (window as any).fontCompilation;
+        if (!fontCompilation?.sendMessage) {
+            return;
+        }
+
+        const cacheKey = this._makeAdjacentSnapInterpolationCacheKey(
+            glyphName,
+            userspaceLocation
+        );
+        if (
+            this._adjacentSnapInterpolatedLayerCache.has(cacheKey) ||
+            this._pendingAdjacentSnapInterpolatedLayerRequests.has(cacheKey)
+        ) {
+            return;
+        }
+
+        const sessionId = this._adjacentSnapInterpolationSessionId;
+        this._pendingAdjacentSnapInterpolatedLayerRequests.add(cacheKey);
+
+        void fontCompilation
+            .sendMessage({
+                type: 'getGlyphOutlines',
+                glyphNames: [glyphName],
+                location: userspaceLocation,
+                flattenComponents: true
+            })
+            .then((response: any) => {
+                if (sessionId !== this._adjacentSnapInterpolationSessionId) {
+                    return;
+                }
+
+                if (response?.error) {
+                    console.warn(
+                        '[OutlineEditor] Failed to fetch adjacent snap outlines:',
+                        response.error
+                    );
+                    this._adjacentSnapInterpolatedLayerCache.set(
+                        cacheKey,
+                        null
+                    );
+                    return;
+                }
+
+                const outlines = JSON.parse(response?.outlinesJson || '[]');
+                const outline = outlines.find(
+                    (candidate: any) => candidate?.name === glyphName
+                );
+
+                if (!outline) {
+                    this._adjacentSnapInterpolatedLayerCache.set(
+                        cacheKey,
+                        null
+                    );
+                    return;
+                }
+
+                const normalizedLayer = LayerDataNormalizer.normalize(
+                    {
+                        width: outline.width ?? 0,
+                        shapes: outline.shapes || []
+                    },
+                    true
+                );
+                this._adjacentSnapInterpolatedLayerCache.set(
+                    cacheKey,
+                    normalizedLayer
+                );
+            })
+            .catch((error: any) => {
+                if (sessionId !== this._adjacentSnapInterpolationSessionId) {
+                    return;
+                }
+                console.warn(
+                    '[OutlineEditor] Adjacent snap outline request failed:',
+                    error
+                );
+                this._adjacentSnapInterpolatedLayerCache.set(cacheKey, null);
+            })
+            .finally(() => {
+                if (sessionId !== this._adjacentSnapInterpolationSessionId) {
+                    return;
+                }
+
+                this._pendingAdjacentSnapInterpolatedLayerRequests.delete(
+                    cacheKey
+                );
+
+                if (
+                    this.isDraggingPoint &&
+                    !this.isSlidingSmoothPointAlongCurve &&
+                    this._snapDragStartNodePos
+                ) {
+                    this._rebuildSnapCandidateCache();
+                    this.glyphCanvas.render();
+                }
+            });
+    }
+
+    private _resolveAdjacentSnapLayerData(
+        glyphName: string,
+        masterId: string | null | undefined,
+        fontModel: any
+    ): Babelfont.Layer | null {
+        const userspaceLocation =
+            this._getCurrentAdjacentSnapUserspaceLocation();
+        if (userspaceLocation) {
+            const matchingLayer =
+                this._findMatchingLayerForGlyphAtUserspaceLocation(
+                    glyphName,
+                    userspaceLocation
+                );
+
+            if (matchingLayer?.id) {
+                const exactLayerData = this.buildExactLayerDataFromModel(
+                    glyphName,
+                    matchingLayer.id
+                );
+                if (exactLayerData) {
+                    return exactLayerData;
+                }
+            }
+
+            const cacheKey = this._makeAdjacentSnapInterpolationCacheKey(
+                glyphName,
+                userspaceLocation
+            );
+            if (this._adjacentSnapInterpolatedLayerCache.has(cacheKey)) {
+                return (
+                    this._adjacentSnapInterpolatedLayerCache.get(cacheKey) ||
+                    null
+                );
+            }
+
+            this._requestAdjacentSnapInterpolatedLayer(
+                glyphName,
+                userspaceLocation
+            );
+            return null;
+        }
+
+        const glyphWrapper = glyphName ? fontModel?.findGlyph(glyphName) : null;
+        if (!glyphWrapper?.layers?.length) {
+            return null;
+        }
+
+        const layer =
+            (masterId && glyphWrapper.findLayerByMasterId
+                ? glyphWrapper.findLayerByMasterId(masterId)
+                : undefined) ||
+            (masterId
+                ? glyphWrapper.layers.find(
+                      (candidate: any) => candidate.master?.master === masterId
+                  )
+                : undefined) ||
+            glyphWrapper.layers[0];
+
+        if (layer?.id) {
+            return this.buildExactLayerDataFromModel(glyphName, layer.id);
+        }
+
+        return null;
+    }
+
     private _getBufferedAdjacentSnapCandidates(
         glyphIndex: number,
         source: 'left' | 'right',
@@ -5060,21 +5362,18 @@ export class OutlineEditor {
 
         const glyphName =
             explicitGlyphName || tre.glyphNameBuffer[glyphIndex] || null;
-        const glyphWrapper = glyphName ? fontModel?.findGlyph(glyphName) : null;
-        if (!glyphWrapper?.layers?.length) {
+        if (!glyphName) {
             return [];
         }
 
-        const layer =
-            (masterId && glyphWrapper.findLayerByMasterId
-                ? glyphWrapper.findLayerByMasterId(masterId)
-                : undefined) ||
-            (masterId
-                ? glyphWrapper.layers.find(
-                      (candidate: any) => candidate.master?.master === masterId
-                  )
-                : undefined) ||
-            glyphWrapper.layers[0];
+        const layer = this._resolveAdjacentSnapLayerData(
+            glyphName,
+            masterId,
+            fontModel
+        );
+        if (!layer?.shapes?.length) {
+            return [];
+        }
 
         return this._collectOnCurveCandidatesFromShapes(
             layer?.shapes,
@@ -5995,6 +6294,7 @@ export class OutlineEditor {
             this._snapDragStartMouseX = glyphX;
             this._snapDragStartMouseY = glyphY;
             this._snapDragStartNodePos = this._getPrimaryDragNodePos();
+            this._beginAdjacentSnapInterpolationSession();
             this._rebuildSnapCandidateCache();
         }
 
