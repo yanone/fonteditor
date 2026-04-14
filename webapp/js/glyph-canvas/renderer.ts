@@ -2055,6 +2055,8 @@ export class GlyphCanvasRenderer {
             });
         }
 
+        this.drawSelectionResizeBox(invScale, isDarkTheme);
+
         // Draw component labels on top of everything
         componentLabels.forEach(({ componentName, bounds, transform }) => {
             const [a, b, c, d, tx, ty] = transform;
@@ -2112,6 +2114,69 @@ export class GlyphCanvasRenderer {
         this.ctx.translate(x, y);
         this.drawOutlineGuides(visibleGuides, invScale, isDarkTheme, 'handles');
         this.ctx.restore();
+    }
+
+    private drawSelectionResizeBox(
+        invScale: number,
+        isDarkTheme: boolean
+    ): void {
+        const bounds =
+            this.glyphCanvas.outlineEditor.getVisibleSelectionTransformBounds();
+        if (!bounds) {
+            return;
+        }
+
+        const handles =
+            this.glyphCanvas.outlineEditor.getVisibleSelectionResizeHandles();
+        if (handles.length === 0) {
+            return;
+        }
+
+        const strokeColor = isDarkTheme
+            ? 'rgba(118, 234, 226, 0.92)'
+            : 'rgba(20, 118, 110, 0.95)';
+        const fillColor = isDarkTheme
+            ? 'rgba(118, 234, 226, 0.16)'
+            : 'rgba(20, 118, 110, 0.12)';
+        const handleFillColor = isDarkTheme
+            ? 'rgba(156, 247, 240, 1)'
+            : 'rgba(20, 118, 110, 1)';
+        const hoveredHandleKey =
+            this.glyphCanvas.outlineEditor.hoveredResizeHandle?.key;
+        const lineWidth = 1.5 * invScale;
+
+        this.ctx.save();
+        this.ctx.strokeStyle = strokeColor;
+        this.ctx.fillStyle = fillColor;
+        this.ctx.lineWidth = lineWidth;
+        this.ctx.beginPath();
+        this.ctx.rect(bounds.minX, bounds.minY, bounds.width, bounds.height);
+        this.ctx.fill();
+        this.ctx.stroke();
+        this.ctx.restore();
+
+        const handleSize = Math.max(8 * invScale, 10 * invScale);
+        handles.forEach((handle) => {
+            this.ctx.save();
+            this.ctx.translate(handle.x, handle.y);
+            this.applyInverseComponentTransform();
+            this.ctx.beginPath();
+            this.ctx.rect(
+                -handleSize / 2,
+                -handleSize / 2,
+                handleSize,
+                handleSize
+            );
+            this.ctx.fillStyle =
+                hoveredHandleKey === handle.key ? handleFillColor : strokeColor;
+            this.ctx.fill();
+            this.ctx.lineWidth = Math.max(invScale, lineWidth * 0.75);
+            this.ctx.strokeStyle = isDarkTheme
+                ? 'rgba(0, 0, 0, 0.55)'
+                : 'rgba(255, 255, 255, 0.7)';
+            this.ctx.stroke();
+            this.ctx.restore();
+        });
     }
 
     drawShape(

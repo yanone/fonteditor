@@ -155,6 +155,57 @@ type CanvasPathContextTarget = {
 
 type CanvasPoint = { x: number; y: number };
 
+type ResizeHandleAxisRole = -1 | 0 | 1;
+
+type SelectionTransformBounds = {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    width: number;
+    height: number;
+    centerX: number;
+    centerY: number;
+};
+
+type SelectionResizeHandle = {
+    key: string;
+    x: number;
+    y: number;
+    xRole: ResizeHandleAxisRole;
+    yRole: ResizeHandleAxisRole;
+    cursor: string;
+};
+
+type SelectionResizePointSnapshot = {
+    contourIndex: number;
+    nodeIndex: number;
+    x: number;
+    y: number;
+};
+
+type SelectionResizeAnchorSnapshot = {
+    anchorIndex: number;
+    x: number;
+    y: number;
+};
+
+type SelectionResizeComponentSnapshot = {
+    componentIndex: number;
+    transform: Transform;
+    usesArrayTransform: boolean;
+};
+
+type SelectionResizeSnapshot = {
+    bounds: SelectionTransformBounds;
+    handle: SelectionResizeHandle;
+    points: SelectionResizePointSnapshot[];
+    anchors: SelectionResizeAnchorSnapshot[];
+    components: SelectionResizeComponentSnapshot[];
+    includesGeometry: boolean;
+    includesAnchors: boolean;
+};
+
 /**
  * Convert affine matrix [a, b, c, d, e, f] to DecomposedAffine
  */
@@ -717,6 +768,38 @@ function transformPoint(
     };
 }
 
+function multiplyAffineTransforms(
+    left: Transform,
+    right: Transform
+): Transform {
+    return [
+        left[0] * right[0] + left[2] * right[1],
+        left[1] * right[0] + left[3] * right[1],
+        left[0] * right[2] + left[2] * right[3],
+        left[1] * right[2] + left[3] * right[3],
+        left[0] * right[4] + left[2] * right[5] + left[4],
+        left[1] * right[4] + left[3] * right[5] + left[5]
+    ];
+}
+
+function createAffineScaleAboutPoint(
+    anchorX: number,
+    anchorY: number,
+    scaleX: number,
+    scaleY: number,
+    translateX: number = 0,
+    translateY: number = 0
+): Transform {
+    return [
+        scaleX,
+        0,
+        0,
+        scaleY,
+        anchorX - scaleX * anchorX + translateX,
+        anchorY - scaleY * anchorY + translateY
+    ];
+}
+
 function getAxisAlignedHandleDirection(
     anchor: Babelfont.Node,
     handle: Babelfont.Node
@@ -1213,6 +1296,7 @@ export class OutlineEditor {
     isDraggingAnchor: boolean = false;
     isDraggingSidebearing: boolean = false;
     isDraggingGuide: boolean = false;
+    isResizingSelection: boolean = false;
     isMarqueeSelecting: boolean = false;
     _hasMoved: boolean = false;
     _preDragDesc: string | null = null;
@@ -1223,6 +1307,7 @@ export class OutlineEditor {
         | 'point'
         | 'slide-point'
         | 'component'
+        | 'transform'
         | 'sidebearing'
         | 'guide'
         | null = null;
@@ -1240,6 +1325,7 @@ export class OutlineEditor {
     hoveredComponentIndex: number | null = null;
     hoveredSidebearingHandle: SidebearingHandle | null = null;
     hoveredGuideHandle: GuideHandle | null = null;
+    hoveredResizeHandle: SelectionResizeHandle | null = null;
     hoveredGlyphIndex: number = -1;
     hoveredAddPointPreview: HoveredAddPointPreview | null = null;
     hoveredCommandCurvePreview: HoveredSegmentPreview | null = null;
@@ -1280,6 +1366,7 @@ export class OutlineEditor {
     private pendingCommandPathEdit: PendingCommandPathEdit | null = null;
     private canvasContextMenuTippy: TippyInstance | null = null;
     private canvasContextMenuTarget: CanvasPathContextTarget | null = null;
+    private selectionResizeSnapshot: SelectionResizeSnapshot | null = null;
 
     private readonly GUIDELINES_STORAGE_KEY = 'outlineEditorGuidelinesVisible';
 
@@ -1888,7 +1975,11 @@ export class OutlineEditor {
             }
             if (
                 !this.draggingSomething ||
-                !(this.isDraggingComponent || this.isDraggingPoint)
+                !(
+                    this.isDraggingComponent ||
+                    this.isDraggingPoint ||
+                    this.isResizingSelection
+                )
             ) {
                 return;
             }
@@ -1907,6 +1998,7 @@ export class OutlineEditor {
         if (
             forceMetricsRecompute ||
             this.isDraggingComponent ||
+            this.isResizingSelection ||
             (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve)
         ) {
             this.applyMetricsKeysToCurrentEditedLayer(true, {
@@ -2818,6 +2910,158 @@ export class OutlineEditor {
         this.marqueeInitialPoints = [];
     }
 
+    private getSelectionTransformBounds(): SelectionTransformBounds | null {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData || currentLayerData.isInterpolated) {
+            return null;
+        }
+
+        let minX = Number.POSITIVE_INFINITY;
+        let minY = Number.POSITIVE_INFINITY;
+        let maxX = Number.NEGATIVE_INFINITY;
+        let maxY = Number.NEGATIVE_INFINITY;
+
+        const includePoint = (x: number, y: number): void => {
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                return;
+            }
+
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        };
+
+        for (const { contourIndex, nodeIndex } of this.selectedPoints) {
+            const contour = getEditableContour(
+                currentLayerData.shapes?.[contourIndex]
+            );
+            const node = contour?.nodes?.[nodeIndex];
+            if (node) {
+                includePoint(node.x, node.y);
+            }
+        }
+
+        for (const anchorIndex of this.selectedAnchors) {
+            const anchor = currentLayerData.anchors?.[anchorIndex];
+            if (anchor) {
+                includePoint(anchor.x, anchor.y);
+            }
+        }
+
+        for (const componentIndex of this.selectedComponents) {
+            const shape = currentLayerData.shapes?.[componentIndex];
+            if (!shape || !('reference' in shape) || !shape.layerData?.shapes) {
+                continue;
+            }
+
+            const transformRaw = shape.transform;
+            const transform = !transformRaw
+                ? ([1, 0, 0, 1, 0, 0] as Transform)
+                : Array.isArray(transformRaw)
+                  ? (transformRaw as Transform)
+                  : (DecomposedAffineTransform.toAffine(
+                        transformRaw
+                    ) as Transform);
+            const bounds = Layer.calculateShapeBounds(
+                shape.layerData.shapes,
+                transform
+            );
+            if (!bounds) {
+                continue;
+            }
+
+            includePoint(bounds.minX, bounds.minY);
+            includePoint(bounds.maxX, bounds.maxY);
+        }
+
+        if (
+            !Number.isFinite(minX) ||
+            !Number.isFinite(minY) ||
+            !Number.isFinite(maxX) ||
+            !Number.isFinite(maxY)
+        ) {
+            return null;
+        }
+
+        return {
+            minX,
+            minY,
+            maxX,
+            maxY,
+            width: maxX - minX,
+            height: maxY - minY,
+            centerX: (minX + maxX) / 2,
+            centerY: (minY + maxY) / 2
+        };
+    }
+
+    getVisibleSelectionTransformBounds(): SelectionTransformBounds | null {
+        if (
+            !this.active ||
+            !this.selectedLayerId ||
+            !this.layerData ||
+            this.isPreviewMode ||
+            (this.selectedPoints.length === 0 &&
+                this.selectedAnchors.length === 0 &&
+                this.selectedComponents.length === 0)
+        ) {
+            return null;
+        }
+
+        return this.getSelectionTransformBounds();
+    }
+
+    getVisibleSelectionResizeHandles(): SelectionResizeHandle[] {
+        const bounds = this.getVisibleSelectionTransformBounds();
+        if (!bounds) {
+            return [];
+        }
+
+        const roles: Array<[ResizeHandleAxisRole, ResizeHandleAxisRole]> = [
+            [-1, 1],
+            [0, 1],
+            [1, 1],
+            [-1, 0],
+            [1, 0],
+            [-1, -1],
+            [0, -1],
+            [1, -1]
+        ];
+
+        const getCursor = (
+            xRole: ResizeHandleAxisRole,
+            yRole: ResizeHandleAxisRole
+        ): string => {
+            if (xRole === 0) {
+                return 'ns-resize';
+            }
+            if (yRole === 0) {
+                return 'ew-resize';
+            }
+            return xRole === yRole ? 'nesw-resize' : 'nwse-resize';
+        };
+
+        return roles.map(([xRole, yRole]) => ({
+            key: `${xRole}:${yRole}`,
+            x:
+                xRole === -1
+                    ? bounds.minX
+                    : xRole === 1
+                      ? bounds.maxX
+                      : bounds.centerX,
+            y:
+                yRole === -1
+                    ? bounds.minY
+                    : yRole === 1
+                      ? bounds.maxY
+                      : bounds.centerY,
+            xRole,
+            yRole,
+            cursor: getCursor(xRole, yRole)
+        }));
+    }
+
     private cloneSelectedPoints(
         points: Point[] = this.selectedPoints
     ): Point[] {
@@ -3169,6 +3413,7 @@ export class OutlineEditor {
         this.selectedComponents = nextState.components;
         this.selectedGuideHandle = nextState.guideHandle;
         this.selectedSidebearingHandle = null;
+        this.hoveredResizeHandle = null;
         this.storeSelectionStateForLayer(layer, nextState);
     }
 
@@ -4129,9 +4374,12 @@ export class OutlineEditor {
         this.hoveredComponentIndex = null;
         this.hoveredSidebearingHandle = null;
         this.hoveredGuideHandle = null;
+        this.hoveredResizeHandle = null;
         this.hoveredAddPointPreview = null;
         this.hoveredCommandCurvePreview = null;
         this.hoveredGlyphIndex = -1;
+        this.selectionResizeSnapshot = null;
+        this.isResizingSelection = false;
         this.glyphCanvas.updatePropertyPanel();
     }
 
@@ -4553,6 +4801,11 @@ export class OutlineEditor {
         const isCmdClick = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
         if (isCmdClick && this.hoveredAddPointPreview) {
             void this.commitHoveredAddPointPreview();
+            return;
+        }
+
+        if (this.hoveredResizeHandle) {
+            this.beginSelectionResize(e);
             return;
         }
 
@@ -6223,6 +6476,11 @@ export class OutlineEditor {
             return;
         }
 
+        if (this.isResizingSelection) {
+            this.handleSelectionResizeDrag(e);
+            return;
+        }
+
         // Handle component, anchor, or point dragging in outline editor
         if (
             (this.isDraggingGuide && this.selectedGuideHandle !== null) ||
@@ -6236,6 +6494,249 @@ export class OutlineEditor {
             }
             return;
         }
+    }
+
+    private buildSelectionResizeDescription(
+        bounds: SelectionTransformBounds | null
+    ): string | null {
+        if (!bounds) {
+            return null;
+        }
+
+        return `Bounds: (${Math.round(bounds.minX)}, ${Math.round(bounds.minY)})-(${Math.round(bounds.maxX)}, ${Math.round(bounds.maxY)})`;
+    }
+
+    private beginSelectionResize(e: MouseEvent): void {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const bounds = this.getSelectionTransformBounds();
+        const handle = this.hoveredResizeHandle;
+
+        if (!currentLayerData || !bounds || !handle) {
+            return;
+        }
+
+        const points: SelectionResizePointSnapshot[] = [];
+        for (const point of this.selectedPoints) {
+            const contour = getEditableContour(
+                currentLayerData.shapes?.[point.contourIndex]
+            );
+            const node = contour?.nodes?.[point.nodeIndex];
+            if (!node) {
+                continue;
+            }
+
+            points.push({
+                contourIndex: point.contourIndex,
+                nodeIndex: point.nodeIndex,
+                x: node.x,
+                y: node.y
+            });
+        }
+
+        const anchors: SelectionResizeAnchorSnapshot[] = [];
+        for (const anchorIndex of this.selectedAnchors) {
+            const anchor = currentLayerData.anchors?.[anchorIndex];
+            if (!anchor) {
+                continue;
+            }
+
+            anchors.push({
+                anchorIndex,
+                x: anchor.x,
+                y: anchor.y
+            });
+        }
+
+        const components: SelectionResizeComponentSnapshot[] = [];
+        for (const componentIndex of this.selectedComponents) {
+            const shape = currentLayerData.shapes?.[componentIndex];
+            if (!shape || !('reference' in shape)) {
+                continue;
+            }
+
+            const transformRaw = shape.transform;
+            const usesArrayTransform = Array.isArray(transformRaw);
+            const transform = !transformRaw
+                ? ([1, 0, 0, 1, 0, 0] as Transform)
+                : usesArrayTransform
+                  ? ([...transformRaw] as Transform)
+                  : (DecomposedAffineTransform.toAffine(
+                        transformRaw
+                    ) as Transform);
+
+            components.push({
+                componentIndex,
+                transform,
+                usesArrayTransform
+            });
+        }
+
+        this.selectionResizeSnapshot = {
+            bounds,
+            handle,
+            points,
+            anchors,
+            components,
+            includesGeometry: points.length > 0 || components.length > 0,
+            includesAnchors: anchors.length > 0
+        };
+        this.isResizingSelection = true;
+        this._hasMoved = false;
+        this._dragType = 'transform';
+        this._preDragDesc = this.buildSelectionResizeDescription(bounds);
+        this.selectedSidebearingHandle = null;
+        this.selectedGuideHandle = null;
+        window.changeBridge?.beginTransaction('Scale selection');
+        this.glyphCanvas.lastMouseX = e.clientX;
+        this.glyphCanvas.lastMouseY = e.clientY;
+        this.lastGlyphX = null;
+        this.lastGlyphY = null;
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+    }
+
+    private handleSelectionResizeDrag(e: MouseEvent): void {
+        const snapshot = this.selectionResizeSnapshot;
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!snapshot || !currentLayerData) {
+            return;
+        }
+
+        const rect = this.canvas!.getBoundingClientRect();
+        this.glyphCanvas.mouseX = e.clientX - rect.left;
+        this.glyphCanvas.mouseY = e.clientY - rect.top;
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+
+        const startBounds = snapshot.bounds;
+        const widthDenominator = startBounds.maxX - startBounds.minX;
+        const heightDenominator = startBounds.maxY - startBounds.minY;
+        const fixedX =
+            snapshot.handle.xRole === 1
+                ? startBounds.minX
+                : snapshot.handle.xRole === -1
+                  ? startBounds.maxX
+                  : startBounds.centerX;
+        const fixedY =
+            snapshot.handle.yRole === 1
+                ? startBounds.minY
+                : snapshot.handle.yRole === -1
+                  ? startBounds.maxY
+                  : startBounds.centerY;
+        const degenerateX =
+            snapshot.handle.xRole !== 0 &&
+            Math.abs(widthDenominator) < 0.000001;
+        const degenerateY =
+            snapshot.handle.yRole !== 0 &&
+            Math.abs(heightDenominator) < 0.000001;
+        const scaleX =
+            snapshot.handle.xRole === 0 || degenerateX
+                ? 1
+                : snapshot.handle.xRole === 1
+                  ? (glyphX - fixedX) / widthDenominator
+                  : (fixedX - glyphX) / widthDenominator;
+        const scaleY =
+            snapshot.handle.yRole === 0 || degenerateY
+                ? 1
+                : snapshot.handle.yRole === 1
+                  ? (glyphY - fixedY) / heightDenominator
+                  : (fixedY - glyphY) / heightDenominator;
+        const translateX =
+            snapshot.handle.xRole === 0 || !degenerateX
+                ? 0
+                : glyphX -
+                  (snapshot.handle.xRole === 1
+                      ? startBounds.maxX
+                      : startBounds.minX);
+        const translateY =
+            snapshot.handle.yRole === 0 || !degenerateY
+                ? 0
+                : glyphY -
+                  (snapshot.handle.yRole === 1
+                      ? startBounds.maxY
+                      : startBounds.minY);
+        const selectionTransform = createAffineScaleAboutPoint(
+            fixedX,
+            fixedY,
+            scaleX,
+            scaleY,
+            translateX,
+            translateY
+        );
+
+        for (const pointSnapshot of snapshot.points) {
+            const contour = getEditableContour(
+                currentLayerData.shapes?.[pointSnapshot.contourIndex]
+            );
+            const node = contour?.nodes?.[pointSnapshot.nodeIndex];
+            if (!node) {
+                continue;
+            }
+
+            const transformed = transformPoint(
+                pointSnapshot.x,
+                pointSnapshot.y,
+                selectionTransform
+            );
+            node.x = transformed.x;
+            node.y = transformed.y;
+        }
+
+        for (const anchorSnapshot of snapshot.anchors) {
+            const anchor =
+                currentLayerData.anchors?.[anchorSnapshot.anchorIndex];
+            if (!anchor) {
+                continue;
+            }
+
+            const transformed = transformPoint(
+                anchorSnapshot.x,
+                anchorSnapshot.y,
+                selectionTransform
+            );
+            anchor.x = transformed.x;
+            anchor.y = transformed.y;
+        }
+
+        for (const componentSnapshot of snapshot.components) {
+            const shape =
+                currentLayerData.shapes?.[componentSnapshot.componentIndex];
+            if (!shape || !('reference' in shape)) {
+                continue;
+            }
+
+            const transformed = multiplyAffineTransforms(
+                selectionTransform,
+                componentSnapshot.transform
+            );
+            (shape as any).transform = componentSnapshot.usesArrayTransform
+                ? [...transformed]
+                : affineToDecomposed(transformed);
+        }
+
+        const movementEpsilon = 0.000001;
+        if (
+            Math.abs(scaleX - 1) > movementEpsilon ||
+            Math.abs(scaleY - 1) > movementEpsilon ||
+            Math.abs(translateX) > movementEpsilon ||
+            Math.abs(translateY) > movementEpsilon
+        ) {
+            this._hasMoved = true;
+        }
+
+        const now = performance.now();
+        if (snapshot.includesGeometry) {
+            this.schedulePendingDragMetricsUpdate();
+        } else if (now - this._lastDragSaveTime >= 50) {
+            this._lastDragSaveTime = now;
+            this.saveLayerData('mouse-drag-anchor');
+        }
+
+        if (now - this._lastPropertyPanelUpdateTime >= 100) {
+            this._lastPropertyPanelUpdateTime = now;
+            this.glyphCanvas.updatePropertyPanel();
+        }
+
+        this.glyphCanvas.render();
     }
 
     _handleDrag(e: MouseEvent): void {
@@ -6748,6 +7249,7 @@ export class OutlineEditor {
         }
 
         const wasDragging =
+            this.isResizingSelection ||
             this.isDraggingPoint ||
             this.isDraggingAnchor ||
             this.isDraggingComponent ||
@@ -6772,10 +7274,13 @@ export class OutlineEditor {
         this.isDraggingComponent = false;
         this.isDraggingSidebearing = false;
         this.isDraggingGuide = false;
+        this.isResizingSelection = false;
         this.lastPointDragShiftKey = null;
         this._pointDragPreserveHandlePositions = false;
         this._offCurveAltDragConstraint = null;
         this._smoothOnCurveAltDragConstraint = null;
+        const selectionResizeSnapshot = this.selectionResizeSnapshot;
+        this.selectionResizeSnapshot = null;
 
         // Reset node snap state
         this.activeSnapTarget = null;
@@ -6837,8 +7342,18 @@ export class OutlineEditor {
                 const dragChangeSource =
                     dragType === 'anchor'
                         ? 'mouse-drag-anchor'
-                        : 'mouse-drag-outline';
-                if (dragType === 'point' || dragType === 'component') {
+                        : dragType === 'transform' &&
+                            selectionResizeSnapshot &&
+                            !selectionResizeSnapshot.includesGeometry &&
+                            selectionResizeSnapshot.includesAnchors
+                          ? 'mouse-drag-anchor'
+                          : 'mouse-drag-outline';
+                if (
+                    dragType === 'point' ||
+                    dragType === 'component' ||
+                    (dragType === 'transform' &&
+                        selectionResizeSnapshot?.includesGeometry)
+                ) {
                     this.cancelPendingDragMetricsUpdate();
                     this.flushPendingDragMetricsUpdate(dragChangeSource, true);
                 } else {
@@ -6867,6 +7382,11 @@ export class OutlineEditor {
                     postDragDesc = this._buildComponentDesc(true);
                 } else if (dragType === 'guide') {
                     postDragDesc = this._buildGuideDesc(true);
+                } else if (dragType === 'transform') {
+                    postDragDesc =
+                        this.buildSelectionResizeDescription(
+                            this.getSelectionTransformBounds()
+                        ) ?? undefined;
                 } else if (dragType === 'sidebearing') {
                     const side = this.selectedSidebearingHandle?.side;
                     const sidebearingValue = side
@@ -6917,14 +7437,16 @@ export class OutlineEditor {
                             ? 'Drag point'
                             : dragType === 'component'
                               ? 'Drag component'
-                              : dragType === 'guide'
-                                ? 'Drag guide'
-                                : dragType === 'sidebearing' &&
-                                    this.selectedSidebearingHandle
-                                  ? getSidebearingTransactionLabel(
-                                        this.selectedSidebearingHandle.side
-                                    )
-                                  : 'Drag';
+                              : dragType === 'transform'
+                                ? 'Scale selection'
+                                : dragType === 'guide'
+                                  ? 'Drag guide'
+                                  : dragType === 'sidebearing' &&
+                                      this.selectedSidebearingHandle
+                                    ? getSidebearingTransactionLabel(
+                                          this.selectedSidebearingHandle.side
+                                      )
+                                    : 'Drag';
                 if (isNoOpDragByDescription && !hasMetricsKeySideChange) {
                     // A drag moved during interaction but returned to the same
                     // effective value (e.g. point dragged out and back). Skip
@@ -7017,7 +7539,11 @@ export class OutlineEditor {
                         this.getCurrentGlyphModel()?.name,
                         this._sidebearingAffectedGlyphNames
                     );
-                } else if (dragType === 'anchor') {
+                } else if (
+                    dragType === 'anchor' ||
+                    (dragType === 'transform' &&
+                        selectionResizeSnapshot?.includesAnchors)
+                ) {
                     this._anchorAffectedGlyphNames =
                         this.rebuildAutomaticCompositesForCurrentEditedGlyph();
                     this.syncDependentGlyphsAfterAnchorEdit(
@@ -7036,6 +7562,7 @@ export class OutlineEditor {
             this._preDragDesc = null;
             this._dragType = null;
             this._metricsKeyInteractionSide = null;
+            this.hoveredResizeHandle = null;
 
             // A remote change was deferred during the drag to avoid resetting
             // layerData mid-drag. Now that the drag is complete, run the refresh.
@@ -7056,6 +7583,7 @@ export class OutlineEditor {
         return (
             this.active &&
             (this.isMarqueeSelecting ||
+                this.isResizingSelection ||
                 this.isDraggingPoint ||
                 this.isDraggingAnchor ||
                 this.isDraggingComponent ||
@@ -7075,6 +7603,18 @@ export class OutlineEditor {
         }
 
         this.updateHoveredGuideHandle();
+        this.updateHoveredResizeHandle();
+        if (this.hoveredResizeHandle) {
+            this.hoveredGuideHandle = null;
+            this.hoveredSidebearingHandle = null;
+            this.hoveredComponentIndex = null;
+            this.hoveredAnchorIndex = null;
+            this.hoveredPointIndex = null;
+            this.hoveredAddPointPreview = null;
+            this.hoveredCommandCurvePreview = null;
+            this.hoveredGlyphIndex = -1;
+            return;
+        }
         this.updateHoveredSidebearingHandle();
         this.updateHoveredComponent();
         this.updateHoveredAnchor();
@@ -7085,6 +7625,10 @@ export class OutlineEditor {
 
     cursorStyle(): string | null {
         if (!this.active) return null;
+        if (this.hoveredResizeHandle) {
+            this.canvas!.style.cursor = this.hoveredResizeHandle.cursor;
+            return null;
+        }
         if (this.cmdKeyPressed && this.hoveredAddPointPreview) {
             this.canvas!.style.cursor = 'crosshair';
             return null;
@@ -7156,6 +7700,30 @@ export class OutlineEditor {
             this.glyphCanvas.mouseX,
             this.glyphCanvas.mouseY
         );
+    }
+
+    updateHoveredResizeHandle(): void {
+        if (
+            !this.active ||
+            !this.selectedLayerId ||
+            !this.layerData ||
+            this.isPreviewMode
+        ) {
+            this.hoveredResizeHandle = null;
+            return;
+        }
+
+        const foundHandle = this._findHoveredItem(
+            this.getVisibleSelectionResizeHandles(),
+            (handle) => ({ x: handle.x, y: handle.y }),
+            (handle) => handle,
+            14
+        );
+
+        if (foundHandle?.key !== this.hoveredResizeHandle?.key) {
+            this.hoveredResizeHandle = foundHandle;
+            this.glyphCanvas.render();
+        }
     }
 
     updateHoveredGuideHandle(): void {
