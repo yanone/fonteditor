@@ -195,8 +195,8 @@ type SelectionResizeSnapshot = {
     includesGeometry: boolean;
     includesAnchors: boolean;
     useStrokeAwareScaling: boolean;
-    strokeAwareContours: StrokeAwareContourSnapshot[];
-    strokeAwareNodes: StrokeAwareNodeSnapshot[];
+    strokeAwareGeometry: StrokeAwareGeometrySnapshot | null;
+    strokeAwareTargets: StrokeAwareTargetSnapshot[];
     contrastAxisAngleDegrees: number;
 };
 
@@ -207,8 +207,7 @@ type ContrastAxisHandle = {
     cursor: string;
 };
 
-type StrokeAwareContourSnapshot = {
-    contourIndex: number;
+type StrokeAwareGeometrySnapshot = {
     centerlineBranches: Array<Array<{ x: number; y: number }>>;
     spokes: Array<{
         startX: number;
@@ -218,9 +217,11 @@ type StrokeAwareContourSnapshot = {
     }>;
 };
 
-type StrokeAwareNodeSnapshot = {
-    contourIndex: number;
-    nodeIndex: number;
+type StrokeAwareTargetSnapshot = {
+    kind: 'point' | 'anchor';
+    contourIndex: number | null;
+    nodeIndex: number | null;
+    anchorIndex: number | null;
     centerBranchIndex: number;
     centerSegmentIndex: number;
     centerSegmentT: number;
@@ -233,7 +234,6 @@ type StrokeAwareNodeSnapshot = {
 };
 
 type StrokeAwareCenterlineDebugGeometry = {
-    contourIndex: number;
     centerlineBranches: Array<Array<{ x: number; y: number }>>;
     spokes: Array<{
         startX: number;
@@ -243,9 +243,9 @@ type StrokeAwareCenterlineDebugGeometry = {
     }>;
 };
 
-type StrokeAwareContourGeometry = {
-    contour: StrokeAwareContourSnapshot;
-    nodes: StrokeAwareNodeSnapshot[];
+type StrokeAwareSelectionGeometry = {
+    geometry: StrokeAwareGeometrySnapshot;
+    targets: StrokeAwareTargetSnapshot[];
     debugGeometry: StrokeAwareCenterlineDebugGeometry;
 };
 
@@ -986,7 +986,37 @@ function buildContourPath2D(contour: EditableContour): Path2D | null {
     return path;
 }
 
-function rasterizeContourMask(contour: EditableContour): {
+function buildCombinedContourPath2D(
+    currentLayerData: Babelfont.Layer,
+    contourIndices: number[]
+): Path2D | null {
+    const path = new Path2D();
+    let hasContours = false;
+
+    contourIndices.forEach((contourIndex) => {
+        const contour = getEditableContour(
+            currentLayerData.shapes?.[contourIndex]
+        );
+        if (!contour) {
+            return;
+        }
+
+        const contourPath = buildContourPath2D(contour);
+        if (!contourPath) {
+            return;
+        }
+
+        path.addPath(contourPath);
+        hasContours = true;
+    });
+
+    return hasContours ? path : null;
+}
+
+function rasterizeContourMask(
+    currentLayerData: Babelfont.Layer,
+    contourIndices: number[]
+): {
     mask: Uint8Array;
     width: number;
     height: number;
@@ -995,8 +1025,14 @@ function rasterizeContourMask(contour: EditableContour): {
     minY: number;
     padding: number;
 } | null {
-    const boundaryPolyline = buildClosedContourSampledPolyline(contour);
-    if (boundaryPolyline.length < 3) {
+    const boundaryPolylines = contourIndices
+        .map((contourIndex) =>
+            getEditableContour(currentLayerData.shapes?.[contourIndex])
+        )
+        .filter((contour): contour is EditableContour => Boolean(contour))
+        .map((contour) => buildClosedContourSampledPolyline(contour))
+        .filter((polyline) => polyline.length >= 3);
+    if (boundaryPolylines.length === 0) {
         return null;
     }
 
@@ -1005,11 +1041,13 @@ function rasterizeContourMask(contour: EditableContour): {
     let maxX = Number.NEGATIVE_INFINITY;
     let maxY = Number.NEGATIVE_INFINITY;
 
-    boundaryPolyline.forEach((point) => {
-        minX = Math.min(minX, point.x);
-        minY = Math.min(minY, point.y);
-        maxX = Math.max(maxX, point.x);
-        maxY = Math.max(maxY, point.y);
+    boundaryPolylines.forEach((polyline) => {
+        polyline.forEach((point) => {
+            minX = Math.min(minX, point.x);
+            minY = Math.min(minY, point.y);
+            maxX = Math.max(maxX, point.x);
+            maxY = Math.max(maxY, point.y);
+        });
     });
 
     const boundsWidth = Math.max(1, maxX - minX);
@@ -1037,7 +1075,7 @@ function rasterizeContourMask(contour: EditableContour): {
         return null;
     }
 
-    const path = buildContourPath2D(contour);
+    const path = buildCombinedContourPath2D(currentLayerData, contourIndices);
     if (!path) {
         return null;
     }
@@ -1379,7 +1417,7 @@ function mapRasterPointToGlyphSpace(
 
 function buildCenterlineSpokes(
     centerlineBranches: Array<Array<{ x: number; y: number }>>,
-    boundaryPolyline: Array<{ x: number; y: number }>
+    boundaryPolylines: Array<Array<{ x: number; y: number }>>
 ): Array<{ startX: number; startY: number; endX: number; endY: number }> {
     const spokes: Array<{
         startX: number;
@@ -1387,7 +1425,7 @@ function buildCenterlineSpokes(
         endX: number;
         endY: number;
     }> = [];
-    if (centerlineBranches.length === 0 || boundaryPolyline.length < 2) {
+    if (centerlineBranches.length === 0 || boundaryPolylines.length === 0) {
         return spokes;
     }
 
@@ -1401,31 +1439,33 @@ function buildCenterlineSpokes(
             distance: number;
         } | null = null;
 
-        for (let index = 0; index < boundaryPolyline.length; index++) {
-            const segmentStart = boundaryPolyline[index];
-            const segmentEnd =
-                boundaryPolyline[(index + 1) % boundaryPolyline.length];
-            const intersection = intersectRayWithSegment(
-                origin.x,
-                origin.y,
-                direction.x,
-                direction.y,
-                segmentStart.x,
-                segmentStart.y,
-                segmentEnd.x,
-                segmentEnd.y
-            );
-            if (!intersection) {
-                continue;
-            }
+        boundaryPolylines.forEach((boundaryPolyline) => {
+            for (let index = 0; index < boundaryPolyline.length; index++) {
+                const segmentStart = boundaryPolyline[index];
+                const segmentEnd =
+                    boundaryPolyline[(index + 1) % boundaryPolyline.length];
+                const intersection = intersectRayWithSegment(
+                    origin.x,
+                    origin.y,
+                    direction.x,
+                    direction.y,
+                    segmentStart.x,
+                    segmentStart.y,
+                    segmentEnd.x,
+                    segmentEnd.y
+                );
+                if (!intersection) {
+                    continue;
+                }
 
-            if (
-                !bestIntersection ||
-                intersection.distance < bestIntersection.distance
-            ) {
-                bestIntersection = intersection;
+                if (
+                    !bestIntersection ||
+                    intersection.distance < bestIntersection.distance
+                ) {
+                    bestIntersection = intersection;
+                }
             }
-        }
+        });
 
         return bestIntersection;
     };
@@ -1689,19 +1729,43 @@ function intersectRayWithSegment(
     };
 }
 
-function buildStrokeAwareContourGeometry(
-    contourIndex: number,
-    contour: EditableContour
-): StrokeAwareContourGeometry | null {
-    if (!contour.closed || contour.nodes.length < 3) {
+function buildStrokeAwareSelectionGeometry(
+    currentLayerData: Babelfont.Layer,
+    contourIndices: number[],
+    anchorIndices: number[]
+): StrokeAwareSelectionGeometry | null {
+    if (contourIndices.length === 0) {
         return null;
     }
 
-    const boundaryPolyline = buildClosedContourSampledPolyline(contour);
-    if (boundaryPolyline.length < 6) {
+    const contours = contourIndices
+        .map((contourIndex) => ({
+            contourIndex,
+            contour: getEditableContour(currentLayerData.shapes?.[contourIndex])
+        }))
+        .filter(
+            (
+                entry
+            ): entry is { contourIndex: number; contour: EditableContour } =>
+                Boolean(entry.contour)
+        );
+    if (
+        contours.length === 0 ||
+        contours.some(
+            ({ contour }) => !contour.closed || contour.nodes.length < 3
+        )
+    ) {
         return null;
     }
-    const raster = rasterizeContourMask(contour);
+
+    const boundaryPolylines = contours
+        .map(({ contour }) => buildClosedContourSampledPolyline(contour))
+        .filter((polyline) => polyline.length >= 3);
+    if (boundaryPolylines.length === 0) {
+        return null;
+    }
+
+    const raster = rasterizeContourMask(currentLayerData, contourIndices);
     if (!raster) {
         return null;
     }
@@ -1733,32 +1797,43 @@ function buildStrokeAwareContourGeometry(
             )
         )
         .filter((branch) => branch.length >= 2);
-    const spokes = buildCenterlineSpokes(centerlineBranches, boundaryPolyline);
+    const spokes = buildCenterlineSpokes(centerlineBranches, boundaryPolylines);
 
     if (centerlineBranches.length === 0) {
         return null;
     }
 
-    const nodes: StrokeAwareNodeSnapshot[] = [];
-    for (let nodeIndex = 0; nodeIndex < contour.nodes.length; nodeIndex++) {
-        const node = contour.nodes[nodeIndex];
-        const projection = projectPointOntoBranchSet(node, centerlineBranches);
+    const targets: StrokeAwareTargetSnapshot[] = [];
+    const appendTarget = (
+        kind: 'point' | 'anchor',
+        x: number,
+        y: number,
+        contourIndex: number | null,
+        nodeIndex: number | null,
+        anchorIndex: number | null
+    ): void => {
+        const projection = projectPointOntoBranchSet(
+            { x, y },
+            centerlineBranches
+        );
         const normal = {
             x: -projection.tangentY,
             y: projection.tangentX
         };
         const vectorToNode = {
-            x: node.x - projection.x,
-            y: node.y - projection.y
+            x: x - projection.x,
+            y: y - projection.y
         };
         const orientedNormal =
             dotProduct(vectorToNode.x, vectorToNode.y, normal.x, normal.y) >= 0
                 ? normal
                 : { x: -normal.x, y: -normal.y };
 
-        nodes.push({
+        targets.push({
+            kind,
             contourIndex,
             nodeIndex,
+            anchorIndex,
             centerBranchIndex: projection.branchIndex,
             centerSegmentIndex: projection.segmentIndex,
             centerSegmentT: projection.t,
@@ -1779,21 +1854,41 @@ function buildStrokeAwareContourGeometry(
                 orientedNormal.y
             )
         });
-    }
+    };
 
-    if (nodes.length === 0) {
+    contours.forEach(({ contourIndex, contour }) => {
+        contour.nodes.forEach((node, nodeIndex) => {
+            appendTarget(
+                'point',
+                node.x,
+                node.y,
+                contourIndex,
+                nodeIndex,
+                null
+            );
+        });
+    });
+
+    anchorIndices.forEach((anchorIndex) => {
+        const anchor = currentLayerData.anchors?.[anchorIndex];
+        if (!anchor) {
+            return;
+        }
+
+        appendTarget('anchor', anchor.x, anchor.y, null, null, anchorIndex);
+    });
+
+    if (targets.length === 0) {
         return null;
     }
 
     return {
-        contour: {
-            contourIndex,
+        geometry: {
             centerlineBranches,
             spokes
         },
-        nodes,
+        targets,
         debugGeometry: {
-            contourIndex,
             centerlineBranches,
             spokes
         }
@@ -2370,7 +2465,7 @@ export class OutlineEditor {
     private canvasContextMenuTippy: TippyInstance | null = null;
     private canvasContextMenuTarget: CanvasPathContextTarget | null = null;
     private selectionResizeSnapshot: SelectionResizeSnapshot | null = null;
-    private strokeAwareScalingEnabled: boolean = false;
+    private strokeAwareScalingPreference: boolean = false;
 
     private readonly GUIDELINES_STORAGE_KEY = 'outlineEditorGuidelinesVisible';
 
@@ -4073,7 +4168,6 @@ export class OutlineEditor {
             !this.layerData ||
             this.isPreviewMode ||
             this.selectedPoints.length === 0 ||
-            this.selectedAnchors.length > 0 ||
             this.selectedComponents.length > 0 ||
             this.selectedGuideHandle !== null ||
             this.selectedSidebearingHandle !== null
@@ -4135,16 +4229,14 @@ export class OutlineEditor {
     }
 
     isStrokeAwareScalingEnabled(): boolean {
-        if (!this.canOfferStrokeAwareScaling()) {
-            this.strokeAwareScalingEnabled = false;
-        }
-
-        return this.strokeAwareScalingEnabled;
+        return (
+            this.strokeAwareScalingPreference &&
+            this.canOfferStrokeAwareScaling()
+        );
     }
 
     setStrokeAwareScalingEnabled(enabled: boolean): void {
-        this.strokeAwareScalingEnabled =
-            enabled && this.canOfferStrokeAwareScaling();
+        this.strokeAwareScalingPreference = enabled;
         this.hoveredContrastAxisHandle = null;
     }
 
@@ -4264,63 +4356,33 @@ export class OutlineEditor {
             return [];
         }
 
-        const geometries: StrokeAwareCenterlineDebugGeometry[] = [];
-
-        for (const contourIndex of eligibleContourIndices) {
-            const contour = getEditableContour(
-                currentLayerData.shapes[contourIndex]
-            );
-            if (!contour || contour.nodes.length === 0) {
-                continue;
-            }
-
-            const geometry = buildStrokeAwareContourGeometry(
-                contourIndex,
-                contour
-            );
-            if (geometry) {
-                geometries.push(geometry.debugGeometry);
-            }
-        }
-
-        return geometries;
+        const geometry = buildStrokeAwareSelectionGeometry(
+            currentLayerData,
+            eligibleContourIndices,
+            this.selectedAnchors
+        );
+        return geometry ? [geometry.debugGeometry] : [];
     }
 
     private buildStrokeAwareResizeSnapshots(): {
-        contours: StrokeAwareContourSnapshot[];
-        nodes: StrokeAwareNodeSnapshot[];
+        geometry: StrokeAwareGeometrySnapshot | null;
+        targets: StrokeAwareTargetSnapshot[];
     } {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const eligibleContourIndices =
             this.getStrokeAwareEligibleContourIndices();
         if (!currentLayerData?.shapes || eligibleContourIndices.length === 0) {
-            return { contours: [], nodes: [] };
+            return { geometry: null, targets: [] };
         }
 
-        const contours: StrokeAwareContourSnapshot[] = [];
-        const nodes: StrokeAwareNodeSnapshot[] = [];
-
-        for (const contourIndex of eligibleContourIndices) {
-            const contour = getEditableContour(
-                currentLayerData.shapes[contourIndex]
-            );
-            if (!contour || contour.nodes.length === 0) {
-                continue;
-            }
-
-            const geometry = buildStrokeAwareContourGeometry(
-                contourIndex,
-                contour
-            );
-            if (!geometry) {
-                continue;
-            }
-
-            contours.push(geometry.contour);
-            nodes.push(...geometry.nodes);
-        }
-
-        return { contours, nodes };
+        const geometry = buildStrokeAwareSelectionGeometry(
+            currentLayerData,
+            eligibleContourIndices,
+            this.selectedAnchors
+        );
+        return geometry
+            ? { geometry: geometry.geometry, targets: geometry.targets }
+            : { geometry: null, targets: [] };
     }
 
     private cloneSelectedPoints(
@@ -7892,7 +7954,7 @@ export class OutlineEditor {
 
         const strokeAwareSnapshots = this.isStrokeAwareScalingEnabled()
             ? this.buildStrokeAwareResizeSnapshots()
-            : { contours: [], nodes: [] };
+            : { geometry: null, targets: [] };
 
         this.selectionResizeSnapshot = {
             bounds,
@@ -7903,8 +7965,8 @@ export class OutlineEditor {
             includesGeometry: points.length > 0 || components.length > 0,
             includesAnchors: anchors.length > 0,
             useStrokeAwareScaling: this.isStrokeAwareScalingEnabled(),
-            strokeAwareContours: strokeAwareSnapshots.contours,
-            strokeAwareNodes: strokeAwareSnapshots.nodes,
+            strokeAwareGeometry: strokeAwareSnapshots.geometry,
+            strokeAwareTargets: strokeAwareSnapshots.targets,
             contrastAxisAngleDegrees: this.getCurrentContrastAxisAngleDegrees()
         };
         this.isResizingSelection = true;
@@ -7989,11 +8051,12 @@ export class OutlineEditor {
             translateX,
             translateY
         );
+        const handledAnchorIndices = new Set<number>();
 
         if (
             snapshot.useStrokeAwareScaling &&
-            snapshot.strokeAwareContours.length > 0 &&
-            snapshot.strokeAwareNodes.length > 0
+            snapshot.strokeAwareGeometry &&
+            snapshot.strokeAwareTargets.length > 0
         ) {
             const angleRadians =
                 (snapshot.contrastAxisAngleDegrees * Math.PI) / 180;
@@ -8009,47 +8072,46 @@ export class OutlineEditor {
                 0,
                 0
             ];
-            const transformedCenterlines = new Map<
-                number,
-                Array<Array<{ x: number; y: number }>>
-            >();
-
-            snapshot.strokeAwareContours.forEach((contourSnapshot) => {
-                transformedCenterlines.set(
-                    contourSnapshot.contourIndex,
-                    contourSnapshot.centerlineBranches.map((branch) =>
-                        branch.map((point) =>
-                            transformPoint(point.x, point.y, selectionTransform)
-                        )
+            const transformedCenterlines =
+                snapshot.strokeAwareGeometry.centerlineBranches.map((branch) =>
+                    branch.map((point) =>
+                        transformPoint(point.x, point.y, selectionTransform)
                     )
                 );
-            });
 
             const handledPointKeys = new Set<string>([
-                ...snapshot.strokeAwareNodes.map(
-                    (point) => `${point.contourIndex}:${point.nodeIndex}`
-                )
+                ...snapshot.strokeAwareTargets
+                    .filter((target) => target.kind === 'point')
+                    .map((point) => `${point.contourIndex}:${point.nodeIndex}`)
             ]);
 
-            for (const pointSnapshot of snapshot.strokeAwareNodes) {
-                const contour = getEditableContour(
-                    currentLayerData.shapes?.[pointSnapshot.contourIndex]
+            snapshot.strokeAwareTargets
+                .filter((target) => target.kind === 'anchor')
+                .forEach((target) =>
+                    handledAnchorIndices.add(target.anchorIndex!)
                 );
-                const node = contour?.nodes?.[pointSnapshot.nodeIndex];
-                const transformedCenterlineBranches =
-                    transformedCenterlines.get(pointSnapshot.contourIndex);
-                if (!node || !transformedCenterlineBranches) {
-                    continue;
-                }
 
+            for (const pointSnapshot of snapshot.strokeAwareTargets) {
                 const transformedCenterline =
-                    transformedCenterlineBranches[
-                        pointSnapshot.centerBranchIndex
-                    ];
+                    transformedCenterlines[pointSnapshot.centerBranchIndex];
                 if (
                     !transformedCenterline ||
                     transformedCenterline.length < 2
                 ) {
+                    continue;
+                }
+
+                const target =
+                    pointSnapshot.kind === 'point'
+                        ? getEditableContour(
+                              currentLayerData.shapes?.[
+                                  pointSnapshot.contourIndex!
+                              ]
+                          )?.nodes?.[pointSnapshot.nodeIndex!]
+                        : currentLayerData.anchors?.[
+                              pointSnapshot.anchorIndex!
+                          ];
+                if (!target) {
                     continue;
                 }
 
@@ -8121,20 +8183,20 @@ export class OutlineEditor {
                     pointSnapshot.normalOffset * preservationStrength +
                     geometricNormalOffset * (1 - preservationStrength);
 
-                node.x =
+                target.x =
                     transformedCenter.x +
                     transformedTangent.x * geometricTangentOffset +
                     transformedNormal.x * strokeAwareNormalOffset;
-                node.y =
+                target.y =
                     transformedCenter.y +
                     transformedTangent.y * geometricTangentOffset +
                     transformedNormal.y * strokeAwareNormalOffset;
             }
 
             const strokeAwareContourIndices = new Set(
-                snapshot.strokeAwareContours.map(
-                    (contour) => contour.contourIndex
-                )
+                snapshot.strokeAwareTargets
+                    .filter((target) => target.kind === 'point')
+                    .map((target) => target.contourIndex!)
             );
             strokeAwareContourIndices.forEach((contourIndex) => {
                 const contour = getEditableContour(
@@ -8207,6 +8269,9 @@ export class OutlineEditor {
         }
 
         for (const anchorSnapshot of snapshot.anchors) {
+            if (handledAnchorIndices?.has(anchorSnapshot.anchorIndex)) {
+                continue;
+            }
             const anchor =
                 currentLayerData.anchors?.[anchorSnapshot.anchorIndex];
             if (!anchor) {

@@ -3683,20 +3683,17 @@ class GlyphCanvas {
         if (this.hasInspectableSelection() && !isComponentOnlySelection) {
             const placeholder = document.createElement('div');
             placeholder.className = 'glyph-property-panel-placeholder';
+            const content = document.createElement('div');
+            content.className = 'glyph-component-property-panel-content';
 
             if (this.canOfferStrokeAwareScalingControl()) {
                 const control = document.createElement('label');
-                control.className = 'glyph-property-control';
-
-                const label = document.createElement('span');
-                label.className = 'glyph-property-control-label';
-                label.textContent = 'Stroke';
-                label.title =
-                    'Enable stroke-aware scaling for fully selected closed contours';
+                control.className =
+                    'glyph-component-property-control glyph-component-property-checkbox';
 
                 const input = document.createElement('input');
                 input.type = 'checkbox';
-                input.className = 'glyph-property-input';
+                input.className = 'glyph-component-property-checkbox-input';
                 input.dataset.propertyField = 'stroke-aware-scaling';
                 input.checked =
                     this.outlineEditor.isStrokeAwareScalingEnabled();
@@ -3709,16 +3706,18 @@ class GlyphCanvas {
                     this.render();
                 });
 
-                const valueLabel = document.createElement('span');
-                valueLabel.className = 'glyph-property-value';
-                valueLabel.textContent = input.checked ? 'On' : 'Off';
+                const label = document.createElement('span');
+                label.className = 'glyph-property-control-label';
+                label.textContent = 'Stroke Aware';
+                label.title =
+                    'Enable stroke-aware scaling for fully selected closed contours';
 
-                control.appendChild(label);
                 control.appendChild(input);
-                control.appendChild(valueLabel);
-                placeholder.appendChild(control);
+                control.appendChild(label);
+                content.appendChild(control);
             }
 
+            placeholder.appendChild(content);
             this.propertyPanel.appendChild(placeholder);
             return;
         }
