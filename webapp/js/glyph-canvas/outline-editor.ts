@@ -186,6 +186,17 @@ type SelectionResizeComponentSnapshot = {
     usesArrayTransform: boolean;
 };
 
+type SmoothHandleDirectionSnapshot = {
+    contourIndex: number;
+    anchorIndex: number;
+    prevHandleIndex: number | null;
+    prevDirectionX: number | null;
+    prevDirectionY: number | null;
+    nextHandleIndex: number | null;
+    nextDirectionX: number | null;
+    nextDirectionY: number | null;
+};
+
 type SelectionResizeSnapshot = {
     bounds: SelectionTransformBounds;
     handle: SelectionResizeHandle;
@@ -197,6 +208,7 @@ type SelectionResizeSnapshot = {
     useStrokeAwareScaling: boolean;
     strokeAwareGeometry: StrokeAwareGeometrySnapshot | null;
     strokeAwareTargets: StrokeAwareTargetSnapshot[];
+    smoothHandleDirections: SmoothHandleDirectionSnapshot[];
     contrastAxisAngleDegrees: number;
 };
 
@@ -1517,6 +1529,106 @@ function reapplySmoothHandleDirectionsForContour(
 
         realignSmoothHandles(contour, nodeIndex);
     }
+}
+
+function captureSmoothHandleDirectionSnapshots(
+    contour: EditableContour,
+    contourIndex: number
+): SmoothHandleDirectionSnapshot[] {
+    const snapshots: SmoothHandleDirectionSnapshot[] = [];
+
+    for (
+        let anchorIndex = 0;
+        anchorIndex < contour.nodes.length;
+        anchorIndex++
+    ) {
+        const anchor = contour.nodes[anchorIndex];
+        if (!anchor || !isOnCurveNode(anchor) || !anchor.smooth) {
+            continue;
+        }
+
+        const prevIndex = getNeighborNodeIndex(
+            anchorIndex,
+            -1,
+            contour.nodes.length,
+            contour.closed
+        );
+        const nextIndex = getNeighborNodeIndex(
+            anchorIndex,
+            1,
+            contour.nodes.length,
+            contour.closed
+        );
+        const prevHandle =
+            prevIndex !== null && isOffCurveNode(contour.nodes[prevIndex])
+                ? contour.nodes[prevIndex]
+                : null;
+        const nextHandle =
+            nextIndex !== null && isOffCurveNode(contour.nodes[nextIndex])
+                ? contour.nodes[nextIndex]
+                : null;
+
+        if (!prevHandle && !nextHandle) {
+            continue;
+        }
+
+        snapshots.push({
+            contourIndex,
+            anchorIndex,
+            prevHandleIndex: prevHandle ? prevIndex : null,
+            prevDirectionX: prevHandle ? prevHandle.x - anchor.x : null,
+            prevDirectionY: prevHandle ? prevHandle.y - anchor.y : null,
+            nextHandleIndex: nextHandle ? nextIndex : null,
+            nextDirectionX: nextHandle ? nextHandle.x - anchor.x : null,
+            nextDirectionY: nextHandle ? nextHandle.y - anchor.y : null
+        });
+    }
+
+    return snapshots;
+}
+
+function reapplySmoothHandleDirectionsFromSnapshots(
+    contour: EditableContour,
+    directionSnapshots: SmoothHandleDirectionSnapshot[]
+): void {
+    directionSnapshots.forEach((snapshot) => {
+        const anchor = contour.nodes[snapshot.anchorIndex];
+        if (!anchor || !isOnCurveNode(anchor) || !anchor.smooth) {
+            return;
+        }
+
+        if (
+            snapshot.prevHandleIndex !== null &&
+            snapshot.prevDirectionX !== null &&
+            snapshot.prevDirectionY !== null
+        ) {
+            const prevHandle = contour.nodes[snapshot.prevHandleIndex];
+            if (prevHandle && isOffCurveNode(prevHandle)) {
+                alignHandleAlongDirection(
+                    anchor,
+                    prevHandle,
+                    snapshot.prevDirectionX,
+                    snapshot.prevDirectionY
+                );
+            }
+        }
+
+        if (
+            snapshot.nextHandleIndex !== null &&
+            snapshot.nextDirectionX !== null &&
+            snapshot.nextDirectionY !== null
+        ) {
+            const nextHandle = contour.nodes[snapshot.nextHandleIndex];
+            if (nextHandle && isOffCurveNode(nextHandle)) {
+                alignHandleAlongDirection(
+                    anchor,
+                    nextHandle,
+                    snapshot.nextDirectionX,
+                    snapshot.nextDirectionY
+                );
+            }
+        }
+    });
 }
 
 function buildPolylineCumulativeLengths(
@@ -4294,8 +4406,10 @@ export class OutlineEditor {
             x: Math.cos(angleRadians),
             y: Math.sin(angleRadians)
         };
-        const halfWidth = bounds.width / 2;
-        const halfHeight = bounds.height / 2;
+        const viewportScale = this.glyphCanvas.viewportManager?.scale || 1;
+        const framePadding = 28 / viewportScale;
+        const halfWidth = bounds.width / 2 + framePadding;
+        const halfHeight = bounds.height / 2 + framePadding;
         const maxT = Math.min(
             Math.abs(direction.x) > 0.000001
                 ? halfWidth / Math.abs(direction.x)
@@ -6128,13 +6242,13 @@ export class OutlineEditor {
             return;
         }
 
-        if (this.hoveredContrastAxisHandle) {
-            this.beginContrastAxisDrag(e);
+        if (this.hoveredResizeHandle) {
+            this.beginSelectionResize(e);
             return;
         }
 
-        if (this.hoveredResizeHandle) {
-            this.beginSelectionResize(e);
+        if (this.hoveredContrastAxisHandle) {
+            this.beginContrastAxisDrag(e);
             return;
         }
 
@@ -7848,6 +7962,32 @@ export class OutlineEditor {
         return `Contrast axis: ${Math.round(this.getCurrentContrastAxisAngleDegrees())}°`;
     }
 
+    private getStrokeAwarePreservationStrength(
+        normalX: number,
+        normalY: number,
+        scaleX: number,
+        scaleY: number,
+        handle: SelectionResizeHandle
+    ): number {
+        const epsilon = 0.000001;
+        const preserveHorizontally =
+            handle.xRole !== 0 && Math.abs(scaleX - 1) > epsilon;
+        const preserveVertically =
+            handle.yRole !== 0 && Math.abs(scaleY - 1) > epsilon;
+
+        if (preserveHorizontally && preserveVertically) {
+            return 1;
+        }
+        if (preserveHorizontally) {
+            return Math.abs(normalX);
+        }
+        if (preserveVertically) {
+            return Math.abs(normalY);
+        }
+
+        return 0;
+    }
+
     private beginContrastAxisDrag(e: MouseEvent): void {
         if (
             !this.hoveredContrastAxisHandle ||
@@ -7952,6 +8092,22 @@ export class OutlineEditor {
             });
         }
 
+        const smoothHandleDirections: SmoothHandleDirectionSnapshot[] = [];
+        const strokeAwareContourIndices =
+            this.getStrokeAwareEligibleContourIndices();
+        strokeAwareContourIndices.forEach((contourIndex) => {
+            const contour = getEditableContour(
+                currentLayerData.shapes?.[contourIndex]
+            );
+            if (!contour) {
+                return;
+            }
+
+            smoothHandleDirections.push(
+                ...captureSmoothHandleDirectionSnapshots(contour, contourIndex)
+            );
+        });
+
         const strokeAwareSnapshots = this.isStrokeAwareScalingEnabled()
             ? this.buildStrokeAwareResizeSnapshots()
             : { geometry: null, targets: [] };
@@ -7967,6 +8123,7 @@ export class OutlineEditor {
             useStrokeAwareScaling: this.isStrokeAwareScalingEnabled(),
             strokeAwareGeometry: strokeAwareSnapshots.geometry,
             strokeAwareTargets: strokeAwareSnapshots.targets,
+            smoothHandleDirections,
             contrastAxisAngleDegrees: this.getCurrentContrastAxisAngleDegrees()
         };
         this.isResizingSelection = true;
@@ -8058,12 +8215,6 @@ export class OutlineEditor {
             snapshot.strokeAwareGeometry &&
             snapshot.strokeAwareTargets.length > 0
         ) {
-            const angleRadians =
-                (snapshot.contrastAxisAngleDegrees * Math.PI) / 180;
-            const axisDirection = {
-                x: Math.cos(angleRadians),
-                y: Math.sin(angleRadians)
-            };
             const linearTransform: Transform = [
                 selectionTransform[0],
                 selectionTransform[1],
@@ -8171,14 +8322,14 @@ export class OutlineEditor {
                     transformedNormal.x,
                     transformedNormal.y
                 );
-                const preservationStrength = Math.abs(
-                    dotProduct(
+                const preservationStrength =
+                    this.getStrokeAwarePreservationStrength(
                         pointSnapshot.normalX,
                         pointSnapshot.normalY,
-                        axisDirection.x,
-                        axisDirection.y
-                    )
-                );
+                        scaleX,
+                        scaleY,
+                        snapshot.handle
+                    );
                 const strokeAwareNormalOffset =
                     pointSnapshot.normalOffset * preservationStrength +
                     geometricNormalOffset * (1 - preservationStrength);
@@ -8203,7 +8354,13 @@ export class OutlineEditor {
                     currentLayerData.shapes?.[contourIndex]
                 );
                 if (contour) {
-                    reapplySmoothHandleDirectionsForContour(contour);
+                    reapplySmoothHandleDirectionsFromSnapshots(
+                        contour,
+                        snapshot.smoothHandleDirections.filter(
+                            (directionSnapshot) =>
+                                directionSnapshot.contourIndex === contourIndex
+                        )
+                    );
                 }
             });
 
@@ -9202,9 +9359,9 @@ export class OutlineEditor {
         }
 
         this.updateHoveredGuideHandle();
-        this.updateHoveredContrastAxisHandle();
-        if (this.hoveredContrastAxisHandle) {
-            this.hoveredResizeHandle = null;
+        this.updateHoveredResizeHandle();
+        if (this.hoveredResizeHandle) {
+            this.hoveredContrastAxisHandle = null;
             this.hoveredGuideHandle = null;
             this.hoveredSidebearingHandle = null;
             this.hoveredComponentIndex = null;
@@ -9215,9 +9372,9 @@ export class OutlineEditor {
             this.hoveredGlyphIndex = -1;
             return;
         }
-        this.updateHoveredResizeHandle();
-        if (this.hoveredResizeHandle) {
-            this.hoveredContrastAxisHandle = null;
+        this.updateHoveredContrastAxisHandle();
+        if (this.hoveredContrastAxisHandle) {
+            this.hoveredResizeHandle = null;
             this.hoveredGuideHandle = null;
             this.hoveredSidebearingHandle = null;
             this.hoveredComponentIndex = null;
@@ -9238,12 +9395,12 @@ export class OutlineEditor {
 
     cursorStyle(): string | null {
         if (!this.active) return null;
-        if (this.hoveredContrastAxisHandle) {
-            this.canvas!.style.cursor = this.hoveredContrastAxisHandle.cursor;
-            return null;
-        }
         if (this.hoveredResizeHandle) {
             this.canvas!.style.cursor = this.hoveredResizeHandle.cursor;
+            return null;
+        }
+        if (this.hoveredContrastAxisHandle) {
+            this.canvas!.style.cursor = this.hoveredContrastAxisHandle.cursor;
             return null;
         }
         if (this.cmdKeyPressed && this.hoveredAddPointPreview) {
@@ -9322,6 +9479,14 @@ export class OutlineEditor {
     updateHoveredContrastAxisHandle(): void {
         if (!this.isStrokeAwareScalingEnabled()) {
             this.hoveredContrastAxisHandle = null;
+            return;
+        }
+
+        if (this.hoveredResizeHandle) {
+            if (this.hoveredContrastAxisHandle !== null) {
+                this.hoveredContrastAxisHandle = null;
+                this.glyphCanvas.render();
+            }
             return;
         }
 
