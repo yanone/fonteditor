@@ -88,6 +88,10 @@ type EditableContour = {
     closed: boolean;
 };
 
+type PathSegmentDescriptor = ReturnType<
+    typeof Layer.getPathSegmentDescriptors
+>[number];
+
 type PreviewSegment = {
     type: 'line' | 'quadratic' | 'cubic';
     points: Array<{ x: number; y: number }>;
@@ -229,11 +233,7 @@ type StrokeAwareGeometrySnapshot = {
     }>;
 };
 
-type StrokeAwareTargetSnapshot = {
-    kind: 'point' | 'anchor';
-    contourIndex: number | null;
-    nodeIndex: number | null;
-    anchorIndex: number | null;
+type StrokeAwareCenterlineAttachment = {
     centerBranchIndex: number;
     centerSegmentIndex: number;
     centerSegmentT: number;
@@ -243,6 +243,14 @@ type StrokeAwareTargetSnapshot = {
     normalY: number;
     tangentOffset: number;
     normalOffset: number;
+};
+
+type StrokeAwareTargetSnapshot = {
+    kind: 'point' | 'anchor';
+    contourIndex: number | null;
+    nodeIndex: number | null;
+    anchorIndex: number | null;
+    attachments: StrokeAwareCenterlineAttachment[];
 };
 
 type StrokeAwareCenterlineDebugGeometry = {
@@ -897,7 +905,7 @@ function crossProduct2D(
 }
 
 function sampleDescriptorPoints(
-    descriptor: ReturnType<typeof Layer.getPathSegmentDescriptors>[number]
+    descriptor: PathSegmentDescriptor
 ): Array<{ x: number; y: number }> {
     if (descriptor.type === 'line') {
         return descriptor.points.map((point) => ({ x: point.x, y: point.y }));
@@ -909,6 +917,234 @@ function sampleDescriptorPoints(
         x: point.x,
         y: point.y
     }));
+}
+
+/**
+ * Evaluate a path segment at parameter t and return both point and tangent.
+ */
+function evaluateDescriptorAt(
+    descriptor: PathSegmentDescriptor,
+    t: number
+): { x: number; y: number; tangentX: number; tangentY: number } {
+    const safeT = clampUnitInterval(t);
+    if (descriptor.type === 'line') {
+        const start = descriptor.points[0];
+        const end = descriptor.points[descriptor.points.length - 1];
+        const tangent = normalizeVector(end.x - start.x, end.y - start.y, 1, 0);
+        return {
+            x: start.x + (end.x - start.x) * safeT,
+            y: start.y + (end.y - start.y) * safeT,
+            tangentX: tangent.x,
+            tangentY: tangent.y
+        };
+    }
+
+    const curve = new Bezier(descriptor.points);
+    const point = curve.get(safeT);
+    const derivative = curve.derivative(safeT);
+    const tangent = normalizeVector(derivative.x, derivative.y, 1, 0);
+    return {
+        x: point.x,
+        y: point.y,
+        tangentX: tangent.x,
+        tangentY: tangent.y
+    };
+}
+
+/**
+ * Choose one centerline branch per contour segment using repeated cross-section
+ * samples plus a continuity penalty so ownership does not jump branches unless
+ * the geometric evidence is clearly better.
+ */
+function chooseSegmentBranchesForContour(
+    descriptors: PathSegmentDescriptor[],
+    centerlineBranches: Array<Array<{ x: number; y: number }>>
+): Map<number, number> {
+    const assignments = new Map<number, number>();
+    if (descriptors.length === 0 || centerlineBranches.length === 0) {
+        return assignments;
+    }
+    if (centerlineBranches.length === 1) {
+        descriptors.forEach((descriptor) => {
+            assignments.set(descriptor.segmentId, 0);
+        });
+        return assignments;
+    }
+
+    const descriptorScores = descriptors.map((descriptor) => {
+        const sampleTs =
+            descriptor.type === 'line' ? [0.25, 0.5, 0.75] : [0.2, 0.5, 0.8];
+        return centerlineBranches.map((branch) => {
+            let totalScore = 0;
+            let totalDistance = 0;
+
+            sampleTs.forEach((sampleT) => {
+                const sample = evaluateDescriptorAt(descriptor, sampleT);
+                const projection = projectPointOntoPolyline(sample, branch);
+                const sampleTangent = normalizeVector(
+                    sample.tangentX,
+                    sample.tangentY,
+                    1,
+                    0
+                );
+                const sampleNormal = {
+                    x: -sampleTangent.y,
+                    y: sampleTangent.x
+                };
+                const vectorToCenterline = {
+                    x: projection.x - sample.x,
+                    y: projection.y - sample.y
+                };
+                const crossSectionDirection = normalizeVector(
+                    vectorToCenterline.x,
+                    vectorToCenterline.y,
+                    sampleNormal.x,
+                    sampleNormal.y
+                );
+                const tangentAlignment = Math.abs(
+                    dotProduct(
+                        sampleTangent.x,
+                        sampleTangent.y,
+                        projection.tangentX,
+                        projection.tangentY
+                    )
+                );
+                const normalAlignment = Math.abs(
+                    dotProduct(
+                        crossSectionDirection.x,
+                        crossSectionDirection.y,
+                        sampleNormal.x,
+                        sampleNormal.y
+                    )
+                );
+
+                totalDistance += projection.distance;
+                totalScore +=
+                    projection.distance +
+                    (1 - tangentAlignment) * 28 +
+                    (1 - normalAlignment) * 36;
+            });
+
+            return {
+                score: totalScore / sampleTs.length,
+                averageDistance: totalDistance / sampleTs.length
+            };
+        });
+    });
+
+    const branchCount = centerlineBranches.length;
+    const descriptorCount = descriptors.length;
+    let bestPath: number[] = [];
+    let bestPathScore = Number.POSITIVE_INFINITY;
+
+    const buildSwitchPenalty = (
+        previousBranchIndex: number,
+        currentBranchIndex: number,
+        descriptorIndex: number
+    ): number => {
+        if (previousBranchIndex === currentBranchIndex) {
+            return 0;
+        }
+
+        const previousDistance =
+            descriptorScores[Math.max(0, descriptorIndex - 1)][
+                previousBranchIndex
+            ].averageDistance;
+        const currentDistance =
+            descriptorScores[descriptorIndex][currentBranchIndex]
+                .averageDistance;
+        return Math.max(12, (previousDistance + currentDistance) * 0.6 + 8);
+    };
+
+    for (
+        let startBranchIndex = 0;
+        startBranchIndex < branchCount;
+        startBranchIndex++
+    ) {
+        const dp = Array.from({ length: descriptorCount }, () =>
+            Array.from({ length: branchCount }, () => Number.POSITIVE_INFINITY)
+        );
+        const previousBranch = Array.from({ length: descriptorCount }, () =>
+            Array.from({ length: branchCount }, () => -1)
+        );
+        dp[0][startBranchIndex] = descriptorScores[0][startBranchIndex].score;
+
+        for (
+            let descriptorIndex = 1;
+            descriptorIndex < descriptorCount;
+            descriptorIndex++
+        ) {
+            for (
+                let currentBranchIndex = 0;
+                currentBranchIndex < branchCount;
+                currentBranchIndex++
+            ) {
+                const localScore =
+                    descriptorScores[descriptorIndex][currentBranchIndex].score;
+                for (
+                    let previousBranchIndex = 0;
+                    previousBranchIndex < branchCount;
+                    previousBranchIndex++
+                ) {
+                    const candidateScore =
+                        dp[descriptorIndex - 1][previousBranchIndex] +
+                        buildSwitchPenalty(
+                            previousBranchIndex,
+                            currentBranchIndex,
+                            descriptorIndex
+                        ) +
+                        localScore;
+                    if (
+                        candidateScore < dp[descriptorIndex][currentBranchIndex]
+                    ) {
+                        dp[descriptorIndex][currentBranchIndex] =
+                            candidateScore;
+                        previousBranch[descriptorIndex][currentBranchIndex] =
+                            previousBranchIndex;
+                    }
+                }
+            }
+        }
+
+        for (
+            let endBranchIndex = 0;
+            endBranchIndex < branchCount;
+            endBranchIndex++
+        ) {
+            const closedScore =
+                dp[descriptorCount - 1][endBranchIndex] +
+                buildSwitchPenalty(
+                    endBranchIndex,
+                    startBranchIndex,
+                    descriptorCount - 1
+                );
+            if (closedScore >= bestPathScore) {
+                continue;
+            }
+
+            const path = new Array<number>(descriptorCount);
+            let branchIndex = endBranchIndex;
+            for (
+                let descriptorIndex = descriptorCount - 1;
+                descriptorIndex >= 0;
+                descriptorIndex--
+            ) {
+                path[descriptorIndex] = branchIndex;
+                branchIndex = previousBranch[descriptorIndex][branchIndex];
+                if (descriptorIndex === 0) {
+                    break;
+                }
+            }
+
+            bestPathScore = closedScore;
+            bestPath = path;
+        }
+    }
+
+    descriptors.forEach((descriptor, descriptorIndex) => {
+        assignments.set(descriptor.segmentId, bestPath[descriptorIndex] ?? 0);
+    });
+    return assignments;
 }
 
 function buildClosedContourSampledPolyline(
@@ -1380,6 +1616,194 @@ function projectPointOntoBranchSet(
             distance: 0
         }
     );
+}
+
+/**
+ * Build a stroke-aware attachment for a specific branch assignment by
+ * projecting the target point onto that branch.
+ */
+function buildStrokeAwareAttachmentForBranch(
+    x: number,
+    y: number,
+    branches: Array<Array<{ x: number; y: number }>>,
+    branchIndex: number
+): StrokeAwareCenterlineAttachment {
+    const branch = branches[branchIndex] || [];
+    const projection = projectPointOntoPolyline({ x, y }, branch);
+    const normal = {
+        x: -projection.tangentY,
+        y: projection.tangentX
+    };
+    const vectorToNode = {
+        x: x - projection.x,
+        y: y - projection.y
+    };
+    const orientedNormal =
+        dotProduct(vectorToNode.x, vectorToNode.y, normal.x, normal.y) >= 0
+            ? normal
+            : { x: -normal.x, y: -normal.y };
+
+    return {
+        centerBranchIndex: branchIndex,
+        centerSegmentIndex: projection.segmentIndex,
+        centerSegmentT: projection.t,
+        tangentX: projection.tangentX,
+        tangentY: projection.tangentY,
+        normalX: orientedNormal.x,
+        normalY: orientedNormal.y,
+        tangentOffset: dotProduct(
+            vectorToNode.x,
+            vectorToNode.y,
+            projection.tangentX,
+            projection.tangentY
+        ),
+        normalOffset: dotProduct(
+            vectorToNode.x,
+            vectorToNode.y,
+            orientedNormal.x,
+            orientedNormal.y
+        )
+    };
+}
+
+/**
+ * Solve x/y from weighted tangent and normal constraints contributed by one or
+ * more centerline attachments.
+ */
+function solveStrokeAwareConstraintPoint(
+    constraints: Array<{
+        directionX: number;
+        directionY: number;
+        rhs: number;
+        weight: number;
+    }>
+): { x: number; y: number } | null {
+    let a00 = 0;
+    let a01 = 0;
+    let a11 = 0;
+    let b0 = 0;
+    let b1 = 0;
+
+    constraints.forEach((constraint) => {
+        const weightedA = constraint.directionX * constraint.weight;
+        const weightedB = constraint.directionY * constraint.weight;
+        a00 += weightedA * constraint.directionX;
+        a01 += weightedA * constraint.directionY;
+        a11 += weightedB * constraint.directionY;
+        b0 += weightedA * constraint.rhs;
+        b1 += weightedB * constraint.rhs;
+    });
+
+    const determinant = a00 * a11 - a01 * a01;
+    if (Math.abs(determinant) <= 0.000001) {
+        return null;
+    }
+
+    return {
+        x: (b0 * a11 - b1 * a01) / determinant,
+        y: (a00 * b1 - a01 * b0) / determinant
+    };
+}
+
+/**
+ * Derive a local tangent at an on-curve node so extrema can choose a stroke
+ * centerline from the point itself rather than from neighboring segment frames.
+ */
+function getOnCurvePointTangent(
+    contour: EditableContour,
+    nodeIndex: number
+): { x: number; y: number } {
+    const smoothDirection = getSmoothAnchorConstraintDirection(
+        contour,
+        nodeIndex
+    );
+    if (smoothDirection) {
+        return normalizeVector(
+            smoothDirection.directionX,
+            smoothDirection.directionY,
+            1,
+            0
+        );
+    }
+
+    const prevIndex = getNeighborNodeIndex(
+        nodeIndex,
+        -1,
+        contour.nodes.length,
+        contour.closed
+    );
+    const nextIndex = getNeighborNodeIndex(
+        nodeIndex,
+        1,
+        contour.nodes.length,
+        contour.closed
+    );
+    const prevNode = prevIndex !== null ? contour.nodes[prevIndex] : null;
+    const nextNode = nextIndex !== null ? contour.nodes[nextIndex] : null;
+    return normalizeVector(
+        (nextNode?.x ?? contour.nodes[nodeIndex].x) -
+            (prevNode?.x ?? contour.nodes[nodeIndex].x),
+        (nextNode?.y ?? contour.nodes[nodeIndex].y) -
+            (prevNode?.y ?? contour.nodes[nodeIndex].y),
+        1,
+        0
+    );
+}
+
+/**
+ * Choose the best centerline branch for an on-curve point from the point's own
+ * cross-section instead of inheriting both adjacent segment branches.
+ */
+function chooseBranchForOnCurvePoint(
+    contour: EditableContour,
+    nodeIndex: number,
+    centerlineBranches: Array<Array<{ x: number; y: number }>>
+): number {
+    const node = contour.nodes[nodeIndex];
+    const tangent = getOnCurvePointTangent(contour, nodeIndex);
+    const normal = { x: -tangent.y, y: tangent.x };
+    let bestBranchIndex = 0;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    centerlineBranches.forEach((branch, branchIndex) => {
+        const projection = projectPointOntoPolyline(node, branch);
+        const vectorToCenterline = {
+            x: projection.x - node.x,
+            y: projection.y - node.y
+        };
+        const crossSectionDirection = normalizeVector(
+            vectorToCenterline.x,
+            vectorToCenterline.y,
+            normal.x,
+            normal.y
+        );
+        const tangentAlignment = Math.abs(
+            dotProduct(
+                tangent.x,
+                tangent.y,
+                projection.tangentX,
+                projection.tangentY
+            )
+        );
+        const normalAlignment = Math.abs(
+            dotProduct(
+                crossSectionDirection.x,
+                crossSectionDirection.y,
+                normal.x,
+                normal.y
+            )
+        );
+        const score =
+            projection.distance +
+            (1 - tangentAlignment) * 30 +
+            (1 - normalAlignment) * 42;
+        if (score < bestScore) {
+            bestScore = score;
+            bestBranchIndex = branchIndex;
+        }
+    });
+
+    return bestBranchIndex;
 }
 
 function smoothOpenPolyline(
@@ -1916,68 +2340,87 @@ function buildStrokeAwareSelectionGeometry(
     }
 
     const targets: StrokeAwareTargetSnapshot[] = [];
-    const appendTarget = (
-        kind: 'point' | 'anchor',
-        x: number,
-        y: number,
-        contourIndex: number | null,
-        nodeIndex: number | null,
-        anchorIndex: number | null
-    ): void => {
-        const projection = projectPointOntoBranchSet(
-            { x, y },
-            centerlineBranches
-        );
-        const normal = {
-            x: -projection.tangentY,
-            y: projection.tangentX
-        };
-        const vectorToNode = {
-            x: x - projection.x,
-            y: y - projection.y
-        };
-        const orientedNormal =
-            dotProduct(vectorToNode.x, vectorToNode.y, normal.x, normal.y) >= 0
-                ? normal
-                : { x: -normal.x, y: -normal.y };
-
-        targets.push({
-            kind,
-            contourIndex,
-            nodeIndex,
-            anchorIndex,
-            centerBranchIndex: projection.branchIndex,
-            centerSegmentIndex: projection.segmentIndex,
-            centerSegmentT: projection.t,
-            tangentX: projection.tangentX,
-            tangentY: projection.tangentY,
-            normalX: orientedNormal.x,
-            normalY: orientedNormal.y,
-            tangentOffset: dotProduct(
-                vectorToNode.x,
-                vectorToNode.y,
-                projection.tangentX,
-                projection.tangentY
-            ),
-            normalOffset: dotProduct(
-                vectorToNode.x,
-                vectorToNode.y,
-                orientedNormal.x,
-                orientedNormal.y
-            )
-        });
-    };
 
     contours.forEach(({ contourIndex, contour }) => {
+        const descriptors = Layer.getPathSegmentDescriptors({
+            nodes: contour.nodes,
+            closed: contour.closed
+        });
+        const segmentBranches = chooseSegmentBranchesForContour(
+            descriptors,
+            centerlineBranches
+        );
+        const attachmentsByNode = new Map<
+            number,
+            StrokeAwareCenterlineAttachment[]
+        >();
+
+        descriptors.forEach((descriptor) => {
+            const branchIndex = segmentBranches.get(descriptor.segmentId);
+            if (branchIndex === undefined) {
+                return;
+            }
+
+            const ownedNodeIndices = [
+                descriptor.startNodeIndex,
+                ...descriptor.controlNodeIndices,
+                descriptor.endNodeIndex
+            ];
+            ownedNodeIndices.forEach((nodeIndex) => {
+                const node = contour.nodes[nodeIndex];
+                if (!node) {
+                    return;
+                }
+
+                const existingAttachments =
+                    attachmentsByNode.get(nodeIndex) || [];
+                if (
+                    existingAttachments.some(
+                        (attachment) =>
+                            attachment.centerBranchIndex === branchIndex
+                    )
+                ) {
+                    return;
+                }
+
+                existingAttachments.push(
+                    buildStrokeAwareAttachmentForBranch(
+                        node.x,
+                        node.y,
+                        centerlineBranches,
+                        branchIndex
+                    )
+                );
+                attachmentsByNode.set(nodeIndex, existingAttachments);
+            });
+        });
+
         contour.nodes.forEach((node, nodeIndex) => {
-            appendTarget(
-                'point',
-                node.x,
-                node.y,
+            const attachments = isOnCurveNode(node)
+                ? [
+                      buildStrokeAwareAttachmentForBranch(
+                          node.x,
+                          node.y,
+                          centerlineBranches,
+                          chooseBranchForOnCurvePoint(
+                              contour,
+                              nodeIndex,
+                              centerlineBranches
+                          )
+                      )
+                  ]
+                : attachmentsByNode.get(nodeIndex);
+            if (!attachments || attachments.length === 0) {
+                return;
+            }
+
+            targets.push({
+                kind: 'point',
                 contourIndex,
                 nodeIndex,
-                null
-            );
+                anchorIndex: null,
+                attachments
+            });
         });
     });
 
@@ -1987,7 +2430,24 @@ function buildStrokeAwareSelectionGeometry(
             return;
         }
 
-        appendTarget('anchor', anchor.x, anchor.y, null, null, anchorIndex);
+        const branchProjection = projectPointOntoBranchSet(
+            { x: anchor.x, y: anchor.y },
+            centerlineBranches
+        );
+        targets.push({
+            kind: 'anchor',
+            contourIndex: null,
+            nodeIndex: null,
+            anchorIndex,
+            attachments: [
+                buildStrokeAwareAttachmentForBranch(
+                    anchor.x,
+                    anchor.y,
+                    centerlineBranches,
+                    branchProjection.branchIndex
+                )
+            ]
+        });
     });
 
     if (targets.length === 0) {
@@ -8243,15 +8703,6 @@ export class OutlineEditor {
                 );
 
             for (const pointSnapshot of snapshot.strokeAwareTargets) {
-                const transformedCenterline =
-                    transformedCenterlines[pointSnapshot.centerBranchIndex];
-                if (
-                    !transformedCenterline ||
-                    transformedCenterline.length < 2
-                ) {
-                    continue;
-                }
-
                 const target =
                     pointSnapshot.kind === 'point'
                         ? getEditableContour(
@@ -8265,83 +8716,150 @@ export class OutlineEditor {
                 if (!target) {
                     continue;
                 }
+                const directPositions: Array<{ x: number; y: number }> = [];
+                const constraints: Array<{
+                    directionX: number;
+                    directionY: number;
+                    rhs: number;
+                    weight: number;
+                }> = [];
 
-                const transformedCenter = evaluateOpenPolylineAt(
-                    transformedCenterline,
-                    pointSnapshot.centerSegmentIndex,
-                    pointSnapshot.centerSegmentT
-                );
-                const transformedTangent = normalizeVector(
-                    transformedCenter.tangentX,
-                    transformedCenter.tangentY,
-                    pointSnapshot.tangentX,
-                    pointSnapshot.tangentY
-                );
-                const transformedNormalCandidate = normalizeVector(
-                    pointSnapshot.normalX * linearTransform[0] +
-                        pointSnapshot.normalY * linearTransform[2],
-                    pointSnapshot.normalX * linearTransform[1] +
-                        pointSnapshot.normalY * linearTransform[3],
-                    pointSnapshot.normalX,
-                    pointSnapshot.normalY
-                );
-                let transformedNormal = {
-                    x: -transformedTangent.y,
-                    y: transformedTangent.x
-                };
-                if (
-                    dotProduct(
-                        transformedNormal.x,
-                        transformedNormal.y,
-                        transformedNormalCandidate.x,
-                        transformedNormalCandidate.y
-                    ) < 0
-                ) {
-                    transformedNormal = {
-                        x: -transformedNormal.x,
-                        y: -transformedNormal.y
+                pointSnapshot.attachments.forEach((attachment) => {
+                    const transformedCenterline =
+                        transformedCenterlines[attachment.centerBranchIndex];
+                    if (
+                        !transformedCenterline ||
+                        transformedCenterline.length < 2
+                    ) {
+                        return;
+                    }
+
+                    const transformedCenter = evaluateOpenPolylineAt(
+                        transformedCenterline,
+                        attachment.centerSegmentIndex,
+                        attachment.centerSegmentT
+                    );
+                    const transformedTangent = normalizeVector(
+                        transformedCenter.tangentX,
+                        transformedCenter.tangentY,
+                        attachment.tangentX,
+                        attachment.tangentY
+                    );
+                    const transformedNormalCandidate = normalizeVector(
+                        attachment.normalX * linearTransform[0] +
+                            attachment.normalY * linearTransform[2],
+                        attachment.normalX * linearTransform[1] +
+                            attachment.normalY * linearTransform[3],
+                        attachment.normalX,
+                        attachment.normalY
+                    );
+                    let transformedNormal = {
+                        x: -transformedTangent.y,
+                        y: transformedTangent.x
                     };
+                    if (
+                        dotProduct(
+                            transformedNormal.x,
+                            transformedNormal.y,
+                            transformedNormalCandidate.x,
+                            transformedNormalCandidate.y
+                        ) < 0
+                    ) {
+                        transformedNormal = {
+                            x: -transformedNormal.x,
+                            y: -transformedNormal.y
+                        };
+                    }
+
+                    const transformedLocalVector = transformPoint(
+                        attachment.tangentX * attachment.tangentOffset +
+                            attachment.normalX * attachment.normalOffset,
+                        attachment.tangentY * attachment.tangentOffset +
+                            attachment.normalY * attachment.normalOffset,
+                        linearTransform
+                    );
+                    const geometricTangentOffset = dotProduct(
+                        transformedLocalVector.x,
+                        transformedLocalVector.y,
+                        transformedTangent.x,
+                        transformedTangent.y
+                    );
+                    const geometricNormalOffset = dotProduct(
+                        transformedLocalVector.x,
+                        transformedLocalVector.y,
+                        transformedNormal.x,
+                        transformedNormal.y
+                    );
+                    const preservationStrength =
+                        this.getStrokeAwarePreservationStrength(
+                            attachment.normalX,
+                            attachment.normalY,
+                            scaleX,
+                            scaleY,
+                            snapshot.handle
+                        );
+                    const strokeAwareNormalOffset =
+                        attachment.normalOffset * preservationStrength +
+                        geometricNormalOffset * (1 - preservationStrength);
+
+                    directPositions.push({
+                        x:
+                            transformedCenter.x +
+                            transformedTangent.x * geometricTangentOffset +
+                            transformedNormal.x * strokeAwareNormalOffset,
+                        y:
+                            transformedCenter.y +
+                            transformedTangent.y * geometricTangentOffset +
+                            transformedNormal.y * strokeAwareNormalOffset
+                    });
+                    constraints.push({
+                        directionX: transformedTangent.x,
+                        directionY: transformedTangent.y,
+                        rhs:
+                            dotProduct(
+                                transformedCenter.x,
+                                transformedCenter.y,
+                                transformedTangent.x,
+                                transformedTangent.y
+                            ) + geometricTangentOffset,
+                        weight: 0.85
+                    });
+                    constraints.push({
+                        directionX: transformedNormal.x,
+                        directionY: transformedNormal.y,
+                        rhs:
+                            dotProduct(
+                                transformedCenter.x,
+                                transformedCenter.y,
+                                transformedNormal.x,
+                                transformedNormal.y
+                            ) + strokeAwareNormalOffset,
+                        weight: 1.35
+                    });
+                });
+
+                if (directPositions.length === 0) {
+                    continue;
                 }
 
-                const transformedLocalVector = transformPoint(
-                    pointSnapshot.tangentX * pointSnapshot.tangentOffset +
-                        pointSnapshot.normalX * pointSnapshot.normalOffset,
-                    pointSnapshot.tangentY * pointSnapshot.tangentOffset +
-                        pointSnapshot.normalY * pointSnapshot.normalOffset,
-                    linearTransform
-                );
-                const geometricTangentOffset = dotProduct(
-                    transformedLocalVector.x,
-                    transformedLocalVector.y,
-                    transformedTangent.x,
-                    transformedTangent.y
-                );
-                const geometricNormalOffset = dotProduct(
-                    transformedLocalVector.x,
-                    transformedLocalVector.y,
-                    transformedNormal.x,
-                    transformedNormal.y
-                );
-                const preservationStrength =
-                    this.getStrokeAwarePreservationStrength(
-                        pointSnapshot.normalX,
-                        pointSnapshot.normalY,
-                        scaleX,
-                        scaleY,
-                        snapshot.handle
-                    );
-                const strokeAwareNormalOffset =
-                    pointSnapshot.normalOffset * preservationStrength +
-                    geometricNormalOffset * (1 - preservationStrength);
+                const solvedPosition =
+                    solveStrokeAwareConstraintPoint(constraints);
+                if (solvedPosition) {
+                    target.x = solvedPosition.x;
+                    target.y = solvedPosition.y;
+                    continue;
+                }
 
                 target.x =
-                    transformedCenter.x +
-                    transformedTangent.x * geometricTangentOffset +
-                    transformedNormal.x * strokeAwareNormalOffset;
+                    directPositions.reduce(
+                        (sum, position) => sum + position.x,
+                        0
+                    ) / directPositions.length;
                 target.y =
-                    transformedCenter.y +
-                    transformedTangent.y * geometricTangentOffset +
-                    transformedNormal.y * strokeAwareNormalOffset;
+                    directPositions.reduce(
+                        (sum, position) => sum + position.y,
+                        0
+                    ) / directPositions.length;
             }
 
             const strokeAwareContourIndices = new Set(
