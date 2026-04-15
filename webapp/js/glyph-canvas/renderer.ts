@@ -2177,6 +2177,95 @@ export class GlyphCanvasRenderer {
             this.ctx.stroke();
             this.ctx.restore();
         });
+
+        const contrastAxisLine =
+            this.glyphCanvas.outlineEditor.getVisibleContrastAxisLine();
+        const contrastAxisHandles =
+            this.glyphCanvas.outlineEditor.getVisibleContrastAxisHandles();
+        const centerlineDebugGeometry =
+            this.glyphCanvas.outlineEditor.getVisibleStrokeAwareCenterlines();
+        const hoveredContrastAxisHandleKey =
+            this.glyphCanvas.outlineEditor.hoveredContrastAxisHandle?.key;
+
+        if (centerlineDebugGeometry.length > 0) {
+            this.ctx.save();
+            this.ctx.lineWidth = Math.max(invScale, lineWidth * 0.8);
+            this.ctx.strokeStyle = isDarkTheme
+                ? 'rgba(255, 131, 103, 0.35)'
+                : 'rgba(186, 73, 34, 0.3)';
+            centerlineDebugGeometry.forEach((geometry) => {
+                geometry.spokes.forEach((spoke) => {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(spoke.startX, spoke.startY);
+                    this.ctx.lineTo(spoke.endX, spoke.endY);
+                    this.ctx.stroke();
+                });
+            });
+            this.ctx.restore();
+
+            this.ctx.save();
+            this.ctx.lineWidth = Math.max(invScale * 1.5, lineWidth);
+            this.ctx.strokeStyle = isDarkTheme
+                ? 'rgba(255, 99, 71, 0.92)'
+                : 'rgba(173, 52, 13, 0.92)';
+            centerlineDebugGeometry.forEach((geometry) => {
+                geometry.centerlineBranches.forEach((branch) => {
+                    if (branch.length === 0) {
+                        return;
+                    }
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(branch[0].x, branch[0].y);
+                    for (
+                        let pointIndex = 1;
+                        pointIndex < branch.length;
+                        pointIndex++
+                    ) {
+                        const point = branch[pointIndex];
+                        this.ctx.lineTo(point.x, point.y);
+                    }
+                    this.ctx.stroke();
+                });
+            });
+            this.ctx.restore();
+        }
+
+        if (contrastAxisLine && contrastAxisHandles.length > 0) {
+            this.ctx.save();
+            this.ctx.strokeStyle = isDarkTheme
+                ? 'rgba(255, 211, 92, 0.95)'
+                : 'rgba(179, 113, 0, 0.95)';
+            this.ctx.lineWidth = lineWidth;
+            this.ctx.beginPath();
+            this.ctx.moveTo(contrastAxisLine.start.x, contrastAxisLine.start.y);
+            this.ctx.lineTo(contrastAxisLine.end.x, contrastAxisLine.end.y);
+            this.ctx.stroke();
+            this.ctx.restore();
+
+            const axisHandleRadius = Math.max(5 * invScale, 6 * invScale);
+            contrastAxisHandles.forEach((handle) => {
+                this.ctx.save();
+                this.ctx.translate(handle.x, handle.y);
+                this.applyInverseComponentTransform();
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, axisHandleRadius, 0, Math.PI * 2);
+                this.ctx.fillStyle =
+                    hoveredContrastAxisHandleKey === handle.key
+                        ? isDarkTheme
+                            ? 'rgba(255, 225, 132, 1)'
+                            : 'rgba(204, 128, 0, 1)'
+                        : isDarkTheme
+                          ? 'rgba(255, 211, 92, 0.95)'
+                          : 'rgba(179, 113, 0, 0.95)';
+                this.ctx.fill();
+                this.ctx.lineWidth = Math.max(invScale, lineWidth * 0.75);
+                this.ctx.strokeStyle = isDarkTheme
+                    ? 'rgba(0, 0, 0, 0.55)'
+                    : 'rgba(255, 255, 255, 0.7)';
+                this.ctx.stroke();
+                this.ctx.restore();
+            });
+        }
     }
 
     drawShape(

@@ -3406,6 +3406,10 @@ class GlyphCanvas {
         );
     }
 
+    private canOfferStrokeAwareScalingControl(): boolean {
+        return this.outlineEditor.canOfferStrokeAwareScaling();
+    }
+
     private requestEditingFontRecompileAfterSidebearingKeyRefresh(): void {
         if (
             !fontManager.currentFont ||
@@ -3679,6 +3683,42 @@ class GlyphCanvas {
         if (this.hasInspectableSelection() && !isComponentOnlySelection) {
             const placeholder = document.createElement('div');
             placeholder.className = 'glyph-property-panel-placeholder';
+
+            if (this.canOfferStrokeAwareScalingControl()) {
+                const control = document.createElement('label');
+                control.className = 'glyph-property-control';
+
+                const label = document.createElement('span');
+                label.className = 'glyph-property-control-label';
+                label.textContent = 'Stroke';
+                label.title =
+                    'Enable stroke-aware scaling for fully selected closed contours';
+
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.className = 'glyph-property-input';
+                input.dataset.propertyField = 'stroke-aware-scaling';
+                input.checked =
+                    this.outlineEditor.isStrokeAwareScalingEnabled();
+                input.addEventListener('change', () => {
+                    this.outlineEditor.setStrokeAwareScalingEnabled(
+                        input.checked
+                    );
+                    this.updatePropertyPanel();
+                    this.outlineEditor.performHitDetection(null);
+                    this.render();
+                });
+
+                const valueLabel = document.createElement('span');
+                valueLabel.className = 'glyph-property-value';
+                valueLabel.textContent = input.checked ? 'On' : 'Off';
+
+                control.appendChild(label);
+                control.appendChild(input);
+                control.appendChild(valueLabel);
+                placeholder.appendChild(control);
+            }
+
             this.propertyPanel.appendChild(placeholder);
             return;
         }

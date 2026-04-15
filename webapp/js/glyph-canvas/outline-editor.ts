@@ -44,13 +44,9 @@ type SnapCandidate = {
     source: 'active' | 'left' | 'right' | 'origin' | 'metric' | 'edge';
 };
 type ActiveSnapTarget = {
-    /** Source node providing the X snap (null = X not snapped) */
     xSource: SnapCandidate | null;
-    /** Source node providing the Y snap (null = Y not snapped) */
     ySource: SnapCandidate | null;
-    /** Final snapped X position of the dragged node */
     snappedX: number;
-    /** Final snapped Y position of the dragged node */
     snappedY: number;
 };
 type SnapVisualizationState = {
@@ -60,17 +56,11 @@ type SnapVisualizationState = {
     originPos: { x: number; y: number } | null;
 };
 type SnapCandidateCache = {
-    /** Active-glyph-only drag candidates (excludes dragged nodes) */
     activeOnlyDragCandidates: SnapCandidate[];
-    /** Active + neighbor drag candidates (excludes dragged nodes) */
     allDragCandidates: SnapCandidate[];
-    /** Active + neighbor ALL nodes including dragged (for debug overlay) */
     debugCandidates: SnapCandidate[];
-    /** Pre-computed snap distance in font units for this drag session */
     snapDistFontUnits: number;
-    /** Snap-to-edge X values for the active glyph (left edge and width). */
     edgeXValues: number[];
-    /** Vertical metric Y values (baseline, x-height, cap-height, etc.) */
     metricsYValues: number[];
 };
 type GuideHandle = { scope: 'master' | 'layer'; index: number };
@@ -204,7 +194,64 @@ type SelectionResizeSnapshot = {
     components: SelectionResizeComponentSnapshot[];
     includesGeometry: boolean;
     includesAnchors: boolean;
+    useStrokeAwareScaling: boolean;
+    strokeAwareContours: StrokeAwareContourSnapshot[];
+    strokeAwareNodes: StrokeAwareNodeSnapshot[];
+    contrastAxisAngleDegrees: number;
 };
+
+type ContrastAxisHandle = {
+    key: 'start' | 'end';
+    x: number;
+    y: number;
+    cursor: string;
+};
+
+type StrokeAwareContourSnapshot = {
+    contourIndex: number;
+    centerlineBranches: Array<Array<{ x: number; y: number }>>;
+    spokes: Array<{
+        startX: number;
+        startY: number;
+        endX: number;
+        endY: number;
+    }>;
+};
+
+type StrokeAwareNodeSnapshot = {
+    contourIndex: number;
+    nodeIndex: number;
+    centerBranchIndex: number;
+    centerSegmentIndex: number;
+    centerSegmentT: number;
+    tangentX: number;
+    tangentY: number;
+    normalX: number;
+    normalY: number;
+    tangentOffset: number;
+    normalOffset: number;
+};
+
+type StrokeAwareCenterlineDebugGeometry = {
+    contourIndex: number;
+    centerlineBranches: Array<Array<{ x: number; y: number }>>;
+    spokes: Array<{
+        startX: number;
+        startY: number;
+        endX: number;
+        endY: number;
+    }>;
+};
+
+type StrokeAwareContourGeometry = {
+    contour: StrokeAwareContourSnapshot;
+    nodes: StrokeAwareNodeSnapshot[];
+    debugGeometry: StrokeAwareCenterlineDebugGeometry;
+};
+
+const CONTRAST_AXIS_FORMAT_SPECIFIC_KEY =
+    'space.counterpunch.contrast_axis_angle';
+const DEFAULT_CONTRAST_AXIS_ANGLE_DEGREES = 90;
 
 /**
  * Convert affine matrix [a, b, c, d, e, f] to DecomposedAffine
@@ -800,6 +847,959 @@ function createAffineScaleAboutPoint(
     ];
 }
 
+function dotProduct(
+    leftX: number,
+    leftY: number,
+    rightX: number,
+    rightY: number
+): number {
+    return leftX * rightX + leftY * rightY;
+}
+
+function normalizeVector(
+    x: number,
+    y: number,
+    fallbackX: number = 1,
+    fallbackY: number = 0
+): { x: number; y: number } {
+    const length = Math.hypot(x, y);
+    if (length <= 0.000001) {
+        return { x: fallbackX, y: fallbackY };
+    }
+
+    return { x: x / length, y: y / length };
+}
+
+function normalizeContrastAxisAngle(angleDegrees: number): number {
+    const normalized = angleDegrees % 180;
+    return normalized < 0 ? normalized + 180 : normalized;
+}
+
+function crossProduct2D(
+    leftX: number,
+    leftY: number,
+    rightX: number,
+    rightY: number
+): number {
+    return leftX * rightY - leftY * rightX;
+}
+
+function sampleDescriptorPoints(
+    descriptor: ReturnType<typeof Layer.getPathSegmentDescriptors>[number]
+): Array<{ x: number; y: number }> {
+    if (descriptor.type === 'line') {
+        return descriptor.points.map((point) => ({ x: point.x, y: point.y }));
+    }
+
+    const curve = new Bezier(descriptor.points);
+    const sampleCount = descriptor.type === 'cubic' ? 24 : 18;
+    return curve.getLUT(sampleCount).map((point: { x: number; y: number }) => ({
+        x: point.x,
+        y: point.y
+    }));
+}
+
+function buildClosedContourSampledPolyline(
+    contour: EditableContour
+): Array<{ x: number; y: number }> {
+    const descriptors = Layer.getPathSegmentDescriptors({
+        nodes: contour.nodes,
+        closed: contour.closed
+    });
+    const points: Array<{ x: number; y: number }> = [];
+
+    descriptors.forEach((descriptor, descriptorIndex) => {
+        const samples = sampleDescriptorPoints(descriptor);
+        samples.forEach((sample, sampleIndex) => {
+            if (descriptorIndex > 0 && sampleIndex === 0) {
+                return;
+            }
+
+            const previous = points[points.length - 1];
+            if (
+                previous &&
+                Math.hypot(previous.x - sample.x, previous.y - sample.y) <=
+                    0.000001
+            ) {
+                return;
+            }
+
+            points.push({ x: sample.x, y: sample.y });
+        });
+    });
+
+    if (
+        points.length > 1 &&
+        Math.hypot(
+            points[0].x - points[points.length - 1].x,
+            points[0].y - points[points.length - 1].y
+        ) <= 0.000001
+    ) {
+        points.pop();
+    }
+
+    return points;
+}
+
+function buildContourPath2D(contour: EditableContour): Path2D | null {
+    const descriptors = Layer.getPathSegmentDescriptors({
+        nodes: contour.nodes,
+        closed: contour.closed
+    });
+    if (descriptors.length === 0) {
+        return null;
+    }
+
+    const path = new Path2D();
+    path.moveTo(descriptors[0].points[0].x, descriptors[0].points[0].y);
+
+    descriptors.forEach((descriptor) => {
+        if (descriptor.type === 'line') {
+            path.lineTo(descriptor.points[1].x, descriptor.points[1].y);
+            return;
+        }
+
+        if (descriptor.type === 'quadratic') {
+            path.quadraticCurveTo(
+                descriptor.points[1].x,
+                descriptor.points[1].y,
+                descriptor.points[2].x,
+                descriptor.points[2].y
+            );
+            return;
+        }
+
+        path.bezierCurveTo(
+            descriptor.points[1].x,
+            descriptor.points[1].y,
+            descriptor.points[2].x,
+            descriptor.points[2].y,
+            descriptor.points[3].x,
+            descriptor.points[3].y
+        );
+    });
+
+    if (contour.closed) {
+        path.closePath();
+    }
+
+    return path;
+}
+
+function rasterizeContourMask(contour: EditableContour): {
+    mask: Uint8Array;
+    width: number;
+    height: number;
+    scale: number;
+    minX: number;
+    minY: number;
+    padding: number;
+} | null {
+    const boundaryPolyline = buildClosedContourSampledPolyline(contour);
+    if (boundaryPolyline.length < 3) {
+        return null;
+    }
+
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    boundaryPolyline.forEach((point) => {
+        minX = Math.min(minX, point.x);
+        minY = Math.min(minY, point.y);
+        maxX = Math.max(maxX, point.x);
+        maxY = Math.max(maxY, point.y);
+    });
+
+    const boundsWidth = Math.max(1, maxX - minX);
+    const boundsHeight = Math.max(1, maxY - minY);
+    const padding = 12;
+    const targetLongestSide = 384;
+    const maxRasterSide = 768;
+    let scale = Math.min(
+        4,
+        Math.max(0.35, targetLongestSide / Math.max(boundsWidth, boundsHeight))
+    );
+    const projectedLongestSide =
+        Math.max(boundsWidth, boundsHeight) * scale + padding * 2;
+    if (projectedLongestSide > maxRasterSide) {
+        scale *= maxRasterSide / projectedLongestSide;
+    }
+
+    const width = Math.max(3, Math.ceil(boundsWidth * scale) + padding * 2);
+    const height = Math.max(3, Math.ceil(boundsHeight * scale) + padding * 2);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+        return null;
+    }
+
+    const path = buildContourPath2D(contour);
+    if (!path) {
+        return null;
+    }
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.save();
+    ctx.translate(padding - minX * scale, padding - minY * scale);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = '#000';
+    ctx.fill(path, 'nonzero');
+    ctx.restore();
+
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const mask = new Uint8Array(width * height);
+    for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex++) {
+        mask[pixelIndex] = imageData.data[pixelIndex * 4 + 3] > 0 ? 1 : 0;
+    }
+
+    return {
+        mask,
+        width,
+        height,
+        scale,
+        minX,
+        minY,
+        padding
+    };
+}
+
+function thinMaskToSkeleton(
+    mask: Uint8Array,
+    width: number,
+    height: number
+): Uint8Array {
+    const result = new Uint8Array(mask);
+    const get = (x: number, y: number): number => result[y * width + x];
+    const neighbors = [
+        [0, -1],
+        [1, -1],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [-1, 1],
+        [-1, 0],
+        [-1, -1]
+    ] as const;
+
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (let phase = 0; phase < 2; phase++) {
+            const toRemove: number[] = [];
+
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    const index = y * width + x;
+                    if (result[index] === 0) {
+                        continue;
+                    }
+
+                    const ring = neighbors.map(([deltaX, deltaY]) =>
+                        get(x + deltaX, y + deltaY)
+                    );
+                    const neighborCount = ring.reduce(
+                        (sum, value) => sum + value,
+                        0
+                    );
+                    if (neighborCount < 2 || neighborCount > 6) {
+                        continue;
+                    }
+
+                    let transitions = 0;
+                    for (
+                        let ringIndex = 0;
+                        ringIndex < ring.length;
+                        ringIndex++
+                    ) {
+                        const current = ring[ringIndex];
+                        const next = ring[(ringIndex + 1) % ring.length];
+                        if (current === 0 && next === 1) {
+                            transitions++;
+                        }
+                    }
+                    if (transitions !== 1) {
+                        continue;
+                    }
+
+                    const [p2, p3, p4, p5, p6, p7, p8, p9] = ring;
+                    const phasePasses =
+                        phase === 0
+                            ? p2 * p4 * p6 === 0 && p4 * p6 * p8 === 0
+                            : p2 * p4 * p8 === 0 && p2 * p6 * p8 === 0;
+                    if (!phasePasses) {
+                        continue;
+                    }
+
+                    toRemove.push(index);
+                }
+            }
+
+            if (toRemove.length > 0) {
+                changed = true;
+                toRemove.forEach((index) => {
+                    result[index] = 0;
+                });
+            }
+        }
+    }
+
+    return result;
+}
+
+function buildSkeletonNeighbors(
+    mask: Uint8Array,
+    width: number,
+    height: number
+): Map<number, number[]> {
+    const neighborDeltas = [
+        [-1, -1],
+        [0, -1],
+        [1, -1],
+        [-1, 0],
+        [1, 0],
+        [-1, 1],
+        [0, 1],
+        [1, 1]
+    ] as const;
+    const neighbors = new Map<number, number[]>();
+
+    for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+            const index = y * width + x;
+            if (mask[index] === 0) {
+                continue;
+            }
+
+            const adjacent = neighborDeltas
+                .map(([deltaX, deltaY]) => (y + deltaY) * width + (x + deltaX))
+                .filter((candidateIndex) => mask[candidateIndex] !== 0);
+            neighbors.set(index, adjacent);
+        }
+    }
+
+    return neighbors;
+}
+
+function extractSkeletonBranches(
+    mask: Uint8Array,
+    width: number,
+    height: number
+): Array<Array<{ x: number; y: number }>> {
+    const neighbors = buildSkeletonNeighbors(mask, width, height);
+    const nodes = [...neighbors.keys()];
+    if (nodes.length === 0) {
+        return [];
+    }
+
+    const keyForEdge = (left: number, right: number): string =>
+        left < right ? `${left}:${right}` : `${right}:${left}`;
+    const branchNodes = new Set(
+        nodes.filter((index) => (neighbors.get(index) || []).length !== 2)
+    );
+    const visitedEdges = new Set<string>();
+    const branches: Array<Array<{ x: number; y: number }>> = [];
+
+    const appendBranch = (pathIndices: number[]): void => {
+        if (pathIndices.length < 2) {
+            return;
+        }
+
+        const points = pathIndices.map((index) => ({
+            x: index % width,
+            y: Math.floor(index / width)
+        }));
+        const pathLength = points.reduce(
+            (sum, point, pointIndex) =>
+                pointIndex === 0
+                    ? 0
+                    : sum +
+                      Math.hypot(
+                          point.x - points[pointIndex - 1].x,
+                          point.y - points[pointIndex - 1].y
+                      ),
+            0
+        );
+        if (pathLength < 4) {
+            return;
+        }
+
+        branches.push(points);
+    };
+
+    const traverseFrom = (startIndex: number, nextIndex: number): void => {
+        const pathIndices = [startIndex, nextIndex];
+        visitedEdges.add(keyForEdge(startIndex, nextIndex));
+        let previousIndex = startIndex;
+        let currentIndex = nextIndex;
+
+        while (!branchNodes.has(currentIndex)) {
+            const adjacent = (neighbors.get(currentIndex) || []).filter(
+                (candidate) => candidate !== previousIndex
+            );
+            if (adjacent.length === 0) {
+                break;
+            }
+
+            const followingIndex = adjacent[0];
+            const edgeKey = keyForEdge(currentIndex, followingIndex);
+            if (visitedEdges.has(edgeKey)) {
+                break;
+            }
+
+            pathIndices.push(followingIndex);
+            visitedEdges.add(edgeKey);
+            previousIndex = currentIndex;
+            currentIndex = followingIndex;
+        }
+
+        appendBranch(pathIndices);
+    };
+
+    if (branchNodes.size === 0) {
+        const loop = nodes.map((index) => ({
+            x: index % width,
+            y: Math.floor(index / width)
+        }));
+        return loop.length > 1 ? [loop] : [];
+    }
+
+    branchNodes.forEach((branchIndex) => {
+        (neighbors.get(branchIndex) || []).forEach((neighborIndex) => {
+            const edgeKey = keyForEdge(branchIndex, neighborIndex);
+            if (visitedEdges.has(edgeKey)) {
+                return;
+            }
+
+            traverseFrom(branchIndex, neighborIndex);
+        });
+    });
+
+    return branches;
+}
+
+function projectPointOntoBranchSet(
+    point: { x: number; y: number },
+    branches: Array<Array<{ x: number; y: number }>>
+): {
+    branchIndex: number;
+    segmentIndex: number;
+    t: number;
+    x: number;
+    y: number;
+    tangentX: number;
+    tangentY: number;
+    distance: number;
+} {
+    let bestProjection: {
+        branchIndex: number;
+        segmentIndex: number;
+        t: number;
+        x: number;
+        y: number;
+        tangentX: number;
+        tangentY: number;
+        distance: number;
+    } | null = null;
+
+    branches.forEach((branch, branchIndex) => {
+        const branchProjection = projectPointOntoPolyline(point, branch);
+        if (
+            !bestProjection ||
+            branchProjection.distance < bestProjection.distance
+        ) {
+            bestProjection = {
+                branchIndex,
+                ...branchProjection
+            };
+        }
+    });
+
+    return (
+        bestProjection || {
+            branchIndex: 0,
+            segmentIndex: 0,
+            t: 0,
+            x: point.x,
+            y: point.y,
+            tangentX: 1,
+            tangentY: 0,
+            distance: 0
+        }
+    );
+}
+
+function smoothOpenPolyline(
+    points: Array<{ x: number; y: number }>,
+    iterations: number = 2
+): Array<{ x: number; y: number }> {
+    let result = points.slice();
+    for (let iteration = 0; iteration < iterations; iteration++) {
+        if (result.length < 3) {
+            return result;
+        }
+
+        const next: Array<{ x: number; y: number }> = [result[0]];
+        for (let index = 0; index < result.length - 1; index++) {
+            const start = result[index];
+            const end = result[index + 1];
+            next.push({
+                x: start.x * 0.75 + end.x * 0.25,
+                y: start.y * 0.75 + end.y * 0.25
+            });
+            next.push({
+                x: start.x * 0.25 + end.x * 0.75,
+                y: start.y * 0.25 + end.y * 0.75
+            });
+        }
+        next.push(result[result.length - 1]);
+        result = next;
+    }
+
+    return result;
+}
+
+function mapRasterPointToGlyphSpace(
+    point: { x: number; y: number },
+    raster: {
+        scale: number;
+        minX: number;
+        minY: number;
+        padding: number;
+    }
+): { x: number; y: number } {
+    return {
+        x: (point.x + 0.5 - raster.padding) / raster.scale + raster.minX,
+        y: (point.y + 0.5 - raster.padding) / raster.scale + raster.minY
+    };
+}
+
+function buildCenterlineSpokes(
+    centerlineBranches: Array<Array<{ x: number; y: number }>>,
+    boundaryPolyline: Array<{ x: number; y: number }>
+): Array<{ startX: number; startY: number; endX: number; endY: number }> {
+    const spokes: Array<{
+        startX: number;
+        startY: number;
+        endX: number;
+        endY: number;
+    }> = [];
+    if (centerlineBranches.length === 0 || boundaryPolyline.length < 2) {
+        return spokes;
+    }
+
+    const findIntersection = (
+        origin: { x: number; y: number },
+        direction: { x: number; y: number }
+    ): { x: number; y: number; distance: number } | null => {
+        let bestIntersection: {
+            x: number;
+            y: number;
+            distance: number;
+        } | null = null;
+
+        for (let index = 0; index < boundaryPolyline.length; index++) {
+            const segmentStart = boundaryPolyline[index];
+            const segmentEnd =
+                boundaryPolyline[(index + 1) % boundaryPolyline.length];
+            const intersection = intersectRayWithSegment(
+                origin.x,
+                origin.y,
+                direction.x,
+                direction.y,
+                segmentStart.x,
+                segmentStart.y,
+                segmentEnd.x,
+                segmentEnd.y
+            );
+            if (!intersection) {
+                continue;
+            }
+
+            if (
+                !bestIntersection ||
+                intersection.distance < bestIntersection.distance
+            ) {
+                bestIntersection = intersection;
+            }
+        }
+
+        return bestIntersection;
+    };
+
+    centerlineBranches.forEach((centerlinePoints) => {
+        centerlinePoints.forEach((point, index) => {
+            if (index === 0 || index === centerlinePoints.length - 1) {
+                return;
+            }
+
+            const previous = centerlinePoints[index - 1];
+            const next = centerlinePoints[index + 1];
+            const tangent = normalizeVector(
+                next.x - previous.x,
+                next.y - previous.y,
+                1,
+                0
+            );
+            const normal = { x: -tangent.y, y: tangent.x };
+            const positive = findIntersection(point, normal);
+            const negative = findIntersection(point, {
+                x: -normal.x,
+                y: -normal.y
+            });
+            if (!positive || !negative) {
+                return;
+            }
+
+            spokes.push({
+                startX: negative.x,
+                startY: negative.y,
+                endX: positive.x,
+                endY: positive.y
+            });
+        });
+    });
+
+    return spokes;
+}
+
+function reapplySmoothHandleDirectionsForContour(
+    contour: EditableContour
+): void {
+    for (let nodeIndex = 0; nodeIndex < contour.nodes.length; nodeIndex++) {
+        const node = contour.nodes[nodeIndex];
+        if (!isOnCurveNode(node) || !node.smooth) {
+            continue;
+        }
+
+        realignSmoothHandles(contour, nodeIndex);
+    }
+}
+
+function buildPolylineCumulativeLengths(
+    points: Array<{ x: number; y: number }>
+): number[] {
+    const lengths = [0];
+    for (let index = 1; index < points.length; index++) {
+        lengths.push(
+            lengths[index - 1] +
+                Math.hypot(
+                    points[index].x - points[index - 1].x,
+                    points[index].y - points[index - 1].y
+                )
+        );
+    }
+
+    return lengths;
+}
+
+function evaluateOpenPolylineAt(
+    points: Array<{ x: number; y: number }>,
+    segmentIndex: number,
+    t: number
+): {
+    x: number;
+    y: number;
+    tangentX: number;
+    tangentY: number;
+} {
+    if (points.length === 0) {
+        return { x: 0, y: 0, tangentX: 1, tangentY: 0 };
+    }
+
+    if (points.length === 1) {
+        return {
+            x: points[0].x,
+            y: points[0].y,
+            tangentX: 1,
+            tangentY: 0
+        };
+    }
+
+    const safeSegmentIndex = Math.max(
+        0,
+        Math.min(points.length - 2, segmentIndex)
+    );
+    const safeT = clampUnitInterval(t);
+    const start = points[safeSegmentIndex];
+    const end = points[safeSegmentIndex + 1];
+    const tangent = normalizeVector(end.x - start.x, end.y - start.y, 1, 0);
+
+    return {
+        x: start.x + (end.x - start.x) * safeT,
+        y: start.y + (end.y - start.y) * safeT,
+        tangentX: tangent.x,
+        tangentY: tangent.y
+    };
+}
+
+function projectPointOntoPolyline(
+    point: { x: number; y: number },
+    polyline: Array<{ x: number; y: number }>
+): {
+    segmentIndex: number;
+    t: number;
+    x: number;
+    y: number;
+    tangentX: number;
+    tangentY: number;
+    distance: number;
+} {
+    if (polyline.length <= 1) {
+        const fallback = polyline[0] || { x: point.x, y: point.y };
+        return {
+            segmentIndex: 0,
+            t: 0,
+            x: fallback.x,
+            y: fallback.y,
+            tangentX: 1,
+            tangentY: 0,
+            distance: Math.hypot(point.x - fallback.x, point.y - fallback.y)
+        };
+    }
+
+    let bestProjection = {
+        segmentIndex: 0,
+        t: 0,
+        x: polyline[0].x,
+        y: polyline[0].y,
+        tangentX: 1,
+        tangentY: 0,
+        distance: Number.POSITIVE_INFINITY
+    };
+
+    for (
+        let segmentIndex = 0;
+        segmentIndex < polyline.length - 1;
+        segmentIndex++
+    ) {
+        const projection = projectPointOntoLine(
+            point,
+            polyline[segmentIndex],
+            polyline[segmentIndex + 1]
+        );
+        const tangent = normalizeVector(
+            polyline[segmentIndex + 1].x - polyline[segmentIndex].x,
+            polyline[segmentIndex + 1].y - polyline[segmentIndex].y,
+            1,
+            0
+        );
+        if (projection.distance < bestProjection.distance) {
+            bestProjection = {
+                segmentIndex,
+                t: projection.t,
+                x: projection.x,
+                y: projection.y,
+                tangentX: tangent.x,
+                tangentY: tangent.y,
+                distance: projection.distance
+            };
+        }
+    }
+
+    return bestProjection;
+}
+
+function resampleOpenPolyline(
+    polyline: Array<{ x: number; y: number }>,
+    targetCount: number
+): Array<{ x: number; y: number }> {
+    if (polyline.length <= 1 || targetCount <= 1) {
+        return polyline.slice();
+    }
+
+    const cumulativeLengths = buildPolylineCumulativeLengths(polyline);
+    const totalLength = cumulativeLengths[cumulativeLengths.length - 1];
+    if (totalLength <= 0.000001) {
+        return polyline.slice(0, targetCount);
+    }
+
+    const result: Array<{ x: number; y: number }> = [];
+    let segmentIndex = 0;
+
+    for (let sampleIndex = 0; sampleIndex < targetCount; sampleIndex++) {
+        const targetDistance =
+            (totalLength * sampleIndex) / Math.max(1, targetCount - 1);
+
+        while (
+            segmentIndex < cumulativeLengths.length - 2 &&
+            cumulativeLengths[segmentIndex + 1] < targetDistance
+        ) {
+            segmentIndex++;
+        }
+
+        const segmentStartDistance = cumulativeLengths[segmentIndex];
+        const segmentEndDistance = cumulativeLengths[segmentIndex + 1];
+        const segmentLength = segmentEndDistance - segmentStartDistance;
+        const t =
+            segmentLength <= 0.000001
+                ? 0
+                : (targetDistance - segmentStartDistance) / segmentLength;
+        result.push(
+            lerpPoint(polyline[segmentIndex], polyline[segmentIndex + 1], t)
+        );
+    }
+
+    return result;
+}
+
+function intersectRayWithSegment(
+    originX: number,
+    originY: number,
+    directionX: number,
+    directionY: number,
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number
+): { x: number; y: number; distance: number } | null {
+    const segmentX = endX - startX;
+    const segmentY = endY - startY;
+    const determinant = crossProduct2D(
+        directionX,
+        directionY,
+        segmentX,
+        segmentY
+    );
+    if (Math.abs(determinant) <= 0.000001) {
+        return null;
+    }
+
+    const deltaX = startX - originX;
+    const deltaY = startY - originY;
+    const rayDistance =
+        crossProduct2D(deltaX, deltaY, segmentX, segmentY) / determinant;
+    const segmentT =
+        crossProduct2D(deltaX, deltaY, directionX, directionY) / determinant;
+    if (
+        rayDistance <= 0.000001 ||
+        segmentT < -0.000001 ||
+        segmentT > 1.000001
+    ) {
+        return null;
+    }
+
+    return {
+        x: originX + directionX * rayDistance,
+        y: originY + directionY * rayDistance,
+        distance: rayDistance
+    };
+}
+
+function buildStrokeAwareContourGeometry(
+    contourIndex: number,
+    contour: EditableContour
+): StrokeAwareContourGeometry | null {
+    if (!contour.closed || contour.nodes.length < 3) {
+        return null;
+    }
+
+    const boundaryPolyline = buildClosedContourSampledPolyline(contour);
+    if (boundaryPolyline.length < 6) {
+        return null;
+    }
+    const raster = rasterizeContourMask(contour);
+    if (!raster) {
+        return null;
+    }
+
+    const skeletonMask = thinMaskToSkeleton(
+        raster.mask,
+        raster.width,
+        raster.height
+    );
+    const rawSkeletonBranches = extractSkeletonBranches(
+        skeletonMask,
+        raster.width,
+        raster.height
+    );
+    if (rawSkeletonBranches.length === 0) {
+        return null;
+    }
+
+    const centerlineBranches = rawSkeletonBranches
+        .map((branch) =>
+            resampleOpenPolyline(
+                smoothOpenPolyline(
+                    branch.map((point) =>
+                        mapRasterPointToGlyphSpace(point, raster)
+                    ),
+                    2
+                ),
+                Math.max(12, Math.min(48, branch.length))
+            )
+        )
+        .filter((branch) => branch.length >= 2);
+    const spokes = buildCenterlineSpokes(centerlineBranches, boundaryPolyline);
+
+    if (centerlineBranches.length === 0) {
+        return null;
+    }
+
+    const nodes: StrokeAwareNodeSnapshot[] = [];
+    for (let nodeIndex = 0; nodeIndex < contour.nodes.length; nodeIndex++) {
+        const node = contour.nodes[nodeIndex];
+        const projection = projectPointOntoBranchSet(node, centerlineBranches);
+        const normal = {
+            x: -projection.tangentY,
+            y: projection.tangentX
+        };
+        const vectorToNode = {
+            x: node.x - projection.x,
+            y: node.y - projection.y
+        };
+        const orientedNormal =
+            dotProduct(vectorToNode.x, vectorToNode.y, normal.x, normal.y) >= 0
+                ? normal
+                : { x: -normal.x, y: -normal.y };
+
+        nodes.push({
+            contourIndex,
+            nodeIndex,
+            centerBranchIndex: projection.branchIndex,
+            centerSegmentIndex: projection.segmentIndex,
+            centerSegmentT: projection.t,
+            tangentX: projection.tangentX,
+            tangentY: projection.tangentY,
+            normalX: orientedNormal.x,
+            normalY: orientedNormal.y,
+            tangentOffset: dotProduct(
+                vectorToNode.x,
+                vectorToNode.y,
+                projection.tangentX,
+                projection.tangentY
+            ),
+            normalOffset: dotProduct(
+                vectorToNode.x,
+                vectorToNode.y,
+                orientedNormal.x,
+                orientedNormal.y
+            )
+        });
+    }
+
+    if (nodes.length === 0) {
+        return null;
+    }
+
+    return {
+        contour: {
+            contourIndex,
+            centerlineBranches,
+            spokes
+        },
+        nodes,
+        debugGeometry: {
+            contourIndex,
+            centerlineBranches,
+            spokes
+        }
+    };
+}
+
 function getAxisAlignedHandleDirection(
     anchor: Babelfont.Node,
     handle: Babelfont.Node
@@ -1297,6 +2297,7 @@ export class OutlineEditor {
     isDraggingSidebearing: boolean = false;
     isDraggingGuide: boolean = false;
     isResizingSelection: boolean = false;
+    isDraggingContrastAxis: boolean = false;
     isMarqueeSelecting: boolean = false;
     _hasMoved: boolean = false;
     _preDragDesc: string | null = null;
@@ -1308,6 +2309,7 @@ export class OutlineEditor {
         | 'slide-point'
         | 'component'
         | 'transform'
+        | 'contrast-axis'
         | 'sidebearing'
         | 'guide'
         | null = null;
@@ -1326,6 +2328,7 @@ export class OutlineEditor {
     hoveredSidebearingHandle: SidebearingHandle | null = null;
     hoveredGuideHandle: GuideHandle | null = null;
     hoveredResizeHandle: SelectionResizeHandle | null = null;
+    hoveredContrastAxisHandle: ContrastAxisHandle | null = null;
     hoveredGlyphIndex: number = -1;
     hoveredAddPointPreview: HoveredAddPointPreview | null = null;
     hoveredCommandCurvePreview: HoveredSegmentPreview | null = null;
@@ -1367,6 +2370,7 @@ export class OutlineEditor {
     private canvasContextMenuTippy: TippyInstance | null = null;
     private canvasContextMenuTarget: CanvasPathContextTarget | null = null;
     private selectionResizeSnapshot: SelectionResizeSnapshot | null = null;
+    private strokeAwareScalingEnabled: boolean = false;
 
     private readonly GUIDELINES_STORAGE_KEY = 'outlineEditorGuidelinesVisible';
 
@@ -3062,6 +4066,263 @@ export class OutlineEditor {
         }));
     }
 
+    private getStrokeAwareEligibleContourIndices(): number[] {
+        if (
+            !this.active ||
+            !this.selectedLayerId ||
+            !this.layerData ||
+            this.isPreviewMode ||
+            this.selectedPoints.length === 0 ||
+            this.selectedAnchors.length > 0 ||
+            this.selectedComponents.length > 0 ||
+            this.selectedGuideHandle !== null ||
+            this.selectedSidebearingHandle !== null
+        ) {
+            return [];
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData?.shapes) {
+            return [];
+        }
+
+        const pointsByContour = new Map<number, Set<number>>();
+        for (const point of this.selectedPoints) {
+            const indices =
+                pointsByContour.get(point.contourIndex) || new Set<number>();
+            indices.add(point.nodeIndex);
+            pointsByContour.set(point.contourIndex, indices);
+        }
+
+        const eligibleContourIndices: number[] = [];
+        let expectedPointCount = 0;
+
+        for (const [contourIndex, nodeIndices] of pointsByContour) {
+            const contour = getEditableContour(
+                currentLayerData.shapes[contourIndex]
+            );
+            if (!contour || !contour.closed || contour.nodes.length === 0) {
+                return [];
+            }
+
+            if (nodeIndices.size !== contour.nodes.length) {
+                return [];
+            }
+
+            for (
+                let nodeIndex = 0;
+                nodeIndex < contour.nodes.length;
+                nodeIndex++
+            ) {
+                if (!nodeIndices.has(nodeIndex)) {
+                    return [];
+                }
+            }
+
+            expectedPointCount += contour.nodes.length;
+            eligibleContourIndices.push(contourIndex);
+        }
+
+        if (expectedPointCount !== this.selectedPoints.length) {
+            return [];
+        }
+
+        return eligibleContourIndices.sort((left, right) => left - right);
+    }
+
+    canOfferStrokeAwareScaling(): boolean {
+        return this.getStrokeAwareEligibleContourIndices().length > 0;
+    }
+
+    isStrokeAwareScalingEnabled(): boolean {
+        if (!this.canOfferStrokeAwareScaling()) {
+            this.strokeAwareScalingEnabled = false;
+        }
+
+        return this.strokeAwareScalingEnabled;
+    }
+
+    setStrokeAwareScalingEnabled(enabled: boolean): void {
+        this.strokeAwareScalingEnabled =
+            enabled && this.canOfferStrokeAwareScaling();
+        this.hoveredContrastAxisHandle = null;
+    }
+
+    private getCurrentContrastAxisAngleDegrees(): number {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const rawAngle =
+            currentLayerData?.format_specific?.[
+                CONTRAST_AXIS_FORMAT_SPECIFIC_KEY
+            ];
+        const numericAngle = Number(rawAngle);
+        if (!Number.isFinite(numericAngle)) {
+            return DEFAULT_CONTRAST_AXIS_ANGLE_DEGREES;
+        }
+
+        return normalizeContrastAxisAngle(numericAngle);
+    }
+
+    private setCurrentContrastAxisAngleDegrees(angleDegrees: number): boolean {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        if (!currentLayerData || currentLayerData.isInterpolated) {
+            return false;
+        }
+
+        const normalizedAngle = normalizeContrastAxisAngle(angleDegrees);
+        const previousAngle = this.getCurrentContrastAxisAngleDegrees();
+        if (Math.abs(previousAngle - normalizedAngle) <= 0.000001) {
+            return false;
+        }
+
+        const formatSpecific = {
+            ...(currentLayerData.format_specific || {})
+        } as Record<string, number>;
+        formatSpecific[CONTRAST_AXIS_FORMAT_SPECIFIC_KEY] = normalizedAngle;
+        currentLayerData.format_specific = formatSpecific;
+        return true;
+    }
+
+    getVisibleContrastAxisLine(): {
+        start: { x: number; y: number };
+        end: { x: number; y: number };
+        angleDegrees: number;
+    } | null {
+        if (!this.isStrokeAwareScalingEnabled()) {
+            return null;
+        }
+
+        const bounds = this.getVisibleSelectionTransformBounds();
+        if (!bounds) {
+            return null;
+        }
+
+        const angleDegrees = this.getCurrentContrastAxisAngleDegrees();
+        const angleRadians = (angleDegrees * Math.PI) / 180;
+        const direction = {
+            x: Math.cos(angleRadians),
+            y: Math.sin(angleRadians)
+        };
+        const halfWidth = bounds.width / 2;
+        const halfHeight = bounds.height / 2;
+        const maxT = Math.min(
+            Math.abs(direction.x) > 0.000001
+                ? halfWidth / Math.abs(direction.x)
+                : Number.POSITIVE_INFINITY,
+            Math.abs(direction.y) > 0.000001
+                ? halfHeight / Math.abs(direction.y)
+                : Number.POSITIVE_INFINITY
+        );
+
+        if (!Number.isFinite(maxT)) {
+            return null;
+        }
+
+        return {
+            start: {
+                x: bounds.centerX - direction.x * maxT,
+                y: bounds.centerY - direction.y * maxT
+            },
+            end: {
+                x: bounds.centerX + direction.x * maxT,
+                y: bounds.centerY + direction.y * maxT
+            },
+            angleDegrees
+        };
+    }
+
+    getVisibleContrastAxisHandles(): ContrastAxisHandle[] {
+        const line = this.getVisibleContrastAxisLine();
+        if (!line) {
+            return [];
+        }
+
+        return [
+            {
+                key: 'start',
+                x: line.start.x,
+                y: line.start.y,
+                cursor: 'grab'
+            },
+            {
+                key: 'end',
+                x: line.end.x,
+                y: line.end.y,
+                cursor: 'grab'
+            }
+        ];
+    }
+
+    getVisibleStrokeAwareCenterlines(): StrokeAwareCenterlineDebugGeometry[] {
+        if (!this.isStrokeAwareScalingEnabled()) {
+            return [];
+        }
+
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const eligibleContourIndices =
+            this.getStrokeAwareEligibleContourIndices();
+        if (!currentLayerData?.shapes || eligibleContourIndices.length === 0) {
+            return [];
+        }
+
+        const geometries: StrokeAwareCenterlineDebugGeometry[] = [];
+
+        for (const contourIndex of eligibleContourIndices) {
+            const contour = getEditableContour(
+                currentLayerData.shapes[contourIndex]
+            );
+            if (!contour || contour.nodes.length === 0) {
+                continue;
+            }
+
+            const geometry = buildStrokeAwareContourGeometry(
+                contourIndex,
+                contour
+            );
+            if (geometry) {
+                geometries.push(geometry.debugGeometry);
+            }
+        }
+
+        return geometries;
+    }
+
+    private buildStrokeAwareResizeSnapshots(): {
+        contours: StrokeAwareContourSnapshot[];
+        nodes: StrokeAwareNodeSnapshot[];
+    } {
+        const currentLayerData = this.getCurrentLayerDataFromStack();
+        const eligibleContourIndices =
+            this.getStrokeAwareEligibleContourIndices();
+        if (!currentLayerData?.shapes || eligibleContourIndices.length === 0) {
+            return { contours: [], nodes: [] };
+        }
+
+        const contours: StrokeAwareContourSnapshot[] = [];
+        const nodes: StrokeAwareNodeSnapshot[] = [];
+
+        for (const contourIndex of eligibleContourIndices) {
+            const contour = getEditableContour(
+                currentLayerData.shapes[contourIndex]
+            );
+            if (!contour || contour.nodes.length === 0) {
+                continue;
+            }
+
+            const geometry = buildStrokeAwareContourGeometry(
+                contourIndex,
+                contour
+            );
+            if (!geometry) {
+                continue;
+            }
+
+            contours.push(geometry.contour);
+            nodes.push(...geometry.nodes);
+        }
+
+        return { contours, nodes };
+    }
+
     private cloneSelectedPoints(
         points: Point[] = this.selectedPoints
     ): Point[] {
@@ -4375,6 +5636,7 @@ export class OutlineEditor {
         this.hoveredSidebearingHandle = null;
         this.hoveredGuideHandle = null;
         this.hoveredResizeHandle = null;
+        this.hoveredContrastAxisHandle = null;
         this.hoveredAddPointPreview = null;
         this.hoveredCommandCurvePreview = null;
         this.hoveredGlyphIndex = -1;
@@ -4801,6 +6063,11 @@ export class OutlineEditor {
         const isCmdClick = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
         if (isCmdClick && this.hoveredAddPointPreview) {
             void this.commitHoveredAddPointPreview();
+            return;
+        }
+
+        if (this.hoveredContrastAxisHandle) {
+            this.beginContrastAxisDrag(e);
             return;
         }
 
@@ -6476,6 +7743,11 @@ export class OutlineEditor {
             return;
         }
 
+        if (this.isDraggingContrastAxis) {
+            this.handleContrastAxisDrag(e);
+            return;
+        }
+
         if (this.isResizingSelection) {
             this.handleSelectionResizeDrag(e);
             return;
@@ -6504,6 +7776,53 @@ export class OutlineEditor {
         }
 
         return `Bounds: (${Math.round(bounds.minX)}, ${Math.round(bounds.minY)})-(${Math.round(bounds.maxX)}, ${Math.round(bounds.maxY)})`;
+    }
+
+    private buildContrastAxisDescription(): string | null {
+        if (!this.isStrokeAwareScalingEnabled()) {
+            return null;
+        }
+
+        return `Contrast axis: ${Math.round(this.getCurrentContrastAxisAngleDegrees())}°`;
+    }
+
+    private beginContrastAxisDrag(e: MouseEvent): void {
+        if (
+            !this.hoveredContrastAxisHandle ||
+            !this.isStrokeAwareScalingEnabled()
+        ) {
+            return;
+        }
+
+        this.isDraggingContrastAxis = true;
+        this._hasMoved = false;
+        this._dragType = 'contrast-axis';
+        this._preDragDesc = this.buildContrastAxisDescription();
+        window.changeBridge?.beginTransaction('Set contrast axis');
+        this.glyphCanvas.lastMouseX = e.clientX;
+        this.glyphCanvas.lastMouseY = e.clientY;
+        this.glyphCanvas.render();
+    }
+
+    private handleContrastAxisDrag(e: MouseEvent): void {
+        const bounds = this.getVisibleSelectionTransformBounds();
+        if (!bounds) {
+            return;
+        }
+
+        const rect = this.canvas!.getBoundingClientRect();
+        this.glyphCanvas.mouseX = e.clientX - rect.left;
+        this.glyphCanvas.mouseY = e.clientY - rect.top;
+        const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const angleDegrees =
+            (Math.atan2(glyphY - bounds.centerY, glyphX - bounds.centerX) *
+                180) /
+            Math.PI;
+        if (this.setCurrentContrastAxisAngleDegrees(angleDegrees)) {
+            this._hasMoved = true;
+        }
+
+        this.glyphCanvas.render();
     }
 
     private beginSelectionResize(e: MouseEvent): void {
@@ -6571,6 +7890,10 @@ export class OutlineEditor {
             });
         }
 
+        const strokeAwareSnapshots = this.isStrokeAwareScalingEnabled()
+            ? this.buildStrokeAwareResizeSnapshots()
+            : { contours: [], nodes: [] };
+
         this.selectionResizeSnapshot = {
             bounds,
             handle,
@@ -6578,7 +7901,11 @@ export class OutlineEditor {
             anchors,
             components,
             includesGeometry: points.length > 0 || components.length > 0,
-            includesAnchors: anchors.length > 0
+            includesAnchors: anchors.length > 0,
+            useStrokeAwareScaling: this.isStrokeAwareScalingEnabled(),
+            strokeAwareContours: strokeAwareSnapshots.contours,
+            strokeAwareNodes: strokeAwareSnapshots.nodes,
+            contrastAxisAngleDegrees: this.getCurrentContrastAxisAngleDegrees()
         };
         this.isResizingSelection = true;
         this._hasMoved = false;
@@ -6662,6 +7989,204 @@ export class OutlineEditor {
             translateX,
             translateY
         );
+
+        if (
+            snapshot.useStrokeAwareScaling &&
+            snapshot.strokeAwareContours.length > 0 &&
+            snapshot.strokeAwareNodes.length > 0
+        ) {
+            const angleRadians =
+                (snapshot.contrastAxisAngleDegrees * Math.PI) / 180;
+            const axisDirection = {
+                x: Math.cos(angleRadians),
+                y: Math.sin(angleRadians)
+            };
+            const linearTransform: Transform = [
+                selectionTransform[0],
+                selectionTransform[1],
+                selectionTransform[2],
+                selectionTransform[3],
+                0,
+                0
+            ];
+            const transformedCenterlines = new Map<
+                number,
+                Array<Array<{ x: number; y: number }>>
+            >();
+
+            snapshot.strokeAwareContours.forEach((contourSnapshot) => {
+                transformedCenterlines.set(
+                    contourSnapshot.contourIndex,
+                    contourSnapshot.centerlineBranches.map((branch) =>
+                        branch.map((point) =>
+                            transformPoint(point.x, point.y, selectionTransform)
+                        )
+                    )
+                );
+            });
+
+            const handledPointKeys = new Set<string>([
+                ...snapshot.strokeAwareNodes.map(
+                    (point) => `${point.contourIndex}:${point.nodeIndex}`
+                )
+            ]);
+
+            for (const pointSnapshot of snapshot.strokeAwareNodes) {
+                const contour = getEditableContour(
+                    currentLayerData.shapes?.[pointSnapshot.contourIndex]
+                );
+                const node = contour?.nodes?.[pointSnapshot.nodeIndex];
+                const transformedCenterlineBranches =
+                    transformedCenterlines.get(pointSnapshot.contourIndex);
+                if (!node || !transformedCenterlineBranches) {
+                    continue;
+                }
+
+                const transformedCenterline =
+                    transformedCenterlineBranches[
+                        pointSnapshot.centerBranchIndex
+                    ];
+                if (
+                    !transformedCenterline ||
+                    transformedCenterline.length < 2
+                ) {
+                    continue;
+                }
+
+                const transformedCenter = evaluateOpenPolylineAt(
+                    transformedCenterline,
+                    pointSnapshot.centerSegmentIndex,
+                    pointSnapshot.centerSegmentT
+                );
+                const transformedTangent = normalizeVector(
+                    transformedCenter.tangentX,
+                    transformedCenter.tangentY,
+                    pointSnapshot.tangentX,
+                    pointSnapshot.tangentY
+                );
+                const transformedNormalCandidate = normalizeVector(
+                    pointSnapshot.normalX * linearTransform[0] +
+                        pointSnapshot.normalY * linearTransform[2],
+                    pointSnapshot.normalX * linearTransform[1] +
+                        pointSnapshot.normalY * linearTransform[3],
+                    pointSnapshot.normalX,
+                    pointSnapshot.normalY
+                );
+                let transformedNormal = {
+                    x: -transformedTangent.y,
+                    y: transformedTangent.x
+                };
+                if (
+                    dotProduct(
+                        transformedNormal.x,
+                        transformedNormal.y,
+                        transformedNormalCandidate.x,
+                        transformedNormalCandidate.y
+                    ) < 0
+                ) {
+                    transformedNormal = {
+                        x: -transformedNormal.x,
+                        y: -transformedNormal.y
+                    };
+                }
+
+                const transformedLocalVector = transformPoint(
+                    pointSnapshot.tangentX * pointSnapshot.tangentOffset +
+                        pointSnapshot.normalX * pointSnapshot.normalOffset,
+                    pointSnapshot.tangentY * pointSnapshot.tangentOffset +
+                        pointSnapshot.normalY * pointSnapshot.normalOffset,
+                    linearTransform
+                );
+                const geometricTangentOffset = dotProduct(
+                    transformedLocalVector.x,
+                    transformedLocalVector.y,
+                    transformedTangent.x,
+                    transformedTangent.y
+                );
+                const geometricNormalOffset = dotProduct(
+                    transformedLocalVector.x,
+                    transformedLocalVector.y,
+                    transformedNormal.x,
+                    transformedNormal.y
+                );
+                const preservationStrength = Math.abs(
+                    dotProduct(
+                        pointSnapshot.normalX,
+                        pointSnapshot.normalY,
+                        axisDirection.x,
+                        axisDirection.y
+                    )
+                );
+                const strokeAwareNormalOffset =
+                    pointSnapshot.normalOffset * preservationStrength +
+                    geometricNormalOffset * (1 - preservationStrength);
+
+                node.x =
+                    transformedCenter.x +
+                    transformedTangent.x * geometricTangentOffset +
+                    transformedNormal.x * strokeAwareNormalOffset;
+                node.y =
+                    transformedCenter.y +
+                    transformedTangent.y * geometricTangentOffset +
+                    transformedNormal.y * strokeAwareNormalOffset;
+            }
+
+            const strokeAwareContourIndices = new Set(
+                snapshot.strokeAwareContours.map(
+                    (contour) => contour.contourIndex
+                )
+            );
+            strokeAwareContourIndices.forEach((contourIndex) => {
+                const contour = getEditableContour(
+                    currentLayerData.shapes?.[contourIndex]
+                );
+                if (contour) {
+                    reapplySmoothHandleDirectionsForContour(contour);
+                }
+            });
+
+            for (const pointSnapshot of snapshot.points) {
+                const pointKey = `${pointSnapshot.contourIndex}:${pointSnapshot.nodeIndex}`;
+                if (handledPointKeys.has(pointKey)) {
+                    continue;
+                }
+
+                const contour = getEditableContour(
+                    currentLayerData.shapes?.[pointSnapshot.contourIndex]
+                );
+                const node = contour?.nodes?.[pointSnapshot.nodeIndex];
+                if (!node) {
+                    continue;
+                }
+
+                const transformedPoint = transformPoint(
+                    pointSnapshot.x,
+                    pointSnapshot.y,
+                    selectionTransform
+                );
+                node.x = transformedPoint.x;
+                node.y = transformedPoint.y;
+            }
+
+            const movementEpsilon = 0.000001;
+            if (
+                Math.abs(scaleX - 1) > movementEpsilon ||
+                Math.abs(scaleY - 1) > movementEpsilon ||
+                Math.abs(translateX) > movementEpsilon ||
+                Math.abs(translateY) > movementEpsilon
+            ) {
+                this._hasMoved = true;
+            }
+
+            const now = performance.now();
+            this.schedulePendingDragMetricsUpdate();
+            if (now - this._lastPropertyPanelUpdateTime >= 100) {
+                this._lastPropertyPanelUpdateTime = now;
+                this.glyphCanvas.updatePropertyPanel();
+            }
+            this.glyphCanvas.render();
+            return;
+        }
 
         for (const pointSnapshot of snapshot.points) {
             const contour = getEditableContour(
@@ -7249,6 +8774,7 @@ export class OutlineEditor {
         }
 
         const wasDragging =
+            this.isDraggingContrastAxis ||
             this.isResizingSelection ||
             this.isDraggingPoint ||
             this.isDraggingAnchor ||
@@ -7275,6 +8801,7 @@ export class OutlineEditor {
         this.isDraggingSidebearing = false;
         this.isDraggingGuide = false;
         this.isResizingSelection = false;
+        this.isDraggingContrastAxis = false;
         this.lastPointDragShiftKey = null;
         this._pointDragPreserveHandlePositions = false;
         this._offCurveAltDragConstraint = null;
@@ -7387,6 +8914,9 @@ export class OutlineEditor {
                         this.buildSelectionResizeDescription(
                             this.getSelectionTransformBounds()
                         ) ?? undefined;
+                } else if (dragType === 'contrast-axis') {
+                    postDragDesc =
+                        this.buildContrastAxisDescription() ?? undefined;
                 } else if (dragType === 'sidebearing') {
                     const side = this.selectedSidebearingHandle?.side;
                     const sidebearingValue = side
@@ -7439,14 +8969,16 @@ export class OutlineEditor {
                               ? 'Drag component'
                               : dragType === 'transform'
                                 ? 'Scale selection'
-                                : dragType === 'guide'
-                                  ? 'Drag guide'
-                                  : dragType === 'sidebearing' &&
-                                      this.selectedSidebearingHandle
-                                    ? getSidebearingTransactionLabel(
-                                          this.selectedSidebearingHandle.side
-                                      )
-                                    : 'Drag';
+                                : dragType === 'contrast-axis'
+                                  ? 'Set contrast axis'
+                                  : dragType === 'guide'
+                                    ? 'Drag guide'
+                                    : dragType === 'sidebearing' &&
+                                        this.selectedSidebearingHandle
+                                      ? getSidebearingTransactionLabel(
+                                            this.selectedSidebearingHandle.side
+                                        )
+                                      : 'Drag';
                 if (isNoOpDragByDescription && !hasMetricsKeySideChange) {
                     // A drag moved during interaction but returned to the same
                     // effective value (e.g. point dragged out and back). Skip
@@ -7530,7 +9062,7 @@ export class OutlineEditor {
                         })
                     );
                 }
-            } else if (dragType !== 'guide') {
+            } else if (dragType !== 'guide' && dragType !== 'contrast-axis') {
                 console.log(
                     '[DRAG-DEBUG] onMouseUp before updateWorkerFontCache + flushPendingDebugEditingFontSaveAfterDrag'
                 );
@@ -7563,6 +9095,7 @@ export class OutlineEditor {
             this._dragType = null;
             this._metricsKeyInteractionSide = null;
             this.hoveredResizeHandle = null;
+            this.hoveredContrastAxisHandle = null;
 
             // A remote change was deferred during the drag to avoid resetting
             // layerData mid-drag. Now that the drag is complete, run the refresh.
@@ -7583,6 +9116,7 @@ export class OutlineEditor {
         return (
             this.active &&
             (this.isMarqueeSelecting ||
+                this.isDraggingContrastAxis ||
                 this.isResizingSelection ||
                 this.isDraggingPoint ||
                 this.isDraggingAnchor ||
@@ -7603,8 +9137,22 @@ export class OutlineEditor {
         }
 
         this.updateHoveredGuideHandle();
+        this.updateHoveredContrastAxisHandle();
+        if (this.hoveredContrastAxisHandle) {
+            this.hoveredResizeHandle = null;
+            this.hoveredGuideHandle = null;
+            this.hoveredSidebearingHandle = null;
+            this.hoveredComponentIndex = null;
+            this.hoveredAnchorIndex = null;
+            this.hoveredPointIndex = null;
+            this.hoveredAddPointPreview = null;
+            this.hoveredCommandCurvePreview = null;
+            this.hoveredGlyphIndex = -1;
+            return;
+        }
         this.updateHoveredResizeHandle();
         if (this.hoveredResizeHandle) {
+            this.hoveredContrastAxisHandle = null;
             this.hoveredGuideHandle = null;
             this.hoveredSidebearingHandle = null;
             this.hoveredComponentIndex = null;
@@ -7625,6 +9173,10 @@ export class OutlineEditor {
 
     cursorStyle(): string | null {
         if (!this.active) return null;
+        if (this.hoveredContrastAxisHandle) {
+            this.canvas!.style.cursor = this.hoveredContrastAxisHandle.cursor;
+            return null;
+        }
         if (this.hoveredResizeHandle) {
             this.canvas!.style.cursor = this.hoveredResizeHandle.cursor;
             return null;
@@ -7700,6 +9252,25 @@ export class OutlineEditor {
             this.glyphCanvas.mouseX,
             this.glyphCanvas.mouseY
         );
+    }
+
+    updateHoveredContrastAxisHandle(): void {
+        if (!this.isStrokeAwareScalingEnabled()) {
+            this.hoveredContrastAxisHandle = null;
+            return;
+        }
+
+        const foundHandle = this._findHoveredItem(
+            this.getVisibleContrastAxisHandles(),
+            (handle) => ({ x: handle.x, y: handle.y }),
+            (handle) => handle,
+            14
+        );
+
+        if (foundHandle?.key !== this.hoveredContrastAxisHandle?.key) {
+            this.hoveredContrastAxisHandle = foundHandle;
+            this.glyphCanvas.render();
+        }
     }
 
     updateHoveredResizeHandle(): void {
