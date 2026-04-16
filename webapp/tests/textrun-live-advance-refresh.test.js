@@ -692,7 +692,9 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         const sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue(undefined);
-        const submitLayerToWorkerCache = jest.fn().mockResolvedValue(true);
+        const refreshWorkerCacheForReplayTargets = jest
+            .fn()
+            .mockResolvedValue(true);
 
         const makeFontModel = (width) => ({
             findGlyph: jest.fn(() => ({
@@ -736,7 +738,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         originalWindow.fontManager = {
             currentFont,
             awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
-            submitLayerToWorkerCache,
+            refreshWorkerCacheForReplayTargets,
             pendingBabelfontJsonSyncAfterDrag: false,
             lastChangeSource: null,
             lastEditType: null
@@ -770,14 +772,14 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(submitLayerToWorkerCache).not.toHaveBeenCalled();
-            expect(sendMessageSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    type: 'storeFontJson',
-                    forceStore: true,
-                    babelfontJson: currentFont.babelfontJson
-                })
+            expect(refreshWorkerCacheForReplayTargets.mock.calls[0][0]).toEqual(
+                expect.arrayContaining([{ glyphName: 'a', layerId: 'layer-1' }])
             );
+            expect(
+                sendMessageSpy.mock.calls.some(
+                    ([message]) => message?.type === 'storeFontJson'
+                )
+            ).toBe(false);
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
             fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
@@ -791,7 +793,9 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         const sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue(undefined);
-        const submitLayerToWorkerCache = jest.fn().mockResolvedValue(true);
+        const refreshWorkerCacheForReplayTargets = jest
+            .fn()
+            .mockResolvedValue(true);
         const refreshGlyphAdvancesLive = jest.fn(() => true);
         const rebuildAutomaticCompositesForGlyphs = jest.fn(
             () => new Set(['adieresis'])
@@ -863,7 +867,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         originalWindow.fontManager = {
             currentFont,
             awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
-            submitLayerToWorkerCache,
+            refreshWorkerCacheForReplayTargets,
             pendingBabelfontJsonSyncAfterDrag: false,
             lastChangeSource: null,
             lastEditType: null
@@ -913,14 +917,17 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             expect(
                 originalWindow.autoCompileManager.checkAndSchedule
             ).toHaveBeenCalled();
-            expect(submitLayerToWorkerCache).not.toHaveBeenCalled();
-            expect(sendMessageSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    type: 'storeFontJson',
-                    forceStore: true,
-                    babelfontJson: currentFont.babelfontJson
-                })
+            expect(refreshWorkerCacheForReplayTargets.mock.calls[0][0]).toEqual(
+                expect.arrayContaining([
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ])
             );
+            expect(
+                sendMessageSpy.mock.calls.some(
+                    ([message]) => message?.type === 'storeFontJson'
+                )
+            ).toBe(false);
             expect(
                 originalWindow.glyphCanvas.outlineEditor.fetchLayerData
             ).toHaveBeenCalledWith(true, 'a');
@@ -931,13 +938,15 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         }
     });
 
-    test('undo anchor-inclusive selection scaling forces a full Rust sync', async () => {
+    test('undo anchor-inclusive selection scaling refreshes recomposed glyphs incrementally', async () => {
         const originalIsInitialized = fontCompilation.isInitialized;
         const originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
         const sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue(undefined);
-        const submitLayerToWorkerCache = jest.fn().mockResolvedValue(true);
+        const refreshWorkerCacheForReplayTargets = jest
+            .fn()
+            .mockResolvedValue(true);
         const rebuildAutomaticCompositesForGlyphs = jest.fn(
             () => new Set(['adieresis'])
         );
@@ -999,7 +1008,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         originalWindow.fontManager = {
             currentFont,
             awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
-            submitLayerToWorkerCache,
+            refreshWorkerCacheForReplayTargets,
             pendingBabelfontJsonSyncAfterDrag: false,
             lastChangeSource: null,
             lastEditType: null
@@ -1034,14 +1043,17 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(submitLayerToWorkerCache).not.toHaveBeenCalled();
-            expect(sendMessageSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    type: 'storeFontJson',
-                    forceStore: true,
-                    babelfontJson: currentFont.babelfontJson
-                })
+            expect(refreshWorkerCacheForReplayTargets.mock.calls[0][0]).toEqual(
+                expect.arrayContaining([
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ])
             );
+            expect(
+                sendMessageSpy.mock.calls.some(
+                    ([message]) => message?.type === 'storeFontJson'
+                )
+            ).toBe(false);
             expect(rebuildAutomaticCompositesForGlyphs).toHaveBeenCalled();
             expect(
                 currentFont.requestRecompileWithoutDataChange
@@ -1056,13 +1068,15 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         }
     });
 
-    test('undo coarse layer-snapshot Scale selection also forces a full Rust sync', async () => {
+    test('undo coarse layer-snapshot Scale selection still refreshes the worker incrementally', async () => {
         const originalIsInitialized = fontCompilation.isInitialized;
         const originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
         const sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue(undefined);
-        const submitLayerToWorkerCache = jest.fn().mockResolvedValue(true);
+        const refreshWorkerCacheForReplayTargets = jest
+            .fn()
+            .mockResolvedValue(true);
 
         const currentFont = {
             babelfontJson: '{"glyphs":[]}',
@@ -1120,7 +1134,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         originalWindow.fontManager = {
             currentFont,
             awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
-            submitLayerToWorkerCache,
+            refreshWorkerCacheForReplayTargets,
             pendingBabelfontJsonSyncAfterDrag: false,
             lastChangeSource: null,
             lastEditType: null
@@ -1152,14 +1166,14 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         try {
             await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
 
-            expect(submitLayerToWorkerCache).not.toHaveBeenCalled();
-            expect(sendMessageSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    type: 'storeFontJson',
-                    forceStore: true,
-                    babelfontJson: currentFont.babelfontJson
-                })
+            expect(refreshWorkerCacheForReplayTargets.mock.calls[0][0]).toEqual(
+                expect.arrayContaining([{ glyphName: 'a', layerId: 'layer-1' }])
             );
+            expect(
+                sendMessageSpy.mock.calls.some(
+                    ([message]) => message?.type === 'storeFontJson'
+                )
+            ).toBe(false);
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
             fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
@@ -1173,7 +1187,9 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         const sendMessageSpy = jest
             .spyOn(fontCompilation, 'sendMessage')
             .mockResolvedValue(undefined);
-        const submitLayerToWorkerCache = jest.fn().mockResolvedValue(true);
+        const refreshWorkerCacheForReplayTargets = jest
+            .fn()
+            .mockResolvedValue(true);
         const currentFont = {
             babelfontJson: '{"glyphs":[]}',
             fontModel: {
@@ -1233,7 +1249,7 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         originalWindow.fontManager = {
             currentFont,
             awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
-            submitLayerToWorkerCache,
+            refreshWorkerCacheForReplayTargets,
             pendingBabelfontJsonSyncAfterDrag: false,
             lastChangeSource: null,
             lastEditType: null
@@ -1278,13 +1294,17 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             expect(
                 currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(2);
-            expect(sendMessageSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    type: 'storeFontJson',
-                    forceStore: true,
-                    babelfontJson: currentFont.babelfontJson
-                })
+            expect(refreshWorkerCacheForReplayTargets.mock.calls[0][0]).toEqual(
+                expect.arrayContaining([
+                    { glyphName: 'a', layerId: 'layer-1' },
+                    { glyphName: 'adieresis', layerId: 'layer-1' }
+                ])
             );
+            expect(
+                sendMessageSpy.mock.calls.some(
+                    ([message]) => message?.type === 'storeFontJson'
+                )
+            ).toBe(false);
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
             fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
@@ -1387,6 +1407,242 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
             ).toHaveBeenCalledTimes(2);
         } finally {
             fontCompilation.isInitialized = originalIsInitialized;
+        }
+    });
+
+    test('undo glyph-scoped snapshot uses explicit replay targets instead of storeFontJson', async () => {
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue(undefined);
+        const refreshWorkerCacheForReplayTargets = jest
+            .fn()
+            .mockResolvedValue(true);
+        const requestRecompileWithoutDataChange = jest.fn();
+
+        const currentFont = {
+            babelfontJson: '{"glyphs":[]}',
+            fontModel: {
+                findGlyph: jest.fn(() => ({
+                    findLayerById: jest.fn(() => ({
+                        id: 'layer-1',
+                        width: 500
+                    }))
+                }))
+            },
+            requestRecompileWithoutDataChange,
+            syncJsonFromModel: jest.fn()
+        };
+
+        originalWindow.glyphCanvas = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive: jest.fn()
+            },
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                fetchLayerData: jest.fn().mockResolvedValue(),
+                runDeterministicRefresh: jest.fn(async (task) => await task()),
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: jest.fn(() => 'a'),
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            updatePropertyPanel: jest.fn(),
+            render: jest.fn(),
+            requestRepaintAfterCompile: jest.fn()
+        };
+
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            refreshWorkerCacheForReplayTargets,
+            pendingBabelfontJsonSyncAfterDrag: false,
+            lastChangeSource: null,
+            lastEditType: null
+        };
+
+        originalWindow.changeBridge = {
+            undo: jest.fn(() => ({
+                scope: 'glyph',
+                glyphName: 'a',
+                layerId: 'layer-1',
+                historyItem: {
+                    transactionLabel: 'Drag selection',
+                    workerReplayTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' }
+                    ],
+                    entries: [
+                        {
+                            historyAction: 'change',
+                            workerReplayTargets: [
+                                { glyphName: 'a', layerId: 'layer-1' }
+                            ],
+                            oldValue: 'before',
+                            newValue: 'after'
+                        }
+                    ]
+                }
+            }))
+        };
+
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        fontCompilation.isInitialized = true;
+
+        try {
+            await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
+
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
+                { glyphName: 'a', layerId: 'layer-1' }
+            ]);
+            expect(
+                sendMessageSpy.mock.calls.some(
+                    ([message]) => message?.type === 'storeFontJson'
+                )
+            ).toBe(false);
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(2);
+            expect(
+                requestRecompileWithoutDataChange.mock.invocationCallOrder[1]
+            ).toBeGreaterThan(
+                refreshWorkerCacheForReplayTargets.mock.invocationCallOrder[0]
+            );
+        } finally {
+            fontCompilation.isInitialized = originalIsInitialized;
+            sendMessageSpy.mockRestore();
+        }
+    });
+
+    test('undo anchor-inclusive Scale selection with replay targets stays incremental and recompiles after refresh', async () => {
+        const originalIsInitialized = fontCompilation.isInitialized;
+        const sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue(undefined);
+        const refreshWorkerCacheForReplayTargets = jest
+            .fn()
+            .mockResolvedValue(true);
+        const requestRecompileWithoutDataChange = jest.fn();
+
+        const currentFont = {
+            babelfontJson: '{"glyphs":[]}',
+            fontModel: {
+                rebuildAutomaticCompositesForGlyphs: jest.fn(
+                    () => new Set(['adieresis'])
+                ),
+                recomputeMetricsKeys: jest.fn(() => new Set(['adieresis'])),
+                findGlyphsUsingComponent: jest.fn((glyphName) =>
+                    glyphName === 'a' ? ['adieresis'] : []
+                ),
+                findGlyph: jest.fn((glyphName) => {
+                    if (glyphName === 'a' || glyphName === 'adieresis') {
+                        return {
+                            findLayerById: jest.fn(() => ({
+                                id: 'layer-1',
+                                width: 500
+                            }))
+                        };
+                    }
+
+                    return null;
+                })
+            },
+            requestRecompileWithoutDataChange,
+            syncJsonFromModel: jest.fn()
+        };
+
+        originalWindow.glyphCanvas = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive: jest.fn(() => true)
+            },
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                fetchLayerData: jest.fn().mockResolvedValue(),
+                runDeterministicRefresh: jest.fn(async (task) => await task()),
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: jest.fn(() => 'a'),
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            updatePropertyPanel: jest.fn(),
+            render: jest.fn(),
+            requestRepaintAfterCompile: jest.fn()
+        };
+
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            refreshWorkerCacheForReplayTargets,
+            pendingBabelfontJsonSyncAfterDrag: false,
+            lastChangeSource: null,
+            lastEditType: null
+        };
+
+        originalWindow.changeBridge = {
+            runWithoutRecording: jest.fn((fn) => fn()),
+            undo: jest.fn(() => ({
+                scope: 'layer',
+                glyphName: 'a',
+                layerId: 'layer-1',
+                historyItem: {
+                    transactionLabel: 'Scale selection',
+                    touchedPaths: ['glyphs.a.layers.layer-1.anchors.0'],
+                    workerReplayTargets: [
+                        { glyphName: 'a', layerId: 'layer-1' },
+                        { glyphName: 'adieresis', layerId: 'layer-1' }
+                    ],
+                    entries: [
+                        {
+                            historyAction: 'change',
+                            workerReplayTargets: [
+                                { glyphName: 'a', layerId: 'layer-1' },
+                                { glyphName: 'adieresis', layerId: 'layer-1' }
+                            ],
+                            oldValue: 'Bounds: (10, 20)-(30, 40)',
+                            newValue: 'Bounds: (12, 24)-(36, 48)'
+                        }
+                    ]
+                }
+            }))
+        };
+
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        fontCompilation.isInitialized = true;
+
+        try {
+            await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
+
+            expect(refreshWorkerCacheForReplayTargets).toHaveBeenCalledWith([
+                { glyphName: 'a', layerId: 'layer-1' },
+                { glyphName: 'adieresis', layerId: 'layer-1' }
+            ]);
+            expect(
+                sendMessageSpy.mock.calls.some(
+                    ([message]) => message?.type === 'storeFontJson'
+                )
+            ).toBe(false);
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(2);
+            expect(
+                requestRecompileWithoutDataChange.mock.invocationCallOrder[1]
+            ).toBeGreaterThan(
+                refreshWorkerCacheForReplayTargets.mock.invocationCallOrder[0]
+            );
+        } finally {
+            fontCompilation.isInitialized = originalIsInitialized;
+            sendMessageSpy.mockRestore();
         }
     });
 

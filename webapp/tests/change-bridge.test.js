@@ -1165,6 +1165,28 @@ describe('change-log', () => {
         expect(entry.historyItemId).toBe('history-item-1');
     });
 
+    test('normalizeChangeLogEntry preserves worker replay targets', () => {
+        const entry = normalizeChangeLogEntry({
+            id: 1,
+            timestamp: 1,
+            windowId: 'w',
+            transactionLabel: null,
+            transactionId: null,
+            op: 'set',
+            path: 'glyphs.A.layers.layer-1.width',
+            oldValue: 600,
+            newValue: 700,
+            workerReplayTargets: [
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'A', layerId: 'layer-1' }
+            ]
+        });
+
+        expect(entry.workerReplayTargets).toEqual([
+            { glyphName: 'A', layerId: 'layer-1' }
+        ]);
+    });
+
     test('buildHistoryStackItems hides undone item and restores it on redo', () => {
         resetLogCounter();
         const changeEntry = createLogEntry({
@@ -3099,6 +3121,37 @@ describe('syncGlyphFromJson', () => {
                 'width'
             ])
         ).toBe(700);
+    });
+
+    test('glyph snapshot sync stores replay targets for every layer in the committed history item', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+
+        fontJson.glyphs[0].layers.push({
+            ...JSON.parse(JSON.stringify(fontJson.glyphs[0].layers[0])),
+            id: 'layer-2',
+            name: 'Bold',
+            width: 710
+        });
+
+        bridge.syncGlyphFromJson('A', 'Drag');
+
+        const historyItems = buildHistoryStackItems(bridge.getChangeLog(), {
+            glyphName: 'A'
+        });
+
+        expect(historyItems).toHaveLength(1);
+        expect(historyItems[0].entries[0].workerReplayTargets).toEqual(
+            expect.arrayContaining([
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'A', layerId: 'layer-2' }
+            ])
+        );
+        expect(historyItems[0].workerReplayTargets).toEqual(
+            expect.arrayContaining([
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'A', layerId: 'layer-2' }
+            ])
+        );
     });
 
     test('glyph-scoped undo restores linked-layer curve point insertion cleanly', () => {

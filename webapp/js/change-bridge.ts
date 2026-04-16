@@ -26,6 +26,7 @@ import {
     type ChangeOp,
     type HistoryStackItem,
     type UndoScope,
+    type WorkerReplayTarget,
     createLogEntry,
     deriveGlyphName,
     deriveLayerId,
@@ -33,6 +34,7 @@ import {
     deriveGlyphNamesFromPaths,
     deriveLayerIdFromPath,
     deriveLayerIdsFromPaths,
+    normalizeWorkerReplayTargets,
     normalizeChangeLogEntry,
     resolveHistoryTargetItem,
     resetLogCounter
@@ -50,6 +52,7 @@ type SyntheticChangeOperation = {
     oldValue: unknown;
     newValue: unknown;
     visualAnchorSide?: 'left' | 'right' | null;
+    workerReplayTargets?: WorkerReplayTarget[];
 };
 
 type BatchApplyMode = 'default' | 'glyph-snapshot' | 'layer-snapshot';
@@ -581,7 +584,10 @@ export class ChangeBridge {
                 op: operation.op,
                 path: operation.path,
                 oldValue: cloneHistoryValue(operation.oldValue),
-                newValue: cloneHistoryValue(operation.newValue)
+                newValue: cloneHistoryValue(operation.newValue),
+                workerReplayTargets: normalizeWorkerReplayTargets(
+                    operation.workerReplayTargets
+                )
             })),
             label
         );
@@ -1469,6 +1475,9 @@ export class ChangeBridge {
             oldValue: cloneHistoryValue(operation.oldValue),
             newValue: cloneHistoryValue(operation.newValue),
             visualAnchorSide: operation.visualAnchorSide ?? null,
+            workerReplayTargets: normalizeWorkerReplayTargets(
+                operation.workerReplayTargets
+            ),
             applyPath: operation.applyPath
                 ? [...operation.applyPath]
                 : undefined,
@@ -1510,6 +1519,8 @@ export class ChangeBridge {
         for (const operation of effectiveOperations) {
             const operationHistoryTarget =
                 historyTarget ?? this._deriveHistoryTarget(operation.path);
+            const workerReplayTargets =
+                this._deriveWorkerReplayTargets(operation);
             const entry = createLogEntry({
                 timestamp,
                 windowId: this.windowId,
@@ -1527,6 +1538,7 @@ export class ChangeBridge {
                 oldValue: operation.oldValue,
                 newValue: operation.newValue,
                 visualAnchorSide: operation.visualAnchorSide ?? null,
+                workerReplayTargets,
                 historyTargetType: operationHistoryTarget?.type ?? null,
                 historyTargetKey: operationHistoryTarget?.key ?? null,
                 historyTargetLabel: operationHistoryTarget?.label ?? null
@@ -1548,6 +1560,59 @@ export class ChangeBridge {
                 `[ChangeBridge] Change recorded: ${effectiveOperations[0].path.join('.')}`
             );
         }
+    }
+
+    private _deriveWorkerReplayTargets(
+        operation: BufferedChangeOperation
+    ): WorkerReplayTarget[] {
+        const explicitTargets = normalizeWorkerReplayTargets(
+            operation.workerReplayTargets
+        );
+        if (explicitTargets.length) {
+            return explicitTargets;
+        }
+
+        const applyPath = operation.applyPath ?? operation.path;
+        const glyphName = deriveGlyphName(applyPath);
+        const layerId = deriveLayerId(applyPath);
+
+        if (glyphName && layerId) {
+            return [{ glyphName, layerId }];
+        }
+
+        if (
+            operation.applyMode !== 'glyph-snapshot' ||
+            operation.op !== 'set' ||
+            !glyphName
+        ) {
+            return [];
+        }
+
+        const glyphSnapshot =
+            operation.applyNewValue === undefined
+                ? operation.newValue
+                : operation.applyNewValue;
+        if (!glyphSnapshot || typeof glyphSnapshot !== 'object') {
+            return [];
+        }
+
+        const layers = Array.isArray((glyphSnapshot as Unsafe).layers)
+            ? ((glyphSnapshot as Unsafe).layers as Unsafe[])
+            : [];
+        return normalizeWorkerReplayTargets(
+            layers.map((layer) => {
+                const snapshotLayerId =
+                    layer && typeof layer === 'object'
+                        ? String(layer.id || '')
+                        : '';
+                return snapshotLayerId
+                    ? {
+                          glyphName,
+                          layerId: snapshotLayerId
+                      }
+                    : null;
+            })
+        );
     }
 
     private _reduceToNetChangingOperations(

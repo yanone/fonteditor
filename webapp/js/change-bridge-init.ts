@@ -15,7 +15,12 @@ import { Font } from './babelfont-model';
 import { WindowSync } from './window-sync';
 import { fontCompilation } from './font-compilation';
 import { Logger } from './logger';
-import { deriveGlyphNamesFromPaths, type HistoryStackItem } from './change-log';
+import {
+    deriveGlyphNamesFromPaths,
+    normalizeWorkerReplayTargets,
+    type HistoryStackItem,
+    type WorkerReplayTarget
+} from './change-log';
 import {
     syncModelSidebearingEditToCanvas,
     inferSidebearingSideFromHistoryItem
@@ -125,7 +130,10 @@ export async function syncRustCacheAndRefreshCanvas(
     rootGlyphName?: string,
     editedGlyphName?: string,
     forceFullRustSync: boolean = false,
-    options?: { skipDeferredCanvasRepaint?: boolean }
+    options?: {
+        skipDeferredCanvasRepaint?: boolean;
+        workerReplayTargets?: WorkerReplayTarget[];
+    }
 ): Promise<void> {
     const gc = window.glyphCanvas;
     const oe = gc?.outlineEditor;
@@ -138,7 +146,21 @@ export async function syncRustCacheAndRefreshCanvas(
     if (currentFont?.babelfontJson && fontCompilation?.isInitialized) {
         try {
             let didStoreLayer = false;
-            if (!forceFullRustSync && selectedLayerId) {
+            const replayTargets = normalizeWorkerReplayTargets(
+                options?.workerReplayTargets
+            );
+            if (
+                !forceFullRustSync &&
+                replayTargets.length > 0 &&
+                typeof window.fontManager
+                    ?.refreshWorkerCacheForReplayTargets === 'function'
+            ) {
+                didStoreLayer =
+                    (await window.fontManager.refreshWorkerCacheForReplayTargets(
+                        replayTargets
+                    )) === true;
+            }
+            if (!didStoreLayer && !forceFullRustSync && selectedLayerId) {
                 const cacheTargets = new Set<string>();
                 if (refreshRootGlyphName) {
                     cacheTargets.add(refreshRootGlyphName);
@@ -175,16 +197,20 @@ export async function syncRustCacheAndRefreshCanvas(
                 if (fm) {
                     fm.pendingBabelfontJsonSyncAfterDrag = false;
                 }
-                // Force this explicit sync to reach Rust even when the JSON text
-                // matches a previously stored payload. This path is used after
-                // undo/redo/remote Yjs updates where Rust may still hold an
-                // incrementally-mutated cache that no longer matches current JSON.
-                fontCompilation.lastStoredFontJson = null;
-                await fontCompilation.sendMessage({
-                    type: 'storeFontJson',
-                    babelfontJson: currentFont.babelfontJson,
-                    forceStore: true
-                });
+                if (typeof fm?.forceFullWorkerCacheUpdate === 'function') {
+                    await fm.forceFullWorkerCacheUpdate();
+                } else {
+                    // Force this explicit sync to reach Rust even when the JSON text
+                    // matches a previously stored payload. This path is used after
+                    // undo/redo/remote Yjs updates where Rust may still hold an
+                    // incrementally-mutated cache that no longer matches current JSON.
+                    fontCompilation.lastStoredFontJson = null;
+                    await fontCompilation.sendMessage({
+                        type: 'storeFontJson',
+                        babelfontJson: currentFont.babelfontJson,
+                        forceStore: true
+                    });
+                }
             }
         } catch {
             // Non-fatal — the scheduled compile will update the cache later
@@ -330,8 +356,23 @@ function syncImmediateUndoOutlineLayerFromModel(
 
 function shouldForceFullRustSyncAfterUndoRedo(
     scope: 'font' | 'glyph' | 'layer',
-    historyItem: HistoryStackItem | null
+    historyItem: HistoryStackItem | null,
+    workerReplayTargets?: WorkerReplayTarget[]
 ): boolean {
+    const normalizedReplayTargets =
+        normalizeWorkerReplayTargets(workerReplayTargets);
+    if (
+        normalizedReplayTargets.length > 0 &&
+        historyItemHasIncrementalWorkerReplayTargets(historyItem) &&
+        historyItemChangeEntriesAreLayerReplayable(historyItem)
+    ) {
+        return false;
+    }
+
+    if (scope === 'layer' && normalizedReplayTargets.length > 0) {
+        return false;
+    }
+
     if (scope !== 'layer') {
         return true;
     }
@@ -342,6 +383,31 @@ function shouldForceFullRustSyncAfterUndoRedo(
         (historyItem?.transactionLabel === 'Drag point' &&
             inferSidebearingSideFromHistoryItem(historyItem) !== null) ||
         historyItem?.transactionLabel === 'Drag anchor'
+    );
+}
+
+function historyItemHasIncrementalWorkerReplayTargets(
+    historyItem: HistoryStackItem | null
+): boolean {
+    return (
+        normalizeWorkerReplayTargets(historyItem?.workerReplayTargets).length >
+        0
+    );
+}
+
+function historyItemChangeEntriesAreLayerReplayable(
+    historyItem: HistoryStackItem | null
+): boolean {
+    const changeEntries = (historyItem?.entries ?? []).filter(
+        (entry) => entry.historyAction === 'change'
+    );
+    if (!changeEntries.length) {
+        return false;
+    }
+
+    return changeEntries.every(
+        (entry) =>
+            normalizeWorkerReplayTargets(entry.workerReplayTargets).length > 0
     );
 }
 
@@ -397,6 +463,58 @@ function recomputeMetricsKeysAfterUndoRedo(
     }
 
     return recompute();
+}
+
+function collectUndoRedoWorkerReplayTargets(
+    historyItem: HistoryStackItem | null,
+    glyphNames: Iterable<string | null | undefined>,
+    layerId?: string | null
+): WorkerReplayTarget[] {
+    const replayTargets = normalizeWorkerReplayTargets(
+        historyItem?.workerReplayTargets
+    );
+    if (!layerId) {
+        return replayTargets;
+    }
+
+    const fontModel = window.fontManager?.currentFont?.fontModel;
+    if (!fontModel) {
+        return replayTargets;
+    }
+
+    const targetGlyphNames = new Set<string>();
+    for (const glyphName of glyphNames) {
+        if (glyphName && glyphName !== 'undefined') {
+            targetGlyphNames.add(glyphName);
+        }
+    }
+    for (const glyphName of deriveGlyphNamesFromPaths(
+        historyItem?.touchedPaths ?? []
+    )) {
+        targetGlyphNames.add(glyphName);
+    }
+
+    const sourceGlyphName = Array.from(targetGlyphNames).find((glyphName) => {
+        const glyph = fontModel.findGlyph?.(glyphName);
+        return !!glyph?.findLayerById?.(layerId);
+    });
+    const sourceLayer = sourceGlyphName
+        ? fontModel.findGlyph(sourceGlyphName)?.findLayerById(layerId)
+        : null;
+
+    const derivedTargets = [...replayTargets];
+    for (const glyphName of targetGlyphNames) {
+        const glyph = fontModel.findGlyph?.(glyphName);
+        const matchedLayer =
+            glyph?.findLayerById?.(layerId) ??
+            sourceLayer?.getMatchingLayerOnGlyph?.(glyphName);
+        const matchedLayerId = matchedLayer?.id;
+        if (glyphName && matchedLayerId) {
+            derivedTargets.push({ glyphName, layerId: matchedLayerId });
+        }
+    }
+
+    return normalizeWorkerReplayTargets(derivedTargets);
 }
 
 function collectUndoRedoOverviewGlyphNames(
@@ -594,6 +712,18 @@ export function runBridgeUndoRedo(
             appliedChange.historyItem as HistoryStackItem | null,
             [appliedChange.glyphName, glyphName, editedGlyphName]
         );
+        const workerReplayTargets = collectUndoRedoWorkerReplayTargets(
+            appliedChange.historyItem as HistoryStackItem | null,
+            [
+                ...recomputedGlyphNames,
+                appliedChange.glyphName,
+                glyphName,
+                editedGlyphName,
+                refreshRootGlyphName,
+                getActiveEditedGlyphName()
+            ],
+            appliedChange.layerId ?? layerId ?? null
+        );
         const isDirectSidebearingHistory = isDirectSidebearingUndoRedo(
             appliedChange.historyItem as HistoryStackItem | null
         );
@@ -619,28 +749,30 @@ export function runBridgeUndoRedo(
             { compensatePanX: true }
         );
 
-        // Ensure undo/redo always triggers a full editing-font recompile path.
-        // This keeps HarfBuzz-rendered text in sync even if dirty scheduling
-        // from upstream callbacks is delayed or coalesced.
-        await requestUndoRedoEditingFontCompile(false);
-
         // For layer-scoped undo/redo, the incremental layer-update batch path
         // is sufficient (reads directly from the model, no babelfontJson needed).
         // For glyph/font scope, force a full Rust font cache refresh.
         const forceFullRustSync = shouldForceFullRustSyncAfterUndoRedo(
             appliedChange.scope,
-            appliedChange.historyItem as HistoryStackItem | null
+            appliedChange.historyItem as HistoryStackItem | null,
+            workerReplayTargets
         );
-        await syncRustCacheAndRefreshCanvas(
+        const rustCacheRefreshPromise = syncRustCacheAndRefreshCanvas(
             refreshRootGlyphName,
             glyphName,
             forceFullRustSync,
             {
+                workerReplayTargets,
                 skipDeferredCanvasRepaint:
                     appliedImmediateSidebearingSync &&
                     isDirectSidebearingHistory
             }
         );
+
+        // Start the Rust/cache refresh before requesting an editing compile so
+        // the compile loop can observe the in-flight worker update and wait for it.
+        await requestUndoRedoEditingFontCompile(false);
+        await rustCacheRefreshPromise;
 
         // Undo/redo can request a compile before the Rust cache refresh above
         // has finished, which risks compiling against stale worker data.

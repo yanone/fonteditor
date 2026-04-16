@@ -60,6 +60,13 @@ model/Yjs state and only then refreshes the Rust worker cache. Without the
 post-refresh request, the first compile can run against stale worker cache data
 and leave the editing font one undo step behind.
 
+Undo/redo should prefer incremental worker-cache refresh whenever the recorded
+history entries carry explicit layer replay targets. Change messages for
+interactive layer-backed edits must therefore persist the exact glyph/layer
+targets needed to repopulate the worker with `storeLayerUpdates`. Full
+`storeFontJson` remains the fallback only for edits whose history entries do not
+carry replayable layer targets, such as true font-wide data changes.
+
 ### Interactive layer saves
 
 `FontManager.saveLayerData()` does three separate things for interactive saves and all three are required:

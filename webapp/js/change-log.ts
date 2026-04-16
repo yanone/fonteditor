@@ -26,6 +26,11 @@ export type ChangeObjectType =
 
 export type HistoryTargetType = 'feature' | 'class' | 'prefix';
 
+export type WorkerReplayTarget = {
+    glyphName: string;
+    layerId: string;
+};
+
 /** Operation type */
 export type ChangeOp = 'set' | 'add' | 'remove';
 
@@ -43,6 +48,31 @@ export function getLayerTouchKey(
         return null;
     }
     return `${glyphName}@@${layerId}`;
+}
+
+export function normalizeWorkerReplayTargets(
+    targets: Iterable<WorkerReplayTarget | null | undefined> | null | undefined
+): WorkerReplayTarget[] {
+    if (!targets) {
+        return [];
+    }
+
+    const normalizedTargets = new Map<string, WorkerReplayTarget>();
+    for (const target of targets) {
+        if (!target?.glyphName || !target?.layerId) {
+            continue;
+        }
+
+        normalizedTargets.set(
+            getLayerTouchKey(target.glyphName, target.layerId)!,
+            {
+                glyphName: target.glyphName,
+                layerId: target.layerId
+            }
+        );
+    }
+
+    return [...normalizedTargets.values()];
 }
 
 /**
@@ -85,6 +115,8 @@ export interface ChangeLogEntry {
     historyTargetLabel: string | null;
     /** Which screen side stayed visually anchored for this edit */
     visualAnchorSide?: 'left' | 'right' | null;
+    /** Exact worker cache layer targets needed to replay this edit incrementally */
+    workerReplayTargets: WorkerReplayTarget[];
 }
 
 let _nextId = 1;
@@ -101,6 +133,7 @@ export function createLogEntry(
         | 'historyTargetType'
         | 'historyTargetKey'
         | 'historyTargetLabel'
+        | 'workerReplayTargets'
     > & {
         historyItemId?: string;
         historyAction?: HistoryAction;
@@ -118,6 +151,7 @@ export function createLogEntry(
         historyTargetKey?: string | null;
         historyTargetLabel?: string | null;
         visualAnchorSide?: 'left' | 'right' | null;
+        workerReplayTargets?: WorkerReplayTarget[];
     }
 ): ChangeLogEntry {
     const nextId = _nextId++;
@@ -141,7 +175,10 @@ export function createLogEntry(
         historyTargetType: fields.historyTargetType ?? null,
         historyTargetKey: fields.historyTargetKey ?? null,
         historyTargetLabel: fields.historyTargetLabel ?? null,
-        visualAnchorSide: fields.visualAnchorSide ?? null
+        visualAnchorSide: fields.visualAnchorSide ?? null,
+        workerReplayTargets: normalizeWorkerReplayTargets(
+            fields.workerReplayTargets
+        )
     });
 }
 
@@ -166,6 +203,7 @@ export type ChangeLogEntryLike = Omit<
     historyTargetKey?: string | null;
     historyTargetLabel?: string | null;
     visualAnchorSide?: 'left' | 'right' | null;
+    workerReplayTargets?: WorkerReplayTarget[] | null;
 };
 
 export interface HistoryStackItem {
@@ -179,6 +217,7 @@ export interface HistoryStackItem {
     isActive: boolean;
     lastAction: HistoryAction;
     historyTargetKeys: string[];
+    workerReplayTargets: WorkerReplayTarget[];
 }
 
 const FONT_SCOPE_KEY = '__font__';
@@ -356,6 +395,7 @@ function stripMutableHistoryItem(
         touchedLayerKeySet: _touchedLayerKeySet,
         scopeKeys: _scopeKeys,
         historyTargetKeySet: _historyTargetKeySet,
+        workerReplayTargetMap: _workerReplayTargetMap,
         ...historyItem
     } = item;
     return historyItem;
@@ -368,6 +408,7 @@ type MutableHistoryStackItem = HistoryStackItem & {
     touchedLayerKeySet: Set<string>;
     scopeKeys: Set<string>;
     historyTargetKeySet: Set<string>;
+    workerReplayTargetMap: Map<string, WorkerReplayTarget>;
 };
 
 function computeHistoryState(entries: ChangeLogEntry[]): {
@@ -398,9 +439,11 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
                 touchedLayerKeySet: new Set<string>(),
                 scopeKeys: new Set<string>(),
                 historyTargetKeySet: new Set<string>(),
+                workerReplayTargetMap: new Map<string, WorkerReplayTarget>(),
                 isActive: true,
                 lastAction: 'change',
-                historyTargetKeys: []
+                historyTargetKeys: [],
+                workerReplayTargets: []
             };
             itemsById.set(entry.historyItemId, item);
             orderedItemIds.push(entry.historyItemId);
@@ -447,6 +490,20 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
             ) {
                 item.historyTargetKeySet.add(entry.historyTargetKey);
                 item.historyTargetKeys = [...item.historyTargetKeySet];
+            }
+            for (const target of normalizeWorkerReplayTargets(
+                entry.workerReplayTargets
+            )) {
+                const targetKey = getLayerTouchKey(
+                    target.glyphName,
+                    target.layerId
+                );
+                if (targetKey && !item.workerReplayTargetMap.has(targetKey)) {
+                    item.workerReplayTargetMap.set(targetKey, target);
+                    item.workerReplayTargets = [
+                        ...item.workerReplayTargetMap.values()
+                    ];
+                }
             }
             item.undoScope = deriveHistoryItemUndoScope(
                 item.entries,
@@ -798,6 +855,9 @@ export function normalizeChangeLogEntry(
         historyTargetKey: entry.historyTargetKey ?? null,
         historyTargetLabel: entry.historyTargetLabel ?? null,
         visualAnchorSide: entry.visualAnchorSide ?? null,
+        workerReplayTargets: normalizeWorkerReplayTargets(
+            entry.workerReplayTargets
+        ),
         windowRoleLabel: normalizeWindowRoleLabel(
             entry.windowRoleLabel,
             entry.windowId

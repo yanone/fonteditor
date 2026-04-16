@@ -733,6 +733,46 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
+    test('recompileEditingFont waits for replay-target worker refresh before compiling', async () => {
+        const currentFont = fontManager.currentFont;
+        currentFont.needsRecompile = true;
+
+        let resolveSubmitLayerUpdates;
+        const submitLayerUpdatesPromise = new Promise((resolve) => {
+            resolveSubmitLayerUpdates = resolve;
+        });
+
+        const submitLayerUpdatesSpy = jest
+            .spyOn(fontManager, 'submitLayerUpdatesToWorkerCache')
+            .mockImplementation(() => submitLayerUpdatesPromise);
+        const recompileCompileSpy = jest
+            .spyOn(fontManager, 'compileEditingFont')
+            .mockResolvedValue(new Uint8Array([1, 2, 3]));
+
+        try {
+            const refreshPromise =
+                fontManager.refreshWorkerCacheForReplayTargets([
+                    { glyphName: 'n', layerId: 'layer-1' }
+                ]);
+            const recompilePromise = fontManager.recompileEditingFont();
+
+            await Promise.resolve();
+            expect(fontManager.workerCacheUpdatePromise).not.toBeNull();
+            expect(recompileCompileSpy).not.toHaveBeenCalled();
+
+            resolveSubmitLayerUpdates(true);
+
+            await refreshPromise;
+            await recompilePromise;
+
+            expect(recompileCompileSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            submitLayerUpdatesSpy.mockRestore();
+            recompileCompileSpy.mockRestore();
+            fontManager.workerCacheUpdatePromise = null;
+        }
+    });
+
     test('getLiveVisibleGlyphNames merges subset snapshot, rendered run, and active glyph', () => {
         fontManager.updateEditingSubsetSnapshot(['adieresis', 'visibleAccent']);
         window.glyphCanvas.textRunEditor.glyphNameBuffer = [

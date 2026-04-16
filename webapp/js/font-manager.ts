@@ -26,6 +26,7 @@ import {
 } from './perf-timeline';
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import { ensureStartupStateReady } from './state-restore';
+import type { WorkerReplayTarget } from './change-log';
 import {
     beginStartupInteractionLock,
     endStartupInteractionLock
@@ -2341,6 +2342,94 @@ class FontManager {
         }
     }
 
+    async refreshWorkerCacheForReplayTargets(
+        targets: Iterable<WorkerReplayTarget>
+    ): Promise<boolean> {
+        const refreshPromise = (async () => {
+            const currentFont = this.currentFont;
+            if (!currentFont) {
+                return false;
+            }
+
+            const updates: LayerCacheUpdate[] = [];
+            const seenTargets = new Set<string>();
+
+            for (const target of targets) {
+                const glyphName = target?.glyphName;
+                const layerId = target?.layerId;
+                if (!glyphName || !layerId) {
+                    continue;
+                }
+
+                const seenKey = `${glyphName}@@${layerId}`;
+                if (seenTargets.has(seenKey)) {
+                    continue;
+                }
+                seenTargets.add(seenKey);
+
+                const modelGlyph = currentFont.fontModel?.glyphs?.find(
+                    (entry: any) => entry?.name === glyphName
+                );
+                const modelLayer = modelGlyph?.layers?.find(
+                    (entry: any) => entry?.id === layerId
+                );
+                if (!modelLayer) {
+                    return false;
+                }
+
+                const rawLayerData =
+                    typeof modelLayer.toJSON === 'function'
+                        ? modelLayer.toJSON()
+                        : modelLayer;
+                const serializedLayer = this.serializeLayerForStorage(
+                    glyphName,
+                    layerId,
+                    rawLayerData
+                );
+                if (!serializedLayer) {
+                    return false;
+                }
+
+                if (
+                    !this.updateStoredLayerData(
+                        glyphName,
+                        layerId,
+                        serializedLayer
+                    )
+                ) {
+                    return false;
+                }
+
+                updates.push({
+                    glyphName,
+                    layerId,
+                    layerData: serializedLayer
+                });
+            }
+
+            if (!updates.length) {
+                return false;
+            }
+
+            const updatedIncrementally =
+                await this.submitLayerUpdatesToWorkerCache(updates);
+            if (updatedIncrementally) {
+                fontCompilation.lastStoredFontJson = null;
+            }
+            return updatedIncrementally;
+        })();
+
+        const cacheUpdatePromise = refreshPromise.then(() => undefined);
+        this.workerCacheUpdatePromise = cacheUpdatePromise;
+        try {
+            return await refreshPromise;
+        } finally {
+            if (this.workerCacheUpdatePromise === cacheUpdatePromise) {
+                this.workerCacheUpdatePromise = null;
+            }
+        }
+    }
+
     /**
      * Looks for a font-level format_specific key in the current font
      *
@@ -2728,7 +2817,8 @@ class FontManager {
             try {
                 await fontCompilation.sendMessage({
                     type: 'storeFontJson',
-                    babelfontJson: this.currentFont!.babelfontJson
+                    babelfontJson: this.currentFont!.babelfontJson,
+                    forceStore: true
                 });
             } catch (error) {
                 console.error(
