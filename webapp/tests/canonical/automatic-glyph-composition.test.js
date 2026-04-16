@@ -1482,7 +1482,33 @@ describe('Automatic component editing canonical behavior', () => {
         }
     });
 
-    test('anchor drag mouseup still performs the full downstream settle for hidden composites', () => {
+    test('rebuild helper includes dependent composites even when their placement does not change', () => {
+        const dragFont = makeVisibleAnchorCascadeFont();
+        const currentFont = {
+            fontModel: dragFont,
+            syncJsonFromModel: jest.fn(),
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+
+        setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
+        canvas.outlineEditor.layerData.shapes = [makeRectPath(0, 0, 520, 700)];
+
+        const affectedGlyphNames =
+            canvas.outlineEditor.rebuildAutomaticCompositesForCurrentEditedGlyph();
+
+        expect(Array.from(affectedGlyphNames)).toEqual([
+            'A',
+            'visibleComposite',
+            'hiddenComposite'
+        ]);
+    });
+
+    test('anchor drag mouseup still performs the downstream settle for hidden composites', async () => {
         const dragFont = makeVisibleAnchorCascadeFont();
         const currentFont = {
             fontModel: dragFont,
@@ -1497,9 +1523,6 @@ describe('Automatic component editing canonical behavior', () => {
 
         const refreshGlyphsAfterModelBatchSpy = jest
             .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
-            .mockResolvedValue();
-        const forceFullWorkerCacheUpdateSpy = jest
-            .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
             .mockResolvedValue();
         const updateWorkerFontCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
@@ -1523,23 +1546,110 @@ describe('Automatic component editing canonical behavior', () => {
             canvas.outlineEditor._hasMoved = false;
             canvas.outlineEditor.glyphCanvas.updatePropertyPanel = jest.fn();
             canvas.outlineEditor.onMouseUp({});
+            await Promise.resolve();
 
             expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
             expect(
                 currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(1);
-            expect(forceFullWorkerCacheUpdateSpy).toHaveBeenCalledTimes(1);
-            expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
-            expect(updateWorkerFontCacheSpy).toHaveBeenCalledTimes(1);
+            expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
+            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
+                'A',
+                'visibleComposite',
+                'hiddenComposite'
+            ]);
+            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
+            const visibleLayer =
+                dragFont.findGlyph('visibleComposite').layers[0];
+            const hiddenLayer = dragFont.findGlyph('hiddenComposite').layers[0];
+            expect(
+                getSerializedTranslationX(visibleLayer.toJSON().shapes[1])
+            ).toBeCloseTo(280);
+            expect(
+                getSerializedTranslationX(hiddenLayer.toJSON().shapes[1])
+            ).toBeCloseTo(280);
+            expect(updateWorkerFontCacheSpy).not.toHaveBeenCalled();
             expect(
                 flushPendingDebugEditingFontSaveAfterDragSpy
             ).toHaveBeenCalledTimes(1);
         } finally {
             refreshGlyphsAfterModelBatchSpy.mockRestore();
-            forceFullWorkerCacheUpdateSpy.mockRestore();
             updateWorkerFontCacheSpy.mockRestore();
             flushPendingDebugEditingFontSaveAfterDragSpy.mockRestore();
             fontManager.updateEditingSubsetSnapshot([]);
+        }
+    });
+
+    test('anchor-inclusive resize mouseup refreshes overview glyphs through the batch cache path', async () => {
+        const dragFont = makeVisibleAnchorCascadeFont();
+        const currentFont = {
+            fontModel: dragFont,
+            syncJsonFromModel: jest.fn(),
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+
+        const refreshGlyphsAfterModelBatchSpy = jest
+            .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
+            .mockResolvedValue();
+        const updateWorkerFontCacheSpy = jest
+            .spyOn(fontManager, 'updateWorkerFontCache')
+            .mockResolvedValue();
+        const flushPendingDebugEditingFontSaveAfterDragSpy = jest
+            .spyOn(fontManager, 'flushPendingDebugEditingFontSaveAfterDrag')
+            .mockImplementation(() => {});
+
+        try {
+            setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
+            const topAnchor = canvas.outlineEditor.layerData.anchors.find(
+                (anchor) => anchor.name === 'top'
+            );
+            topAnchor.x = 320;
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.isResizingSelection = true;
+            canvas.outlineEditor._dragType = 'transform';
+            canvas.outlineEditor.selectionResizeSnapshot = {
+                points: [],
+                anchors: [
+                    {
+                        anchorIndex: 0,
+                        startX: 300,
+                        startY: 700,
+                        name: 'top'
+                    }
+                ],
+                components: [],
+                bbox: { minX: 0, minY: 0, maxX: 10, maxY: 10 },
+                includesGeometry: false,
+                includesAnchors: true,
+                centered: false
+            };
+            canvas.outlineEditor._hasMoved = false;
+            canvas.outlineEditor.glyphCanvas.updatePropertyPanel = jest.fn();
+            canvas.outlineEditor.onMouseUp({});
+            await Promise.resolve();
+
+            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
+            expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
+            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
+                'A',
+                'visibleComposite',
+                'hiddenComposite'
+            ]);
+            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
+            expect(updateWorkerFontCacheSpy).not.toHaveBeenCalled();
+            expect(
+                flushPendingDebugEditingFontSaveAfterDragSpy
+            ).toHaveBeenCalledTimes(1);
+        } finally {
+            refreshGlyphsAfterModelBatchSpy.mockRestore();
+            updateWorkerFontCacheSpy.mockRestore();
+            flushPendingDebugEditingFontSaveAfterDragSpy.mockRestore();
         }
     });
 });

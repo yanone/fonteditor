@@ -3796,7 +3796,7 @@ export class OutlineEditor {
             rawLayer.format_specific = currentLayerData.format_specific;
         }
 
-        layerModel.invalidateShapeCache();
+        layerModel.invalidateContentCaches();
 
         const affectedGlyphNames = new Set<string>([glyphName]);
         const allowedGlyphNames = options?.limitToDragVisibleGlyphs
@@ -3819,6 +3819,32 @@ export class OutlineEditor {
             bridge.runWithoutRecording(rebuild);
         } else {
             rebuild();
+        }
+
+        const dependencyQueue = Array.from(affectedGlyphNames);
+        while (dependencyQueue.length > 0) {
+            const changedGlyphName = dependencyQueue.shift();
+            if (!changedGlyphName) {
+                continue;
+            }
+
+            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
+                changedGlyphName
+            )) {
+                if (
+                    allowedGlyphNames &&
+                    !allowedGlyphNames.has(dependentGlyphName)
+                ) {
+                    continue;
+                }
+
+                if (affectedGlyphNames.has(dependentGlyphName)) {
+                    continue;
+                }
+
+                affectedGlyphNames.add(dependentGlyphName);
+                dependencyQueue.push(dependentGlyphName);
+            }
         }
 
         return affectedGlyphNames;
@@ -3873,26 +3899,22 @@ export class OutlineEditor {
             return;
         }
 
-        fontManager.forceFullEditingCacheRefresh = true;
-        currentFont.requestRecompileWithoutDataChange();
-        window.autoCompileManager?.checkAndSchedule?.();
-
-        void fontManager.forceFullWorkerCacheUpdate().then(() => {
-            for (const affectedGlyphName of uniqueGlyphNames) {
-                if (affectedGlyphName === glyphName) {
-                    continue;
-                }
-
-                window.dispatchEvent(
-                    new CustomEvent('glyphChanged', {
-                        detail: {
-                            glyphName: affectedGlyphName,
-                            layerId: this.getCurrentLayerId()
-                        }
-                    })
+        void fontManager
+            .refreshGlyphsAfterModelBatch(
+                Array.from(uniqueGlyphNames),
+                this.getCurrentLayerId()
+            )
+            .then(() => {
+                fontManager.forceFullEditingCacheRefresh = true;
+                currentFont.requestRecompileWithoutDataChange();
+                window.autoCompileManager?.checkAndSchedule?.();
+            })
+            .catch((error) => {
+                console.error(
+                    '[OutlineEditor] Error refreshing anchor-dependent glyphs after mouseup:',
+                    error
                 );
-            }
-        });
+            });
     }
 
     private refreshLiveVisibleAnchorDependents(now: number): void {
@@ -9923,16 +9945,16 @@ export class OutlineEditor {
                 console.log(
                     '[DRAG-DEBUG] onMouseUp before updateWorkerFontCache + flushPendingDebugEditingFontSaveAfterDrag'
                 );
+                const handledAnchorDependentRefresh =
+                    dragType === 'anchor' ||
+                    (dragType === 'transform' &&
+                        selectionResizeSnapshot?.includesAnchors);
                 if (dragType === 'sidebearing') {
                     this.syncDependentGlyphsAfterSidebearingEdit(
                         this.getCurrentGlyphModel()?.name,
                         this._sidebearingAffectedGlyphNames
                     );
-                } else if (
-                    dragType === 'anchor' ||
-                    (dragType === 'transform' &&
-                        selectionResizeSnapshot?.includesAnchors)
-                ) {
+                } else if (handledAnchorDependentRefresh) {
                     this._anchorAffectedGlyphNames =
                         this.rebuildAutomaticCompositesForCurrentEditedGlyph();
                     this.syncDependentGlyphsAfterAnchorEdit(
@@ -9940,7 +9962,9 @@ export class OutlineEditor {
                         this._anchorAffectedGlyphNames
                     );
                 }
-                fontManager.updateWorkerFontCache();
+                if (!handledAnchorDependentRefresh) {
+                    fontManager.updateWorkerFontCache();
+                }
                 fontManager.flushPendingDebugEditingFontSaveAfterDrag();
             }
             this._pointDragDeltaX = 0;
