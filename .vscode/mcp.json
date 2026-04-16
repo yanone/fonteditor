@@ -1,0 +1,22 @@
+{
+    "servers": {
+        // "contextFontEditor": {
+        //     "type": "stdio",
+        //     "command": "node",
+        //     "args": ["${workspaceFolder}/mcp-server/build/index.js"]
+        // },
+        "chromeDevtools": {
+            "type": "stdio",
+            "command": "npx",
+            "args": ["chrome-devtools-mcp", "--no-usage-statistics"]
+        },
+        "github": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"]
+        },
+        "gitnexus": {
+            "command": "npx",
+            "args": ["-y", "gitnexus@latest", "mcp"]
+        }
+    }
+}
