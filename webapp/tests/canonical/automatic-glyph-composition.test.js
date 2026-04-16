@@ -1418,6 +1418,9 @@ describe('Automatic component editing canonical behavior', () => {
         const refreshGlyphsAfterModelBatchSpy = jest
             .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
             .mockResolvedValue();
+        const refreshWorkerCacheForReplayTargetsSpy = jest
+            .spyOn(fontManager, 'refreshWorkerCacheForReplayTargets')
+            .mockResolvedValue(true);
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
             .mockResolvedValue();
@@ -1455,18 +1458,29 @@ describe('Automatic component editing canonical behavior', () => {
                 { liveVisibleOnly: true }
             );
 
-            await Promise.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
             expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
-                'A',
                 'visibleComposite'
             ]);
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][2]).toEqual({
                 dispatchGlyphChanged: false
             });
+            expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
+                1
+            );
+            expect(
+                refreshWorkerCacheForReplayTargetsSpy.mock.calls[0][0]
+            ).toEqual([{ glyphName: 'A', layerId: 'A0' }]);
+            expect(
+                refreshWorkerCacheForReplayTargetsSpy.mock
+                    .invocationCallOrder[0]
+            ).toBeLessThan(
+                refreshGlyphsAfterModelBatchSpy.mock.invocationCallOrder[0]
+            );
             expect(
                 currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(1);
@@ -1477,6 +1491,7 @@ describe('Automatic component editing canonical behavior', () => {
         } finally {
             window.autoCompileManager = autoCompileManager;
             refreshGlyphsAfterModelBatchSpy.mockRestore();
+            refreshWorkerCacheForReplayTargetsSpy.mockRestore();
             forceFullWorkerCacheUpdateSpy.mockRestore();
             fontManager.updateEditingSubsetSnapshot([]);
         }
@@ -1524,6 +1539,9 @@ describe('Automatic component editing canonical behavior', () => {
         const refreshGlyphsAfterModelBatchSpy = jest
             .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
             .mockResolvedValue();
+        const refreshWorkerCacheForReplayTargetsSpy = jest
+            .spyOn(fontManager, 'refreshWorkerCacheForReplayTargets')
+            .mockResolvedValue(true);
         const updateWorkerFontCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
             .mockResolvedValue();
@@ -1546,7 +1564,7 @@ describe('Automatic component editing canonical behavior', () => {
             canvas.outlineEditor._hasMoved = false;
             canvas.outlineEditor.glyphCanvas.updatePropertyPanel = jest.fn();
             canvas.outlineEditor.onMouseUp({});
-            await Promise.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
             expect(
@@ -1554,11 +1572,22 @@ describe('Automatic component editing canonical behavior', () => {
             ).toHaveBeenCalledTimes(1);
             expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
-                'A',
                 'visibleComposite',
                 'hiddenComposite'
             ]);
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
+            expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
+                1
+            );
+            expect(
+                refreshWorkerCacheForReplayTargetsSpy.mock.calls[0][0]
+            ).toEqual([{ glyphName: 'A', layerId: 'A0' }]);
+            expect(
+                refreshWorkerCacheForReplayTargetsSpy.mock
+                    .invocationCallOrder[0]
+            ).toBeLessThan(
+                refreshGlyphsAfterModelBatchSpy.mock.invocationCallOrder[0]
+            );
             const visibleLayer =
                 dragFont.findGlyph('visibleComposite').layers[0];
             const hiddenLayer = dragFont.findGlyph('hiddenComposite').layers[0];
@@ -1574,6 +1603,7 @@ describe('Automatic component editing canonical behavior', () => {
             ).toHaveBeenCalledTimes(1);
         } finally {
             refreshGlyphsAfterModelBatchSpy.mockRestore();
+            refreshWorkerCacheForReplayTargetsSpy.mockRestore();
             updateWorkerFontCacheSpy.mockRestore();
             flushPendingDebugEditingFontSaveAfterDragSpy.mockRestore();
             fontManager.updateEditingSubsetSnapshot([]);
@@ -1596,6 +1626,9 @@ describe('Automatic component editing canonical behavior', () => {
         const refreshGlyphsAfterModelBatchSpy = jest
             .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
             .mockResolvedValue();
+        const refreshWorkerCacheForReplayTargetsSpy = jest
+            .spyOn(fontManager, 'refreshWorkerCacheForReplayTargets')
+            .mockResolvedValue(true);
         const updateWorkerFontCacheSpy = jest
             .spyOn(fontManager, 'updateWorkerFontCache')
             .mockResolvedValue();
@@ -1632,22 +1665,34 @@ describe('Automatic component editing canonical behavior', () => {
             canvas.outlineEditor._hasMoved = false;
             canvas.outlineEditor.glyphCanvas.updatePropertyPanel = jest.fn();
             canvas.outlineEditor.onMouseUp({});
-            await Promise.resolve();
+            await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
             expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
-                'A',
                 'visibleComposite',
                 'hiddenComposite'
             ]);
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
+            expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
+                1
+            );
+            expect(
+                refreshWorkerCacheForReplayTargetsSpy.mock.calls[0][0]
+            ).toEqual([{ glyphName: 'A', layerId: 'A0' }]);
+            expect(
+                refreshWorkerCacheForReplayTargetsSpy.mock
+                    .invocationCallOrder[0]
+            ).toBeLessThan(
+                refreshGlyphsAfterModelBatchSpy.mock.invocationCallOrder[0]
+            );
             expect(updateWorkerFontCacheSpy).not.toHaveBeenCalled();
             expect(
                 flushPendingDebugEditingFontSaveAfterDragSpy
             ).toHaveBeenCalledTimes(1);
         } finally {
             refreshGlyphsAfterModelBatchSpy.mockRestore();
+            refreshWorkerCacheForReplayTargetsSpy.mockRestore();
             updateWorkerFontCacheSpy.mockRestore();
             flushPendingDebugEditingFontSaveAfterDragSpy.mockRestore();
         }

@@ -3374,14 +3374,14 @@ class GlyphCanvas {
         );
     }
 
-    reapplyActiveEditedGlyphAdvanceAfterShape(): boolean {
-        if (!this.outlineEditor.active || !this.textRunEditor) {
-            return false;
+    private collectLiveGlyphAdvancesForCurrentEdit(): Record<string, number> {
+        if (!this.outlineEditor.active) {
+            return {};
         }
 
-        const layer = this.getCurrentLayerModel();
-        if (!layer || !Number.isFinite(layer.width)) {
-            return false;
+        const currentLayer = this.getCurrentLayerModel();
+        if (!currentLayer || !Number.isFinite(currentLayer.width)) {
+            return {};
         }
 
         const parsedStack = this.outlineEditor.parseGlyphStack();
@@ -3389,13 +3389,68 @@ class GlyphCanvas {
             parsedStack[parsedStack.length - 1]?.glyphName ??
             this.getCurrentGlyphName();
         if (!glyphName || glyphName === 'undefined') {
+            return {};
+        }
+
+        if (fontManager.lastEditType !== 'anchor') {
+            return { [glyphName]: currentLayer.width };
+        }
+
+        const currentLayerId = this.outlineEditor.selectedLayerId;
+        const masterId =
+            typeof currentLayer.master === 'object' && currentLayer.master
+                ? currentLayer.master.master || null
+                : null;
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel) {
+            return { [glyphName]: currentLayer.width };
+        }
+
+        const glyphNames =
+            fontManager.getAutomaticCompositionDragScopeGlyphNames(
+                glyphName,
+                fontModel
+            );
+
+        const glyphAdvances: Record<string, number> = {};
+        for (const candidateGlyphName of glyphNames) {
+            if (!candidateGlyphName || candidateGlyphName in glyphAdvances) {
+                continue;
+            }
+
+            const glyph = fontModel.findGlyph(candidateGlyphName);
+            const layer =
+                (currentLayerId
+                    ? glyph?.findLayerById(currentLayerId)
+                    : undefined) ||
+                (masterId ? glyph?.findLayerByMasterId(masterId) : undefined);
+            if (!layer || !Number.isFinite(layer.width)) {
+                continue;
+            }
+
+            glyphAdvances[candidateGlyphName] = layer.width;
+        }
+
+        if (!(glyphName in glyphAdvances)) {
+            glyphAdvances[glyphName] = currentLayer.width;
+        }
+
+        return glyphAdvances;
+    }
+
+    reapplyActiveEditedGlyphAdvanceAfterShape(): boolean {
+        if (!this.textRunEditor) {
             return false;
         }
 
-        return this.textRunEditor.refreshGlyphAdvancesLive(
-            { [glyphName]: layer.width },
-            { render: false }
-        );
+        const glyphAdvances = this.collectLiveGlyphAdvancesForCurrentEdit();
+        if (Object.keys(glyphAdvances).length === 0) {
+            return false;
+        }
+
+        return this.textRunEditor.refreshGlyphAdvancesLive(glyphAdvances, {
+            render: false
+        });
     }
 
     private hasInspectableSelection(): boolean {

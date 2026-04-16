@@ -1847,6 +1847,66 @@ describe('GlyphCanvas property panel metrics edits', () => {
         ).toHaveBeenCalledWith({ a: 494 }, { render: false });
     });
 
+    test('reapplyActiveEditedGlyphAdvanceAfterShape restores visible dependent glyph advances for anchor edits', () => {
+        const originalLastEditType = fontManager.lastEditType;
+        const originalGetAutomaticCompositionDragScopeGlyphNames =
+            fontManager.getAutomaticCompositionDragScopeGlyphNames;
+        const currentFontSpy = jest.spyOn(fontManager, 'currentFont', 'get');
+
+        try {
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+                { glyphName: 'a' }
+            ]);
+            canvas.getCurrentLayerModel = jest.fn(() => ({
+                width: 494,
+                master: { master: 'M0' }
+            }));
+            canvas.getCurrentGlyphName = jest.fn(() => 'a');
+            canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+
+            fontManager.lastEditType = 'anchor';
+            currentFontSpy.mockReturnValue({
+                fontModel: {
+                    findGlyph: jest.fn((glyphName) => {
+                        if (glyphName === 'a') {
+                            return {
+                                findLayerById: jest.fn(() => ({ width: 494 }))
+                            };
+                        }
+
+                        if (glyphName === 'adieresis') {
+                            return {
+                                findLayerById: jest.fn(() => ({ width: 500 }))
+                            };
+                        }
+
+                        return null;
+                    })
+                }
+            });
+            fontManager.getAutomaticCompositionDragScopeGlyphNames = jest.fn(
+                () => new Set(['a', 'adieresis'])
+            );
+
+            expect(canvas.reapplyActiveEditedGlyphAdvanceAfterShape()).toBe(
+                true
+            );
+            expect(
+                canvas.textRunEditor.refreshGlyphAdvancesLive
+            ).toHaveBeenCalledWith(
+                { a: 494, adieresis: 500 },
+                { render: false }
+            );
+        } finally {
+            fontManager.lastEditType = originalLastEditType;
+            fontManager.getAutomaticCompositionDragScopeGlyphNames =
+                originalGetAutomaticCompositionDragScopeGlyphNames;
+            currentFontSpy.mockRestore();
+        }
+    });
+
     test('editingFontCompiled skips superseded full-compile revisions', async () => {
         const setFontSpy = jest
             .spyOn(canvas, 'setFont')

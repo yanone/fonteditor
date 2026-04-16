@@ -3855,12 +3855,18 @@ export class OutlineEditor {
         affectedGlyphNames: Set<string>,
         options?: { liveVisibleOnly?: boolean }
     ): void {
-        const uniqueGlyphNames = new Set(
-            [...Array.from(affectedGlyphNames || []), glyphName || ''].filter(
-                Boolean
-            ) as string[]
+        const currentLayerId = this.getCurrentLayerId();
+        const downstreamGlyphNames = Array.from(
+            new Set(
+                Array.from(affectedGlyphNames || []).filter(
+                    (affectedGlyphName): affectedGlyphName is string =>
+                        typeof affectedGlyphName === 'string' &&
+                        affectedGlyphName.length > 0 &&
+                        affectedGlyphName !== glyphName
+                )
+            )
         );
-        if (uniqueGlyphNames.size <= 1) {
+        if (downstreamGlyphNames.length === 0) {
             return;
         }
 
@@ -3879,12 +3885,24 @@ export class OutlineEditor {
             return;
         }
 
+        const refreshSourceGlyphPromise =
+            glyphName && currentLayerId
+                ? fontManager.refreshWorkerCacheForReplayTargets([
+                      {
+                          glyphName,
+                          layerId: currentLayerId
+                      }
+                  ])
+                : Promise.resolve(false);
+
         if (options?.liveVisibleOnly) {
-            void fontManager
-                .refreshGlyphsAfterModelBatch(
-                    Array.from(uniqueGlyphNames),
-                    this.getCurrentLayerId(),
-                    { dispatchGlyphChanged: false }
+            void refreshSourceGlyphPromise
+                .then(() =>
+                    fontManager.refreshGlyphsAfterModelBatch(
+                        downstreamGlyphNames,
+                        currentLayerId,
+                        { dispatchGlyphChanged: false }
+                    )
                 )
                 .then(() => {
                     currentFont.requestRecompileWithoutDataChange();
@@ -3899,10 +3917,12 @@ export class OutlineEditor {
             return;
         }
 
-        void fontManager
-            .refreshGlyphsAfterModelBatch(
-                Array.from(uniqueGlyphNames),
-                this.getCurrentLayerId()
+        void refreshSourceGlyphPromise
+            .then(() =>
+                fontManager.refreshGlyphsAfterModelBatch(
+                    downstreamGlyphNames,
+                    currentLayerId
+                )
             )
             .then(() => {
                 fontManager.forceFullEditingCacheRefresh = true;
