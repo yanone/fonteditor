@@ -1942,6 +1942,34 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.requestRepaintAfterCompile).not.toHaveBeenCalled();
     });
 
+    test('requestRepaintAfterCompile refreshes hit detection in outline mode', () => {
+        const originalRequestAnimationFrame = global.requestAnimationFrame;
+        const renderSpy = jest
+            .spyOn(canvas, 'render')
+            .mockImplementation(() => {
+                canvas.hasDeferredRenderRequest = false;
+            });
+
+        try {
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.performHitDetection = jest.fn();
+            global.requestAnimationFrame = jest.fn((callback) => {
+                callback(0);
+                return 1;
+            });
+
+            canvas.requestRepaintAfterCompile();
+
+            expect(renderSpy).toHaveBeenCalledTimes(1);
+            expect(
+                canvas.outlineEditor.performHitDetection
+            ).toHaveBeenCalledWith(null);
+        } finally {
+            global.requestAnimationFrame = originalRequestAnimationFrame;
+            renderSpy.mockRestore();
+        }
+    });
+
     test('setFont skips properties UI refresh when requested', async () => {
         canvas.initialFontLoaded = true;
         canvas.textRunEditor.setFont = jest.fn().mockResolvedValue({});

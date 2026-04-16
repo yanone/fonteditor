@@ -4832,6 +4832,9 @@ class GlyphCanvas {
 
             timelineMark('canvas.compileRepaint.executingRender');
             this.render();
+            if (this.outlineEditor.active) {
+                this.outlineEditor.performHitDetection(null);
+            }
             timelineMark('canvas.compileRepaint.completed');
         };
 

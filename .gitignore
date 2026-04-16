@@ -2,6 +2,8 @@
 fontc-web-build/
 temp/
 
+CLAUDE.md
+
 # WASM distribution files (optional - uncomment if you don't want to commit these)
 # webapp/wasm-dist/
 
