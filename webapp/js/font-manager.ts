@@ -1997,7 +1997,8 @@ class FontManager {
     private serializeLayerForStorage(
         glyphName: string,
         layerId: string,
-        layerData: Babelfont.Layer
+        layerData: Babelfont.Layer,
+        options?: { preserveExistingShapes?: boolean }
     ): Babelfont.Layer | null {
         const extractPathShape = (shape: any): any => {
             if (shape && typeof shape === 'object' && 'Path' in shape) {
@@ -2091,7 +2092,10 @@ class FontManager {
             name: layerData.name ?? originalLayer?.name,
             id: layerId,
             master: originalLayer?.master ?? layerData.master,
-            shapes: layerData.shapes?.map(cleanShapeForSaving) || [],
+            shapes:
+                options?.preserveExistingShapes && originalLayer?.shapes
+                    ? originalLayer.shapes
+                    : layerData.shapes?.map(cleanShapeForSaving) || [],
             isInterpolated: false,
             ...(cleanAnchors && { anchors: cleanAnchors }),
             ...(cleanGuides && { guides: cleanGuides }),
@@ -2540,7 +2544,10 @@ class FontManager {
         const layerDataCopy = this.serializeLayerForStorage(
             glyphName,
             layerId,
-            layerData
+            layerData,
+            {
+                preserveExistingShapes: changeSource.endsWith('-anchor')
+            }
         );
         if (!layerDataCopy) {
             console.error(

@@ -671,7 +671,8 @@ export class ChangeBridge {
         oldValue?: string,
         newValue?: string,
         layerId?: string | null,
-        visualAnchorSide?: 'left' | 'right' | null
+        visualAnchorSide?: 'left' | 'right' | null,
+        workerReplayTargets?: WorkerReplayTarget[]
     ): void {
         this.syncGlyphsFromJson(
             [glyphName],
@@ -679,7 +680,8 @@ export class ChangeBridge {
             oldValue,
             newValue,
             layerId,
-            visualAnchorSide
+            visualAnchorSide,
+            workerReplayTargets
         );
     }
 
@@ -693,7 +695,8 @@ export class ChangeBridge {
         oldValue?: string,
         newValue?: string,
         layerId?: string | null,
-        visualAnchorSide?: 'left' | 'right' | null
+        visualAnchorSide?: 'left' | 'right' | null,
+        workerReplayTargets?: WorkerReplayTarget[]
     ): void {
         if (!this._fontJson || this._suppressRecording || this._isSyncing)
             return;
@@ -716,7 +719,8 @@ export class ChangeBridge {
                     label,
                     oldValue,
                     newValue,
-                    visualAnchorSide
+                    visualAnchorSide,
+                    workerReplayTargets
                 )
             ) {
                 return;
@@ -798,6 +802,7 @@ export class ChangeBridge {
                             ? cloneHistoryValue(target.glyphJson)
                             : cloneHistoryValue(newValue ?? label),
                     visualAnchorSide,
+                    workerReplayTargets,
                     applyPath: isLayerScope
                         ? ['glyphs', target.glyphName, 'layers', layerId]
                         : ['glyphs', target.glyphName],
@@ -835,7 +840,8 @@ export class ChangeBridge {
         label: string,
         oldValue?: string,
         newValue?: string,
-        visualAnchorSide?: 'left' | 'right' | null
+        visualAnchorSide?: 'left' | 'right' | null,
+        workerReplayTargets?: WorkerReplayTarget[]
     ): boolean {
         const glyphs = (this._fontJson as Unsafe).glyphs;
         if (!Array.isArray(glyphs)) return false;
@@ -886,6 +892,7 @@ export class ChangeBridge {
                     oldValue: cloneHistoryValue(oldValue ?? glyphName),
                     newValue: cloneHistoryValue(newValue ?? label),
                     visualAnchorSide,
+                    workerReplayTargets,
                     applyPath: ['glyphs', glyphName, 'layers', layerId],
                     applyNewValue: layerSnapshot,
                     applyMode: 'layer-snapshot'
