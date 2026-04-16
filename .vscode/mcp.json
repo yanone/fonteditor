@@ -15,8 +15,11 @@
             "args": ["-y", "@modelcontextprotocol/server-github"]
         },
         "gitnexus": {
-            "command": "npx",
-            "args": ["-y", "gitnexus@latest", "mcp"]
+            "command": "node",
+            "args": [
+                "${workspaceFolder}/.tools/gitnexus/node_modules/gitnexus/dist/cli/index.js",
+                "mcp"
+            ]
         }
     }
 }
