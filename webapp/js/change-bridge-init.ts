@@ -414,7 +414,8 @@ function historyItemChangeEntriesAreLayerReplayable(
 function recomputeMetricsKeysAfterUndoRedo(
     bridge: ChangeBridge,
     historyItem: HistoryStackItem | null,
-    glyphNames: Array<string | null | undefined>
+    glyphNames: Array<string | null | undefined>,
+    layerId?: string | null
 ): Set<string> {
     const fontModel = window.fontManager?.currentFont?.fontModel;
     if (!fontModel || typeof fontModel.recomputeMetricsKeys !== 'function') {
@@ -443,7 +444,18 @@ function recomputeMetricsKeysAfterUndoRedo(
 
     const rebuildAutomaticComposites = () =>
         typeof fontModel.rebuildAutomaticCompositesForGlyphs === 'function'
-            ? fontModel.rebuildAutomaticCompositesForGlyphs(seedGlyphNames)
+            ? fontModel.rebuildAutomaticCompositesForGlyphs(seedGlyphNames, {
+                  ...(layerId
+                      ? {
+                            preferredLayerId: layerId,
+                            preferredSourceGlyphName:
+                                glyphNames.find(
+                                    (glyphName): glyphName is string =>
+                                        !!glyphName && glyphName !== 'undefined'
+                                ) ?? null
+                        }
+                      : undefined)
+              })
             : new Set<string>();
 
     const recompute = () => {
@@ -710,7 +722,8 @@ export function runBridgeUndoRedo(
         const recomputedGlyphNames = recomputeMetricsKeysAfterUndoRedo(
             bridge,
             appliedChange.historyItem as HistoryStackItem | null,
-            [appliedChange.glyphName, glyphName, editedGlyphName]
+            [appliedChange.glyphName, glyphName, editedGlyphName],
+            appliedChange.layerId ?? layerId ?? null
         );
         const workerReplayTargets = collectUndoRedoWorkerReplayTargets(
             appliedChange.historyItem as HistoryStackItem | null,

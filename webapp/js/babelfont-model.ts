@@ -9901,6 +9901,8 @@ export class Font extends ModelBase {
         options?: {
             skipSelfGlyphNames?: Set<string>;
             allowedGlyphNames?: Set<string>;
+            preferredLayerId?: string | null;
+            preferredSourceGlyphName?: string | null;
         }
     ): Set<string> {
         const rebuiltGlyphNames = new Set<string>();
@@ -9909,6 +9911,18 @@ export class Font extends ModelBase {
                 ? new Set(changedGlyphNames)
                 : new Set(this.glyphs.map((glyph) => glyph.name));
         const visitedGlyphNames = new Set<string>();
+        const preferredLayerId = options?.preferredLayerId ?? null;
+        const preferredSourceGlyphName =
+            options?.preferredSourceGlyphName ??
+            (changedGlyphNames && changedGlyphNames.size > 0
+                ? (changedGlyphNames.values().next().value as string | null)
+                : null);
+        const preferredSourceLayer =
+            preferredLayerId && preferredSourceGlyphName
+                ? this.findGlyph(preferredSourceGlyphName)?.findLayerById(
+                      preferredLayerId
+                  )
+                : null;
 
         while (queue.size > 0) {
             const nextGlyphName = queue.values().next().value as string;
@@ -9944,7 +9958,16 @@ export class Font extends ModelBase {
                 }
 
                 let glyphChanged = false;
-                for (const layer of glyph.layers || []) {
+                const layersToRebuild = preferredLayerId
+                    ? [
+                          candidateGlyphName === preferredSourceGlyphName
+                              ? preferredSourceLayer
+                              : preferredSourceLayer?.getMatchingLayerOnGlyph?.(
+                                    candidateGlyphName
+                                ) || glyph.findLayerById(preferredLayerId)
+                      ].filter((layer): layer is Layer => !!layer)
+                    : glyph.layers || [];
+                for (const layer of layersToRebuild) {
                     if (
                         layer.isAutomaticAlignedLayer() &&
                         layer.rebuildAutomaticComposition()
@@ -9980,7 +10003,11 @@ export class Font extends ModelBase {
 
     rebuildAutomaticCompositesForGlyphs(
         changedGlyphNames?: Set<string>,
-        options?: { allowedGlyphNames?: Set<string> }
+        options?: {
+            allowedGlyphNames?: Set<string>;
+            preferredLayerId?: string | null;
+            preferredSourceGlyphName?: string | null;
+        }
     ): Set<string> {
         return this.rebuildAutomaticComposites(changedGlyphNames, options);
     }

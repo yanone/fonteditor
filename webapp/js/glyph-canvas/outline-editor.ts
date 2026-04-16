@@ -3817,7 +3817,15 @@ export class OutlineEditor {
         const rebuild = () => {
             for (const affectedGlyphName of fontModel.rebuildAutomaticCompositesForGlyphs(
                 new Set([glyphName]),
-                allowedGlyphNames ? { allowedGlyphNames } : undefined
+                {
+                    ...(allowedGlyphNames ? { allowedGlyphNames } : undefined),
+                    ...(options?.allowedGlyphNames && currentLayerId
+                        ? {
+                              preferredLayerId: currentLayerId,
+                              preferredSourceGlyphName: glyphName
+                          }
+                        : undefined)
+                }
             )) {
                 affectedGlyphNames.add(affectedGlyphName);
             }
@@ -10082,10 +10090,8 @@ export class OutlineEditor {
                         this._sidebearingAffectedGlyphNames
                     );
                 } else if (handledAnchorDependentRefresh) {
-                    if (this._anchorAffectedGlyphNames.size === 0) {
-                        this._anchorAffectedGlyphNames =
-                            this.rebuildAutomaticCompositesForCurrentEditedGlyph();
-                    }
+                    this._anchorAffectedGlyphNames =
+                        this.rebuildAutomaticCompositesForCurrentEditedGlyph();
                     void this.syncDependentGlyphsAfterAnchorEdit(
                         this.getCurrentGlyphModel()?.name,
                         this._anchorAffectedGlyphNames
