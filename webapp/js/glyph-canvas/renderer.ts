@@ -2133,11 +2133,8 @@ export class GlyphCanvasRenderer {
         }
 
         const strokeColor = isDarkTheme
-            ? 'rgba(118, 234, 226, 0.92)'
-            : 'rgba(20, 118, 110, 0.95)';
-        const fillColor = isDarkTheme
-            ? 'rgba(118, 234, 226, 0.16)'
-            : 'rgba(20, 118, 110, 0.12)';
+            ? 'rgba(210, 210, 210, 0.9)'
+            : 'rgba(168, 168, 168, 0.95)';
         const handleFillColor = isDarkTheme
             ? 'rgba(156, 247, 240, 1)'
             : 'rgba(20, 118, 110, 1)';
@@ -2147,11 +2144,10 @@ export class GlyphCanvasRenderer {
 
         this.ctx.save();
         this.ctx.strokeStyle = strokeColor;
-        this.ctx.fillStyle = fillColor;
         this.ctx.lineWidth = lineWidth;
+        this.ctx.setLineDash([Math.max(1.5 * invScale, 1), 3.5 * invScale]);
         this.ctx.beginPath();
         this.ctx.rect(bounds.minX, bounds.minY, bounds.width, bounds.height);
-        this.ctx.fill();
         this.ctx.stroke();
         this.ctx.restore();
 

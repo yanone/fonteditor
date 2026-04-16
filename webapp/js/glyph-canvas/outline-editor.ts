@@ -166,6 +166,8 @@ type SelectionResizeHandle = {
     key: string;
     x: number;
     y: number;
+    actualX: number;
+    actualY: number;
     xRole: ResizeHandleAxisRole;
     yRole: ResizeHandleAxisRole;
     cursor: string;
@@ -4667,6 +4669,29 @@ export class OutlineEditor {
         };
     }
 
+    private expandSelectionTransformBounds(
+        bounds: SelectionTransformBounds,
+        padding: number
+    ): SelectionTransformBounds {
+        const expandX = bounds.width > 0.000001 ? padding : 0;
+        const expandY = bounds.height > 0.000001 ? padding : 0;
+        const minX = bounds.minX - expandX;
+        const minY = bounds.minY - expandY;
+        const maxX = bounds.maxX + expandX;
+        const maxY = bounds.maxY + expandY;
+
+        return {
+            minX,
+            minY,
+            maxX,
+            maxY,
+            width: maxX - minX,
+            height: maxY - minY,
+            centerX: (minX + maxX) / 2,
+            centerY: (minY + maxY) / 2
+        };
+    }
+
     getVisibleSelectionTransformBounds(): SelectionTransformBounds | null {
         if (
             !this.active ||
@@ -4680,12 +4705,31 @@ export class OutlineEditor {
             return null;
         }
 
-        return this.getSelectionTransformBounds();
+        const bounds = this.getSelectionTransformBounds();
+        if (!bounds) {
+            return null;
+        }
+
+        const selectedNodeCount =
+            this.selectedPoints.length + this.selectedAnchors.length;
+        if (this.selectedComponents.length === 0 && selectedNodeCount <= 1) {
+            return null;
+        }
+
+        const viewportScale = this.glyphCanvas.viewportManager?.scale || 1;
+        return this.expandSelectionTransformBounds(bounds, 20 / viewportScale);
     }
 
     getVisibleSelectionResizeHandles(): SelectionResizeHandle[] {
-        const bounds = this.getVisibleSelectionTransformBounds();
-        if (!bounds) {
+        const visibleBounds = this.getVisibleSelectionTransformBounds();
+        const actualBounds = this.getSelectionTransformBounds();
+        if (!visibleBounds || !actualBounds) {
+            return [];
+        }
+
+        const hasWidth = actualBounds.width > 0.000001;
+        const hasHeight = actualBounds.height > 0.000001;
+        if (!hasWidth && !hasHeight) {
             return [];
         }
 
@@ -4713,24 +4757,47 @@ export class OutlineEditor {
             return xRole === yRole ? 'nesw-resize' : 'nwse-resize';
         };
 
-        return roles.map(([xRole, yRole]) => ({
-            key: `${xRole}:${yRole}`,
-            x:
-                xRole === -1
-                    ? bounds.minX
-                    : xRole === 1
-                      ? bounds.maxX
-                      : bounds.centerX,
-            y:
-                yRole === -1
-                    ? bounds.minY
-                    : yRole === 1
-                      ? bounds.maxY
-                      : bounds.centerY,
-            xRole,
-            yRole,
-            cursor: getCursor(xRole, yRole)
-        }));
+        return roles
+            .filter(([xRole, yRole]) => {
+                if (!hasWidth && xRole !== 0) {
+                    return false;
+                }
+                if (!hasHeight && yRole !== 0) {
+                    return false;
+                }
+                return hasWidth || hasHeight;
+            })
+            .filter(([xRole, yRole]) => !(xRole === 0 && yRole === 0))
+            .map(([xRole, yRole]) => ({
+                key: `${xRole}:${yRole}`,
+                x:
+                    xRole === -1
+                        ? visibleBounds.minX
+                        : xRole === 1
+                          ? visibleBounds.maxX
+                          : visibleBounds.centerX,
+                y:
+                    yRole === -1
+                        ? visibleBounds.minY
+                        : yRole === 1
+                          ? visibleBounds.maxY
+                          : visibleBounds.centerY,
+                actualX:
+                    xRole === -1
+                        ? actualBounds.minX
+                        : xRole === 1
+                          ? actualBounds.maxX
+                          : actualBounds.centerX,
+                actualY:
+                    yRole === -1
+                        ? actualBounds.minY
+                        : yRole === 1
+                          ? actualBounds.maxY
+                          : actualBounds.centerY,
+                xRole,
+                yRole,
+                cursor: getCursor(xRole, yRole)
+            }));
     }
 
     private getStrokeAwareEligibleContourIndices(): number[] {
@@ -8612,6 +8679,10 @@ export class OutlineEditor {
         this.glyphCanvas.mouseX = e.clientX - rect.left;
         this.glyphCanvas.mouseY = e.clientY - rect.top;
         const { glyphX, glyphY } = this.transformMouseToComponentSpace();
+        const actualGlyphX =
+            glyphX - (snapshot.handle.x - snapshot.handle.actualX);
+        const actualGlyphY =
+            glyphY - (snapshot.handle.y - snapshot.handle.actualY);
 
         const startBounds = snapshot.bounds;
         const widthDenominator = startBounds.maxX - startBounds.minX;
@@ -8638,25 +8709,25 @@ export class OutlineEditor {
             snapshot.handle.xRole === 0 || degenerateX
                 ? 1
                 : snapshot.handle.xRole === 1
-                  ? (glyphX - fixedX) / widthDenominator
-                  : (fixedX - glyphX) / widthDenominator;
+                  ? (actualGlyphX - fixedX) / widthDenominator
+                  : (fixedX - actualGlyphX) / widthDenominator;
         const scaleY =
             snapshot.handle.yRole === 0 || degenerateY
                 ? 1
                 : snapshot.handle.yRole === 1
-                  ? (glyphY - fixedY) / heightDenominator
-                  : (fixedY - glyphY) / heightDenominator;
+                  ? (actualGlyphY - fixedY) / heightDenominator
+                  : (fixedY - actualGlyphY) / heightDenominator;
         const translateX =
             snapshot.handle.xRole === 0 || !degenerateX
                 ? 0
-                : glyphX -
+                : actualGlyphX -
                   (snapshot.handle.xRole === 1
                       ? startBounds.maxX
                       : startBounds.minX);
         const translateY =
             snapshot.handle.yRole === 0 || !degenerateY
                 ? 0
-                : glyphY -
+                : actualGlyphY -
                   (snapshot.handle.yRole === 1
                       ? startBounds.maxY
                       : startBounds.minY);
