@@ -298,6 +298,14 @@ function isDirectSidebearingUndoRedo(
     );
 }
 
+function historyItemTouchesAnchors(
+    historyItem: HistoryStackItem | null
+): boolean {
+    return (historyItem?.touchedPaths ?? []).some((path) =>
+        /(^|\.)anchors(\.|$)/.test(path)
+    );
+}
+
 function syncImmediateUndoOutlineLayerFromModel(
     glyphName: string | null,
     layerId: string | null
@@ -329,6 +337,8 @@ function shouldForceFullRustSyncAfterUndoRedo(
     }
 
     return (
+        historyItemTouchesAnchors(historyItem) ||
+        historyItem?.transactionLabel === 'Scale selection' ||
         (historyItem?.transactionLabel === 'Drag point' &&
             inferSidebearingSideFromHistoryItem(historyItem) !== null) ||
         historyItem?.transactionLabel === 'Drag anchor'
@@ -457,6 +467,86 @@ async function refreshGlyphOverviewAfterUndoRedo(
     }
 }
 
+function waitForEditingFontCompileRevision(
+    targetRevision: number,
+    timeoutMs: number = 4000
+): Promise<void> {
+    if (!Number.isFinite(targetRevision)) {
+        return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+        let settled = false;
+        let timeoutId: number | null = null;
+
+        const cleanup = () => {
+            if (timeoutId !== null) {
+                window.clearTimeout(timeoutId);
+            }
+            window.removeEventListener('editingFontCompiled', handler);
+        };
+
+        const finish = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            resolve();
+        };
+
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent).detail;
+            const revision = Number(detail?.fontRevisionKey);
+            if (!Number.isFinite(revision) || revision < targetRevision) {
+                return;
+            }
+            finish();
+        };
+
+        timeoutId = window.setTimeout(() => {
+            finish();
+        }, timeoutMs);
+
+        window.addEventListener('editingFontCompiled', handler);
+    });
+}
+
+async function requestUndoRedoEditingFontCompile(
+    waitForCompletion: boolean = false
+): Promise<void> {
+    const fm = window.fontManager;
+    if (!fm?.currentFont) {
+        return;
+    }
+
+    fm.lastChangeSource = 'undo-redo';
+    fm.lastEditType = null;
+
+    const targetRevision = fm.currentFont.compileRequestVersion + 1;
+    const canForceTrigger =
+        typeof window.autoCompileManager?.forceTrigger === 'function';
+    const waitPromise =
+        waitForCompletion && canForceTrigger
+            ? waitForEditingFontCompileRevision(targetRevision)
+            : null;
+
+    fm.currentFont.requestRecompileWithoutDataChange();
+    window.autoCompileManager?.checkAndSchedule?.();
+
+    if (!waitPromise || !canForceTrigger) {
+        return;
+    }
+
+    try {
+        await window.autoCompileManager.forceTrigger();
+    } catch {
+        // Fall through to the revision wait; the compile loop may still complete.
+    }
+
+    await waitPromise;
+}
+
 export function queueRustCacheAndRefreshCanvas(): Promise<void> {
     return enqueueBridgeSync(async () => {
         await syncRustCacheAndRefreshCanvas();
@@ -532,13 +622,7 @@ export function runBridgeUndoRedo(
         // Ensure undo/redo always triggers a full editing-font recompile path.
         // This keeps HarfBuzz-rendered text in sync even if dirty scheduling
         // from upstream callbacks is delayed or coalesced.
-        const fm = window.fontManager;
-        if (fm?.currentFont) {
-            fm.lastChangeSource = 'undo-redo';
-            fm.lastEditType = null;
-            fm.currentFont.requestRecompileWithoutDataChange();
-            window.autoCompileManager?.checkAndSchedule?.();
-        }
+        await requestUndoRedoEditingFontCompile(false);
 
         // For layer-scoped undo/redo, the incremental layer-update batch path
         // is sufficient (reads directly from the model, no babelfontJson needed).
@@ -562,12 +646,7 @@ export function runBridgeUndoRedo(
         // has finished, which risks compiling against stale worker data.
         // Re-request compilation after the refresh completes so the editing
         // font is rebuilt from the restored state.
-        if (fm?.currentFont) {
-            fm.lastChangeSource = 'undo-redo';
-            fm.lastEditType = null;
-            fm.currentFont.requestRecompileWithoutDataChange();
-            window.autoCompileManager?.checkAndSchedule?.();
-        }
+        await requestUndoRedoEditingFontCompile(true);
 
         await refreshGlyphOverviewAfterUndoRedo(
             appliedChange.historyItem,

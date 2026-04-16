@@ -2937,6 +2937,7 @@ export class OutlineEditor {
         new Set();
     private _adjacentSnapInterpolationSessionId: number = 0;
     private _lastDragSaveTime: number = 0;
+    private _lastLiveAnchorRefreshTime: number = 0;
     private _lastPropertyPanelUpdateTime: number = 0;
     private _pendingDragMetricsUpdate: boolean = false;
     private _dragMetricsFlushTimer: number | null = null;
@@ -3853,10 +3854,22 @@ export class OutlineEditor {
         }
 
         if (options?.liveVisibleOnly) {
-            void fontManager.refreshGlyphsAfterModelBatch(
-                Array.from(uniqueGlyphNames),
-                this.getCurrentLayerId()
-            );
+            void fontManager
+                .refreshGlyphsAfterModelBatch(
+                    Array.from(uniqueGlyphNames),
+                    this.getCurrentLayerId(),
+                    { dispatchGlyphChanged: false }
+                )
+                .then(() => {
+                    currentFont.requestRecompileWithoutDataChange();
+                    window.autoCompileManager?.checkAndSchedule?.();
+                })
+                .catch((error) => {
+                    console.error(
+                        '[OutlineEditor] Error refreshing live anchor-dependent glyphs:',
+                        error
+                    );
+                });
             return;
         }
 
@@ -3880,6 +3893,27 @@ export class OutlineEditor {
                 );
             }
         });
+    }
+
+    private refreshLiveVisibleAnchorDependents(now: number): void {
+        if (!this._hasMoved || now - this._lastLiveAnchorRefreshTime < 50) {
+            return;
+        }
+
+        this._lastLiveAnchorRefreshTime = now;
+        fontManager.lastChangeSource = this.draggingSomething
+            ? 'mouse-drag-anchor'
+            : 'keyboard-anchor';
+        fontManager.lastEditType = 'anchor';
+        this._anchorAffectedGlyphNames =
+            this.rebuildAutomaticCompositesForCurrentEditedGlyph({
+                limitToDragVisibleGlyphs: true
+            });
+        this.syncDependentGlyphsAfterAnchorEdit(
+            this.getCurrentGlyphModel()?.name,
+            this._anchorAffectedGlyphNames,
+            { liveVisibleOnly: true }
+        );
     }
 
     private getBoundingBoxCenterScreenPosition(): {
@@ -6314,6 +6348,7 @@ export class OutlineEditor {
         this._snapDragStartNodePos = null;
         this._snapCandidateCache = null;
         this._lastDragSaveTime = 0;
+        this._lastLiveAnchorRefreshTime = 0;
         this._lastPropertyPanelUpdateTime = 0;
         this.cancelPendingDragMetricsUpdate();
         this._pointDragDeltaX = 0;
@@ -8987,6 +9022,9 @@ export class OutlineEditor {
             }
 
             const now = performance.now();
+            if (snapshot.includesAnchors) {
+                this.refreshLiveVisibleAnchorDependents(now);
+            }
             this.schedulePendingDragMetricsUpdate();
             if (now - this._lastPropertyPanelUpdateTime >= 100) {
                 this._lastPropertyPanelUpdateTime = now;
@@ -9060,6 +9098,9 @@ export class OutlineEditor {
         }
 
         const now = performance.now();
+        if (snapshot.includesAnchors) {
+            this.refreshLiveVisibleAnchorDependents(now);
+        }
         if (snapshot.includesGeometry) {
             this.schedulePendingDragMetricsUpdate();
         } else if (now - this._lastDragSaveTime >= 50) {
@@ -9223,6 +9264,10 @@ export class OutlineEditor {
 
         const now = performance.now();
         const shouldPersistDragFrame = now - this._lastDragSaveTime >= 50;
+
+        if (this.selectedAnchors.length > 0) {
+            this.refreshLiveVisibleAnchorDependents(now);
+        }
 
         if (this.isDraggingComponent) {
             this.updateComponentDragDeltaX(deltaX);
@@ -9628,6 +9673,7 @@ export class OutlineEditor {
         this._snapDragStartNodePos = null;
         this._snapCandidateCache = null;
         this._lastDragSaveTime = 0;
+        this._lastLiveAnchorRefreshTime = 0;
         this._lastPropertyPanelUpdateTime = 0;
         this.cancelPendingDragMetricsUpdate();
 

@@ -1402,7 +1402,7 @@ describe('Automatic component editing canonical behavior', () => {
         expect(inputs[1].getAttribute('placeholder')).toBe('=+0 or ==+0');
     });
 
-    test('anchor drag limits downstream automatic recomposition to visible glyphs and uses incremental cache refresh', () => {
+    test('anchor drag limits downstream automatic recomposition to visible glyphs and uses incremental cache refresh', async () => {
         const dragFont = makeVisibleAnchorCascadeFont();
         const currentFont = {
             fontModel: dragFont,
@@ -1421,6 +1421,11 @@ describe('Automatic component editing canonical behavior', () => {
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
             .mockResolvedValue();
+        const autoCompileManager = window.autoCompileManager;
+        window.autoCompileManager = {
+            ...(autoCompileManager || {}),
+            checkAndSchedule: jest.fn()
+        };
 
         try {
             setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
@@ -1450,6 +1455,8 @@ describe('Automatic component editing canonical behavior', () => {
                 { liveVisibleOnly: true }
             );
 
+            await Promise.resolve();
+
             expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
             expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
@@ -1457,11 +1464,18 @@ describe('Automatic component editing canonical behavior', () => {
                 'visibleComposite'
             ]);
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
+            expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][2]).toEqual({
+                dispatchGlyphChanged: false
+            });
             expect(
                 currentFont.requestRecompileWithoutDataChange
-            ).not.toHaveBeenCalled();
+            ).toHaveBeenCalledTimes(1);
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalledTimes(1);
             expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
         } finally {
+            window.autoCompileManager = autoCompileManager;
             refreshGlyphsAfterModelBatchSpy.mockRestore();
             forceFullWorkerCacheUpdateSpy.mockRestore();
             fontManager.updateEditingSubsetSnapshot([]);

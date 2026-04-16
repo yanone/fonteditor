@@ -2761,59 +2761,79 @@ class FontManager {
 
     async refreshGlyphsAfterModelBatch(
         glyphNames: Iterable<string>,
-        layerId?: string | null
+        layerId?: string | null,
+        options?: { dispatchGlyphChanged?: boolean }
     ): Promise<void> {
-        const currentFont = this.currentFont;
-        const uniqueGlyphNames = Array.from(
-            new Set(
-                Array.from(glyphNames || []).filter(
-                    (glyphName): glyphName is string =>
-                        typeof glyphName === 'string' && glyphName.length > 0
+        const refreshPromise = (async () => {
+            const currentFont = this.currentFont;
+            const uniqueGlyphNames = Array.from(
+                new Set(
+                    Array.from(glyphNames || []).filter(
+                        (glyphName): glyphName is string =>
+                            typeof glyphName === 'string' &&
+                            glyphName.length > 0
+                    )
                 )
-            )
-        );
+            );
 
-        if (!currentFont || !uniqueGlyphNames.length) {
-            return;
-        }
-
-        const pendingLayerUpdates = this.collectChangedLayerUpdatesFromModel(
-            uniqueGlyphNames,
-            layerId
-        );
-
-        let updatedIncrementally = false;
-        if (pendingLayerUpdates && pendingLayerUpdates.length > 0) {
-            updatedIncrementally =
-                await this.submitLayerUpdatesToWorkerCache(pendingLayerUpdates);
-
-            if (updatedIncrementally) {
-                fontCompilation.lastStoredFontJson = null;
-            }
-        } else if (pendingLayerUpdates) {
-            updatedIncrementally = true;
-        }
-
-        if (!updatedIncrementally) {
-            if (!this.syncBabelfontJsonFromCurrentModel()) {
+            if (!currentFont || !uniqueGlyphNames.length) {
                 return;
             }
 
-            await fontCompilation.sendMessage({
-                type: 'storeFontJson',
-                babelfontJson: currentFont.babelfontJson
-            });
-        }
+            const pendingLayerUpdates =
+                this.collectChangedLayerUpdatesFromModel(
+                    uniqueGlyphNames,
+                    layerId
+                );
 
-        for (const glyphName of uniqueGlyphNames) {
-            window.dispatchEvent(
-                new CustomEvent('glyphChanged', {
-                    detail: {
-                        glyphName,
-                        layerId: layerId ?? undefined
-                    }
-                })
-            );
+            let updatedIncrementally = false;
+            if (pendingLayerUpdates && pendingLayerUpdates.length > 0) {
+                updatedIncrementally =
+                    await this.submitLayerUpdatesToWorkerCache(
+                        pendingLayerUpdates
+                    );
+
+                if (updatedIncrementally) {
+                    fontCompilation.lastStoredFontJson = null;
+                }
+            } else if (pendingLayerUpdates) {
+                updatedIncrementally = true;
+            }
+
+            if (!updatedIncrementally) {
+                if (!this.syncBabelfontJsonFromCurrentModel()) {
+                    return;
+                }
+
+                await fontCompilation.sendMessage({
+                    type: 'storeFontJson',
+                    babelfontJson: currentFont.babelfontJson
+                });
+            }
+
+            if (options?.dispatchGlyphChanged === false) {
+                return;
+            }
+
+            for (const glyphName of uniqueGlyphNames) {
+                window.dispatchEvent(
+                    new CustomEvent('glyphChanged', {
+                        detail: {
+                            glyphName,
+                            layerId: layerId ?? undefined
+                        }
+                    })
+                );
+            }
+        })();
+
+        this.workerCacheUpdatePromise = refreshPromise;
+        try {
+            await refreshPromise;
+        } finally {
+            if (this.workerCacheUpdatePromise === refreshPromise) {
+                this.workerCacheUpdatePromise = null;
+            }
         }
     }
 
