@@ -1458,16 +1458,20 @@ describe('Automatic component editing canonical behavior', () => {
                 { liveVisibleOnly: true }
             );
 
+            // Fire-and-forget path: flush microtask queue + macrotask
+            await new Promise((resolve) => setTimeout(resolve, 0));
             await new Promise((resolve) => setTimeout(resolve, 0));
 
-            expect(currentFont.syncJsonFromModel).toHaveBeenCalledTimes(1);
+            // liveVisibleOnly skips syncJsonFromModel (deferred to mouseup)
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
             expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][0]).toEqual([
                 'visibleComposite'
             ]);
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][1]).toBe('A0');
             expect(refreshGlyphsAfterModelBatchSpy.mock.calls[0][2]).toEqual({
-                dispatchGlyphChanged: false
+                dispatchGlyphChanged: false,
+                skipFingerprintBaseline: true
             });
             expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
                 1

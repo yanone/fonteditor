@@ -3903,14 +3903,25 @@ export class OutlineEditor {
                 : Promise.resolve(false);
 
         if (options?.liveVisibleOnly) {
-            await refreshSourceGlyphPromise;
-            await fontManager.refreshGlyphsAfterModelBatch(
-                downstreamGlyphNames,
-                currentLayerId,
-                { dispatchGlyphChanged: false }
+            // Fire-and-forget: worker cache sync + compilation run
+            // concurrently without blocking the recomposition loop.
+            // The model is already updated synchronously; canvas renders
+            // from the model, so visual feedback is immediate.
+            refreshSourceGlyphPromise.then(() =>
+                fontManager
+                    .refreshGlyphsAfterModelBatch(
+                        downstreamGlyphNames,
+                        currentLayerId,
+                        {
+                            dispatchGlyphChanged: false,
+                            skipFingerprintBaseline: true
+                        }
+                    )
+                    .then(() => {
+                        currentFont.requestRecompileWithoutDataChange();
+                        window.autoCompileManager?.checkAndSchedule?.();
+                    })
             );
-            currentFont.requestRecompileWithoutDataChange();
-            window.autoCompileManager?.checkAndSchedule?.();
             return;
         }
 
@@ -3975,39 +3986,39 @@ export class OutlineEditor {
         }
 
         const runRefresh = async () => {
-            do {
-                this._liveAnchorRefreshQueued = false;
+            // Collapse all queued refreshes into a single pass over
+            // the latest model state. Only the final position matters.
+            this._liveAnchorRefreshQueued = false;
 
-                const currentFont = fontManager.currentFont;
-                const fontModel = currentFont?.fontModel;
-                const sourceGlyphName = this.getCurrentGlyphModel()?.name;
-                if (!fontModel || !sourceGlyphName) {
-                    continue;
-                }
+            const currentFont = fontManager.currentFont;
+            const fontModel = currentFont?.fontModel;
+            const sourceGlyphName = this.getCurrentGlyphModel()?.name;
+            if (!fontModel || !sourceGlyphName) {
+                return;
+            }
 
-                const allowedGlyphNames =
-                    this.getCachedAnchorDragScopeGlyphNames(
-                        sourceGlyphName,
-                        fontModel
-                    );
-                this._anchorAffectedGlyphNames =
-                    this.rebuildAutomaticCompositesForCurrentEditedGlyph({
-                        allowedGlyphNames
-                    });
+            const allowedGlyphNames =
+                this.getCachedAnchorDragScopeGlyphNames(
+                    sourceGlyphName,
+                    fontModel
+                );
+            this._anchorAffectedGlyphNames =
+                this.rebuildAutomaticCompositesForCurrentEditedGlyph({
+                    allowedGlyphNames
+                });
 
-                try {
-                    await this.syncDependentGlyphsAfterAnchorEdit(
-                        sourceGlyphName,
-                        this._anchorAffectedGlyphNames,
-                        { liveVisibleOnly: true }
-                    );
-                } catch (error) {
-                    console.error(
-                        '[OutlineEditor] Error refreshing live anchor-dependent glyphs:',
-                        error
-                    );
-                }
-            } while (this._liveAnchorRefreshQueued);
+            try {
+                await this.syncDependentGlyphsAfterAnchorEdit(
+                    sourceGlyphName,
+                    this._anchorAffectedGlyphNames,
+                    { liveVisibleOnly: true }
+                );
+            } catch (error) {
+                console.error(
+                    '[OutlineEditor] Error refreshing live anchor-dependent glyphs:',
+                    error
+                );
+            }
         };
 
         this._liveAnchorRefreshPromise = runRefresh().finally(() => {

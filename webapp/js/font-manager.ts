@@ -2203,7 +2203,8 @@ class FontManager {
 
     private collectChangedLayerUpdatesFromModel(
         glyphNames: Iterable<string>,
-        preferredLayerId?: string | null
+        preferredLayerId?: string | null,
+        options?: { skipFingerprintBaseline?: boolean }
     ): LayerCacheUpdate[] | null {
         const currentFont = this.currentFont;
         if (!currentFont) {
@@ -2212,8 +2213,9 @@ class FontManager {
 
         const updates: LayerCacheUpdate[] = [];
         const glyphNameList = Array.from(glyphNames);
-        const storedJsonFingerprints =
-            this.getLayerFingerprintsFromStoredJson(glyphNameList);
+        const storedJsonFingerprints = options?.skipFingerprintBaseline
+            ? new Map<string, string>()
+            : this.getLayerFingerprintsFromStoredJson(glyphNameList);
         const sourceGlyphName =
             window.glyphCanvas?.outlineEditor?.currentGlyphName ||
             window.glyphCanvas?.getCurrentGlyphName?.() ||
@@ -2271,18 +2273,23 @@ class FontManager {
                     glyphName,
                     layerId
                 );
-                const modelFingerprint =
-                    this.getLayerWorkerFingerprint(serializedLayer);
-                const baselineFingerprint =
-                    this.workerLayerFingerprintCache.get(fingerprintKey) ??
-                    storedJsonFingerprints.get(fingerprintKey) ??
-                    null;
 
-                if (
-                    !(preferredLayerId && glyphName === sourceGlyphName) &&
-                    baselineFingerprint === modelFingerprint
-                ) {
-                    continue;
+                // When skipFingerprintBaseline is set (live drag), skip the
+                // expensive fingerprint comparison and always include the update
+                if (!options?.skipFingerprintBaseline) {
+                    const modelFingerprint =
+                        this.getLayerWorkerFingerprint(serializedLayer);
+                    const baselineFingerprint =
+                        this.workerLayerFingerprintCache.get(fingerprintKey) ??
+                        storedJsonFingerprints.get(fingerprintKey) ??
+                        null;
+
+                    if (
+                        !(preferredLayerId && glyphName === sourceGlyphName) &&
+                        baselineFingerprint === modelFingerprint
+                    ) {
+                        continue;
+                    }
                 }
 
                 if (
@@ -2314,22 +2321,29 @@ class FontManager {
         }
 
         try {
-            await fontCompilation.sendMessage({
-                type: 'storeLayerUpdates',
-                updates: updates.map((update) => ({
+            // Normalize once per layer and reuse for both postMessage and fingerprint
+            const normalizedUpdates = updates.map((update) => {
+                const normalized = this.normalizeLayerForRust(update.layerData);
+                return {
                     glyphName: update.glyphName,
                     layerId: update.layerId,
-                    layerData: this.normalizeLayerForRust(update.layerData)
+                    normalized
+                };
+            });
+
+            await fontCompilation.sendMessage({
+                type: 'storeLayerUpdates',
+                updates: normalizedUpdates.map((u) => ({
+                    glyphName: u.glyphName,
+                    layerId: u.layerId,
+                    layerData: u.normalized
                 }))
             });
 
-            for (const update of updates) {
+            for (const u of normalizedUpdates) {
                 this.workerLayerFingerprintCache.set(
-                    this.getWorkerLayerFingerprintKey(
-                        update.glyphName,
-                        update.layerId
-                    ),
-                    this.getLayerWorkerFingerprint(update.layerData)
+                    this.getWorkerLayerFingerprintKey(u.glyphName, u.layerId),
+                    JSON.stringify(u.normalized)
                 );
             }
             return true;
@@ -2859,7 +2873,10 @@ class FontManager {
     async refreshGlyphsAfterModelBatch(
         glyphNames: Iterable<string>,
         layerId?: string | null,
-        options?: { dispatchGlyphChanged?: boolean }
+        options?: {
+            dispatchGlyphChanged?: boolean;
+            skipFingerprintBaseline?: boolean;
+        }
     ): Promise<void> {
         const refreshPromise = (async () => {
             const currentFont = this.currentFont;
@@ -2880,7 +2897,10 @@ class FontManager {
             const pendingLayerUpdates =
                 this.collectChangedLayerUpdatesFromModel(
                     uniqueGlyphNames,
-                    layerId
+                    layerId,
+                    options?.skipFingerprintBaseline
+                        ? { skipFingerprintBaseline: true }
+                        : undefined
                 );
 
             let updatedIncrementally = false;

@@ -4785,6 +4785,22 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         const old = this.data.reference;
         this.data.reference = value;
         recordAndMarkDirty(this, 'reference', old, value);
+        // Invalidate reverse component index when component reference changes
+        const shape = this.parent();
+        const layer =
+            shape instanceof Shape ? shape.parent() : null;
+        const glyph =
+            layer instanceof Layer ? layer.parent() : null;
+        const font =
+            glyph instanceof Glyph
+                ? (glyph.parent() as Font | null)
+                : null;
+        if (
+            font &&
+            typeof font.invalidateReverseComponentIndex === 'function'
+        ) {
+            font.invalidateReverseComponentIndex();
+        }
     }
 
     get transform(): Babelfont.DecomposedAffine {
@@ -5433,6 +5449,12 @@ export class Layer extends ArrayElementBase {
         const previousFingerprint = this.fingerprint;
         const result = fn();
         dispatchLayerFingerprintChanged(this, previousFingerprint);
+        // Invalidate reverse component index on any structural shape change
+        const glyph = this.parent();
+        const font = glyph instanceof Glyph ? (glyph.parent() as Font | null) : null;
+        if (font && typeof font.invalidateReverseComponentIndex === 'function') {
+            font.invalidateReverseComponentIndex();
+        }
         return result;
     }
 
@@ -9801,6 +9823,8 @@ export class Font extends ModelBase {
     private _masterWrappers: Master[] | null = null;
     private _instanceWrappers: Instance[] | null = null;
     private _isRecomputingMetricsKeys = false;
+    /** Reverse index: componentGlyphName → Set of glyph names that use it */
+    private _reverseComponentIndex: Map<string, Set<string>> | null = null;
 
     constructor(data: Babelfont.Font) {
         super(data);
@@ -10396,6 +10420,48 @@ export class Font extends ModelBase {
     }
 
     /**
+     * Build or rebuild the reverse component index.
+     * Maps componentGlyphName → Set of glyph names that reference it.
+     */
+    private _buildReverseComponentIndex(): Map<string, Set<string>> {
+        const index = new Map<string, Set<string>>();
+        for (const glyphData of this._data.glyphs) {
+            if (!glyphData.layers) continue;
+            const glyphName = glyphData.name;
+            for (const layer of glyphData.layers) {
+                if (!layer || !layer.shapes) continue;
+                for (const shape of layer.shapes) {
+                    if (!shape || typeof shape !== 'object') continue;
+                    const ref =
+                        shape.reference ??
+                        shape.Component?.reference ??
+                        undefined;
+                    if (ref) {
+                        let set = index.get(ref);
+                        if (!set) {
+                            set = new Set();
+                            index.set(ref, set);
+                        }
+                        set.add(glyphName);
+                    }
+                }
+            }
+        }
+        return index;
+    }
+
+    private _ensureReverseComponentIndex(): Map<string, Set<string>> {
+        if (!this._reverseComponentIndex) {
+            this._reverseComponentIndex = this._buildReverseComponentIndex();
+        }
+        return this._reverseComponentIndex;
+    }
+
+    invalidateReverseComponentIndex(): void {
+        this._reverseComponentIndex = null;
+    }
+
+    /**
      * Find all glyphs that reference a given glyph as a component
      * This recursively finds glyphs at each nesting level
      * @param componentGlyphName - Name of the component glyph to search for
@@ -10405,45 +10471,9 @@ export class Font extends ModelBase {
      * # Returns ["ö", "õ", "ø", ...] if they use "o" as a component
      */
     findGlyphsUsingComponent(componentGlyphName: string): string[] {
-        const affectedGlyphs = new Set<string>();
-
-        // Helper function to check if a layer contains the component
-        const layerContainsComponent = (layer: Unsafe): boolean => {
-            if (!layer || !layer.shapes) return false;
-
-            for (const shape of layer.shapes) {
-                // Check if this shape is a component referencing the target
-                if (shape && typeof shape === 'object') {
-                    // Handle flat format: { reference: "glyphName" }
-                    if (shape.reference === componentGlyphName) {
-                        return true;
-                    }
-                    // Handle nested format: { Component: { reference: "glyphName" } }
-                    if (
-                        shape.Component &&
-                        shape.Component.reference === componentGlyphName
-                    ) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        };
-
-        // Search through all glyphs
-        for (const glyphData of this._data.glyphs) {
-            if (!glyphData.layers) continue;
-
-            // Check all layers of this glyph
-            for (const layer of glyphData.layers) {
-                if (layerContainsComponent(layer)) {
-                    affectedGlyphs.add(glyphData.name);
-                    break; // Found in one layer, no need to check others
-                }
-            }
-        }
-
-        return Array.from(affectedGlyphs);
+        const index = this._ensureReverseComponentIndex();
+        const set = index.get(componentGlyphName);
+        return set ? Array.from(set) : [];
     }
 
     /**
@@ -10558,6 +10588,7 @@ export class Font extends ModelBase {
         };
         this._data.glyphs.push(glyphData);
         this._glyphWrappers = null; // Invalidate cache
+        this._reverseComponentIndex = null;
         recordAddAndMarkDirty(['glyphs', name], glyphData);
         return new Glyph(this._data.glyphs, this._data.glyphs.length - 1, this);
     }
@@ -10575,6 +10606,7 @@ export class Font extends ModelBase {
             const removedGlyph = this._data.glyphs[index];
             this._data.glyphs.splice(index, 1);
             this._glyphWrappers = null; // Invalidate cache
+            this._reverseComponentIndex = null;
             recordRemoveAndMarkDirty(['glyphs', name], removedGlyph);
             return true;
         }
