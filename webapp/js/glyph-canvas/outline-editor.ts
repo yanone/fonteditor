@@ -9,7 +9,8 @@ import { normalizeWorkerReplayTargets } from '../change-log';
 import {
     Layer,
     DecomposedAffineTransform,
-    withSuppressedModelRecording
+    withSuppressedModelRecording,
+    withSuppressedMetricsKeyRecompute
 } from '../babelfont-model';
 import {
     getHighestVisibleVerticalMetricValue,
@@ -3783,27 +3784,22 @@ export class OutlineEditor {
 
         const glyph = fontModel.findGlyph(glyphName);
         const layerModel = glyph?.findLayerById(currentLayerId);
-        const rawLayer = layerModel?.toJSON?.();
-        if (!glyph || !layerModel || !rawLayer) {
+        if (!glyph || !layerModel) {
             return new Set();
         }
 
-        rawLayer.width = currentLayerData.width;
-        rawLayer.height = currentLayerData.height;
-        rawLayer.vertWidth = currentLayerData.vertWidth;
-        rawLayer.shapes = currentLayerData.shapes;
-
-        if (currentLayerData.anchors !== undefined) {
-            rawLayer.anchors = currentLayerData.anchors;
-        }
-        if (currentLayerData.guides !== undefined) {
-            rawLayer.guides = currentLayerData.guides;
-        }
-        if (currentLayerData.format_specific !== undefined) {
-            rawLayer.format_specific = currentLayerData.format_specific;
-        }
-
-        layerModel.invalidateContentCaches();
+        // Bulk-sync the editor's working copy into the model layer,
+        // avoiding the expensive toJSON() round-trip that would
+        // trigger layout recomputation for automatic-aligned layers.
+        layerModel.syncFromEditorLayerData({
+            width: currentLayerData.width,
+            height: currentLayerData.height,
+            vertWidth: currentLayerData.vertWidth,
+            shapes: currentLayerData.shapes,
+            anchors: currentLayerData.anchors,
+            guides: currentLayerData.guides,
+            format_specific: currentLayerData.format_specific
+        });
 
         const affectedGlyphNames = new Set<string>([glyphName]);
         const allowedGlyphNames = options?.allowedGlyphNames
@@ -3832,10 +3828,21 @@ export class OutlineEditor {
         };
 
         const bridge = window.changeBridge;
+        const wrappedRebuild = () =>
+            withSuppressedModelRecording(() =>
+                withSuppressedMetricsKeyRecompute(() => {
+                    if (allowedGlyphNames) {
+                        fontModel.invalidateLayoutCachesForGlyphs(
+                            allowedGlyphNames
+                        );
+                    }
+                    rebuild();
+                })
+            );
         if (bridge?.runWithoutRecording) {
-            bridge.runWithoutRecording(rebuild);
+            bridge.runWithoutRecording(wrappedRebuild);
         } else {
-            rebuild();
+            wrappedRebuild();
         }
 
         const dependencyQueue = Array.from(affectedGlyphNames);
@@ -3903,25 +3910,23 @@ export class OutlineEditor {
                 : Promise.resolve(false);
 
         if (options?.liveVisibleOnly) {
-            // Fire-and-forget: worker cache sync + compilation run
-            // concurrently without blocking the recomposition loop.
+            // Fire-and-forget: batch source + downstream layer updates
+            // into a single worker cache sync + compilation run.
             // The model is already updated synchronously; canvas renders
             // from the model, so visual feedback is immediate.
-            refreshSourceGlyphPromise.then(() =>
-                fontManager
-                    .refreshGlyphsAfterModelBatch(
-                        downstreamGlyphNames,
-                        currentLayerId,
-                        {
-                            dispatchGlyphChanged: false,
-                            skipFingerprintBaseline: true
-                        }
-                    )
-                    .then(() => {
-                        currentFont.requestRecompileWithoutDataChange();
-                        window.autoCompileManager?.checkAndSchedule?.();
-                    })
-            );
+            const allGlyphNames = [
+                ...(glyphName ? [glyphName] : []),
+                ...downstreamGlyphNames
+            ];
+            fontManager
+                .refreshGlyphsAfterModelBatch(allGlyphNames, currentLayerId, {
+                    dispatchGlyphChanged: false,
+                    skipFingerprintBaseline: true
+                })
+                .then(() => {
+                    currentFont.requestRecompileWithoutDataChange();
+                    window.autoCompileManager?.checkAndSchedule?.();
+                });
             return;
         }
 
@@ -3997,11 +4002,10 @@ export class OutlineEditor {
                 return;
             }
 
-            const allowedGlyphNames =
-                this.getCachedAnchorDragScopeGlyphNames(
-                    sourceGlyphName,
-                    fontModel
-                );
+            const allowedGlyphNames = this.getCachedAnchorDragScopeGlyphNames(
+                sourceGlyphName,
+                fontModel
+            );
             this._anchorAffectedGlyphNames =
                 this.rebuildAutomaticCompositesForCurrentEditedGlyph({
                     allowedGlyphNames
@@ -9439,6 +9443,8 @@ export class OutlineEditor {
         }
 
         // Throttle saveLayerData during drag (every 50ms) — final save on mouseUp
+        // Anchor drag recomposition already keeps the model in sync and
+        // triggers compilation; saveLayerData would be redundant.
         if (this.isDraggingGuide) {
             if (this.selectedGuideHandle?.scope === 'layer') {
                 this.saveLayerData('mouse-drag-guide');
@@ -9446,7 +9452,7 @@ export class OutlineEditor {
         } else if (this.isSlidingSmoothPointAlongCurve) {
             // Sliding a smooth point is applied directly to the model so linked
             // layers stay in sync. Persist once on mouse up.
-        } else {
+        } else if (!this.isDraggingAnchor) {
             if (
                 shouldPersistDragFrame &&
                 !this._pendingDragMetricsUpdate &&
@@ -9454,10 +9460,7 @@ export class OutlineEditor {
                 !this.isDraggingPoint
             ) {
                 this._lastDragSaveTime = now;
-                const dragChangeSource = this.isDraggingAnchor
-                    ? 'mouse-drag-anchor'
-                    : 'mouse-drag-outline';
-                this.saveLayerData(dragChangeSource);
+                this.saveLayerData('mouse-drag-outline');
             }
         }
 

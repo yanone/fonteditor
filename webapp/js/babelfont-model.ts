@@ -233,7 +233,7 @@ export function withSuppressedModelRecording<T>(fn: () => T): T {
     }
 }
 
-function withSuppressedMetricsKeyRecompute<T>(fn: () => T): T {
+export function withSuppressedMetricsKeyRecompute<T>(fn: () => T): T {
     suppressMetricsKeyRecomputeDepth++;
     try {
         return fn();
@@ -4787,14 +4787,10 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
         recordAndMarkDirty(this, 'reference', old, value);
         // Invalidate reverse component index when component reference changes
         const shape = this.parent();
-        const layer =
-            shape instanceof Shape ? shape.parent() : null;
-        const glyph =
-            layer instanceof Layer ? layer.parent() : null;
+        const layer = shape instanceof Shape ? shape.parent() : null;
+        const glyph = layer instanceof Layer ? layer.parent() : null;
         const font =
-            glyph instanceof Glyph
-                ? (glyph.parent() as Font | null)
-                : null;
+            glyph instanceof Glyph ? (glyph.parent() as Font | null) : null;
         if (
             font &&
             typeof font.invalidateReverseComponentIndex === 'function'
@@ -5366,6 +5362,8 @@ export class Layer extends ArrayElementBase {
     private _shapeWrappers: Shape[] | null = null;
     private _anchorWrappers: Anchor[] | null = null;
     private _guideWrappers: Guide[] | null = null;
+    private _cachedLayout: AutomaticCompositionLayout | null | undefined =
+        undefined;
 
     toJSON(): Unsafe {
         const data = super.toJSON() as Unsafe;
@@ -5443,6 +5441,56 @@ export class Layer extends ArrayElementBase {
         this._shapeWrappers = null;
         this._anchorWrappers = null;
         this._guideWrappers = null;
+        this._cachedLayout = undefined;
+    }
+
+    /**
+     * Invalidate only the automatic composition layout cache.
+     * Cheaper than full invalidateContentCaches() when only
+     * anchor/composition state has changed (not shapes/guides).
+     */
+    invalidateLayoutCache(): void {
+        this._cachedLayout = undefined;
+    }
+
+    /**
+     * Bulk-sync mutable properties from the outline editor's working
+     * copy into this layer's model data. Skips the expensive toJSON()
+     * round-trip and layout recomputation that would otherwise occur
+     * for automatic-aligned layers.
+     *
+     * Must be called inside withSuppressedModelRecording so that the
+     * individual property mutations don't trigger recordAndMarkDirty.
+     */
+    syncFromEditorLayerData(layerData: {
+        width: number;
+        height?: number;
+        vertWidth?: number;
+        shapes?: Unsafe[];
+        anchors?: Unsafe[];
+        guides?: Unsafe[];
+        format_specific?: Record<string, Unsafe>;
+    }): void {
+        this.data.width = layerData.width;
+        if (layerData.height !== undefined) {
+            this.data.height = layerData.height;
+        }
+        if (layerData.vertWidth !== undefined) {
+            this.data.vertWidth = layerData.vertWidth;
+        }
+        if (layerData.shapes !== undefined) {
+            this.data.shapes = layerData.shapes;
+        }
+        if (layerData.anchors !== undefined) {
+            this.data.anchors = layerData.anchors;
+        }
+        if (layerData.guides !== undefined) {
+            this.data.guides = layerData.guides;
+        }
+        if (layerData.format_specific !== undefined) {
+            this.data.format_specific = layerData.format_specific;
+        }
+        this.invalidateContentCaches();
     }
 
     private withFingerprintChangeEvent<T>(fn: () => T): T {
@@ -5451,8 +5499,12 @@ export class Layer extends ArrayElementBase {
         dispatchLayerFingerprintChanged(this, previousFingerprint);
         // Invalidate reverse component index on any structural shape change
         const glyph = this.parent();
-        const font = glyph instanceof Glyph ? (glyph.parent() as Font | null) : null;
-        if (font && typeof font.invalidateReverseComponentIndex === 'function') {
+        const font =
+            glyph instanceof Glyph ? (glyph.parent() as Font | null) : null;
+        if (
+            font &&
+            typeof font.invalidateReverseComponentIndex === 'function'
+        ) {
             font.invalidateReverseComponentIndex();
         }
         return result;
@@ -6083,12 +6135,18 @@ export class Layer extends ArrayElementBase {
     }
 
     private getAutomaticCompositionLayout(): AutomaticCompositionLayout | null {
+        if (this._cachedLayout !== undefined) {
+            return this._cachedLayout;
+        }
+
         if (!this.isAutomaticAlignedLayer()) {
+            this._cachedLayout = null;
             return null;
         }
 
         const components = this.components;
         if (components.length === 0) {
+            this._cachedLayout = null;
             return null;
         }
 
@@ -6234,11 +6292,13 @@ export class Layer extends ArrayElementBase {
             baseBounds.height = baseBounds.maxY - baseBounds.minY;
         }
 
-        return {
+        const layout: AutomaticCompositionLayout = {
             placements,
             baseBounds,
             baseAdvanceWidth: roundMetricValue(baseAdvanceWidth)
         };
+        this._cachedLayout = layout;
+        return layout;
     }
 
     private getAutomaticSidebearingAdjustment(side: SidebearingSide): number {
@@ -9992,11 +10052,11 @@ export class Font extends ModelBase {
                       ].filter((layer): layer is Layer => !!layer)
                     : glyph.layers || [];
                 for (const layer of layersToRebuild) {
-                    if (
-                        layer.isAutomaticAlignedLayer() &&
-                        layer.rebuildAutomaticComposition()
-                    ) {
-                        glyphChanged = true;
+                    if (layer.isAutomaticAlignedLayer()) {
+                        layer.invalidateLayoutCache();
+                        if (layer.rebuildAutomaticComposition()) {
+                            glyphChanged = true;
+                        }
                     }
                 }
 
@@ -10459,6 +10519,23 @@ export class Font extends ModelBase {
 
     invalidateReverseComponentIndex(): void {
         this._reverseComponentIndex = null;
+    }
+
+    /**
+     * Invalidate automatic composition layout caches for all layers
+     * of the specified glyphs. Call before recomputing compositions
+     * so that stale cached layouts from a previous frame are not reused.
+     */
+    invalidateLayoutCachesForGlyphs(glyphNames: Iterable<string>): void {
+        for (const glyphName of glyphNames) {
+            const glyph = this.findGlyph(glyphName);
+            if (!glyph?.layers) continue;
+            for (const layer of glyph.layers) {
+                if (layer instanceof Layer) {
+                    layer.invalidateLayoutCache();
+                }
+            }
+        }
     }
 
     /**
