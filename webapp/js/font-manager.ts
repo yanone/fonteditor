@@ -1366,6 +1366,36 @@ class FontManager {
         const isIncrementalEditingCompile =
             compileSource.startsWith('mouse-drag') ||
             compileSource.startsWith('keyboard');
+        const isMouseDragSource = compileSource.startsWith('mouse-drag');
+        const isKeyboardSource = compileSource.startsWith('keyboard');
+        const forceFullWorkerCompileAtStart = this.forceFullEditingCacheRefresh;
+        const shouldPrepareIncrementalLayerUpdate =
+            (isMouseDragSource || isKeyboardSource) &&
+            !forceFullWorkerCompileAtStart;
+        const activeDirtyGlyphName = shouldPrepareIncrementalLayerUpdate
+            ? window.glyphCanvas?.outlineEditor?.currentGlyphName ||
+              window.glyphCanvas?.getCurrentGlyphName?.() ||
+              null
+            : null;
+        const activeDirtyLayerId = shouldPrepareIncrementalLayerUpdate
+            ? window.glyphCanvas?.outlineEditor?.selectedLayerId || null
+            : null;
+        const canUseIncrementalDirtyLayerPatch = (() => {
+            if (!activeDirtyGlyphName || !activeDirtyLayerId) {
+                return false;
+            }
+
+            const dirtyGlyph = this.currentFont.fontModel?.glyphs?.find(
+                (glyph: any) => glyph?.name === activeDirtyGlyphName
+            );
+            if (!dirtyGlyph) {
+                return false;
+            }
+
+            return dirtyGlyph.layers?.some(
+                (layer: any) => layer?.id === activeDirtyLayerId
+            );
+        })();
 
         // Capture whether JSON was stale before sync clears the flag,
         // so validateAndFixBabelfontJsonForRust knows to run.
@@ -1374,7 +1404,10 @@ class FontManager {
         // Always sync when the JSON is stale (e.g. after undo/redo/remote sync),
         // even during incremental editing compiles, so the Rust compiler never
         // receives array-format nodes or other stale format artifacts.
-        if (!isIncrementalEditingCompile || wasJsonStale) {
+        if (
+            !isIncrementalEditingCompile ||
+            (wasJsonStale && !canUseIncrementalDirtyLayerPatch)
+        ) {
             if (!this.syncBabelfontJsonFromCurrentModel()) {
                 throw new Error(
                     'Failed to sync font model before editing compile'
@@ -1497,17 +1530,10 @@ class FontManager {
                 );
                 incrementalChangeSource = this.lastChangeSource;
                 const editTypeAtRequest = this.lastEditType;
-                const isMouseDragSource =
-                    incrementalChangeSource !== null &&
-                    incrementalChangeSource.startsWith('mouse-drag');
-                const isKeyboardSource =
-                    incrementalChangeSource !== null &&
-                    incrementalChangeSource.startsWith('keyboard');
                 dragActiveAtRequest =
                     isMouseDragSource ||
                     !!window.glyphCanvas?.outlineEditor?.draggingSomething;
-                const forceFullWorkerCompile =
-                    this.forceFullEditingCacheRefresh;
+                const forceFullWorkerCompile = forceFullWorkerCompileAtStart;
                 if (forceFullWorkerCompile) {
                     this.forceFullEditingCacheRefresh = false;
                 }
@@ -1522,28 +1548,17 @@ class FontManager {
                     isMouseDragSource || isKeyboardSource;
                 const shouldSendIncrementalLayer =
                     isInteractiveSource && !forceFullWorkerCompile;
-                const dragGlyphNames = shouldSendIncrementalLayer
-                    ? [
-                          window.glyphCanvas?.outlineEditor?.currentGlyphName ||
-                              window.glyphCanvas?.getCurrentGlyphName?.()
-                      ].filter(
-                          (glyphName): glyphName is string =>
-                              typeof glyphName === 'string' &&
-                              glyphName.length > 0
-                      )
-                    : [];
-
-                if (dragGlyphNames.length === 1) {
-                    const dirtyGlyphName = dragGlyphNames[0];
-                    const dirtyLayerId =
-                        window.glyphCanvas?.outlineEditor?.selectedLayerId ||
-                        undefined;
+                if (
+                    shouldSendIncrementalLayer &&
+                    activeDirtyGlyphName &&
+                    activeDirtyLayerId
+                ) {
                     const dirtyGlyph = this.currentFont.fontModel?.glyphs?.find(
-                        (glyph: any) => glyph?.name === dirtyGlyphName
+                        (glyph: any) => glyph?.name === activeDirtyGlyphName
                     );
-                    if (dirtyGlyph && dirtyLayerId) {
+                    if (dirtyGlyph) {
                         const dirtyLayer = dirtyGlyph.layers?.find(
-                            (layer: any) => layer?.id === dirtyLayerId
+                            (layer: any) => layer?.id === activeDirtyLayerId
                         );
                         if (dirtyLayer) {
                             const rawDirtyLayer =
@@ -1552,8 +1567,8 @@ class FontManager {
                                     : dirtyLayer;
                             dirtyLayerUpdates = [
                                 {
-                                    glyphName: dirtyGlyphName,
-                                    layerId: dirtyLayerId,
+                                    glyphName: activeDirtyGlyphName,
+                                    layerId: activeDirtyLayerId,
                                     layerData:
                                         this.normalizeLayerForRust(
                                             rawDirtyLayer

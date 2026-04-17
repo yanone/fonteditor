@@ -763,6 +763,30 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
+    test('mouse-drag outline compiles do not force a full JSON sync when incremental layer patching is available', async () => {
+        fontManager.lastChangeSource = 'mouse-drag-outline';
+        fontManager.lastEditType = 'outline';
+        fontManager.pendingBabelfontJsonSyncAfterDrag = true;
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(
+            fontManager.currentFont.syncJsonFromModel
+        ).not.toHaveBeenCalled();
+        expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'mouse-drag-outline',
+            dirtyLayerUpdates: [
+                {
+                    glyphName: 'n',
+                    layerId: 'layer-1',
+                    layerData: expect.any(Object)
+                }
+            ]
+        });
+    });
+
     test('recompileEditingFont waits for replay-target worker refresh before compiling', async () => {
         const currentFont = fontManager.currentFont;
         currentFont.needsRecompile = true;
