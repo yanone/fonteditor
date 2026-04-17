@@ -17,14 +17,16 @@ This documentation is designed as a practical user guide for real font-productio
 5. [Files View Basics](files/01-files-view-basics.md)
 6. [Glyph Editor Basics](editor/01-glyph-editor-basics.md)
 7. [Outline Drawing and Editing](editor/04-outline-drawing-and-editing.md)
+8. [Layer Operations](editor/05-layer-operations.md)
 
 ### Path B: Production Workflow
 
 1. [Open, Save, and File Formats](files/03-open-save-formats.md)
 2. [Axes, Masters, and Interpolation](editor/02-axes-masters-interpolation.md)
-3. [Feature Code Editor](features/01-feature-code-editor.md)
-4. [Glyph Overview Basics](overview/01-glyph-overview-basics.md)
-5. [Code-Driven Glyph Filters](overview/02-code-driven-filters.md)
+3. [Layer Operations](editor/05-layer-operations.md)
+4. [Feature Code Editor](features/01-feature-code-editor.md)
+5. [Glyph Overview Basics](overview/01-glyph-overview-basics.md)
+6. [Code-Driven Glyph Filters](overview/02-code-driven-filters.md)
 
 ### Path C: Automation and AI
 
@@ -56,6 +58,7 @@ This documentation is designed as a practical user guide for real font-productio
 - [Outline Drawing and Editing](editor/04-outline-drawing-and-editing.md)
 - [Axes, Masters, and Interpolation](editor/02-axes-masters-interpolation.md)
 - [Sidebearing Arithmetics](editor/03-sidebearing-arithmetics.md)
+- [Layer Operations](editor/05-layer-operations.md)
 
 ### Features
 
