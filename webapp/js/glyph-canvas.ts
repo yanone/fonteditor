@@ -4815,7 +4815,9 @@ class GlyphCanvas {
         );
     }
 
-    async updatePropertiesUI(): Promise<void> {
+    async updatePropertiesUI(options?: {
+        skipAutoSelectMatchingLayer?: boolean;
+    }): Promise<void> {
         if (!this.propertiesSection) return;
 
         // Prevent overlapping calls
@@ -4883,6 +4885,9 @@ class GlyphCanvas {
                 this.textRunEditor!.selectedGlyphIndex <
                     this.textRunEditor!.shapedGlyphs.length
             ) {
+                if (options?.skipAutoSelectMatchingLayer) {
+                    return;
+                }
                 if (this.outlineEditor.draggingSomething) {
                     console.log(
                         '[DRAG-DEBUG] Skipping autoSelectMatchingLayer from updatePropertiesUI during drag'

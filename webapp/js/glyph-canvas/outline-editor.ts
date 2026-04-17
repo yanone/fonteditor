@@ -3024,6 +3024,7 @@ export class OutlineEditor {
     selectedLayerId: string | null = null;
     isInterpolating: boolean = false;
     isLayerSwitchAnimating: boolean = false;
+    suppressAutoLayerMatching: boolean = false;
     currentInterpolationId: number = 0;
     isDeterministicRefreshActive: boolean = false;
     lastGlyphX: number | null = null;
@@ -6635,6 +6636,9 @@ export class OutlineEditor {
         userspaceLocation: UserspaceLocation,
         glyphName: string
     ): Promise<void> {
+        this.cancelPendingLayerSwitchAnimation();
+        this.suppressAutoLayerMatching = false;
+
         const previousLayer = this.getCurrentLayerModel();
         if (this.selectedLayerId !== null && previousLayer) {
             this.storeSelectionStateForLayer(previousLayer);
@@ -15671,6 +15675,9 @@ export class OutlineEditor {
     async selectLayer(layer: Babelfont.Layer): Promise<void> {
         layer = this.resolveLayerModel(layer);
 
+        this.cancelPendingLayerSwitchAnimation();
+        this.suppressAutoLayerMatching = true;
+
         // Select a layer and update axis sliders to match its master location
         // Clear previous state when explicitly selecting a layer
         this.escapeState.clear();
@@ -15791,6 +15798,7 @@ export class OutlineEditor {
             console.warn('No location found for layer', {
                 layerId: layer.id
             });
+            this.suppressAutoLayerMatching = false;
             return;
         }
 
@@ -15808,7 +15816,9 @@ export class OutlineEditor {
         }
         this.glyphCanvas.axesManager!._setupAnimation(newSettings);
 
-        await this.glyphCanvas.updatePropertiesUI();
+        await this.glyphCanvas.updatePropertiesUI({
+            skipAutoSelectMatchingLayer: true
+        });
     }
 
     async onAnimationComplete() {
@@ -15910,6 +15920,13 @@ export class OutlineEditor {
     async autoSelectMatchingLayer(options?: {
         skipRender?: boolean;
     }): Promise<void> {
+        if (this.suppressAutoLayerMatching) {
+            console.log(
+                '[OutlineEditor] Skipping autoSelectMatchingLayer during explicit layer selection'
+            );
+            return;
+        }
+
         const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
         const skipRender = options?.skipRender === true;
         const currentUserspaceLocation = {
@@ -17177,5 +17194,7 @@ export class OutlineEditor {
                 this.glyphCanvas.render();
             }
         }
+
+        this.suppressAutoLayerMatching = false;
     }
 }

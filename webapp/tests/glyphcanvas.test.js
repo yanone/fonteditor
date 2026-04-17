@@ -9113,6 +9113,29 @@ describe('OutlineEditor exact selected layers', () => {
         expect(addButton.disabled).toBe(false);
     });
 
+    test('selectLayer keeps the clicked master layer selected during the immediate properties UI rebuild', async () => {
+        const targetContainer = document.createElement('div');
+        const setupAnimationSpy = jest
+            .spyOn(canvas.axesManager, '_setupAnimation')
+            .mockImplementation(() => {});
+        canvas.propertiesSection = targetContainer;
+        canvas.outlineEditor.active = true;
+        canvas.axesManager.variationSettings = { wght: 60 };
+
+        await canvas.displayMastersList(targetContainer, false);
+
+        const masterLayer = currentFontSpy.mock.results
+            .at(-1)
+            .value.fontModel.findGlyph('A')
+            .findLayerById('master-layer');
+
+        await canvas.outlineEditor.selectLayer(masterLayer);
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe('master-layer');
+
+        setupAnimationSpy.mockRestore();
+    });
+
     test('autoSelectMatchingLayer re-enables the create-layer button when already interpolating between stored layer locations', async () => {
         const targetContainer = document.createElement('div');
         canvas.propertiesSection = targetContainer;
@@ -9425,6 +9448,49 @@ describe('OutlineEditor exact selected layers', () => {
         expect(currentFont.syncJsonFromModel).toHaveBeenCalled();
         expect(forceFullWorkerCacheUpdateSpy).toHaveBeenCalled();
         expect(animateSpy).toHaveBeenCalledWith({ wght: 0 }, 10);
+
+        animateSpy.mockRestore();
+        dirtySpy.mockRestore();
+        forceFullWorkerCacheUpdateSpy.mockRestore();
+    });
+
+    test('deleteLayerById clears stale pending layer-switch animation before falling back to interpolation', async () => {
+        const font = makeComponentFont();
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        const forceFullWorkerCacheUpdateSpy = jest
+            .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
+            .mockResolvedValue();
+        const dirtySpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const animateSpy = jest
+            .spyOn(canvas, 'animateToLocation')
+            .mockResolvedValue();
+
+        currentFontSpy.mockReturnValue(currentFont);
+        canvas.outlineEditor.selectedLayerId = 'brace-layer';
+        canvas.outlineEditor.currentGlyphName = 'A';
+        canvas.outlineEditor.isLayerSwitchAnimating = true;
+        canvas.outlineEditor.targetLayerData = {
+            width: 520,
+            shapes: [],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+
+        const deleted =
+            await canvas.outlineEditor.deleteLayerById('brace-layer');
+
+        expect(deleted).toBe(true);
+        expect(canvas.outlineEditor.selectedLayerId).toBeNull();
+        expect(canvas.outlineEditor.isLayerSwitchAnimating).toBe(false);
+        expect(canvas.outlineEditor.targetLayerData).toBeNull();
+        expect(animateSpy).toHaveBeenCalledWith({ wght: 50 }, 10);
 
         animateSpy.mockRestore();
         dirtySpy.mockRestore();
