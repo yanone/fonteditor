@@ -67,6 +67,21 @@ targets needed to repopulate the worker with `storeLayerUpdates`. Full
 `storeFontJson` remains the fallback only for edits whose history entries do not
 carry replayable layer targets, such as true font-wide data changes.
 
+When the undone/redone history item touches anchors, undo/redo must set
+`lastEditType = 'anchor'` (and `lastChangeSource = 'keyboard-anchor'`) before
+requesting the editing-font compile so the compile loop uses the faster
+`anchor-only` mode instead of `full`. The trailing debounced full compile still
+resets `lastEditType` to `null` for correctness, but the immediate editing-font
+compile benefits from the same fast path as the original anchor edit.
+
+Anchor-edit history entries (both mouse-drag and keyboard) must carry
+`workerReplayTargets` that include all downstream auto-composite glyph/layer
+pairs. For keyboard anchor nudges, `rebuildAutomaticCompositesForCurrentEditedGlyph`
+must run before `saveLayerData` so the model is current when the Yjs entry is
+recorded, and `_syncCurrentGlyphToYDoc` must pass the collected targets. This
+ensures that `shouldForceFullRustSyncAfterUndoRedo` returns `false` (incremental
+path) instead of forcing a slow full `storeFontJson` on undo.
+
 ### Interactive layer saves
 
 `FontManager.saveLayerData()` does three separate things for interactive saves and all three are required:
@@ -149,6 +164,7 @@ The following are required and should be covered by tests or explicit review whe
 5. The editing compile continues to use the subsetted `editing` target before fontc.
 6. `outline-only` still skips reshape and `anchor-only` still reshapes.
 7. Text input still uses the subset-only fast path and still schedules a deferred full compile.
+8. Undo/redo of anchor edits uses `anchor-only` compilation mode and incremental worker-cache refresh (not full `storeFontJson`) when the history item carries `workerReplayTargets` for downstream auto-composite layers.
 
 ## Change Control
 

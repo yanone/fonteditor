@@ -13434,10 +13434,14 @@ export class OutlineEditor {
             }
         }
 
-        // Save to object model (non-blocking)
-        this.saveLayerData('keyboard-anchor');
+        // Rebuild auto-composites before saving so downstream layer data
+        // is current when the Yjs history entry is recorded and the
+        // workerReplayTargets are collected for the undo fast path.
         this._anchorAffectedGlyphNames =
             this.rebuildAutomaticCompositesForCurrentEditedGlyph();
+
+        // Save to object model (non-blocking)
+        this.saveLayerData('keyboard-anchor');
         void this.syncDependentGlyphsAfterAnchorEdit(
             this.getCurrentGlyphModel()?.name,
             this._anchorAffectedGlyphNames
@@ -14756,11 +14760,22 @@ export class OutlineEditor {
                     this._metricsKeyInteractionSide;
                 this._metricsKeyEditedSide = null;
                 this._metricsKeyInteractionSide = null;
+                // When anchors were nudged, include downstream auto-composite
+                // targets so the undo fast path can refresh the worker cache
+                // incrementally instead of falling back to storeFontJson.
+                const anchorReplayTargets =
+                    this.selectedAnchors.length > 0
+                        ? this.collectMatchingLayerWorkerReplayTargets(
+                              this._anchorAffectedGlyphNames,
+                              this.getCurrentLayerId()
+                          )
+                        : undefined;
                 this._syncCurrentGlyphToYDoc(
                     'Arrow key',
                     preMoveDesc,
                     postMoveDesc,
-                    visualAnchorSide
+                    visualAnchorSide,
+                    anchorReplayTargets
                 );
                 return;
             }

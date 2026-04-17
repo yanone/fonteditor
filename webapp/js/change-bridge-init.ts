@@ -643,7 +643,8 @@ function waitForEditingFontCompileRevision(
 }
 
 async function requestUndoRedoEditingFontCompile(
-    waitForCompletion: boolean = false
+    waitForCompletion: boolean = false,
+    editType?: 'outline' | 'anchor' | null
 ): Promise<void> {
     const fm = window.fontManager;
     if (!fm?.currentFont) {
@@ -651,7 +652,11 @@ async function requestUndoRedoEditingFontCompile(
     }
 
     fm.lastChangeSource = 'undo-redo';
-    fm.lastEditType = null;
+    // Preserve the edit-type hint from the undone history item so the
+    // compile loop uses the matching fast-path mode (e.g. anchor-only)
+    // instead of always falling back to a full compile. The trailing
+    // debounced full compile restores correctness afterwards.
+    fm.lastEditType = editType ?? null;
 
     const targetRevision = fm.currentFont.compileRequestVersion + 1;
     const canForceTrigger =
@@ -765,6 +770,13 @@ export function runBridgeUndoRedo(
         // For layer-scoped undo/redo, the incremental layer-update batch path
         // is sufficient (reads directly from the model, no babelfontJson needed).
         // For glyph/font scope, force a full Rust font cache refresh.
+        // When the undone history item was an anchor edit, propagate the
+        // edit type so the compile loop uses anchor-only mode (skip kerning,
+        // skip VARC) instead of falling back to a full compile.
+        const undoEditType =
+            historyItemTouchesAnchors(appliedChange.historyItem as HistoryStackItem | null)
+                ? 'anchor'
+                : null;
         const forceFullRustSync = shouldForceFullRustSyncAfterUndoRedo(
             appliedChange.scope,
             appliedChange.historyItem as HistoryStackItem | null,
@@ -784,14 +796,21 @@ export function runBridgeUndoRedo(
 
         // Start the Rust/cache refresh before requesting an editing compile so
         // the compile loop can observe the in-flight worker update and wait for it.
-        await requestUndoRedoEditingFontCompile(false);
+        await requestUndoRedoEditingFontCompile(false, undoEditType);
         await rustCacheRefreshPromise;
 
         // Undo/redo can request a compile before the Rust cache refresh above
         // has finished, which risks compiling against stale worker data.
         // Re-request compilation after the refresh completes so the editing
         // font is rebuilt from the restored state.
-        await requestUndoRedoEditingFontCompile(true);
+        await requestUndoRedoEditingFontCompile(true, undoEditType);
+
+        // Anchor-only compiles skip kerning and VARC for speed; schedule a
+        // trailing debounced full compile so the editor returns to a fully
+        // correct font (same pattern as the forward anchor-edit path).
+        if (undoEditType === 'anchor') {
+            window.fontManager?.scheduleFullCompileDebounce?.();
+        }
 
         await refreshGlyphOverviewAfterUndoRedo(
             appliedChange.historyItem,
