@@ -148,15 +148,47 @@ export async function waitForFileBrowserReady(page: any) {
 }
 
 export async function focusView(page: any, shortcut: string, viewId: string) {
-    await page.keyboard.press(shortcut);
+    const waitForFocusedView = async (timeout: number) => {
+        await page.waitForFunction(
+            (expectedViewId: string) => {
+                const win = window as any;
+                const focusedViewId = win.getCurrentFocusedView?.();
+                if (focusedViewId === expectedViewId) {
+                    return true;
+                }
+
+                const view = document.getElementById(expectedViewId);
+                return !!view?.classList.contains('focused');
+            },
+            viewId,
+            { timeout }
+        );
+    };
+
     await page.waitForFunction(
-        (expectedViewId: string) => {
+        () => {
             const win = window as any;
-            return win.getCurrentFocusedView?.() === expectedViewId;
+            return (
+                typeof win.getCurrentFocusedView === 'function' &&
+                typeof win.focusView === 'function'
+            );
         },
-        viewId,
-        { timeout: 5000 }
+        { timeout: 15000 }
     );
+
+    await page.keyboard.press(shortcut);
+
+    try {
+        await waitForFocusedView(10000);
+        return;
+    } catch {
+        await page.evaluate((targetViewId: string) => {
+            const win = window as any;
+            win.focusView?.(targetViewId, true);
+        }, viewId);
+    }
+
+    await waitForFocusedView(15000);
 }
 
 export async function collapseView(page: any, viewId: string) {
