@@ -2693,7 +2693,8 @@ export class TextRunEditor {
         try {
             const layerJson = interpolate_glyph(
                 glyphName,
-                JSON.stringify(locationSnapshot)
+                JSON.stringify(locationSnapshot),
+                false
             );
             if (!layerJson) {
                 return null;

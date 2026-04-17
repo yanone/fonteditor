@@ -16,6 +16,49 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
     return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
+function normalizeComponentTransformRecord(
+    transform: unknown
+): Record<string, unknown> {
+    if (
+        !transform ||
+        typeof transform !== 'object' ||
+        Array.isArray(transform)
+    ) {
+        return {
+            translation: [0, 0],
+            rotation: 0,
+            scale: [1, 1],
+            skew: [0, 0],
+            order: 'RestOfTheWorld'
+        };
+    }
+
+    const record = transform as Record<string, unknown>;
+    const translation = Array.isArray(record.translation)
+        ? [
+              Number(record.translation[0]) || 0,
+              Number(record.translation[1]) || 0
+          ]
+        : [0, 0];
+    const scale = Array.isArray(record.scale)
+        ? [Number(record.scale[0]) || 1, Number(record.scale[1]) || 1]
+        : [1, 1];
+    const rawSkew = Array.isArray(record.skew)
+        ? record.skew
+        : [record.skew ?? 0, 0];
+
+    return {
+        translation,
+        rotation: Number(record.rotation) || 0,
+        scale,
+        skew: [Number(rawSkew[0]) || 0, Number(rawSkew[1]) || 0],
+        order:
+            record.order === 'Glyphs' || record.order === 'RestOfTheWorld'
+                ? record.order
+                : 'RestOfTheWorld'
+    };
+}
+
 // ── JSON → Y.Doc ────────────────────────────────────────────────────
 
 /**
@@ -91,9 +134,32 @@ export function jsonToYDoc(
 
 /**
  * Convert a Yjs shared type back into a plain JS value.
+ *
+ * Detects Y.Maps with only numeric string keys (e.g. "0", "1", …)
+ * and converts them to arrays. This happens when a Y.Array was
+ * incorrectly replaced by a Y.Map (e.g. setYPath auto-creation)
+ * or when Yjs UndoManager restores a corrupted structure.
  */
 export function fromYType(value: unknown): unknown {
     if (value instanceof Y.Map) {
+        const keys: string[] = [];
+        value.forEach((_v: unknown, k: string) => {
+            keys.push(k);
+        });
+        // Heuristic: if ALL keys are non-negative integer strings,
+        // this was likely a Y.Array that became a Y.Map.
+        if (
+            keys.length > 0 &&
+            keys.every((k) => /^\d+$/.test(k) && String(parseInt(k, 10)) === k)
+        ) {
+            const indices = keys.map((k) => parseInt(k, 10));
+            const maxIdx = Math.max(...indices);
+            const arr: unknown[] = new Array(maxIdx + 1);
+            value.forEach((v: unknown, k: string) => {
+                arr[parseInt(k, 10)] = fromYType(v);
+            });
+            return arr;
+        }
         const obj: Record<string, unknown> = {};
         value.forEach((v: unknown, k: string) => {
             obj[k] = fromYType(v);
@@ -313,4 +379,169 @@ export function getJsonPath(
         current = current[seg];
     }
     return current;
+}
+
+// ── Post-sync sanitization ──────────────────────────────────────────
+
+/**
+ * Fields in the babelfont schema that must always be arrays.
+ * Used by sanitizeBabelfontArrays to detect Y.Doc roundtrip
+ * corruption where Y.Map is used instead of Y.Array.
+ */
+const BABELFONT_ARRAY_FIELDS = new Set([
+    'shapes',
+    'anchors',
+    'guides',
+    'layers',
+    'glyphs',
+    'masters',
+    'instances',
+    'axes',
+    'map',
+    'codepoints',
+    'kerning'
+]);
+
+/**
+ * Sanitize babelfont data after Y.Doc → JSON conversion.
+ *
+ * Y.Doc undo/redo roundtrips can corrupt array fields: a Y.Array that
+ * was replaced by a Y.Map (or auto-created as a Y.Map by setYPath)
+ * becomes a plain object with numeric string keys like {"0":…, "1":…}
+ * after fromYType() conversion. This function detects and fixes those
+ * back into proper arrays.
+ *
+ * @param data - The babelfont data object to sanitize (mutated in place)
+ * @returns number of fixes applied
+ */
+export function sanitizeBabelfontArrays(data: Unsafe): number {
+    let fixCount = 0;
+
+    if (!data || typeof data !== 'object') return fixCount;
+
+    const numericKeyObjectToArray = (
+        obj: Record<string, unknown>
+    ): unknown[] | null => {
+        const keys = Object.keys(obj);
+        if (keys.length === 0) return null;
+        const indices = keys.map((k) => parseInt(k, 10));
+        if (
+            !indices.every((i) => !isNaN(i) && i >= 0) ||
+            !keys.every((k) => String(parseInt(k, 10)) === k)
+        ) {
+            return null;
+        }
+        const maxIdx = Math.max(...indices);
+        const arr: unknown[] = new Array(maxIdx + 1);
+        for (let i = 0; i < keys.length; i++) {
+            arr[indices[i]] = obj[keys[i]];
+        }
+        return arr;
+    };
+
+    const fixValue = (val: Unsafe): void => {
+        if (!val || typeof val !== 'object') return;
+
+        if (Array.isArray(val)) {
+            for (const item of val) {
+                fixValue(item);
+            }
+            return;
+        }
+
+        const record = val as Record<string, unknown>;
+
+        // Unwrap {Path: {nodes, closed}} -> {nodes, closed}
+        // Rust serde uses untagged enum, not wrapped form
+        if (
+            'Path' in record &&
+            record.Path &&
+            typeof record.Path === 'object' &&
+            !Array.isArray(record.Path)
+        ) {
+            const payload = record.Path as Record<string, unknown>;
+            for (const key of Object.keys(record)) {
+                delete record[key];
+            }
+            Object.assign(record, payload);
+            fixCount++;
+        }
+
+        // Ensure Path shapes have required `closed` field
+        // (Y.Doc roundtrip can lose it; Rust serde requires it)
+        if (
+            'nodes' in record &&
+            !('closed' in record) &&
+            !('reference' in record)
+        ) {
+            record['closed'] = false;
+            fixCount++;
+        }
+
+        // Unwrap {Component: {reference, transform}} -> {reference, transform}
+        if (
+            'Component' in record &&
+            record.Component &&
+            typeof record.Component === 'object' &&
+            !Array.isArray(record.Component) &&
+            !('Path' in record)
+        ) {
+            const payload = record.Component as Record<string, unknown>;
+            for (const key of Object.keys(record)) {
+                delete record[key];
+            }
+            Object.assign(record, payload);
+            fixCount++;
+        }
+
+        // Ensure Component shapes have required `transform` field
+        if ('reference' in record && !('transform' in record)) {
+            record['transform'] = normalizeComponentTransformRecord(null);
+            fixCount++;
+        } else if ('reference' in record && 'transform' in record) {
+            const normalizedTransform = normalizeComponentTransformRecord(
+                record.transform
+            );
+            const currentTransform = record.transform;
+            if (
+                !isPlainObject(currentTransform) ||
+                JSON.stringify(currentTransform) !==
+                    JSON.stringify(normalizedTransform)
+            ) {
+                record.transform = normalizedTransform;
+                fixCount++;
+            }
+        }
+
+        if ('reference' in record && 'tcenter' in record) {
+            delete record.tcenter;
+            fixCount++;
+        }
+
+        // Fix known array fields that became objects
+        for (const field of BABELFONT_ARRAY_FIELDS) {
+            if (
+                field in record &&
+                record[field] !== null &&
+                typeof record[field] === 'object' &&
+                !Array.isArray(record[field])
+            ) {
+                const fixed = numericKeyObjectToArray(
+                    record[field] as Record<string, unknown>
+                );
+                if (fixed) {
+                    record[field] = fixed;
+                    fixCount++;
+                }
+            }
+        }
+
+        // Recurse into all object values
+        for (const key of Object.keys(record)) {
+            fixValue(record[key]);
+        }
+    };
+
+    fixValue(data);
+    return fixCount;
 }

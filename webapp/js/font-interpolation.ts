@@ -78,7 +78,8 @@ class FontInterpolationManager {
      */
     async interpolateGlyph(
         glyphName: string,
-        location: import('./locations').UserspaceLocation
+        location: import('./locations').UserspaceLocation,
+        extrapolate: boolean = false
     ): Promise<any> {
         if (!this.worker) {
             throw new Error(
@@ -116,7 +117,8 @@ class FontInterpolationManager {
                 type: 'interpolate',
                 id,
                 glyphName,
-                location
+                location,
+                extrapolate
             });
         });
     }

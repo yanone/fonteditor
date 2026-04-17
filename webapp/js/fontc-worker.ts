@@ -1547,12 +1547,16 @@ self.onmessage = async (event) => {
             const interpolateSpanId = timelineSpanStart(
                 'font.worker.interpolate'
             );
-            const { id, glyphName, location } = data;
+            const { id, glyphName, location, extrapolate } = data;
 
             try {
                 timelineMark('font.worker.interpolate.started');
                 const locationJson = JSON.stringify(location);
-                const layerJson = interpolate_glyph(glyphName, locationJson);
+                const layerJson = interpolate_glyph(
+                    glyphName,
+                    locationJson,
+                    extrapolate === true
+                );
 
                 self.postMessage({
                     id,

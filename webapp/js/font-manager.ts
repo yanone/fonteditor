@@ -16,6 +16,7 @@ import {
     DecomposedAffineTransform,
     withSuppressedModelRecording
 } from './babelfont-model';
+import { sanitizeBabelfontArrays } from './change-bridge-ydoc';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import type { FilesystemPlugin } from './filesystem-plugins';
 import { Logger } from './logger';
@@ -217,6 +218,50 @@ class OpenedFont {
         this.compileRequestVersion = 0;
     }
 
+    private normalizeComponentTransformForRust(
+        transform: unknown
+    ): Babelfont.DecomposedAffine {
+        if (Array.isArray(transform)) {
+            return DecomposedAffineTransform.fromAffine(transform);
+        }
+
+        const identity = DecomposedAffineTransform.identity();
+        if (!transform || typeof transform !== 'object') {
+            return identity;
+        }
+
+        const record = transform as Record<string, unknown>;
+        const translation = Array.isArray(record.translation)
+            ? [
+                  Number(record.translation[0]) || 0,
+                  Number(record.translation[1]) || 0
+              ]
+            : [0, 0];
+        const scale = Array.isArray(record.scale)
+            ? [Number(record.scale[0]) || 1, Number(record.scale[1]) || 1]
+            : [1, 1];
+        const rawSkew = Array.isArray(record.skew)
+            ? record.skew
+            : [record.skew ?? 0, 0];
+        const skew = [Number(rawSkew[0]) || 0, Number(rawSkew[1]) || 0] as [
+            number,
+            number
+        ];
+        const rotation = Number(record.rotation) || 0;
+        const order =
+            record.order === 'Glyphs' || record.order === 'RestOfTheWorld'
+                ? (record.order as Babelfont.TransformOrder)
+                : identity.order;
+
+        return {
+            translation: translation as [number, number],
+            scale: scale as [number, number],
+            rotation,
+            skew,
+            order
+        };
+    }
+
     /**
      * Mark font as changed:
      * - needsRecompile: auto-compile pipeline should rebuild editing font
@@ -252,6 +297,10 @@ class OpenedFont {
         let pathsAlreadyString = 0;
         let wrappersFixed = 0;
 
+        // Sanitize array fields that Y.Doc undo/redo roundtrips may have
+        // corrupted into objects with numeric keys (e.g. shapes → {"0":…})
+        sanitizeBabelfontArrays(this.babelfontData);
+
         // Process all layers to prepare for serialization
         for (const glyph of this.babelfontData.glyphs || []) {
             for (const layer of glyph.layers || []) {
@@ -278,6 +327,11 @@ class OpenedFont {
                                 shape.nodes
                             );
                         }
+
+                        // Ensure `closed` field exists (Y.Doc roundtrip can lose it)
+                        if (!('closed' in shape)) {
+                            shape.closed = false;
+                        }
                     }
 
                     // Handle wrapped Path shapes { Path: { nodes, closed } }.
@@ -295,8 +349,30 @@ class OpenedFont {
                         wrappersFixed++;
                     }
 
+                    const componentCandidate =
+                        'Component' in shape &&
+                        shape.Component &&
+                        typeof shape.Component === 'object'
+                            ? shape.Component
+                            : 'reference' in shape
+                              ? shape
+                              : null;
+
+                    if (componentCandidate) {
+                        componentCandidate.transform =
+                            this.normalizeComponentTransformForRust(
+                                componentCandidate.transform
+                            );
+                    }
+
                     // Note: normalizer wrapper properties (nodes, isInterpolated) are filtered
                     // out during JSON.stringify by the replacer function in toJSONString()
+                }
+
+                // Ensure layer has required `width` field
+                // (Y.Doc roundtrip can lose it; Rust serde requires it)
+                if (layer.width === undefined || layer.width === null) {
+                    layer.width = 0;
                 }
             }
         }
@@ -1118,6 +1194,50 @@ class FontManager {
         return rawLayerData;
     }
 
+    private normalizeComponentTransformForRust(
+        transform: unknown
+    ): Babelfont.DecomposedAffine {
+        if (Array.isArray(transform)) {
+            return DecomposedAffineTransform.fromAffine(transform);
+        }
+
+        const identity = DecomposedAffineTransform.identity();
+        if (!transform || typeof transform !== 'object') {
+            return identity;
+        }
+
+        const record = transform as Record<string, unknown>;
+        const translation = Array.isArray(record.translation)
+            ? [
+                  Number(record.translation[0]) || 0,
+                  Number(record.translation[1]) || 0
+              ]
+            : [0, 0];
+        const scale = Array.isArray(record.scale)
+            ? [Number(record.scale[0]) || 1, Number(record.scale[1]) || 1]
+            : [1, 1];
+        const rawSkew = Array.isArray(record.skew)
+            ? record.skew
+            : [record.skew ?? 0, 0];
+        const skew = [Number(rawSkew[0]) || 0, Number(rawSkew[1]) || 0] as [
+            number,
+            number
+        ];
+        const rotation = Number(record.rotation) || 0;
+        const order =
+            record.order === 'Glyphs' || record.order === 'RestOfTheWorld'
+                ? (record.order as Babelfont.TransformOrder)
+                : identity.order;
+
+        return {
+            translation: translation as [number, number],
+            scale: scale as [number, number],
+            rotation,
+            skew,
+            order
+        };
+    }
+
     private normalizeShapeForRust(shape: any): any {
         if (!shape || typeof shape !== 'object' || Array.isArray(shape)) {
             return shape;
@@ -1161,16 +1281,11 @@ class FontManager {
             : shape;
 
         if ('reference' in componentCandidate && !hasFlatPathFields) {
-            // Convert array-format transforms to DecomposedAffine objects.
-            // Rust expects {translation, scale, rotation, skew, order}, not [a,b,c,d,tx,ty].
-            // Array transforms come from layer-data-normalizer's identity fallback.
-            let transform = componentCandidate.transform;
-            if (Array.isArray(transform)) {
-                transform = DecomposedAffineTransform.fromAffine(transform);
-            }
             return {
                 reference: componentCandidate.reference,
-                ...(transform !== undefined && { transform }),
+                transform: this.normalizeComponentTransformForRust(
+                    componentCandidate.transform
+                ),
                 ...(componentCandidate.location && {
                     location: componentCandidate.location
                 }),
@@ -1252,12 +1367,20 @@ class FontManager {
             compileSource.startsWith('mouse-drag') ||
             compileSource.startsWith('keyboard');
 
-        if (!isIncrementalEditingCompile) {
+        // Capture whether JSON was stale before sync clears the flag,
+        // so validateAndFixBabelfontJsonForRust knows to run.
+        const wasJsonStale = this.pendingBabelfontJsonSyncAfterDrag;
+
+        // Always sync when the JSON is stale (e.g. after undo/redo/remote sync),
+        // even during incremental editing compiles, so the Rust compiler never
+        // receives array-format nodes or other stale format artifacts.
+        if (!isIncrementalEditingCompile || wasJsonStale) {
             if (!this.syncBabelfontJsonFromCurrentModel()) {
                 throw new Error(
                     'Failed to sync font model before editing compile'
                 );
             }
+            this.pendingBabelfontJsonSyncAfterDrag = false;
         }
 
         const startTime = performance.now();
@@ -1484,8 +1607,20 @@ class FontManager {
                     };
                 }
 
+                // Pre-compilation validation: scan for array-format nodes that
+                // the Rust serde parser cannot handle (expects strings).
+                // Also catches other "map where sequence expected" issues.
+                const jsonToSend = this.currentFont.babelfontJson;
+                // Always validate after undo/redo (wasJsonStale) to catch
+                // Y.Doc roundtrip corruption that toJSONString's replacer
+                // may miss (e.g. wrapped shapes from Y.Map with numeric keys)
+                const validatedJson = this.validateAndFixBabelfontJsonForRust(
+                    jsonToSend,
+                    wasJsonStale || this.pendingBabelfontJsonSyncAfterDrag
+                );
+
                 result = await fontCompilation.compileEditingFromJsonCached(
-                    this.currentFont.babelfontJson,
+                    validatedJson,
                     requestedRevisionKey,
                     subsetForCompile ?? [],
                     {
@@ -1586,6 +1721,51 @@ class FontManager {
                 startupOpenSessionEditingCompileCount -= 1;
             }
             console.error('❌ Failed to compile editing font:', error);
+            // Log the problematic JSON area when Rust reports a line/column
+            const errorMsg = (error as Error)?.message || String(error);
+            if (
+                errorMsg.includes('expected a sequence') ||
+                errorMsg.includes('expected a map') ||
+                errorMsg.includes('did not match any variant')
+            ) {
+                const lineMatch = errorMsg.match(/line (\d+)/);
+                const colMatch = errorMsg.match(/column (\d+)/);
+                if (lineMatch && colMatch) {
+                    const lineNum = parseInt(lineMatch[1]);
+                    const colNum = parseInt(colMatch[1]);
+                    const jsonStr = this.currentFont?.babelfontJson || '';
+                    const lines = jsonStr.split('\n');
+                    if (lineNum > 0 && lineNum <= lines.length) {
+                        const problemLine = lines[lineNum - 1];
+                        const start = Math.max(0, colNum - 40);
+                        const end = Math.min(problemLine.length, colNum + 40);
+                        // Also scan backwards to find the enclosing shape object
+                        let shapeStart = lineNum - 1;
+                        while (
+                            shapeStart > 0 &&
+                            !lines[shapeStart - 1].match(/"shapes"/)
+                        ) {
+                            shapeStart--;
+                            if (lineNum - shapeStart > 50) break;
+                        }
+                        console.error(
+                            `[FontManager] Rust parse error context at line ${lineNum}, col ${colNum}:\n` +
+                                `  ...${problemLine.substring(start, end)}...\n` +
+                                `  Surrounding lines (${shapeStart + 1}-${Math.min(lineNum + 2, lines.length)}):\n` +
+                                lines
+                                    .slice(
+                                        Math.max(shapeStart - 2, 0),
+                                        Math.min(lineNum + 2, lines.length)
+                                    )
+                                    .map(
+                                        (l: string, i: number) =>
+                                            `  ${shapeStart - 1 + i}: ${l.substring(0, 300)}`
+                                    )
+                                    .join('\n')
+                        );
+                    }
+                }
+            }
             sidebarErrorDisplay.showError(error, 'editing');
             throw error;
         } finally {
@@ -1897,6 +2077,314 @@ class FontManager {
         });
     }
 
+    /**
+     * Validate and fix babelfont JSON for Rust serde compatibility.
+     * Scans for array-format nodes and objects-that-should-be-arrays
+     * (from Y.Doc roundtrips where Y.Map is used instead of Y.Array).
+     * Returns the fixed JSON string.
+     */
+    private validateAndFixBabelfontJsonForRust(
+        babelfontJson: string,
+        forceValidation: boolean = false
+    ): string {
+        // Only run full validation when needed
+        const needsValidation =
+            babelfontJson.includes('"nodes":[') ||
+            babelfontJson.includes('"nodes": [') ||
+            forceValidation ||
+            this.pendingBabelfontJsonSyncAfterDrag;
+
+        if (!needsValidation) {
+            return babelfontJson;
+        }
+
+        // Parse, fix, re-serialize
+        try {
+            const data = JSON.parse(babelfontJson);
+            let fixCount = 0;
+
+            // Fields that must always be arrays in babelfont format
+            const arrayFields = new Set([
+                'shapes',
+                'anchors',
+                'guides',
+                'layers',
+                'glyphs',
+                'masters',
+                'instances',
+                'axes',
+                'map',
+                'codepoints',
+                'kerning'
+            ]);
+
+            /** Convert a plain object with numeric keys like {"0":..., "1":...} back to an array */
+            const numericKeyObjectToArray = (obj: any): any[] => {
+                const keys = Object.keys(obj);
+                if (keys.length === 0) return [];
+                const indices = keys.map((k) => parseInt(k, 10));
+                if (
+                    !indices.every((i) => !isNaN(i) && i >= 0) ||
+                    !keys.every((k) => String(parseInt(k, 10)) === k)
+                ) {
+                    // Not purely numeric keys — shouldn't convert
+                    return [];
+                }
+                const maxIdx = Math.max(...indices);
+                const arr: any[] = new Array(maxIdx + 1);
+                for (let i = 0; i < keys.length; i++) {
+                    arr[indices[i]] = obj[keys[i]];
+                }
+                return arr;
+            };
+
+            const fixValue = (val: any, path: string = ''): void => {
+                if (!val || typeof val !== 'object') return;
+
+                if (Array.isArray(val)) {
+                    // Recurse into array items (e.g. shapes inside a glyphs array)
+                    for (let i = 0; i < val.length; i++) {
+                        fixValue(val[i], `${path}[${i}]`);
+                    }
+                    return;
+                }
+
+                // Fix array-format nodes → string format
+                if ('nodes' in val && Array.isArray(val.nodes)) {
+                    val.nodes = Path.nodesToString(val.nodes);
+                    fixCount++;
+                }
+
+                // Ensure Path shapes have required `closed` field
+                // (Y.Doc roundtrip can lose it; Rust serde requires it)
+                if ('nodes' in val && !('closed' in val)) {
+                    val.closed = false;
+                    fixCount++;
+                }
+
+                // Fix wrapped Path shapes {Path: {nodes, closed}} → flat {nodes, closed}
+                // Rust serde expects untagged enum, not the wrapped form
+                if (
+                    'Path' in val &&
+                    val.Path &&
+                    typeof val.Path === 'object' &&
+                    !Array.isArray(val.Path)
+                ) {
+                    const pathPayload = val.Path;
+                    if (pathPayload && typeof pathPayload === 'object') {
+                        const result: any = { ...pathPayload };
+                        if (Array.isArray(result.nodes)) {
+                            result.nodes = Path.nodesToString(result.nodes);
+                        }
+                        // Ensure closed field after unwrapping
+                        if (!('closed' in result)) {
+                            result.closed = false;
+                        }
+                        // Replace the wrapper with the flat shape
+                        for (const key of Object.keys(val)) {
+                            delete val[key];
+                        }
+                        Object.assign(val, result);
+                        fixCount++;
+                        console.warn(
+                            `[FontManager] Unwrapped Path shape at ${path}`
+                        );
+                    }
+                }
+
+                // Fix wrapped Component shapes {Component: {reference, transform}} → flat
+                if (
+                    'Component' in val &&
+                    val.Component &&
+                    typeof val.Component === 'object' &&
+                    !Array.isArray(val.Component) &&
+                    !('Path' in val)
+                ) {
+                    const compPayload = val.Component;
+                    if (compPayload && typeof compPayload === 'object') {
+                        const result: any = { ...compPayload };
+                        if (Array.isArray(result.transform)) {
+                            result.transform =
+                                DecomposedAffineTransform.fromAffine(
+                                    result.transform
+                                );
+                        }
+                        for (const key of Object.keys(val)) {
+                            delete val[key];
+                        }
+                        Object.assign(val, result);
+                        fixCount++;
+                        console.warn(
+                            `[FontManager] Unwrapped Component shape at ${path}`
+                        );
+                    }
+                }
+
+                // Fix flat Component shapes with array transforms
+                if (
+                    'reference' in val &&
+                    'transform' in val &&
+                    Array.isArray(val.transform)
+                ) {
+                    val.transform = DecomposedAffineTransform.fromAffine(
+                        val.transform
+                    );
+                    fixCount++;
+                }
+
+                // Ensure Component shapes have required `transform` field
+                if ('reference' in val && !('transform' in val)) {
+                    val.transform = {
+                        translation: [0, 0],
+                        rotation: 0,
+                        scale: [1, 1],
+                        skew: 0,
+                        tcenter: [0, 0]
+                    };
+                    fixCount++;
+                }
+
+                // Fix layers missing required `width` field
+                // (Y.Doc roundtrip can lose it; Rust serde requires it)
+                if (
+                    'shapes' in val &&
+                    !('reference' in val) &&
+                    !('nodes' in val) &&
+                    (val.width === undefined || val.width === null)
+                ) {
+                    val.width = 0;
+                    fixCount++;
+                }
+
+                // Fix known array fields that became objects (Y.Doc roundtrip)
+                for (const field of arrayFields) {
+                    if (
+                        field in val &&
+                        val[field] !== null &&
+                        typeof val[field] === 'object' &&
+                        !Array.isArray(val[field])
+                    ) {
+                        const fixed = numericKeyObjectToArray(val[field]);
+                        if (fixed.length > 0) {
+                            val[field] = fixed;
+                            fixCount++;
+                            console.warn(
+                                `[FontManager] Fixed "${field}" field from object to array (${fixed.length} elements) at ${path}`
+                            );
+                        }
+                    }
+                }
+                // Recurse into all object values
+                for (const key of Object.keys(val)) {
+                    fixValue(val[key], `${path}.${key}`);
+                }
+            };
+
+            if (data && typeof data === 'object') {
+                fixValue(data);
+
+                // Post-fix scan: detect shapes that still don't match
+                // Rust's untagged enum (Path or Component)
+                const scanShapes = (val: any, path: string = ''): void => {
+                    if (!val || typeof val !== 'object') return;
+                    if (Array.isArray(val)) {
+                        for (let i = 0; i < val.length; i++) {
+                            scanShapes(val[i], `${path}[${i}]`);
+                        }
+                        return;
+                    }
+                    // If this object is inside a "shapes" array and looks like a shape
+                    if (
+                        path.includes('.shapes[') ||
+                        path.includes('[shapes][')
+                    ) {
+                        const hasNodes = 'nodes' in val;
+                        const hasClosed = 'closed' in val;
+                        const hasReference = 'reference' in val;
+                        const hasTransform = 'transform' in val;
+                        const isPath =
+                            hasNodes &&
+                            typeof val.nodes === 'string' &&
+                            hasClosed;
+                        const isComponent = hasReference;
+                        if (!isPath && !isComponent) {
+                            console.error(
+                                `[FontManager] Malformed shape at ${path}: keys=[${Object.keys(val).join(',')}], ` +
+                                    `nodes=${hasNodes ? typeof val.nodes : 'missing'}, ` +
+                                    `closed=${hasClosed}, reference=${hasReference}, transform=${hasTransform}`
+                            );
+                        }
+                    }
+                    for (const key of Object.keys(val)) {
+                        scanShapes(val[key], `${path}.${key}`);
+                    }
+                };
+                // Scan glyphs[].layers[].shapes[] for malformed shapes
+                if (Array.isArray(data.glyphs)) {
+                    for (let gi = 0; gi < data.glyphs.length; gi++) {
+                        const glyph = data.glyphs[gi];
+                        if (glyph?.layers && Array.isArray(glyph.layers)) {
+                            for (let li = 0; li < glyph.layers.length; li++) {
+                                const layer = glyph.layers[li];
+                                if (
+                                    layer?.shapes &&
+                                    Array.isArray(layer.shapes)
+                                ) {
+                                    for (
+                                        let si = 0;
+                                        si < layer.shapes.length;
+                                        si++
+                                    ) {
+                                        const shape = layer.shapes[si];
+                                        const hasNodes =
+                                            shape && 'nodes' in shape;
+                                        const hasClosed =
+                                            shape && 'closed' in shape;
+                                        const hasReference =
+                                            shape && 'reference' in shape;
+                                        const hasTransform =
+                                            shape && 'transform' in shape;
+                                        const isPath =
+                                            hasNodes &&
+                                            typeof shape.nodes === 'string' &&
+                                            hasClosed;
+                                        const isComponent = hasReference;
+                                        if (!isPath && !isComponent) {
+                                            console.error(
+                                                `[FontManager] Malformed shape: glyph=${glyph.name}, layer=${layer.id}, shape[${si}]: ` +
+                                                    `keys=[${Object.keys(shape).join(',')}], ` +
+                                                    `nodes=${hasNodes ? typeof shape.nodes + (Array.isArray(shape.nodes) ? '(array)' : '') : 'missing'}, ` +
+                                                    `closed=${hasClosed}, reference=${hasReference}, transform=${hasTransform}`
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (fixCount > 0) {
+                console.warn(
+                    `[FontManager] Fixed ${fixCount} issues in babelfontJson before compile`
+                );
+                return JSON.stringify(data, null, 2);
+            } else if (forceValidation) {
+                console.log(
+                    `[FontManager] Validation ran (forceValidation=${forceValidation}), no issues found`
+                );
+            }
+        } catch (e) {
+            console.warn(
+                '[FontManager] Failed to validate/fix babelfontJson:',
+                e
+            );
+        }
+
+        return babelfontJson;
+    }
+
     private syncBabelfontJsonFromCurrentModel(): boolean {
         const currentFont = this.currentFont;
         if (!currentFont) {
@@ -2044,7 +2532,9 @@ class FontManager {
             ) {
                 return {
                     reference: componentCandidate.reference,
-                    transform: componentCandidate.transform,
+                    transform: this.normalizeComponentTransformForRust(
+                        componentCandidate.transform
+                    ),
                     ...(componentCandidate.location && {
                         location: componentCandidate.location
                     }),

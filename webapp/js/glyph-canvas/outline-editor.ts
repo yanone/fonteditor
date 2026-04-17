@@ -4144,13 +4144,10 @@ export class OutlineEditor {
                 this.getVisibleGlyphNamesForDragMetricsRefresh(sourceGlyphName);
             const bridge = window.changeBridge;
             const recompute = () =>
-                fontModel.recomputeMetricsKeys(
-                    new Set([sourceGlyphName]),
-                    {
-                        allowedGlyphNames,
-                        skipAutomaticCompositeRebuild: true
-                    }
-                );
+                fontModel.recomputeMetricsKeys(new Set([sourceGlyphName]), {
+                    allowedGlyphNames,
+                    skipAutomaticCompositeRebuild: true
+                });
             const affectedGlyphNames = new Set<string>([sourceGlyphName]);
             const recomputedNames =
                 typeof bridge?.runWithoutRecording === 'function'
@@ -4183,7 +4180,10 @@ export class OutlineEditor {
     }
 
     private refreshLiveVisibleSidebearingDependents(now: number): void {
-        if (!this._hasMoved || now - this._lastLiveSidebearingRefreshTime < 50) {
+        if (
+            !this._hasMoved ||
+            now - this._lastLiveSidebearingRefreshTime < 50
+        ) {
             return;
         }
 
@@ -5905,10 +5905,81 @@ export class OutlineEditor {
 
     private cloneLayerData<T>(value: T): T {
         if (typeof structuredClone === 'function') {
-            return structuredClone(value);
+            try {
+                return structuredClone(value);
+            } catch (error) {
+                const isDataCloneError =
+                    error instanceof DOMException
+                        ? error.name === 'DataCloneError'
+                        : error instanceof Error &&
+                          error.name === 'DataCloneError';
+                if (!isDataCloneError) {
+                    throw error;
+                }
+            }
         }
 
-        return JSON.parse(JSON.stringify(value));
+        return this.cloneSerializableLayerValue(value) as T;
+    }
+
+    private cloneSerializableLayerValue(value: any): any {
+        if (value === null || value === undefined) {
+            return value;
+        }
+
+        const valueType = typeof value;
+        if (
+            valueType === 'string' ||
+            valueType === 'number' ||
+            valueType === 'boolean'
+        ) {
+            return value;
+        }
+
+        if (valueType === 'bigint') {
+            return Number(value);
+        }
+
+        if (valueType === 'function' || valueType === 'symbol') {
+            return undefined;
+        }
+
+        if (Array.isArray(value)) {
+            return value.map((item) => this.cloneSerializableLayerValue(item));
+        }
+
+        if (value instanceof Date) {
+            return new Date(value.getTime());
+        }
+
+        if (value instanceof ArrayBuffer) {
+            return value.slice(0);
+        }
+
+        if (ArrayBuffer.isView(value)) {
+            return new Uint8Array(
+                value.buffer.slice(
+                    value.byteOffset,
+                    value.byteOffset + value.byteLength
+                )
+            );
+        }
+
+        const prototype = Object.getPrototypeOf(value);
+        if (prototype === Object.prototype || prototype === null) {
+            const clonedEntries = Object.entries(value).flatMap(
+                ([key, entryValue]) => {
+                    const clonedValue =
+                        this.cloneSerializableLayerValue(entryValue);
+                    return clonedValue === undefined
+                        ? []
+                        : [[key, clonedValue] as const];
+                }
+            );
+            return Object.fromEntries(clonedEntries);
+        }
+
+        return undefined;
     }
 
     private flattenNestedShapes(shapes: any[] | undefined): any[] {
@@ -6279,6 +6350,570 @@ export class OutlineEditor {
         layerId: string
     ): any | null {
         return this.buildExactLayerDataFromModel(glyphName, layerId);
+    }
+
+    cancelPendingLayerSwitchAnimation(): void {
+        this.targetLayerData = null;
+        this.isLayerSwitchAnimating = false;
+    }
+
+    private async refreshSelectedLayerWithoutAnimation(
+        layer: Babelfont.Layer,
+        rootGlyphName?: string
+    ): Promise<void> {
+        const resolvedLayer = this.resolveLayerModel(layer);
+        const layerId = resolvedLayer.id;
+        if (!layerId) {
+            return;
+        }
+
+        const glyphName =
+            rootGlyphName ??
+            this.parseGlyphStack()[0]?.glyphName ??
+            this.glyphCanvas.getCurrentGlyphName();
+        const selectionTargetLayer =
+            this.isEditingComponent() && layerId
+                ? this.getSelectionScopeLayerModel(layerId) || resolvedLayer
+                : resolvedLayer;
+        const selectionState = selectionTargetLayer
+            ? this.getStoredSelectionStateForLayer(selectionTargetLayer)
+            : null;
+
+        this.cancelPendingLayerSwitchAnimation();
+        this.selectedLayerId = layerId;
+
+        if (this.glyphStack && this.glyphStack !== '') {
+            this.rebuildGlyphStackWithNewLayer(layerId);
+        } else {
+            this.buildGlyphStack(glyphName, layerId, []);
+        }
+
+        await this.fetchLayerData(true, glyphName);
+
+        if (selectionState && selectionTargetLayer) {
+            this.applySelectionStateForLayer(
+                selectionState,
+                selectionTargetLayer
+            );
+        }
+
+        this.performHitDetection(null);
+        this.updateLayerSelection();
+        this.glyphCanvas.updatePropertyPanel();
+        this.glyphCanvas.render();
+    }
+
+    getLayerListGlyphName(): string | null {
+        return (
+            this.getLayerLinkGlyphName() ||
+            this.getActiveSelectionScopeGlyphName() ||
+            this.glyphCanvas.getCurrentGlyphName()
+        );
+    }
+
+    getCurrentUserspaceLocation(): UserspaceLocation {
+        return {
+            ...(this.glyphCanvas.axesManager?.variationSettings || {})
+        };
+    }
+
+    private getUserspaceLocationForMaster(
+        masterId: string,
+        fontModel: any
+    ): UserspaceLocation | null {
+        const master = (fontModel?.masters || []).find(
+            (candidate: any) => candidate?.id === masterId
+        );
+        if (!master?.location) {
+            return null;
+        }
+        return designspaceToUserspace(master.location, fontModel.axes || []);
+    }
+
+    findClosestMasterId(userspaceLocation: UserspaceLocation): string | null {
+        const fontModel = fontManager.currentFont?.fontModel;
+        if (!fontModel?.masters?.length) {
+            return null;
+        }
+        const axisTags = (fontModel.axes || []).map((axis: any) => axis.tag);
+        const designLocation = userspaceToDesignspace(
+            userspaceLocation,
+            fontModel.axes || []
+        );
+        let closestMaster: any = null;
+        let closestDistance = Infinity;
+        for (const master of fontModel.masters || []) {
+            let distance = 0;
+            for (const tag of axisTags) {
+                const masterVal = Number(master.location?.[tag] ?? 0);
+                const currentVal = Number(designLocation?.[tag] ?? 0);
+                const axis = (fontModel.axes || []).find(
+                    (a: any) => a.tag === tag
+                );
+                const range =
+                    Number(axis?.max ?? 1000) - Number(axis?.min ?? 0) || 1;
+                distance += Math.pow((masterVal - currentVal) / range, 2);
+            }
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestMaster = master;
+            }
+        }
+        return closestMaster?.id || null;
+    }
+
+    private sanitizeShapeForStoredLayer(shape: any): any {
+        if (!shape || typeof shape !== 'object') {
+            return shape;
+        }
+
+        if ('nodes' in shape) {
+            const nodes = Array.isArray(shape.nodes)
+                ? LayerDataNormalizer.serializeNodes(shape.nodes)
+                : this.cloneLayerData(shape.nodes);
+            return {
+                nodes,
+                closed: !!shape.closed,
+                ...(shape.format_specific
+                    ? {
+                          format_specific: this.cloneLayerData(
+                              shape.format_specific
+                          )
+                      }
+                    : {})
+            };
+        }
+
+        if ('reference' in shape) {
+            return {
+                reference: shape.reference,
+                ...(shape.transform
+                    ? { transform: this.cloneLayerData(shape.transform) }
+                    : {}),
+                ...(shape.location
+                    ? { location: this.cloneLayerData(shape.location) }
+                    : {}),
+                ...(shape.format_specific
+                    ? {
+                          format_specific: this.cloneLayerData(
+                              shape.format_specific
+                          )
+                      }
+                    : {})
+            };
+        }
+
+        return this.cloneLayerData(shape);
+    }
+
+    private sanitizeLayerDataForStoredLayer(layerData: any): {
+        width: number;
+        height?: number;
+        vertWidth?: number;
+        shapes?: any[];
+        anchors?: any[];
+        guides?: any[];
+        format_specific?: Record<string, any>;
+    } {
+        return {
+            width: Number(layerData?.width || 0),
+            ...(layerData?.height !== undefined
+                ? { height: Number(layerData.height) }
+                : {}),
+            ...(layerData?.vertWidth !== undefined
+                ? { vertWidth: Number(layerData.vertWidth) }
+                : {}),
+            ...(Array.isArray(layerData?.shapes)
+                ? {
+                      shapes: layerData.shapes.map((shape: any) =>
+                          this.sanitizeShapeForStoredLayer(shape)
+                      )
+                  }
+                : {}),
+            ...(Array.isArray(layerData?.anchors)
+                ? {
+                      anchors: this.cloneLayerData(layerData.anchors)
+                  }
+                : {}),
+            ...(Array.isArray(layerData?.guides)
+                ? {
+                      guides: this.cloneLayerData(layerData.guides)
+                  }
+                : {}),
+            ...(layerData?.format_specific
+                ? {
+                      format_specific: this.cloneLayerData(
+                          layerData.format_specific
+                      )
+                  }
+                : {})
+        };
+    }
+
+    private materializeStoredInterpolatedLayer(
+        glyph: any,
+        options: {
+            masterId: string;
+            designLocation?: DesignspaceLocation | null;
+            isMasterBound: boolean;
+            layerId?: string | null;
+        },
+        layerPayload: any
+    ): any {
+        const layerType: Babelfont.LayerType = options.isMasterBound
+            ? { type: 'DefaultForMaster', master: options.masterId }
+            : { type: 'AssociatedWithMaster', master: options.masterId };
+        const targetLayerId =
+            options.layerId ||
+            (options.isMasterBound ? options.masterId : null);
+
+        const newLayer = glyph.addLayer(
+            layerPayload.width,
+            layerType,
+            targetLayerId
+        );
+
+        if (targetLayerId) {
+            newLayer.id = targetLayerId;
+        }
+
+        if (
+            !options.isMasterBound &&
+            options.designLocation &&
+            Object.keys(options.designLocation).length > 0
+        ) {
+            newLayer.location = this.cloneLayerData(options.designLocation);
+        }
+
+        withSuppressedModelRecording(() => {
+            newLayer.syncFromEditorLayerData(layerPayload);
+        });
+
+        return newLayer;
+    }
+
+    private async refreshAfterStructuralLayerEdit(
+        glyphName: string,
+        changeSource: string,
+        options: {
+            scheduleCompile?: boolean;
+            dispatchGlyphChanged?: boolean;
+        } = {}
+    ): Promise<void> {
+        const currentFont = fontManager.currentFont;
+        if (!currentFont) {
+            return;
+        }
+
+        currentFont.markDirty(changeSource);
+        await fontManager.updateDirtyIndicator();
+
+        if (typeof currentFont.syncJsonFromModel === 'function') {
+            currentFont.syncJsonFromModel();
+        }
+
+        await fontManager.forceFullWorkerCacheUpdate();
+
+        if (options.scheduleCompile !== false) {
+            fontManager.lastEditType = 'outline';
+            fontManager.scheduleFullCompileDebounce();
+            window.autoCompileManager?.checkAndSchedule?.();
+        }
+
+        if (options.dispatchGlyphChanged !== false) {
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName
+                    }
+                })
+            );
+        }
+    }
+
+    private async selectInterpolatedUserspaceLocation(
+        userspaceLocation: UserspaceLocation,
+        glyphName: string
+    ): Promise<void> {
+        const previousLayer = this.getCurrentLayerModel();
+        if (this.selectedLayerId !== null && previousLayer) {
+            this.storeSelectionStateForLayer(previousLayer);
+        }
+
+        this.selectedLayerId = null;
+        this.currentGlyphName = glyphName;
+        this.layerData = null;
+        this.renderVerticalMetrics = null;
+        this.clearAllSelections();
+        this.updateLayerSelection();
+        this.glyphCanvas.updatePropertyPanel();
+
+        await this.glyphCanvas.animateToLocation(userspaceLocation, 10);
+    }
+
+    async createInterpolatedLayer(options: {
+        glyphName?: string | null;
+        userspaceLocation: UserspaceLocation;
+        masterId: string;
+        designLocation?: DesignspaceLocation | null;
+        isMasterBound: boolean;
+        changeSource?: string;
+        selectNewLayer?: boolean;
+        extrapolate?: boolean;
+    }): Promise<any | null> {
+        const glyphName = options.glyphName || this.getLayerListGlyphName();
+        const currentFont = fontManager.currentFont;
+        const glyph = glyphName ? this.getGlyphModelByName(glyphName) : null;
+        if (!glyphName || !currentFont || !glyph) {
+            return null;
+        }
+
+        const interpolatedLayer = await fontInterpolation.interpolateGlyph(
+            glyphName,
+            options.userspaceLocation,
+            options.extrapolate === true
+        );
+        const normalizedLayer = LayerDataNormalizer.normalize(
+            interpolatedLayer,
+            true
+        );
+        const layerPayload =
+            this.sanitizeLayerDataForStoredLayer(normalizedLayer);
+        const newLayer = this.materializeStoredInterpolatedLayer(
+            glyph,
+            {
+                masterId: options.masterId,
+                designLocation: options.designLocation,
+                isMasterBound: options.isMasterBound
+            },
+            layerPayload
+        );
+
+        // Sync the complete layer data to the Y.Doc so undo can restore
+        // all fields. The model setters ran inside withSuppressedModelRecording.
+        const createBridge = window.changeBridge;
+        if (createBridge) {
+            createBridge.syncGlyphFromJson(
+                glyphName,
+                'Create interpolated layer sync',
+                undefined,
+                undefined,
+                newLayer.id
+            );
+        }
+
+        await this.refreshAfterStructuralLayerEdit(
+            glyphName,
+            options.changeSource || 'layer-create'
+        );
+
+        if (options.selectNewLayer !== false) {
+            await this.selectLayer(newLayer);
+        }
+
+        return newLayer;
+    }
+
+    async deleteLayerById(
+        layerId: string,
+        options?: {
+            glyphName?: string | null;
+            changeSource?: string;
+            preferInterpolationFallback?: boolean;
+        }
+    ): Promise<boolean> {
+        const glyphName = options?.glyphName || this.getLayerListGlyphName();
+        const glyph = glyphName ? this.getGlyphModelByName(glyphName) : null;
+        if (!glyphName || !glyph?.layers?.length) {
+            return false;
+        }
+
+        const layer = glyph.findLayerById?.(layerId);
+        if (!layer) {
+            return false;
+        }
+
+        const userspaceLocation = this.getUserspaceLocationForLayer(
+            layerId,
+            glyphName
+        );
+        const masterId = layer?.master?.master || null;
+        const wasSelected = this.selectedLayerId === layerId;
+        const isMasterBound = layer?.master?.type === 'DefaultForMaster';
+
+        glyph.removeLayerById?.(layerId);
+
+        await this.refreshAfterStructuralLayerEdit(
+            glyphName,
+            options?.changeSource || 'layer-delete'
+        );
+
+        if (wasSelected && userspaceLocation) {
+            await this.selectInterpolatedUserspaceLocation(
+                userspaceLocation,
+                glyphName
+            );
+        } else if (wasSelected) {
+            this.selectedLayerId = null;
+            this.layerData = null;
+            this.renderVerticalMetrics = null;
+            this.clearAllSelections();
+            this.updateLayerSelection();
+            this.glyphCanvas.updatePropertyPanel();
+            this.glyphCanvas.render();
+        }
+
+        return true;
+    }
+
+    async reinterpolateLayerById(
+        layerId: string,
+        options?: {
+            glyphName?: string | null;
+            changeSource?: string;
+            selectNewLayer?: boolean;
+        }
+    ): Promise<any | null> {
+        const glyphName = options?.glyphName || this.getLayerListGlyphName();
+        const glyph = glyphName ? this.getGlyphModelByName(glyphName) : null;
+        if (!glyphName || !glyph) {
+            return null;
+        }
+
+        const layer = glyph.findLayerById?.(layerId);
+        if (!layer) {
+            return null;
+        }
+
+        const masterId = layer.master?.master;
+        const userspaceLocation = this.getUserspaceLocationForLayer(
+            layerId,
+            glyphName
+        );
+        const designLocation = layer.location
+            ? this.cloneLayerData(layer.location)
+            : null;
+        const isMasterBound = layer.master?.type === 'DefaultForMaster';
+        const shouldSelectNewLayer =
+            options?.selectNewLayer ?? this.selectedLayerId === layerId;
+
+        if (!masterId || !userspaceLocation) {
+            return null;
+        }
+
+        const changeSource = options?.changeSource || 'layer-reinterpolate';
+        const originalLayerPayload = this.sanitizeLayerDataForStoredLayer(
+            layer.toJSON()
+        );
+        const bridge = window.changeBridge;
+
+        bridge?.beginTransaction('Reinterpolate layer');
+
+        try {
+            glyph.removeLayerById?.(layerId);
+
+            await this.refreshAfterStructuralLayerEdit(
+                glyphName,
+                changeSource,
+                {
+                    scheduleCompile: false,
+                    dispatchGlyphChanged: false
+                }
+            );
+
+            const interpolatedLayer = await fontInterpolation.interpolateGlyph(
+                glyphName,
+                userspaceLocation,
+                true
+            );
+            const normalizedLayer = LayerDataNormalizer.normalize(
+                interpolatedLayer,
+                true
+            );
+            const layerPayload =
+                this.sanitizeLayerDataForStoredLayer(normalizedLayer);
+            const newLayer = this.materializeStoredInterpolatedLayer(
+                glyph,
+                {
+                    masterId,
+                    designLocation,
+                    isMasterBound,
+                    layerId
+                },
+                layerPayload
+            );
+
+            // Sync the complete layer data to the Y.Doc so undo can restore
+            // all fields (id, master, location, shapes, etc.). The model
+            // setters above ran inside withSuppressedModelRecording, so
+            // the Y.Doc only has the minimal addLayer data. Without this
+            // sync, undo would produce a layer missing most fields.
+            if (bridge) {
+                bridge.syncGlyphFromJson(
+                    glyphName,
+                    'Reinterpolate layer sync',
+                    undefined,
+                    undefined,
+                    newLayer.id
+                );
+            }
+
+            await this.refreshAfterStructuralLayerEdit(glyphName, changeSource);
+
+            if (shouldSelectNewLayer) {
+                if (this.selectedLayerId === newLayer.id) {
+                    await this.refreshSelectedLayerWithoutAnimation(
+                        newLayer,
+                        glyphName
+                    );
+                } else {
+                    await this.selectLayer(newLayer);
+                }
+            } else if (this.selectedLayerId === layerId) {
+                this.selectedLayerId = null;
+                this.layerData = null;
+                this.renderVerticalMetrics = null;
+                this.clearAllSelections();
+                this.updateLayerSelection();
+                this.glyphCanvas.updatePropertyPanel();
+                this.glyphCanvas.render();
+            }
+
+            return newLayer;
+        } catch (error) {
+            if (!glyph.findLayerById?.(layerId)) {
+                const restoredLayer = this.materializeStoredInterpolatedLayer(
+                    glyph,
+                    {
+                        masterId,
+                        designLocation,
+                        isMasterBound,
+                        layerId
+                    },
+                    originalLayerPayload
+                );
+
+                await this.refreshAfterStructuralLayerEdit(
+                    glyphName,
+                    changeSource
+                );
+
+                if (shouldSelectNewLayer) {
+                    if (this.selectedLayerId === restoredLayer.id) {
+                        await this.refreshSelectedLayerWithoutAnimation(
+                            restoredLayer,
+                            glyphName
+                        );
+                    } else {
+                        await this.selectLayer(restoredLayer);
+                    }
+                }
+            }
+
+            throw error;
+        } finally {
+            bridge?.endTransaction();
+        }
     }
 
     /**
@@ -14619,9 +15254,11 @@ export class OutlineEditor {
             // This matches the architecture where layerData always contains the root glyph
             // and we navigate to nested components using glyphStack
             const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
+            const shouldExtrapolate = true;
             const interpolatedLayer = await fontInterpolation.interpolateGlyph(
                 rootGlyphName,
-                location
+                location,
+                shouldExtrapolate
             );
 
             // Check if we've been superseded by a newer interpolation call
@@ -15275,6 +15912,9 @@ export class OutlineEditor {
     }): Promise<void> {
         const rootGlyphName = this.glyphCanvas.getCurrentGlyphName();
         const skipRender = options?.skipRender === true;
+        const currentUserspaceLocation = {
+            ...this.glyphCanvas.axesManager!.variationSettings
+        };
         const previousLayer = this.isEditingComponent()
             ? this.getCurrentLayerModel()
             : this.getTransitionPreviousLayerModel(rootGlyphName);
@@ -15828,6 +16468,14 @@ export class OutlineEditor {
                 item.classList.remove('selected');
             }
         });
+
+        const addLayerButton =
+            this.glyphCanvas.propertiesSection.querySelector<HTMLButtonElement>(
+                '.editor-layer-add-button'
+            );
+        if (addLayerButton) {
+            addLayerButton.disabled = false;
+        }
     }
 
     async enterComponentEditing(

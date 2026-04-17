@@ -3217,7 +3217,98 @@ function cloneForHistory<T>(value: T): T {
     if (value === undefined) {
         return value;
     }
-    return JSON.parse(JSON.stringify(value));
+
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch (error) {
+        if (!(error instanceof TypeError)) {
+            throw error;
+        }
+    }
+
+    return cloneSerializableHistoryValue(value) as T;
+}
+
+function cloneSerializableHistoryValue(
+    value: unknown,
+    seen = new WeakMap<object, unknown>()
+): unknown {
+    if (value === null || value === undefined) {
+        return value;
+    }
+
+    const valueType = typeof value;
+    if (
+        valueType === 'string' ||
+        valueType === 'number' ||
+        valueType === 'boolean'
+    ) {
+        return value;
+    }
+
+    if (valueType === 'bigint') {
+        return Number(value);
+    }
+
+    if (valueType === 'function' || valueType === 'symbol') {
+        return undefined;
+    }
+
+    if (Array.isArray(value)) {
+        if (seen.has(value)) {
+            return seen.get(value);
+        }
+
+        const clone: unknown[] = [];
+        seen.set(value, clone);
+        for (const item of value) {
+            clone.push(cloneSerializableHistoryValue(item, seen));
+        }
+        return clone;
+    }
+
+    if (value instanceof Date) {
+        return new Date(value.getTime());
+    }
+
+    if (value instanceof ArrayBuffer) {
+        return value.slice(0);
+    }
+
+    if (ArrayBuffer.isView(value)) {
+        return new Uint8Array(
+            value.buffer.slice(
+                value.byteOffset,
+                value.byteOffset + value.byteLength
+            )
+        );
+    }
+
+    if (typeof value === 'object') {
+        if (seen.has(value)) {
+            return seen.get(value);
+        }
+
+        const prototype = Object.getPrototypeOf(value);
+        if (prototype === Object.prototype || prototype === null) {
+            const clone: Record<string, unknown> = {};
+            seen.set(value, clone);
+
+            for (const [key, entryValue] of Object.entries(value)) {
+                const clonedValue = cloneSerializableHistoryValue(
+                    entryValue,
+                    seen
+                );
+                if (clonedValue !== undefined) {
+                    clone[key] = clonedValue;
+                }
+            }
+
+            return clone;
+        }
+    }
+
+    return undefined;
 }
 
 function unwrapLiveMutableValue<T>(value: T): T {
@@ -6512,7 +6603,8 @@ export class Layer extends ArrayElementBase {
                 JSON.parse(
                     interpolate_glyph(
                         glyphName,
-                        JSON.stringify(userspaceLocation)
+                        JSON.stringify(userspaceLocation),
+                        false
                     )
                 ),
                 true
@@ -9289,7 +9381,11 @@ export class Glyph extends ArrayElementBase {
      * @example
      * layer = glyph.addLayer(500)  # 500 units wide
      */
-    addLayer(width: number, master?: Babelfont.LayerType): Layer {
+    addLayer(
+        width: number,
+        master?: Babelfont.LayerType,
+        requestedLayerId?: string | null
+    ): Layer {
         if (!this.data.layers) {
             this.data.layers = [];
         }
@@ -9299,9 +9395,17 @@ export class Glyph extends ArrayElementBase {
         const existingIds = new Set(
             this.data.layers.map((l: Unsafe) => l.id).filter((id: Unsafe) => id)
         );
-        do {
-            layerId = crypto.randomUUID();
-        } while (existingIds.has(layerId));
+        if (
+            requestedLayerId &&
+            typeof requestedLayerId === 'string' &&
+            !existingIds.has(requestedLayerId)
+        ) {
+            layerId = requestedLayerId;
+        } else {
+            do {
+                layerId = crypto.randomUUID();
+            } while (existingIds.has(layerId));
+        }
 
         const layerData: Babelfont.Layer = { width, id: layerId };
         if (master) {
@@ -9333,6 +9437,23 @@ export class Glyph extends ArrayElementBase {
                 [...this.getPath(), 'layers', layerKey],
                 removedLayer
             );
+        }
+    }
+
+    /**
+     * Remove a layer by its backing-array ID.
+     */
+    removeLayerById(id: string): void {
+        if (!this.data.layers) {
+            return;
+        }
+
+        const index = this.data.layers.findIndex((layer: Unsafe) => {
+            return layer.id === id;
+        });
+
+        if (index >= 0) {
+            this.removeLayer(index);
         }
     }
 
@@ -10157,7 +10278,7 @@ export class Font extends ModelBase {
             // so that the source glyph's own composites stay in sync. Skip
             // only the downstream cascade rebuilds that are expensive and
             // unnecessary when only sidebearing widths have changed.
-            for (const glyphName of (skipCompositeRebuild
+            for (const glyphName of skipCompositeRebuild
                 ? this.rebuildAutomaticComposites(pendingGlyphNames, {
                       skipSelfGlyphNames: new Set<string>(),
                       allowedGlyphNames: options?.allowedGlyphNames
@@ -10165,8 +10286,7 @@ export class Font extends ModelBase {
                 : this.rebuildAutomaticComposites(pendingGlyphNames, {
                       skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames,
                       allowedGlyphNames: options?.allowedGlyphNames
-                  })
-            )) {
+                  })) {
                 recomputedGlyphNames.add(glyphName);
                 pendingGlyphNames.add(glyphName);
             }
@@ -10294,8 +10414,7 @@ export class Font extends ModelBase {
                                         withSuppressedModelRecording(() => {
                                             translateLayerContentsX(
                                                 {
-                                                    shapes:
-                                                        layer.shapes || [],
+                                                    shapes: layer.shapes || [],
                                                     anchors:
                                                         layer.anchors || [],
                                                     getPathNodes: (shape) =>
@@ -10324,23 +10443,23 @@ export class Font extends ModelBase {
                                                             ) {
                                                                 component.transform =
                                                                     DecomposedAffineTransform.fromAffine(
-                                                                        component
-                                                                            .transform
+                                                                        component.transform
                                                                     );
                                                             }
-                                                            return component
-                                                                .transform as Babelfont.DecomposedAffine;
+                                                            return component.transform as Babelfont.DecomposedAffine;
                                                         },
-                                                    shiftAnchor: (anchor, deltaX) => {
+                                                    shiftAnchor: (
+                                                        anchor,
+                                                        deltaX
+                                                    ) => {
                                                         anchor.x += deltaX;
                                                     }
                                                 },
                                                 offset
                                             );
                                             const currentRsb = layer.rsb;
-                                            const bbox = layer.getBoundingBox(
-                                                false
-                                            );
+                                            const bbox =
+                                                layer.getBoundingBox(false);
                                             layer.width = bbox
                                                 ? roundMetricValue(
                                                       roundMetricValue(
@@ -10601,7 +10720,8 @@ export class Font extends ModelBase {
             if (!glyphData.layers) continue;
             const glyphName = glyphData.name;
             for (const layer of glyphData.layers) {
-                if (!layer || !layer.shapes) continue;
+                if (!layer || !layer.shapes || !Array.isArray(layer.shapes))
+                    continue;
                 for (const shape of layer.shapes) {
                     if (!shape || typeof shape !== 'object') continue;
                     const ref =
@@ -10924,9 +11044,28 @@ export class Font extends ModelBase {
                         Array.isArray(value.nodes) &&
                         true
                     ) {
-                        return {
+                        const result: any = {
                             ...value,
                             nodes: Path.nodesToString(value.nodes)
+                        };
+                        // Ensure `closed` field (Y.Doc roundtrip can lose it;
+                        // Rust serde requires it for the Path variant)
+                        if (result.closed === undefined) {
+                            result.closed = false;
+                        }
+                        return result;
+                    }
+
+                    // Ensure `closed` for flat Path shapes with string nodes
+                    // but missing closed field (Y.Doc roundtrip corruption)
+                    if (
+                        hasFlatPathFields &&
+                        typeof value.nodes === 'string' &&
+                        !('closed' in value)
+                    ) {
+                        return {
+                            ...value,
+                            closed: false
                         };
                     }
                 }

@@ -183,6 +183,36 @@ describe('FontManager saveLayerData', () => {
         ).toHaveBeenCalledTimes(1);
     });
 
+    test('normalizeLayerForRust canonicalizes malformed component transforms', () => {
+        const normalized = fontManager.normalizeLayerForRust({
+            width: 500,
+            shapes: [
+                {
+                    reference: 'A',
+                    transform: {
+                        translation: [0, 0],
+                        rotation: 0,
+                        scale: [1, 1],
+                        skew: 0,
+                        tcenter: [0, 0]
+                    },
+                    format_specific: {
+                        'com.schriftgestalt.Glyphs.alignment': 0
+                    }
+                }
+            ]
+        });
+
+        expect(normalized.shapes[0].transform).toEqual({
+            translation: [0, 0],
+            rotation: 0,
+            scale: [1, 1],
+            skew: [0, 0],
+            order: 'RestOfTheWorld'
+        });
+        expect(normalized.shapes[0].transform.tcenter).toBeUndefined();
+    });
+
     test('updates the live object model layer during interactive saves', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'

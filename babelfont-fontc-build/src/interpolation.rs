@@ -26,6 +26,7 @@ pub fn interpolate_glyph(
     font: &babelfont::Font,
     glyph_name: &str,
     location_json: &str,
+    extrapolate: bool,
 ) -> Result<String, JsValue> {
     // Parse location from JSON (user space coordinates)
     let location_map: HashMap<String, f64> = serde_json::from_str(location_json)
@@ -58,19 +59,29 @@ pub fn interpolate_glyph(
         .into_iter()
         .collect();
 
-    let interpolated_layer = interpolate_glyph_layer(font, glyph_name, &design_location)
+    let interpolated_layer = interpolate_glyph_layer(
+        font,
+        glyph_name,
+        &design_location,
+        extrapolate,
+    )
         .map_err(|e| JsValue::from_str(&format!("Interpolation failed: {}", e)))?;
 
     // Serialize to JSON and recursively add component layer data
     let layer_json_with_components =
-        serialize_layer_with_components(&interpolated_layer, font, &design_location)
+        serialize_layer_with_components(
+            &interpolated_layer,
+            font,
+            &design_location,
+            extrapolate,
+        )
             .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
 
     // Parse the layer JSON to add location data
     let mut result: serde_json::Value = serde_json::from_str(&layer_json_with_components)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse layer JSON: {}", e)))?;
 
-    let vertical_metrics = interpolate_vertical_metrics(font, &design_location)
+    let vertical_metrics = interpolate_vertical_metrics(font, &design_location, extrapolate)
         .map_err(|e| JsValue::from_str(&format!("Vertical metrics interpolation error: {}", e)))?;
 
     // Add the location (user space) to the result
@@ -94,8 +105,9 @@ pub fn interpolate_glyph_layer(
     font: &babelfont::Font,
     glyph_name: &str,
     target_location: &DesignLocation,
+    extrapolate: bool,
 ) -> Result<Layer, String> {
-    font.interpolate_glyph(glyph_name, target_location)
+    font.interpolate_glyph_with_extrapolation(glyph_name, target_location, extrapolate)
         .map_err(|e| format!("{:?}", e))
 }
 
@@ -110,6 +122,7 @@ fn normalize_vertical_metric_value(metric_name: &str, metric_value: f64) -> f64 
 fn interpolate_vertical_metrics(
     font: &babelfont::Font,
     target_location: &DesignLocation,
+    extrapolate: bool,
 ) -> Result<JsonValue, String> {
     let axis_order: Vec<babelfont::Tag> = font.axes.iter().map(|axis| axis.tag).collect();
     let target_normalized = font
@@ -169,7 +182,14 @@ fn interpolate_vertical_metrics(
                 .copied()
                 .unwrap_or(0.0)
         } else {
-            let model = VariationModel::new(locations_for_metric, axis_order.clone());
+            let model = if extrapolate {
+                VariationModel::new_extrapolating(
+                    locations_for_metric,
+                    axis_order.clone(),
+                )
+            } else {
+                VariationModel::new(locations_for_metric, axis_order.clone())
+            };
             let deltas = model
                 .deltas(&values_by_location)
                 .map_err(|e| format!("Failed computing metric deltas: {:?}", e))?;
@@ -192,10 +212,11 @@ pub fn serialize_layer_with_components(
     layer: &Layer,
     font: &babelfont::Font,
     location: &DesignLocation,
+    extrapolate: bool,
 ) -> Result<String, String> {
     // Track visited glyphs to prevent infinite recursion
     let mut visited = HashSet::new();
-    serialize_layer_recursive(layer, font, location, &mut visited)
+    serialize_layer_recursive(layer, font, location, extrapolate, &mut visited)
 }
 
 /// Serialize a layer with cached interpolation - for batch operations
@@ -204,12 +225,21 @@ pub fn serialize_layer_with_components_cached(
     layer: &Layer,
     font: &babelfont::Font,
     location: &DesignLocation,
+    extrapolate: bool,
     layer_cache: &RefCell<HashMap<String, Layer>>,
     json_cache: &RefCell<HashMap<String, JsonValue>>,
 ) -> Result<JsonValue, String> {
     // Track visited glyphs to prevent infinite recursion in this call
     let mut visited = HashSet::new();
-    serialize_layer_recursive_cached(layer, font, location, &mut visited, layer_cache, json_cache)
+    serialize_layer_recursive_cached(
+        layer,
+        font,
+        location,
+        extrapolate,
+        &mut visited,
+        layer_cache,
+        json_cache,
+    )
 }
 
 /// Recursive helper with caching
@@ -217,6 +247,7 @@ fn serialize_layer_recursive_cached(
     layer: &Layer,
     font: &babelfont::Font,
     location: &DesignLocation,
+    extrapolate: bool,
     visited: &mut HashSet<String>,
     layer_cache: &RefCell<HashMap<String, Layer>>,
     json_cache: &RefCell<HashMap<String, JsonValue>>,
@@ -262,7 +293,12 @@ fn serialize_layer_recursive_cached(
                                 cached.clone()
                             } else {
                                 drop(cache);
-                                match interpolate_glyph_layer(font, &reference, location) {
+                                match interpolate_glyph_layer(
+                                    font,
+                                    &reference,
+                                    location,
+                                    extrapolate,
+                                ) {
                                     Ok(interpolated) => {
                                         layer_cache
                                             .borrow_mut()
@@ -282,6 +318,7 @@ fn serialize_layer_recursive_cached(
                             &component_layer,
                             font,
                             location,
+                            extrapolate,
                             visited,
                             layer_cache,
                             json_cache,
@@ -314,6 +351,7 @@ fn serialize_layer_recursive(
     layer: &Layer,
     font: &babelfont::Font,
     location: &DesignLocation,
+    extrapolate: bool,
     visited: &mut HashSet<String>,
 ) -> Result<String, String> {
     // First serialize the layer to JSON
@@ -351,13 +389,19 @@ fn serialize_layer_recursive(
 
                         // Interpolate the component's glyph to get its untransformed layer data
                         // We want the raw interpolated geometry without the parent transform applied
-                        match interpolate_glyph_layer(font, &reference, location) {
+                        match interpolate_glyph_layer(
+                            font,
+                            &reference,
+                            location,
+                            extrapolate,
+                        ) {
                             Ok(component_layer) => {
                                 // Recursively serialize with nested components
                                 match serialize_layer_recursive(
                                     &component_layer,
                                     font,
                                     location,
+                                    extrapolate,
                                     visited,
                                 ) {
                                     Ok(component_layer_json) => {

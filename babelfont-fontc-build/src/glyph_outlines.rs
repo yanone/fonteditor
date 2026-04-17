@@ -248,7 +248,12 @@ pub fn get_glyphs_outlines(
                 cached.clone()
             } else {
                 drop(cache);
-                let interpolated = interpolate_glyph_layer(font, glyph_name, &design_location)
+                let interpolated = interpolate_glyph_layer(
+                    font,
+                    glyph_name,
+                    &design_location,
+                    false,
+                )
                     .map_err(|e| {
                         JsValue::from_str(&format!(
                             "Interpolation failed for '{}': {}",
@@ -275,6 +280,7 @@ pub fn get_glyphs_outlines(
                 &layer,
                 font,
                 &design_location,
+                false,
                 &layer_cache,
                 &json_cache,
             )
@@ -409,6 +415,7 @@ fn flatten_layer_components_cached(
                             font,
                             &component.reference,
                             location,
+                            false,
                         )
                         .map_err(|e| {
                             JsValue::from_str(&format!(

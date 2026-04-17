@@ -31,6 +31,13 @@ import {
 import { SavedVariationState } from './saved-variation-state';
 import { ArrowAdjustableTextInput } from './arrow-adjustable-text-input';
 import { LayerDataNormalizer } from './layer-data-normalizer';
+import tippy from 'tippy.js';
+import {
+    addTippyBackdropSupport,
+    getOrCreateBackdrop,
+    getTheme,
+    setupMenuKeyboardNav
+} from './tippy-utils';
 import {
     applyLiveSidebearingVisualSync,
     syncModelSidebearingEditToCanvas
@@ -90,6 +97,51 @@ type NormalizedDecomposedTransform = {
     skew: [number, number];
     order: 'Glyphs' | 'RestOfTheWorld';
 };
+
+type LayerListContextTarget = {
+    glyphName: string;
+    masterId: string;
+    layerId: string | null;
+    userspaceLocation: UserspaceLocation | null;
+    designLocation: DesignspaceLocation | null;
+    isMasterBound: boolean;
+};
+
+function compareLocationMaps(
+    left: Record<string, any> | null | undefined,
+    right: Record<string, any> | null | undefined,
+    axesOrder: string[]
+): number {
+    for (const tag of axesOrder) {
+        const leftValue = Number(left?.[tag] ?? 0);
+        const rightValue = Number(right?.[tag] ?? 0);
+        const diff = leftValue - rightValue;
+        if (Math.abs(diff) > 0.000001) {
+            return diff;
+        }
+    }
+
+    const extraLeftTags = Object.keys(left || {}).filter(
+        (tag) => !axesOrder.includes(tag)
+    );
+    const extraRightTags = Object.keys(right || {}).filter(
+        (tag) => !axesOrder.includes(tag)
+    );
+    const allExtraTags = Array.from(
+        new Set([...extraLeftTags, ...extraRightTags])
+    ).sort();
+
+    for (const tag of allExtraTags) {
+        const leftValue = Number(left?.[tag] ?? 0);
+        const rightValue = Number(right?.[tag] ?? 0);
+        const diff = leftValue - rightValue;
+        if (Math.abs(diff) > 0.000001) {
+            return diff;
+        }
+    }
+
+    return 0;
+}
 
 export type QCCanvasMarker = {
     glyphName: string;
@@ -1995,6 +2047,9 @@ class GlyphCanvas {
             this.outlineEditor.getLayerLinkGlyphName() ||
             glyph?.name ||
             this.getCurrentGlyphName();
+        const axesOrder =
+            (fontModel as any).axesOrder ||
+            (fontModel.axes || []).map((axis: any) => axis.tag).sort();
         const activeLayer =
             isEditMode && preselectedLayerId
                 ? glyphLayers.find(
@@ -2004,6 +2059,7 @@ class GlyphCanvas {
         const activeLayerFingerprint = activeLayer?.fingerprint || null;
         const displayedLayerIds: string[] = [];
         const layerLinkButtons: HTMLButtonElement[] = [];
+        const layerRows: LayerListContextTarget[] = [];
 
         const isLayerCompatibleWithActive = (
             layer: Layer | undefined
@@ -2055,6 +2111,22 @@ class GlyphCanvas {
             return button;
         };
 
+        const createHeaderIconButton = (
+            iconName: string,
+            title: string,
+            onClick: (event: MouseEvent) => void,
+            extraClassName: string = ''
+        ): HTMLButtonElement => {
+            const button = createLinkButton(onClick, extraClassName);
+            button.title = title;
+            button.setAttribute('aria-label', title);
+            const icon = button.querySelector('.material-symbols-outlined');
+            if (icon) {
+                icon.textContent = iconName;
+            }
+            return button;
+        };
+
         const createCompatibilityIndicator = (): HTMLSpanElement => {
             const indicator = document.createElement('span');
             indicator.className = 'editor-layer-compatibility-indicator';
@@ -2069,6 +2141,7 @@ class GlyphCanvas {
         };
 
         let summaryLinkButton: HTMLButtonElement | null = null;
+        let addLayerButton: HTMLButtonElement | null = null;
         const refreshLayerLinkControls = (): void => {
             if (!isEditMode || !summaryLinkButton) {
                 return;
@@ -2100,9 +2173,53 @@ class GlyphCanvas {
                     'Link layer'
                 );
             }
+
+            if (addLayerButton) {
+                addLayerButton.disabled = !glyphNameForLinkState;
+            }
         };
 
         if (isEditMode) {
+            const headerActions = document.createElement('div');
+            headerActions.className = 'editor-layers-header-actions';
+
+            addLayerButton = createHeaderIconButton(
+                'add',
+                'Create layer at current location',
+                async () => {
+                    const currentUserspaceLocation =
+                        this.outlineEditor.getCurrentUserspaceLocation();
+                    const masterId =
+                        this.outlineEditor.findClosestMasterId(
+                            currentUserspaceLocation
+                        );
+                    if (!masterId) {
+                        return;
+                    }
+                    const master = (fontModel.masters || []).find(
+                        (candidate: any) => candidate.id === masterId
+                    );
+                    const designLocation = userspaceToDesignspace(
+                        currentUserspaceLocation,
+                        fontModel.axes || []
+                    );
+                    await this.outlineEditor.createInterpolatedLayer({
+                        glyphName: glyphNameForLinkState,
+                        userspaceLocation: currentUserspaceLocation,
+                        masterId,
+                        designLocation,
+                        isMasterBound: false,
+                        changeSource: 'layer-create-button',
+                        selectNewLayer: true,
+                        extrapolate: true
+                    });
+                    await this.updatePropertiesUI();
+                    this.render();
+                },
+                'editor-layer-add-button'
+            );
+            headerActions.appendChild(addLayerButton);
+
             summaryLinkButton = createLinkButton(() => {
                 const linkAll = !this.outlineEditor.areAllLayersLinked(
                     displayedLayerIds,
@@ -2115,7 +2232,8 @@ class GlyphCanvas {
                 );
                 refreshLayerLinkControls();
             }, 'editor-layer-link-summary-toggle');
-            sectionTitle.appendChild(summaryLinkButton);
+            headerActions.appendChild(summaryLinkButton);
+            sectionTitle.appendChild(headerActions);
         }
 
         layersWidget.appendChild(sectionTitle);
@@ -2132,9 +2250,6 @@ class GlyphCanvas {
                 location,
                 fontModel.axes as any
             );
-            const axesOrder =
-                (fontModel as any).axesOrder ||
-                Object.keys(userspaceLocation).sort();
             return axesOrder
                 .filter((tag: string) => tag in userspaceLocation)
                 .map(
@@ -2154,22 +2269,175 @@ class GlyphCanvas {
             return undefined;
         };
 
+        const getUserspaceLocationForDisplay = (
+            location: DesignspaceLocation | undefined
+        ): UserspaceLocation | null => {
+            if (!location) {
+                return null;
+            }
+
+            return designspaceToUserspace(location, fontModel.axes || []);
+        };
+
+        const buildLayerContextMenuHtml = (
+            target: LayerListContextTarget
+        ): string => {
+            const items: string[] = [];
+
+            if (!target.isMasterBound) {
+                items.push(`
+                    <div class="plugin-menu-item plugin-menu-item-danger" data-action="delete-layer" role="menuitem" tabindex="-1">
+                        <span class="material-symbols-outlined">delete</span>
+                        <span>Delete layer</span>
+                    </div>
+                `);
+            }
+            items.push(`
+                <div class="plugin-menu-item" data-action="reinterpolate-layer" role="menuitem" tabindex="-1">
+                    <span class="material-symbols-outlined">refresh</span>
+                    <span>Reinterpolate</span>
+                </div>
+            `);
+
+            return `<div class="plugin-menu" tabindex="0" role="menu" aria-label="Layer actions">${items.join('')}</div>`;
+        };
+
+        const runLayerContextAction = async (
+            target: LayerListContextTarget,
+            action: string | null
+        ): Promise<void> => {
+            if (action === 'delete-layer' && target.layerId) {
+                await this.outlineEditor.deleteLayerById(target.layerId, {
+                    glyphName: target.glyphName,
+                    changeSource: 'layer-delete-context-menu'
+                });
+            } else if (action === 'reinterpolate-layer' && target.layerId) {
+                await this.outlineEditor.reinterpolateLayerById(
+                    target.layerId,
+                    {
+                        glyphName: target.glyphName,
+                        changeSource: 'layer-reinterpolate-context-menu',
+                        selectNewLayer: true
+                    }
+                );
+            }
+
+            await this.updatePropertiesUI();
+            this.render();
+        };
+
+        const resolveLiveRowActionTarget = (
+            item: HTMLDivElement,
+            fallbackTarget: LayerListContextTarget
+        ): LayerListContextTarget => {
+            const glyphName =
+                item.getAttribute('data-glyph-name') ||
+                fallbackTarget.glyphName;
+            const layerId = item.getAttribute('data-layer-id');
+
+            return {
+                ...fallbackTarget,
+                glyphName,
+                layerId: layerId || null
+            };
+        };
+
+        const attachLayerContextMenu = (
+            item: HTMLDivElement,
+            target: LayerListContextTarget
+        ): void => {
+            if (!isEditMode || !target.layerId) {
+                return;
+            }
+
+            const backdrop = getOrCreateBackdrop(
+                'editor-layer-list-context-menu-backdrop'
+            );
+            const tippyInstance = tippy(item, {
+                content: buildLayerContextMenuHtml(target),
+                allowHTML: true,
+                trigger: 'manual',
+                interactive: true,
+                appendTo: () => document.body,
+                placement: 'right-start',
+                theme: getTheme(),
+                arrow: false,
+                offset: [0, 4],
+                hideOnClick: false,
+                getReferenceClientRect: () => item.getBoundingClientRect(),
+                onShown: (instance) => {
+                    const menu = instance.popper.querySelector('.plugin-menu');
+                    if (!menu) {
+                        return;
+                    }
+
+                    setupMenuKeyboardNav(menu);
+                    menu.querySelectorAll('.plugin-menu-item').forEach(
+                        (menuItem) => {
+                            (menuItem as HTMLElement).onclick = async () => {
+                                const action =
+                                    menuItem.getAttribute('data-action');
+                                const liveTarget = resolveLiveRowActionTarget(
+                                    item,
+                                    target
+                                );
+                                instance.hide();
+                                await new Promise((resolve) =>
+                                    requestAnimationFrame(resolve)
+                                );
+                                await runLayerContextAction(liveTarget, action);
+                            };
+                        }
+                    );
+                }
+            });
+
+            addTippyBackdropSupport(tippyInstance, backdrop, {
+                targetElement: item,
+                activeClass: 'context-menu-active'
+            });
+
+            item.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const mouseX = event.clientX;
+                const mouseY = event.clientY;
+                tippyInstance.setProps({
+                    content: buildLayerContextMenuHtml(target),
+                    getReferenceClientRect: () => ({
+                        width: 0,
+                        height: 0,
+                        top: mouseY,
+                        bottom: mouseY,
+                        left: mouseX,
+                        right: mouseX,
+                        x: mouseX,
+                        y: mouseY,
+                        toJSON: () => ({})
+                    }),
+                    theme: getTheme()
+                });
+                tippyInstance.show();
+            });
+        };
+
         const createLayerItem = (
             master: any,
             layer: Layer | undefined,
             displayName: string,
             axisValues: string,
-            inactiveIfMissing: boolean,
-            italicizeName: boolean = false
+            italicizeName: boolean = false,
+            target?: LayerListContextTarget
         ): HTMLDivElement => {
             const item = document.createElement('div');
             item.className = 'editor-layer-item sidebar-item';
             item.setAttribute('data-master-id', master.id!);
+            if (target?.glyphName) {
+                item.setAttribute('data-glyph-name', target.glyphName);
+            }
 
             if (layer?.id) {
                 item.setAttribute('data-layer-id', layer.id);
-            } else if (inactiveIfMissing) {
-                item.classList.add('inactive');
             }
 
             if (isEditMode) {
@@ -2225,20 +2493,18 @@ class GlyphCanvas {
             }
 
             item.addEventListener('click', () => {
-                if (isEditMode) {
-                    if (layer) {
-                        this.outlineEditor.selectLayer({
-                            id: layer.id,
-                            name: layer.name,
-                            master: layer.master,
-                            location: layer.location,
-                            shapes: layer.shapes || [],
-                            width: layer.width,
-                            isInterpolated: false
-                        } as any);
-                    }
+                if (isEditMode && layer) {
+                    void this.outlineEditor.selectLayer({
+                        id: layer.id,
+                        name: layer.name,
+                        master: layer.master,
+                        location: layer.location,
+                        shapes: layer.shapes || [],
+                        width: layer.width,
+                        isInterpolated: false
+                    } as any);
                 } else {
-                    this.selectMaster(master.id!, master.location || {});
+                    void this.selectMaster(master.id!, master.location || {});
                 }
 
                 const editorView = document.getElementById('view-editor');
@@ -2247,11 +2513,14 @@ class GlyphCanvas {
                 }
             });
 
+            if (target) {
+                attachLayerContextMenu(item, target);
+            }
+
             return item;
         };
 
         for (const master of fontModel.masters) {
-            // Get master name, handling I18NDictionary
             const masterName =
                 typeof master.name === 'string'
                     ? master.name
@@ -2288,29 +2557,85 @@ class GlyphCanvas {
                         Object.keys(layer.location).length > 0
                     );
                 });
+
+                intermediateLayers.sort((left, right) => {
+                    return compareLocationMaps(
+                        (left.location || {}) as Record<string, any>,
+                        (right.location || {}) as Record<string, any>,
+                        axesOrder
+                    );
+                });
             }
 
-            const masterItem = createLayerItem(
-                master,
-                isEditMode ? defaultLayer : undefined,
-                masterName || 'Default',
-                formatAxisValues(master.location),
-                isEditMode
-            );
-            mastersList.appendChild(masterItem);
+            if (isEditMode) {
+                if (defaultLayer) {
+                    const masterTarget: LayerListContextTarget = {
+                        glyphName: glyphNameForLinkState,
+                        masterId: master.id,
+                        layerId: defaultLayer.id || null,
+                        userspaceLocation: getUserspaceLocationForDisplay(
+                            master.location
+                        ),
+                        designLocation: master.location || null,
+                        isMasterBound: true
+                    };
 
-            if (isEditMode && intermediateLayers.length > 0) {
-                for (const intermediateLayer of intermediateLayers) {
-                    const braceItem = createLayerItem(
+                    const masterItem = createLayerItem(
                         master,
-                        intermediateLayer,
-                        intermediateLayer.getComputedName(),
-                        formatAxisValues(intermediateLayer.location),
+                        defaultLayer,
+                        masterName || 'Default',
+                        formatAxisValues(master.location),
                         false,
-                        true
+                        masterTarget
                     );
-                    mastersList.appendChild(braceItem);
+                    mastersList.appendChild(masterItem);
+                    layerRows.push(masterTarget);
                 }
+
+                if (intermediateLayers.length > 0) {
+                    for (const intermediateLayer of intermediateLayers) {
+                        const braceTarget: LayerListContextTarget = {
+                            glyphName: glyphNameForLinkState,
+                            masterId: master.id,
+                            layerId: intermediateLayer.id || null,
+                            userspaceLocation: getUserspaceLocationForDisplay(
+                                intermediateLayer.location
+                            ),
+                            designLocation:
+                                intermediateLayer.location || null,
+                            isMasterBound: false
+                        };
+                        const braceItem = createLayerItem(
+                            master,
+                            intermediateLayer,
+                            intermediateLayer.getComputedName(),
+                            formatAxisValues(intermediateLayer.location),
+                            true,
+                            braceTarget
+                        );
+                        mastersList.appendChild(braceItem);
+                        layerRows.push(braceTarget);
+                    }
+                }
+            } else {
+                const masterItem = createLayerItem(
+                    master,
+                    glyphLayers.find((l) => {
+                        const lm = l.master;
+                        return (
+                            lm &&
+                            typeof lm === 'object' &&
+                            'type' in lm &&
+                            lm.type === 'DefaultForMaster' &&
+                            getLayerMasterId(l) === master.id
+                        );
+                    }) as Layer | undefined,
+                    masterName || 'Default',
+                    formatAxisValues(master.location),
+                    false,
+                    undefined
+                );
+                mastersList.appendChild(masterItem);
             }
         }
 
@@ -4246,6 +4571,20 @@ class GlyphCanvas {
             const isBraceB = !!b.location && Object.keys(b.location).length > 0;
             if (isBraceA !== isBraceB) {
                 return isBraceA ? 1 : -1;
+            }
+
+            if (isBraceA && isBraceB) {
+                const axesOrder =
+                    (fontManager.currentFont?.fontModel as any)?.axesOrder ||
+                    Object.keys({
+                        ...(a.location || {}),
+                        ...(b.location || {})
+                    }).sort();
+                return compareLocationMaps(
+                    a.location || {},
+                    b.location || {},
+                    axesOrder
+                );
             }
 
             return 0;

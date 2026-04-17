@@ -343,6 +343,8 @@ function syncImmediateUndoOutlineLayerFromModel(
         return;
     }
 
+    gc.outlineEditor?.cancelPendingLayerSwitchAnimation?.();
+
     const layer = fontModel.findGlyph(editedGlyphName)?.findLayerById(layerId);
     if (!layer) {
         return;
@@ -777,13 +779,13 @@ export function runBridgeUndoRedo(
         // skip VARC) instead of falling back to a full compile.
         // When the undone history item was a sidebearing edit, use outline-only
         // mode for the same speed benefit.
-        const historyItem = appliedChange.historyItem as HistoryStackItem | null;
-        const undoEditType =
-            historyItemTouchesAnchors(historyItem)
-                ? 'anchor'
-                : inferSidebearingSideFromHistoryItem(historyItem) !== null
-                  ? 'outline'
-                  : null;
+        const historyItem =
+            appliedChange.historyItem as HistoryStackItem | null;
+        const undoEditType = historyItemTouchesAnchors(historyItem)
+            ? 'anchor'
+            : inferSidebearingSideFromHistoryItem(historyItem) !== null
+              ? 'outline'
+              : null;
         const forceFullRustSync = shouldForceFullRustSyncAfterUndoRedo(
             appliedChange.scope,
             appliedChange.historyItem as HistoryStackItem | null,

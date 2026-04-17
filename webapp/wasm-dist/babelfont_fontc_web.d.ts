@@ -213,7 +213,7 @@ export function init(): void;
  * # Returns
  * * `String` - JSON representation of the interpolated Layer
  */
-export function interpolate_glyph(glyph_name: string, location_json: string): string;
+export function interpolate_glyph(glyph_name: string, location_json: string, extrapolate: boolean): string;
 
 /**
  * Open a font file from various formats
@@ -272,7 +272,7 @@ export interface InitOutput {
     readonly get_layout_closure: (a: number, b: number) => [number, number, number, number];
     readonly get_layout_closure_cached: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly init: () => void;
-    readonly interpolate_glyph: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly interpolate_glyph: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly prime_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly store_font: (a: number, b: number) => [number, number];

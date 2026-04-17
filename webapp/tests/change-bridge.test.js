@@ -18,7 +18,8 @@ const {
     deleteYPath,
     setJsonPath,
     deleteJsonPath,
-    getJsonPath
+    getJsonPath,
+    sanitizeBabelfontArrays
 } = require('../js/change-bridge-ydoc');
 const {
     buildHistoryStackItems,
@@ -975,6 +976,33 @@ describe('change-bridge-ydoc', () => {
         expect(getYPath(fontMap, ['glyphs', 'A', 'production_name'])).toBe(
             'uni0041'
         );
+    });
+
+    test('sanitizeBabelfontArrays canonicalizes malformed component transforms', () => {
+        const json = makeMinimalFont();
+        json.glyphs[0].layers[0].shapes = [
+            {
+                reference: 'A',
+                transform: {
+                    translation: [0, 0],
+                    rotation: 0,
+                    scale: [1, 1],
+                    skew: 0,
+                    tcenter: [0, 0]
+                }
+            }
+        ];
+
+        const fixCount = sanitizeBabelfontArrays(json);
+
+        expect(fixCount).toBeGreaterThan(0);
+        expect(json.glyphs[0].layers[0].shapes[0].transform).toEqual({
+            translation: [0, 0],
+            rotation: 0,
+            scale: [1, 1],
+            skew: [0, 0],
+            order: 'RestOfTheWorld'
+        });
     });
 
     test('deleteYPath removes keyed entries', () => {
@@ -3121,6 +3149,121 @@ describe('syncGlyphFromJson', () => {
                 'width'
             ])
         ).toBe(700);
+    });
+
+    test('layer-scoped undo restores original outlines after remove and recreate with the same layer id', () => {
+        const { bridge, font } = createTestBridge('reinterpolate-undo');
+        const glyph = font.findGlyph('A');
+        const originalLayer = glyph.findLayerById('layer-1');
+        const originalSnapshot = cloneValue(originalLayer.toJSON());
+
+        bridge.beginTransaction('Reinterpolate layer');
+        glyph.removeLayerById('layer-1');
+
+        const recreatedLayer = glyph.addLayer(
+            910,
+            originalSnapshot.master,
+            'layer-1'
+        );
+        withSuppressedModelRecording(() => {
+            recreatedLayer.syncFromEditorLayerData({
+                width: 910,
+                shapes: [
+                    {
+                        nodes: [
+                            {
+                                x: 20,
+                                y: 20,
+                                nodetype: 'line',
+                                smooth: false
+                            },
+                            {
+                                x: 80,
+                                y: 20,
+                                nodetype: 'line',
+                                smooth: false
+                            },
+                            {
+                                x: 80,
+                                y: 120,
+                                nodetype: 'line',
+                                smooth: false
+                            }
+                        ],
+                        closed: true
+                    }
+                ],
+                anchors: [{ name: 'top', x: 200, y: 700 }],
+                guides: []
+            });
+        });
+        bridge.syncGlyphFromJson(
+            'A',
+            'Reinterpolate layer sync',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+        bridge.endTransaction();
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(910);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes'
+            ])
+        ).toHaveLength(1);
+
+        expect(bridge.undo('A', 'layer-1')).toEqual(
+            expect.objectContaining({
+                scope: 'layer',
+                glyphName: 'A',
+                layerId: 'layer-1'
+            })
+        );
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(originalSnapshot.width);
+        expect(
+            cloneValue(
+                getYPath(bridge.fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'anchors'
+                ])
+            )
+        ).toEqual(originalSnapshot.anchors);
+        expect(
+            cloneValue(
+                getYPath(bridge.fontMap, [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'shapes'
+                ])
+            )
+        ).toEqual(originalSnapshot.shapes);
     });
 
     test('glyph snapshot sync stores replay targets for every layer in the committed history item', () => {

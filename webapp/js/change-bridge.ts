@@ -18,7 +18,8 @@ import {
     getYPath,
     setJsonPath,
     deleteJsonPath,
-    getJsonPath
+    getJsonPath,
+    sanitizeBabelfontArrays
 } from './change-bridge-ydoc';
 import {
     buildHistoryStackItems,
@@ -227,7 +228,10 @@ export class ChangeBridge {
     /** Per-glyph undo managers (keyed by glyph name) */
     private _undoManagers = new Map<string, Y.UndoManager>();
     /** Per-layer undo managers (keyed by glyph@@layer) */
-    private _layerUndoManagers = new Map<string, Y.UndoManager>();
+    private _layerUndoManagers = new Map<
+        string,
+        { manager: Y.UndoManager; target: Y.Map<unknown> }
+    >();
     /** "Font-level" undo manager for axes/masters/instances/font properties */
     private _fontUndoManager: Y.UndoManager | null = null;
     /** Change log of all recorded changes */
@@ -473,8 +477,8 @@ export class ChangeBridge {
 
     /** Clean up resources. */
     destroy(): void {
-        for (const um of this._layerUndoManagers.values()) {
-            um.destroy();
+        for (const entry of this._layerUndoManagers.values()) {
+            entry.manager.destroy();
         }
         this._layerUndoManagers.clear();
         for (const um of this._undoManagers.values()) {
@@ -1239,8 +1243,8 @@ export class ChangeBridge {
         this._nextTxId = 1;
         this._nextHistoryItemId = 1;
         resetLogCounter();
-        for (const um of this._layerUndoManagers.values()) {
-            um.destroy();
+        for (const entry of this._layerUndoManagers.values()) {
+            entry.manager.destroy();
         }
         this._layerUndoManagers.clear();
         for (const um of this._undoManagers.values()) {
@@ -1346,9 +1350,40 @@ export class ChangeBridge {
                                             l.id === scopeHint.layerId
                                     ) ?? -1;
                                 if (layerIdx >= 0 && layers) {
-                                    layers[layerIdx] = fromYType(
+                                    const patchedLayer = fromYType(
                                         layerMap
                                     ) as Unsafe;
+                                    // Diagnostic: check for missing required layer fields
+                                    if (
+                                        patchedLayer &&
+                                        typeof patchedLayer === 'object' &&
+                                        !Array.isArray(patchedLayer)
+                                    ) {
+                                        const layerRecord =
+                                            patchedLayer as Record<
+                                                string,
+                                                unknown
+                                            >;
+                                        if (!('width' in layerRecord)) {
+                                            console.warn(
+                                                `[ChangeBridge] _syncJsonFromYDoc: layer ${scopeHint.layerId} missing "width" after fromYType. Keys: ${Object.keys(layerRecord).join(',')}`
+                                            );
+                                            // Log what the Y.Map actually contains
+                                            const yKeys: string[] = [];
+                                            layerMap.forEach(
+                                                (_v: unknown, k: string) => {
+                                                    yKeys.push(k);
+                                                }
+                                            );
+                                            console.warn(
+                                                `[ChangeBridge] Y.Map keys for layer: ${yKeys.join(',')}`
+                                            );
+                                        }
+                                    }
+                                    // Sanitize: fix array fields that Y.Doc
+                                    // roundtrip corrupted into objects
+                                    sanitizeBabelfontArrays(patchedLayer);
+                                    layers[layerIdx] = patchedLayer;
                                     this._emitLayerFingerprintChangedEvents(
                                         previousFingerprintSnapshot,
                                         this._collectLayerFingerprintSnapshot(
@@ -1367,6 +1402,8 @@ export class ChangeBridge {
 
         // Full sync: reconstruct the entire font from Y.Doc.
         const freshJson = yDocToJson(this.fontMap);
+        // Sanitize: fix array fields that Y.Doc roundtrip corrupted
+        sanitizeBabelfontArrays(freshJson);
         for (const key of Object.keys(freshJson)) {
             (this._fontJson as Unsafe)[key] = freshJson[key];
         }
@@ -1421,23 +1458,30 @@ export class ChangeBridge {
         layerId: string
     ): Y.UndoManager | null {
         const managerKey = getLayerManagerKey(glyphName, layerId);
-        if (this._layerUndoManagers.has(managerKey)) {
-            return this._layerUndoManagers.get(managerKey)!;
-        }
         const glyphsMap = this.fontMap.get('glyphs');
         if (!(glyphsMap instanceof Y.Map)) return null;
         const glyphMap = glyphsMap.get(glyphName);
         if (!(glyphMap instanceof Y.Map)) return null;
         const layersMap = glyphMap.get('layers');
         if (!(layersMap instanceof Y.Map)) return null;
-        const layerMap = layersMap.get(layerId);
-        if (!(layerMap instanceof Y.Map)) return null;
 
-        const um = new Y.UndoManager(layerMap, {
+        const existingEntry = this._layerUndoManagers.get(managerKey);
+        if (existingEntry) {
+            if (existingEntry.target === layersMap) {
+                return existingEntry.manager;
+            }
+            existingEntry.manager.destroy();
+            this._layerUndoManagers.delete(managerKey);
+        }
+
+        const um = new Y.UndoManager(layersMap, {
             trackedOrigins: new Set([getLayerEditOrigin(glyphName, layerId)]),
             captureTimeout: 0
         });
-        this._layerUndoManagers.set(managerKey, um);
+        this._layerUndoManagers.set(managerKey, {
+            manager: um,
+            target: layersMap
+        });
         return um;
     }
 

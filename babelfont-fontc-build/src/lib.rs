@@ -2,7 +2,7 @@ use babelfont::{
     convertors::fontir::{BabelfontIrSource, CompilationOptions},
     filters::{
         DropIncompatiblePaths, FontFilter as _, GlyphsBracketLayers, GlyphsData,
-        GlyphsNumberValue, GlyphsStylisticSetLabel, RetainGlyphs, RewriteSmartAxes,
+        GlyphsStylisticSetLabel, RetainGlyphs, RewriteSmartAxes,
     },
 };
 use fea_rs_ast::FeatureFile;
@@ -140,9 +140,6 @@ fn apply_filter_pipeline(
         .apply(&mut filtered)
         .map_err(|e| JsValue::from_str(&format!("RetainGlyphs failed: {:?}", e)))?;
 
-    GlyphsNumberValue
-        .apply(&mut filtered)
-        .map_err(|e| JsValue::from_str(&format!("GlyphsNumberValue failed: {:?}", e)))?;
     GlyphsData
         .apply(&mut filtered)
         .map_err(|e| JsValue::from_str(&format!("GlyphsData failed: {:?}", e)))?;
@@ -1013,14 +1010,18 @@ pub fn open_font_file(filename: &str, contents: &str) -> Result<String, JsValue>
 /// # Returns
 /// * `String` - JSON representation of the interpolated Layer
 #[wasm_bindgen]
-pub fn interpolate_glyph(glyph_name: &str, location_json: &str) -> Result<String, JsValue> {
+pub fn interpolate_glyph(
+    glyph_name: &str,
+    location_json: &str,
+    extrapolate: bool,
+) -> Result<String, JsValue> {
     let cache = FONT_CACHE.lock().unwrap();
     let font = cache
         .as_ref()
         .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
 
     // Call the interpolation module function
-    interpolation::interpolate_glyph(font, glyph_name, location_json)
+    interpolation::interpolate_glyph(font, glyph_name, location_json, extrapolate)
 }
 
 /// Get outlines for multiple glyphs with optional component flattening
@@ -1547,7 +1548,7 @@ pub fn compile_cached_font_from_last_layout_closure(
         } else {
             // Cache miss: run full filter pipeline and cache result
             let _apply_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.apply_filters");
-            // Phase A4 benchmark point: FEA parses inside SubsetLayout and GlyphsNumberValue filters.
+            // Phase A4 benchmark point: FEA parses inside the subset/filter pipeline.
             let _fea_parse_pipeline_span = PerfSpan::start("compile_cached_font_from_last_layout_closure.filter_cache.apply_filters.fea_parse_pipeline");
             let filtered = apply_filter_pipeline(&font_clone, &compilation_options)?;
             drop(_fea_parse_pipeline_span);
