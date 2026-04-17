@@ -78,7 +78,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ◻️ Edit guidelines
 - ✅ Draw new outlines
 - ✅ Layer management UI
-- ◻️ Python script fast UI
+- ◻️ Python script inference UI
 - ✅ Undo/redo system
 - ◻️ Clipboard operations
 - ✅ Selection tools
@@ -87,7 +87,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ◻️ Path operations (boolean)
 - ◻️ Kerning
 - ✅ Automatic glyph metric updates
-- ◻️ Automatic glyph composition
+- ✅ Automatic glyph composition
 - ◻️ Font export
 - ◻️ Source saving
 
