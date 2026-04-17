@@ -382,7 +382,9 @@ function shouldForceFullRustSyncAfterUndoRedo(
         historyItem?.transactionLabel === 'Scale selection' ||
         (historyItem?.transactionLabel === 'Drag point' &&
             inferSidebearingSideFromHistoryItem(historyItem) !== null) ||
-        historyItem?.transactionLabel === 'Drag anchor'
+        historyItem?.transactionLabel === 'Drag anchor' ||
+        (inferSidebearingSideFromHistoryItem(historyItem) !== null &&
+            !historyItemHasIncrementalWorkerReplayTargets(historyItem))
     );
 }
 
@@ -773,10 +775,15 @@ export function runBridgeUndoRedo(
         // When the undone history item was an anchor edit, propagate the
         // edit type so the compile loop uses anchor-only mode (skip kerning,
         // skip VARC) instead of falling back to a full compile.
+        // When the undone history item was a sidebearing edit, use outline-only
+        // mode for the same speed benefit.
+        const historyItem = appliedChange.historyItem as HistoryStackItem | null;
         const undoEditType =
-            historyItemTouchesAnchors(appliedChange.historyItem as HistoryStackItem | null)
+            historyItemTouchesAnchors(historyItem)
                 ? 'anchor'
-                : null;
+                : inferSidebearingSideFromHistoryItem(historyItem) !== null
+                  ? 'outline'
+                  : null;
         const forceFullRustSync = shouldForceFullRustSyncAfterUndoRedo(
             appliedChange.scope,
             appliedChange.historyItem as HistoryStackItem | null,
@@ -805,10 +812,10 @@ export function runBridgeUndoRedo(
         // font is rebuilt from the restored state.
         await requestUndoRedoEditingFontCompile(true, undoEditType);
 
-        // Anchor-only compiles skip kerning and VARC for speed; schedule a
-        // trailing debounced full compile so the editor returns to a fully
-        // correct font (same pattern as the forward anchor-edit path).
-        if (undoEditType === 'anchor') {
+        // Anchor-only and outline-only compiles skip features/kerning/VARC
+        // for speed; schedule a trailing debounced full compile so the editor
+        // returns to a fully correct font (same pattern as the forward edit path).
+        if (undoEditType === 'anchor' || undoEditType === 'outline') {
             window.fontManager?.scheduleFullCompileDebounce?.();
         }
 

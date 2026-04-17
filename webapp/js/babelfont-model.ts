@@ -10098,7 +10098,10 @@ export class Font extends ModelBase {
 
     recomputeMetricsKeys(
         changedGlyphNames?: Set<string>,
-        options?: { allowedGlyphNames?: Set<string> }
+        options?: {
+            allowedGlyphNames?: Set<string>;
+            skipAutomaticCompositeRebuild?: boolean;
+        }
     ): Set<string> {
         if (this._isRecomputingMetricsKeys) {
             return new Set();
@@ -10127,6 +10130,7 @@ export class Font extends ModelBase {
 
         this._isRecomputingMetricsKeys = true;
         const recomputedGlyphNames = new Set<string>();
+        const skipCompositeRebuild = !!options?.skipAutomaticCompositeRebuild;
         try {
             const skipSelfAutomaticRebuildGlyphNames = new Set<string>();
             let pendingGlyphNames =
@@ -10148,12 +10152,20 @@ export class Font extends ModelBase {
                               )
                       );
 
-            for (const glyphName of this.rebuildAutomaticComposites(
-                pendingGlyphNames,
-                {
-                    skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames,
-                    allowedGlyphNames: options?.allowedGlyphNames
-                }
+            // When skipping full automatic-composite rebuild (sidebearing fast
+            // path), still rebuild composites for the initially changed glyphs
+            // so that the source glyph's own composites stay in sync. Skip
+            // only the downstream cascade rebuilds that are expensive and
+            // unnecessary when only sidebearing widths have changed.
+            for (const glyphName of (skipCompositeRebuild
+                ? this.rebuildAutomaticComposites(pendingGlyphNames, {
+                      skipSelfGlyphNames: new Set<string>(),
+                      allowedGlyphNames: options?.allowedGlyphNames
+                  })
+                : this.rebuildAutomaticComposites(pendingGlyphNames, {
+                      skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames,
+                      allowedGlyphNames: options?.allowedGlyphNames
+                  })
             )) {
                 recomputedGlyphNames.add(glyphName);
                 pendingGlyphNames.add(glyphName);
@@ -10171,15 +10183,18 @@ export class Font extends ModelBase {
                 pass < maxPasses && pendingGlyphNames.size > 0;
                 pass++
             ) {
-                for (const glyphName of this.rebuildAutomaticComposites(
-                    pendingGlyphNames,
-                    {
-                        skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames,
-                        allowedGlyphNames: options?.allowedGlyphNames
+                if (!skipCompositeRebuild) {
+                    for (const glyphName of this.rebuildAutomaticComposites(
+                        pendingGlyphNames,
+                        {
+                            skipSelfGlyphNames:
+                                skipSelfAutomaticRebuildGlyphNames,
+                            allowedGlyphNames: options?.allowedGlyphNames
+                        }
+                    )) {
+                        recomputedGlyphNames.add(glyphName);
+                        pendingGlyphNames.add(glyphName);
                     }
-                )) {
-                    recomputedGlyphNames.add(glyphName);
-                    pendingGlyphNames.add(glyphName);
                 }
 
                 const autoAlignedDependents = new Set<string>();
@@ -10259,6 +10274,100 @@ export class Font extends ModelBase {
 
                         if (!layer.isAutomaticAlignedLayer()) {
                             layer.setDirectSidebearing(side, applied.value);
+                        } else if (skipCompositeRebuild) {
+                            // Fast path: for automatic-aligned layers whose
+                            // sidebearing changed via a metrics-key cascade,
+                            // update the width directly instead of going
+                            // through the expensive rebuildAutomaticComposition.
+                            // LSB changes also translate the layer contents so
+                            // that RSB stays intact; RSB changes only adjust
+                            // the advance width.
+                            const appliedValue = applied.value;
+                            if (appliedValue === null) {
+                                continue;
+                            }
+                            if (side === 'left') {
+                                const currentLsb = layer.lsb;
+                                const offset = appliedValue - currentLsb;
+                                if (Math.abs(offset) > METRIC_UPDATE_EPSILON) {
+                                    withSuppressedMetricsKeyRecompute(() => {
+                                        withSuppressedModelRecording(() => {
+                                            translateLayerContentsX(
+                                                {
+                                                    shapes:
+                                                        layer.shapes || [],
+                                                    anchors:
+                                                        layer.anchors || [],
+                                                    getPathNodes: (shape) =>
+                                                        shape.isPath()
+                                                            ? shape.asPath()
+                                                                  .nodes
+                                                            : null,
+                                                    getOrCreateComponentTransform:
+                                                        (shape) => {
+                                                            if (
+                                                                !shape.isComponent()
+                                                            ) {
+                                                                return null;
+                                                            }
+                                                            const component =
+                                                                shape.asComponent();
+                                                            if (
+                                                                !component.transform
+                                                            ) {
+                                                                component.transform =
+                                                                    DecomposedAffineTransform.identity();
+                                                            } else if (
+                                                                Array.isArray(
+                                                                    component.transform
+                                                                )
+                                                            ) {
+                                                                component.transform =
+                                                                    DecomposedAffineTransform.fromAffine(
+                                                                        component
+                                                                            .transform
+                                                                    );
+                                                            }
+                                                            return component
+                                                                .transform as Babelfont.DecomposedAffine;
+                                                        },
+                                                    shiftAnchor: (anchor, deltaX) => {
+                                                        anchor.x += deltaX;
+                                                    }
+                                                },
+                                                offset
+                                            );
+                                            const currentRsb = layer.rsb;
+                                            const bbox = layer.getBoundingBox(
+                                                false
+                                            );
+                                            layer.width = bbox
+                                                ? roundMetricValue(
+                                                      roundMetricValue(
+                                                          bbox.maxX
+                                                      ) + currentRsb
+                                                  )
+                                                : roundMetricValue(
+                                                      appliedValue + currentRsb
+                                                  );
+                                        });
+                                    });
+                                }
+                            } else {
+                                // RSB: only width changes
+                                const currentRsb = layer.rsb;
+                                if (
+                                    Math.abs(appliedValue - currentRsb) >
+                                    METRIC_UPDATE_EPSILON
+                                ) {
+                                    const bbox = layer.getBoundingBox(false);
+                                    if (bbox) {
+                                        layer.width = roundMetricValue(
+                                            bbox.maxX + appliedValue
+                                        );
+                                    }
+                                }
+                            }
                         }
                         layerChanged = true;
                         if (glyphName) {
@@ -10284,16 +10393,19 @@ export class Font extends ModelBase {
 
                         nextGlyphNames.add(glyphName);
 
-                        for (const rebuiltGlyphName of this.rebuildAutomaticComposites(
-                            new Set([glyphName]),
-                            {
-                                skipSelfGlyphNames:
-                                    skipSelfAutomaticRebuildGlyphNames,
-                                allowedGlyphNames: options?.allowedGlyphNames
+                        if (!skipCompositeRebuild) {
+                            for (const rebuiltGlyphName of this.rebuildAutomaticComposites(
+                                new Set([glyphName]),
+                                {
+                                    skipSelfGlyphNames:
+                                        skipSelfAutomaticRebuildGlyphNames,
+                                    allowedGlyphNames:
+                                        options?.allowedGlyphNames
+                                }
+                            )) {
+                                recomputedGlyphNames.add(rebuiltGlyphName);
+                                nextGlyphNames.add(rebuiltGlyphName);
                             }
-                        )) {
-                            recomputedGlyphNames.add(rebuiltGlyphName);
-                            nextGlyphNames.add(rebuiltGlyphName);
                         }
                     }
                 }

@@ -2940,6 +2940,7 @@ export class OutlineEditor {
     private _adjacentSnapInterpolationSessionId: number = 0;
     private _lastDragSaveTime: number = 0;
     private _lastLiveAnchorRefreshTime: number = 0;
+    private _lastLiveSidebearingRefreshTime: number = 0;
     private _lastPropertyPanelUpdateTime: number = 0;
     private _pendingDragMetricsUpdate: boolean = false;
     private _dragMetricsFlushTimer: number | null = null;
@@ -2952,6 +2953,8 @@ export class OutlineEditor {
     private _cachedAnchorDragScopeSourceGlyphName: string | null = null;
     private _cachedAnchorDragScopeVisibleKey: string = '';
     private _cachedAnchorDragScopeGlyphNames: Set<string> | null = null;
+    private _liveSidebearingRefreshPromise: Promise<void> | null = null;
+    private _liveSidebearingRefreshQueued: boolean = false;
     private _pointDragPreserveHandlePositions: boolean = false;
     private _offCurveAltDragConstraint: {
         contourIndex: number;
@@ -3708,14 +3711,20 @@ export class OutlineEditor {
 
     private syncDependentGlyphsAfterSidebearingEdit(
         glyphName: string | null | undefined,
-        affectedGlyphNames: Set<string>
+        affectedGlyphNames: Set<string>,
+        options?: { liveVisibleOnly?: boolean }
     ): void {
-        const uniqueGlyphNames = new Set(
-            [...Array.from(affectedGlyphNames || []), glyphName || ''].filter(
-                Boolean
-            ) as string[]
+        const downstreamGlyphNames = Array.from(
+            new Set(
+                Array.from(affectedGlyphNames || []).filter(
+                    (affectedGlyphName): affectedGlyphName is string =>
+                        typeof affectedGlyphName === 'string' &&
+                        affectedGlyphName.length > 0 &&
+                        affectedGlyphName !== glyphName
+                )
+            )
         );
-        if (uniqueGlyphNames.size <= 1) {
+        if (downstreamGlyphNames.length === 0) {
             return;
         }
 
@@ -3724,39 +3733,50 @@ export class OutlineEditor {
             return;
         }
 
-        // Downstream automatic composites were rebuilt in the model, so the
-        // next editing compile must not reuse the single-layer interactive
-        // cache path. Force a full cache refresh + full compile request.
-        fontManager.forceFullEditingCacheRefresh = true;
-        currentFont.requestRecompileWithoutDataChange();
-        window.autoCompileManager?.checkAndSchedule?.();
+        const currentLayerId = this.getCurrentLayerId();
 
-        try {
-            currentFont.syncJsonFromModel();
-        } catch (error) {
-            console.error(
-                '[OutlineEditor] Error syncing font JSON after sidebearing edit:',
-                error
-            );
+        if (options?.liveVisibleOnly) {
+            // Fire-and-forget: batch source + downstream layer updates
+            // into a single worker cache sync + compilation run.
+            // The model is already updated synchronously; canvas renders
+            // from the model, so visual feedback is immediate.
+            const allGlyphNames = [
+                ...(glyphName ? [glyphName] : []),
+                ...downstreamGlyphNames
+            ];
+            fontManager
+                .refreshGlyphsAfterModelBatch(allGlyphNames, currentLayerId, {
+                    dispatchGlyphChanged: false,
+                    skipFingerprintBaseline: true
+                })
+                .then(() => {
+                    currentFont.requestRecompileWithoutDataChange();
+                    window.autoCompileManager?.checkAndSchedule?.();
+                });
             return;
         }
 
-        void fontManager.forceFullWorkerCacheUpdate().then(() => {
-            for (const affectedGlyphName of uniqueGlyphNames) {
-                if (affectedGlyphName === glyphName) {
-                    continue;
+        // Non-drag path: incremental worker cache update + dispatch
+        // glyphChanged events for downstream tiles in the overview.
+        fontManager
+            .refreshGlyphsAfterModelBatch(
+                [...(glyphName ? [glyphName] : []), ...downstreamGlyphNames],
+                currentLayerId
+            )
+            .then(() => {
+                for (const affectedGlyphName of downstreamGlyphNames) {
+                    window.dispatchEvent(
+                        new CustomEvent('glyphChanged', {
+                            detail: {
+                                glyphName: affectedGlyphName,
+                                layerId: currentLayerId
+                            }
+                        })
+                    );
                 }
-
-                window.dispatchEvent(
-                    new CustomEvent('glyphChanged', {
-                        detail: {
-                            glyphName: affectedGlyphName,
-                            layerId: this.getCurrentLayerId()
-                        }
-                    })
-                );
-            }
-        });
+                currentFont.requestRecompileWithoutDataChange();
+                window.autoCompileManager?.checkAndSchedule?.();
+            });
     }
 
     private rebuildAutomaticCompositesForCurrentEditedGlyph(options?: {
@@ -3956,6 +3976,7 @@ export class OutlineEditor {
         this._cachedAnchorDragScopeSourceGlyphName = null;
         this._cachedAnchorDragScopeVisibleKey = '';
         this._cachedAnchorDragScopeGlyphNames = null;
+        this.resetLiveSidebearingRefreshState();
     }
 
     private getCachedAnchorDragScopeGlyphNames(
@@ -4075,6 +4096,103 @@ export class OutlineEditor {
             : 'keyboard-anchor';
         fontManager.lastEditType = 'anchor';
         this.queueLiveVisibleAnchorDependentRefresh();
+    }
+
+    private resetLiveSidebearingRefreshState(): void {
+        this._liveSidebearingRefreshQueued = false;
+        this._liveSidebearingRefreshPromise = null;
+    }
+
+    private queueLiveVisibleSidebearingDependentRefresh(): void {
+        if (this._liveSidebearingRefreshPromise) {
+            this._liveSidebearingRefreshQueued = true;
+            return;
+        }
+
+        const runRefresh = async () => {
+            this._liveSidebearingRefreshQueued = false;
+
+            const currentFont = fontManager.currentFont;
+            const fontModel = currentFont?.fontModel;
+            const sourceGlyphName = this.getCurrentGlyphModel()?.name;
+            if (!fontModel || !sourceGlyphName) {
+                return;
+            }
+
+            // Sync the editor's working copy into the model layer so that
+            // recomputeMetricsKeys sees the latest width/shapes.
+            const currentLayerData = this.getCurrentLayerDataFromStack();
+            const currentLayerId = this.getCurrentLayerId();
+            const glyph = fontModel.findGlyph(sourceGlyphName);
+            const layerModel = glyph?.findLayerById(currentLayerId ?? '');
+            if (currentLayerData && layerModel) {
+                layerModel.syncFromEditorLayerData({
+                    width: currentLayerData.width,
+                    height: currentLayerData.height,
+                    vertWidth: currentLayerData.vertWidth,
+                    shapes: currentLayerData.shapes,
+                    anchors: currentLayerData.anchors,
+                    guides: currentLayerData.guides,
+                    format_specific: currentLayerData.format_specific
+                });
+            }
+
+            // Recompute metrics keys scoped to visible glyphs in the text run.
+            // Skip full automatic-composite recomposition since sidebearing
+            // cascades only need width updates on downstream layers.
+            const allowedGlyphNames =
+                this.getVisibleGlyphNamesForDragMetricsRefresh(sourceGlyphName);
+            const bridge = window.changeBridge;
+            const recompute = () =>
+                fontModel.recomputeMetricsKeys(
+                    new Set([sourceGlyphName]),
+                    {
+                        allowedGlyphNames,
+                        skipAutomaticCompositeRebuild: true
+                    }
+                );
+            const affectedGlyphNames = new Set<string>([sourceGlyphName]);
+            const recomputedNames =
+                typeof bridge?.runWithoutRecording === 'function'
+                    ? bridge.runWithoutRecording(recompute)
+                    : recompute();
+            for (const glyphName of recomputedNames) {
+                affectedGlyphNames.add(glyphName);
+            }
+
+            try {
+                await this.syncDependentGlyphsAfterSidebearingEdit(
+                    sourceGlyphName,
+                    affectedGlyphNames,
+                    { liveVisibleOnly: true }
+                );
+            } catch (error) {
+                console.error(
+                    '[OutlineEditor] Error refreshing live sidebearing-dependent glyphs:',
+                    error
+                );
+            }
+        };
+
+        this._liveSidebearingRefreshPromise = runRefresh().finally(() => {
+            this._liveSidebearingRefreshPromise = null;
+            if (this._liveSidebearingRefreshQueued) {
+                this.queueLiveVisibleSidebearingDependentRefresh();
+            }
+        });
+    }
+
+    private refreshLiveVisibleSidebearingDependents(now: number): void {
+        if (!this._hasMoved || now - this._lastLiveSidebearingRefreshTime < 50) {
+            return;
+        }
+
+        this._lastLiveSidebearingRefreshTime = now;
+        fontManager.lastChangeSource = this.draggingSomething
+            ? 'mouse-drag-outline'
+            : 'keyboard-outline';
+        fontManager.lastEditType = 'outline';
+        this.queueLiveVisibleSidebearingDependentRefresh();
     }
 
     private getBoundingBoxCenterScreenPosition(): {
@@ -6510,6 +6628,7 @@ export class OutlineEditor {
         this._snapCandidateCache = null;
         this._lastDragSaveTime = 0;
         this._lastLiveAnchorRefreshTime = 0;
+        this._lastLiveSidebearingRefreshTime = 0;
         this._lastPropertyPanelUpdateTime = 0;
         this.cancelPendingDragMetricsUpdate();
         this._pointDragDeltaX = 0;
@@ -9443,8 +9562,9 @@ export class OutlineEditor {
         }
 
         // Throttle saveLayerData during drag (every 50ms) — final save on mouseUp
-        // Anchor drag recomposition already keeps the model in sync and
-        // triggers compilation; saveLayerData would be redundant.
+        // Anchor drag recomposition and sidebearing drag live refresh already
+        // keep the model in sync and trigger compilation; saveLayerData would
+        // be redundant.
         if (this.isDraggingGuide) {
             if (this.selectedGuideHandle?.scope === 'layer') {
                 this.saveLayerData('mouse-drag-guide');
@@ -9452,7 +9572,7 @@ export class OutlineEditor {
         } else if (this.isSlidingSmoothPointAlongCurve) {
             // Sliding a smooth point is applied directly to the model so linked
             // layers stay in sync. Persist once on mouse up.
-        } else if (!this.isDraggingAnchor) {
+        } else if (!this.isDraggingAnchor && !this.isDraggingSidebearing) {
             if (
                 shouldPersistDragFrame &&
                 !this._pendingDragMetricsUpdate &&
@@ -10048,7 +10168,12 @@ export class OutlineEditor {
                                   this._anchorAffectedGlyphNames,
                                   this.getCurrentLayerId()
                               )
-                            : undefined
+                            : dragType === 'sidebearing'
+                              ? this.collectMatchingLayerWorkerReplayTargets(
+                                    this._sidebearingAffectedGlyphNames,
+                                    this.getCurrentLayerId()
+                                )
+                              : undefined
                     );
                 }
             }
@@ -13692,7 +13817,12 @@ export class OutlineEditor {
         this._syncCurrentGlyphToYDoc(
             'Set sidebearing',
             formatSidebearingHistoryValue(side, currentSidebearing),
-            formatSidebearingHistoryValue(side, targetValue)
+            formatSidebearingHistoryValue(side, targetValue),
+            null,
+            this.collectMatchingLayerWorkerReplayTargets(
+                this._sidebearingAffectedGlyphNames,
+                this.getCurrentLayerId()
+            )
         );
         return true;
     }
@@ -13732,6 +13862,11 @@ export class OutlineEditor {
         }
 
         this.adjustSelectedSidebearing(deltaX);
+
+        // During sidebearing drag, queue a live downstream refresh so that
+        // metrics-key cascades update incrementally without saveLayerData.
+        const now = performance.now();
+        this.refreshLiveVisibleSidebearingDependents(now);
     }
 
     private applySelectedPointMove(

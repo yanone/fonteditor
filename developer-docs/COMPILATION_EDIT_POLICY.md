@@ -40,7 +40,9 @@ When these files disagree with this document, treat that as a bug and reconcile 
 | Edit source                             | Origin                                                           | `lastEditType`                        | Immediate scheduling                             | Trailing debounce                                           | `compilationMode` | Option overrides                                                         | Worker font update path                                                                               | Canvas behavior                                                            |
 | --------------------------------------- | ---------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `mouse-drag-outline`                    | `OutlineEditor` drag of nodes and sidebearings                   | `outline`                             | Yes, via `autoCompileManager.checkAndSchedule()` | Yes, `scheduleFullCompileDebounce()` re-arms until drag end | `outline-only`    | `skip_features: true`, `skip_kerning: true`, `produce_varc_table: false` | Incremental sentinel JSON plus `update_cached_layer()`; cached subset key reused                      | Live editing compile during drag; trailing full compile waits for mouseup  |
+| `mouse-drag-sidebearing`               | `OutlineEditor` sidebearing handle drag                           | `outline`                             | Yes, via recomposition loop + `autoCompileManager.checkAndSchedule()` | Yes, `scheduleFullCompileDebounce()` re-arms until drag end; mouseup calls `saveLayerData` for final sync | `outline-only`    | `skip_features: true`, `skip_kerning: true`, `produce_varc_table: false` | No `saveLayerData` during drag; live refresh syncs model + `refreshGlyphsAfterModelBatch` sends all affected layers in one batch; cached subset key reused | Live editing compile during drag (no overview tile repaints); trailing full compile waits for mouseup  |
 | `keyboard-outline`                      | `OutlineEditor` outline nudges and direct sidebearing saves      | `outline`                             | Yes                                              | Yes                                                         | `outline-only`    | `skip_features: true`, `skip_kerning: true`, `produce_varc_table: false` | Incremental sentinel JSON plus `update_cached_layer()`; cached subset key reused                      | Swap font blob and repaint only; skip HarfBuzz reshape                     |
+| `keyboard-sidebearing`                  | `OutlineEditor` keyboard sidebearing adjustments (nudge, set)   | `outline`                             | Yes                                              | Yes                                                         | `outline-only`    | `skip_features: true`, `skip_kerning: true`, `produce_varc_table: false` | Incremental batch via `refreshGlyphsAfterModelBatch`; cached subset key reused | Swap font blob and repaint only; skip HarfBuzz reshape                     |
 | `mouse-drag-anchor`                     | `OutlineEditor` anchor drag                                      | `anchor`                              | Yes, via recomposition loop + `autoCompileManager.checkAndSchedule()` | Yes, `scheduleFullCompileDebounce()` re-arms until drag end; mouseup calls `saveLayerData` for final sync | `anchor-only`     | `skip_kerning: true`, `produce_varc_table: false`                        | No `saveLayerData` during drag; recomposition syncs model + `refreshGlyphsAfterModelBatch` sends all affected layers in one batch; cached subset key reused | Live editing compile during drag (no overview tile repaints); trailing full compile waits for mouseup  |
 | `keyboard-anchor`                       | `OutlineEditor` anchor nudges                                    | `anchor`                              | Yes                                              | Yes                                                         | `anchor-only`     | `skip_kerning: true`, `produce_varc_table: false`                        | Incremental sentinel JSON plus `update_cached_layer()`; cached subset key reused                      | Swap font blob, reshape text, repaint                                      |
 | `mouse-drag-guide`                      | `OutlineEditor` guide drag                                       | `null`                                | Yes                                              | No                                                          | `full`            | None                                                                     | Incremental sentinel JSON plus `update_cached_layer()` because it is still an interactive layer save  | Editing compile may run during drag; full compile manager remains deferred |
@@ -70,9 +72,12 @@ carry replayable layer targets, such as true font-wide data changes.
 When the undone/redone history item touches anchors, undo/redo must set
 `lastEditType = 'anchor'` (and `lastChangeSource = 'keyboard-anchor'`) before
 requesting the editing-font compile so the compile loop uses the faster
-`anchor-only` mode instead of `full`. The trailing debounced full compile still
+`anchor-only` mode instead of `full`. When the undone/redone history item
+touches sidebearings, undo/redo must set `lastEditType = 'outline'` (and
+`lastChangeSource = 'keyboard-outline'`) so the compile loop uses the faster
+`outline-only` mode instead of `full`. The trailing debounced full compile still
 resets `lastEditType` to `null` for correctness, but the immediate editing-font
-compile benefits from the same fast path as the original anchor edit.
+compile benefits from the same fast path as the original edit.
 
 Anchor-edit history entries (both mouse-drag and keyboard) must carry
 `workerReplayTargets` that include all downstream auto-composite glyph/layer
@@ -93,6 +98,10 @@ path) instead of forcing a slow full `storeFontJson` on undo.
 While the pointer is still down for a mouse drag, the live editing compile path must remain active. What must stay suppressed is only the full-compile side: full compile execution itself and the JSON/model sync required to feed that full compile. Mid-drag pauses may continue to produce editing compiles, but must not flush `pendingBabelfontJsonSyncAfterDrag` or run full-font compilation until the drag ends.
 
 Anchor drags skip `saveLayerData()` entirely during the drag. Instead, the recomposition loop (`queueLiveVisibleAnchorDependentRefresh`) keeps the model in sync via `syncFromEditorLayerData` + `rebuildAutomaticCompositesForGlyphs`, and sends all affected layers (source + downstream) to the worker in a single `refreshGlyphsAfterModelBatch` call. The final `saveLayerData('mouse-drag-anchor')` fires on mouseup for the Yjs/collaboration sync and undo history.
+
+Sidebearing drags skip `saveLayerData()` during the drag, mirroring the anchor drag pattern. The live refresh loop (`queueLiveVisibleSidebearingDependentRefresh`) keeps the model in sync via `syncFromEditorLayerData` + `recomputeMetricsKeys` with `skipAutomaticCompositeRebuild: true`, and sends all affected layers (source + downstream) to the worker in a single `refreshGlyphsAfterModelBatch` call. The final `saveLayerData('mouse-drag-outline')` fires on mouseup for the Yjs/collaboration sync and undo history.
+
+Keyboard sidebearing adjustments use the same incremental `refreshGlyphsAfterModelBatch` path for downstream glyphs instead of the full `syncJsonFromModel` + `forceFullWorkerCacheUpdate` path.
 
 ### Debounced full compile
 
@@ -141,6 +150,10 @@ Any change that increases full JSON transfers during interactive editing is a re
 
 Outline and sidebearing edits only change glyph geometry. They can use the most aggressive fast path: incremental layer patching, the subsetted editing target, no feature compilation, no kerning compilation, no VARC generation, and no text reshape on the canvas.
 
+### Sidebearing edits with cascading metrics keys
+
+Sidebearing edits that trigger metrics-key cascades use a fast path in `recomputeMetricsKeys` with `skipAutomaticCompositeRebuild: true`. This skips the expensive `rebuildAutomaticComposition()` layout recalculation for downstream automatic-composite layers, instead directly updating their widths. For LSB cascades, the downstream layer contents are translated horizontally (so RSB stays intact); for RSB cascades, only the advance width changes. The model is pushed to the worker via incremental `refreshGlyphsAfterModelBatch` instead of a full JSON sync.
+
 ### Anchor edits
 
 Anchor edits still benefit from incremental layer patching and cached subset reuse, but they cannot skip all feature work because GPOS mark attachment must stay correct. They keep a live compile path, but use `anchor-only` rather than `outline-only`.
@@ -157,14 +170,16 @@ Text input changes the shaping subset rather than the font data. It therefore by
 
 The following are required and should be covered by tests or explicit review whenever compilation code changes:
 
-1. `mouse-drag-outline` and `mouse-drag-anchor` continue to wake live editing compilation during drag and still schedule the trailing full compile.
+1. `mouse-drag-outline`, `mouse-drag-sidebearing`, and `mouse-drag-anchor` continue to wake live editing compilation during drag and still schedule the trailing full compile.
 2. The trailing full compile for drag edits does not execute, and its pending JSON/model sync does not flush, until the drag has ended.
-3. `keyboard-outline` and `keyboard-anchor` continue to wake compilation immediately and still schedule the trailing full compile.
+3. `keyboard-outline`, `keyboard-sidebearing`, and `keyboard-anchor` continue to wake compilation immediately and still schedule the trailing full compile.
 4. Interactive layer edits continue to use `update_cached_layer()` rather than full font JSON transfer in the steady state.
 5. The editing compile continues to use the subsetted `editing` target before fontc.
 6. `outline-only` still skips reshape and `anchor-only` still reshapes.
 7. Text input still uses the subset-only fast path and still schedules a deferred full compile.
-8. Undo/redo of anchor edits uses `anchor-only` compilation mode and incremental worker-cache refresh (not full `storeFontJson`) when the history item carries `workerReplayTargets` for downstream auto-composite layers.
+8. Sidebearing edits with cascading metrics keys use `refreshGlyphsAfterModelBatch` instead of `forceFullWorkerCacheUpdate`, and skip `rebuildAutomaticComposites` for downstream automatic-composite layers that only need width updates.
+9. Undo/redo of anchor edits uses `anchor-only` compilation mode and incremental worker-cache refresh (not full `storeFontJson`) when the history item carries `workerReplayTargets` for downstream auto-composite layers.
+10. Undo/redo of sidebearing edits uses `outline-only` compilation mode and incremental worker-cache refresh when the history item carries `workerReplayTargets` for downstream layers affected by metrics-key cascades.
 
 ## Change Control
 
