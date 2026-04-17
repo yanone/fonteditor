@@ -2547,7 +2547,7 @@ function locationsMatch(
     return true;
 }
 
-function ensureFontStoredForInterpolation(font: Font): boolean {
+export function ensureFontStoredForInterpolation(font: Font): boolean {
     const version = getInterpolationFontVersion(font);
     const cachedEntry = interpolationFontCache.get(font);
 

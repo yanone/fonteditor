@@ -11,8 +11,10 @@ import type { AxesManager } from './variations';
 import APP_SETTINGS from '../settings';
 import {
     get_glyph_name,
-    get_glyph_order
+    get_glyph_order,
+    interpolate_glyph
 } from '../../wasm-dist/babelfont_fontc_web';
+import { ensureFontStoredForInterpolation } from '../babelfont-model';
 
 import bidiFactory from 'bidi-js';
 
@@ -2553,6 +2555,13 @@ export class TextRunEditor {
                 this.explicitGlyphOutlineCache.set(cacheKey, outline);
             }
 
+            // Always merge the received outlines into the cache (they are
+            // keyed by their own location, so future reads at that location
+            // are O(1)). Only attempt to patch the live shapedGlyphs widths
+            // and trigger a re-render when the worker's location still
+            // matches the current variation location — otherwise a newer
+            // shapeText() pass will seed widths via synchronous Rust
+            // interpolation.
             const isSameLocation =
                 this.getCurrentVariationLocationKey() === locationKey;
             if (!isSameLocation) {
@@ -2628,6 +2637,16 @@ export class TextRunEditor {
             return 250;
         }
 
+        // Compute the interpolated width synchronously at the current
+        // variation location via Rust. This avoids the master-width jitter
+        // that otherwise appears on initial font load and during slider
+        // animation while the async outline prefetch is in flight.
+        const interpolatedAdvance =
+            this.computeInterpolatedExplicitGlyphAdvance(glyphName);
+        if (interpolatedAdvance !== null) {
+            return interpolatedAdvance;
+        }
+
         let layer =
             this.selectedMasterId && glyph.findLayerByMasterId
                 ? glyph.findLayerByMasterId(this.selectedMasterId)
@@ -2642,6 +2661,73 @@ export class TextRunEditor {
         }
 
         return 250;
+    }
+
+    /**
+     * Synchronously interpolate the given explicit-token glyph via the main
+     * thread Rust WASM and return its width at the current variation
+     * location. Result is memoised into the outline cache under the current
+     * location key so subsequent reads are O(1).
+     * Returns null when interpolation is unavailable or failed.
+     */
+    private computeInterpolatedExplicitGlyphAdvance(
+        glyphName: string
+    ): number | null {
+        const fontModel = window.currentFontModel;
+        if (!fontModel) {
+            return null;
+        }
+
+        // Font cache must be primed on the main thread before interpolate_glyph.
+        try {
+            if (!ensureFontStoredForInterpolation(fontModel as any)) {
+                return null;
+            }
+        } catch {
+            return null;
+        }
+
+        const locationSnapshot = this.getCurrentVariationLocationSnapshot();
+        const locationKey = this.serializeVariationLocation(locationSnapshot);
+
+        try {
+            const layerJson = interpolate_glyph(
+                glyphName,
+                JSON.stringify(locationSnapshot)
+            );
+            if (!layerJson) {
+                return null;
+            }
+            const parsed = JSON.parse(layerJson);
+            const width =
+                typeof parsed?.width === 'number' ? parsed.width : null;
+            if (width === null || !Number.isFinite(width)) {
+                return null;
+            }
+
+            const cacheKey = this.makeExplicitGlyphCacheKey(
+                glyphName,
+                locationKey
+            );
+            const existing = this.explicitGlyphOutlineCache.get(cacheKey);
+            if (existing) {
+                existing.width = width;
+            } else {
+                this.explicitGlyphOutlineCache.set(cacheKey, {
+                    name: glyphName,
+                    width
+                });
+            }
+
+            return width;
+        } catch (error) {
+            console.warn(
+                '[TextRun]',
+                `interpolate_glyph width failed for ${glyphName}:`,
+                error
+            );
+            return null;
+        }
     }
 
     buildExplicitTokenGlyph(token: ExplicitGlyphToken): ShapedGlyph {
