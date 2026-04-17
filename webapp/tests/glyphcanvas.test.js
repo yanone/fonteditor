@@ -615,7 +615,8 @@ describe('GlyphCanvas onMouseUp', () => {
                 'Drag point',
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
-                'left'
+                'left',
+                undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
         } finally {
@@ -680,7 +681,8 @@ describe('GlyphCanvas onMouseUp', () => {
                 'Drag point',
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
-                'left'
+                'left',
+                undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
         } finally {
@@ -811,7 +813,8 @@ describe('GlyphCanvas onMouseUp', () => {
                 'Drag point',
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
-                'left'
+                'left',
+                undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
 
@@ -1018,7 +1021,8 @@ describe('GlyphCanvas onMouseUp', () => {
                 'Drag point',
                 "node '(205, 182)'",
                 'RIGHT (205, 182)',
-                'right'
+                'right',
+                undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
         } finally {

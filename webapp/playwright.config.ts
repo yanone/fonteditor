@@ -11,6 +11,10 @@ export default defineConfig({
     // Only run Playwright spec files, not Jest test files
     testMatch: '**/*.spec.ts',
 
+    // The app under test keeps mutable browser-side state in memory, so
+    // browser specs must not run concurrently across workers.
+    workers: 1,
+
     // Maximum time one test can run
     timeout: 120000,
 

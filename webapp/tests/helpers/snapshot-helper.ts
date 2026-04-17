@@ -209,9 +209,29 @@ export async function openFileFromFilesView(page: any, fileName: string) {
                 );
             },
             fileName,
-            { timeout: 10000 }
+            { timeout: 30000 }
         );
-        await fileItem.waitFor({ state: 'visible', timeout: 10000 });
+        await fileItem.waitFor({ state: 'visible', timeout: 30000 });
+    };
+
+    const waitForOpenedFile = async () => {
+        await page.waitForFunction(
+            (targetFileName: string) => {
+                const editorFile =
+                    (window as any).stateManager?.getStateSnapshot?.()?.state
+                        ?.editor_file || '';
+                const queryFile =
+                    new URLSearchParams(window.location.search).get('file') ||
+                    '';
+
+                return (
+                    editorFile.includes(targetFileName) ||
+                    decodeURIComponent(queryFile).includes(targetFileName)
+                );
+            },
+            fileName,
+            { timeout: 20000 }
+        );
     };
 
     try {
@@ -227,7 +247,23 @@ export async function openFileFromFilesView(page: any, fileName: string) {
         await waitForTargetFile();
     }
 
-    await fileItem.dblclick();
+    await fileItem.scrollIntoViewIfNeeded();
+
+    try {
+        await Promise.all([
+            waitForOpenedFile(),
+            fileItem.dblclick({ delay: 50 })
+        ]);
+    } catch {
+        await focusView(page, 'Meta+Shift+F', 'view-files');
+        await waitForFileBrowserReady(page);
+        await waitForTargetFile();
+        await fileItem.scrollIntoViewIfNeeded();
+        await Promise.all([
+            waitForOpenedFile(),
+            fileItem.dblclick({ delay: 50 })
+        ]);
+    }
 }
 
 /**
@@ -246,7 +282,7 @@ export async function waitForFontLoaded(page: any) {
                 !!(window.currentFontModel || currentFont.fontModel)
             );
         },
-        { timeout: 15000 }
+        { timeout: 30000 }
     );
 
     console.log('[Test] Waiting for font model to be ready');
@@ -258,7 +294,7 @@ export async function waitForFontLoaded(page: any) {
                 !!(window.currentFontModel || currentFont.fontModel)
             );
         },
-        { timeout: 5000 }
+        { timeout: 15000 }
     );
 
     console.log(

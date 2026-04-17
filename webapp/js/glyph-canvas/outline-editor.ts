@@ -3931,19 +3931,20 @@ export class OutlineEditor {
                 : Promise.resolve(false);
 
         if (options?.liveVisibleOnly) {
-            // Fire-and-forget: batch source + downstream layer updates
-            // into a single worker cache sync + compilation run.
-            // The model is already updated synchronously; canvas renders
-            // from the model, so visual feedback is immediate.
-            const allGlyphNames = [
-                ...(glyphName ? [glyphName] : []),
-                ...downstreamGlyphNames
-            ];
-            fontManager
-                .refreshGlyphsAfterModelBatch(allGlyphNames, currentLayerId, {
-                    dispatchGlyphChanged: false,
-                    skipFingerprintBaseline: true
-                })
+            // Refresh the actively edited glyph via replay targets first,
+            // then batch-refresh only downstream visible composites.
+            // The edited glyph already renders from the live model state.
+            refreshSourceGlyphPromise
+                .then(() =>
+                    fontManager.refreshGlyphsAfterModelBatch(
+                        downstreamGlyphNames,
+                        currentLayerId,
+                        {
+                            dispatchGlyphChanged: false,
+                            skipFingerprintBaseline: true
+                        }
+                    )
+                )
                 .then(() => {
                     currentFont.requestRecompileWithoutDataChange();
                     window.autoCompileManager?.checkAndSchedule?.();
