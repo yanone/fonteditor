@@ -92,36 +92,81 @@ export async function captureSnapshot(
  */
 export async function waitForCanvasReady(page: any) {
     // Wait for loading overlay to be hidden (app fully initialized)
-    // WebKit can be slower, so we use a longer timeout
-    await page.waitForFunction(
+    // CI runners can lag on app bootstrap, so keep the startup gates tolerant
+    // and include debug state when a readiness predicate stalls.
+    const waitForStartupState = async (
+        label: string,
+        predicate: () => boolean,
+        timeout: number
+    ) => {
+        try {
+            await page.waitForFunction(predicate, { timeout });
+        } catch (error) {
+            const debugState = await page.evaluate(() => {
+                const win = window as any;
+                const loadingOverlay =
+                    document.getElementById('loading-overlay');
+
+                return {
+                    loadingOverlayHidden:
+                        !!loadingOverlay?.classList.contains('hidden'),
+                    hasGlyphCanvas: !!win.glyphCanvas,
+                    hasCanvasElement: !!win.glyphCanvas?.canvas,
+                    hasRenderer: !!win.glyphCanvas?.renderer,
+                    hasViewSettings: !!win.VIEW_SETTINGS,
+                    hasGetCurrentFocusedView:
+                        typeof win.getCurrentFocusedView === 'function',
+                    hasFocusView: typeof win.focusView === 'function',
+                    hasStateManager: !!win.stateManager,
+                    hasInitFileBrowser:
+                        typeof win.initFileBrowser === 'function',
+                    hasWaitForFileBrowserReady:
+                        typeof win.waitForFileBrowserReady === 'function'
+                };
+            });
+
+            throw new Error(
+                `Timed out waiting for canvas startup state: ${label}: ${JSON.stringify(debugState)}`,
+                { cause: error as Error }
+            );
+        }
+    };
+
+    await waitForStartupState(
+        'loading overlay hidden',
         () => {
             const loadingOverlay = document.getElementById('loading-overlay');
-            return (
+            return !!(
                 loadingOverlay && loadingOverlay.classList.contains('hidden')
             );
         },
-        { timeout: 10000 } // 2 minutes for slower browsers like WebKit
+        20000
     );
 
-    // Additional check to ensure canvas is actually ready
-    await page.waitForFunction(
+    await waitForStartupState(
+        'glyph canvas ready',
         () => {
             const win = window as any;
             return (
-                win.glyphCanvas &&
-                win.glyphCanvas.canvas &&
-                win.glyphCanvas.renderer
+                !!win.glyphCanvas?.canvas &&
+                !!win.glyphCanvas?.renderer &&
+                !!win.stateManager
             );
         },
-        { timeout: 5000 }
+        15000
     );
 
-    await page.waitForFunction(
+    await waitForStartupState(
+        'view helpers ready',
         () => {
             const win = window as any;
-            return !!win.VIEW_SETTINGS && !!win.getCurrentFocusedView;
+            return (
+                !!win.VIEW_SETTINGS &&
+                typeof win.getCurrentFocusedView === 'function' &&
+                typeof win.focusView === 'function'
+            );
         },
-        { timeout: 5000 }
+        15000
     );
 
     await page.evaluate(async () => {
