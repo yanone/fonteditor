@@ -9115,11 +9115,16 @@ describe('OutlineEditor exact selected layers', () => {
 
     test('selectLayer keeps the clicked master layer selected during the immediate properties UI rebuild', async () => {
         const targetContainer = document.createElement('div');
+        document.body.appendChild(targetContainer);
         const setupAnimationSpy = jest
             .spyOn(canvas.axesManager, '_setupAnimation')
-            .mockImplementation(() => {});
+            .mockImplementation((newSettings) => {
+                canvas.axesManager.variationSettings = { ...newSettings };
+            });
         canvas.propertiesSection = targetContainer;
         canvas.outlineEditor.active = true;
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 500, dx: 0, dy: 0, g: 0 }];
         canvas.axesManager.variationSettings = { wght: 60 };
 
         await canvas.displayMastersList(targetContainer, false);
@@ -9132,8 +9137,76 @@ describe('OutlineEditor exact selected layers', () => {
         await canvas.outlineEditor.selectLayer(masterLayer);
 
         expect(canvas.outlineEditor.selectedLayerId).toBe('master-layer');
+        expect(
+            targetContainer.querySelector('.editor-layer-add-button').disabled
+        ).toBe(true);
 
         setupAnimationSpy.mockRestore();
+    });
+
+    test('selectLayer disables the create-layer button on the first click after deleting an intermediate layer', async () => {
+        const targetContainer = document.createElement('div');
+        document.body.appendChild(targetContainer);
+        const font = makeComponentFont();
+        const currentFont = {
+            fontModel: font,
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn()
+        };
+        currentFontSpy.mockReturnValue(currentFont);
+        fetchGlyphDataSpy.mockResolvedValue({
+            glyphName: 'A',
+            layers: font.findGlyph('A').layers.map((layer) => layer.toJSON())
+        });
+        const forceFullWorkerCacheUpdateSpy = jest
+            .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
+            .mockResolvedValue();
+        const dirtySpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        const animateSpy = jest
+            .spyOn(canvas, 'animateToLocation')
+            .mockImplementation(async (location) => {
+                canvas.axesManager.variationSettings = { ...location };
+                canvas.outlineEditor.selectedLayerId = null;
+                canvas.outlineEditor.layerData = {
+                    width: 520,
+                    shapes: [],
+                    anchors: [],
+                    guides: [],
+                    isInterpolated: true
+                };
+                canvas.outlineEditor.updateLayerSelection();
+            });
+        const setupAnimationSpy = jest
+            .spyOn(canvas.axesManager, '_setupAnimation')
+            .mockImplementation(() => {});
+
+        canvas.propertiesSection = targetContainer;
+        canvas.outlineEditor.active = true;
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 500, dx: 0, dy: 0, g: 0 }];
+        canvas.axesManager.variationSettings = { wght: 50 };
+
+        await canvas.displayMastersList(targetContainer, false);
+        await canvas.outlineEditor.deleteLayerById('brace-layer');
+
+        const resolvedMasterLayer = currentFont.fontModel
+            .findGlyph('A')
+            .findLayerById('master-layer');
+
+        await canvas.outlineEditor.selectLayer(resolvedMasterLayer);
+
+        expect(canvas.axesManager.variationSettings).toEqual({ wght: 50 });
+        expect(canvas.outlineEditor.selectedLayerId).toBe('master-layer');
+        expect(
+            targetContainer.querySelector('.editor-layer-add-button').disabled
+        ).toBe(true);
+
+        dirtySpy.mockRestore();
+        forceFullWorkerCacheUpdateSpy.mockRestore();
+        setupAnimationSpy.mockRestore();
+        animateSpy.mockRestore();
     });
 
     test('autoSelectMatchingLayer re-enables the create-layer button when already interpolating between stored layer locations', async () => {
@@ -10706,6 +10779,67 @@ describe('OutlineEditor per-layer selection memory', () => {
         ]);
         expect(canvas.outlineEditor.selectedAnchors).toEqual([1]);
         expect(canvas.outlineEditor.selectedComponents).toEqual([1]);
+    });
+
+    test('restoreTargetLayerDataAfterAnimating disables the create-layer button at the clicked exact layer location', async () => {
+        const targetContainer = document.createElement('div');
+        document.body.appendChild(targetContainer);
+        const [masterLayer, braceLayer] = font.findGlyph('A').layers;
+        const cloneLayerData = (layer) =>
+            JSON.parse(JSON.stringify(layer.toJSON()));
+        const setupAnimationSpy = jest
+            .spyOn(canvas.axesManager, '_setupAnimation')
+            .mockImplementation((newSettings) => {
+                canvas.axesManager.variationSettings = { wght: 30 };
+                canvas.outlineEditor.updateLayerSelection();
+                canvas.axesManager.variationSettings = { ...newSettings };
+            });
+        const getSortedLayersSpy = jest
+            .spyOn(canvas, 'getSortedLayers')
+            .mockReturnValue(font.findGlyph('A').layers);
+
+        canvas.propertiesSection = targetContainer;
+        canvas.outlineEditor.active = true;
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 500, dx: 0, dy: 0, g: 0 }];
+        canvas.outlineEditor.layerData = cloneLayerData(masterLayer);
+        canvas.outlineEditor.performHitDetection = jest.fn();
+        canvas.outlineEditor.fetchLayerData = jest.fn(async () => {
+            const currentLayer = font
+                .findGlyph('A')
+                .findLayerById(canvas.outlineEditor.selectedLayerId);
+            canvas.outlineEditor.layerData = cloneLayerData(currentLayer);
+        });
+        canvas.outlineEditor.selectedLayerId = masterLayer.id;
+        canvas.outlineEditor.glyphStack = `A@${masterLayer.id}`;
+        canvas.axesManager.variationSettings = { wght: 0 };
+
+        await canvas.displayMastersList(targetContainer, false);
+
+        const addButton = targetContainer.querySelector(
+            '.editor-layer-add-button'
+        );
+
+        expect(addButton).toBeTruthy();
+        expect(addButton.disabled).toBe(true);
+
+        await canvas.outlineEditor.selectLayer(braceLayer);
+
+        expect(addButton.disabled).toBe(false);
+
+        canvas.axesManager.variationSettings = { wght: 75 };
+
+        await canvas.outlineEditor.restoreTargetLayerDataAfterAnimating();
+
+        const refreshedAddButton = targetContainer.querySelector(
+            '.editor-layer-add-button'
+        );
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe(braceLayer.id);
+        expect(refreshedAddButton.disabled).toBe(true);
+
+        getSortedLayersSpy.mockRestore();
+        setupAnimationSpy.mockRestore();
     });
 
     test('does not transfer selection across glyph switches after glyph stack reset and restores glyph-local layer state', async () => {

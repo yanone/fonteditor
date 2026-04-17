@@ -4886,6 +4886,7 @@ class GlyphCanvas {
                     this.textRunEditor!.shapedGlyphs.length
             ) {
                 if (options?.skipAutoSelectMatchingLayer) {
+                    this.outlineEditor.updateLayerSelection();
                     return;
                 }
                 if (this.outlineEditor.draggingSomething) {

@@ -6358,6 +6358,23 @@ export class OutlineEditor {
         this.isLayerSwitchAnimating = false;
     }
 
+    private syncAddLayerButtonForExplicitSelection(): void {
+        const addLayerButton =
+            this.glyphCanvas.propertiesSection?.querySelector<HTMLButtonElement>(
+                '.editor-layer-add-button'
+            );
+        if (!addLayerButton) {
+            return;
+        }
+
+        if (
+            this.selectedLayerId &&
+            (this.isLayerSwitchAnimating || !this.layerData?.isInterpolated)
+        ) {
+            addLayerButton.disabled = true;
+        }
+    }
+
     private async refreshSelectedLayerWithoutAnimation(
         layer: Babelfont.Layer,
         rootGlyphName?: string
@@ -15819,6 +15836,7 @@ export class OutlineEditor {
         await this.glyphCanvas.updatePropertiesUI({
             skipAutoSelectMatchingLayer: true
         });
+        this.syncAddLayerButtonForExplicitSelection();
     }
 
     async onAnimationComplete() {
@@ -17188,6 +17206,9 @@ export class OutlineEditor {
                     currentLayer
                 );
             }
+
+            this.updateLayerSelection();
+            this.syncAddLayerButtonForExplicitSelection();
 
             if (this.active) {
                 this.glyphCanvas.updatePropertyPanel();
