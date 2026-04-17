@@ -16013,6 +16013,8 @@ export class OutlineEditor {
             this.updateLayerSelection();
             this.glyphCanvas.updatePropertyPanel();
             console.log('No matching layer - deselected');
+        } else {
+            this.updateLayerSelection();
         }
 
         // If we're in glyph edit mode and not on a layer, interpolate at current position
@@ -16474,7 +16476,11 @@ export class OutlineEditor {
                 '.editor-layer-add-button'
             );
         if (addLayerButton) {
-            addLayerButton.disabled = false;
+            const glyphName =
+                this.getLayerLinkGlyphName() ||
+                this.glyphCanvas.getCurrentGlyphName();
+            addLayerButton.disabled =
+                !glyphName || !!this.findMatchingLayer(glyphName);
         }
     }
 

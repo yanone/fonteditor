@@ -8,6 +8,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 babelfont = { path = "../../babelfont-rs/babelfont", features = ["fontir", "glyphs", "ufo", "fontlab", "fontforge"] }
+fontc = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts", default-features = false }
+fontbe = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts", default-features = false }
+fontir = { git = "https://github.com/simoncozens/fontc", branch = "new-varc-writefonts" }
 fea-rs-ast = "0.1.2"
 typeshare = "1.0"
 kurbo = "0.13"
@@ -38,3 +41,10 @@ lto = true
 
 [patch.crates-io]
 norad = { path = "../../norad" }
+fontspector-checkapi = { path = "vendor/fontspector-checkapi-local" }
+
+[patch."https://github.com/googlefonts/fontations"]
+font-types = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/cdd9351/font-types" }
+read-fonts = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/cdd9351/read-fonts" }
+write-fonts = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/cdd9351/write-fonts" }
+skrifa = { path = "/Users/yanone/.cargo/git/checkouts/fontations-2d2a1d0cf2f3a70a/cdd9351/skrifa" }

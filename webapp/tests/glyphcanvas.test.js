@@ -9018,7 +9018,7 @@ describe('OutlineEditor exact selected layers', () => {
         ).toBe(false);
     });
 
-    test('keeps the create-layer button enabled at an exact location until a stored layer is selected', async () => {
+    test('disables the create-layer button at an exact layer location', async () => {
         const targetContainer = document.createElement('div');
         canvas.outlineEditor.active = true;
         canvas.axesManager.variationSettings = { wght: 0 };
@@ -9030,7 +9030,7 @@ describe('OutlineEditor exact selected layers', () => {
         );
 
         expect(addButton).toBeTruthy();
-        expect(addButton.disabled).toBe(false);
+        expect(addButton.disabled).toBe(true);
     });
 
     test('enables the create-layer button between exact layer locations and creates an intermediate layer there', async () => {
@@ -9072,7 +9072,7 @@ describe('OutlineEditor exact selected layers', () => {
         createLayerSpy.mockRestore();
     });
 
-    test('keeps the create-layer button enabled when a stored layer is selected', async () => {
+    test('enables the create-layer button when the selected stored layer does not match the current location', async () => {
         const targetContainer = document.createElement('div');
 
         canvas.outlineEditor.active = true;
@@ -9089,7 +9089,7 @@ describe('OutlineEditor exact selected layers', () => {
         expect(addButton.disabled).toBe(false);
     });
 
-    test('keeps the create-layer button enabled regardless of layer selection state', async () => {
+    test('updates the create-layer button when moving between exact and in-between locations', async () => {
         const targetContainer = document.createElement('div');
         canvas.propertiesSection = targetContainer;
 
@@ -9104,12 +9104,37 @@ describe('OutlineEditor exact selected layers', () => {
         );
 
         expect(addButton).toBeTruthy();
-        expect(addButton.disabled).toBe(false);
+        expect(addButton.disabled).toBe(true);
 
         canvas.outlineEditor.selectedLayerId = null;
         canvas.axesManager.variationSettings = { wght: 60 };
         canvas.outlineEditor.updateLayerSelection();
 
+        expect(addButton.disabled).toBe(false);
+    });
+
+    test('autoSelectMatchingLayer re-enables the create-layer button when already interpolating between stored layer locations', async () => {
+        const targetContainer = document.createElement('div');
+        canvas.propertiesSection = targetContainer;
+        canvas.outlineEditor.active = true;
+        canvas.axesManager.variationSettings = { wght: 0 };
+
+        await canvas.displayMastersList(targetContainer);
+
+        const addButton = targetContainer.querySelector(
+            '.editor-layer-add-button'
+        );
+
+        expect(addButton).toBeTruthy();
+        expect(addButton.disabled).toBe(true);
+
+        canvas.outlineEditor.selectedLayerId = null;
+        canvas.axesManager.variationSettings = { wght: 60 };
+        addButton.disabled = true;
+
+        await canvas.outlineEditor.autoSelectMatchingLayer();
+
+        expect(canvas.outlineEditor.selectedLayerId).toBe(null);
         expect(addButton.disabled).toBe(false);
     });
 

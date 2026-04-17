@@ -2147,6 +2147,9 @@ class GlyphCanvas {
                 return;
             }
 
+            const hasExactLayerAtCurrentLocation =
+                !!this.outlineEditor.findMatchingLayer(glyphNameForLinkState);
+
             const allLinked = this.outlineEditor.areAllLayersLinked(
                 displayedLayerIds,
                 glyphNameForLinkState
@@ -2175,7 +2178,8 @@ class GlyphCanvas {
             }
 
             if (addLayerButton) {
-                addLayerButton.disabled = !glyphNameForLinkState;
+                addLayerButton.disabled =
+                    !glyphNameForLinkState || hasExactLayerAtCurrentLocation;
             }
         };
 
@@ -2189,10 +2193,9 @@ class GlyphCanvas {
                 async () => {
                     const currentUserspaceLocation =
                         this.outlineEditor.getCurrentUserspaceLocation();
-                    const masterId =
-                        this.outlineEditor.findClosestMasterId(
-                            currentUserspaceLocation
-                        );
+                    const masterId = this.outlineEditor.findClosestMasterId(
+                        currentUserspaceLocation
+                    );
                     if (!masterId) {
                         return;
                     }
@@ -2601,8 +2604,7 @@ class GlyphCanvas {
                             userspaceLocation: getUserspaceLocationForDisplay(
                                 intermediateLayer.location
                             ),
-                            designLocation:
-                                intermediateLayer.location || null,
+                            designLocation: intermediateLayer.location || null,
                             isMasterBound: false
                         };
                         const braceItem = createLayerItem(
