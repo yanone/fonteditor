@@ -5,9 +5,9 @@
 Try the editor live:
 
 - Latest official release: https://editor.counterpunch.space
-- Latest preview: https://preview.editor.counterpunch.space
+- Latest preview: https://preview.editor.counterpunch.space (updates after every successful push)
 
-## Develop
+## Development
 
 Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. For further developer documentation, see [DEVELOPMENT.md](/developer-docs/DEVELOPMENT.md)
 
