@@ -5,6 +5,7 @@
     "main": "coi-serviceworker.js",
     "scripts": {
         "test": "npm run test:type-drift && npm run test:tsc && npm run test:jest && playwright test",
+        "test:ci": "npm run test:type-drift && npm run test:tsc && npm run test:jest",
         "test:dead-code": "knip --include files,dependencies,unlisted",
         "test:type-drift": "cd .. && ./check-type-drift.sh",
         "test:tsc": "tsc --noEmit",

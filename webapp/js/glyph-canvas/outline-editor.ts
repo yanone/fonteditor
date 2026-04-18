@@ -2926,7 +2926,7 @@ export class OutlineEditor {
     private _snapDragStartMouseX: number | null = null;
     private _snapDragStartMouseY: number | null = null;
     private _snapDragStartNodePos: { x: number; y: number } | null = null;
-    /** The node's actual position at the moment dragging began. Used by the renderer to draw origin guides. */
+    /** The dragged handle's actual position at the moment dragging began. Used by the renderer to draw origin guides. */
     get snapDragStartNodePos(): { x: number; y: number } | null {
         return this._snapDragStartNodePos;
     }
@@ -3346,6 +3346,13 @@ export class OutlineEditor {
         }
 
         this._pointDragDeltaX += deltaX;
+    }
+
+    private usesSharedSnapDrag(): boolean {
+        return (
+            (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve) ||
+            this.isDraggingAnchor
+        );
     }
 
     private updateComponentDragDeltaX(deltaX: number): void {
@@ -8534,11 +8541,7 @@ export class OutlineEditor {
                     cacheKey
                 );
 
-                if (
-                    this.isDraggingPoint &&
-                    !this.isSlidingSmoothPointAlongCurve &&
-                    this._snapDragStartNodePos
-                ) {
+                if (this.usesSharedSnapDrag() && this._snapDragStartNodePos) {
                     this._rebuildSnapCandidateCache();
                     this.glyphCanvas.render();
                 }
@@ -8671,12 +8674,8 @@ export class OutlineEditor {
     }
 
     collectDebugSnapCandidates(): SnapCandidate[] {
-        // Show only during active on-curve point drag; use cached data only.
-        if (
-            !this.isDraggingPoint ||
-            this.isSlidingSmoothPointAlongCurve ||
-            !this._snapCandidateCache
-        ) {
+        // Show only during active point/anchor drag; use cached data only.
+        if (!this.usesSharedSnapDrag() || !this._snapCandidateCache) {
             return [];
         }
         // Filter out active-glyph nodes: they are identical to the visible
@@ -8710,13 +8709,14 @@ export class OutlineEditor {
         };
 
         // Active glyph on-curve nodes (split into dragged vs non-dragged)
-        const draggedKeys = this.isDraggingPoint
-            ? new Set(
-                  this.selectedPoints.map(
-                      (p) => `${p.contourIndex}:${p.nodeIndex}`
+        const draggedKeys =
+            this.isDraggingPoint || this.isDraggingAnchor
+                ? new Set(
+                      this.selectedPoints.map(
+                          (p) => `${p.contourIndex}:${p.nodeIndex}`
+                      )
                   )
-              )
-            : new Set<string>();
+                : new Set<string>();
         const activeNonDragged: SnapCandidate[] = [];
         const activeDragged: SnapCandidate[] = [];
 
@@ -8931,7 +8931,14 @@ export class OutlineEditor {
      */
     private _getPrimaryDragNodePos(): { x: number; y: number } | null {
         const currentLayerData = this.getCurrentLayerDataFromStack();
-        if (!currentLayerData?.shapes) return null;
+        if (!currentLayerData) return null;
+        if (this.isDraggingAnchor) {
+            const anchor = currentLayerData.anchors?.[this.selectedAnchors[0]];
+            if (anchor) {
+                return { x: anchor.x, y: anchor.y };
+            }
+        }
+        if (!currentLayerData.shapes) return null;
         if (this._dragConnectionSourcePoint) {
             const contour = getEditableContour(
                 currentLayerData.shapes[
@@ -9204,11 +9211,7 @@ export class OutlineEditor {
      * Return the active snap visualization state for dragging or command-path preview.
      */
     getSnapVisualizationState(): SnapVisualizationState | null {
-        if (
-            this.isDraggingPoint &&
-            !this.isSlidingSmoothPointAlongCurve &&
-            this._snapCandidateCache
-        ) {
+        if (this.usesSharedSnapDrag() && this._snapCandidateCache) {
             return {
                 debugCandidates:
                     this._snapCandidateCache.debugCandidates.filter(
@@ -10192,11 +10195,7 @@ export class OutlineEditor {
 
         // Initialize snap drag-start state on the first genuine drag frame
         // (previousGlyphX === null means no movement has been applied yet)
-        if (
-            this.isDraggingPoint &&
-            !this.isSlidingSmoothPointAlongCurve &&
-            previousGlyphX === null
-        ) {
+        if (this.usesSharedSnapDrag() && previousGlyphX === null) {
             this._snapDragStartMouseX = glyphX;
             this._snapDragStartMouseY = glyphY;
             this._snapDragStartNodePos = this._getPrimaryDragNodePos();
@@ -10204,14 +10203,13 @@ export class OutlineEditor {
             this._rebuildSnapCandidateCache();
         }
 
-        // Apply node snapping when dragging on-curve points (not sliding smooth points)
+        // Apply shared snapping when dragging points or anchors.
         let effectiveDeltaX = deltaX;
         let effectiveDeltaY = this.isDraggingSidebearing ? 0 : deltaY;
 
         if (
-            this.isDraggingPoint &&
-            !this.isSlidingSmoothPointAlongCurve &&
-            this.selectedPoints.length > 0
+            this.usesSharedSnapDrag() &&
+            (this.selectedPoints.length > 0 || this.selectedAnchors.length > 0)
         ) {
             // Read primary node position once for this frame (avoids a
             // redundant getCurrentLayerDataFromStack inside _applySnapToDelta)
@@ -10227,28 +10225,37 @@ export class OutlineEditor {
             effectiveDeltaX = snapped.deltaX;
             effectiveDeltaY = this.isDraggingSidebearing ? 0 : snapped.deltaY;
 
-            const predictedTargetX =
-                (primaryPos?.x ?? glyphX) + effectiveDeltaX;
-            const predictedTargetY =
-                (primaryPos?.y ?? glyphY) + effectiveDeltaY;
-            const endpointSnapTarget = this.findOpenPathEndpointSnapTarget(
-                predictedTargetX,
-                predictedTargetY
-            );
-            if (endpointSnapTarget && primaryPos) {
-                const currentLayerData = this.getCurrentLayerDataFromStack();
-                const targetContour = getEditableContour(
-                    currentLayerData?.shapes?.[endpointSnapTarget.shapeIndex]
+            if (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve) {
+                const predictedTargetX =
+                    (primaryPos?.x ?? glyphX) + effectiveDeltaX;
+                const predictedTargetY =
+                    (primaryPos?.y ?? glyphY) + effectiveDeltaY;
+                const endpointSnapTarget = this.findOpenPathEndpointSnapTarget(
+                    predictedTargetX,
+                    predictedTargetY
                 );
-                const targetNode =
-                    targetContour?.nodes?.[endpointSnapTarget.nodeIndex];
-                if (targetNode) {
-                    effectiveDeltaX = targetNode.x - primaryPos.x;
-                    effectiveDeltaY = this.isDraggingSidebearing
-                        ? 0
-                        : targetNode.y - primaryPos.y;
-                    this.isSnappedToCloseOpenPath = true;
-                    this._snappedOpenPathEndpointTarget = endpointSnapTarget;
+                if (endpointSnapTarget && primaryPos) {
+                    const currentLayerData =
+                        this.getCurrentLayerDataFromStack();
+                    const targetContour = getEditableContour(
+                        currentLayerData?.shapes?.[
+                            endpointSnapTarget.shapeIndex
+                        ]
+                    );
+                    const targetNode =
+                        targetContour?.nodes?.[endpointSnapTarget.nodeIndex];
+                    if (targetNode) {
+                        effectiveDeltaX = targetNode.x - primaryPos.x;
+                        effectiveDeltaY = this.isDraggingSidebearing
+                            ? 0
+                            : targetNode.y - primaryPos.y;
+                        this.isSnappedToCloseOpenPath = true;
+                        this._snappedOpenPathEndpointTarget =
+                            endpointSnapTarget;
+                    }
+                } else {
+                    this.isSnappedToCloseOpenPath = false;
+                    this._snappedOpenPathEndpointTarget = null;
                 }
             } else {
                 this.isSnappedToCloseOpenPath = false;
@@ -10287,7 +10294,7 @@ export class OutlineEditor {
             );
             this.updatePointDragDeltaX(effectiveDeltaX);
         }
-        this._updateDraggedAnchors(deltaX, deltaY);
+        this._updateDraggedAnchors(effectiveDeltaX, effectiveDeltaY);
         this._updateDraggedSidebearing(effectiveDeltaX);
 
         const now = performance.now();
@@ -10301,10 +10308,7 @@ export class OutlineEditor {
             this.updateComponentDragDeltaX(deltaX);
         }
 
-        if (
-            this.isDraggingComponent ||
-            (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve)
-        ) {
+        if (this.isDraggingComponent || this.usesSharedSnapDrag()) {
             this.schedulePendingDragMetricsUpdate();
         }
 

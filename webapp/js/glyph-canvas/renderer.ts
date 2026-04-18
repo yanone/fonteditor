@@ -3188,6 +3188,32 @@ export class GlyphCanvasRenderer {
         this.ctx.restore();
     }
 
+    private isExactOriginSnapReturn(
+        snapVisualizationState: {
+            snapTarget: {
+                xSource: { source: string } | null;
+                ySource: { source: string } | null;
+                snappedX: number;
+                snappedY: number;
+            } | null;
+            naturalPos: { x: number; y: number } | null;
+            originPos: { x: number; y: number } | null;
+        } | null
+    ): boolean {
+        const snapTarget = snapVisualizationState?.snapTarget;
+        const originPos = snapVisualizationState?.originPos;
+        if (!snapTarget || !originPos) {
+            return false;
+        }
+
+        return (
+            snapTarget.snappedX === originPos.x &&
+            snapTarget.snappedY === originPos.y &&
+            (snapTarget.xSource?.source === 'origin' ||
+                snapTarget.ySource?.source === 'origin')
+        );
+    }
+
     /**
      * Draw snap visualization:
      * - ALWAYS during point drag: small dot for each neighboring glyph's eligible snap node
@@ -3237,6 +3263,15 @@ export class GlyphCanvasRenderer {
 
         const snapVisualizationState =
             this.glyphCanvas.outlineEditor.getSnapVisualizationState();
+        const exactOriginReturn = this.isExactOriginSnapReturn(
+            snapVisualizationState
+        );
+        const highlightLineColor = exactOriginReturn
+            ? colors.NODE_SELECTED
+            : colors.SNAP_HIGHLIGHT_LINE;
+        const highlightNodeColor = exactOriginReturn
+            ? colors.NODE_SELECTED
+            : colors.SNAP_HIGHLIGHT_NODE;
 
         // ---- Neighboring glyph snap nodes ----
         {
@@ -3246,10 +3281,28 @@ export class GlyphCanvasRenderer {
                 const dotRadius = 3 * invScale;
                 this.ctx.save();
                 this.ctx.fillStyle = colors.SNAP_DEBUG_NODE;
+                this.ctx.strokeStyle = exactOriginReturn
+                    ? colors.NODE_SELECTED
+                    : colors.SNAP_HIGHLIGHT_NODE;
+                this.ctx.lineWidth = 1 * invScale;
                 for (const c of candidates) {
-                    this.ctx.beginPath();
-                    this.ctx.arc(c.x, c.y, dotRadius, 0, Math.PI * 2);
-                    this.ctx.fill();
+                    if (c.source === 'origin') {
+                        const originRadius = dotRadius * 1.75;
+                        this.ctx.beginPath();
+                        this.ctx.arc(c.x, c.y, originRadius, 0, Math.PI * 2);
+                        this.ctx.stroke();
+
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(c.x - originRadius, c.y);
+                        this.ctx.lineTo(c.x + originRadius, c.y);
+                        this.ctx.moveTo(c.x, c.y - originRadius);
+                        this.ctx.lineTo(c.x, c.y + originRadius);
+                        this.ctx.stroke();
+                    } else {
+                        this.ctx.beginPath();
+                        this.ctx.arc(c.x, c.y, dotRadius, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
                 }
                 this.ctx.restore();
             }
@@ -3263,6 +3316,8 @@ export class GlyphCanvasRenderer {
 
         if (snapTarget && naturalPos) {
             const highlightRadius = 5 * invScale;
+            const highlightRingRadius =
+                highlightRadius * (exactOriginReturn ? 2.75 : 2);
             const lineWidth = 1 * invScale;
             const { xSource, ySource, snappedX, snappedY } = snapTarget;
 
@@ -3307,8 +3362,8 @@ export class GlyphCanvasRenderer {
                 }
 
                 this.ctx.save();
-                this.ctx.strokeStyle = colors.SNAP_HIGHLIGHT_LINE;
-                this.ctx.fillStyle = colors.SNAP_HIGHLIGHT_NODE;
+                this.ctx.strokeStyle = highlightLineColor;
+                this.ctx.fillStyle = highlightNodeColor;
                 this.ctx.lineWidth = lineWidth;
 
                 // Draw the line only if it has non-zero length
@@ -3328,7 +3383,7 @@ export class GlyphCanvasRenderer {
                 this.ctx.arc(
                     targetX,
                     targetY,
-                    highlightRadius * 2,
+                    highlightRingRadius,
                     0,
                     Math.PI * 2
                 );
@@ -3361,8 +3416,8 @@ export class GlyphCanvasRenderer {
                 // Only draw if the origin differs from the current snapped pos
                 if (originPos.x !== snappedX || originPos.y !== snappedY) {
                     this.ctx.save();
-                    this.ctx.strokeStyle = colors.SNAP_HIGHLIGHT_LINE;
-                    this.ctx.fillStyle = colors.SNAP_HIGHLIGHT_NODE;
+                    this.ctx.strokeStyle = highlightLineColor;
+                    this.ctx.fillStyle = highlightNodeColor;
                     this.ctx.lineWidth = lineWidth;
 
                     this.ctx.beginPath();

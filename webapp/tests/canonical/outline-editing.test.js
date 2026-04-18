@@ -1685,6 +1685,61 @@ describe('Outline Editing canonical behavior', () => {
         );
     });
 
+    test('dragging an anchor reuses point snap candidates and its origin candidate', () => {
+        activateEditableLayer(canvas, {
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 120, y: 90, nodetype: 'Move', smooth: false },
+                        { x: 180, y: 90, nodetype: 'Line', smooth: false }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [{ name: 'top', x: 60, y: 60 }],
+            guides: []
+        });
+
+        canvas.outlineEditor.selectedAnchors = [0];
+        canvas.outlineEditor.isDraggingAnchor = true;
+        canvas.outlineEditor._snapDragStartMouseX = 60;
+        canvas.outlineEditor._snapDragStartMouseY = 60;
+        canvas.outlineEditor._snapDragStartNodePos = { x: 60, y: 60 };
+        canvas.outlineEditor._snapCandidateCache =
+            canvas.outlineEditor._buildSnapCandidateCache({ x: 60, y: 60 });
+
+        const snapped = canvas.outlineEditor._applySnapToDelta(
+            58,
+            32,
+            118,
+            92,
+            60,
+            60
+        );
+
+        expect(snapped).toEqual({ deltaX: 60, deltaY: 30 });
+        expect(canvas.outlineEditor.getSnapVisualizationState()).toEqual(
+            expect.objectContaining({
+                naturalPos: { x: 118, y: 92 },
+                originPos: { x: 60, y: 60 },
+                debugCandidates: expect.arrayContaining([
+                    expect.objectContaining({
+                        source: 'origin',
+                        x: 60,
+                        y: 60
+                    })
+                ]),
+                snapTarget: expect.objectContaining({
+                    xSource: expect.objectContaining({ source: 'active' }),
+                    ySource: expect.objectContaining({ source: 'active' }),
+                    snappedX: 120,
+                    snappedY: 90
+                })
+            })
+        );
+    });
+
     test('starting a command path snaps the first point to a vertical metric line', () => {
         const font = makeSinglePathFont([], false);
 

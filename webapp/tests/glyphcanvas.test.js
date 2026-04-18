@@ -189,6 +189,114 @@ describe('GlyphCanvas renderer anchor-only layers', () => {
     });
 });
 
+describe('GlyphCanvas renderer snap visualization', () => {
+    let canvas;
+
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="test-container"></div>';
+        canvas = new GlyphCanvas('test-container');
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.isPreviewMode = false;
+        canvas.outlineEditor.layerData = {
+            width: 578,
+            shapes: [],
+            anchors: [],
+            guides: []
+        };
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [{ ax: 578, dx: 0, dy: 0, g: 0 }];
+        canvas.viewportManager.scale = 100;
+    });
+
+    afterEach(() => {
+        canvas.destroy();
+    });
+
+    test('drawSnapVisualization draws origin candidates differently from regular snap dots', () => {
+        canvas.outlineEditor.getSnapVisualizationState = jest.fn(() => ({
+            debugCandidates: [{ x: 10, y: 20, source: 'origin' }],
+            snapTarget: null,
+            naturalPos: null,
+            originPos: { x: 10, y: 20 }
+        }));
+
+        canvas.renderer.ctx.stroke.mockClear();
+        canvas.renderer.ctx.fill.mockClear();
+
+        canvas.renderer.drawSnapVisualization();
+
+        expect(canvas.renderer.ctx.stroke).toHaveBeenCalled();
+        expect(canvas.renderer.ctx.fill).not.toHaveBeenCalled();
+    });
+
+    test('detects a snapped return to origin for red snap highlights', () => {
+        expect(
+            canvas.renderer.isExactOriginSnapReturn({
+                debugCandidates: [],
+                snapTarget: {
+                    xSource: { source: 'origin' },
+                    ySource: { source: 'origin' },
+                    snappedX: 60,
+                    snappedY: 40
+                },
+                naturalPos: { x: 60, y: 40 },
+                originPos: { x: 60, y: 40 }
+            })
+        ).toBe(true);
+
+        expect(
+            canvas.renderer.isExactOriginSnapReturn({
+                debugCandidates: [],
+                snapTarget: {
+                    xSource: { source: 'origin' },
+                    ySource: { source: 'origin' },
+                    snappedX: 60,
+                    snappedY: 40
+                },
+                naturalPos: { x: 61, y: 40 },
+                originPos: { x: 60, y: 40 }
+            })
+        ).toBe(true);
+
+        expect(
+            canvas.renderer.isExactOriginSnapReturn({
+                debugCandidates: [],
+                snapTarget: {
+                    xSource: { source: 'active' },
+                    ySource: { source: 'active' },
+                    snappedX: 60,
+                    snappedY: 40
+                },
+                naturalPos: { x: 60, y: 40 },
+                originPos: { x: 60, y: 40 }
+            })
+        ).toBe(false);
+    });
+
+    test('drawSnapVisualization enlarges the snap ring when exactly back on origin', () => {
+        canvas.outlineEditor.getSnapVisualizationState = jest.fn(() => ({
+            debugCandidates: [{ x: 60, y: 40, source: 'origin' }],
+            snapTarget: {
+                xSource: { source: 'origin' },
+                ySource: { source: 'origin' },
+                snappedX: 60,
+                snappedY: 40
+            },
+            naturalPos: { x: 60, y: 40 },
+            originPos: { x: 60, y: 40 }
+        }));
+
+        canvas.renderer.ctx.arc.mockClear();
+
+        canvas.renderer.drawSnapVisualization();
+
+        const arcRadii = canvas.renderer.ctx.arc.mock.calls.map(
+            (call) => call[2]
+        );
+        expect(arcRadii).toContain(0.1375);
+    });
+});
+
 // ==================== Mouse Interaction Tests ====================
 
 describe('GlyphCanvas onMouseMove', () => {
