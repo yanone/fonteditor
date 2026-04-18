@@ -22,7 +22,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Assistant generates Python code
 - ✅ Canvas drawing plugins
 
-### Pre-babelfont-ts Foundation (Due: Feb 2, 2026)
+### Pre-babelfont-ts Foundation (February 2nd, 2026)
 
 **Website and subscription system while waiting for `babelfont-ts`**
 
@@ -38,7 +38,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Website design
 - ✅ Canvas plugin system
 
-### v0.2 (Due: Mar 3, 2026)
+### v0.2 (March 3rd, 2026)
 
 **`babelfont-ts` object model integration — Counterpunch becomes an analysis tool**
 
@@ -66,7 +66,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Basic documentation
 - ✅ First video
 
-### v0.3 (Due: April 20, 2026)
+### v0.3 (April 23rd, 2026)
 
 **Counterpunch becomes a simple font editor**
 
@@ -91,7 +91,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ◻️ Font export
 - ◻️ Source saving
 
-### v0.4 (Due: ?, 2026)
+### v0.4
 
 **Extended features — Counterpunch becomes a full-featured font editor**
 
@@ -105,7 +105,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Multiple font windows
 - ◻️ Plugin system architecture complete
 
-### v0.5 (Due: ?, 2026)
+### v0.5
 
 Cleanup, documentation, testing, videos
 
@@ -119,7 +119,7 @@ Cleanup, documentation, testing, videos
 - ◻️ Load testing
 - ◻️ User guide completion
 
-### v0.6 Public Beta (Due: ?, 2026)
+### v0.6 Public Beta
 
 - ◻️ Monitoring and analytics setup
 - ◻️ Security and penetration testing
@@ -130,4 +130,4 @@ Cleanup, documentation, testing, videos
 
 Polish, incorporate user feedback
 
-### v1.0 Public Release (Due: October 2026)
+### v1.0 Public Release (October 2026)
