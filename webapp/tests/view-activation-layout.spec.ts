@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
-import { waitForCanvasReady } from './helpers/snapshot-helper';
+import { focusView, waitForCanvasReady } from './helpers/snapshot-helper';
 
-async function activateView(page: Page, shortcutKey: string) {
-    await page.keyboard.press(`Meta+Shift+${shortcutKey}`);
+async function activateView(page: Page, shortcutKey: string, viewId: string) {
+    await focusView(page, `Meta+Shift+${shortcutKey}`, viewId);
     await page.waitForTimeout(450);
 }
 
@@ -27,29 +27,31 @@ async function getActivationMinimumWidths(page: Page) {
 test('activation width uses previous row focus order and persists it', async ({
     page
 }) => {
-    await page.addInitScript(() => {
-        if (sessionStorage.getItem('layout-test-cleared') === 'true') {
+    const layoutClearToken = `layout-test-clear-${Date.now()}-${Math.random()}`;
+
+    await page.addInitScript((token: string) => {
+        if (sessionStorage.getItem('layout-test-clear-token') === token) {
             return;
         }
 
         localStorage.removeItem('viewLayout');
         localStorage.removeItem('last_active_view');
-        sessionStorage.setItem('layout-test-cleared', 'true');
-    });
+        sessionStorage.setItem('layout-test-clear-token', token);
+    }, layoutClearToken);
 
     await page.goto('/?test=true');
     await waitForCanvasReady(page);
 
     const minimumWidths = await getActivationMinimumWidths(page);
 
-    await activateView(page, 'E');
+    await activateView(page, 'E', 'view-editor');
     const topBeforeFontInfo = await getViewWidths(page, [
         'view-fontinfo',
         'view-overview',
         'view-editor'
     ]);
 
-    await activateView(page, 'I');
+    await activateView(page, 'I', 'view-fontinfo');
     const topAfterFontInfo = await getViewWidths(page, [
         'view-fontinfo',
         'view-overview',
@@ -75,7 +77,7 @@ test('activation width uses previous row focus order and persists it', async ({
         topBeforeFontInfo['view-editor']
     );
 
-    await activateView(page, 'O');
+    await activateView(page, 'O', 'view-overview');
     const topAfterOverview = await getViewWidths(page, [
         'view-fontinfo',
         'view-overview',
@@ -106,7 +108,7 @@ test('activation width uses previous row focus order and persists it', async ({
         );
     }
 
-    await activateView(page, 'K');
+    await activateView(page, 'K', 'view-console');
     const bottomBeforeFiles = await getViewWidths(page, [
         'view-files',
         'view-assistant',
@@ -114,7 +116,7 @@ test('activation width uses previous row focus order and persists it', async ({
         'view-console'
     ]);
 
-    await activateView(page, 'F');
+    await activateView(page, 'F', 'view-files');
     const bottomAfterFiles = await getViewWidths(page, [
         'view-files',
         'view-assistant',

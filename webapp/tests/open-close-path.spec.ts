@@ -1,7 +1,8 @@
 import { test, expect, Page } from '@playwright/test';
 import {
     waitForCanvasReady,
-    waitForFontLoaded
+    waitForFontLoaded,
+    focusView
 } from './helpers/snapshot-helper';
 
 /**
@@ -572,7 +573,7 @@ test.describe('Open/Close Path across linked masters', () => {
         await page.mouse.move(-100, -100);
         await page.waitForTimeout(200);
         // Activate editor view
-        await page.keyboard.press('Meta+Shift+E');
+        await focusView(page, 'Meta+Shift+E', 'view-editor');
         await page.waitForTimeout(500);
     });
 

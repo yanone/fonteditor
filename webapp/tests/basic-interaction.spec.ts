@@ -700,7 +700,7 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // Navigate to font info / features view
         console.log('[Test] Navigating to features view');
-        await page.keyboard.press('Meta+Shift+I');
+        await focusView(page, 'Meta+Shift+I', 'view-fontinfo');
         await page.waitForTimeout(200);
 
         // Click the Features tab

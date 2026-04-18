@@ -2,11 +2,12 @@ import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import {
     waitForCanvasReady,
     waitForFontLoaded,
-    waitForOpenSessionReady
+    waitForOpenSessionReady,
+    focusView
 } from './helpers/snapshot-helper';
 
 async function openFustatFont(page: Page): Promise<void> {
-    await page.keyboard.press('Meta+Shift+F');
+    await focusView(page, 'Meta+Shift+F', 'view-files');
     await page.waitForTimeout(200);
     await page.getByText('Fustat.glyphs').first().dblclick();
 

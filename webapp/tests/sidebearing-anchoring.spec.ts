@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { waitForCanvasReady } from './helpers/snapshot-helper';
+import { waitForCanvasReady, focusView } from './helpers/snapshot-helper';
 
 type Side = 'left' | 'right';
 type EditMode = 'handle' | 'point';
@@ -253,7 +253,7 @@ async function openTestGlyphN(
 ): Promise<void> {
     await page.goto('/?test=true');
     await waitForCanvasReady(page);
-    await page.keyboard.press('Meta+Shift+E');
+    await focusView(page, 'Meta+Shift+E', 'view-editor');
 
     await loadTestFont(
         page,
