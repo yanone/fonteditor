@@ -831,14 +831,24 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
-    test('point drag throttles metrics-key recompute to persisted drag frames and mouseup', () => {
+    test('point drag throttles metrics-key recompute to live refresh frames and mouseup persistence', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
         const originalFlushPendingDebugEditingFontSaveAfterDrag =
             fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const originalOpenedFonts = fontManager.openedFonts;
+        const originalCurrentFontId = fontManager.currentFontId;
+        const originalRefreshGlyphsAfterModelBatch =
+            fontManager.refreshGlyphsAfterModelBatch;
         const applyMetricsKeysSpy = jest
             .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
-            .mockReturnValue(null);
+            .mockReturnValue({
+                glyphName: 'A',
+                nextWidth: 520,
+                glyphAdvances: { A: 520 },
+                advancesRefreshed: true,
+                affectedGlyphNames: new Set(['A'])
+            });
         const saveLayerDataSpy = jest
             .spyOn(canvas.outlineEditor, 'saveLayerData')
             .mockResolvedValue(undefined);
@@ -878,6 +888,10 @@ describe('GlyphCanvas onMouseUp', () => {
             .mockImplementationOnce(() => 60)
             .mockImplementationOnce(() => 110)
             .mockImplementation(() => 110);
+        const requestRecompileWithoutDataChange = jest.fn();
+        const refreshGlyphsAfterModelBatchSpy = jest
+            .fn()
+            .mockResolvedValue(undefined);
 
         try {
             window.changeBridge = {
@@ -887,6 +901,17 @@ describe('GlyphCanvas onMouseUp', () => {
             };
             fontManager.updateWorkerFontCache = jest.fn();
             fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+            fontManager.openedFonts = new Map([
+                [
+                    'test-font',
+                    {
+                        requestRecompileWithoutDataChange
+                    }
+                ]
+            ]);
+            fontManager.currentFontId = 'test-font';
+            fontManager.refreshGlyphsAfterModelBatch =
+                refreshGlyphsAfterModelBatchSpy;
 
             canvas.outlineEditor.active = true;
             canvas.outlineEditor.currentGlyphName = 'A';
@@ -942,21 +967,28 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(scheduledFlushes).toHaveLength(1);
 
             scheduledFlushes.shift()();
+            await Promise.resolve();
 
             expect(applyMetricsKeysSpy).toHaveBeenCalledTimes(1);
-            expect(saveLayerDataSpy).toHaveBeenCalledTimes(1);
-            expect(saveLayerDataSpy).toHaveBeenNthCalledWith(
-                1,
-                'mouse-drag-outline'
+            expect(saveLayerDataSpy).toHaveBeenCalledTimes(0);
+            expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledTimes(1);
+            expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledWith(
+                ['A'],
+                'layer-1',
+                {
+                    dispatchGlyphChanged: false,
+                    skipFingerprintBaseline: true
+                }
             );
+            expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
 
             canvas.outlineEditor._hasMoved = true;
             canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
 
             expect(applyMetricsKeysSpy).toHaveBeenCalledTimes(2);
-            expect(saveLayerDataSpy).toHaveBeenCalledTimes(2);
+            expect(saveLayerDataSpy).toHaveBeenCalledTimes(1);
             expect(saveLayerDataSpy).toHaveBeenNthCalledWith(
-                2,
+                1,
                 'mouse-drag-outline'
             );
         } finally {
@@ -964,6 +996,10 @@ describe('GlyphCanvas onMouseUp', () => {
             fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
             fontManager.flushPendingDebugEditingFontSaveAfterDrag =
                 originalFlushPendingDebugEditingFontSaveAfterDrag;
+            fontManager.openedFonts = originalOpenedFonts;
+            fontManager.currentFontId = originalCurrentFontId;
+            fontManager.refreshGlyphsAfterModelBatch =
+                originalRefreshGlyphsAfterModelBatch;
             applyMetricsKeysSpy.mockRestore();
             saveLayerDataSpy.mockRestore();
             syncSpy.mockRestore();

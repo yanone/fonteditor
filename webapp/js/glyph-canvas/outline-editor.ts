@@ -2953,6 +2953,10 @@ export class OutlineEditor {
     private _cachedAnchorDragScopeSourceGlyphName: string | null = null;
     private _cachedAnchorDragScopeVisibleKey: string = '';
     private _cachedAnchorDragScopeGlyphNames: Set<string> | null = null;
+    private _liveOutlineRefreshPromise: Promise<void> | null = null;
+    private _liveOutlineRefreshQueued: boolean = false;
+    private _liveOutlineRefreshGlyphNames: Set<string> = new Set();
+    private _liveOutlineRefreshChangeSource: string | null = null;
     private _liveSidebearingRefreshPromise: Promise<void> | null = null;
     private _liveSidebearingRefreshQueued: boolean = false;
     private _pointDragPreserveHandlePositions: boolean = false;
@@ -3675,18 +3679,26 @@ export class OutlineEditor {
 
     private flushPendingDragMetricsUpdate(
         changeSource: string,
-        forceMetricsRecompute: boolean = false
+        forceMetricsRecompute: boolean = false,
+        persistLayerData: boolean = false
     ): void {
         this._pendingDragMetricsUpdate = false;
         this._lastDragSaveTime = performance.now();
 
+        let metricsUpdate: {
+            glyphName: string;
+            nextWidth: number;
+            glyphAdvances: Record<string, number>;
+            advancesRefreshed: boolean;
+            affectedGlyphNames: Set<string>;
+        } | null = null;
         if (
             forceMetricsRecompute ||
             this.isDraggingComponent ||
             this.isResizingSelection ||
             (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve)
         ) {
-            this.applyMetricsKeysToCurrentEditedLayer(true, {
+            metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(true, {
                 useVisibleDragScope: !forceMetricsRecompute
             });
 
@@ -3699,7 +3711,17 @@ export class OutlineEditor {
             }
         }
 
-        this.saveLayerData(changeSource);
+        if (persistLayerData) {
+            this.saveLayerData(changeSource);
+            return;
+        }
+
+        if (metricsUpdate) {
+            this.queueLiveVisibleOutlineDependentRefresh(
+                changeSource,
+                metricsUpdate.affectedGlyphNames
+            );
+        }
     }
 
     private cancelPendingDragMetricsUpdate(): void {
@@ -3708,6 +3730,72 @@ export class OutlineEditor {
             window.clearTimeout(this._dragMetricsFlushTimer);
             this._dragMetricsFlushTimer = null;
         }
+    }
+
+    private resetLiveOutlineRefreshState(): void {
+        this._liveOutlineRefreshQueued = false;
+        this._liveOutlineRefreshPromise = null;
+        this._liveOutlineRefreshGlyphNames = new Set();
+        this._liveOutlineRefreshChangeSource = null;
+    }
+
+    private queueLiveVisibleOutlineDependentRefresh(
+        changeSource: string,
+        affectedGlyphNames: Set<string>
+    ): void {
+        for (const glyphName of affectedGlyphNames) {
+            if (glyphName) {
+                this._liveOutlineRefreshGlyphNames.add(glyphName);
+            }
+        }
+        this._liveOutlineRefreshChangeSource = changeSource;
+
+        if (this._liveOutlineRefreshPromise) {
+            this._liveOutlineRefreshQueued = true;
+            return;
+        }
+
+        const runRefresh = async () => {
+            this._liveOutlineRefreshQueued = false;
+
+            const currentFont = fontManager.currentFont;
+            const currentLayerId = this.getCurrentLayerId();
+            const glyphNames = Array.from(this._liveOutlineRefreshGlyphNames);
+            const liveChangeSource =
+                this._liveOutlineRefreshChangeSource || changeSource;
+
+            this._liveOutlineRefreshGlyphNames = new Set();
+            this._liveOutlineRefreshChangeSource = null;
+
+            if (!currentFont || glyphNames.length === 0) {
+                return;
+            }
+
+            fontManager.lastChangeSource = liveChangeSource;
+            fontManager.lastEditType = 'outline';
+
+            await fontManager.refreshGlyphsAfterModelBatch(
+                glyphNames,
+                currentLayerId,
+                {
+                    dispatchGlyphChanged: false,
+                    skipFingerprintBaseline: true
+                }
+            );
+
+            currentFont.requestRecompileWithoutDataChange();
+            window.autoCompileManager?.checkAndSchedule?.();
+        };
+
+        this._liveOutlineRefreshPromise = runRefresh().finally(() => {
+            this._liveOutlineRefreshPromise = null;
+            if (this._liveOutlineRefreshQueued) {
+                this.queueLiveVisibleOutlineDependentRefresh(
+                    changeSource,
+                    new Set()
+                );
+            }
+        });
     }
 
     private syncDependentGlyphsAfterSidebearingEdit(
@@ -3978,6 +4066,7 @@ export class OutlineEditor {
         this._cachedAnchorDragScopeSourceGlyphName = null;
         this._cachedAnchorDragScopeVisibleKey = '';
         this._cachedAnchorDragScopeGlyphNames = null;
+        this.resetLiveOutlineRefreshState();
         this.resetLiveSidebearingRefreshState();
     }
 
@@ -7288,6 +7377,7 @@ export class OutlineEditor {
         this._lastLiveSidebearingRefreshTime = 0;
         this._lastPropertyPanelUpdateTime = 0;
         this.cancelPendingDragMetricsUpdate();
+        this.resetLiveOutlineRefreshState();
         this._pointDragDeltaX = 0;
         this._componentDragDeltaX = 0;
         this._pointDragPreserveHandlePositions = false;
@@ -10677,7 +10767,11 @@ export class OutlineEditor {
                         selectionResizeSnapshot?.includesGeometry)
                 ) {
                     this.cancelPendingDragMetricsUpdate();
-                    this.flushPendingDragMetricsUpdate(dragChangeSource, true);
+                    this.flushPendingDragMetricsUpdate(
+                        dragChangeSource,
+                        true,
+                        true
+                    );
                 } else {
                     this._lastDragSaveTime = performance.now();
                     this.saveLayerData(dragChangeSource);
