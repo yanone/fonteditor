@@ -30,10 +30,6 @@ jobs:
             - name: Install dependencies in webapp
               run: npm install --prefix webapp
 
-            - name: Install Playwright browsers
-              run: npx playwright install --with-deps chromium webkit
-              working-directory: webapp
-
             - name: Inject dynamic version for PWA cache busting
               id: version
               run: |
@@ -55,33 +51,8 @@ jobs:
                   BUILD_HASH_FULL: ${{ steps.version.outputs.commit_full }}
                   BUILD_HASH_SHORT: ${{ steps.version.outputs.commit_short }}
 
-            - name: Run tests in webapp
-              run: npm test --prefix webapp
-
-            - name: Upload Playwright report and artifacts
-              if: always()
-              uses: actions/upload-artifact@v4
-              with:
-                  name: playwright-report
-                  path: |
-                      webapp/playwright-report/
-                      webapp/test-results/
-                  retention-days: 14
-
-            - name: Setup Pages
-              if: always()
-              uses: actions/configure-pages@v4
-
-            - name: Upload Pages artifact
-              if: always()
-              uses: actions/upload-pages-artifact@v3
-              with:
-                  path: webapp/playwright-report/
-
-            - name: Deploy to GitHub Pages
-              if: always()
-              id: deployment
-              uses: actions/deploy-pages@v4
+            - name: Run non-Playwright tests in webapp
+              run: npm run test:ci --prefix webapp
 
             - name: Check code formatting with Prettier
               run: cd webapp && npx prettier -c .

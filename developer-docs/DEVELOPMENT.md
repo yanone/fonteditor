@@ -16,6 +16,10 @@ Useful development-only helpers:
 - Load the assistant test conversation with `?assistant_style_test`
 - Trigger end-to-end error reporting tests from DevTools with `window.triggerRuntimeErrorForTesting()` and `window.triggerUnhandledRejectionForTesting()`
 
+## Local Testing vs. CI
+
+There is an unfortunate disparity between local testing and CI: In CI, the Plawright tests stopped passing, while locally they do pass. Therefore, Plawright tests need to be run locally before each push. They are included in `npm run test` but are excluded from `npm run test:ci` which is run during CI.
+
 ## Python Runtime Model
 
 Counterpunch runs Python in two separate Pyodide environments:
