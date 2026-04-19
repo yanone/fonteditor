@@ -18,6 +18,7 @@ import { Logger } from './logger';
 import {
     deriveGlyphNamesFromPaths,
     normalizeWorkerReplayTargets,
+    type ChangeLogEntry,
     type HistoryStackItem,
     type WorkerReplayTarget
 } from './change-log';
@@ -32,6 +33,54 @@ let bridgeSyncQueue: Promise<void> = Promise.resolve();
 function enqueueBridgeSync(task: () => Promise<void>): Promise<void> {
     bridgeSyncQueue = bridgeSyncQueue.then(task, task);
     return bridgeSyncQueue;
+}
+
+/**
+ * Infer the original edit type from remote change log entries,
+ * so the linked window can use the matching compilation fast path
+ * (anchor-only / outline-only) instead of always falling back to
+ * a full compile.
+ */
+function inferRemoteEditTypeFromEntries(
+    entries: ChangeLogEntry[]
+): { editType: 'anchor' | 'outline' | null; changeSource: string } {
+    for (const entry of entries) {
+        const label = entry.transactionLabel ?? '';
+        const path = entry.path ?? '';
+        if (
+            label.toLowerCase().includes('anchor') ||
+            /(^|\.)anchors(\.|$)/.test(path)
+        ) {
+            return { editType: 'anchor', changeSource: 'remote-anchor' };
+        }
+        if (
+            label.toLowerCase().includes('sidebearing') ||
+            label.toLowerCase().includes('lsb') ||
+            label.toLowerCase().includes('rsb') ||
+            /(^|\.)nodes(\.|$)/.test(path) ||
+            /(^|\.)shapes(\.|$)/.test(path)
+        ) {
+            return { editType: 'outline', changeSource: 'remote-outline' };
+        }
+    }
+    return { editType: null, changeSource: 'remote-change' };
+}
+
+/**
+ * Collect all workerReplayTargets from remote change log entries,
+ * so the linked window can do incremental layer updates to its
+ * WASM worker cache instead of a full JSON resync.
+ */
+function collectReplayTargetsFromEntries(
+    entries: ChangeLogEntry[]
+): WorkerReplayTarget[] {
+    const targets: WorkerReplayTarget[] = [];
+    for (const entry of entries) {
+        if (entry.workerReplayTargets?.length) {
+            targets.push(...entry.workerReplayTargets);
+        }
+    }
+    return normalizeWorkerReplayTargets(targets);
 }
 
 function getLayerWidth(
@@ -686,9 +735,22 @@ async function requestUndoRedoEditingFontCompile(
     await waitPromise;
 }
 
-export function queueRustCacheAndRefreshCanvas(): Promise<void> {
+export function queueRustCacheAndRefreshCanvas(
+    rootGlyphName?: string,
+    editedGlyphName?: string,
+    forceFullRustSync?: boolean,
+    options?: {
+        skipDeferredCanvasRepaint?: boolean;
+        workerReplayTargets?: WorkerReplayTarget[];
+    }
+): Promise<void> {
     return enqueueBridgeSync(async () => {
-        await syncRustCacheAndRefreshCanvas();
+        await syncRustCacheAndRefreshCanvas(
+            rootGlyphName,
+            editedGlyphName,
+            forceFullRustSync,
+            options
+        );
     });
 }
 
@@ -931,19 +993,39 @@ function initializeBridge(detail: {
     // By the time this fires, onAfterSync has already re-synced
     // babelfontJson and rebuilt the model, so auto-compile will
     // produce correct output once the dirty flag triggers it.
-    bridge.onRemoteChange(() => {
+    //
+    // The entries carry workerReplayTargets and edit-type metadata
+    // from the source window.  Use them to:
+    //   1. Pass replay targets to syncRustCacheAndRefreshCanvas for
+    //      incremental layer updates (instead of full JSON resync).
+    //   2. Infer the original edit type so the linked window's editing
+    //      compile uses the matching fast path (anchor-only / outline-only)
+    //      instead of always falling back to the slowest full mode.
+    bridge.onRemoteChange((entries: ChangeLogEntry[]) => {
         const oeRef = window.glyphCanvas?.outlineEditor;
         console.log(
             `[DRAG-DEBUG] onRemoteChange fired — draggingSomething=${oeRef?.draggingSomething}, pendingRemoteRefreshAfterDrag=${oeRef?.pendingRemoteRefreshAfterDrag}`
         );
-        void queueRustCacheAndRefreshCanvas().then(() => {
+
+        const { editType, changeSource } =
+            inferRemoteEditTypeFromEntries(entries);
+        const replayTargets = collectReplayTargetsFromEntries(entries);
+
+        void queueRustCacheAndRefreshCanvas(
+            undefined,
+            undefined,
+            false,
+            replayTargets.length > 0
+                ? { workerReplayTargets: replayTargets }
+                : undefined
+        ).then(() => {
             const fontManager = window.fontManager;
             if (!fontManager?.currentFont) {
                 return;
             }
 
-            fontManager.lastChangeSource = 'remote-change';
-            fontManager.lastEditType = null;
+            fontManager.lastChangeSource = changeSource;
+            fontManager.lastEditType = editType;
             fontManager.currentFont.requestRecompileWithoutDataChange();
             window.autoCompileManager?.checkAndSchedule?.();
         });

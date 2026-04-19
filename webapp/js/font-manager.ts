@@ -1365,9 +1365,11 @@ class FontManager {
         const compileSource = this.lastChangeSource || 'unknown';
         const isIncrementalEditingCompile =
             compileSource.startsWith('mouse-drag') ||
-            compileSource.startsWith('keyboard');
+            compileSource.startsWith('keyboard') ||
+            compileSource.startsWith('remote-');
         const isMouseDragSource = compileSource.startsWith('mouse-drag');
         const isKeyboardSource = compileSource.startsWith('keyboard');
+        const isRemoteSource = compileSource.startsWith('remote-');
         const forceFullWorkerCompileAtStart = this.forceFullEditingCacheRefresh;
         const shouldPrepareIncrementalLayerUpdate =
             (isMouseDragSource || isKeyboardSource) &&
@@ -1583,6 +1585,11 @@ class FontManager {
                 const isInteractiveEdit =
                     isInteractiveSource &&
                     (dragActiveAtRequest || isKeyboardSource);
+                // Remote edits use the same fast-path mode as the
+                // original edit (anchor-only / outline-only) so the
+                // linked window's editing compile is efficient.
+                const isRemoteFastPathEdit =
+                    isRemoteSource && editTypeAtRequest !== null;
                 const isTextInputEdit =
                     incrementalChangeSource === 'text-input';
                 compilationMode = 'full';
@@ -1595,7 +1602,10 @@ class FontManager {
                     | undefined;
                 const shouldForceStoreFontJson =
                     fontCompilation.lastStoredFontJson === null;
-                if (isInteractiveEdit && editTypeAtRequest === 'outline') {
+                if (
+                    (isInteractiveEdit || isRemoteFastPathEdit) &&
+                    editTypeAtRequest === 'outline'
+                ) {
                     compilationMode = 'outline-only';
                     optionOverrides = {
                         skip_features: true,
@@ -1603,7 +1613,7 @@ class FontManager {
                         produce_varc_table: false
                     };
                 } else if (
-                    isInteractiveEdit &&
+                    (isInteractiveEdit || isRemoteFastPathEdit) &&
                     editTypeAtRequest === 'anchor'
                 ) {
                     compilationMode = 'anchor-only';

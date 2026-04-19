@@ -417,10 +417,23 @@ export class ChangeBridge {
         this.fontMap = this.yDoc.getMap('font');
 
         // Listen for Y.Doc updates.
-        // Broadcast all non-system-remote updates (user edits + UndoManager)
-        // so undo/redo propagates to other windows too.
+        // Only broadcast updates whose origin is a known local edit origin.
+        // Yjs CRDT reconciliation updates have origin=undefined and must NOT
+        // be broadcast, or they create a ping-pong echo loop between windows.
+        const LOCAL_EDIT_ORIGINS: Set<string> = new Set([
+            USER_EDIT_ORIGIN,
+            FONT_EDIT_ORIGIN,
+            GLYPH_EDIT_ORIGIN,
+            HISTORY_REPLAY_ORIGIN
+        ]);
+        const isLocalEditOrigin = (origin: unknown): boolean => {
+            if (typeof origin !== 'string') return false;
+            if (LOCAL_EDIT_ORIGINS.has(origin)) return true;
+            if (origin.startsWith(LAYER_EDIT_ORIGIN_PREFIX)) return true;
+            return false;
+        };
         this.yDoc.on('update', (update: Uint8Array, origin: unknown) => {
-            if (origin !== SYSTEM_REMOTE_ORIGIN && !this._isApplyingRemote) {
+            if (isLocalEditOrigin(origin) && !this._isApplyingRemote) {
                 this._onLocalUpdate?.(update);
             }
         });
