@@ -694,6 +694,28 @@ describe('FontManager editing subset inclusion', () => {
         fontCompilation.isInitialized = originalFontCompilationInitialized;
     });
 
+    test('validateAndFixBabelfontJsonForRust canonicalizes DefaultForMaster layer ids to their master ids', () => {
+        const fontData = cloneJson(fontManager.currentFont.babelfontData);
+        fontData.glyphs[0].name = 'a';
+        fontData.glyphs[0].layers[0].id = 'temp-layer-id';
+        fontData.glyphs[0].layers[0].master = {
+            type: 'DefaultForMaster',
+            master: 'master-1'
+        };
+
+        const validatedJson = fontManager['validateAndFixBabelfontJsonForRust'](
+            JSON.stringify(fontData),
+            true
+        );
+        const validatedData = JSON.parse(validatedJson);
+
+        expect(validatedData.glyphs[0].layers[0].id).toBe('master-1');
+        expect(validatedData.glyphs[0].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-1'
+        });
+    });
+
     test('compileEditingFont adds the active edited glyph to the subset', async () => {
         fontManager.lastChangeSource = 'keyboard-outline';
         fontManager.lastEditType = 'outline';

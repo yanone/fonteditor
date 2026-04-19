@@ -254,6 +254,68 @@ function makeMinimalFont() {
     };
 }
 
+function makeThreeMasterThreeLayerFont() {
+    const font = makeMinimalFont();
+    font.masters = [
+        {
+            ...font.masters[0],
+            id: 'master-extrathin',
+            name: 'ExtraThin',
+            location: { wght: 100 }
+        },
+        {
+            ...font.masters[0],
+            id: 'master-regular',
+            name: 'Regular',
+            location: { wght: 400 }
+        },
+        {
+            ...font.masters[0],
+            id: 'master-bold',
+            name: 'Bold',
+            location: { wght: 700 }
+        }
+    ];
+
+    font.glyphs[0].layers = [
+        {
+            ...cloneValue(font.glyphs[0].layers[0]),
+            id: 'master-extrathin',
+            name: 'ExtraThin',
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-extrathin'
+            },
+            layer_index: 0,
+            location: { wght: 100 }
+        },
+        {
+            ...cloneValue(font.glyphs[0].layers[0]),
+            id: 'master-regular',
+            name: 'Regular',
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-regular'
+            },
+            layer_index: 1,
+            location: { wght: 400 }
+        },
+        {
+            ...cloneValue(font.glyphs[0].layers[0]),
+            id: 'master-bold',
+            name: 'Bold',
+            master: {
+                type: 'DefaultForMaster',
+                master: 'master-bold'
+            },
+            layer_index: 2,
+            location: { wght: 700 }
+        }
+    ];
+
+    return font;
+}
+
 /**
  * Create a ChangeBridge initialized with a minimal font,
  * plus a Font wrapper for model-level testing.
@@ -3218,6 +3280,16 @@ describe('syncGlyphFromJson', () => {
                 'x'
             ])
         ).toBe(150);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'master',
+                'type'
+            ])
+        ).toBe('DefaultForMaster');
     });
 
     test('glyph-scoped sync merges partial layer fragments with the existing glyph snapshot', () => {
@@ -4223,6 +4295,50 @@ describe('syncGlyphFromJson', () => {
         bridge2.destroy();
     });
 
+    test('linked window keeps sibling default layers when a remote single-layer edit arrives', () => {
+        const senderFontJson = makeThreeMasterThreeLayerFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-three-layer');
+        const receiverBridge = new ChangeBridge('receiver-three-layer');
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        senderFontJson.glyphs[0].layers[0].anchors[0].x = 123;
+        senderBridge.syncGlyphFromJson(
+            'A',
+            'Drag anchor',
+            undefined,
+            undefined,
+            'master-extrathin'
+        );
+
+        receiverBridge.applyRemoteUpdate(
+            lastUpdate,
+            senderBridge.getNewChangeLogEntries()
+        );
+
+        expect(receiverFontJson.glyphs[0].layers).toHaveLength(3);
+        expect(
+            receiverFontJson.glyphs[0].layers.map((layer) => layer.id)
+        ).toEqual(['master-extrathin', 'master-regular', 'master-bold']);
+        expect(receiverFontJson.glyphs[0].layers[1].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-regular'
+        });
+        expect(receiverFontJson.glyphs[0].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-extrathin'
+        });
+        expect(receiverFontJson.glyphs[0].layers[1].name).toBe('Regular');
+        expect(receiverFontJson.glyphs[0].layers[0].anchors[0].x).toBe(123);
+    });
+
     test('linked window preserves full layer data when remote glyph sync sends a partial layer fragment', () => {
         const font1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('primary');
@@ -4389,6 +4505,10 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         expect(fontJson.glyphs[0].layers[0].width).toBe(600);
         expect(fontJson.glyphs[0].layers[0].anchors[0].x).toBe(333);
         expect(fontJson.glyphs[0].layers[0].shapes[0].nodes[0].x).toBe(100);
+        expect(fontJson.glyphs[0].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-regular'
+        });
     });
 
     test('full _syncJsonFromYDoc merges partial Y.Doc layer data with the existing glyph snapshot', () => {
@@ -4424,6 +4544,44 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         expect(fontJson.glyphs[0].layers[0].width).toBe(600);
         expect(fontJson.glyphs[0].layers[0].anchors[0].x).toBe(345);
         expect(fontJson.glyphs[0].layers[0].shapes[0].nodes[0].x).toBe(100);
+        expect(fontJson.glyphs[0].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-regular'
+        });
+    });
+
+    test('full _syncJsonFromYDoc restores a missing default master tag when layer id matches a known master id', () => {
+        const fontJson = makeMinimalFont();
+        fontJson.glyphs[0].layers[0].id = 'master-regular';
+        delete fontJson.glyphs[0].layers[0].master;
+
+        const bridge = new ChangeBridge('test-sync-ydoc-default-master-id');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+
+        bridge._syncJsonFromYDoc();
+
+        expect(fontJson.glyphs[0].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-regular'
+        });
+    });
+
+    test('full _syncJsonFromYDoc does not treat an empty master object as FreeFloating when layer id matches a known master id', () => {
+        const fontJson = makeMinimalFont();
+        fontJson.glyphs[0].layers[0].id = 'master-regular';
+        fontJson.glyphs[0].layers[0].master = {};
+
+        const bridge = new ChangeBridge('test-sync-ydoc-empty-master-object');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+
+        bridge._syncJsonFromYDoc();
+
+        expect(fontJson.glyphs[0].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-regular'
+        });
     });
 
     test('layer-scoped undo patches only the changed layer — other glyph data is not rebuilt', () => {

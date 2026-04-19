@@ -1190,7 +1190,9 @@ export class ChangeBridge {
                 update,
                 this._getRemoteUpdateOrigin(remoteEntries)
             );
-            this._syncJsonFromYDoc();
+            this._syncJsonFromYDoc(
+                this._getRemoteLayerSyncScope(remoteEntries)
+            );
             this._onAfterSync?.();
             this._onDirty?.();
             if (remoteEntries && remoteEntries.length > 0) {
@@ -1987,6 +1989,38 @@ export class ChangeBridge {
         return FONT_EDIT_ORIGIN;
     }
 
+    private _getRemoteLayerSyncScope(
+        remoteEntries?: ChangeLogEntry[]
+    ): { glyphName: string; layerId: string } | null {
+        if (!remoteEntries?.length) {
+            return null;
+        }
+
+        if (remoteEntries.some((entry) => entry.undoScope === 'font')) {
+            return null;
+        }
+
+        const glyphNames = new Set(
+            remoteEntries
+                .map((entry) => deriveGlyphNameFromPath(entry.path))
+                .filter((glyphName): glyphName is string => !!glyphName)
+        );
+        const layerIds = new Set(
+            remoteEntries
+                .map((entry) => deriveLayerIdFromPath(entry.path))
+                .filter((layerId): layerId is string => !!layerId)
+        );
+
+        if (glyphNames.size !== 1 || layerIds.size !== 1) {
+            return null;
+        }
+
+        return {
+            glyphName: [...glyphNames][0],
+            layerId: [...layerIds][0]
+        };
+    }
+
     private _resolveUndoHistoryItem(
         glyphName: string | undefined,
         layerId: string | null | undefined,
@@ -2471,6 +2505,148 @@ export class ChangeBridge {
         return [];
     }
 
+    private _getKnownMasterIds(): Set<string> {
+        const masterIds = new Set<string>();
+        const masters = (this._fontJson as Unsafe)?.masters;
+        if (!Array.isArray(masters)) {
+            return masterIds;
+        }
+
+        for (const master of masters) {
+            const masterId =
+                master && typeof master === 'object'
+                    ? String((master as Record<string, unknown>).id || '')
+                    : '';
+            if (masterId) {
+                masterIds.add(masterId);
+            }
+        }
+
+        return masterIds;
+    }
+
+    private _normalizeLayerMasterSnapshot(
+        layerId: string,
+        layerRecord: Record<string, unknown>,
+        existingLayerRecord: Record<string, unknown>
+    ): void {
+        const normalizeMasterValue = (
+            masterValue: unknown
+        ): Record<string, unknown> | null => {
+            if (!masterValue || typeof masterValue !== 'object') {
+                if (typeof masterValue === 'string' && masterValue.length) {
+                    return {
+                        type: 'DefaultForMaster',
+                        master: masterValue
+                    };
+                }
+                return null;
+            }
+
+            if (Array.isArray(masterValue)) {
+                return null;
+            }
+
+            const masterRecord = cloneHistoryValue(masterValue) as Record<
+                string,
+                unknown
+            >;
+
+            if (masterRecord.type === 'FreeFloating') {
+                return { type: 'FreeFloating' };
+            }
+
+            if (
+                (masterRecord.type === 'DefaultForMaster' ||
+                    masterRecord.type === 'AssociatedWithMaster') &&
+                typeof masterRecord.master === 'string' &&
+                masterRecord.master.length
+            ) {
+                return {
+                    type: masterRecord.type,
+                    master: masterRecord.master
+                };
+            }
+
+            if (
+                typeof masterRecord.master === 'string' &&
+                masterRecord.master.length
+            ) {
+                return {
+                    type: 'DefaultForMaster',
+                    master: masterRecord.master
+                };
+            }
+
+            if (
+                typeof masterRecord.DefaultForMaster === 'string' &&
+                masterRecord.DefaultForMaster.length
+            ) {
+                return {
+                    type: 'DefaultForMaster',
+                    master: masterRecord.DefaultForMaster
+                };
+            }
+
+            if (
+                typeof masterRecord.default_for_master === 'string' &&
+                masterRecord.default_for_master.length
+            ) {
+                return {
+                    type: 'DefaultForMaster',
+                    master: masterRecord.default_for_master
+                };
+            }
+
+            if (
+                typeof masterRecord.AssociatedWithMaster === 'string' &&
+                masterRecord.AssociatedWithMaster.length
+            ) {
+                return {
+                    type: 'AssociatedWithMaster',
+                    master: masterRecord.AssociatedWithMaster
+                };
+            }
+
+            if (
+                typeof masterRecord.associated_with_master === 'string' &&
+                masterRecord.associated_with_master.length
+            ) {
+                return {
+                    type: 'AssociatedWithMaster',
+                    master: masterRecord.associated_with_master
+                };
+            }
+
+            if (
+                'FreeFloating' in masterRecord
+            ) {
+                return { type: 'FreeFloating' };
+            }
+
+            return null;
+        };
+
+        const normalizedMaster =
+            normalizeMasterValue(layerRecord.master) ??
+            normalizeMasterValue(existingLayerRecord.master);
+
+        if (normalizedMaster) {
+            layerRecord.master = normalizedMaster;
+            return;
+        }
+
+        if (
+            layerRecord.is_background !== true &&
+            this._getKnownMasterIds().has(layerId)
+        ) {
+            layerRecord.master = {
+                type: 'DefaultForMaster',
+                master: layerId
+            };
+        }
+    }
+
     private _normalizeLayerSnapshot(
         layerId: string,
         layerSnapshot: unknown,
@@ -2508,6 +2684,12 @@ export class ChangeBridge {
         ) {
             mergedLayerRecord.id = layerId;
         }
+
+        this._normalizeLayerMasterSnapshot(
+            layerId,
+            mergedLayerRecord,
+            existingLayerRecord
+        );
 
         if (
             typeof mergedLayerRecord.width !== 'number' ||

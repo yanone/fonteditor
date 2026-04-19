@@ -2127,6 +2127,17 @@ class FontManager {
         try {
             const data = JSON.parse(babelfontJson);
             let fixCount = 0;
+            const knownMasterIds = new Set(
+                Array.isArray(data?.masters)
+                    ? data.masters
+                          .map((master: any) =>
+                              master && typeof master === 'object'
+                                  ? String(master.id || '')
+                                  : ''
+                          )
+                          .filter(Boolean)
+                    : []
+            );
 
             // Fields that must always be arrays in babelfont format
             const arrayFields = new Set([
@@ -2162,6 +2173,177 @@ class FontManager {
                 }
                 return arr;
             };
+
+            const normalizeLayerMasterValue = (
+                masterValue: any,
+                isBackground: boolean,
+                layerId: string
+            ): Record<string, unknown> | null => {
+                if (typeof masterValue === 'string' && masterValue.length) {
+                    return {
+                        type: 'DefaultForMaster',
+                        master: masterValue
+                    };
+                }
+
+                if (
+                    !masterValue ||
+                    typeof masterValue !== 'object' ||
+                    Array.isArray(masterValue)
+                ) {
+                    if (!isBackground && knownMasterIds.has(layerId)) {
+                        return {
+                            type: 'DefaultForMaster',
+                            master: layerId
+                        };
+                    }
+                    return null;
+                }
+
+                if (masterValue.type === 'FreeFloating') {
+                    return { type: 'FreeFloating' };
+                }
+
+                if (
+                    (masterValue.type === 'DefaultForMaster' ||
+                        masterValue.type === 'AssociatedWithMaster') &&
+                    typeof masterValue.master === 'string' &&
+                    masterValue.master.length
+                ) {
+                    return {
+                        type: masterValue.type,
+                        master: masterValue.master
+                    };
+                }
+
+                if (
+                    typeof masterValue.master === 'string' &&
+                    masterValue.master.length
+                ) {
+                    return {
+                        type: 'DefaultForMaster',
+                        master: masterValue.master
+                    };
+                }
+
+                if (
+                    typeof masterValue.DefaultForMaster === 'string' &&
+                    masterValue.DefaultForMaster.length
+                ) {
+                    return {
+                        type: 'DefaultForMaster',
+                        master: masterValue.DefaultForMaster
+                    };
+                }
+
+                if (
+                    typeof masterValue.default_for_master === 'string' &&
+                    masterValue.default_for_master.length
+                ) {
+                    return {
+                        type: 'DefaultForMaster',
+                        master: masterValue.default_for_master
+                    };
+                }
+
+                if (
+                    typeof masterValue.AssociatedWithMaster === 'string' &&
+                    masterValue.AssociatedWithMaster.length
+                ) {
+                    return {
+                        type: 'AssociatedWithMaster',
+                        master: masterValue.AssociatedWithMaster
+                    };
+                }
+
+                if (
+                    typeof masterValue.associated_with_master === 'string' &&
+                    masterValue.associated_with_master.length
+                ) {
+                    return {
+                        type: 'AssociatedWithMaster',
+                        master: masterValue.associated_with_master
+                    };
+                }
+
+                if ('FreeFloating' in masterValue) {
+                    return { type: 'FreeFloating' };
+                }
+
+                if (!isBackground && knownMasterIds.has(layerId)) {
+                    return {
+                        type: 'DefaultForMaster',
+                        master: layerId
+                    };
+                }
+
+                return null;
+            };
+
+            const canonicalizeGlyphLayerIdentities = (
+                glyph: any,
+                glyphPath: string
+            ): void => {
+                if (!glyph || !Array.isArray(glyph.layers)) {
+                    return;
+                }
+
+                for (const layer of glyph.layers) {
+                    if (!layer || typeof layer !== 'object') {
+                        continue;
+                    }
+
+                    const layerId =
+                        typeof layer.id === 'string' ? layer.id : '';
+                    const normalizedMaster = normalizeLayerMasterValue(
+                        layer.master,
+                        layer.is_background === true,
+                        layerId
+                    );
+
+                    if (normalizedMaster) {
+                        const masterChanged =
+                            JSON.stringify(layer.master ?? null) !==
+                            JSON.stringify(normalizedMaster);
+                        if (masterChanged) {
+                            layer.master = normalizedMaster;
+                            fixCount++;
+                        }
+
+                        if (
+                            normalizedMaster.type === 'DefaultForMaster' &&
+                            typeof normalizedMaster.master === 'string' &&
+                            normalizedMaster.master.length
+                        ) {
+                            const canonicalLayerId = normalizedMaster.master;
+                            const conflictingLayer = glyph.layers.find(
+                                (candidate: any) =>
+                                    candidate !== layer &&
+                                    candidate &&
+                                    typeof candidate.id === 'string' &&
+                                    candidate.id === canonicalLayerId
+                            );
+
+                            if (
+                                !conflictingLayer &&
+                                layer.id !== canonicalLayerId
+                            ) {
+                                layer.id = canonicalLayerId;
+                                fixCount++;
+                                console.warn(
+                                    `[FontManager] Canonicalized default layer id at ${glyphPath} from ${layerId || '[missing]'} to ${canonicalLayerId}`
+                                );
+                            }
+                        }
+                    }
+                }
+            };
+
+            if (Array.isArray(data?.glyphs)) {
+                data.glyphs.forEach((glyph: any, index: number) => {
+                    canonicalizeGlyphLayerIdentities(glyph, `glyphs[${index}]`);
+                });
+            }
 
             const fixValue = (val: any, path: string = ''): void => {
                 if (!val || typeof val !== 'object') return;
