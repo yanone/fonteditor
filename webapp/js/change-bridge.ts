@@ -703,6 +703,146 @@ export class ChangeBridge {
     }
 
     /**
+     * Sync multiple changed layers into Y.Doc in one transaction.
+     * Each target stays on the layer fast path so linked windows only
+     * receive the minimum changed layer snapshots.
+     */
+    syncLayersFromJson(
+        layerTargets: WorkerReplayTarget[],
+        label: string,
+        oldValue?: string,
+        newValue?: string,
+        visualAnchorSide?: 'left' | 'right' | null,
+        workerReplayTargets?: WorkerReplayTarget[]
+    ): void {
+        if (!this._fontJson || this._suppressRecording || this._isSyncing) {
+            return;
+        }
+
+        const uniqueTargets = normalizeWorkerReplayTargets(layerTargets);
+        if (!uniqueTargets.length) {
+            return;
+        }
+
+        if (uniqueTargets.length === 1) {
+            const [target] = uniqueTargets;
+            this._trySyncSingleLayer(
+                target.glyphName,
+                target.layerId,
+                label,
+                oldValue,
+                newValue,
+                visualAnchorSide,
+                workerReplayTargets
+            );
+            return;
+        }
+
+        const glyphs = (this._fontJson as Unsafe).glyphs;
+        if (!Array.isArray(glyphs)) {
+            return;
+        }
+
+        const glyphsMap = this.fontMap.get('glyphs') as
+            | Y.Map<unknown>
+            | undefined;
+        if (!glyphsMap) {
+            return;
+        }
+
+        const targets: Array<{
+            glyphName: string;
+            layerId: string;
+            layerSnapshot: unknown;
+        }> = [];
+
+        for (const { glyphName, layerId } of uniqueTargets) {
+            const glyphJson = glyphs.find(
+                (g: Record<string, unknown>) => g.name === glyphName
+            ) as Record<string, unknown> | undefined;
+            if (!glyphJson) {
+                continue;
+            }
+
+            const glyphMap = glyphsMap.get(glyphName) as
+                | Y.Map<unknown>
+                | undefined;
+            if (!glyphMap) {
+                continue;
+            }
+
+            const layersMap = glyphMap.get('layers') as
+                | Y.Map<unknown>
+                | undefined;
+            if (!layersMap) {
+                continue;
+            }
+
+            const yLayerMap = layersMap.get(layerId);
+            if (!yLayerMap) {
+                continue;
+            }
+
+            const glyphLayers = (glyphJson.layers ?? []) as Array<
+                Record<string, unknown>
+            >;
+            const layerJson = glyphLayers.find(
+                (layer: Record<string, unknown>) => layer.id === layerId
+            );
+            if (!layerJson) {
+                continue;
+            }
+
+            const yLayerJson = fromYType(yLayerMap);
+            const layerSnapshot = this._normalizeLayerSnapshot(
+                layerId,
+                layerJson,
+                yLayerJson
+            );
+
+            if (this._isDeepEqual(yLayerJson, layerSnapshot)) {
+                continue;
+            }
+
+            targets.push({
+                glyphName,
+                layerId,
+                layerSnapshot
+            });
+        }
+
+        if (!targets.length) {
+            return;
+        }
+
+        this._queueOrCommitOperations(
+            targets.map((target) => ({
+                op: 'set' as ChangeOp,
+                path: ['glyphs', target.glyphName, 'layers', target.layerId],
+                oldValue: cloneHistoryValue(oldValue ?? target.glyphName),
+                newValue: cloneHistoryValue(newValue ?? label),
+                visualAnchorSide,
+                workerReplayTargets,
+                applyPath: [
+                    'glyphs',
+                    target.glyphName,
+                    'layers',
+                    target.layerId
+                ],
+                applyNewValue: target.layerSnapshot,
+                applyMode: 'layer-snapshot' as BatchApplyMode
+            })),
+            label
+        );
+
+        console.log(
+            `Layer sync committed for ${targets
+                .map((target) => `${target.glyphName}/${target.layerId}`)
+                .join(', ')} (${label}) [batched fast path]`
+        );
+    }
+
+    /**
      * Sync multiple glyph JSON payloads into Y.Doc in one transaction.
      * This keeps paired root/component edits aligned as a single undo step.
      */
@@ -1167,8 +1307,8 @@ export class ChangeBridge {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
-            const remoteLayerScope =
-                this._getRemoteLayerSyncScope(remoteEntries);
+            const remoteLayerScopes =
+                this._getRemoteLayerSyncScopes(remoteEntries);
             if (remoteEntries?.length) {
                 const glyphNames = new Set(
                     remoteEntries
@@ -1193,7 +1333,7 @@ export class ChangeBridge {
                 update,
                 this._getRemoteUpdateOrigin(remoteEntries)
             );
-            this._syncJsonFromYDoc(remoteLayerScope);
+            this._syncJsonFromYDoc(remoteLayerScopes);
             if (
                 repairState &&
                 remoteEntries?.length &&
@@ -1346,105 +1486,39 @@ export class ChangeBridge {
      * Y.Doc path lookup fails.
      */
     private _syncJsonFromYDoc(
-        scopeHint?: { glyphName: string; layerId: string } | null
+        scopeHints?:
+            | { glyphName: string; layerId: string }
+            | Array<{ glyphName: string; layerId: string }>
+            | null
     ): void {
         const oe = window.glyphCanvas?.outlineEditor;
+        const normalizedScopeHints = Array.isArray(scopeHints)
+            ? normalizeWorkerReplayTargets(scopeHints)
+            : scopeHints
+              ? normalizeWorkerReplayTargets([scopeHints])
+              : [];
         console.log(
-            `[DRAG-DEBUG] _syncJsonFromYDoc called — scope=${scopeHint ? JSON.stringify(scopeHint) : 'full'}, draggingSomething=${oe?.draggingSomething}`
+            `[DRAG-DEBUG] _syncJsonFromYDoc called — scope=${normalizedScopeHints.length ? JSON.stringify(normalizedScopeHints) : 'full'}, draggingSomething=${oe?.draggingSomething}`
         );
         if (!this._fontJson) return;
 
         const fingerprintTargets =
-            scopeHint?.glyphName && scopeHint?.layerId
-                ? [
-                      {
-                          glyphName: scopeHint.glyphName,
-                          layerId: scopeHint.layerId
-                      }
-                  ]
-                : null;
+            normalizedScopeHints.length > 0 ? normalizedScopeHints : null;
         const previousFingerprintSnapshot =
             this._collectLayerFingerprintSnapshot(fingerprintTargets);
 
-        // Fast path: only reconstruct the specific layer from Y.Doc.
-        if (scopeHint?.glyphName && scopeHint?.layerId) {
-            const glyphsMap = this.fontMap.get('glyphs');
-            if (glyphsMap instanceof Y.Map) {
-                const glyphMap = glyphsMap.get(scopeHint.glyphName);
-                if (glyphMap instanceof Y.Map) {
-                    const layersMap = glyphMap.get('layers');
-                    if (layersMap instanceof Y.Map) {
-                        const layerMap = layersMap.get(scopeHint.layerId);
-                        if (layerMap instanceof Y.Map) {
-                            const glyphs = (this._fontJson as Unsafe).glyphs as
-                                | Unsafe[]
-                                | undefined;
-                            const glyphIdx =
-                                glyphs?.findIndex(
-                                    (g: Unsafe) =>
-                                        g.name === scopeHint.glyphName
-                                ) ?? -1;
-                            if (glyphIdx >= 0 && glyphs) {
-                                const layers = glyphs[glyphIdx].layers as
-                                    | Unsafe[]
-                                    | undefined;
-                                const layerIdx =
-                                    layers?.findIndex(
-                                        (l: Unsafe) =>
-                                            l.id === scopeHint.layerId
-                                    ) ?? -1;
-                                if (layerIdx >= 0 && layers) {
-                                    const patchedLayer =
-                                        this._normalizeLayerSnapshot(
-                                            scopeHint.layerId,
-                                            fromYType(layerMap),
-                                            layers[layerIdx]
-                                        ) as Unsafe;
-                                    // Diagnostic: check for missing required layer fields
-                                    if (
-                                        patchedLayer &&
-                                        typeof patchedLayer === 'object' &&
-                                        !Array.isArray(patchedLayer)
-                                    ) {
-                                        const layerRecord =
-                                            patchedLayer as Record<
-                                                string,
-                                                unknown
-                                            >;
-                                        if (!('width' in layerRecord)) {
-                                            console.warn(
-                                                `[ChangeBridge] _syncJsonFromYDoc: layer ${scopeHint.layerId} missing "width" after fromYType. Keys: ${Object.keys(layerRecord).join(',')}`
-                                            );
-                                            // Log what the Y.Map actually contains
-                                            const yKeys: string[] = [];
-                                            layerMap.forEach(
-                                                (_v: unknown, k: string) => {
-                                                    yKeys.push(k);
-                                                }
-                                            );
-                                            console.warn(
-                                                `[ChangeBridge] Y.Map keys for layer: ${yKeys.join(',')}`
-                                            );
-                                        }
-                                    }
-                                    // Sanitize: fix array fields that Y.Doc
-                                    // roundtrip corrupted into objects
-                                    sanitizeBabelfontArrays(patchedLayer);
-                                    layers[layerIdx] = patchedLayer;
-                                    this._emitLayerFingerprintChangedEvents(
-                                        previousFingerprintSnapshot,
-                                        this._collectLayerFingerprintSnapshot(
-                                            fingerprintTargets
-                                        )
-                                    );
-                                    return; // Only the one layer was patched
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Fall through to full sync if any lookup failed
+        // Fast path: only reconstruct the touched layers from Y.Doc.
+        if (
+            normalizedScopeHints.length > 0 &&
+            normalizedScopeHints.every((scopeHint) =>
+                this._patchLayerFromYDoc(scopeHint)
+            )
+        ) {
+            this._emitLayerFingerprintChangedEvents(
+                previousFingerprintSnapshot,
+                this._collectLayerFingerprintSnapshot(fingerprintTargets)
+            );
+            return;
         }
 
         // Full sync: reconstruct the entire font from Y.Doc.
@@ -1468,6 +1542,78 @@ export class ChangeBridge {
             previousFingerprintSnapshot,
             this._collectLayerFingerprintSnapshot(fingerprintTargets)
         );
+    }
+
+    private _patchLayerFromYDoc(scopeHint: {
+        glyphName: string;
+        layerId: string;
+    }): boolean {
+        const glyphsMap = this.fontMap.get('glyphs');
+        if (!(glyphsMap instanceof Y.Map)) {
+            return false;
+        }
+
+        const glyphMap = glyphsMap.get(scopeHint.glyphName);
+        if (!(glyphMap instanceof Y.Map)) {
+            return false;
+        }
+
+        const layersMap = glyphMap.get('layers');
+        if (!(layersMap instanceof Y.Map)) {
+            return false;
+        }
+
+        const layerMap = layersMap.get(scopeHint.layerId);
+        if (!(layerMap instanceof Y.Map)) {
+            return false;
+        }
+
+        const glyphs = (this._fontJson as Unsafe).glyphs as
+            | Unsafe[]
+            | undefined;
+        const glyphIdx =
+            glyphs?.findIndex((g: Unsafe) => g.name === scopeHint.glyphName) ??
+            -1;
+        if (glyphIdx < 0 || !glyphs) {
+            return false;
+        }
+
+        const layers = glyphs[glyphIdx].layers as Unsafe[] | undefined;
+        const layerIdx =
+            layers?.findIndex((l: Unsafe) => l.id === scopeHint.layerId) ?? -1;
+        if (layerIdx < 0 || !layers) {
+            return false;
+        }
+
+        const patchedLayer = this._normalizeLayerSnapshot(
+            scopeHint.layerId,
+            fromYType(layerMap),
+            layers[layerIdx]
+        ) as Unsafe;
+
+        if (
+            patchedLayer &&
+            typeof patchedLayer === 'object' &&
+            !Array.isArray(patchedLayer)
+        ) {
+            const layerRecord = patchedLayer as Record<string, unknown>;
+            if (!('width' in layerRecord)) {
+                console.warn(
+                    `[ChangeBridge] _syncJsonFromYDoc: layer ${scopeHint.layerId} missing "width" after fromYType. Keys: ${Object.keys(layerRecord).join(',')}`
+                );
+                const yKeys: string[] = [];
+                layerMap.forEach((_v: unknown, k: string) => {
+                    yKeys.push(k);
+                });
+                console.warn(
+                    `[ChangeBridge] Y.Map keys for layer: ${yKeys.join(',')}`
+                );
+            }
+        }
+
+        sanitizeBabelfontArrays(patchedLayer);
+        layers[layerIdx] = patchedLayer;
+        return true;
     }
 
     /**
@@ -1997,36 +2143,30 @@ export class ChangeBridge {
         return FONT_EDIT_ORIGIN;
     }
 
-    private _getRemoteLayerSyncScope(
+    private _getRemoteLayerSyncScopes(
         remoteEntries?: ChangeLogEntry[]
-    ): { glyphName: string; layerId: string } | null {
+    ): Array<{ glyphName: string; layerId: string }> | null {
         if (!remoteEntries?.length) {
             return null;
         }
 
-        if (remoteEntries.some((entry) => entry.undoScope === 'font')) {
+        const targets = normalizeWorkerReplayTargets(
+            remoteEntries.map((entry) => {
+                if (entry.undoScope !== 'layer') {
+                    return null;
+                }
+
+                const glyphName = deriveGlyphNameFromPath(entry.path);
+                const layerId = deriveLayerIdFromPath(entry.path);
+                return glyphName && layerId ? { glyphName, layerId } : null;
+            })
+        );
+
+        if (targets.length !== remoteEntries.length) {
             return null;
         }
 
-        const glyphNames = new Set(
-            remoteEntries
-                .map((entry) => deriveGlyphNameFromPath(entry.path))
-                .filter((glyphName): glyphName is string => !!glyphName)
-        );
-        const layerIds = new Set(
-            remoteEntries
-                .map((entry) => deriveLayerIdFromPath(entry.path))
-                .filter((layerId): layerId is string => !!layerId)
-        );
-
-        if (glyphNames.size !== 1 || layerIds.size !== 1) {
-            return null;
-        }
-
-        return {
-            glyphName: [...glyphNames][0],
-            layerId: [...layerIds][0]
-        };
+        return targets;
     }
 
     private _hasMaterializedLayerRoot(

@@ -747,23 +747,48 @@ test.describe('Cross-window ChangeBridge sync', () => {
                 anchors.find((a: any) => a.name === 'top') || anchors[0];
             const oldX = topAnchor.x;
             const oldY = topAnchor.y;
+            const affectedGlyphNames = new Set(['a']);
 
-            // Move anchor via model setter inside runWithoutRecording
+            // Move anchor and rebuild automatic composites in the same
+            // suppressed-recording block so only the changed layers get
+            // batched into the bridge transaction.
             bridge.runWithoutRecording(() => {
                 topAnchor.x = oldX + 15;
-                topAnchor.y = oldY - 10;
+                topAnchor.y = oldY - 100;
+                for (const glyphName of fontModel.rebuildAutomaticCompositesForGlyphs(
+                    new Set(['a']),
+                    {
+                        preferredLayerId: layerId,
+                        preferredSourceGlyphName: 'a'
+                    }
+                )) {
+                    affectedGlyphNames.add(glyphName);
+                }
             });
 
             // Sync babelfontJson from model
             currentFont.syncJsonFromModel();
 
-            // Sync to Y.Doc (with layerId for fast path)
-            bridge.syncGlyphFromJson(
-                'a',
+            const changedLayerTargets = Array.from(affectedGlyphNames)
+                .map((glyphName) => {
+                    const matchedGlyph = fontModel.findGlyph(glyphName);
+                    const matchedLayer =
+                        matchedGlyph?.findLayerById(layerId) ??
+                        layer.getMatchingLayerOnGlyph?.(glyphName);
+                    return matchedLayer?.id
+                        ? { glyphName, layerId: matchedLayer.id }
+                        : null;
+                })
+                .filter(Boolean);
+
+            // Sync only the changed layers into the bridge transaction.
+            bridge.syncLayersFromJson(
+                changedLayerTargets,
                 'Drag anchor',
                 undefined,
                 undefined,
-                layerId
+                undefined,
+                changedLayerTargets
             );
 
             return {
@@ -771,11 +796,15 @@ test.describe('Cross-window ChangeBridge sync', () => {
                 oldX,
                 oldY,
                 newX: topAnchor.x,
-                newY: topAnchor.y
+                newY: topAnchor.y,
+                affectedGlyphNames: Array.from(affectedGlyphNames),
+                changedLayerTargets
             };
         }, thinLayerId);
 
         expect(anchorEditResult).not.toHaveProperty('error');
+        expect(anchorEditResult.newY).toBe(anchorEditResult.oldY - 100);
+        expect(anchorEditResult.affectedGlyphNames).toContain('adieresis');
 
         // Wait for remote change
         await waitForRemoteChange(linkedPage, anchorLastSyncTime);
@@ -834,6 +863,13 @@ test.describe('Cross-window ChangeBridge sync', () => {
         );
         expect(linkedAnchors).toEqual(mainAnchors);
 
+        expect(mainDataAfterAnchor.adieresis).not.toEqual(
+            mainDataAfterOutline.adieresis
+        );
+        expect(linkedDataAfterAnchor.adieresis).toEqual(
+            mainDataAfterAnchor.adieresis
+        );
+
         // ── 9. Compilation check ──────────────────────────────────
         // Wait for compilation to settle in both windows
         await waitForEditingCompile(mainPage);
@@ -867,6 +903,14 @@ test.describe('Cross-window ChangeBridge sync', () => {
         );
         await expect(linkedPage).toHaveScreenshot(
             '03-linked-after-anchor-edit.png',
+            { maxDiffPixelRatio: 0.05 }
+        );
+        await expect(mainPage).toHaveScreenshot(
+            '04-main-after-anchor-recomposition.png',
+            { maxDiffPixelRatio: 0.05 }
+        );
+        await expect(linkedPage).toHaveScreenshot(
+            '04-linked-after-anchor-recomposition.png',
             { maxDiffPixelRatio: 0.05 }
         );
 

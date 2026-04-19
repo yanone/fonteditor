@@ -10913,22 +10913,26 @@ export class OutlineEditor {
                     console.log(
                         `[DRAG-DEBUG] onMouseUp before _syncCurrentGlyphToYDoc — label=${label}, preDragDesc=${preDragDesc ?? 'null'}, postDragDesc=${encodedPostDesc ?? 'null'}`
                     );
-                    this._syncCurrentGlyphToYDoc(
-                        label,
-                        preDragDesc ?? undefined,
-                        encodedPostDesc,
-                        metricsKeySide,
+                    const anchorChangedLayerTargets =
                         dragType === 'anchor'
                             ? this.collectMatchingLayerWorkerReplayTargets(
                                   this._anchorAffectedGlyphNames,
                                   this.getCurrentLayerId()
                               )
-                            : dragType === 'sidebearing'
-                              ? this.collectMatchingLayerWorkerReplayTargets(
-                                    this._sidebearingAffectedGlyphNames,
-                                    this.getCurrentLayerId()
-                                )
-                              : undefined
+                            : undefined;
+                    this._syncCurrentGlyphToYDoc(
+                        label,
+                        preDragDesc ?? undefined,
+                        encodedPostDesc,
+                        metricsKeySide,
+                        anchorChangedLayerTargets ??
+                            (dragType === 'sidebearing'
+                                ? this.collectMatchingLayerWorkerReplayTargets(
+                                      this._sidebearingAffectedGlyphNames,
+                                      this.getCurrentLayerId()
+                                  )
+                                : undefined),
+                        anchorChangedLayerTargets
                     );
                 }
             }
@@ -15667,6 +15671,7 @@ export class OutlineEditor {
                     preMoveDesc,
                     postMoveDesc,
                     visualAnchorSide,
+                    anchorReplayTargets,
                     anchorReplayTargets
                 );
                 return;
@@ -16371,7 +16376,8 @@ export class OutlineEditor {
         oldValue?: string,
         newValue?: string,
         visualAnchorSide?: SidebearingSide | null,
-        workerReplayTargets?: Array<{ glyphName: string; layerId: string }>
+        workerReplayTargets?: Array<{ glyphName: string; layerId: string }>,
+        changedLayerTargets?: Array<{ glyphName: string; layerId: string }>
     ): void {
         if (!window.changeBridge) return;
         const parsed = this.parseGlyphStack();
@@ -16381,6 +16387,21 @@ export class OutlineEditor {
                 : this.glyphCanvas.getCurrentGlyphName();
 
         if (!editedGlyphName) {
+            return;
+        }
+
+        if (
+            changedLayerTargets?.length &&
+            typeof window.changeBridge.syncLayersFromJson === 'function'
+        ) {
+            window.changeBridge.syncLayersFromJson(
+                changedLayerTargets,
+                label,
+                oldValue,
+                newValue,
+                visualAnchorSide,
+                workerReplayTargets
+            );
             return;
         }
 
