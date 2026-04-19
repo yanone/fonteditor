@@ -2618,9 +2618,7 @@ export class ChangeBridge {
                 };
             }
 
-            if (
-                'FreeFloating' in masterRecord
-            ) {
+            if ('FreeFloating' in masterRecord) {
                 return { type: 'FreeFloating' };
             }
 
