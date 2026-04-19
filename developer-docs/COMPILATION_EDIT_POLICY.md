@@ -27,7 +27,7 @@ When these files disagree with this document, treat that as a bug and reconcile 
 
 1. Active mouse drags must continue triggering live editing compiles.
 2. Active mouse drags must not trigger full compiles or the full babelfont JSON sync that feeds those full compiles while the pointer is still down.
-3. Background full-font QC work must not start while the outline editor session is active; the shared worker must remain available for editing compiles and outline fetches.
+3. Background full-font QC work must not start while an outline drag is active; the shared worker must remain available for editing compiles and outline fetches.
 4. Interactive keyboard edits must still compile live.
 5. Interactive enriched edits must still schedule a trailing debounced full compile after the interaction settles.
 6. Interactive drag and keyboard edits must continue using incremental layer updates into the worker rather than re-sending the full babelfont JSON.
@@ -113,11 +113,11 @@ If an outline or anchor drag is still active when the debounce fires, the deboun
 
 Separately, active mouse drags must not let the full-font compile path run. The editing compile manager remains active during drag; only the trailing full compile and full-font compile manager must stay deferred until mouseup.
 
-### Background full-font QC while outline editing
+### Background full-font QC while dragging
 
-The background full-font compile manager shares the same worker as interactive editing compiles and explicit glyph outline fetches. When the outline editor session is active, background full-font QC must stay deferred even if no drag is currently in progress. Otherwise the worker can be monopolized by `compileFromJson` and Fontspector work just before the next point drag or key nudge, causing the following editing compile to block behind background jobs.
+The background full-font compile manager shares the same worker as interactive editing compiles and explicit glyph outline fetches. When an outline drag is active, background full-font QC must stay deferred. Otherwise the worker can be monopolized by `compileFromJson` and Fontspector work mid-drag, causing the following editing compile to block behind background jobs.
 
-The monitor loop may continue polling while outline editing is active, but it must not start a full-font compile until the editor leaves outline editing mode.
+The monitor loop may continue polling while editing is idle, and it should resume full-font compilation as soon as the drag ends so Fontspector and the full-compile indicator catch up to the current font version, including after Python-driven edits.
 
 ### Text input
 

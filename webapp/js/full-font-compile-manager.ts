@@ -59,8 +59,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     const MONITOR_MS = 200;
 
     function isCompilationBlockedByEditingSession(): boolean {
-        const outlineEditor = window.glyphCanvas?.outlineEditor;
-        return !!outlineEditor?.draggingSomething || !!outlineEditor?.active;
+        return !!window.glyphCanvas?.outlineEditor?.draggingSomething;
     }
 
     function isValidProfile(profile: string): profile is QcProfile {
