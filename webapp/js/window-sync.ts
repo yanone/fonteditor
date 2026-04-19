@@ -19,6 +19,7 @@ interface YjsUpdateMsg {
     update: number[]; // Uint8Array serialised as number[]
     windowId: string;
     changeLogEntries?: ChangeLogEntry[];
+    fullState?: number[];
 }
 
 interface FullStateRequestMsg {
@@ -71,11 +72,15 @@ export class WindowSync {
 
             // Wire bridge's local updates to broadcast
             bridge.onLocalUpdate((update) => {
+                const changeLogEntries = bridge.getNewChangeLogEntries();
                 this._send({
                     type: 'yjs-update',
                     update: Array.from(update),
                     windowId: bridge.windowId,
-                    changeLogEntries: bridge.getNewChangeLogEntries()
+                    changeLogEntries,
+                    fullState: (changeLogEntries ?? []).length
+                        ? Array.from(bridge.getFullState())
+                        : undefined
                 });
             });
         }
@@ -145,7 +150,8 @@ export class WindowSync {
                 this._peers.add(msg.windowId);
                 this._bridge.applyRemoteUpdate(
                     new Uint8Array(msg.update),
-                    msg.changeLogEntries
+                    msg.changeLogEntries,
+                    msg.fullState ? new Uint8Array(msg.fullState) : undefined
                 );
                 break;
 

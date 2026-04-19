@@ -331,6 +331,20 @@ function createTestBridge(windowId) {
     return { bridge, font, fontJson };
 }
 
+test('array-backed model wrappers serialize the current replaced layer data', () => {
+    const fontJson = makeThreeMasterThreeLayerFont();
+    const font = Font.fromData(fontJson);
+    const layer = font.findGlyph('A').findLayerById('master-extrathin');
+
+    fontJson.glyphs[0].layers[0] = {
+        ...fontJson.glyphs[0].layers[0],
+        anchors: [{ name: 'top', x: 123, y: 456 }]
+    };
+
+    expect(layer.toJSON().anchors[0].x).toBe(123);
+    expect(layer.toJSON().anchors[0].y).toBe(456);
+});
+
 function flushTimers() {
     jest.runAllTimers();
 }
@@ -4400,6 +4414,97 @@ describe('syncGlyphFromJson', () => {
         sync2.destroy();
         bridge1.destroy();
         bridge2.destroy();
+    });
+
+    test('applyRemoteUpdate repairs a malformed remote layer root from the full-state payload', () => {
+        const senderFontJson = makeThreeMasterThreeLayerFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-repair');
+        const receiverBridge = new ChangeBridge('receiver-repair');
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+
+        senderFontJson.glyphs[0].layers[0].anchors[0].x = 123;
+        senderBridge.syncGlyphFromJson(
+            'A',
+            'Drag anchor',
+            undefined,
+            undefined,
+            'master-extrathin'
+        );
+        const remoteEntries = senderBridge.getNewChangeLogEntries();
+
+        const corruptDoc = new Y.Doc();
+        const corruptFontMap = corruptDoc.getMap('font');
+        jsonToYDoc(senderFontJson, corruptFontMap);
+        setYPath(
+            corruptFontMap,
+            ['glyphs', 'A', 'layers', 'master-extrathin'],
+            'Drag anchor'
+        );
+
+        receiverBridge.applyRemoteUpdate(
+            Y.encodeStateAsUpdate(corruptDoc),
+            remoteEntries,
+            senderBridge.getFullState()
+        );
+
+        expect(
+            getYPath(receiverBridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'master-extrathin',
+                'id'
+            ])
+        ).toBe('master-extrathin');
+        expect(
+            getYPath(receiverBridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'master-extrathin',
+                'anchors',
+                0,
+                'x'
+            ])
+        ).toBe(123);
+        expect(receiverFontJson.glyphs[0].layers).toHaveLength(3);
+        expect(receiverFontJson.glyphs[0].layers[0].id).toBe(
+            'master-extrathin'
+        );
+        expect(receiverFontJson.glyphs[0].layers[0].anchors[0].x).toBe(123);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('full-state sync canonicalizes linked raw layer snapshots by dropping undefined and transient fields', () => {
+        const senderFontJson = makeThreeMasterThreeLayerFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-canonical');
+        const receiverBridge = new ChangeBridge('receiver-canonical');
+
+        receiverFontJson.glyphs[0].layers[0].name = undefined;
+        receiverFontJson.glyphs[0].layers[0].height = undefined;
+        receiverFontJson.glyphs[0].layers[0].vertWidth = undefined;
+        receiverFontJson.glyphs[0].layers[0].isInterpolated = false;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+
+        expect('name' in receiverFontJson.glyphs[0].layers[0]).toBe(false);
+        expect('height' in receiverFontJson.glyphs[0].layers[0]).toBe(false);
+        expect('vertWidth' in receiverFontJson.glyphs[0].layers[0]).toBe(false);
+        expect('isInterpolated' in receiverFontJson.glyphs[0].layers[0]).toBe(
+            false
+        );
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
     });
 
     test('linked window emits layerFingerprintChanged when receiving a remote undo that changes a layer fingerprint', () => {

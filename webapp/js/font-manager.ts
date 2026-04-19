@@ -2769,7 +2769,10 @@ class FontManager {
         const cleanAnchors = layerData.anchors?.map((anchor) => ({
             name: anchor.name,
             x: anchor.x,
-            y: anchor.y
+            y: anchor.y,
+            ...(anchor.format_specific && {
+                format_specific: anchor.format_specific
+            })
         }));
 
         const cleanGuides = layerData.guides?.map((guide) => ({
@@ -2782,18 +2785,23 @@ class FontManager {
             ...(guide.color && { color: guide.color })
         }));
 
+        const layerName = layerData.name ?? originalLayer?.name;
+
         return {
             width: layerData.width,
-            height: layerData.height,
-            vertWidth: layerData.vertWidth,
-            name: layerData.name ?? originalLayer?.name,
+            ...(layerData.height !== undefined && {
+                height: layerData.height
+            }),
+            ...(layerData.vertWidth !== undefined && {
+                vertWidth: layerData.vertWidth
+            }),
+            ...(layerName !== undefined && { name: layerName }),
             id: layerId,
             master: originalLayer?.master ?? layerData.master,
             shapes:
                 options?.preserveExistingShapes && originalLayer?.shapes
                     ? originalLayer.shapes
                     : layerData.shapes?.map(cleanShapeForSaving) || [],
-            isInterpolated: false,
             ...(cleanAnchors && { anchors: cleanAnchors }),
             ...(cleanGuides && { guides: cleanGuides }),
             ...((layerData.color ?? originalLayer?.color) && {

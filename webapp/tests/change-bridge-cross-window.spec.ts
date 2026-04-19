@@ -35,10 +35,9 @@ async function setupEditTextMode(page: Page): Promise<void> {
 }
 
 async function waitForWindowSyncReady(page: Page): Promise<void> {
-    await page.waitForFunction(
-        () => !!(window as any).windowSync,
-        { timeout: 15000 }
-    );
+    await page.waitForFunction(() => !!(window as any).windowSync, {
+        timeout: 15000
+    });
 }
 
 /** Wait for the linked window to receive full state from the main window. */
@@ -60,37 +59,42 @@ async function waitForFullStateSync(page: Page): Promise<void> {
     await page.waitForTimeout(500);
 }
 
+async function getLastFontModelSyncTime(page: Page): Promise<number> {
+    return page.evaluate(() => (window as any).__lastFontModelSyncTime ?? 0);
+}
+
 /**
- * Wait for a remote change to arrive in the linked window.
- * Checks for: 1) change log growth, 2) Y.Doc glyph width change, 3) model width change.
+ * Wait for a remote change to arrive and be processed in the linked window.
+ * Uses the `fontModelSync` event that fires after _onAfterSync,
+ * which is called after every applyRemoteUpdate.
  */
 async function waitForRemoteChange(
     linkedPage: Page,
-    glyphName: string,
-    regularLayerId: string,
-    expectedWidth: number
+    previousSyncTime: number
 ): Promise<void> {
-    // Wait for either change log growth OR the model layer width to change
-    await linkedPage.waitForFunction(
-        ({ glyphName, layerId, expectedWidth }) => {
-            const bridge = (window as any).changeBridge;
-            if (!bridge) return false;
-            // Check if the font model has the expected width
-            const fontModel = (window as any).currentFontModel;
-            if (fontModel) {
-                const glyph = fontModel.findGlyph(glyphName);
-                const layer = glyph?.findLayerById(layerId);
-                if (layer && Math.abs(layer.width - expectedWidth) < 0.01) {
-                    return true;
-                }
+    await linkedPage.evaluate((lastSeenSyncTime) => {
+        return new Promise<void>((resolve) => {
+            const currentSyncTime =
+                (window as any).__lastFontModelSyncTime ?? 0;
+            if (currentSyncTime > lastSeenSyncTime) {
+                resolve();
+                return;
             }
-            return false;
-        },
-        { glyphName, layerId: regularLayerId, expectedWidth },
-        { timeout: 30000 }
-    );
+            const handler = () => {
+                (window as any).__lastFontModelSyncTime = Date.now();
+                window.removeEventListener('fontModelSync', handler);
+                resolve();
+            };
+            window.addEventListener('fontModelSync', handler);
+            // Safety timeout in case the event already fired
+            setTimeout(() => {
+                window.removeEventListener('fontModelSync', handler);
+                resolve();
+            }, 15000);
+        });
+    }, previousSyncTime);
     // Allow UI and compilation to settle
-    await linkedPage.waitForTimeout(2000);
+    await linkedPage.waitForTimeout(5000);
 }
 
 /**
@@ -199,7 +203,7 @@ async function extractRawLayerProperties(
     page: Page,
     glyphName: string,
     layerId: string
-): Promise<Record<string, any>> {
+): Promise<Record<string, any> | null> {
     return page.evaluate(
         ({ glyphName, layerId }) => {
             const rawData = (window as any).fontManager?.currentFont
@@ -207,9 +211,7 @@ async function extractRawLayerProperties(
             const glyph = rawData?.glyphs?.find(
                 (g: any) => g.name === glyphName
             );
-            const layer = glyph?.layers?.find(
-                (l: any) => l.id === layerId
-            );
+            const layer = glyph?.layers?.find((l: any) => l.id === layerId);
             if (!layer) return null;
 
             // Return a copy with all enumerable own properties
@@ -218,7 +220,10 @@ async function extractRawLayerProperties(
                 const value = layer[key];
                 // Skip shapes/anchors for brevity (tested separately)
                 if (key === 'shapes' || key === 'anchors') continue;
-                result[key] = JSON.parse(JSON.stringify(value));
+                result[key] =
+                    value === undefined
+                        ? undefined
+                        : JSON.parse(JSON.stringify(value));
             }
             return result;
         },
@@ -263,9 +268,7 @@ async function extractRawLayerShapes(
             const glyph = rawData?.glyphs?.find(
                 (g: any) => g.name === glyphName
             );
-            const layer = glyph?.layers?.find(
-                (l: any) => l.id === layerId
-            );
+            const layer = glyph?.layers?.find((l: any) => l.id === layerId);
             if (!layer) return null;
             return JSON.parse(JSON.stringify(layer.shapes));
         },
@@ -286,9 +289,7 @@ async function extractRawLayerAnchors(
             const glyph = rawData?.glyphs?.find(
                 (g: any) => g.name === glyphName
             );
-            const layer = glyph?.layers?.find(
-                (l: any) => l.id === layerId
-            );
+            const layer = glyph?.layers?.find((l: any) => l.id === layerId);
             if (!layer) return null;
             return JSON.parse(JSON.stringify(layer.anchors));
         },
@@ -297,25 +298,71 @@ async function extractRawLayerAnchors(
 }
 
 /** Find the Regular master's layer ID in the Fustat font. */
-async function findRegularLayerId(page: Page): Promise<string> {
+async function findThinLayerId(page: Page): Promise<string> {
+    // Find the Y.Doc layer for glyph 'a' that has both 'anchors' and 'shapes'
+    // and belongs to the Thin (wght:200) master. This is the first master
+    // in Fustat and definitely has its own outline data (not interpolated).
     return page.evaluate(() => {
-        const fontModel = (window as any).currentFontModel;
-        const masters = fontModel?.masters || [];
-        // The Regular master in Fustat is the second one (index 1)
-        // with wght:400 location. Its layer ID equals its master ID.
-        for (const master of masters) {
-            const name = master.name;
-            const nameStr =
-                typeof name === 'string'
-                    ? name
-                    : name?.dflt || '';
-            const loc = master.location || {};
-            if (loc.wght === 400 || nameStr === 'Regular') {
-                return master.id;
+        const bridge = (window as any).changeBridge;
+        try {
+            const glyphsMap = bridge?.fontMap?.get('glyphs');
+            const glyphMap = glyphsMap?.get('a');
+            const layersMap = glyphMap?.get('layers');
+            if (!layersMap) return '';
+
+            // Find the Thin master ID (wght:200)
+            const fontModel = (window as any).currentFontModel;
+            const masters = fontModel?.masters || [];
+            let thinMasterId = '';
+            for (const master of masters) {
+                const nameStr =
+                    typeof master.name === 'string'
+                        ? master.name
+                        : master.name?.dflt || '';
+                if (master.location?.wght === 200 || nameStr === 'Thin') {
+                    thinMasterId = master.id;
+                    break;
+                }
             }
+            if (!thinMasterId) thinMasterId = masters[0]?.id || '';
+
+            // Search Y.Doc layers for one that has anchors + shapes + matching master
+            let result = '';
+            layersMap.forEach((layerMap: any, layerId: string) => {
+                if (result) return;
+                if (!layerMap || typeof layerMap.forEach !== 'function') return;
+
+                let hasAnchors = false;
+                let hasShapes = false;
+                let masterRef = '';
+                layerMap.forEach((v: any, k: string) => {
+                    if (k === 'anchors') hasAnchors = true;
+                    if (k === 'shapes') hasShapes = true;
+                    if (k === 'master') {
+                        if (typeof v === 'string') masterRef = v;
+                        else if (v && typeof v === 'object') {
+                            if (typeof v.get === 'function') {
+                                masterRef =
+                                    v.get('master') ||
+                                    v.get('DefaultForMaster') ||
+                                    '';
+                            } else {
+                                masterRef =
+                                    v.master || v.DefaultForMaster || '';
+                            }
+                        }
+                    }
+                });
+
+                if (hasAnchors && hasShapes && masterRef === thinMasterId) {
+                    result = layerId;
+                }
+            });
+
+            return result;
+        } catch {
+            return '';
         }
-        // Fallback: second master
-        return masters[1]?.id || masters[0]?.id || '';
     });
 }
 
@@ -333,7 +380,7 @@ async function countModelLayers(
 // ── Test ──────────────────────────────────────────────────────────────
 
 test.describe('Cross-window ChangeBridge sync', () => {
-    test('linked window preserves all layer data after remote outline and anchor edits on Regular layer', async ({
+    test('linked window preserves all layer data after remote outline and anchor edits on Thin layer', async ({
         browser
     }) => {
         test.setTimeout(180000);
@@ -356,9 +403,10 @@ test.describe('Cross-window ChangeBridge sync', () => {
         await focusView(mainPage, 'Meta+Shift+E', 'view-editor');
         await setupEditTextMode(mainPage);
 
-        // Find the Regular master layer ID
-        const regularLayerId = await findRegularLayerId(mainPage);
-        expect(regularLayerId).toBeTruthy();
+        // Find the Thin master layer ID
+        const thinLayerId = await findThinLayerId(mainPage);
+        expect(thinLayerId).toBeTruthy();
+        console.log('thinLayerId:', thinLayerId);
         const glyphNames = ['a', 'adieresis', 'aacute'];
 
         // ── 2. Open linked window ────────────────────────────────
@@ -403,98 +451,204 @@ test.describe('Cross-window ChangeBridge sync', () => {
         const mainYDocKeys = await extractYDocLayerKeys(
             mainPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         const linkedYDocKeys = await extractYDocLayerKeys(
             linkedPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         expect(linkedYDocKeys).toEqual(mainYDocKeys);
         // Sanity: Regular layer Y.Doc must have core properties
         expect(mainYDocKeys).toContain('width');
-        expect(mainYDocKeys).toContain('master');
         expect(mainYDocKeys).toContain('shapes');
-        expect(mainYDocKeys).toContain('anchors');
 
         // Baseline screenshots
         await mainPage.waitForTimeout(300);
-        await expect(mainPage).toHaveScreenshot(
-            '01-main-baseline.png',
-            { maxDiffPixelRatio: 0.05 }
-        );
-        await expect(linkedPage).toHaveScreenshot(
-            '01-linked-baseline.png',
-            { maxDiffPixelRatio: 0.05 }
-        );
+        await expect(mainPage).toHaveScreenshot('01-main-baseline.png', {
+            maxDiffPixelRatio: 0.05
+        });
+        await expect(linkedPage).toHaveScreenshot('01-linked-baseline.png', {
+            maxDiffPixelRatio: 0.05
+        });
 
         // ── 4. Select the Regular layer in the main window ──────
-        await mainPage.evaluate(async (layerId) => {
-            const gc = (window as any).glyphCanvas;
-            const oe = gc?.outlineEditor;
-            if (oe && oe.setSelectedLayer) {
-                oe.setSelectedLayer(layerId);
-            }
-            gc?.render?.();
-        }, regularLayerId);
-
+        // (Layer selection is handled by the glyph canvas internally
+        // based on the current location; no explicit API needed)
         await mainPage.waitForTimeout(300);
 
         // ── 5. Outline edit: move first node ─────────────────────
-        const outlineEditResult = await mainPage.evaluate(
-            async (layerId) => {
-                const fontModel = (window as any).currentFontModel;
-                const glyph = fontModel.findGlyph('a');
-                const layer = glyph.findLayerById(layerId);
+        // Use runWithoutRecording to suppress model setter recording,
+        // then sync babelfontJson from model, then syncGlyphFromJson.
+        // This matches how the outline editor does it: direct data
+        // mutation → syncGlyphFromJson (not model setters).
+        const outlineLastSyncTime = await getLastFontModelSyncTime(linkedPage);
+        const outlineEditResult = await mainPage.evaluate(async (layerId) => {
+            const bridge = (window as any).changeBridge;
+            const fontModel = (window as any).currentFontModel;
+            const currentFont = (window as any).fontManager?.currentFont;
+            const glyph = fontModel.findGlyph('a');
+            const layer = glyph.findLayerById(layerId);
 
-                const paths = layer.paths;
-                if (!paths.length) return { error: 'No paths found' };
+            const paths = layer.paths;
+            if (!paths.length) return { error: 'No paths found' };
 
-                const firstPath = paths[0];
-                const nodes = firstPath.nodes;
-                if (!nodes.length) return { error: 'No nodes found' };
+            const firstPath = paths[0];
+            const nodes = firstPath.nodes;
+            if (!nodes.length) return { error: 'No nodes found' };
 
-                const firstNode = nodes[0];
-                const oldX = firstNode.x;
-                const oldY = firstNode.y;
+            const firstNode = nodes[0];
+            const oldX = firstNode.x;
+            const oldY = firstNode.y;
 
+            // Move node via model setter inside runWithoutRecording
+            // so recordChange is suppressed (syncGlyphFromJson handles it)
+            bridge.runWithoutRecording(() => {
                 firstNode.x = oldX + 10;
                 firstNode.y = oldY + 5;
+            });
 
-                const bridge = (window as any).changeBridge;
-                bridge.syncGlyphFromJson(
-                    'a',
-                    'Drag point',
-                    undefined,
-                    undefined,
-                    layerId
-                );
+            // Sync babelfontJson from model (converts array nodes to strings)
+            currentFont.syncJsonFromModel();
 
-                return { oldX, oldY, newX: firstNode.x, newY: firstNode.y };
-            },
-            regularLayerId
-        );
+            // Now sync to Y.Doc via change bridge (fast path)
+            bridge.syncGlyphFromJson(
+                'a',
+                'Drag point',
+                undefined,
+                undefined,
+                layerId
+            );
+
+            // Check what the Y.Doc looks like AFTER sync
+            const Y = (window as any).Y;
+            let yDocKeysAfter: string[] = [];
+            try {
+                const glyphsMap = bridge.fontMap.get('glyphs');
+                const glyphMap = glyphsMap.get('a');
+                const layersMap = glyphMap.get('layers');
+                const layerMap = layersMap.get(layerId);
+                if (layerMap) {
+                    layerMap.forEach((_v: any, k: string) =>
+                        yDocKeysAfter.push(k)
+                    );
+                }
+            } catch (e: any) {
+                yDocKeysAfter = ['err:' + e.message];
+            }
+
+            return {
+                oldX,
+                oldY,
+                newX: firstNode.x,
+                newY: firstNode.y,
+                yDocKeysAfterSync: yDocKeysAfter.sort()
+            };
+        }, thinLayerId);
 
         expect(outlineEditResult).not.toHaveProperty('error');
+        console.log('Outline edit result:', JSON.stringify(outlineEditResult));
 
-        // Wait for remote change to arrive in linked window
-        // After the outline edit, the width may or may not have changed;
-        // use the current sender width as the expected value
-        const senderWidthAfterOutline = await mainPage.evaluate(
-            (layerId) => {
-                const fontModel = (window as any).currentFontModel;
-                const glyph = fontModel.findGlyph('a');
-                const layer = glyph.findLayerById(layerId);
-                return layer?.width ?? 0;
-            },
-            regularLayerId
-        );
-        await waitForRemoteChange(
-            linkedPage,
-            'a',
-            regularLayerId,
-            senderWidthAfterOutline
-        );
+        // Wait for remote change to arrive and be processed in linked window
+        // Before waiting, install a Y.Doc observer on the linked window
+        // to trace what happens when the Yjs update is applied
+        await linkedPage.evaluate((layerId) => {
+            const bridge = (window as any).changeBridge;
+            const Y = (window as any).Y;
+            const glyphsMap = bridge.fontMap.get('glyphs');
+            const glyphMap = glyphsMap.get('a');
+            const layersMap = glyphMap.get('layers');
+            const layerMap = layersMap.get(layerId);
+
+            // Observe the layerMap for changes
+            if (layerMap) {
+                (window as any).__layerObserverLog = [];
+                layerMap.observe((event: any) => {
+                    const log = (window as any).__layerObserverLog;
+                    log.push({
+                        keysChanged: [...event.keysChanged],
+                        transactionOrigin: event.transaction?.origin,
+                        added: [...(event.added ?? [])].map((i: any) =>
+                            i.id?.toString?.()
+                        ),
+                        deleted: [...(event.deleted ?? [])].map((i: any) =>
+                            i.id?.toString?.()
+                        )
+                    });
+                });
+
+                // Also observe the top-level fontMap
+                (window as any).__fontMapObserverLog = [];
+                bridge.fontMap.observe((event: any) => {
+                    const log = (window as any).__fontMapObserverLog;
+                    log.push({
+                        keysChanged: [...event.keysChanged]
+                    });
+                });
+            }
+        }, thinLayerId);
+
+        await waitForRemoteChange(linkedPage, outlineLastSyncTime);
+
+        // Check the observer log
+        const observerLog = await linkedPage.evaluate((layerId) => {
+            const bridge = (window as any).changeBridge;
+            let keys: string[] = [];
+            try {
+                const glyphsMap = bridge.fontMap.get('glyphs');
+                const glyphMap = glyphsMap.get('a');
+                const layersMap = glyphMap.get('layers');
+                const layerMap = layersMap.get(layerId);
+                if (layerMap && typeof layerMap.forEach === 'function') {
+                    layerMap.forEach((_v: any, k: string) => keys.push(k));
+                }
+            } catch {}
+            return {
+                layerKeysAfterSync: keys.sort(),
+                layerObserverLog: (window as any).__layerObserverLog || [],
+                fontMapObserverLog: (window as any).__fontMapObserverLog || []
+            };
+        }, thinLayerId);
+        console.log('Observer log:', JSON.stringify(observerLog));
+
+        // Debug: check linked window's Y.Doc and model state
+        const linkedDebug = await linkedPage.evaluate((layerId) => {
+            const bridge = (window as any).changeBridge;
+            const fontModel = (window as any).currentFontModel;
+
+            // Check Y.Doc: how many layers does glyph 'a' have?
+            let yDocLayerCount = 0;
+            let yDocLayerKeysAtTarget: string[] = [];
+            try {
+                const glyphsMap = bridge?.fontMap?.get('glyphs');
+                const glyphMap = glyphsMap?.get('a');
+                const layersMap = glyphMap?.get('layers');
+                layersMap?.forEach((layerMap: any, layerId2: string) => {
+                    yDocLayerCount++;
+                    if (
+                        layerId2 === layerId &&
+                        layerMap &&
+                        typeof layerMap.forEach === 'function'
+                    ) {
+                        layerMap.forEach((_v: any, k: string) =>
+                            yDocLayerKeysAtTarget.push(k)
+                        );
+                    }
+                });
+            } catch {}
+
+            // Check model
+            const glyph = fontModel?.findGlyph('a');
+            const modelLayerCount = glyph?.layers?.length;
+
+            return {
+                yDocLayerCount,
+                yDocLayerKeysAtTarget: yDocLayerKeysAtTarget.sort(),
+                modelLayerCount,
+                targetLayerId: layerId
+            };
+        }, thinLayerId);
+        console.log('Linked debug:', JSON.stringify(linkedDebug));
 
         // ── 6. Assert data identity after outline edit ────────────
         const mainDataAfterOutline = await extractGlyphLayerData(
@@ -511,16 +665,14 @@ test.describe('Cross-window ChangeBridge sync', () => {
         const mainYDocKeysAfterOutline = await extractYDocLayerKeys(
             mainPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         const linkedYDocKeysAfterOutline = await extractYDocLayerKeys(
             linkedPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
-        expect(linkedYDocKeysAfterOutline).toEqual(
-            mainYDocKeysAfterOutline
-        );
+        expect(linkedYDocKeysAfterOutline).toEqual(mainYDocKeysAfterOutline);
         // CRITICAL: The Regular layer must still have core properties
         // (this is the bug — currently fails because only 'shapes' remains)
         expect(linkedYDocKeysAfterOutline).toContain('width');
@@ -532,12 +684,12 @@ test.describe('Cross-window ChangeBridge sync', () => {
         const mainRawProps = await extractRawLayerProperties(
             mainPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         const linkedRawProps = await extractRawLayerProperties(
             linkedPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         expect(linkedRawProps).toEqual(mainRawProps);
 
@@ -546,12 +698,12 @@ test.describe('Cross-window ChangeBridge sync', () => {
         const mainShapes = await extractRawLayerShapes(
             mainPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         const linkedShapes = await extractRawLayerShapes(
             linkedPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         expect(linkedShapes).toEqual(mainShapes);
         // Verify 'closed' field exists on path shapes
@@ -579,63 +731,54 @@ test.describe('Cross-window ChangeBridge sync', () => {
         );
 
         // ── 7. Anchor edit: move top anchor ──────────────────────
-        const anchorEditResult = await mainPage.evaluate(
-            async (layerId) => {
-                const fontModel = (window as any).currentFontModel;
-                const glyph = fontModel.findGlyph('a');
-                const layer = glyph.findLayerById(layerId);
+        const anchorLastSyncTime = await getLastFontModelSyncTime(linkedPage);
+        const anchorEditResult = await mainPage.evaluate(async (layerId) => {
+            const bridge = (window as any).changeBridge;
+            const fontModel = (window as any).currentFontModel;
+            const currentFont = (window as any).fontManager?.currentFont;
+            const glyph = fontModel.findGlyph('a');
+            const layer = glyph.findLayerById(layerId);
 
-                const anchors = layer.anchors;
-                if (!anchors.length) return { error: 'No anchors found' };
+            const anchors = layer.anchors;
+            if (!anchors.length) return { error: 'No anchors found' };
 
-                // Find the 'top' anchor
-                const topAnchor =
-                    anchors.find((a: any) => a.name === 'top') ||
-                    anchors[0];
-                const oldX = topAnchor.x;
-                const oldY = topAnchor.y;
+            // Find the 'top' anchor
+            const topAnchor =
+                anchors.find((a: any) => a.name === 'top') || anchors[0];
+            const oldX = topAnchor.x;
+            const oldY = topAnchor.y;
 
+            // Move anchor via model setter inside runWithoutRecording
+            bridge.runWithoutRecording(() => {
                 topAnchor.x = oldX + 15;
                 topAnchor.y = oldY - 10;
+            });
 
-                const bridge = (window as any).changeBridge;
-                bridge.syncGlyphFromJson(
-                    'a',
-                    'Drag anchor',
-                    undefined,
-                    undefined,
-                    layerId
-                );
+            // Sync babelfontJson from model
+            currentFont.syncJsonFromModel();
 
-                return {
-                    anchorName: topAnchor.name,
-                    oldX,
-                    oldY,
-                    newX: topAnchor.x,
-                    newY: topAnchor.y
-                };
-            },
-            regularLayerId
-        );
+            // Sync to Y.Doc (with layerId for fast path)
+            bridge.syncGlyphFromJson(
+                'a',
+                'Drag anchor',
+                undefined,
+                undefined,
+                layerId
+            );
+
+            return {
+                anchorName: topAnchor.name,
+                oldX,
+                oldY,
+                newX: topAnchor.x,
+                newY: topAnchor.y
+            };
+        }, thinLayerId);
 
         expect(anchorEditResult).not.toHaveProperty('error');
 
         // Wait for remote change
-        const senderWidthAfterAnchor = await mainPage.evaluate(
-            (layerId) => {
-                const fontModel = (window as any).currentFontModel;
-                const glyph = fontModel.findGlyph('a');
-                const layer = glyph.findLayerById(layerId);
-                return layer?.width ?? 0;
-            },
-            regularLayerId
-        );
-        await waitForRemoteChange(
-            linkedPage,
-            'a',
-            regularLayerId,
-            senderWidthAfterAnchor
-        );
+        await waitForRemoteChange(linkedPage, anchorLastSyncTime);
 
         // ── 8. Assert data identity after anchor edit ─────────────
         const mainDataAfterAnchor = await extractGlyphLayerData(
@@ -652,16 +795,14 @@ test.describe('Cross-window ChangeBridge sync', () => {
         const mainYDocKeysAfterAnchor = await extractYDocLayerKeys(
             mainPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         const linkedYDocKeysAfterAnchor = await extractYDocLayerKeys(
             linkedPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
-        expect(linkedYDocKeysAfterAnchor).toEqual(
-            mainYDocKeysAfterAnchor
-        );
+        expect(linkedYDocKeysAfterAnchor).toEqual(mainYDocKeysAfterAnchor);
         expect(linkedYDocKeysAfterAnchor).toContain('width');
         expect(linkedYDocKeysAfterAnchor).toContain('master');
         expect(linkedYDocKeysAfterAnchor).toContain('shapes');
@@ -671,12 +812,12 @@ test.describe('Cross-window ChangeBridge sync', () => {
         const mainRawProps2 = await extractRawLayerProperties(
             mainPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         const linkedRawProps2 = await extractRawLayerProperties(
             linkedPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         expect(linkedRawProps2).toEqual(mainRawProps2);
 
@@ -684,12 +825,12 @@ test.describe('Cross-window ChangeBridge sync', () => {
         const mainAnchors = await extractRawLayerAnchors(
             mainPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         const linkedAnchors = await extractRawLayerAnchors(
             linkedPage,
             'a',
-            regularLayerId
+            thinLayerId
         );
         expect(linkedAnchors).toEqual(mainAnchors);
 

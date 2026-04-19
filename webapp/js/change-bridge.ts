@@ -1157,7 +1157,8 @@ export class ChangeBridge {
      */
     applyRemoteUpdate(
         update: Uint8Array,
-        remoteEntries?: ChangeLogEntry[]
+        remoteEntries?: ChangeLogEntry[],
+        repairState?: Uint8Array
     ): void {
         const oe = window.glyphCanvas?.outlineEditor;
         console.log(
@@ -1166,6 +1167,8 @@ export class ChangeBridge {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
+            const remoteLayerScope =
+                this._getRemoteLayerSyncScope(remoteEntries);
             if (remoteEntries?.length) {
                 const glyphNames = new Set(
                     remoteEntries
@@ -1190,9 +1193,14 @@ export class ChangeBridge {
                 update,
                 this._getRemoteUpdateOrigin(remoteEntries)
             );
-            this._syncJsonFromYDoc(
-                this._getRemoteLayerSyncScope(remoteEntries)
-            );
+            this._syncJsonFromYDoc(remoteLayerScope);
+            if (
+                repairState &&
+                remoteEntries?.length &&
+                this._repairTouchedLayersFromState(repairState, remoteEntries)
+            ) {
+                this._syncJsonFromYDoc();
+            }
             this._onAfterSync?.();
             this._onDirty?.();
             if (remoteEntries && remoteEntries.length > 0) {
@@ -2021,6 +2029,149 @@ export class ChangeBridge {
         };
     }
 
+    private _hasMaterializedLayerRoot(
+        glyphName: string,
+        layerId: string
+    ): boolean {
+        const layerValue = getYPath(this.fontMap, [
+            'glyphs',
+            glyphName,
+            'layers',
+            layerId
+        ]);
+        if (!(layerValue instanceof Y.Map)) {
+            return false;
+        }
+
+        const layerSnapshot = fromYType(layerValue);
+        if (
+            !layerSnapshot ||
+            typeof layerSnapshot !== 'object' ||
+            Array.isArray(layerSnapshot)
+        ) {
+            return false;
+        }
+
+        const layerRecord = layerSnapshot as Record<string, unknown>;
+        return (
+            typeof layerRecord.id === 'string' &&
+            layerRecord.id.length > 0 &&
+            layerRecord.id === layerId
+        );
+    }
+
+    private _extractLayerSnapshotFromState(
+        repairFontMap: Y.Map<unknown>,
+        glyphName: string,
+        layerId: string
+    ): Record<string, unknown> | null {
+        const layerValue = getYPath(repairFontMap, [
+            'glyphs',
+            glyphName,
+            'layers',
+            layerId
+        ]);
+        if (!(layerValue instanceof Y.Map)) {
+            return null;
+        }
+
+        const layerSnapshot = fromYType(layerValue);
+        if (
+            !layerSnapshot ||
+            typeof layerSnapshot !== 'object' ||
+            Array.isArray(layerSnapshot)
+        ) {
+            return null;
+        }
+
+        return cloneHistoryValue(layerSnapshot as Record<string, unknown>);
+    }
+
+    private _repairTouchedLayersFromState(
+        state: Uint8Array,
+        remoteEntries: ChangeLogEntry[]
+    ): boolean {
+        const touchedGlyphNames = new Set(
+            remoteEntries
+                .map((entry) => deriveGlyphNameFromPath(entry.path))
+                .filter((glyphName): glyphName is string => !!glyphName)
+        );
+        if (!touchedGlyphNames.size) {
+            return false;
+        }
+
+        const repairDoc = new Y.Doc();
+        const repairFontMap = repairDoc.getMap('font');
+        Y.applyUpdate(repairDoc, state, SYSTEM_REMOTE_ORIGIN);
+
+        const repairOperations: Array<{
+            glyphName: string;
+            layerId: string;
+            layerSnapshot: Record<string, unknown>;
+        }> = [];
+
+        for (const glyphName of touchedGlyphNames) {
+            const repairLayersMap = getYPath(repairFontMap, [
+                'glyphs',
+                glyphName,
+                'layers'
+            ]);
+            if (!(repairLayersMap instanceof Y.Map)) {
+                continue;
+            }
+
+            repairLayersMap.forEach((_value: unknown, layerId: string) => {
+                const layerSnapshot = this._extractLayerSnapshotFromState(
+                    repairFontMap,
+                    glyphName,
+                    layerId
+                );
+                if (!layerSnapshot) {
+                    return;
+                }
+
+                const localLayerValue = getYPath(this.fontMap, [
+                    'glyphs',
+                    glyphName,
+                    'layers',
+                    layerId
+                ]);
+                const localLayerSnapshot =
+                    localLayerValue instanceof Y.Map
+                        ? fromYType(localLayerValue)
+                        : null;
+                if (this._isDeepEqual(localLayerSnapshot, layerSnapshot)) {
+                    return;
+                }
+
+                repairOperations.push({
+                    glyphName,
+                    layerId,
+                    layerSnapshot
+                });
+            });
+        }
+
+        if (!repairOperations.length) {
+            return false;
+        }
+
+        console.warn(
+            `[ChangeBridge] Repairing ${repairOperations.length} malformed remote layer root(s) from full-state payload.`
+        );
+        this.yDoc.transact(() => {
+            for (const operation of repairOperations) {
+                this._applyLayerSnapshot(
+                    operation.glyphName,
+                    operation.layerId,
+                    operation.layerSnapshot
+                );
+            }
+        }, SYSTEM_REMOTE_ORIGIN);
+
+        return true;
+    }
+
     private _resolveUndoHistoryItem(
         glyphName: string | undefined,
         layerId: string | null | undefined,
@@ -2231,7 +2382,6 @@ export class ChangeBridge {
             glyphSnapshot,
             existingGlyphSnapshot
         ) as Record<string, unknown>;
-        const glyphKeys = new Set(Object.keys(glyphJson));
 
         for (const [gk, gv] of Object.entries(glyphJson)) {
             if (gk === 'layers' && Array.isArray(gv)) {
@@ -2266,19 +2416,19 @@ export class ChangeBridge {
                         layerJson,
                         fromYType(layerMap)
                     ) as Record<string, unknown>;
-                    const layerKeys = new Set(Object.keys(normalizedLayerJson));
+                    // Set all keys from the normalized snapshot.
+                    // Do NOT delete existing Y.Doc keys that are absent
+                    // from the snapshot — the normalization merge already
+                    // preserves them, and deleting keys propagates via Yjs
+                    // to remote windows, stripping their data.
                     for (const [lk, lv] of Object.entries(
                         normalizedLayerJson
                     )) {
                         layerMap.set(lk, toYType(lv));
                     }
-                    layerMap.forEach((_v: unknown, key: string) => {
-                        if (!layerKeys.has(key)) {
-                            layerMap!.delete(key);
-                        }
-                    });
                 }
 
+                // Remove layers that are no longer in the snapshot
                 layersMap.forEach((_value: unknown, key: string) => {
                     if (!nextLayerIds.has(key)) {
                         layersMap?.delete(key);
@@ -2290,6 +2440,8 @@ export class ChangeBridge {
             glyphMap.set(gk, toYType(gv));
         }
 
+        // Remove glyph-level keys no longer in the snapshot
+        const glyphKeys = new Set(Object.keys(glyphJson));
         glyphMap.forEach((_value: unknown, key: string) => {
             if (!glyphKeys.has(key)) {
                 glyphMap?.delete(key);
@@ -2701,6 +2853,16 @@ export class ChangeBridge {
                     : 0;
         }
 
+        for (const [key, value] of Object.entries(mergedLayerRecord)) {
+            if (value === undefined) {
+                delete mergedLayerRecord[key];
+            }
+        }
+
+        if (mergedLayerRecord.isInterpolated === false) {
+            delete mergedLayerRecord.isInterpolated;
+        }
+
         sanitizeBabelfontArrays(mergedLayerRecord as Unsafe);
         return mergedLayerRecord;
     }
@@ -2737,22 +2899,16 @@ export class ChangeBridge {
             layersMap.set(layerId, layerMap);
         }
 
+        const existingYDocLayer = fromYType(layerMap);
         const layerJson = this._normalizeLayerSnapshot(
             layerId,
             layerSnapshot,
-            fromYType(layerMap)
+            existingYDocLayer
         ) as Record<string, unknown>;
-        const layerKeys = new Set(Object.keys(layerJson));
 
         for (const [key, value] of Object.entries(layerJson)) {
             layerMap.set(key, toYType(value));
         }
-
-        layerMap.forEach((_value: unknown, key: string) => {
-            if (!layerKeys.has(key)) {
-                layerMap?.delete(key);
-            }
-        });
     }
 
     private _targetFromHistoryItem(

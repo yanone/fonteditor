@@ -3807,6 +3807,10 @@ abstract class ArrayElementBase<
         markInterpolationFontDirty(findFontForModelObject(this));
         markFontDirty();
     }
+
+    toJSON(): TData {
+        return this.data;
+    }
 }
 
 /**
