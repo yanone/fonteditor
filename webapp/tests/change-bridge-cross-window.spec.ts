@@ -40,6 +40,21 @@ async function waitForWindowSyncReady(page: Page): Promise<void> {
     });
 }
 
+async function installFontModelSyncTracker(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        if (testWindow.__fontModelSyncTrackerInstalled) {
+            return;
+        }
+
+        testWindow.__lastFontModelSyncTime = Date.now();
+        window.addEventListener('fontModelSync', () => {
+            testWindow.__lastFontModelSyncTime = Date.now();
+        });
+        testWindow.__fontModelSyncTrackerInstalled = true;
+    });
+}
+
 /** Wait for the linked window to receive full state from the main window. */
 async function waitForFullStateSync(page: Page): Promise<void> {
     await page.waitForFunction(
@@ -93,8 +108,8 @@ async function waitForRemoteChange(
             }, 15000);
         });
     }, previousSyncTime);
-    // Allow UI and compilation to settle
-    await linkedPage.waitForTimeout(5000);
+    // Allow UI state to paint; compile completion is awaited separately.
+    await linkedPage.waitForTimeout(1000);
 }
 
 /**
@@ -111,6 +126,15 @@ async function waitForEditingCompile(page: Page): Promise<void> {
         { timeout: 20000 }
     );
     await page.waitForTimeout(300);
+}
+
+async function getCompilationErrorText(page: Page): Promise<string | null> {
+    return page.evaluate(() => {
+        const errorBanner = document.querySelector(
+            '.compilation-error-banner, .compile-error'
+        );
+        return errorBanner?.textContent || null;
+    });
 }
 
 /** Extract comparable glyph layer data from a page's font model. */
@@ -383,7 +407,7 @@ test.describe('Cross-window ChangeBridge sync', () => {
     test('linked window preserves all layer data after remote outline and anchor edits on Thin layer', async ({
         browser
     }) => {
-        test.setTimeout(180000);
+        test.setTimeout(300000);
 
         // ── 1. Open main window ──────────────────────────────────
         const context = await browser.newContext();
@@ -398,6 +422,7 @@ test.describe('Cross-window ChangeBridge sync', () => {
         await openFileFromFilesView(mainPage, 'Fustat.glyphs');
         await waitForOpenSessionReady(mainPage, 'Fustat.glyphs');
         await waitForBridgeReady(mainPage);
+        await installFontModelSyncTracker(mainPage);
 
         // Focus editor view, set text to "ä", enter edit mode on glyph 'a'
         await focusView(mainPage, 'Meta+Shift+E', 'view-editor');
@@ -420,6 +445,7 @@ test.describe('Cross-window ChangeBridge sync', () => {
         await waitForFullStateSync(linkedPage);
         await waitForBridgeReady(linkedPage);
         await waitForWindowSyncReady(linkedPage);
+        await installFontModelSyncTracker(linkedPage);
 
         // Wait for the linked window's WindowSync to detect the main window as a peer
         await linkedPage.waitForFunction(
@@ -693,6 +719,12 @@ test.describe('Cross-window ChangeBridge sync', () => {
         );
         expect(linkedRawProps).toEqual(mainRawProps);
 
+        const mainAnchorsBeforeAnchorEdit = await extractRawLayerAnchors(
+            mainPage,
+            'a',
+            thinLayerId
+        );
+
         // Shapes must have 'closed' field preserved (Y.Doc roundtrip
         // must not lose it — this is what causes compilation errors)
         const mainShapes = await extractRawLayerShapes(
@@ -911,6 +943,90 @@ test.describe('Cross-window ChangeBridge sync', () => {
         );
         await expect(linkedPage).toHaveScreenshot(
             '04-linked-after-anchor-recomposition.png',
+            { maxDiffPixelRatio: 0.05 }
+        );
+
+        // ── 11. Undo anchor edit and verify exact restoration ───
+        const undoLastSyncTime = await getLastFontModelSyncTime(linkedPage);
+        await mainPage.evaluate(
+            async ({ glyphName, layerId }) => {
+                await (window as any).runBridgeUndoRedo?.(
+                    'undo',
+                    glyphName,
+                    glyphName,
+                    layerId,
+                    null
+                );
+            },
+            {
+                glyphName: 'a',
+                layerId: thinLayerId
+            }
+        );
+
+        await waitForRemoteChange(linkedPage, undoLastSyncTime);
+        await waitForEditingCompile(mainPage);
+        await waitForEditingCompile(linkedPage);
+
+        const mainDataAfterUndo = await extractGlyphLayerData(
+            mainPage,
+            glyphNames
+        );
+        const linkedDataAfterUndo = await extractGlyphLayerData(
+            linkedPage,
+            glyphNames
+        );
+        expect(mainDataAfterUndo).toEqual(mainDataAfterOutline);
+        expect(linkedDataAfterUndo).toEqual(mainDataAfterOutline);
+
+        const mainRawPropsAfterUndo = await extractRawLayerProperties(
+            mainPage,
+            'a',
+            thinLayerId
+        );
+        const linkedRawPropsAfterUndo = await extractRawLayerProperties(
+            linkedPage,
+            'a',
+            thinLayerId
+        );
+        expect(mainRawPropsAfterUndo).toEqual(mainRawProps);
+        expect(linkedRawPropsAfterUndo).toEqual(mainRawProps);
+
+        const mainAnchorsAfterUndo = await extractRawLayerAnchors(
+            mainPage,
+            'a',
+            thinLayerId
+        );
+        const linkedAnchorsAfterUndo = await extractRawLayerAnchors(
+            linkedPage,
+            'a',
+            thinLayerId
+        );
+        expect(mainAnchorsAfterUndo).toEqual(mainAnchorsBeforeAnchorEdit);
+        expect(linkedAnchorsAfterUndo).toEqual(mainAnchorsBeforeAnchorEdit);
+
+        const mainCompilationErrorAfterUndo =
+            await getCompilationErrorText(mainPage);
+        const linkedCompilationErrorAfterUndo =
+            await getCompilationErrorText(linkedPage);
+        expect(mainCompilationErrorAfterUndo).toBeNull();
+        expect(linkedCompilationErrorAfterUndo).toBeNull();
+
+        const mainEditingFontAfterUndo = await mainPage.evaluate(() => {
+            return !!(window as any).fontManager?.editingFont;
+        });
+        const linkedEditingFontAfterUndo = await linkedPage.evaluate(() => {
+            return !!(window as any).fontManager?.editingFont;
+        });
+        expect(mainEditingFontAfterUndo).toBe(true);
+        expect(linkedEditingFontAfterUndo).toBe(true);
+
+        await expect(mainPage).toHaveScreenshot(
+            '05-main-after-anchor-undo-restoration.png',
+            { maxDiffPixelRatio: 0.05 }
+        );
+        await expect(linkedPage).toHaveScreenshot(
+            '05-linked-after-anchor-undo-restoration.png',
             { maxDiffPixelRatio: 0.05 }
         );
 

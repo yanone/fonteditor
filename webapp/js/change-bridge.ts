@@ -753,6 +753,7 @@ export class ChangeBridge {
         const targets: Array<{
             glyphName: string;
             layerId: string;
+            previousLayerSnapshot: unknown;
             layerSnapshot: unknown;
         }> = [];
 
@@ -807,6 +808,7 @@ export class ChangeBridge {
             targets.push({
                 glyphName,
                 layerId,
+                previousLayerSnapshot: cloneHistoryValue(yLayerJson),
                 layerSnapshot
             });
         }
@@ -819,8 +821,8 @@ export class ChangeBridge {
             targets.map((target) => ({
                 op: 'set' as ChangeOp,
                 path: ['glyphs', target.glyphName, 'layers', target.layerId],
-                oldValue: cloneHistoryValue(oldValue ?? target.glyphName),
-                newValue: cloneHistoryValue(newValue ?? label),
+                oldValue: cloneHistoryValue(target.previousLayerSnapshot),
+                newValue: cloneHistoryValue(target.layerSnapshot),
                 visualAnchorSide,
                 workerReplayTargets,
                 applyPath: [
@@ -1145,9 +1147,7 @@ export class ChangeBridge {
                     ? { glyphName: target.glyphName, layerId: target.layerId }
                     : null
             );
-            if (scope !== 'font') {
-                this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
-            }
+            this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
             this._onAfterSync?.();
             this._onDirty?.();
             return {
@@ -1223,9 +1223,7 @@ export class ChangeBridge {
                     ? { glyphName: target.glyphName, layerId: target.layerId }
                     : null
             );
-            if (scope !== 'font') {
-                this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
-            }
+            this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
             this._onAfterSync?.();
             this._onDirty?.();
             return {
@@ -2467,6 +2465,17 @@ export class ChangeBridge {
                     direction === 'undo' ? entry.oldValue : entry.newValue;
                 if (this._isGlyphRootPath(path) && replayValue) {
                     this._applyGlyphSnapshot(String(path[1]), replayValue);
+                    continue;
+                }
+                if (
+                    path.length === 4 &&
+                    path[0] === 'glyphs' &&
+                    path[2] === 'layers' &&
+                    typeof path[1] === 'string' &&
+                    typeof path[3] === 'string' &&
+                    replayValue !== undefined
+                ) {
+                    this._applyLayerSnapshot(path[1], path[3], replayValue);
                     continue;
                 }
                 if (direction === 'undo') {
