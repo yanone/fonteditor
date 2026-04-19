@@ -5,6 +5,7 @@ import { Logger } from './logger';
 import { timelineSpanEnd, timelineSpanStart } from './perf-timeline';
 import { sidebarErrorDisplay } from './sidebar-error-display';
 import { extractFeatureIssuesFromCompilationError } from './feature-error-parser';
+import { windowRole } from './window-role';
 
 const console = new Logger('FullFontCompileManager');
 
@@ -60,6 +61,10 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
 
     function isCompilationBlockedByEditingSession(): boolean {
         return !!window.glyphCanvas?.outlineEditor?.draggingSomething;
+    }
+
+    function isFullCompilationAllowed(): boolean {
+        return windowRole.isMainWindow();
     }
 
     function isValidProfile(profile: string): profile is QcProfile {
@@ -135,7 +140,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     function scheduleCompilation(delayMs: number = DEBOUNCE_MS): void {
-        if (!isEnabled || TEMP_DISABLE_FULL_COMPILE) {
+        if (!isEnabled || TEMP_DISABLE_FULL_COMPILE || !isFullCompilationAllowed()) {
             return;
         }
 
@@ -155,7 +160,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     function checkAndSchedule(): void {
-        if (!isEnabled || TEMP_DISABLE_FULL_COMPILE) {
+        if (!isEnabled || TEMP_DISABLE_FULL_COMPILE || !isFullCompilationAllowed()) {
             return;
         }
 
@@ -181,7 +186,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     async function runCompilationLoop(): Promise<void> {
-        if (!isEnabled || isCompiling || TEMP_DISABLE_FULL_COMPILE) {
+        if (!isEnabled || isCompiling || TEMP_DISABLE_FULL_COMPILE || !isFullCompilationAllowed()) {
             return;
         }
 
@@ -346,7 +351,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     function setEnabled(enabled: boolean): void {
-        if (TEMP_DISABLE_FULL_COMPILE) {
+        if (TEMP_DISABLE_FULL_COMPILE || !isFullCompilationAllowed()) {
             isEnabled = false;
             dispatchQcUpdate(
                 fontManager.fullFontQcSummary,
@@ -418,7 +423,7 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
         getStatus
     };
 
-    if (!TEMP_DISABLE_FULL_COMPILE) {
+    if (!TEMP_DISABLE_FULL_COMPILE && isFullCompilationAllowed()) {
         monitorTimer = window.setInterval(checkAndSchedule, MONITOR_MS);
     } else {
         dispatchQcUpdate(

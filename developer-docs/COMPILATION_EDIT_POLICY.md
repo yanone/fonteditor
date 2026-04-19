@@ -10,6 +10,7 @@ If you change compilation behavior, update this document in the same change and 
 - Keep the incremental worker path hot: incremental layer patching, cached babelfont reuse, cached subset reuse, and the editing subset target before fontc.
 - Preserve a trailing full compile after interactive edits so layout-sensitive state returns to the fully correct font.
 - Avoid accidental regressions where an optimized compile mode still exists in code but stops being scheduled.
+- Only the main window runs full-font compilation and Fontspector; linked windows must not schedule or execute either.
 
 ## Source Of Truth
 
@@ -20,6 +21,7 @@ The policy is implemented primarily in these files:
 - `webapp/js/font-manager.ts`
 - `webapp/js/font-compilation.ts`
 - `webapp/js/fontc-worker.ts`
+- `webapp/js/full-font-compile-manager.ts`
 
 When these files disagree with this document, treat that as a bug and reconcile them immediately.
 
@@ -34,6 +36,7 @@ When these files disagree with this document, treat that as a bug and reconcile 
 7. Editing compiles must continue using the subsetted `editing` target before fontc.
 8. Text input uses its own subset-only fast path and still schedules a deferred full compile after typing settles.
 9. Full compiles remain the correctness fallback after interactive editing or when an edit type does not have a specialized fast path.
+10. Linked windows must not run full-font compilation or Fontspector; only the main window may schedule and execute them. The `full-font-compile-manager` checks `windowRole.isMainWindow()` at every scheduling entry point and suppresses the monitor loop for linked windows.
 
 ## Edit-Type Matrix
 
@@ -168,6 +171,10 @@ Generic `keyboard` saves do not carry an edit-type suffix, so they fall back to 
 
 Text input changes the shaping subset rather than the font data. It therefore bypasses `saveLayerData()`, reuses the cached worker font, compiles only the updated editing subset, and schedules a trailing full compile for correctness.
 
+### Linked windows
+
+Linked windows share the same font model as the main window via Y.Doc sync. They need editing compiles for live canvas feedback but must not duplicate the expensive full-font compilation and Fontspector QC work that the main window already performs. The `full-font-compile-manager` enforces this by checking `windowRole.isMainWindow()` in `scheduleCompilation`, `checkAndSchedule`, `runCompilationLoop`, `setEnabled`, and the startup monitor loop. Linked windows report Fontspector status as `idle` and never start the monitor interval.
+
 ## Non-Regression Requirements
 
 The following are required and should be covered by tests or explicit review whenever compilation code changes:
@@ -182,6 +189,7 @@ The following are required and should be covered by tests or explicit review whe
 8. Sidebearing edits with cascading metrics keys use `refreshGlyphsAfterModelBatch` instead of `forceFullWorkerCacheUpdate`, and skip `rebuildAutomaticComposites` for downstream automatic-composite layers that only need width updates.
 9. Undo/redo of anchor edits uses `anchor-only` compilation mode and incremental worker-cache refresh (not full `storeFontJson`) when the history item carries `workerReplayTargets` for downstream auto-composite layers.
 10. Undo/redo of sidebearing edits uses `outline-only` compilation mode and incremental worker-cache refresh when the history item carries `workerReplayTargets` for downstream layers affected by metrics-key cascades.
+11. Linked windows never schedule or execute full-font compilation or Fontspector; only the main window does.
 
 ## Change Control
 
