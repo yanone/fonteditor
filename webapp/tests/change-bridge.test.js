@@ -3151,6 +3151,149 @@ describe('syncGlyphFromJson', () => {
         ).toBe(700);
     });
 
+    test('layer-scoped sync merges a partial outline layer fragment with the existing layer snapshot', () => {
+        const { bridge, fontJson } = createTestBridge('test-partial-outline');
+
+        fontJson.glyphs[0].layers[0] = {
+            id: 'layer-1',
+            shapes: [
+                {
+                    nodes: [
+                        {
+                            x: 150,
+                            y: 0,
+                            nodetype: 'line',
+                            smooth: false
+                        },
+                        {
+                            x: 300,
+                            y: 700,
+                            nodetype: 'line',
+                            smooth: false
+                        },
+                        {
+                            x: 500,
+                            y: 0,
+                            nodetype: 'line',
+                            smooth: false
+                        }
+                    ],
+                    closed: true
+                }
+            ]
+        };
+
+        bridge.syncGlyphFromJson('A', 'Drag', undefined, undefined, 'layer-1');
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'anchors',
+                0,
+                'name'
+            ])
+        ).toBe('top');
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(150);
+    });
+
+    test('glyph-scoped sync merges partial layer fragments with the existing glyph snapshot', () => {
+        const { bridge, fontJson } = createTestBridge('test-partial-glyph');
+
+        fontJson.glyphs[0] = {
+            name: 'A',
+            layers: [
+                {
+                    id: 'layer-1',
+                    shapes: [
+                        {
+                            nodes: [
+                                {
+                                    x: 175,
+                                    y: 0,
+                                    nodetype: 'line',
+                                    smooth: false
+                                },
+                                {
+                                    x: 300,
+                                    y: 700,
+                                    nodetype: 'line',
+                                    smooth: false
+                                },
+                                {
+                                    x: 500,
+                                    y: 0,
+                                    nodetype: 'line',
+                                    smooth: false
+                                }
+                            ],
+                            closed: true
+                        }
+                    ]
+                }
+            ]
+        };
+
+        bridge.syncGlyphFromJson('A', 'Add point');
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'anchors',
+                0,
+                'name'
+            ])
+        ).toBe('top');
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(175);
+    });
+
     test('layer-scoped undo restores original outlines after remove and recreate with the same layer id', () => {
         const { bridge, font } = createTestBridge('reinterpolate-undo');
         const glyph = font.findGlyph('A');
@@ -4010,6 +4153,139 @@ describe('syncGlyphFromJson', () => {
         bridge2.destroy();
     });
 
+    test('linked window preserves full layer data when remote anchor sync sends a partial layer fragment', () => {
+        const font1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('primary');
+        bridge1.initFromJson(font1);
+        const bridge2 = new ChangeBridge('secondary');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(
+            bridge1,
+            'test-partial-anchor-remote-sync'
+        );
+        const sync2 = new WindowSync(
+            bridge2,
+            'test-partial-anchor-remote-sync'
+        );
+
+        font1.glyphs[0].layers[0] = {
+            id: 'layer-1',
+            anchors: [{ name: 'top', x: 320, y: 720 }]
+        };
+
+        bridge1.syncGlyphFromJson(
+            'A',
+            'Drag anchor',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+        flushTimers();
+
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'anchors',
+                0,
+                'x'
+            ])
+        ).toBe(320);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(100);
+
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+
+    test('linked window preserves full layer data when remote glyph sync sends a partial layer fragment', () => {
+        const font1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('primary');
+        bridge1.initFromJson(font1);
+        const bridge2 = new ChangeBridge('secondary');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(bridge1, 'test-partial-glyph-remote-sync');
+        const sync2 = new WindowSync(bridge2, 'test-partial-glyph-remote-sync');
+
+        font1.glyphs[0] = {
+            name: 'A',
+            layers: [
+                {
+                    id: 'layer-1',
+                    anchors: [{ name: 'top', x: 340, y: 740 }]
+                }
+            ]
+        };
+
+        bridge1.syncGlyphFromJson('A', 'Add point');
+        flushTimers();
+
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'anchors',
+                0,
+                'x'
+            ])
+        ).toBe(340);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes',
+                0,
+                'nodes',
+                0,
+                'x'
+            ])
+        ).toBe(100);
+
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+
     test('linked window emits layerFingerprintChanged when receiving a remote undo that changes a layer fingerprint', () => {
         const font1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('primary');
@@ -4078,6 +4354,76 @@ describe('syncGlyphFromJson', () => {
 describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
     afterEach(() => {
         delete window.changeBridge;
+    });
+
+    test('layer-scoped _syncJsonFromYDoc merges partial Y.Doc layer data with the existing layer snapshot', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('test-sync-ydoc-layer-partial');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+
+        bridge.yDoc.transact(() => {
+            deleteYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ]);
+            deleteYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes'
+            ]);
+            setYPath(
+                bridge.fontMap,
+                ['glyphs', 'A', 'layers', 'layer-1', 'anchors'],
+                [{ name: 'top', x: 333, y: 722 }]
+            );
+        }, 'test');
+
+        bridge._syncJsonFromYDoc({ glyphName: 'A', layerId: 'layer-1' });
+
+        expect(fontJson.glyphs[0].layers[0].width).toBe(600);
+        expect(fontJson.glyphs[0].layers[0].anchors[0].x).toBe(333);
+        expect(fontJson.glyphs[0].layers[0].shapes[0].nodes[0].x).toBe(100);
+    });
+
+    test('full _syncJsonFromYDoc merges partial Y.Doc layer data with the existing glyph snapshot', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('test-sync-ydoc-glyph-partial');
+        bridge.initFromJson(fontJson);
+        window.changeBridge = bridge;
+
+        bridge.yDoc.transact(() => {
+            deleteYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ]);
+            deleteYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'shapes'
+            ]);
+            setYPath(
+                bridge.fontMap,
+                ['glyphs', 'A', 'layers', 'layer-1', 'anchors'],
+                [{ name: 'top', x: 345, y: 733 }]
+            );
+        }, 'test');
+
+        bridge._syncJsonFromYDoc();
+
+        expect(fontJson.glyphs[0].layers[0].width).toBe(600);
+        expect(fontJson.glyphs[0].layers[0].anchors[0].x).toBe(345);
+        expect(fontJson.glyphs[0].layers[0].shapes[0].nodes[0].x).toBe(100);
     });
 
     test('layer-scoped undo patches only the changed layer — other glyph data is not rebuilt', () => {

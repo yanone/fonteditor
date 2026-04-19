@@ -795,9 +795,25 @@ export class ChangeBridge {
                 const glyphLayers = (target.glyphJson.layers ?? []) as Array<
                     Record<string, unknown>
                 >;
+                const previousGlyphLayers = Array.isArray(
+                    target.previousGlyphJson.layers
+                )
+                    ? (target.previousGlyphJson.layers as Array<
+                          Record<string, unknown>
+                      >)
+                    : [];
+                const glyphSnapshot = this._normalizeGlyphSnapshot(
+                    target.glyphJson,
+                    target.previousGlyphJson
+                );
                 const layerSnapshot = layerId
-                    ? cloneHistoryValue(
+                    ? this._normalizeLayerSnapshot(
+                          layerId,
                           glyphLayers.find(
+                              (layer: Record<string, unknown>) =>
+                                  layer.id === layerId
+                          ),
+                          previousGlyphLayers.find(
                               (layer: Record<string, unknown>) =>
                                   layer.id === layerId
                           )
@@ -823,9 +839,7 @@ export class ChangeBridge {
                     applyPath: isLayerScope
                         ? ['glyphs', target.glyphName, 'layers', layerId]
                         : ['glyphs', target.glyphName],
-                    applyNewValue: isLayerScope
-                        ? layerSnapshot
-                        : cloneHistoryValue(target.glyphJson),
+                    applyNewValue: isLayerScope ? layerSnapshot : glyphSnapshot,
                     applyMode: isLayerScope
                         ? 'layer-snapshot'
                         : 'glyph-snapshot'
@@ -840,8 +854,6 @@ export class ChangeBridge {
     }
 
     /**
-     * Fast path for syncing a single layer into Y.Doc.
-     *
      * Instead of reconstructing the entire glyph from the Y.Doc,
      * deep-comparing the whole glyph, and cloning it multiple times,
      * this only touches the one affected layer — dramatically reducing
@@ -893,13 +905,16 @@ export class ChangeBridge {
 
         // Reconstruct only this one layer from Y.Doc
         const yLayerJson = fromYType(yLayerMap);
+        const layerSnapshot = this._normalizeLayerSnapshot(
+            layerId,
+            layerJson,
+            yLayerJson
+        );
 
         // Compare only the affected layer
-        if (this._isDeepEqual(yLayerJson, layerJson)) {
+        if (this._isDeepEqual(yLayerJson, layerSnapshot)) {
             return true; // No changes — skip
         }
-
-        const layerSnapshot = cloneHistoryValue(layerJson);
 
         this._queueOrCommitOperations(
             [
@@ -990,6 +1005,9 @@ export class ChangeBridge {
                     ? { glyphName: target.glyphName, layerId: target.layerId }
                     : null
             );
+            if (scope !== 'font') {
+                this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
+            }
             this._onAfterSync?.();
             this._onDirty?.();
             return {
@@ -1065,6 +1083,9 @@ export class ChangeBridge {
                     ? { glyphName: target.glyphName, layerId: target.layerId }
                     : null
             );
+            if (scope !== 'font') {
+                this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
+            }
             this._onAfterSync?.();
             this._onDirty?.();
             return {
@@ -1363,9 +1384,12 @@ export class ChangeBridge {
                                             l.id === scopeHint.layerId
                                     ) ?? -1;
                                 if (layerIdx >= 0 && layers) {
-                                    const patchedLayer = fromYType(
-                                        layerMap
-                                    ) as Unsafe;
+                                    const patchedLayer =
+                                        this._normalizeLayerSnapshot(
+                                            scopeHint.layerId,
+                                            fromYType(layerMap),
+                                            layers[layerIdx]
+                                        ) as Unsafe;
                                     // Diagnostic: check for missing required layer fields
                                     if (
                                         patchedLayer &&
@@ -1414,7 +1438,10 @@ export class ChangeBridge {
         }
 
         // Full sync: reconstruct the entire font from Y.Doc.
-        const freshJson = yDocToJson(this.fontMap);
+        const freshJson = this._normalizeFontSnapshot(
+            yDocToJson(this.fontMap),
+            this._fontJson
+        ) as Unsafe;
         // Sanitize: fix array fields that Y.Doc roundtrip corrupted
         sanitizeBabelfontArrays(freshJson);
         for (const key of Object.keys(freshJson)) {
@@ -2161,7 +2188,15 @@ export class ChangeBridge {
             glyphsMap.set(glyphName, glyphMap);
         }
 
-        const glyphJson = glyphSnapshot as Record<string, unknown>;
+        const existingGlyphSnapshot =
+            fromYType(glyphMap) ??
+            (this._fontJson as Unsafe)?.glyphs?.find(
+                (glyph: Record<string, unknown>) => glyph?.name === glyphName
+            );
+        const glyphJson = this._normalizeGlyphSnapshot(
+            glyphSnapshot,
+            existingGlyphSnapshot
+        ) as Record<string, unknown>;
         const glyphKeys = new Set(Object.keys(glyphJson));
 
         for (const [gk, gv] of Object.entries(glyphJson)) {
@@ -2192,8 +2227,15 @@ export class ChangeBridge {
                         layerMap = new Y.Map<unknown>();
                         layersMap.set(layerId, layerMap);
                     }
-                    const layerKeys = new Set(Object.keys(layerJson));
-                    for (const [lk, lv] of Object.entries(layerJson)) {
+                    const normalizedLayerJson = this._normalizeLayerSnapshot(
+                        layerId,
+                        layerJson,
+                        fromYType(layerMap)
+                    ) as Record<string, unknown>;
+                    const layerKeys = new Set(Object.keys(normalizedLayerJson));
+                    for (const [lk, lv] of Object.entries(
+                        normalizedLayerJson
+                    )) {
                         layerMap.set(lk, toYType(lv));
                     }
                     layerMap.forEach((_v: unknown, key: string) => {
@@ -2219,6 +2261,268 @@ export class ChangeBridge {
                 glyphMap?.delete(key);
             }
         });
+    }
+
+    private _normalizeFontSnapshot(
+        fontSnapshot: unknown,
+        existingFontSnapshot?: unknown
+    ): unknown {
+        if (
+            !fontSnapshot ||
+            typeof fontSnapshot !== 'object' ||
+            Array.isArray(fontSnapshot)
+        ) {
+            return fontSnapshot;
+        }
+
+        const existingFontRecord =
+            existingFontSnapshot &&
+            typeof existingFontSnapshot === 'object' &&
+            !Array.isArray(existingFontSnapshot)
+                ? (cloneHistoryValue(existingFontSnapshot) as Record<
+                      string,
+                      unknown
+                  >)
+                : {};
+        const normalizedFontRecord = cloneHistoryValue(fontSnapshot) as Record<
+            string,
+            unknown
+        >;
+
+        if (
+            Object.prototype.hasOwnProperty.call(normalizedFontRecord, 'glyphs')
+        ) {
+            const incomingGlyphs = this._coerceFontGlyphSnapshots(
+                normalizedFontRecord.glyphs
+            );
+            const existingGlyphs = this._coerceFontGlyphSnapshots(
+                existingFontRecord.glyphs
+            );
+            const existingGlyphsByName = new Map(
+                existingGlyphs
+                    .filter(
+                        (glyph): glyph is Record<string, unknown> =>
+                            !!glyph && typeof glyph === 'object'
+                    )
+                    .map((glyph) => [String(glyph.name || ''), glyph])
+            );
+
+            normalizedFontRecord.glyphs = incomingGlyphs
+                .map((glyph) => {
+                    const glyphName =
+                        glyph && typeof glyph === 'object'
+                            ? String(glyph.name || '')
+                            : '';
+                    if (!glyphName) {
+                        return null;
+                    }
+
+                    return this._normalizeGlyphSnapshot(
+                        glyph,
+                        existingGlyphsByName.get(glyphName)
+                    );
+                })
+                .filter((glyph): glyph is Record<string, unknown> => !!glyph);
+        }
+
+        return normalizedFontRecord;
+    }
+
+    private _coerceFontGlyphSnapshots(
+        glyphsSnapshot: unknown
+    ): Array<Record<string, unknown>> {
+        if (Array.isArray(glyphsSnapshot)) {
+            return glyphsSnapshot.filter(
+                (glyph): glyph is Record<string, unknown> =>
+                    !!glyph &&
+                    typeof glyph === 'object' &&
+                    !Array.isArray(glyph)
+            );
+        }
+
+        if (
+            glyphsSnapshot &&
+            typeof glyphsSnapshot === 'object' &&
+            !Array.isArray(glyphsSnapshot)
+        ) {
+            return Object.entries(glyphsSnapshot as Record<string, unknown>)
+                .filter(([, glyph]) => !!glyph && typeof glyph === 'object')
+                .map(([glyphName, glyph]) => {
+                    const glyphRecord = cloneHistoryValue(glyph) as Record<
+                        string,
+                        unknown
+                    >;
+                    if (
+                        typeof glyphRecord.name !== 'string' ||
+                        !glyphRecord.name.length
+                    ) {
+                        glyphRecord.name = glyphName;
+                    }
+                    return glyphRecord;
+                });
+        }
+
+        return [];
+    }
+
+    private _normalizeGlyphSnapshot(
+        glyphSnapshot: unknown,
+        existingGlyphSnapshot?: unknown
+    ): unknown {
+        if (
+            !glyphSnapshot ||
+            typeof glyphSnapshot !== 'object' ||
+            Array.isArray(glyphSnapshot)
+        ) {
+            return glyphSnapshot;
+        }
+
+        const existingGlyphRecord =
+            existingGlyphSnapshot &&
+            typeof existingGlyphSnapshot === 'object' &&
+            !Array.isArray(existingGlyphSnapshot)
+                ? (cloneHistoryValue(existingGlyphSnapshot) as Record<
+                      string,
+                      unknown
+                  >)
+                : {};
+        const incomingGlyphRecord = cloneHistoryValue(glyphSnapshot) as Record<
+            string,
+            unknown
+        >;
+        const mergedGlyphRecord = {
+            ...existingGlyphRecord,
+            ...incomingGlyphRecord
+        };
+
+        if (
+            Object.prototype.hasOwnProperty.call(incomingGlyphRecord, 'layers')
+        ) {
+            const incomingLayers = this._coerceGlyphLayerSnapshots(
+                incomingGlyphRecord.layers
+            );
+            const existingLayers = this._coerceGlyphLayerSnapshots(
+                existingGlyphRecord.layers
+            );
+            const existingLayersById = new Map(
+                existingLayers
+                    .filter(
+                        (layer): layer is Record<string, unknown> =>
+                            !!layer && typeof layer === 'object'
+                    )
+                    .map((layer) => [String(layer.id || ''), layer])
+            );
+
+            mergedGlyphRecord.layers = incomingLayers
+                .map((layer) => {
+                    const layerId =
+                        layer && typeof layer === 'object'
+                            ? String(layer.id || '')
+                            : '';
+                    if (!layerId) {
+                        return null;
+                    }
+                    return this._normalizeLayerSnapshot(
+                        layerId,
+                        layer,
+                        existingLayersById.get(layerId)
+                    );
+                })
+                .filter((layer): layer is Record<string, unknown> => !!layer);
+        }
+
+        return mergedGlyphRecord;
+    }
+
+    private _coerceGlyphLayerSnapshots(
+        layersSnapshot: unknown
+    ): Array<Record<string, unknown>> {
+        if (Array.isArray(layersSnapshot)) {
+            return layersSnapshot.filter(
+                (layer): layer is Record<string, unknown> =>
+                    !!layer &&
+                    typeof layer === 'object' &&
+                    !Array.isArray(layer)
+            );
+        }
+
+        if (
+            layersSnapshot &&
+            typeof layersSnapshot === 'object' &&
+            !Array.isArray(layersSnapshot)
+        ) {
+            return Object.entries(layersSnapshot as Record<string, unknown>)
+                .filter(([, layer]) => !!layer && typeof layer === 'object')
+                .map(([layerId, layer]) => {
+                    const layerRecord = cloneHistoryValue(layer) as Record<
+                        string,
+                        unknown
+                    >;
+                    if (
+                        typeof layerRecord.id !== 'string' ||
+                        !layerRecord.id.length
+                    ) {
+                        layerRecord.id = layerId;
+                    }
+                    return layerRecord;
+                });
+        }
+
+        return [];
+    }
+
+    private _normalizeLayerSnapshot(
+        layerId: string,
+        layerSnapshot: unknown,
+        existingLayerSnapshot?: unknown
+    ): unknown {
+        if (
+            !layerSnapshot ||
+            typeof layerSnapshot !== 'object' ||
+            Array.isArray(layerSnapshot)
+        ) {
+            return layerSnapshot;
+        }
+
+        const existingLayerRecord =
+            existingLayerSnapshot &&
+            typeof existingLayerSnapshot === 'object' &&
+            !Array.isArray(existingLayerSnapshot)
+                ? (cloneHistoryValue(existingLayerSnapshot) as Record<
+                      string,
+                      unknown
+                  >)
+                : {};
+        const incomingLayerRecord = cloneHistoryValue(layerSnapshot) as Record<
+            string,
+            unknown
+        >;
+        const mergedLayerRecord = {
+            ...existingLayerRecord,
+            ...incomingLayerRecord
+        };
+
+        if (
+            typeof mergedLayerRecord.id !== 'string' ||
+            !mergedLayerRecord.id.length
+        ) {
+            mergedLayerRecord.id = layerId;
+        }
+
+        if (
+            typeof mergedLayerRecord.width !== 'number' ||
+            !Number.isFinite(mergedLayerRecord.width)
+        ) {
+            const existingWidth = existingLayerRecord.width;
+            mergedLayerRecord.width =
+                typeof existingWidth === 'number' &&
+                Number.isFinite(existingWidth)
+                    ? existingWidth
+                    : 0;
+        }
+
+        sanitizeBabelfontArrays(mergedLayerRecord as Unsafe);
+        return mergedLayerRecord;
     }
 
     private _applyLayerSnapshot(
@@ -2253,7 +2557,11 @@ export class ChangeBridge {
             layersMap.set(layerId, layerMap);
         }
 
-        const layerJson = layerSnapshot as Record<string, unknown>;
+        const layerJson = this._normalizeLayerSnapshot(
+            layerId,
+            layerSnapshot,
+            fromYType(layerMap)
+        ) as Record<string, unknown>;
         const layerKeys = new Set(Object.keys(layerJson));
 
         for (const [key, value] of Object.entries(layerJson)) {
