@@ -757,6 +757,140 @@ async function extractActiveLayerSelectionState(page: Page): Promise<{
     });
 }
 
+async function extractActiveInterpolatedRenderState(page: Page): Promise<{
+    currentGlyphName: string | null;
+    selectedLayerId: string | null;
+    currentLayerId: string | null;
+    layerDataExists: boolean;
+    layerDataIsInterpolated: boolean;
+    shapeCount: number;
+    pathShapeCount: number;
+    anchorCount: number;
+}> {
+    return page.evaluate(() => {
+        const outlineEditor = (window as any).glyphCanvas?.outlineEditor;
+        const layerData = outlineEditor?.getCurrentLayerDataFromStack?.();
+        const shapes = Array.isArray(layerData?.shapes) ? layerData.shapes : [];
+        const pathShapeCount = shapes.filter((shape: any) => {
+            if (!shape || typeof shape !== 'object') {
+                return false;
+            }
+            if (
+                'Path' in shape &&
+                shape.Path &&
+                Array.isArray(shape.Path.nodes)
+            ) {
+                return true;
+            }
+            return Array.isArray(shape.nodes);
+        }).length;
+
+        return {
+            currentGlyphName: outlineEditor?.currentGlyphName || null,
+            selectedLayerId: outlineEditor?.selectedLayerId || null,
+            currentLayerId: outlineEditor?.getCurrentLayerId?.() || null,
+            layerDataExists: !!layerData,
+            layerDataIsInterpolated: layerData?.isInterpolated === true,
+            shapeCount: shapes.length,
+            pathShapeCount,
+            anchorCount: Array.isArray(layerData?.anchors)
+                ? layerData.anchors.length
+                : 0
+        };
+    });
+}
+
+async function setInterpolatedEditorState(
+    page: Page,
+    glyphName: string,
+    location: Record<string, number>
+): Promise<Record<string, any>> {
+    await focusView(page, 'Meta+Shift+E', 'view-editor');
+    await dismissVisibleTippies(page);
+    await setupEditTextMode(page, glyphName);
+    await waitForEditingCompile(page);
+
+    const interpolationResult = await page.evaluate(
+        async ({ glyphName, location }) => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const textRunEditor = glyphCanvas?.textRunEditor;
+            const outlineEditor = glyphCanvas?.outlineEditor;
+            const axesManager = glyphCanvas?.axesManager;
+            if (
+                !glyphCanvas ||
+                !textRunEditor ||
+                !outlineEditor ||
+                !axesManager
+            ) {
+                return { error: 'Missing glyph canvas editor dependencies' };
+            }
+
+            textRunEditor.setTextBuffer(glyphName);
+            await textRunEditor.selectGlyphByIndex(0, true);
+            outlineEditor.active = true;
+            outlineEditor.currentGlyphName = glyphName;
+            axesManager.variationSettings = { ...location };
+            outlineEditor.isInterpolating = true;
+            await glyphCanvas.doUIUpdateAsync();
+            const beforeAutoSelect = {
+                selectedLayerId: outlineEditor.selectedLayerId,
+                currentGlyphName: outlineEditor.currentGlyphName,
+                currentLayerId: outlineEditor.getCurrentLayerId?.() || null,
+                layerDataExists: !!outlineEditor.layerData,
+                shapeCount: Array.isArray(outlineEditor.layerData?.shapes)
+                    ? outlineEditor.layerData.shapes.length
+                    : 0
+            };
+            await outlineEditor.autoSelectMatchingLayer();
+            const afterAutoSelect = {
+                selectedLayerId: outlineEditor.selectedLayerId,
+                currentGlyphName: outlineEditor.currentGlyphName,
+                currentLayerId: outlineEditor.getCurrentLayerId?.() || null,
+                layerDataExists: !!outlineEditor.layerData,
+                shapeCount: Array.isArray(outlineEditor.layerData?.shapes)
+                    ? outlineEditor.layerData.shapes.length
+                    : 0
+            };
+            if (outlineEditor.selectedLayerId === null) {
+                try {
+                    await outlineEditor.interpolateCurrentGlyph(true);
+                } catch (error) {
+                    return {
+                        beforeAutoSelect,
+                        afterAutoSelect,
+                        interpolationError:
+                            error instanceof Error
+                                ? error.message
+                                : String(error)
+                    };
+                }
+            }
+            await glyphCanvas.doUIUpdateAsync();
+
+            return {
+                beforeAutoSelect,
+                afterAutoSelect,
+                afterInterpolate: {
+                    selectedLayerId: outlineEditor.selectedLayerId,
+                    currentGlyphName: outlineEditor.currentGlyphName,
+                    currentLayerId: outlineEditor.getCurrentLayerId?.() || null,
+                    layerDataExists: !!outlineEditor.layerData,
+                    shapeCount: Array.isArray(outlineEditor.layerData?.shapes)
+                        ? outlineEditor.layerData.shapes.length
+                        : 0,
+                    isInterpolated:
+                        outlineEditor.layerData?.isInterpolated === true,
+                    glyphStack: outlineEditor.glyphStack || null,
+                    variationSettings: { ...axesManager.variationSettings }
+                }
+            };
+        },
+        { glyphName, location }
+    );
+
+    return interpolationResult;
+}
+
 async function extractYDocLayerIds(
     page: Page,
     glyphName: string
@@ -1861,6 +1995,309 @@ test.describe('Cross-window ChangeBridge sync', () => {
         expect(linkedCompilationErrorAfterIntermediateDelete).toBeNull();
         expect(mainErrors).toEqual([]);
         expect(linkedErrors).toEqual([]);
+
+        // Keep the linked window between exact layers so remote refresh must
+        // reinterpolate the active glyph instead of fetching an exact layer.
+        const linkedInterpolatedSetup = await setInterpolatedEditorState(
+            linkedPage,
+            'a',
+            { wght: 350 }
+        );
+
+        const linkedInterpolatedStateBeforePostDeleteOutline =
+            await extractActiveInterpolatedRenderState(linkedPage);
+        expect(
+            linkedInterpolatedStateBeforePostDeleteOutline.selectedLayerId,
+            JSON.stringify({
+                setup: linkedInterpolatedSetup,
+                state: linkedInterpolatedStateBeforePostDeleteOutline
+            })
+        ).toBeNull();
+        expect(
+            linkedInterpolatedStateBeforePostDeleteOutline.layerDataExists,
+            JSON.stringify({
+                setup: linkedInterpolatedSetup,
+                state: linkedInterpolatedStateBeforePostDeleteOutline
+            })
+        ).toBe(true);
+        expect(
+            linkedInterpolatedStateBeforePostDeleteOutline.shapeCount,
+            JSON.stringify({
+                setup: linkedInterpolatedSetup,
+                state: linkedInterpolatedStateBeforePostDeleteOutline
+            })
+        ).toBeGreaterThan(0);
+
+        // ── 13. Post-delete outline edit must still propagate ─────
+        const postDeleteOutlineLastSyncTime =
+            await getLastFontModelSyncTime(linkedPage);
+        const postDeleteOutlineResult = await mainPage.evaluate(
+            async (layerId) => {
+                const bridge = (window as any).changeBridge;
+                const fontModel = (window as any).currentFontModel;
+                const currentFont = (window as any).fontManager?.currentFont;
+                const glyph = fontModel.findGlyph('a');
+                const layer = glyph.findLayerById(layerId);
+
+                const paths = layer.paths;
+                if (!paths.length) {
+                    return { error: 'No paths found after layer delete' };
+                }
+
+                const firstPath = paths[0];
+                const nodes = firstPath.nodes;
+                if (!nodes.length) {
+                    return { error: 'No nodes found after layer delete' };
+                }
+
+                const firstNode = nodes[0];
+                const oldX = firstNode.x;
+                const oldY = firstNode.y;
+
+                bridge.runWithoutRecording(() => {
+                    firstNode.x = oldX - 12;
+                    firstNode.y = oldY + 7;
+                });
+
+                currentFont.syncJsonFromModel();
+                bridge.syncGlyphFromJson(
+                    'a',
+                    'Drag point after intermediate layer delete',
+                    undefined,
+                    undefined,
+                    layerId
+                );
+
+                return {
+                    oldX,
+                    oldY,
+                    newX: firstNode.x,
+                    newY: firstNode.y
+                };
+            },
+            thinLayerId
+        );
+
+        expect(postDeleteOutlineResult).not.toHaveProperty('error');
+
+        await waitForRemoteChange(linkedPage, postDeleteOutlineLastSyncTime);
+        await waitForEditingCompile(mainPage);
+        await waitForEditingCompile(linkedPage);
+        await linkedPage.waitForTimeout(750);
+
+        const mainDataAfterPostDeleteOutline = await extractGlyphLayerData(
+            mainPage,
+            glyphNames
+        );
+        const linkedDataAfterPostDeleteOutline = await extractGlyphLayerData(
+            linkedPage,
+            glyphNames
+        );
+        const mainRawGlyphAfterPostDeleteOutline =
+            await extractRawGlyphSnapshot(mainPage, glyphName);
+        const linkedRawGlyphAfterPostDeleteOutline =
+            await extractRawGlyphSnapshot(linkedPage, glyphName);
+        const mainShapesAfterPostDeleteOutline = await extractRawLayerShapes(
+            mainPage,
+            'a',
+            thinLayerId
+        );
+        const linkedShapesAfterPostDeleteOutline = await extractRawLayerShapes(
+            linkedPage,
+            'a',
+            thinLayerId
+        );
+        const linkedInterpolatedStateAfterPostDeleteOutline =
+            await extractActiveInterpolatedRenderState(linkedPage);
+
+        expect(mainDataAfterPostDeleteOutline).not.toEqual(
+            mainDataAfterIntermediateAdd
+        );
+        expect(linkedDataAfterPostDeleteOutline).toEqual(
+            mainDataAfterPostDeleteOutline
+        );
+        expect(linkedRawGlyphAfterPostDeleteOutline).toEqual(
+            mainRawGlyphAfterPostDeleteOutline
+        );
+        expect(linkedShapesAfterPostDeleteOutline).toEqual(
+            mainShapesAfterPostDeleteOutline
+        );
+        expect(
+            linkedInterpolatedStateAfterPostDeleteOutline.selectedLayerId
+        ).toBe(null);
+        expect(
+            linkedInterpolatedStateAfterPostDeleteOutline.layerDataExists
+        ).toBe(true);
+        expect(
+            linkedInterpolatedStateAfterPostDeleteOutline.shapeCount
+        ).toBeGreaterThan(0);
+
+        // A fresh linked window must also bootstrap the latest glyph-a state.
+        const [reopenedLinkedPage] = await Promise.all([
+            context.waitForEvent('page'),
+            mainPage.locator('#open-new-window-btn').click()
+        ]);
+
+        await waitForCanvasReady(reopenedLinkedPage);
+        await waitForFontLoaded(reopenedLinkedPage);
+        await waitForFullStateSync(reopenedLinkedPage);
+        await waitForBridgeReady(reopenedLinkedPage);
+        await installJsonCanonicalizer(reopenedLinkedPage);
+        await setupEditTextMode(reopenedLinkedPage, 'a');
+
+        const reopenedDataAfterPostDeleteOutline = await extractGlyphLayerData(
+            reopenedLinkedPage,
+            glyphNames
+        );
+        const reopenedRawGlyphAfterPostDeleteOutline =
+            await extractRawGlyphSnapshot(reopenedLinkedPage, glyphName);
+
+        expect(reopenedDataAfterPostDeleteOutline).toEqual(
+            mainDataAfterPostDeleteOutline
+        );
+        expect(reopenedRawGlyphAfterPostDeleteOutline).toEqual(
+            mainRawGlyphAfterPostDeleteOutline
+        );
+
+        // ── 14. Post-delete anchor edit must still propagate ─────
+        const postDeleteAnchorLastSyncTime =
+            await getLastFontModelSyncTime(linkedPage);
+        const postDeleteAnchorResult = await mainPage.evaluate(
+            async (layerId) => {
+                const bridge = (window as any).changeBridge;
+                const fontModel = (window as any).currentFontModel;
+                const currentFont = (window as any).fontManager?.currentFont;
+                const glyph = fontModel.findGlyph('a');
+                const layer = glyph.findLayerById(layerId);
+
+                const anchors = layer.anchors;
+                if (!anchors.length) {
+                    return { error: 'No anchors found after layer delete' };
+                }
+
+                const topAnchor =
+                    anchors.find((anchor: any) => anchor.name === 'top') ||
+                    anchors[0];
+                const oldX = topAnchor.x;
+                const oldY = topAnchor.y;
+                const affectedGlyphNames = new Set(['a']);
+
+                bridge.runWithoutRecording(() => {
+                    topAnchor.x = oldX - 10;
+                    topAnchor.y = oldY + 80;
+                    for (const glyphName of fontModel.rebuildAutomaticCompositesForGlyphs(
+                        new Set(['a']),
+                        {
+                            preferredLayerId: layerId,
+                            preferredSourceGlyphName: 'a'
+                        }
+                    )) {
+                        affectedGlyphNames.add(glyphName);
+                    }
+                });
+
+                currentFont.syncJsonFromModel();
+
+                const changedLayerTargets = Array.from(affectedGlyphNames)
+                    .map((glyphName) => {
+                        const matchedGlyph = fontModel.findGlyph(glyphName);
+                        const matchedLayer =
+                            matchedGlyph?.findLayerById(layerId) ??
+                            layer.getMatchingLayerOnGlyph?.(glyphName);
+                        return matchedLayer?.id
+                            ? { glyphName, layerId: matchedLayer.id }
+                            : null;
+                    })
+                    .filter(Boolean);
+
+                bridge.syncLayersFromJson(
+                    changedLayerTargets,
+                    'Drag anchor after intermediate layer delete',
+                    undefined,
+                    undefined,
+                    undefined,
+                    changedLayerTargets
+                );
+
+                return {
+                    oldX,
+                    oldY,
+                    newX: topAnchor.x,
+                    newY: topAnchor.y,
+                    affectedGlyphNames: Array.from(affectedGlyphNames)
+                };
+            },
+            thinLayerId
+        );
+
+        expect(postDeleteAnchorResult).not.toHaveProperty('error');
+        expect(postDeleteAnchorResult.affectedGlyphNames).toContain(
+            'adieresis'
+        );
+
+        await waitForRemoteChange(linkedPage, postDeleteAnchorLastSyncTime);
+        await waitForEditingCompile(mainPage);
+        await waitForEditingCompile(linkedPage);
+        await waitForEditingCompile(reopenedLinkedPage);
+        await linkedPage.waitForTimeout(750);
+
+        const mainDataAfterPostDeleteAnchor = await extractGlyphLayerData(
+            mainPage,
+            glyphNames
+        );
+        const linkedDataAfterPostDeleteAnchor = await extractGlyphLayerData(
+            linkedPage,
+            glyphNames
+        );
+        const reopenedDataAfterPostDeleteAnchor = await extractGlyphLayerData(
+            reopenedLinkedPage,
+            glyphNames
+        );
+        const mainAnchorsAfterPostDeleteAnchor = await extractRawLayerAnchors(
+            mainPage,
+            'a',
+            thinLayerId
+        );
+        const linkedAnchorsAfterPostDeleteAnchor = await extractRawLayerAnchors(
+            linkedPage,
+            'a',
+            thinLayerId
+        );
+        const reopenedAnchorsAfterPostDeleteAnchor =
+            await extractRawLayerAnchors(reopenedLinkedPage, 'a', thinLayerId);
+        const linkedCompilationErrorAfterPostDeleteAnchor =
+            await getCompilationErrorText(linkedPage);
+        const reopenedCompilationErrorAfterPostDeleteAnchor =
+            await getCompilationErrorText(reopenedLinkedPage);
+        const linkedInterpolatedStateAfterPostDeleteAnchor =
+            await extractActiveInterpolatedRenderState(linkedPage);
+
+        expect(mainDataAfterPostDeleteAnchor).not.toEqual(
+            mainDataAfterPostDeleteOutline
+        );
+        expect(linkedDataAfterPostDeleteAnchor).toEqual(
+            mainDataAfterPostDeleteAnchor
+        );
+        expect(reopenedDataAfterPostDeleteAnchor).toEqual(
+            mainDataAfterPostDeleteAnchor
+        );
+        expect(linkedAnchorsAfterPostDeleteAnchor).toEqual(
+            mainAnchorsAfterPostDeleteAnchor
+        );
+        expect(reopenedAnchorsAfterPostDeleteAnchor).toEqual(
+            mainAnchorsAfterPostDeleteAnchor
+        );
+        expect(linkedCompilationErrorAfterPostDeleteAnchor).toBeNull();
+        expect(reopenedCompilationErrorAfterPostDeleteAnchor).toBeNull();
+        expect(
+            linkedInterpolatedStateAfterPostDeleteAnchor.selectedLayerId
+        ).toBe(null);
+        expect(
+            linkedInterpolatedStateAfterPostDeleteAnchor.layerDataExists
+        ).toBe(true);
+        expect(
+            linkedInterpolatedStateAfterPostDeleteAnchor.shapeCount
+        ).toBeGreaterThan(0);
 
         // ── Cleanup ──────────────────────────────────────────────
         await context.close();

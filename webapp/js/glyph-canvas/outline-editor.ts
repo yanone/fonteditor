@@ -16748,6 +16748,7 @@ export class OutlineEditor {
     ): void {
         if (!window.changeBridge) return;
         const parsed = this.parseGlyphStack();
+        const activeLayerId = this.getCurrentLayerId() ?? this.selectedLayerId;
         const editedGlyphName =
             parsed.length > 0
                 ? parsed[parsed.length - 1].glyphName
@@ -16777,7 +16778,7 @@ export class OutlineEditor {
             label,
             oldValue,
             newValue,
-            this.selectedLayerId,
+            activeLayerId,
             visualAnchorSide,
             workerReplayTargets
         );

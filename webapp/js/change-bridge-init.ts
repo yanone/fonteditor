@@ -289,27 +289,15 @@ export async function syncRustCacheAndRefreshCanvas(
 
         selectedLayerId = oe?.selectedLayerId ?? undefined;
 
-        if (gc.outlineEditor?.runDeterministicRefresh) {
-            await gc.outlineEditor.runDeterministicRefresh(async () => {
-                await gc.outlineEditor?.fetchLayerData(
-                    true,
-                    refreshRootGlyphName
-                );
+        const refreshOutlineEditor = async () => {
+            const shouldInterpolateActiveGlyph =
+                gc.outlineEditor?.active && !selectedLayerId;
 
-                refreshLiveTextRunAdvances(
-                    new Set(
-                        [
-                            refreshRootGlyphName,
-                            editedGlyphName,
-                            getActiveEditedGlyphName()
-                        ].filter(
-                            (glyphName): glyphName is string => !!glyphName
-                        )
-                    ),
-                    selectedLayerId
-                );
-            });
-        } else {
+            if (shouldInterpolateActiveGlyph) {
+                await gc.outlineEditor?.interpolateCurrentGlyph(true);
+                return;
+            }
+
             await gc.outlineEditor?.fetchLayerData(true, refreshRootGlyphName);
 
             refreshLiveTextRunAdvances(
@@ -322,6 +310,14 @@ export async function syncRustCacheAndRefreshCanvas(
                 ),
                 selectedLayerId
             );
+        };
+
+        if (gc.outlineEditor?.runDeterministicRefresh) {
+            await gc.outlineEditor.runDeterministicRefresh(
+                refreshOutlineEditor
+            );
+        } else {
+            await refreshOutlineEditor();
         }
         if (!options?.skipDeferredCanvasRepaint) {
             gc.requestRepaintAfterCompile();
