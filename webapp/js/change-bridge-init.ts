@@ -41,9 +41,10 @@ function enqueueBridgeSync(task: () => Promise<void>): Promise<void> {
  * (anchor-only / outline-only) instead of always falling back to
  * a full compile.
  */
-function inferRemoteEditTypeFromEntries(
-    entries: ChangeLogEntry[]
-): { editType: 'anchor' | 'outline' | null; changeSource: string } {
+function inferRemoteEditTypeFromEntries(entries: ChangeLogEntry[]): {
+    editType: 'anchor' | 'outline' | null;
+    changeSource: string;
+} {
     for (const entry of entries) {
         const label = entry.transactionLabel ?? '';
         const path = entry.path ?? '';
@@ -735,6 +736,21 @@ async function requestUndoRedoEditingFontCompile(
     await waitPromise;
 }
 
+async function requestRemoteEditingFontCompile(
+    changeSource: string,
+    editType?: 'outline' | 'anchor' | null
+): Promise<void> {
+    const fm = window.fontManager;
+    if (!fm?.currentFont) {
+        return;
+    }
+
+    fm.lastChangeSource = changeSource;
+    fm.lastEditType = editType ?? null;
+    fm.currentFont.requestRecompileWithoutDataChange();
+    window.autoCompileManager?.checkAndSchedule?.();
+}
+
 export function queueRustCacheAndRefreshCanvas(
     rootGlyphName?: string,
     editedGlyphName?: string,
@@ -1011,6 +1027,12 @@ function initializeBridge(detail: {
             inferRemoteEditTypeFromEntries(entries);
         const replayTargets = collectReplayTargetsFromEntries(entries);
 
+        // Request a compile immediately so remote edits behave like local
+        // edits in the receiving window, then request again after the Rust
+        // cache refresh finishes so background/undo deliveries cannot leave
+        // the editing font one revision behind.
+        void requestRemoteEditingFontCompile(changeSource, editType);
+
         void queueRustCacheAndRefreshCanvas(
             undefined,
             undefined,
@@ -1019,15 +1041,7 @@ function initializeBridge(detail: {
                 ? { workerReplayTargets: replayTargets }
                 : undefined
         ).then(() => {
-            const fontManager = window.fontManager;
-            if (!fontManager?.currentFont) {
-                return;
-            }
-
-            fontManager.lastChangeSource = changeSource;
-            fontManager.lastEditType = editType;
-            fontManager.currentFont.requestRecompileWithoutDataChange();
-            window.autoCompileManager?.checkAndSchedule?.();
+            void requestRemoteEditingFontCompile(changeSource, editType);
         });
     });
 

@@ -55,6 +55,77 @@ async function installFontModelSyncTracker(page: Page): Promise<void> {
     });
 }
 
+async function installEditingFontCompileTracker(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        if (testWindow.__editingFontCompileTrackerInstalled) {
+            return;
+        }
+
+        testWindow.__editingFontCompiledCount = 0;
+        testWindow.__lastEditingFontCompiledRevision = -1;
+        window.addEventListener('editingFontCompiled', (event) => {
+            const detail = (event as CustomEvent).detail;
+            testWindow.__editingFontCompiledCount += 1;
+            testWindow.__lastEditingFontCompiledRevision = Number(
+                detail?.fontRevisionKey ?? -1
+            );
+        });
+        testWindow.__editingFontCompileTrackerInstalled = true;
+    });
+}
+
+async function installJsonCanonicalizer(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        if (testWindow.__canonicalizeJsonValueForTests) {
+            return;
+        }
+
+        testWindow.__canonicalizeJsonValueForTests = (value: any): any => {
+            if (Array.isArray(value)) {
+                return value.map((item) =>
+                    testWindow.__canonicalizeJsonValueForTests(item)
+                );
+            }
+            if (value && typeof value === 'object') {
+                return Object.fromEntries(
+                    Object.keys(value)
+                        .sort()
+                        .map((key) => [
+                            key,
+                            testWindow.__canonicalizeJsonValueForTests(
+                                value[key]
+                            )
+                        ])
+                );
+            }
+            return value;
+        };
+    });
+}
+
+async function getEditingFontCompileTracker(page: Page): Promise<{
+    count: number;
+    revision: number;
+}> {
+    return page.evaluate(() => ({
+        count: (window as any).__editingFontCompiledCount ?? 0,
+        revision: (window as any).__lastEditingFontCompiledRevision ?? -1
+    }));
+}
+
+async function waitForEditingFontCompileEvent(
+    page: Page,
+    previousCount: number
+): Promise<void> {
+    await page.waitForFunction(
+        (count) => ((window as any).__editingFontCompiledCount ?? 0) > count,
+        previousCount,
+        { timeout: 20000 }
+    );
+}
+
 /** Wait for the linked window to receive full state from the main window. */
 async function waitForFullStateSync(page: Page): Promise<void> {
     await page.waitForFunction(
@@ -88,7 +159,7 @@ async function waitForRemoteChange(
     previousSyncTime: number
 ): Promise<void> {
     await linkedPage.evaluate((lastSeenSyncTime) => {
-        return new Promise<void>((resolve) => {
+        return new Promise<void>((resolve, reject) => {
             const currentSyncTime =
                 (window as any).__lastFontModelSyncTime ?? 0;
             if (currentSyncTime > lastSeenSyncTime) {
@@ -97,19 +168,81 @@ async function waitForRemoteChange(
             }
             const handler = () => {
                 (window as any).__lastFontModelSyncTime = Date.now();
+                clearTimeout(timeoutId);
                 window.removeEventListener('fontModelSync', handler);
                 resolve();
             };
             window.addEventListener('fontModelSync', handler);
-            // Safety timeout in case the event already fired
-            setTimeout(() => {
+            const timeoutId = window.setTimeout(() => {
                 window.removeEventListener('fontModelSync', handler);
-                resolve();
+                reject(new Error('Timed out waiting for remote fontModelSync'));
             }, 15000);
         });
     }, previousSyncTime);
     // Allow UI state to paint; compile completion is awaited separately.
     await linkedPage.waitForTimeout(1000);
+}
+
+async function waitForRawLayerAnchors(
+    page: Page,
+    glyphName: string,
+    layerId: string,
+    expectedAnchors: any
+): Promise<void> {
+    try {
+        await page.waitForFunction(
+            ({ glyphName, layerId, expectedAnchors }) => {
+                const rawData = (window as any).fontManager?.currentFont
+                    ?.babelfontData;
+                const glyph = rawData?.glyphs?.find(
+                    (candidate: any) => candidate.name === glyphName
+                );
+                const layer = glyph?.layers?.find(
+                    (candidate: any) => candidate.id === layerId
+                );
+                if (!layer) {
+                    return false;
+                }
+
+                return (
+                    JSON.stringify(
+                        (window as any).__canonicalizeJsonValueForTests(
+                            layer.anchors ?? null
+                        )
+                    ) ===
+                    JSON.stringify(
+                        (window as any).__canonicalizeJsonValueForTests(
+                            expectedAnchors
+                        )
+                    )
+                );
+            },
+            { glyphName, layerId, expectedAnchors },
+            { timeout: 20000 }
+        );
+    } catch (error) {
+        const currentRawAnchors = await extractRawLayerAnchors(
+            page,
+            glyphName,
+            layerId
+        );
+        const currentYDocAnchors = await extractYDocLayerAnchors(
+            page,
+            glyphName,
+            layerId
+        );
+        throw new Error(
+            [
+                'Timed out waiting for raw layer anchors to match expected undo state.',
+                `Expected: ${JSON.stringify(expectedAnchors)}`,
+                `Raw: ${JSON.stringify(currentRawAnchors)}`,
+                `YDoc: ${JSON.stringify(currentYDocAnchors)}`,
+                error instanceof Error ? `Cause: ${error.message}` : null
+            ]
+                .filter(Boolean)
+                .join('\n')
+        );
+    }
 }
 
 /**
@@ -146,7 +279,6 @@ async function extractGlyphLayerData(
         const result: Record<string, any> = {};
         const fontModel = (window as any).currentFontModel;
         if (!fontModel) return result;
-
         for (const name of names) {
             const glyph = fontModel.findGlyph(name);
             if (!glyph) {
@@ -274,6 +406,29 @@ async function extractYDocLayerKeys(
             const keys: string[] = [];
             layerMap.forEach((_v: any, k: string) => keys.push(k));
             return keys.sort();
+        },
+        { glyphName, layerId }
+    );
+}
+
+async function extractYDocLayerAnchors(
+    page: Page,
+    glyphName: string,
+    layerId: string
+): Promise<any> {
+    return page.evaluate(
+        ({ glyphName, layerId }) => {
+            const bridge = (window as any).changeBridge;
+            if (!bridge) return null;
+            const glyphsMap = bridge.fontMap?.get('glyphs');
+            const glyphMap = glyphsMap?.get(glyphName);
+            const layersMap = glyphMap?.get('layers');
+            const layerMap = layersMap?.get(layerId);
+            const anchors = layerMap?.get?.('anchors');
+            if (!anchors || typeof anchors.toJSON !== 'function') {
+                return null;
+            }
+            return JSON.parse(JSON.stringify(anchors.toJSON()));
         },
         { glyphName, layerId }
     );
@@ -422,7 +577,9 @@ test.describe('Cross-window ChangeBridge sync', () => {
         await openFileFromFilesView(mainPage, 'Fustat.glyphs');
         await waitForOpenSessionReady(mainPage, 'Fustat.glyphs');
         await waitForBridgeReady(mainPage);
+        await installJsonCanonicalizer(mainPage);
         await installFontModelSyncTracker(mainPage);
+        await installEditingFontCompileTracker(mainPage);
 
         // Focus editor view, set text to "ä", enter edit mode on glyph 'a'
         await focusView(mainPage, 'Meta+Shift+E', 'view-editor');
@@ -445,7 +602,9 @@ test.describe('Cross-window ChangeBridge sync', () => {
         await waitForFullStateSync(linkedPage);
         await waitForBridgeReady(linkedPage);
         await waitForWindowSyncReady(linkedPage);
+        await installJsonCanonicalizer(linkedPage);
         await installFontModelSyncTracker(linkedPage);
+        await installEditingFontCompileTracker(linkedPage);
 
         // Wait for the linked window's WindowSync to detect the main window as a peer
         await linkedPage.waitForFunction(
@@ -764,6 +923,8 @@ test.describe('Cross-window ChangeBridge sync', () => {
 
         // ── 7. Anchor edit: move top anchor ──────────────────────
         const anchorLastSyncTime = await getLastFontModelSyncTime(linkedPage);
+        const linkedCompileBeforeAnchor =
+            await getEditingFontCompileTracker(linkedPage);
         const anchorEditResult = await mainPage.evaluate(async (layerId) => {
             const bridge = (window as any).changeBridge;
             const fontModel = (window as any).currentFontModel;
@@ -840,6 +1001,10 @@ test.describe('Cross-window ChangeBridge sync', () => {
 
         // Wait for remote change
         await waitForRemoteChange(linkedPage, anchorLastSyncTime);
+        await waitForEditingFontCompileEvent(
+            linkedPage,
+            linkedCompileBeforeAnchor.count
+        );
 
         // ── 8. Assert data identity after anchor edit ─────────────
         const mainDataAfterAnchor = await extractGlyphLayerData(
@@ -907,6 +1072,12 @@ test.describe('Cross-window ChangeBridge sync', () => {
         await waitForEditingCompile(mainPage);
         await waitForEditingCompile(linkedPage);
 
+        const linkedCompileAfterAnchor =
+            await getEditingFontCompileTracker(linkedPage);
+        expect(linkedCompileAfterAnchor.count).toBeGreaterThan(
+            linkedCompileBeforeAnchor.count
+        );
+
         // Check that editing font compiled in the linked window
         const linkedEditingFont = await linkedPage.evaluate(() => {
             return !!(window as any).fontManager?.editingFont;
@@ -948,6 +1119,8 @@ test.describe('Cross-window ChangeBridge sync', () => {
 
         // ── 11. Undo anchor edit and verify exact restoration ───
         const undoLastSyncTime = await getLastFontModelSyncTime(linkedPage);
+        const linkedCompileBeforeUndo =
+            await getEditingFontCompileTracker(linkedPage);
         await mainPage.evaluate(
             async ({ glyphName, layerId }) => {
                 await (window as any).runBridgeUndoRedo?.(
@@ -965,8 +1138,27 @@ test.describe('Cross-window ChangeBridge sync', () => {
         );
 
         await waitForRemoteChange(linkedPage, undoLastSyncTime);
+        await waitForRawLayerAnchors(
+            linkedPage,
+            'a',
+            thinLayerId,
+            mainAnchorsBeforeAnchorEdit
+        );
+        await waitForEditingFontCompileEvent(
+            linkedPage,
+            linkedCompileBeforeUndo.count
+        );
         await waitForEditingCompile(mainPage);
         await waitForEditingCompile(linkedPage);
+
+        const linkedCompileAfterUndo =
+            await getEditingFontCompileTracker(linkedPage);
+        expect(linkedCompileAfterUndo.count).toBeGreaterThan(
+            linkedCompileBeforeUndo.count
+        );
+        expect(linkedCompileAfterUndo.revision).toBeGreaterThan(
+            linkedCompileBeforeUndo.revision
+        );
 
         const mainDataAfterUndo = await extractGlyphLayerData(
             mainPage,

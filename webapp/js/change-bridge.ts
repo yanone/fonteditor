@@ -1114,6 +1114,12 @@ export class ChangeBridge {
         this._suppressRecording = true;
         try {
             const targetHistoryItemId = targetItem?.id ?? null;
+            const workerReplayTargets = normalizeWorkerReplayTargets([
+                ...(targetItem?.workerReplayTargets ?? []),
+                ...(target.glyphName && target.layerId
+                    ? [{ glyphName: target.glyphName, layerId: target.layerId }]
+                    : [])
+            ]);
             // Log entry before um.undo() so it's available when the
             // Y.Doc update event fires and WindowSync broadcasts it.
             const entry = createLogEntry({
@@ -1133,7 +1139,8 @@ export class ChangeBridge {
                           ? `glyphs.${target.glyphName}`
                           : 'font',
                 oldValue: undefined,
-                newValue: 'undo'
+                newValue: 'undo',
+                workerReplayTargets
             });
             this._appendChangeLogEntry(entry);
 
@@ -1147,7 +1154,9 @@ export class ChangeBridge {
                     ? { glyphName: target.glyphName, layerId: target.layerId }
                     : null
             );
-            this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
+            if (scope !== 'font') {
+                this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
+            }
             this._onAfterSync?.();
             this._onDirty?.();
             return {
@@ -1191,6 +1200,12 @@ export class ChangeBridge {
         this._suppressRecording = true;
         try {
             const targetHistoryItemId = targetItem?.id ?? null;
+            const workerReplayTargets = normalizeWorkerReplayTargets([
+                ...(targetItem?.workerReplayTargets ?? []),
+                ...(target.glyphName && target.layerId
+                    ? [{ glyphName: target.glyphName, layerId: target.layerId }]
+                    : [])
+            ]);
             // Log entry before um.redo() so it's available for broadcast.
             const entry = createLogEntry({
                 timestamp: Date.now(),
@@ -1209,7 +1224,8 @@ export class ChangeBridge {
                           ? `glyphs.${target.glyphName}`
                           : 'font',
                 oldValue: undefined,
-                newValue: 'redo'
+                newValue: 'redo',
+                workerReplayTargets
             });
             this._appendChangeLogEntry(entry);
 
@@ -1223,7 +1239,9 @@ export class ChangeBridge {
                     ? { glyphName: target.glyphName, layerId: target.layerId }
                     : null
             );
-            this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
+            if (scope !== 'font') {
+                this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
+            }
             this._onAfterSync?.();
             this._onDirty?.();
             return {
@@ -2149,18 +2167,22 @@ export class ChangeBridge {
         }
 
         const targets = normalizeWorkerReplayTargets(
-            remoteEntries.map((entry) => {
+            remoteEntries.flatMap((entry) => {
+                if (entry.workerReplayTargets?.length) {
+                    return entry.workerReplayTargets;
+                }
+
                 if (entry.undoScope !== 'layer') {
-                    return null;
+                    return [];
                 }
 
                 const glyphName = deriveGlyphNameFromPath(entry.path);
                 const layerId = deriveLayerIdFromPath(entry.path);
-                return glyphName && layerId ? { glyphName, layerId } : null;
+                return glyphName && layerId ? [{ glyphName, layerId }] : [];
             })
         );
 
-        if (targets.length !== remoteEntries.length) {
+        if (!targets.length) {
             return null;
         }
 
@@ -2231,7 +2253,12 @@ export class ChangeBridge {
     ): boolean {
         const touchedGlyphNames = new Set(
             remoteEntries
-                .map((entry) => deriveGlyphNameFromPath(entry.path))
+                .flatMap((entry) => [
+                    deriveGlyphNameFromPath(entry.path),
+                    ...normalizeWorkerReplayTargets(
+                        entry.workerReplayTargets
+                    ).map((target) => target.glyphName)
+                ])
                 .filter((glyphName): glyphName is string => !!glyphName)
         );
         if (!touchedGlyphNames.size) {
