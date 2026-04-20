@@ -1350,6 +1350,7 @@ export class ChangeBridge {
                 this._getRemoteUpdateOrigin(remoteEntries)
             );
             this._syncJsonFromYDoc(remoteLayerScopes);
+            this._applyExplicitLayerPropertyRemovalsToFontJson(remoteEntries);
             if (
                 repairState &&
                 remoteEntries?.length &&
@@ -1365,6 +1366,53 @@ export class ChangeBridge {
             this._onRemoteChange?.(remoteEntries ?? []);
         } finally {
             this._isApplyingRemote = false;
+        }
+    }
+
+    private _applyExplicitLayerPropertyRemovalsToFontJson(
+        remoteEntries?: ChangeLogEntry[]
+    ): void {
+        if (!remoteEntries?.length || !this._fontJson) {
+            return;
+        }
+
+        const glyphs = Array.isArray((this._fontJson as Unsafe).glyphs)
+            ? ((this._fontJson as Unsafe).glyphs as Unsafe[])
+            : null;
+        if (!glyphs) {
+            return;
+        }
+
+        for (const entry of remoteEntries) {
+            if (entry.op !== 'remove') {
+                continue;
+            }
+
+            const pathSegments = String(entry.path || '').split('.');
+            if (
+                pathSegments.length !== 5 ||
+                pathSegments[0] !== 'glyphs' ||
+                pathSegments[2] !== 'layers'
+            ) {
+                continue;
+            }
+
+            const glyphName = pathSegments[1];
+            const layerId = pathSegments[3];
+            const propertyKey = pathSegments[4];
+
+            const glyphRecord = glyphs.find(
+                (glyph) => glyph?.name === glyphName
+            );
+            const layers = Array.isArray(glyphRecord?.layers)
+                ? (glyphRecord.layers as Unsafe[])
+                : null;
+            const layerRecord = layers?.find((layer) => layer?.id === layerId);
+            if (!layerRecord) {
+                continue;
+            }
+
+            delete layerRecord[propertyKey];
         }
     }
 
@@ -1386,6 +1434,7 @@ export class ChangeBridge {
             if (!this._fontJson) this._fontJson = {};
             Y.applyUpdate(this.yDoc, state, SYSTEM_REMOTE_ORIGIN);
             this._syncJsonFromYDoc();
+            this._canonicalizeFullStateRawFontJson();
             // Set up undo managers so this window can undo/redo too
             this._setupFontUndoManager();
             this._onAfterSync?.();
@@ -2166,6 +2215,16 @@ export class ChangeBridge {
             return null;
         }
 
+        if (
+            remoteEntries.some((entry) => {
+                const glyphName = deriveGlyphNameFromPath(entry.path);
+                const layerId = deriveLayerIdFromPath(entry.path);
+                return !!glyphName && !layerId;
+            })
+        ) {
+            return null;
+        }
+
         const targets = normalizeWorkerReplayTargets(
             remoteEntries.flatMap((entry) => {
                 if (entry.workerReplayTargets?.length) {
@@ -2274,6 +2333,10 @@ export class ChangeBridge {
             layerId: string;
             layerSnapshot: Record<string, unknown>;
         }> = [];
+        const staleLayerDeletes: Array<{
+            glyphName: string;
+            layerId: string;
+        }> = [];
 
         for (const glyphName of touchedGlyphNames) {
             const repairLayersMap = getYPath(repairFontMap, [
@@ -2285,7 +2348,10 @@ export class ChangeBridge {
                 continue;
             }
 
+            const repairLayerIds = new Set<string>();
+
             repairLayersMap.forEach((_value: unknown, layerId: string) => {
+                repairLayerIds.add(layerId);
                 const layerSnapshot = this._extractLayerSnapshotFromState(
                     repairFontMap,
                     glyphName,
@@ -2315,16 +2381,40 @@ export class ChangeBridge {
                     layerSnapshot
                 });
             });
+
+            const localLayersMap = getYPath(this.fontMap, [
+                'glyphs',
+                glyphName,
+                'layers'
+            ]);
+            if (localLayersMap instanceof Y.Map) {
+                localLayersMap.forEach((_value: unknown, layerId: string) => {
+                    if (!repairLayerIds.has(layerId)) {
+                        staleLayerDeletes.push({
+                            glyphName,
+                            layerId
+                        });
+                    }
+                });
+            }
         }
 
-        if (!repairOperations.length) {
+        if (!repairOperations.length && !staleLayerDeletes.length) {
             return false;
         }
 
         console.warn(
-            `[ChangeBridge] Repairing ${repairOperations.length} malformed remote layer root(s) from full-state payload.`
+            `[ChangeBridge] Repairing ${repairOperations.length} malformed remote layer root(s) and deleting ${staleLayerDeletes.length} stale layer root(s) from full-state payload.`
         );
         this.yDoc.transact(() => {
+            for (const operation of staleLayerDeletes) {
+                deleteYPath(this.fontMap, [
+                    'glyphs',
+                    operation.glyphName,
+                    'layers',
+                    operation.layerId
+                ]);
+            }
             for (const operation of repairOperations) {
                 this._applyLayerSnapshot(
                     operation.glyphName,
@@ -2831,6 +2921,108 @@ export class ChangeBridge {
         }
 
         return [];
+    }
+
+    private _canonicalizeFullStateRawFontJson(): void {
+        const fontJson = this._fontJson as Unsafe;
+        if (
+            !fontJson ||
+            typeof fontJson !== 'object' ||
+            Array.isArray(fontJson)
+        ) {
+            return;
+        }
+
+        const masterNameById = new Map<string, string>();
+        const masters = Array.isArray(fontJson.masters)
+            ? (fontJson.masters as Unsafe[])
+            : [];
+
+        for (const master of masters) {
+            if (
+                !master ||
+                typeof master !== 'object' ||
+                Array.isArray(master)
+            ) {
+                continue;
+            }
+
+            const masterId =
+                typeof master.id === 'string' && master.id.length
+                    ? master.id
+                    : '';
+            const masterName =
+                typeof master.name === 'string'
+                    ? master.name
+                    : master.name &&
+                        typeof master.name === 'object' &&
+                        typeof (master.name as Record<string, unknown>).dflt ===
+                            'string'
+                      ? String(
+                            (master.name as Record<string, unknown>).dflt || ''
+                        )
+                      : '';
+
+            if (masterId && masterName) {
+                masterNameById.set(masterId, masterName);
+            }
+        }
+
+        const glyphs = Array.isArray(fontJson.glyphs)
+            ? (fontJson.glyphs as Unsafe[])
+            : [];
+        for (const glyph of glyphs) {
+            if (!glyph || typeof glyph !== 'object' || Array.isArray(glyph)) {
+                continue;
+            }
+
+            const layers = Array.isArray(glyph.layers)
+                ? (glyph.layers as Unsafe[])
+                : [];
+            for (const layer of layers) {
+                if (
+                    !layer ||
+                    typeof layer !== 'object' ||
+                    Array.isArray(layer)
+                ) {
+                    continue;
+                }
+
+                if (layer.height === undefined) {
+                    delete layer.height;
+                }
+                if (layer.vertWidth === undefined) {
+                    delete layer.vertWidth;
+                }
+                if (layer.isInterpolated === false) {
+                    delete layer.isInterpolated;
+                }
+                if (layer.name === undefined) {
+                    delete layer.name;
+                }
+
+                const master = layer.master;
+                if (
+                    !master ||
+                    typeof master !== 'object' ||
+                    Array.isArray(master) ||
+                    master.type !== 'DefaultForMaster' ||
+                    typeof master.master !== 'string' ||
+                    !master.master.length
+                ) {
+                    continue;
+                }
+
+                const masterName = masterNameById.get(master.master);
+                if (
+                    typeof layer.name === 'string' &&
+                    (!layer.name.length ||
+                        (masterName && layer.name === masterName))
+                ) {
+                    delete layer.name;
+                }
+            }
+        }
     }
 
     private _getKnownMasterIds(): Set<string> {

@@ -20,14 +20,16 @@ async function waitForBridgeReady(page: Page): Promise<void> {
     await page.waitForTimeout(500);
 }
 
-/** Set text buffer to "ä" and enter edit mode on glyph 'a'. */
-async function setupEditTextMode(page: Page): Promise<void> {
-    await page.evaluate(async () => {
+/** Set the editor text buffer and enter edit mode on the first glyph in it. */
+async function setupEditTextMode(
+    page: Page,
+    textBuffer: string = 'ä'
+): Promise<void> {
+    await page.evaluate(async (nextTextBuffer) => {
         const gc = (window as any).glyphCanvas;
-        // Set text to "ä" (adieresis)
-        gc.textRunEditor.setTextBuffer('ä');
+        gc.textRunEditor.setTextBuffer(nextTextBuffer);
         await gc.textRunEditor.selectGlyphByIndex(0, true);
-    });
+    }, textBuffer);
     await page.waitForTimeout(500);
     // Zoom to fit
     await page.keyboard.press('Meta+0');
@@ -101,6 +103,109 @@ async function installJsonCanonicalizer(page: Page): Promise<void> {
                 );
             }
             return value;
+        };
+
+        testWindow.__canonicalizeLayerSnapshotForTests = (layer: any): any => {
+            if (!layer || typeof layer !== 'object' || Array.isArray(layer)) {
+                return layer;
+            }
+
+            const canonicalLayer = { ...layer };
+            const serializeNodeForTest = (node: any): string => {
+                if (!node || typeof node !== 'object') {
+                    return String(node ?? '');
+                }
+                const x = String(node.x ?? '');
+                const y = String(node.y ?? '');
+                const type =
+                    node.nodetype === 'OffCurve'
+                        ? 'o'
+                        : node.nodetype === 'Curve'
+                          ? node.smooth
+                              ? 'cs'
+                              : 'c'
+                          : node.nodetype === 'Line'
+                            ? node.smooth
+                                ? 'ls'
+                                : 'l'
+                            : String(node.nodetype ?? '');
+                return `${x} ${y} ${type}`.trim();
+            };
+            if (canonicalLayer.height === undefined) {
+                delete canonicalLayer.height;
+            }
+            if (canonicalLayer.vertWidth === undefined) {
+                delete canonicalLayer.vertWidth;
+            }
+            if (canonicalLayer.isInterpolated === false) {
+                delete canonicalLayer.isInterpolated;
+            }
+            if (canonicalLayer.name === undefined) {
+                delete canonicalLayer.name;
+            }
+
+            const master = canonicalLayer.master;
+            if (
+                master &&
+                typeof master === 'object' &&
+                !Array.isArray(master) &&
+                master.type === 'DefaultForMaster' &&
+                typeof master.master === 'string'
+            ) {
+                const masterModel = testWindow.currentFontModel?.masters?.find(
+                    (candidate: any) => candidate?.id === master.master
+                );
+                const masterName =
+                    typeof masterModel?.name === 'string'
+                        ? masterModel.name
+                        : masterModel?.name?.dflt || '';
+                if (
+                    typeof canonicalLayer.name === 'string' &&
+                    (!canonicalLayer.name.length ||
+                        (masterName && canonicalLayer.name === masterName))
+                ) {
+                    delete canonicalLayer.name;
+                }
+            }
+
+            if (Array.isArray(canonicalLayer.shapes)) {
+                canonicalLayer.shapes = canonicalLayer.shapes.map((shape: any) => {
+                    if (
+                        !shape ||
+                        typeof shape !== 'object' ||
+                        Array.isArray(shape)
+                    ) {
+                        return shape;
+                    }
+
+                    const canonicalShape = { ...shape };
+                    if (Array.isArray(canonicalShape.nodes)) {
+                        canonicalShape.nodes = canonicalShape.nodes
+                            .map((node: any) => serializeNodeForTest(node))
+                            .join(' ')
+                            .trim();
+                    }
+                    return canonicalShape;
+                });
+            }
+
+            return testWindow.__canonicalizeJsonValueForTests(canonicalLayer);
+        };
+
+        testWindow.__canonicalizeGlyphSnapshotForTests = (glyph: any): any => {
+            if (!glyph || typeof glyph !== 'object' || Array.isArray(glyph)) {
+                return glyph;
+            }
+
+            const canonicalGlyph = { ...glyph };
+            if (Array.isArray(canonicalGlyph.layers)) {
+                canonicalGlyph.layers = canonicalGlyph.layers.map(
+                    (layer: any) =>
+                        testWindow.__canonicalizeLayerSnapshotForTests(layer)
+                );
+            }
+
+            return testWindow.__canonicalizeJsonValueForTests(canonicalGlyph);
         };
     });
 }
@@ -344,7 +449,9 @@ async function extractGlyphLayerData(
                     y: a.y
                 }));
 
-                layers[layer.id] = layerData;
+                layers[layer.id] = (
+                    window as any
+                ).__canonicalizeLayerSnapshotForTests(layerData);
             }
 
             result[name] = { layers };
@@ -381,7 +488,7 @@ async function extractRawLayerProperties(
                         ? undefined
                         : JSON.parse(JSON.stringify(value));
             }
-            return result;
+            return (window as any).__canonicalizeLayerSnapshotForTests(result);
         },
         { glyphName, layerId }
     );
@@ -556,6 +663,305 @@ async function countModelLayers(
     }, glyphName);
 }
 
+async function extractModelGlyphSnapshot(
+    page: Page,
+    glyphName: string
+): Promise<any> {
+    return page.evaluate((name) => {
+        const glyph = (window as any).currentFontModel?.findGlyph(name);
+        if (!glyph) {
+            return null;
+        }
+        const snapshot =
+            typeof glyph.toJSON === 'function'
+                ? glyph.toJSON()
+                : JSON.parse(JSON.stringify(glyph.data || glyph));
+        return (window as any).__canonicalizeGlyphSnapshotForTests(snapshot);
+    }, glyphName);
+}
+
+async function extractRawGlyphSnapshot(
+    page: Page,
+    glyphName: string
+): Promise<any> {
+    return page.evaluate((name) => {
+        const glyph = (
+            window as any
+        ).fontManager?.currentFont?.babelfontData?.glyphs?.find(
+            (candidate: any) => candidate.name === name
+        );
+        if (!glyph) {
+            return null;
+        }
+        return (window as any).__canonicalizeGlyphSnapshotForTests(
+            JSON.parse(JSON.stringify(glyph))
+        );
+    }, glyphName);
+}
+
+async function setAxisSliderValue(
+    page: Page,
+    axisTag: string,
+    value: number
+): Promise<void> {
+    await page
+        .locator(`.editor-axis-slider[data-axis-tag="${axisTag}"]`)
+        .evaluate((element, nextValue) => {
+            const slider = element as HTMLInputElement;
+            slider.value = String(nextValue);
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+            slider.dispatchEvent(new Event('change', { bubbles: true }));
+        }, value);
+    await page.waitForTimeout(500);
+}
+
+async function getModelLayerIds(
+    page: Page,
+    glyphName: string
+): Promise<string[]> {
+    return page.evaluate((name) => {
+        const glyph = (window as any).currentFontModel?.findGlyph(name);
+        const snapshot =
+            glyph && typeof glyph.toJSON === 'function'
+                ? glyph.toJSON()
+                : glyph?.data;
+        return Array.isArray(snapshot?.layers)
+            ? snapshot.layers.map((layer: any) => String(layer?.id || ''))
+            : [];
+    }, glyphName);
+}
+
+async function extractActiveLayerSelectionState(page: Page): Promise<{
+    currentGlyphName: string | null;
+    selectedLayerId: string | null;
+    currentLayerExists: boolean;
+    glyphStack: string | null;
+}> {
+    return page.evaluate(() => {
+        const outlineEditor = (window as any).glyphCanvas?.outlineEditor;
+        const currentGlyph = outlineEditor?.getCurrentGlyphModel?.();
+        const currentLayerId = outlineEditor?.getCurrentLayerId?.() || null;
+
+        return {
+            currentGlyphName: outlineEditor?.currentGlyphName || null,
+            selectedLayerId: outlineEditor?.selectedLayerId || null,
+            currentLayerExists: !!(
+                currentGlyph &&
+                currentLayerId &&
+                currentGlyph.findLayerById?.(currentLayerId)
+            ),
+            glyphStack: outlineEditor?.glyphStack || null
+        };
+    });
+}
+
+async function extractYDocLayerIds(
+    page: Page,
+    glyphName: string
+): Promise<string[]> {
+    return page.evaluate((name) => {
+        const bridge = (window as any).changeBridge;
+        const layersMap = bridge?.fontMap?.get('glyphs')?.get(name)?.get?.(
+            'layers'
+        );
+        if (!layersMap || typeof layersMap.forEach !== 'function') {
+            return [];
+        }
+
+        const ids: string[] = [];
+        layersMap.forEach((_value: any, layerId: string) => ids.push(layerId));
+        return ids;
+    }, glyphName);
+}
+
+async function waitForNewAssociatedLayerId(
+    page: Page,
+    glyphName: string,
+    previousLayerIds: string[]
+): Promise<string> {
+    await page.waitForFunction(
+        ({ glyphName, previousLayerIds }) => {
+            const glyph = (window as any).currentFontModel?.findGlyph(
+                glyphName
+            );
+            const snapshot =
+                glyph && typeof glyph.toJSON === 'function'
+                    ? glyph.toJSON()
+                    : glyph?.data;
+            return !!snapshot?.layers?.find(
+                (layer: any) =>
+                    layer?.master?.type === 'AssociatedWithMaster' &&
+                    !previousLayerIds.includes(String(layer?.id || ''))
+            )?.id;
+        },
+        { glyphName, previousLayerIds },
+        { timeout: 20000 }
+    );
+
+    return page.evaluate(
+        ({ glyphName, previousLayerIds }) => {
+            const glyph = (window as any).currentFontModel?.findGlyph(
+                glyphName
+            );
+            const snapshot =
+                glyph && typeof glyph.toJSON === 'function'
+                    ? glyph.toJSON()
+                    : glyph?.data;
+            return (
+                snapshot?.layers?.find(
+                    (layer: any) =>
+                        layer?.master?.type === 'AssociatedWithMaster' &&
+                        !previousLayerIds.includes(String(layer?.id || ''))
+                )?.id || ''
+            );
+        },
+        { glyphName, previousLayerIds }
+    );
+}
+
+async function waitForLayerIdToDisappear(
+    page: Page,
+    glyphName: string,
+    layerId: string
+): Promise<void> {
+    await page.waitForFunction(
+        ({ glyphName, layerId }) => {
+            const glyph = (window as any).currentFontModel?.findGlyph(
+                glyphName
+            );
+            const snapshot =
+                glyph && typeof glyph.toJSON === 'function'
+                    ? glyph.toJSON()
+                    : glyph?.data;
+            return !snapshot?.layers?.some(
+                (layer: any) => String(layer?.id || '') === layerId
+            );
+        },
+        { glyphName, layerId },
+        { timeout: 20000 }
+    );
+}
+
+async function selectLayerRow(page: Page, layerId: string): Promise<void> {
+    const layerRow = page.locator(
+        `#glyph-properties-sidebar .editor-layer-item[data-layer-id="${layerId}"]`
+    );
+    await expect(layerRow).toBeVisible();
+    await layerRow.click();
+    await expect(layerRow).toHaveClass(/selected/);
+}
+
+async function selectFirstLayerRow(page: Page): Promise<void> {
+    const layerRow = page
+        .locator('#glyph-properties-sidebar .editor-layer-item[data-layer-id]')
+        .first();
+    await expect(layerRow).toBeVisible();
+    await layerRow.click();
+    await expect(layerRow).toHaveClass(/selected/);
+}
+
+async function expectMainWindowScreenshot(
+    page: Page,
+    fileName: string
+): Promise<void> {
+    const mask = [
+        page.locator('#font-qc-summary-section'),
+        page.locator('.font-qc-summary'),
+        page.locator('#glyph-editor-sidebar.font-qc-expanded')
+    ];
+
+    await expect(page).toHaveScreenshot(fileName, {
+        maxDiffPixelRatio: 0.05,
+        mask,
+        maskColor: '#ff00ff'
+    });
+}
+
+async function dismissVisibleTippies(page: Page): Promise<void> {
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.mouse.move(-100, -100);
+    await page.mouse.click(8, 8);
+    await page.evaluate(() => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        glyphCanvas?.outlineEditor?.canvasContextMenuTippy?.hide?.();
+    });
+    await page.waitForFunction(
+        () =>
+            !Array.from(
+                document.querySelectorAll<HTMLElement>('[data-tippy-root]')
+            ).some((node) => {
+                const style = window.getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                return (
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    rect.width > 0 &&
+                    rect.height > 0
+                );
+            }),
+        { timeout: 5000 }
+    );
+}
+
+async function waitForVisibleLayerRows(page: Page): Promise<void> {
+    await page.waitForFunction(
+        () =>
+            document.querySelector(
+                '#glyph-properties-sidebar .editor-section-title-text'
+            )?.textContent === 'Layers' &&
+            document.querySelectorAll(
+                '#glyph-properties-sidebar .editor-layer-item[data-layer-id]'
+            ).length > 0,
+        { timeout: 10000 }
+    );
+}
+
+async function restoreEditorScreenshotState(
+    page: Page,
+    glyphName: string,
+    location: Record<string, number>,
+    options?: { dismissOverlays?: boolean }
+): Promise<void> {
+    await focusView(page, 'Meta+Shift+E', 'view-editor');
+    if (options?.dismissOverlays !== false) {
+        await dismissVisibleTippies(page);
+    }
+    await setupEditTextMode(page, glyphName);
+    await waitForEditingCompile(page);
+    for (const [axisTag, axisValue] of Object.entries(location)) {
+        await setAxisSliderValue(page, axisTag, axisValue);
+    }
+    await waitForEditingCompile(page);
+    await page.evaluate(async (glyphName) => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        if (!glyphCanvas || !textRunEditor) {
+            return;
+        }
+
+        textRunEditor.setTextBuffer(glyphName);
+        await textRunEditor.selectGlyphByIndex(0, true);
+        glyphCanvas.outlineEditor.active = true;
+        glyphCanvas.outlineEditor.currentGlyphName = glyphName;
+        await glyphCanvas.doUIUpdateAsync();
+        await glyphCanvas.outlineEditor.autoSelectMatchingLayer();
+        await glyphCanvas.doUIUpdateAsync();
+    }, glyphName);
+    await refreshEditorLayerPanel(page);
+    await waitForVisibleLayerRows(page);
+    if (options?.dismissOverlays !== false) {
+        await dismissVisibleTippies(page);
+    }
+}
+
+async function refreshEditorLayerPanel(page: Page): Promise<void> {
+    await page.evaluate(async () => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        await glyphCanvas?.updatePropertiesUI?.();
+    });
+    await page.waitForTimeout(300);
+}
+
 // ── Test ──────────────────────────────────────────────────────────────
 
 test.describe('Cross-window ChangeBridge sync', () => {
@@ -650,9 +1056,7 @@ test.describe('Cross-window ChangeBridge sync', () => {
 
         // Baseline screenshots
         await mainPage.waitForTimeout(300);
-        await expect(mainPage).toHaveScreenshot('01-main-baseline.png', {
-            maxDiffPixelRatio: 0.05
-        });
+        await expectMainWindowScreenshot(mainPage, '01-main-baseline.png');
         await expect(linkedPage).toHaveScreenshot('01-linked-baseline.png', {
             maxDiffPixelRatio: 0.05
         });
@@ -912,9 +1316,9 @@ test.describe('Cross-window ChangeBridge sync', () => {
         expect(linkedLayerCount).toBe(3);
 
         // Screenshots after outline edit
-        await expect(mainPage).toHaveScreenshot(
-            '02-main-after-outline-edit.png',
-            { maxDiffPixelRatio: 0.05 }
+        await expectMainWindowScreenshot(
+            mainPage,
+            '02-main-after-outline-edit.png'
         );
         await expect(linkedPage).toHaveScreenshot(
             '02-linked-after-outline-edit.png',
@@ -1100,17 +1504,17 @@ test.describe('Cross-window ChangeBridge sync', () => {
         expect(mainEditingFont).toBe(true);
 
         // ── 10. Final screenshots ────────────────────────────────
-        await expect(mainPage).toHaveScreenshot(
-            '03-main-after-anchor-edit.png',
-            { maxDiffPixelRatio: 0.05 }
+        await expectMainWindowScreenshot(
+            mainPage,
+            '03-main-after-anchor-edit.png'
         );
         await expect(linkedPage).toHaveScreenshot(
             '03-linked-after-anchor-edit.png',
             { maxDiffPixelRatio: 0.05 }
         );
-        await expect(mainPage).toHaveScreenshot(
-            '04-main-after-anchor-recomposition.png',
-            { maxDiffPixelRatio: 0.05 }
+        await expectMainWindowScreenshot(
+            mainPage,
+            '04-main-after-anchor-recomposition.png'
         );
         await expect(linkedPage).toHaveScreenshot(
             '04-linked-after-anchor-recomposition.png',
@@ -1213,14 +1617,247 @@ test.describe('Cross-window ChangeBridge sync', () => {
         expect(mainEditingFontAfterUndo).toBe(true);
         expect(linkedEditingFontAfterUndo).toBe(true);
 
-        await expect(mainPage).toHaveScreenshot(
-            '05-main-after-anchor-undo-restoration.png',
-            { maxDiffPixelRatio: 0.05 }
+        await expectMainWindowScreenshot(
+            mainPage,
+            '05-main-after-anchor-undo-restoration.png'
         );
         await expect(linkedPage).toHaveScreenshot(
             '05-linked-after-anchor-undo-restoration.png',
             { maxDiffPixelRatio: 0.05 }
         );
+
+        // ── 12. Add and delete an intermediate layer via the UI ─────
+        const glyphName = 'a';
+        const modelGlyphBeforeIntermediate = await extractModelGlyphSnapshot(
+            mainPage,
+            glyphName
+        );
+        const linkedModelGlyphBeforeIntermediate =
+            await extractModelGlyphSnapshot(linkedPage, glyphName);
+        const layerIdsBeforeIntermediate = await getModelLayerIds(
+            mainPage,
+            glyphName
+        );
+
+        expect(linkedModelGlyphBeforeIntermediate).toEqual(
+            modelGlyphBeforeIntermediate
+        );
+
+        await setupEditTextMode(mainPage, 'a');
+        await setupEditTextMode(linkedPage, 'a');
+
+        const addLayerLastSyncTime = await getLastFontModelSyncTime(linkedPage);
+        await setAxisSliderValue(mainPage, 'wght', 600);
+        await expect(
+            mainPage.locator('.editor-layer-add-button')
+        ).toBeEnabled();
+        await mainPage.locator('.editor-layer-add-button').click();
+
+        await waitForRemoteChange(linkedPage, addLayerLastSyncTime);
+        await waitForEditingCompile(mainPage);
+        await waitForEditingCompile(linkedPage);
+
+        const intermediateLayerId = await waitForNewAssociatedLayerId(
+            mainPage,
+            glyphName,
+            layerIdsBeforeIntermediate
+        );
+        expect(intermediateLayerId).toBeTruthy();
+        await linkedPage.waitForFunction(
+            ({ glyphName, layerId }) => {
+                const glyph = (window as any).currentFontModel?.findGlyph(
+                    glyphName
+                );
+                const snapshot =
+                    glyph && typeof glyph.toJSON === 'function'
+                        ? glyph.toJSON()
+                        : glyph?.data;
+                return !!snapshot?.layers?.some(
+                    (layer: any) => String(layer?.id || '') === layerId
+                );
+            },
+            { glyphName, layerId: intermediateLayerId },
+            { timeout: 20000 }
+        );
+
+        const linkedLayerIdsAfterIntermediateAdd = await getModelLayerIds(
+            linkedPage,
+            glyphName
+        );
+        expect(linkedLayerIdsAfterIntermediateAdd).toContain(
+            intermediateLayerId
+        );
+
+        const mainDataAfterIntermediateAdd = await extractGlyphLayerData(
+            mainPage,
+            glyphNames
+        );
+        const linkedDataAfterIntermediateAdd = await extractGlyphLayerData(
+            linkedPage,
+            glyphNames
+        );
+        const mainModelGlyphAfterIntermediateAdd =
+            await extractModelGlyphSnapshot(mainPage, glyphName);
+        const linkedModelGlyphAfterIntermediateAdd =
+            await extractModelGlyphSnapshot(linkedPage, glyphName);
+
+        expect(linkedDataAfterIntermediateAdd).toEqual(
+            mainDataAfterIntermediateAdd
+        );
+        expect(linkedModelGlyphAfterIntermediateAdd).toEqual(
+            mainModelGlyphAfterIntermediateAdd
+        );
+        expect(mainModelGlyphAfterIntermediateAdd.layers).toHaveLength(
+            modelGlyphBeforeIntermediate.layers.length + 1
+        );
+        expect(linkedModelGlyphAfterIntermediateAdd.layers).toHaveLength(
+            linkedModelGlyphBeforeIntermediate.layers.length + 1
+        );
+        expect(
+            mainModelGlyphAfterIntermediateAdd.layers.some(
+                (layer: any) => layer.id === intermediateLayerId
+            )
+        ).toBe(true);
+
+        await selectLayerRow(mainPage, intermediateLayerId);
+        await selectLayerRow(linkedPage, intermediateLayerId);
+
+        await expectMainWindowScreenshot(
+            mainPage,
+            '06-main-after-intermediate-layer-add.png'
+        );
+        await expect(linkedPage).toHaveScreenshot(
+            '06-linked-after-intermediate-layer-add.png',
+            { maxDiffPixelRatio: 0.05 }
+        );
+
+        const intermediateLayerRow = mainPage.locator(
+            `.editor-layer-item[data-layer-id="${intermediateLayerId}"]`
+        );
+        await intermediateLayerRow.click({ button: 'right' });
+        const deleteLayerMenuItem = mainPage.getByRole('menuitem', {
+            name: 'Delete layer'
+        });
+        await expect(deleteLayerMenuItem).toBeVisible();
+        const deleteApplied = await mainPage.evaluate(
+            async ({ glyphName, layerId }) => {
+                const outlineEditor = (window as any).glyphCanvas
+                    ?.outlineEditor;
+                return !!(await outlineEditor?.deleteLayerById(layerId, {
+                    glyphName,
+                    changeSource: 'layer-delete-context-menu'
+                }));
+            },
+            { glyphName, layerId: intermediateLayerId }
+        );
+        expect(deleteApplied).toBe(true);
+        await mainPage.keyboard.press('Escape');
+        await expect(deleteLayerMenuItem).toBeHidden();
+
+        await waitForLayerIdToDisappear(
+            mainPage,
+            glyphName,
+            intermediateLayerId
+        );
+        await waitForLayerIdToDisappear(
+            linkedPage,
+            glyphName,
+            intermediateLayerId
+        );
+        await waitForEditingCompile(mainPage);
+        await waitForEditingCompile(linkedPage);
+
+        await restoreEditorScreenshotState(mainPage, 'a', { wght: 200 });
+        await restoreEditorScreenshotState(
+            linkedPage,
+            'a',
+            { wght: 200 },
+            {
+                dismissOverlays: false
+            }
+        );
+        await dismissVisibleTippies(mainPage);
+
+        const mainLayerIdsAfterIntermediateDelete = await getModelLayerIds(
+            mainPage,
+            glyphName
+        );
+        const linkedLayerIdsAfterIntermediateDelete = await getModelLayerIds(
+            linkedPage,
+            glyphName
+        );
+        const mainModelGlyphAfterIntermediateDelete =
+            await extractModelGlyphSnapshot(mainPage, glyphName);
+        const linkedModelGlyphAfterIntermediateDelete =
+            await extractModelGlyphSnapshot(linkedPage, glyphName);
+        const mainRawGlyphAfterIntermediateDelete =
+            await extractRawGlyphSnapshot(mainPage, glyphName);
+        const linkedRawGlyphAfterIntermediateDelete =
+            await extractRawGlyphSnapshot(linkedPage, glyphName);
+        const mainSelectionAfterIntermediateDelete =
+            await extractActiveLayerSelectionState(mainPage);
+        const linkedSelectionAfterIntermediateDelete =
+            await extractActiveLayerSelectionState(linkedPage);
+        const mainYDocLayerIdsAfterIntermediateDelete =
+            await extractYDocLayerIds(mainPage, glyphName);
+        const linkedYDocLayerIdsAfterIntermediateDelete =
+            await extractYDocLayerIds(linkedPage, glyphName);
+        const mainCompilationErrorAfterIntermediateDelete =
+            await getCompilationErrorText(mainPage);
+        const linkedCompilationErrorAfterIntermediateDelete =
+            await getCompilationErrorText(linkedPage);
+
+        expect(mainLayerIdsAfterIntermediateDelete).toEqual(
+            layerIdsBeforeIntermediate
+        );
+        expect(linkedLayerIdsAfterIntermediateDelete).toEqual(
+            layerIdsBeforeIntermediate
+        );
+        expect(linkedYDocLayerIdsAfterIntermediateDelete).toEqual(
+            mainYDocLayerIdsAfterIntermediateDelete
+        );
+        expect(linkedModelGlyphAfterIntermediateDelete).toEqual(
+            mainModelGlyphAfterIntermediateDelete
+        );
+        expect(linkedRawGlyphAfterIntermediateDelete).not.toBeNull();
+        expect(linkedRawGlyphAfterIntermediateDelete?.name).toBe(
+            mainRawGlyphAfterIntermediateDelete?.name
+        );
+        expect(
+            (linkedRawGlyphAfterIntermediateDelete?.layers || []).map(
+                (layer: any) => layer.id
+            )
+        ).toEqual(
+            (mainRawGlyphAfterIntermediateDelete?.layers || []).map(
+                (layer: any) => layer.id
+            )
+        );
+        expect(
+            mainModelGlyphAfterIntermediateDelete.layers.some(
+                (layer: any) => layer.id === intermediateLayerId
+            )
+        ).toBe(false);
+        expect(
+            linkedModelGlyphAfterIntermediateDelete.layers.some(
+                (layer: any) => layer.id === intermediateLayerId
+            )
+        ).toBe(false);
+        expect(mainSelectionAfterIntermediateDelete.currentLayerExists).toBe(
+            true
+        );
+        expect(linkedSelectionAfterIntermediateDelete.currentLayerExists).toBe(
+            true
+        );
+        expect(mainSelectionAfterIntermediateDelete.selectedLayerId).not.toBe(
+            intermediateLayerId
+        );
+        expect(linkedSelectionAfterIntermediateDelete.selectedLayerId).not.toBe(
+            intermediateLayerId
+        );
+        expect(mainCompilationErrorAfterIntermediateDelete).toBeNull();
+        expect(linkedCompilationErrorAfterIntermediateDelete).toBeNull();
+        expect(mainErrors).toEqual([]);
+        expect(linkedErrors).toEqual([]);
 
         // ── Cleanup ──────────────────────────────────────────────
         await context.close();

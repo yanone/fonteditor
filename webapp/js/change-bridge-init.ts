@@ -190,7 +190,7 @@ export async function syncRustCacheAndRefreshCanvas(
     const parsedStack = oe?.parseGlyphStack?.() || [];
     const refreshRootGlyphName =
         rootGlyphName ?? parsedStack[0]?.glyphName ?? undefined;
-    const selectedLayerId = oe?.selectedLayerId ?? undefined;
+    let selectedLayerId = oe?.selectedLayerId ?? undefined;
 
     const currentFont = window.fontManager?.currentFont;
     if (currentFont?.babelfontJson && fontCompilation?.isInitialized) {
@@ -284,6 +284,10 @@ export async function syncRustCacheAndRefreshCanvas(
             }
             return;
         }
+
+        await oe?.reconcileSelectionAfterModelSync?.({ skipRender: true });
+
+        selectedLayerId = oe?.selectedLayerId ?? undefined;
 
         if (gc.outlineEditor?.runDeterministicRefresh) {
             await gc.outlineEditor.runDeterministicRefresh(async () => {

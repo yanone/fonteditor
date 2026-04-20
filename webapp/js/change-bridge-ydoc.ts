@@ -189,7 +189,7 @@ export function yDocToJson(fontMap: Y.Map<unknown>): Record<string, unknown> {
             // Glyphs Y.Map → array
             const glyphs: Record<string, unknown>[] = [];
             (value as Y.Map<unknown>).forEach(
-                (glyphYMap: unknown, _name: string) => {
+                (glyphYMap: unknown, glyphName: string) => {
                     if (glyphYMap instanceof Y.Map) {
                         const glyphJson: Record<string, unknown> = {};
                         glyphYMap.forEach((gv: unknown, gk: string) => {
@@ -197,13 +197,17 @@ export function yDocToJson(fontMap: Y.Map<unknown>): Record<string, unknown> {
                                 // Layers Y.Map → array
                                 const layers: Record<string, unknown>[] = [];
                                 (gv as Y.Map<unknown>).forEach(
-                                    (layerYMap: unknown, _layerId: string) => {
-                                        layers.push(
-                                            fromYType(layerYMap) as Record<
-                                                string,
-                                                unknown
-                                            >
-                                        );
+                                    (layerYMap: unknown, layerId: string) => {
+                                        const layerJson = fromYType(
+                                            layerYMap
+                                        ) as Record<string, unknown>;
+                                        if (
+                                            typeof layerJson.id !== 'string' ||
+                                            !layerJson.id.length
+                                        ) {
+                                            layerJson.id = layerId;
+                                        }
+                                        layers.push(layerJson);
                                     }
                                 );
                                 glyphJson['layers'] = layers;
@@ -211,6 +215,12 @@ export function yDocToJson(fontMap: Y.Map<unknown>): Record<string, unknown> {
                                 glyphJson[gk] = fromYType(gv);
                             }
                         });
+                        if (
+                            typeof glyphJson.name !== 'string' ||
+                            !glyphJson.name.length
+                        ) {
+                            glyphJson.name = glyphName;
+                        }
                         glyphs.push(glyphJson);
                     }
                 }

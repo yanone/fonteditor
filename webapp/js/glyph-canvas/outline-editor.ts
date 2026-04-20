@@ -6999,7 +6999,9 @@ export class OutlineEditor {
         const wasSelected = this.selectedLayerId === layerId;
         const isMasterBound = layer?.master?.type === 'DefaultForMaster';
 
-        glyph.removeLayerById?.(layerId);
+        withSuppressedModelRecording(() => {
+            glyph.removeLayerById?.(layerId);
+        });
 
         const deleteBridge = window.changeBridge;
         if (deleteBridge) {
@@ -7073,7 +7075,9 @@ export class OutlineEditor {
         bridge?.beginTransaction('Reinterpolate layer');
 
         try {
-            glyph.removeLayerById?.(layerId);
+            withSuppressedModelRecording(() => {
+                glyph.removeLayerById?.(layerId);
+            });
 
             await this.refreshAfterStructuralLayerEdit(
                 glyphName,
@@ -7537,6 +7541,42 @@ export class OutlineEditor {
                 detail: { glyphStack: this.glyphStack }
             })
         );
+    }
+
+    async reconcileSelectionAfterModelSync(options?: {
+        skipRender?: boolean;
+    }): Promise<boolean> {
+        const parsedStack = this.parseGlyphStack();
+        const rootGlyphName =
+            parsedStack[0]?.glyphName ?? this.glyphCanvas.getCurrentGlyphName();
+        const currentLayerId = this.getCurrentLayerId();
+
+        if (!this.active || !rootGlyphName || !currentLayerId) {
+            return false;
+        }
+
+        if (this.getCurrentLayerModel()) {
+            return false;
+        }
+
+        const componentPath = parsedStack
+            .filter(
+                (item): item is typeof item & { componentIndex: number } =>
+                    item.componentIndex !== undefined
+            )
+            .map((item) => item.componentIndex);
+
+        this.selectedLayerId = null;
+        this.layerData = null;
+        this.renderVerticalMetrics = null;
+        this.clearAllSelections();
+        this.buildGlyphStack(rootGlyphName, null, componentPath);
+
+        await this.autoSelectMatchingLayer({
+            skipRender: options?.skipRender === true
+        });
+
+        return true;
     }
 
     clearState() {

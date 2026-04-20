@@ -1023,6 +1023,143 @@ describe('change-bridge-ydoc', () => {
         );
     });
 
+    test('jsonToYDoc + yDocToJson round-trips an associated intermediate layer with canonicalized shapes', () => {
+        const doc = new Y.Doc();
+        const fontMap = doc.getMap('font');
+        const json = makeThreeMasterThreeLayerFont();
+
+        json.glyphs[0].layers.splice(2, 0, {
+            ...cloneValue(json.glyphs[0].layers[1]),
+            id: 'layer-brace-550',
+            name: 'Intermediate Layer',
+            master: {
+                type: 'AssociatedWithMaster',
+                master: 'master-regular'
+            },
+            location: { wght: 550 },
+            guides: [
+                {
+                    pos: 640,
+                    name: 'overshoot',
+                    color: '#225588',
+                    format_specific: { seed: true, source: 'test' }
+                }
+            ],
+            format_specific: {
+                seed: true,
+                nested: { source: 'brace-layer' }
+            },
+            shapes: [
+                {
+                    nodes: [
+                        {
+                            x: 120,
+                            y: 0,
+                            nodetype: 'line',
+                            smooth: false
+                        },
+                        {
+                            x: 310,
+                            y: 690,
+                            nodetype: 'line',
+                            smooth: false
+                        },
+                        {
+                            x: 500,
+                            y: 0,
+                            nodetype: 'line',
+                            smooth: false
+                        }
+                    ],
+                    closed: true,
+                    format_specific: { seed: true, source: 'brace-layer' }
+                },
+                {
+                    reference: 'B',
+                    transform: {
+                        translation: [15, 25],
+                        rotation: 0,
+                        scale: [1, 1],
+                        skew: 0,
+                        tcenter: [0, 0]
+                    },
+                    location: { wght: 550 },
+                    format_specific: { seed: true, source: 'brace-component' }
+                }
+            ],
+            anchors: [
+                {
+                    x: 305,
+                    y: 760,
+                    name: 'top',
+                    format_specific: { source: 'brace-anchor' }
+                }
+            ]
+        });
+
+        doc.transact(() => jsonToYDoc(json, fontMap));
+
+        const result = yDocToJson(fontMap);
+        sanitizeBabelfontArrays(result);
+        const braceLayer = result.glyphs[0].layers.find(
+            (layer) => layer.id === 'layer-brace-550'
+        );
+
+        expect(result.glyphs[0].layers.map((layer) => layer.id)).toEqual(
+            expect.arrayContaining([
+                'master-extrathin',
+                'master-regular',
+                'layer-brace-550',
+                'master-bold'
+            ])
+        );
+        expect(braceLayer).toMatchObject({
+            id: 'layer-brace-550',
+            name: 'Intermediate Layer',
+            master: {
+                type: 'AssociatedWithMaster',
+                master: 'master-regular'
+            },
+            location: { wght: 550 },
+            anchors: [
+                {
+                    x: 305,
+                    y: 760,
+                    name: 'top',
+                    format_specific: { source: 'brace-anchor' }
+                }
+            ],
+            guides: [
+                {
+                    pos: 640,
+                    name: 'overshoot',
+                    color: '#225588',
+                    format_specific: { seed: true, source: 'test' }
+                }
+            ],
+            format_specific: {
+                seed: true,
+                nested: { source: 'brace-layer' }
+            }
+        });
+        expect(braceLayer.shapes[0]).toMatchObject({
+            closed: true,
+            format_specific: { seed: true, source: 'brace-layer' }
+        });
+        expect(braceLayer.shapes[1]).toMatchObject({
+            reference: 'B',
+            transform: {
+                translation: [15, 25],
+                rotation: 0,
+                scale: [1, 1],
+                skew: [0, 0],
+                order: 'RestOfTheWorld'
+            },
+            location: { wght: 550 },
+            format_specific: { seed: true, source: 'brace-component' }
+        });
+    });
+
     test('getYPath reads nested values', () => {
         const doc = new Y.Doc();
         const fontMap = doc.getMap('font');
@@ -4349,7 +4486,7 @@ describe('syncGlyphFromJson', () => {
             type: 'DefaultForMaster',
             master: 'master-extrathin'
         });
-        expect(receiverFontJson.glyphs[0].layers[1].name).toBe('Regular');
+        expect('name' in receiverFontJson.glyphs[0].layers[1]).toBe(false);
         expect(receiverFontJson.glyphs[0].layers[0].anchors[0].x).toBe(123);
     });
 
@@ -4414,6 +4551,110 @@ describe('syncGlyphFromJson', () => {
         sync2.destroy();
         bridge1.destroy();
         bridge2.destroy();
+    });
+
+    test('linked window applies explicit layer-property removals truthfully', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-remove-layer-prop');
+        const receiverBridge = new ChangeBridge('receiver-remove-layer-prop');
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        const oldGuides = cloneValue(senderFontJson.glyphs[0].layers[0].guides);
+        delete senderFontJson.glyphs[0].layers[0].guides;
+
+        senderBridge.beginTransaction('Delete layer guides');
+        senderBridge.recordRemove(
+            ['glyphs', 'A', 'layers', 'layer-1', 'guides'],
+            oldGuides
+        );
+        senderBridge.endTransaction();
+
+        receiverBridge.applyRemoteUpdate(
+            lastUpdate,
+            senderBridge.getNewChangeLogEntries()
+        );
+
+        expect(
+            getYPath(receiverBridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'guides'
+            ])
+        ).toBeUndefined();
+        expect('guides' in receiverFontJson.glyphs[0].layers[0]).toBe(false);
+        expect(receiverFontJson.glyphs[0].layers[0].anchors).toEqual(
+            senderFontJson.glyphs[0].layers[0].anchors
+        );
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('syncLayersFromJson preserves multi-target worker replay metadata across remote apply', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-multi-target');
+        const receiverBridge = new ChangeBridge('receiver-multi-target');
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        senderFontJson.glyphs[0].layers[0].anchors[0].x = 321;
+        senderFontJson.glyphs[1].layers[0].width = 777;
+        const changedTargets = [
+            { glyphName: 'A', layerId: 'layer-1' },
+            { glyphName: 'B', layerId: 'layer-2' }
+        ];
+
+        senderBridge.syncLayersFromJson(
+            changedTargets,
+            'Batch dependent layer refresh',
+            undefined,
+            undefined,
+            undefined,
+            changedTargets
+        );
+
+        const remoteEntries = senderBridge.getNewChangeLogEntries();
+        const changeEntries = remoteEntries.filter(
+            (entry) => entry.historyAction === 'change'
+        );
+
+        expect(changeEntries).toHaveLength(2);
+        changeEntries.forEach((entry) => {
+            expect(entry.workerReplayTargets).toEqual(changedTargets);
+        });
+
+        receiverBridge.applyRemoteUpdate(lastUpdate, remoteEntries);
+
+        expect(receiverFontJson.glyphs[0].layers[0].anchors[0].x).toBe(321);
+        expect(receiverFontJson.glyphs[1].layers[0].width).toBe(777);
+        expect(receiverFontJson.glyphs[0].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-regular'
+        });
+        expect(receiverFontJson.glyphs[1].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-regular'
+        });
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
     });
 
     test('applyRemoteUpdate repairs a malformed remote layer root from the full-state payload', () => {
