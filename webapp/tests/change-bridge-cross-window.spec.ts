@@ -169,24 +169,26 @@ async function installJsonCanonicalizer(page: Page): Promise<void> {
             }
 
             if (Array.isArray(canonicalLayer.shapes)) {
-                canonicalLayer.shapes = canonicalLayer.shapes.map((shape: any) => {
-                    if (
-                        !shape ||
-                        typeof shape !== 'object' ||
-                        Array.isArray(shape)
-                    ) {
-                        return shape;
-                    }
+                canonicalLayer.shapes = canonicalLayer.shapes.map(
+                    (shape: any) => {
+                        if (
+                            !shape ||
+                            typeof shape !== 'object' ||
+                            Array.isArray(shape)
+                        ) {
+                            return shape;
+                        }
 
-                    const canonicalShape = { ...shape };
-                    if (Array.isArray(canonicalShape.nodes)) {
-                        canonicalShape.nodes = canonicalShape.nodes
-                            .map((node: any) => serializeNodeForTest(node))
-                            .join(' ')
-                            .trim();
+                        const canonicalShape = { ...shape };
+                        if (Array.isArray(canonicalShape.nodes)) {
+                            canonicalShape.nodes = canonicalShape.nodes
+                                .map((node: any) => serializeNodeForTest(node))
+                                .join(' ')
+                                .trim();
+                        }
+                        return canonicalShape;
                     }
-                    return canonicalShape;
-                });
+                );
             }
 
             return testWindow.__canonicalizeJsonValueForTests(canonicalLayer);
@@ -761,9 +763,10 @@ async function extractYDocLayerIds(
 ): Promise<string[]> {
     return page.evaluate((name) => {
         const bridge = (window as any).changeBridge;
-        const layersMap = bridge?.fontMap?.get('glyphs')?.get(name)?.get?.(
-            'layers'
-        );
+        const layersMap = bridge?.fontMap
+            ?.get('glyphs')
+            ?.get(name)
+            ?.get?.('layers');
         if (!layersMap || typeof layersMap.forEach !== 'function') {
             return [];
         }

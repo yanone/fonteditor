@@ -7244,7 +7244,10 @@ export class OutlineEditor {
             return null;
         }
 
-        return designspaceToUserspace(designLocation, (fontModel.axes || []) as any);
+        return designspaceToUserspace(
+            designLocation,
+            (fontModel.axes || []) as any
+        );
     }
 
     private sameSidebearingHandle(
@@ -8592,8 +8595,7 @@ export class OutlineEditor {
             return undefined;
         }
 
-        return masters.find((candidate) => candidate.id === masterId)
-            ?.location;
+        return masters.find((candidate) => candidate.id === masterId)?.location;
     }
 
     private _logLayerMatchDiagnostics(
@@ -8635,7 +8637,8 @@ export class OutlineEditor {
                 ),
                 excluded: !!(
                     shouldExcludeCurrentGlyphLayer &&
-                    options?.excludeLayerId && layer?.id === options.excludeLayerId
+                    options?.excludeLayerId &&
+                    layer?.id === options.excludeLayerId
                 )
             };
         });
@@ -8691,7 +8694,9 @@ export class OutlineEditor {
         const glyphWrapper = fontModel.findGlyph?.(glyphName);
         const glyph =
             glyphWrapper ||
-            fontModel.glyphs.find((candidate: any) => candidate.name === glyphName);
+            fontModel.glyphs.find(
+                (candidate: any) => candidate.name === glyphName
+            );
         if (!glyph?.layers?.length) {
             return null;
         }
@@ -16303,9 +16308,12 @@ export class OutlineEditor {
                 rootLayerId: rootMatchingLayer?.id || null
             });
 
-            console.log('[OutlineEditor] Nested selectLayer stack after root recovery', {
-                stackAfterRootRewrite: this.glyphStack
-            });
+            console.log(
+                '[OutlineEditor] Nested selectLayer stack after root recovery',
+                {
+                    stackAfterRootRewrite: this.glyphStack
+                }
+            );
         }
 
         // Set up animation to all axes at once
