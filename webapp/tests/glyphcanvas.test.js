@@ -724,6 +724,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
+                undefined,
                 undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -790,6 +791,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
+                undefined,
                 undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -922,6 +924,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
+                undefined,
                 undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -1166,6 +1169,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(205, 182)'",
                 'RIGHT (205, 182)',
                 'right',
+                undefined,
                 undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();

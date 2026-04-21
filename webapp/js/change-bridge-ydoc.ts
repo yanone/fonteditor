@@ -198,9 +198,16 @@ export function yDocToJson(fontMap: Y.Map<unknown>): Record<string, unknown> {
                                 const layers: Record<string, unknown>[] = [];
                                 (gv as Y.Map<unknown>).forEach(
                                     (layerYMap: unknown, layerId: string) => {
-                                        const layerJson = fromYType(
-                                            layerYMap
-                                        ) as Record<string, unknown>;
+                                        const layerValue = fromYType(layerYMap);
+                                        const layerJson =
+                                            layerValue &&
+                                            typeof layerValue === 'object' &&
+                                            !Array.isArray(layerValue)
+                                                ? (layerValue as Record<
+                                                      string,
+                                                      unknown
+                                                  >)
+                                                : {};
                                         if (
                                             typeof layerJson.id !== 'string' ||
                                             !layerJson.id.length
