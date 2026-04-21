@@ -279,32 +279,41 @@ export class ChangeBridge {
     >();
 
     /**
-     * Produce a deterministic JSON string so deep-equality checks are stable
-     * even when object key insertion order differs.
+     * Fast deep equality that is deterministic about object key order
+     * (same semantics as the old _stableStringify comparison) but avoids
+     * building intermediate normalized objects and stringifying.
+     * Short-circuits on the first difference.
      */
-    private _stableStringify(value: unknown): string {
-        const normalize = (input: unknown): unknown => {
-            if (Array.isArray(input)) {
-                return input.map((item) => normalize(item));
-            }
-            if (input && typeof input === 'object') {
-                const entries = Object.entries(
-                    input as Record<string, unknown>
-                ).sort(([a], [b]) => a.localeCompare(b));
-                const result: Record<string, unknown> = {};
-                for (const [key, val] of entries) {
-                    result[key] = normalize(val);
-                }
-                return result;
-            }
-            return input;
-        };
-
-        return JSON.stringify(normalize(value));
-    }
-
     private _isDeepEqual(a: unknown, b: unknown): boolean {
-        return this._stableStringify(a) === this._stableStringify(b);
+        if (a === b) return true;
+        if (typeof a !== typeof b) return false;
+        if (a === null || b === null) return a === b;
+        if (typeof a !== 'object') return a === b;
+
+        if (Array.isArray(a)) {
+            if (!Array.isArray(b) || a.length !== b.length) {
+                return false;
+            }
+            for (let i = 0; i < a.length; i++) {
+                if (!this._isDeepEqual(a[i], b[i])) return false;
+            }
+            return true;
+        }
+
+        if (Array.isArray(b)) return false;
+
+        const aObj = a as Record<string, unknown>;
+        const bObj = b as Record<string, unknown>;
+        const aKeys = Object.keys(aObj).sort();
+        const bKeys = Object.keys(bObj).sort();
+        if (aKeys.length !== bKeys.length) return false;
+        for (let i = 0; i < aKeys.length; i++) {
+            if (aKeys[i] !== bKeys[i]) return false;
+            if (!this._isDeepEqual(aObj[aKeys[i]], bObj[bKeys[i]])) {
+                return false;
+            }
+        }
+        return true;
     }
     private _getWindowRoleLabel(): string {
         return window.windowRole?.getRoleLabel() ?? windowRole.getRoleLabel();
@@ -757,6 +766,7 @@ export class ChangeBridge {
             layerSnapshot: unknown;
         }> = [];
 
+        let isFirstTarget = true;
         for (const { glyphName, layerId } of uniqueTargets) {
             const glyphJson = glyphs.find(
                 (g: Record<string, unknown>) => g.name === glyphName
@@ -779,11 +789,6 @@ export class ChangeBridge {
                 continue;
             }
 
-            const yLayerMap = layersMap.get(layerId);
-            if (!yLayerMap) {
-                continue;
-            }
-
             const glyphLayers = (glyphJson.layers ?? []) as Array<
                 Record<string, unknown>
             >;
@@ -794,11 +799,41 @@ export class ChangeBridge {
                 continue;
             }
 
+            const yLayerMap = layersMap.get(layerId);
+            if (!yLayerMap) {
+                continue;
+            }
+
+            // For the primary edited layer (first target), we know it changed.
+            // Skip the expensive _isDeepEqual defensive check, but keep
+            // fromYType so _normalizeLayerSnapshot can merge with existing
+            // Yjs data (preserving fields not present in layerJson).
+            if (isFirstTarget) {
+                isFirstTarget = false;
+                const yLayerJson = fromYType(yLayerMap);
+                const layerSnapshot = this._normalizeLayerSnapshot(
+                    layerId,
+                    layerJson,
+                    yLayerJson,
+                    true
+                );
+                targets.push({
+                    glyphName,
+                    layerId,
+                    previousLayerSnapshot: oldValue ?? glyphName,
+                    layerSnapshot
+                });
+                continue;
+            }
+
+            // For cascade / downstream layers, do the full defensive check
+            // because recomposition may or may not have touched them.
             const yLayerJson = fromYType(yLayerMap);
             const layerSnapshot = this._normalizeLayerSnapshot(
                 layerId,
                 layerJson,
-                yLayerJson
+                yLayerJson,
+                true
             );
 
             if (this._isDeepEqual(yLayerJson, layerSnapshot)) {
@@ -821,8 +856,14 @@ export class ChangeBridge {
             targets.map((target) => ({
                 op: 'set' as ChangeOp,
                 path: ['glyphs', target.glyphName, 'layers', target.layerId],
-                oldValue: cloneHistoryValue(target.previousLayerSnapshot),
-                newValue: cloneHistoryValue(target.layerSnapshot),
+                oldValue:
+                    typeof target.previousLayerSnapshot === 'string'
+                        ? target.previousLayerSnapshot
+                        : cloneHistoryValue(target.previousLayerSnapshot),
+                newValue:
+                    typeof newValue === 'string'
+                        ? newValue
+                        : cloneHistoryValue(target.layerSnapshot),
                 visualAnchorSide,
                 workerReplayTargets,
                 applyPath: [
@@ -1045,26 +1086,26 @@ export class ChangeBridge {
         );
         if (!layerJson) return false;
 
-        // Reconstruct only this one layer from Y.Doc
+        // Reconstruct the current Yjs layer for merging (needed so that
+        // fields not present in layerJson are preserved). Skip the expensive
+        // _isDeepEqual check — the primary edited layer is known to have
+        // changed. Pass isExistingFresh=true so _normalizeLayerSnapshot
+        // does not re-clone the fresh fromYType output.
         const yLayerJson = fromYType(yLayerMap);
         const layerSnapshot = this._normalizeLayerSnapshot(
             layerId,
             layerJson,
-            yLayerJson
+            yLayerJson,
+            true
         );
-
-        // Compare only the affected layer
-        if (this._isDeepEqual(yLayerJson, layerSnapshot)) {
-            return true; // No changes — skip
-        }
 
         this._queueOrCommitOperations(
             [
                 {
                     op: 'set' as ChangeOp,
                     path: ['glyphs', glyphName, 'layers', layerId],
-                    oldValue: cloneHistoryValue(oldValue ?? glyphName),
-                    newValue: cloneHistoryValue(newValue ?? label),
+                    oldValue: oldValue ?? glyphName,
+                    newValue: newValue ?? label,
                     visualAnchorSide,
                     workerReplayTargets,
                     applyPath: ['glyphs', glyphName, 'layers', layerId],
@@ -1771,7 +1812,19 @@ export class ChangeBridge {
         }
 
         if (this._txDepth > 0) {
-            this._txBufferedOperations.push(...normalizedOperations);
+            // Clone values before buffering — the model may mutate while the
+            // transaction is still open.
+            this._txBufferedOperations.push(
+                ...normalizedOperations.map((op) => ({
+                    ...op,
+                    oldValue: cloneHistoryValue(op.oldValue),
+                    newValue: cloneHistoryValue(op.newValue),
+                    applyNewValue:
+                        op.applyNewValue === undefined
+                            ? undefined
+                            : cloneHistoryValue(op.applyNewValue)
+                }))
+            );
             return;
         }
 
@@ -1784,8 +1837,8 @@ export class ChangeBridge {
         return {
             op: operation.op,
             path: [...operation.path],
-            oldValue: cloneHistoryValue(operation.oldValue),
-            newValue: cloneHistoryValue(operation.newValue),
+            oldValue: operation.oldValue,
+            newValue: operation.newValue,
             visualAnchorSide: operation.visualAnchorSide ?? null,
             workerReplayTargets: normalizeWorkerReplayTargets(
                 operation.workerReplayTargets
@@ -1793,10 +1846,7 @@ export class ChangeBridge {
             applyPath: operation.applyPath
                 ? [...operation.applyPath]
                 : undefined,
-            applyNewValue:
-                operation.applyNewValue === undefined
-                    ? undefined
-                    : cloneHistoryValue(operation.applyNewValue),
+            applyNewValue: operation.applyNewValue,
             applyMode: operation.applyMode ?? 'default'
         };
     }
@@ -1815,8 +1865,16 @@ export class ChangeBridge {
             return;
         }
 
+        // Snapshot-mode operations carry a full layer/glyph object and are
+        // always material changes, so skip the no-op reduction. Default-mode
+        // property changes (e.g. feature code edits) may be no-ops and still
+        // need the reduction to filter them out.
         const effectiveOperations =
-            this._reduceToNetChangingOperations(normalizedOperations);
+            normalizedOperations.length === 1 &&
+            (normalizedOperations[0].applyMode === 'layer-snapshot' ||
+                normalizedOperations[0].applyMode === 'glyph-snapshot')
+                ? normalizedOperations
+                : this._reduceToNetChangingOperations(normalizedOperations);
         if (!effectiveOperations.length) {
             return;
         }
@@ -3168,7 +3226,8 @@ export class ChangeBridge {
     private _normalizeLayerSnapshot(
         layerId: string,
         layerSnapshot: unknown,
-        existingLayerSnapshot?: unknown
+        existingLayerSnapshot?: unknown,
+        isExistingFresh?: boolean
     ): unknown {
         if (
             !layerSnapshot ||
@@ -3182,10 +3241,12 @@ export class ChangeBridge {
             existingLayerSnapshot &&
             typeof existingLayerSnapshot === 'object' &&
             !Array.isArray(existingLayerSnapshot)
-                ? (cloneHistoryValue(existingLayerSnapshot) as Record<
-                      string,
-                      unknown
-                  >)
+                ? isExistingFresh
+                    ? (existingLayerSnapshot as Record<string, unknown>)
+                    : (cloneHistoryValue(existingLayerSnapshot) as Record<
+                          string,
+                          unknown
+                      >)
                 : {};
         const incomingLayerRecord = cloneHistoryValue(layerSnapshot) as Record<
             string,
