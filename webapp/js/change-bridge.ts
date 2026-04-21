@@ -820,7 +820,7 @@ export class ChangeBridge {
                 targets.push({
                     glyphName,
                     layerId,
-                    previousLayerSnapshot: oldValue ?? glyphName,
+                    previousLayerSnapshot: cloneHistoryValue(yLayerJson),
                     layerSnapshot
                 });
                 continue;
@@ -856,14 +856,13 @@ export class ChangeBridge {
             targets.map((target) => ({
                 op: 'set' as ChangeOp,
                 path: ['glyphs', target.glyphName, 'layers', target.layerId],
-                oldValue:
-                    typeof target.previousLayerSnapshot === 'string'
-                        ? target.previousLayerSnapshot
-                        : cloneHistoryValue(target.previousLayerSnapshot),
-                newValue:
-                    typeof newValue === 'string'
-                        ? newValue
-                        : cloneHistoryValue(target.layerSnapshot),
+                // Multi-target layer batches can resolve to glyph/font-scoped
+                // undo, which replays history entries directly instead of
+                // relying on a single-layer UndoManager diff. Store concrete
+                // layer snapshots here so undo/redo can restore the primary
+                // edited layer, not just its human-readable label.
+                oldValue: cloneHistoryValue(target.previousLayerSnapshot),
+                newValue: cloneHistoryValue(target.layerSnapshot),
                 visualAnchorSide,
                 workerReplayTargets,
                 applyPath: [

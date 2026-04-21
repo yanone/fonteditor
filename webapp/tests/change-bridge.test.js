@@ -4553,6 +4553,76 @@ describe('syncGlyphFromJson', () => {
         bridge2.destroy();
     });
 
+    test('linked window preserves all layer masters after remote undo of single-layer edit', () => {
+        const senderFontJson = makeThreeMasterThreeLayerFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-undo-master');
+        const receiverBridge = new ChangeBridge('receiver-undo-master');
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+
+        const sync1 = new WindowSync(senderBridge, 'test-undo-master-sync');
+        const sync2 = new WindowSync(receiverBridge, 'test-undo-master-sync');
+
+        // Simulate a mouse drag transaction with multiple buffered operations
+        senderBridge.beginTransaction('Drag anchor');
+        senderFontJson.glyphs[0].layers[0].anchors[0].x = 100;
+        senderBridge.syncGlyphFromJson(
+            'A',
+            'Drag anchor',
+            undefined,
+            undefined,
+            'master-extrathin'
+        );
+        senderFontJson.glyphs[0].layers[0].anchors[0].x = 110;
+        senderBridge.syncGlyphFromJson(
+            'A',
+            'Drag anchor',
+            undefined,
+            undefined,
+            'master-extrathin'
+        );
+        senderFontJson.glyphs[0].layers[0].anchors[0].x = 123;
+        senderBridge.syncGlyphFromJson(
+            'A',
+            'Drag anchor',
+            undefined,
+            undefined,
+            'master-extrathin'
+        );
+        senderBridge.endTransaction();
+        flushTimers();
+
+        // Verify receiver has the final edit
+        expect(receiverFontJson.glyphs[0].layers[0].anchors[0].x).toBe(123);
+
+        // Sender undoes
+        senderBridge.undo('A', 'master-extrathin');
+        flushTimers();
+
+        // Verify all layers still have valid master after undo
+        expect(receiverFontJson.glyphs[0].layers).toHaveLength(3);
+        expect(receiverFontJson.glyphs[0].layers[0].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-extrathin'
+        });
+        expect(receiverFontJson.glyphs[0].layers[1].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-regular'
+        });
+        expect(receiverFontJson.glyphs[0].layers[2].master).toEqual({
+            type: 'DefaultForMaster',
+            master: 'master-bold'
+        });
+
+        sync1.destroy();
+        sync2.destroy();
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
     test('linked window applies explicit layer-property removals truthfully', () => {
         const senderFontJson = makeMinimalFont();
         const receiverFontJson = cloneValue(senderFontJson);
@@ -4746,6 +4816,42 @@ describe('syncGlyphFromJson', () => {
 
         senderBridge.destroy();
         receiverBridge.destroy();
+    });
+
+    test('sender-side undo restores the edited anchor after batched dependent layer refresh', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('sender-anchor-undo');
+        bridge.initFromJson(fontJson);
+
+        const originalAnchorX = fontJson.glyphs[0].layers[0].anchors[0].x;
+        const originalWidthB = fontJson.glyphs[1].layers[0].width;
+
+        fontJson.glyphs[0].layers[0].anchors[0].x = 321;
+        fontJson.glyphs[1].layers[0].width = 777;
+        const changedTargets = [
+            { glyphName: 'A', layerId: 'layer-1' },
+            { glyphName: 'B', layerId: 'layer-2' }
+        ];
+
+        bridge.syncLayersFromJson(
+            changedTargets,
+            'Batch dependent layer refresh',
+            undefined,
+            undefined,
+            undefined,
+            changedTargets
+        );
+
+        expect(fontJson.glyphs[0].layers[0].anchors[0].x).toBe(321);
+        expect(fontJson.glyphs[1].layers[0].width).toBe(777);
+
+        const undoResult = bridge.undo('A', 'layer-1');
+
+        expect(undoResult).not.toBeNull();
+        expect(fontJson.glyphs[0].layers[0].anchors[0].x).toBe(originalAnchorX);
+        expect(fontJson.glyphs[1].layers[0].width).toBe(originalWidthB);
+
+        bridge.destroy();
     });
 
     test('linked window emits layerFingerprintChanged when receiving a remote undo that changes a layer fingerprint', () => {

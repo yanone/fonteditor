@@ -751,6 +751,49 @@ async function requestRemoteEditingFontCompile(
     window.autoCompileManager?.checkAndSchedule?.();
 }
 
+/**
+ * Refresh receiver-side Rust/cache state for a remote edit and request
+ * editing compilation only after the refresh has been queued.
+ */
+export async function handleRemoteChangeRefresh(
+    entries: ChangeLogEntry[],
+    dependencies?: {
+        requestCompile?: (
+            changeSource: string,
+            editType?: 'outline' | 'anchor' | null
+        ) => Promise<void>;
+        queueCacheRefresh?: (
+            rootGlyphName?: string,
+            editedGlyphName?: string,
+            forceFullRustSync?: boolean,
+            options?: {
+                skipDeferredCanvasRepaint?: boolean;
+                workerReplayTargets?: WorkerReplayTarget[];
+            }
+        ) => Promise<void>;
+    }
+): Promise<void> {
+    const { editType, changeSource } = inferRemoteEditTypeFromEntries(entries);
+    const replayTargets = collectReplayTargetsFromEntries(entries);
+    const requestCompile =
+        dependencies?.requestCompile ?? requestRemoteEditingFontCompile;
+    const queueCacheRefresh =
+        dependencies?.queueCacheRefresh ?? queueRustCacheAndRefreshCanvas;
+
+    const rustCacheRefreshPromise = queueCacheRefresh(
+        undefined,
+        undefined,
+        false,
+        replayTargets.length > 0
+            ? { workerReplayTargets: replayTargets }
+            : undefined
+    );
+
+    await requestCompile(changeSource, editType);
+    await rustCacheRefreshPromise;
+    await requestCompile(changeSource, editType);
+}
+
 export function queueRustCacheAndRefreshCanvas(
     rootGlyphName?: string,
     editedGlyphName?: string,
@@ -1023,26 +1066,7 @@ function initializeBridge(detail: {
             `[DRAG-DEBUG] onRemoteChange fired — draggingSomething=${oeRef?.draggingSomething}, pendingRemoteRefreshAfterDrag=${oeRef?.pendingRemoteRefreshAfterDrag}`
         );
 
-        const { editType, changeSource } =
-            inferRemoteEditTypeFromEntries(entries);
-        const replayTargets = collectReplayTargetsFromEntries(entries);
-
-        // Request a compile immediately so remote edits behave like local
-        // edits in the receiving window, then request again after the Rust
-        // cache refresh finishes so background/undo deliveries cannot leave
-        // the editing font one revision behind.
-        void requestRemoteEditingFontCompile(changeSource, editType);
-
-        void queueRustCacheAndRefreshCanvas(
-            undefined,
-            undefined,
-            false,
-            replayTargets.length > 0
-                ? { workerReplayTargets: replayTargets }
-                : undefined
-        ).then(() => {
-            void requestRemoteEditingFontCompile(changeSource, editType);
-        });
+        void handleRemoteChangeRefresh(entries);
     });
 
     // Derive BroadcastChannel name from font path (or a fallback)
