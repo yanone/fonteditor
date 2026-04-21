@@ -140,7 +140,11 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     function scheduleCompilation(delayMs: number = DEBOUNCE_MS): void {
-        if (!isEnabled || TEMP_DISABLE_FULL_COMPILE || !isFullCompilationAllowed()) {
+        if (
+            !isEnabled ||
+            TEMP_DISABLE_FULL_COMPILE ||
+            !isFullCompilationAllowed()
+        ) {
             return;
         }
 
@@ -160,7 +164,11 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     function checkAndSchedule(): void {
-        if (!isEnabled || TEMP_DISABLE_FULL_COMPILE || !isFullCompilationAllowed()) {
+        if (
+            !isEnabled ||
+            TEMP_DISABLE_FULL_COMPILE ||
+            !isFullCompilationAllowed()
+        ) {
             return;
         }
 
@@ -186,7 +194,12 @@ type QcProfile = (typeof AVAILABLE_QC_PROFILES)[number];
     }
 
     async function runCompilationLoop(): Promise<void> {
-        if (!isEnabled || isCompiling || TEMP_DISABLE_FULL_COMPILE || !isFullCompilationAllowed()) {
+        if (
+            !isEnabled ||
+            isCompiling ||
+            TEMP_DISABLE_FULL_COMPILE ||
+            !isFullCompilationAllowed()
+        ) {
             return;
         }
 
