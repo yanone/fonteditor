@@ -1,0 +1,26 @@
+{
+    "hooks": {
+        "PreToolUse": [
+            {
+                "type": "command",
+                "command": "node .github/hooks/require-compilation-qa.mjs",
+                "cwd": "/Users/yanone/Code/Counterpunch/editor",
+                "env": {
+                    "HOOK_PHASE": "pre"
+                },
+                "timeout": 10
+            }
+        ],
+        "PostToolUse": [
+            {
+                "type": "command",
+                "command": "node .github/hooks/require-compilation-qa.mjs",
+                "cwd": "/Users/yanone/Code/Counterpunch/editor",
+                "env": {
+                    "HOOK_PHASE": "post"
+                },
+                "timeout": 10
+            }
+        ]
+    }
+}
