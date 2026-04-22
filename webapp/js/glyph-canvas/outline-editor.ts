@@ -11263,19 +11263,22 @@ export class OutlineEditor {
                                   this.getCurrentLayerId()
                               )
                             : undefined;
+                    const sidebearingChangedLayerTargets =
+                        dragType === 'sidebearing'
+                            ? this.collectMatchingLayerWorkerReplayTargets(
+                                  this._sidebearingAffectedGlyphNames,
+                                  this.getCurrentLayerId()
+                              )
+                            : undefined;
                     this._syncCurrentGlyphToYDoc(
                         label,
                         preDragDesc ?? undefined,
                         encodedPostDesc,
                         metricsKeySide,
                         anchorChangedLayerTargets ??
-                            (dragType === 'sidebearing'
-                                ? this.collectMatchingLayerWorkerReplayTargets(
-                                      this._sidebearingAffectedGlyphNames,
-                                      this.getCurrentLayerId()
-                                  )
-                                : undefined),
-                        anchorChangedLayerTargets
+                            sidebearingChangedLayerTargets,
+                        anchorChangedLayerTargets ??
+                            sidebearingChangedLayerTargets
                     );
                 }
             }
@@ -14916,15 +14919,18 @@ export class OutlineEditor {
             this.getCurrentGlyphModel()?.name,
             this._sidebearingAffectedGlyphNames
         );
+        const sidebearingChangedLayerTargets =
+            this.collectMatchingLayerWorkerReplayTargets(
+                this._sidebearingAffectedGlyphNames,
+                this.getCurrentLayerId()
+            );
         this._syncCurrentGlyphToYDoc(
             'Set sidebearing',
             formatSidebearingHistoryValue(side, currentSidebearing),
             formatSidebearingHistoryValue(side, targetValue),
-            null,
-            this.collectMatchingLayerWorkerReplayTargets(
-                this._sidebearingAffectedGlyphNames,
-                this.getCurrentLayerId()
-            )
+            side,
+            sidebearingChangedLayerTargets,
+            sidebearingChangedLayerTargets
         );
         return true;
     }
@@ -15996,7 +16002,9 @@ export class OutlineEditor {
                 }
                 const visualAnchorSide =
                     this._metricsKeyEditedSide ||
-                    this._metricsKeyInteractionSide;
+                    this._metricsKeyInteractionSide ||
+                    this.selectedSidebearingHandle?.side ||
+                    null;
                 this._metricsKeyEditedSide = null;
                 this._metricsKeyInteractionSide = null;
                 // When anchors were nudged, include downstream auto-composite
@@ -16009,13 +16017,19 @@ export class OutlineEditor {
                               this.getCurrentLayerId()
                           )
                         : undefined;
+                const sidebearingReplayTargets = this.selectedSidebearingHandle
+                    ? this.collectMatchingLayerWorkerReplayTargets(
+                          this._sidebearingAffectedGlyphNames,
+                          this.getCurrentLayerId()
+                      )
+                    : undefined;
                 this._syncCurrentGlyphToYDoc(
                     'Arrow key',
                     preMoveDesc,
                     postMoveDesc,
                     visualAnchorSide,
-                    anchorReplayTargets,
-                    anchorReplayTargets
+                    anchorReplayTargets ?? sidebearingReplayTargets,
+                    anchorReplayTargets ?? sidebearingReplayTargets
                 );
                 return;
             }

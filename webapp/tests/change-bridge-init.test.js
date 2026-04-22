@@ -75,4 +75,53 @@ describe('handleRemoteChangeRefresh', () => {
             'compile'
         ]);
     });
+
+    test('classifies batched sidebearing arrow-key entries as remote outline edits', async () => {
+        const queueCacheRefresh = jest.fn(async () => {});
+        const requestCompile = jest.fn(async () => {});
+        const replayTargets = [
+            {
+                glyphName: 'l',
+                layerId: 'master-regular'
+            },
+            {
+                glyphName: 'n',
+                layerId: 'master-regular'
+            }
+        ];
+
+        await handleRemoteChangeRefresh(
+            [
+                {
+                    transactionLabel: 'Arrow key',
+                    path: 'glyphs.l.layers.master-regular',
+                    visualAnchorSide: 'left',
+                    workerReplayTargets: replayTargets
+                }
+            ],
+            {
+                requestCompile,
+                queueCacheRefresh
+            }
+        );
+
+        expect(queueCacheRefresh).toHaveBeenCalledWith(
+            undefined,
+            undefined,
+            false,
+            {
+                workerReplayTargets: replayTargets
+            }
+        );
+        expect(requestCompile).toHaveBeenNthCalledWith(
+            1,
+            'remote-outline',
+            'outline'
+        );
+        expect(requestCompile).toHaveBeenNthCalledWith(
+            2,
+            'remote-outline',
+            'outline'
+        );
+    });
 });

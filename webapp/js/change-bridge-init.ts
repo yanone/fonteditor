@@ -55,6 +55,8 @@ function inferRemoteEditTypeFromEntries(entries: ChangeLogEntry[]): {
             return { editType: 'anchor', changeSource: 'remote-anchor' };
         }
         if (
+            entry.visualAnchorSide === 'left' ||
+            entry.visualAnchorSide === 'right' ||
             label.toLowerCase().includes('sidebearing') ||
             label.toLowerCase().includes('lsb') ||
             label.toLowerCase().includes('rsb') ||

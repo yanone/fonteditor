@@ -1981,6 +1981,138 @@ describe('GlyphCanvas property panel metrics edits', () => {
         setSidebearingValueSpy.mockRestore();
     });
 
+    test('setSidebearingValue syncs affected sidebearing layers through syncLayersFromJson', () => {
+        const targets = [
+            { glyphName: 'l', layerId: 'master-layer' },
+            { glyphName: 'n', layerId: 'master-layer' }
+        ];
+        const originalChangeBridge = window.changeBridge;
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockImplementation(() => {});
+        const getCurrentDirectSidebearingSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentDirectSidebearing')
+            .mockReturnValue(10);
+        const applySidebearingDeltaSpy = jest
+            .spyOn(canvas.outlineEditor, 'applySidebearingDelta')
+            .mockImplementation(() => {
+                canvas.outlineEditor._sidebearingAffectedGlyphNames = new Set([
+                    'l',
+                    'n'
+                ]);
+                return true;
+            });
+        const syncDependentsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'syncDependentGlyphsAfterSidebearingEdit'
+            )
+            .mockImplementation(() => {});
+        const glyphModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
+            .mockReturnValue({ name: 'l' });
+        const collectTargetsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'collectMatchingLayerWorkerReplayTargets'
+            )
+            .mockReturnValue(targets);
+
+        window.changeBridge = {
+            syncLayersFromJson: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+
+        try {
+            expect(canvas.outlineEditor.setSidebearingValue('left', 20)).toBe(
+                true
+            );
+            expect(window.changeBridge.syncLayersFromJson).toHaveBeenCalledWith(
+                targets,
+                'Set sidebearing',
+                expect.any(String),
+                expect.any(String),
+                'left',
+                targets
+            );
+            expect(
+                window.changeBridge.syncGlyphFromJson
+            ).not.toHaveBeenCalled();
+        } finally {
+            window.changeBridge = originalChangeBridge;
+            collectTargetsSpy.mockRestore();
+            glyphModelSpy.mockRestore();
+            syncDependentsSpy.mockRestore();
+            applySidebearingDeltaSpy.mockRestore();
+            getCurrentDirectSidebearingSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
+    test('keyboard sidebearing nudges sync affected layers through syncLayersFromJson', () => {
+        const targets = [
+            { glyphName: 'l', layerId: 'master-layer' },
+            { glyphName: 'n', layerId: 'master-layer' }
+        ];
+        const originalChangeBridge = window.changeBridge;
+        const syncCurrentGlyphToYDocSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+        const moveSelectedSidebearingSpy = jest
+            .spyOn(canvas.outlineEditor, 'moveSelectedSidebearing')
+            .mockImplementation(() => {
+                canvas.outlineEditor._sidebearingAffectedGlyphNames = new Set([
+                    'l',
+                    'n'
+                ]);
+            });
+        const collectTargetsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'collectMatchingLayerWorkerReplayTargets'
+            )
+            .mockReturnValue(targets);
+
+        window.changeBridge = {
+            syncLayersFromJson: jest.fn(),
+            syncGlyphFromJson: jest.fn()
+        };
+        canvas.outlineEditor.active = true;
+        canvas.getCurrentGlyphName = jest.fn(() => 'l');
+        canvas.outlineEditor.currentGlyphName = 'l';
+        canvas.outlineEditor.selectedLayerId = 'master-layer';
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'right',
+            editable: true
+        };
+
+        try {
+            canvas.outlineEditor.onKeyDown({
+                key: 'ArrowRight',
+                shiftKey: false,
+                altKey: false,
+                metaKey: false,
+                ctrlKey: false,
+                preventDefault: jest.fn()
+            });
+
+            expect(syncCurrentGlyphToYDocSpy).toHaveBeenCalledWith(
+                'Arrow key',
+                'RIGHT',
+                undefined,
+                'right',
+                targets,
+                targets
+            );
+        } finally {
+            canvas.outlineEditor.selectedSidebearingHandle = null;
+            window.changeBridge = originalChangeBridge;
+            syncCurrentGlyphToYDocSpy.mockRestore();
+            collectTargetsSpy.mockRestore();
+            moveSelectedSidebearingSpy.mockRestore();
+        }
+    });
+
     test('reapplyActiveEditedGlyphAdvanceAfterShape restores the active layer width into the text run', () => {
         const layer = { width: 494 };
 
