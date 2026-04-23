@@ -2391,6 +2391,26 @@ describe('GlyphCanvas hit testing', () => {
 
         expect(canvas.outlineEditor.hoveredGlyphIndex).toBe(-1);
     });
+
+    test('should not mark neighboring glyphs hovered when an active-glyph anchor is hovered', () => {
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 100, dx: 0, dy: 0, g: 0 },
+            { ax: 100, dx: 0, dy: 0, g: 1 }
+        ];
+        canvas.textRunEditor.hbFont = {
+            glyphToPath: jest.fn(() => 'M0 0 L80 0 L80 80 L0 80 Z'),
+            destroy: jest.fn()
+        };
+        canvas.outlineEditor.active = true;
+        canvas.outlineEditor.hoveredAnchorIndex = 0;
+        canvas.outlineEditor.hoveredGlyphIndex = 1;
+        canvas.mouseX = 150;
+        canvas.mouseY = 50;
+
+        canvas.updateHoveredGlyph();
+
+        expect(canvas.outlineEditor.hoveredGlyphIndex).toBe(-1);
+    });
 });
 
 describe('GlyphCanvas sidebearing handle movement', () => {

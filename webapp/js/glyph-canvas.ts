@@ -1581,6 +1581,25 @@ class GlyphCanvas {
             return;
         }
 
+        if (
+            this.outlineEditor.active &&
+            (this.outlineEditor.hoveredResizeHandle !== null ||
+                this.outlineEditor.hoveredContrastAxisHandle !== null ||
+                this.outlineEditor.hoveredGuideHandle !== null ||
+                this.outlineEditor.hoveredSidebearingHandle !== null ||
+                this.outlineEditor.hoveredComponentIndex !== null ||
+                this.outlineEditor.hoveredAnchorIndex !== null ||
+                this.outlineEditor.hoveredPointIndex !== null ||
+                this.outlineEditor.hoveredAddPointPreview !== null ||
+                this.outlineEditor.hoveredCommandCurvePreview !== null)
+        ) {
+            if (this.outlineEditor.hoveredGlyphIndex !== -1) {
+                this.outlineEditor.hoveredGlyphIndex = -1;
+                this.render();
+            }
+            return;
+        }
+
         if (this.outlineEditor.active && this.outlineEditor.cmdKeyPressed) {
             if (this.outlineEditor.hoveredGlyphIndex !== -1) {
                 this.outlineEditor.hoveredGlyphIndex = -1;
