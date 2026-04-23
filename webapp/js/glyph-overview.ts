@@ -121,6 +121,8 @@ class GlyphOverview {
     private gridModeButton: HTMLButtonElement | null = null;
     private visibleGlyphIds: string[] = [];
     private glyphOrderIds: string[] = [];
+    private glyphDataById: Map<string, { id: string; name: string }> =
+        new Map();
     private totalGlyphDatasetCount = 0;
     private gridRowsForNavigation: Array<Array<string | null>> = [];
     private gridColumnCount = 0;
@@ -673,6 +675,7 @@ class GlyphOverview {
             0,
             (totalRows - endRow - 1) * rowHeight
         );
+        let queuedVisibleTileCount = 0;
 
         const fragment = document.createDocumentFragment();
 
@@ -687,10 +690,21 @@ class GlyphOverview {
 
         for (let index = start; index < end; index += 1) {
             const glyphId = this.visibleGlyphIds[index];
-            const tile = this.tiles.get(glyphId);
+            let tile = this.tiles.get(glyphId);
+            if (!tile) {
+                const glyphData = this.glyphDataById.get(glyphId);
+                if (glyphData) {
+                    tile = this.createGlyphTile(glyphData.id, glyphData.name);
+                    this.tiles.set(glyphId, tile);
+                }
+            }
             if (!tile) continue;
             tile.element.style.display = '';
             fragment.appendChild(tile.element);
+            if (!tile.cachedData) {
+                this.pendingGlyphIds.add(glyphId);
+                queuedVisibleTileCount += 1;
+            }
             if (this.intersectionObserver) {
                 this.intersectionObserver.observe(tile.element);
             }
@@ -707,6 +721,10 @@ class GlyphOverview {
 
         this.container.innerHTML = '';
         this.container.appendChild(fragment);
+
+        if (queuedVisibleTileCount > 0) {
+            this.scheduleBatchRender();
+        }
     }
 
     private buildGridLayoutData(visibleIds: string[]): GridLayoutData {
@@ -951,6 +969,7 @@ class GlyphOverview {
 
         this.totalGlyphDatasetCount = glyphs.length;
         this.glyphOrderIds = glyphs.map((glyph) => glyph.id);
+        this.glyphDataById = new Map(glyphs.map((glyph) => [glyph.id, glyph]));
 
         if (this.updateGlyphsSpanId) {
             timelineSpanEnd(this.updateGlyphsSpanId);
@@ -1046,16 +1065,19 @@ class GlyphOverview {
             const fragment = shouldAttachChunk
                 ? document.createDocumentFragment()
                 : null;
-            const newTiles: GlyphTile[] = [];
+            const attachedTiles: GlyphTile[] = [];
 
             for (let index = startIndex; index < endIndex; index += 1) {
                 const glyph = glyphs[index];
-                const tile = this.createGlyphTile(glyph.id, glyph.name);
-                this.tiles.set(glyph.id, tile);
+                let tile = this.tiles.get(glyph.id);
+                if (!tile) {
+                    tile = this.createGlyphTile(glyph.id, glyph.name);
+                    this.tiles.set(glyph.id, tile);
+                }
                 if (fragment) {
                     fragment.appendChild(tile.element);
                 }
-                newTiles.push(tile);
+                attachedTiles.push(tile);
             }
 
             if (fragment) {
@@ -1063,7 +1085,7 @@ class GlyphOverview {
             }
 
             if (this.intersectionObserver && shouldAttachChunk) {
-                newTiles.forEach((tile) => {
+                attachedTiles.forEach((tile) => {
                     this.intersectionObserver!.observe(tile.element);
                 });
             }

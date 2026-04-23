@@ -1,5 +1,6 @@
 jest.mock('../js/glyph-tile-renderer-fast', () => ({
     fastGlyphTileRenderer: {
+        renderToCanvas: jest.fn(),
         updateThemeColors: jest.fn()
     }
 }));
@@ -91,5 +92,115 @@ describe('GlyphOverview glyphChanged refresh scheduling', () => {
             flattenComponents: false
         });
         expect(overview.renderTile).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('GlyphOverview virtualized lines rendering', () => {
+    let GlyphOverview;
+    let overview;
+    let parent;
+    let intersectionObserverCallback;
+    let observeSpy;
+
+    beforeEach(() => {
+        jest.useFakeTimers();
+        jest.resetModules();
+
+        global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+        global.cancelAnimationFrame = (id) => clearTimeout(id);
+
+        observeSpy = jest.fn();
+        global.IntersectionObserver = class IntersectionObserver {
+            constructor(callback) {
+                intersectionObserverCallback = callback;
+            }
+
+            observe(target) {
+                observeSpy(target);
+            }
+
+            disconnect() {}
+        };
+        window.IntersectionObserver = global.IntersectionObserver;
+
+        require('../js/glyph-overview');
+        GlyphOverview = window.GlyphOverview;
+
+        document.body.innerHTML = '';
+        parent = document.createElement('div');
+        document.body.appendChild(parent);
+
+        overview = new GlyphOverview(parent);
+        overview.getTileDimensions = jest.fn(() => ({
+            width: 120,
+            height: 140
+        }));
+        overview.getGridColumns = jest.fn(() => 1);
+
+        Object.defineProperty(overview.container, 'clientHeight', {
+            configurable: true,
+            value: 280
+        });
+        Object.defineProperty(overview.container, 'scrollTop', {
+            configurable: true,
+            writable: true,
+            value: 426
+        });
+
+        overview.visibleGlyphIds = ['glyph-0', 'glyph-1', 'glyph-2', 'glyph-3'];
+        overview.glyphDataById = new Map(
+            overview.visibleGlyphIds.map((glyphId, index) => [
+                glyphId,
+                { id: glyphId, name: `g${index}` }
+            ])
+        );
+
+        const firstElement = document.createElement('div');
+        firstElement.dataset.glyphId = 'glyph-0';
+        const firstCanvas = document.createElement('canvas');
+        firstElement.appendChild(firstCanvas);
+        overview.tiles = new Map([
+            [
+                'glyph-0',
+                {
+                    glyphId: 'glyph-0',
+                    glyphName: 'g0',
+                    selected: false,
+                    element: firstElement,
+                    canvas: firstCanvas,
+                    cachedData: undefined
+                }
+            ]
+        ]);
+
+        overview.setupLazyLoading();
+        jest.spyOn(overview, 'scheduleBatchRender').mockImplementation(
+            () => {}
+        );
+    });
+
+    afterEach(() => {
+        jest.runOnlyPendingTimers();
+        jest.useRealTimers();
+        jest.restoreAllMocks();
+        delete global.IntersectionObserver;
+        delete window.IntersectionObserver;
+        delete window.GlyphOverview;
+        intersectionObserverCallback = null;
+    });
+
+    test('creates and queues missing visible tiles when virtualization scrolls them into view', () => {
+        overview.renderVirtualizedLinesWindow(true);
+
+        expect(overview.tiles.size).toBe(4);
+        expect(Array.from(overview.pendingGlyphIds)).toEqual([
+            'glyph-0',
+            'glyph-1',
+            'glyph-2',
+            'glyph-3'
+        ]);
+        expect(overview.scheduleBatchRender).toHaveBeenCalledTimes(1);
+        expect(observeSpy).toHaveBeenCalledTimes(5);
+        expect(intersectionObserverCallback).toBeInstanceOf(Function);
     });
 });
