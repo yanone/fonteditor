@@ -989,7 +989,7 @@ class FontInfoManager {
             return this.aceLineWidgetsCtor;
         }
 
-        const moduleIds = ['ace/ext/line_widgets', 'ace/line_widgets'];
+        const moduleIds = ['ace/line_widgets', 'ace/ext/line_widgets'];
         for (const moduleId of moduleIds) {
             try {
                 const module = window.ace?.require?.(moduleId);
