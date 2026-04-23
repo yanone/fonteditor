@@ -1520,6 +1520,61 @@ describe('Automatic component editing canonical behavior', () => {
         }
     });
 
+    test('anchor drag still requests a live anchor-only recompile when no downstream composites are affected', async () => {
+        const dragFont = makeVisibleAnchorCascadeFont();
+        const currentFont = {
+            fontModel: dragFont,
+            syncJsonFromModel: jest.fn(),
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+
+        const refreshGlyphsAfterModelBatchSpy = jest
+            .spyOn(fontManager, 'refreshGlyphsAfterModelBatch')
+            .mockResolvedValue();
+        const refreshWorkerCacheForReplayTargetsSpy = jest
+            .spyOn(fontManager, 'refreshWorkerCacheForReplayTargets')
+            .mockResolvedValue(true);
+        const autoCompileManager = window.autoCompileManager;
+        window.autoCompileManager = {
+            ...(autoCompileManager || {}),
+            checkAndSchedule: jest.fn()
+        };
+
+        try {
+            setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
+
+            await canvas.outlineEditor.syncDependentGlyphsAfterAnchorEdit(
+                'A',
+                new Set(['A']),
+                { liveVisibleOnly: true }
+            );
+
+            expect(currentFont.syncJsonFromModel).not.toHaveBeenCalled();
+            expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
+                1
+            );
+            expect(
+                refreshWorkerCacheForReplayTargetsSpy.mock.calls[0][0]
+            ).toEqual([{ glyphName: 'A', layerId: 'A0' }]);
+            expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
+            expect(
+                currentFont.requestRecompileWithoutDataChange
+            ).toHaveBeenCalledTimes(1);
+            expect(
+                window.autoCompileManager.checkAndSchedule
+            ).toHaveBeenCalledTimes(1);
+        } finally {
+            window.autoCompileManager = autoCompileManager;
+            refreshGlyphsAfterModelBatchSpy.mockRestore();
+            refreshWorkerCacheForReplayTargetsSpy.mockRestore();
+        }
+    });
+
     test('rebuild helper includes dependent composites even when their placement does not change', () => {
         const dragFont = makeVisibleAnchorCascadeFont();
         const currentFont = {

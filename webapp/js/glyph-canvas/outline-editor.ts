@@ -4083,10 +4083,6 @@ export class OutlineEditor {
                 )
             )
         );
-        if (downstreamGlyphNames.length === 0) {
-            return;
-        }
-
         const currentFont = fontManager.currentFont;
         if (!currentFont) {
             return;
@@ -4103,24 +4099,28 @@ export class OutlineEditor {
                 : Promise.resolve(false);
 
         if (options?.liveVisibleOnly) {
-            // Refresh the actively edited glyph via replay targets first,
-            // then batch-refresh only downstream visible composites.
-            // The edited glyph already renders from the live model state.
-            refreshSourceGlyphPromise
-                .then(() =>
-                    fontManager.refreshGlyphsAfterModelBatch(
-                        downstreamGlyphNames,
-                        currentLayerId,
-                        {
-                            dispatchGlyphChanged: false,
-                            skipFingerprintBaseline: true
-                        }
-                    )
-                )
-                .then(() => {
-                    currentFont.requestRecompileWithoutDataChange();
-                    window.autoCompileManager?.checkAndSchedule?.();
-                });
+            // Refresh the actively edited glyph via replay targets first so
+            // anchor-only compiles can reshape live GPOS even when there are
+            // no downstream automatic composites in view.
+            await refreshSourceGlyphPromise;
+
+            if (downstreamGlyphNames.length > 0) {
+                await fontManager.refreshGlyphsAfterModelBatch(
+                    downstreamGlyphNames,
+                    currentLayerId,
+                    {
+                        dispatchGlyphChanged: false,
+                        skipFingerprintBaseline: true
+                    }
+                );
+            }
+
+            currentFont.requestRecompileWithoutDataChange();
+            window.autoCompileManager?.checkAndSchedule?.();
+            return;
+        }
+
+        if (downstreamGlyphNames.length === 0) {
             return;
         }
 
