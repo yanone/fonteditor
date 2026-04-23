@@ -372,7 +372,7 @@ function splitGlyphPath(path: string): string[] | null {
     return [...segments, ...layerMatch.remainder.split('.')];
 }
 
-function getPathSegments(path: string): string[] {
+export function getPathSegments(path: string): string[] {
     if (!path || path === 'font') {
         return [];
     }

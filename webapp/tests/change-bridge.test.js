@@ -3452,6 +3452,59 @@ describe('syncGlyphFromJson', () => {
         ).toBe(700);
     });
 
+    test('layer-scoped undo replays correctly for dotted glyph and layer names', () => {
+        const fontJson = makeMinimalFont();
+        fontJson.glyphs[0].name = 'behDotless-ar.medi';
+        fontJson.glyphs[0].layers[0].id = 'layer.regular.v1';
+
+        const bridge = new ChangeBridge('dotted-layer-undo');
+        bridge.initFromJson(fontJson);
+
+        const originalBottomX = fontJson.glyphs[0].layers[0].anchors[0].x;
+        fontJson.glyphs[0].layers[0].anchors[0].x = originalBottomX - 37;
+        bridge.syncGlyphFromJson(
+            'behDotless-ar.medi',
+            'Drag anchor',
+            `anchor 'top': (${originalBottomX}, 750)`,
+            `(${originalBottomX - 37}, 750)`,
+            'layer.regular.v1'
+        );
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'behDotless-ar.medi',
+                'layers',
+                'layer.regular.v1',
+                'anchors',
+                0,
+                'x'
+            ])
+        ).toBe(originalBottomX - 37);
+
+        expect(bridge.undo('behDotless-ar.medi', 'layer.regular.v1')).toEqual(
+            expect.objectContaining({
+                scope: 'layer',
+                glyphName: 'behDotless-ar.medi',
+                layerId: 'layer.regular.v1'
+            })
+        );
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'behDotless-ar.medi',
+                'layers',
+                'layer.regular.v1',
+                'anchors',
+                0,
+                'x'
+            ])
+        ).toBe(originalBottomX);
+
+        bridge.destroy();
+    });
+
     test('layer-scoped sync merges a partial outline layer fragment with the existing layer snapshot', () => {
         const { bridge, fontJson } = createTestBridge('test-partial-outline');
 

@@ -35,6 +35,7 @@ import {
     deriveGlyphNamesFromPaths,
     deriveLayerIdFromPath,
     deriveLayerIdsFromPaths,
+    getPathSegments,
     normalizeWorkerReplayTargets,
     normalizeChangeLogEntry,
     resolveHistoryTargetItem,
@@ -2677,14 +2678,9 @@ export class ChangeBridge {
     }
 
     private _parseEntryPath(path: string): (string | number)[] {
-        if (!path || path === 'font') {
-            return [];
-        }
-        return path
-            .split('.')
-            .map((segment) =>
-                /^\d+$/.test(segment) ? Number.parseInt(segment, 10) : segment
-            );
+        return getPathSegments(path).map((segment) =>
+            /^\d+$/.test(segment) ? Number.parseInt(segment, 10) : segment
+        );
     }
 
     private _applyHistoryItem(
