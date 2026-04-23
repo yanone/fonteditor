@@ -83,11 +83,16 @@ function unique(values) {
 }
 
 function riskyReferences(strings) {
-    return unique(
-        strings.filter((value) =>
-            riskyPathMatchers.some((matcher) => matcher.test(value)),
-        ),
-    );
+    const matches = [];
+    for (const value of strings) {
+        for (const matcher of riskyPathMatchers) {
+            const matchedPath = value.match(matcher)?.[0];
+            if (matchedPath) {
+                matches.push(matchedPath);
+            }
+        }
+    }
+    return unique(matches);
 }
 
 const strings = collectStrings(payload);
@@ -111,13 +116,26 @@ const isValidationCommand =
 
 const state = loadState();
 
-if (phase === "pre") {
+if (phase === "post") {
+    if (isEditTool && riskyRefs.length) {
+        const nextFiles = unique([...(state.files || []), ...riskyRefs]);
+        saveState({ pending: true, files: nextFiles });
+        process.stdout.write(
+            JSON.stringify({
+                continue: true,
+                systemMessage: `QA review is now required because this edit touched: ${riskyRefs.join(", ")}. Before ending this prompt, run the Compilation Change Bridge Undo QA agent to review the main agent's work.`,
+            }),
+        );
+        process.exit(0);
+    }
+
     if (state.pending && isQaAgentInvocation) {
+        clearState();
         process.stdout.write(
             JSON.stringify({
                 continue: true,
                 systemMessage:
-                    "Pending compilation/change-bridge QA requirement detected. Running the dedicated QA agent now.",
+                    "Compilation/change-bridge QA requirement cleared after dedicated QA agent review.",
             }),
         );
         process.exit(0);
@@ -128,52 +146,24 @@ if (phase === "pre") {
             JSON.stringify({
                 continue: true,
                 systemMessage:
-                    "Pending compilation/change-bridge QA requirement detected. Validation command accepted.",
+                    "Validation command recorded, but the dedicated Compilation Change Bridge Undo QA agent still must run before the prompt can end.",
             }),
         );
         process.exit(0);
     }
-
-    if (isEditTool && riskyRefs.length) {
-        process.stdout.write(
-            JSON.stringify({
-                hookSpecificOutput: {
-                    hookEventName: "PreToolUse",
-                    permissionDecision: "ask",
-                    permissionDecisionReason:
-                        "This edit touches compilation, change-bridge, Yjs, or undo code and requires QA validation after the edit.",
-                },
-                systemMessage: `QA-critical edit detected in: ${riskyRefs.join(", ")}. After editing, run the Compilation Change Bridge Undo QA agent or targeted validation commands before proceeding.`,
-            }),
-        );
-        process.exit(0);
-    }
-
-    process.exit(0);
 }
 
-if (phase === "post") {
-    if (isEditTool && riskyRefs.length) {
-        saveState({ pending: true, files: riskyRefs });
+if (phase === "stop") {
+    if (state.pending) {
         process.stdout.write(
             JSON.stringify({
-                continue: true,
-                systemMessage: `QA validation is now required because this edit touched: ${riskyRefs.join(", ")}. Next step: run the Compilation Change Bridge Undo QA agent or targeted validation commands before additional risky edits or task completion.`,
+                continue: false,
+                stopReason:
+                    "QA-critical edits were made without a final Compilation Change Bridge Undo QA agent review.",
+                systemMessage: `Before ending the prompt, run the Compilation Change Bridge Undo QA agent to review these files: ${(state.files || []).join(", ")}.`,
             }),
         );
-        process.exit(0);
-    }
-
-    if (state.pending && (isQaAgentInvocation || isValidationCommand)) {
-        clearState();
-        process.stdout.write(
-            JSON.stringify({
-                continue: true,
-                systemMessage:
-                    "Compilation/change-bridge QA requirement cleared after QA agent invocation or validation command.",
-            }),
-        );
-        process.exit(0);
+        process.exit(2);
     }
 }
 
