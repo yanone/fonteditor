@@ -1,6 +1,5 @@
 import './wasm-init'; // Initialize WASM module
 import './tab-lifecycle';
-import './mcp-transport';
 import './critical-error-handler';
 import './state-manager'; // Initialize state manager early
 import { Logger } from './logger';

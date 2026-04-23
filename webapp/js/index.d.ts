@@ -9,7 +9,6 @@ import MemoryMonitor from './memory-monitor';
 import ResizableViews from './resizer';
 import SaveButton from './save-button';
 import { Font } from './babelfont-model';
-import type MCPLogTransport from './mcp-transport';
 import type { StateManager, EditorState } from './state-manager';
 import type { ChangeBridge } from './change-bridge';
 import type { WindowSync } from './window-sync';
@@ -112,9 +111,6 @@ declare global {
         EDITOR_VERSION: string | null;
         BUILD_HASH_FULL: string | null;
         BUILD_HASH_SHORT: string | null;
-
-        // From mcp-transport.js
-        mcpTransport: MCPLogTransport;
 
         // From ai-assistant.js
         aiAssistant: AIAssistant;

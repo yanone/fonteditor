@@ -14,7 +14,7 @@ All rules in this document must be backed up by unit tests in either jest or pla
 
 The tests are locking down the described functionality. They are written first and functionality implemented backwards from there, if possible. In any case, the tests control the code and carry the autority over the correct execution of the document.
 
-The agent may use the app’s dev-time mcp server to inspect the live app, and it may even propose alterations to the mcp server to achieve goals better, but tighter and more realistic tests are preferrable.
+The agent may use the Chrome DevTools MCP server to inspect the live app during development, but tighter and more realistic tests are preferrable.
 
 The test files must be named (and renamed) according to their topic and tests regrouped as it makes sense.
 
