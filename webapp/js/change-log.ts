@@ -222,6 +222,13 @@ export interface HistoryStackItem {
 
 const FONT_SCOPE_KEY = '__font__';
 
+type PathResolutionFontModel = {
+    glyphs?: Array<{
+        name?: unknown;
+        layers?: Array<{ id?: unknown }>;
+    }>;
+};
+
 function getGlyphScopeKey(glyphName: string | null): string {
     return glyphName ?? FONT_SCOPE_KEY;
 }
@@ -233,11 +240,134 @@ function getLayerScopeKey(
     return getLayerTouchKey(glyphName, layerId);
 }
 
+function getPathResolutionFontModel(): PathResolutionFontModel | null {
+    const globalScope = globalThis as typeof globalThis & {
+        currentFontModel?: PathResolutionFontModel | null;
+        window?: {
+            currentFontModel?: PathResolutionFontModel | null;
+        };
+    };
+
+    return (
+        globalScope.currentFontModel ??
+        globalScope.window?.currentFontModel ??
+        null
+    );
+}
+
+function getKnownGlyphNames(
+    fontModel: PathResolutionFontModel | null
+): string[] {
+    const glyphNames = new Set<string>();
+
+    for (const glyph of fontModel?.glyphs || []) {
+        if (typeof glyph?.name === 'string' && glyph.name.length > 0) {
+            glyphNames.add(glyph.name);
+        }
+    }
+
+    return [...glyphNames].sort((left, right) => right.length - left.length);
+}
+
+function getKnownLayerIds(
+    fontModel: PathResolutionFontModel | null,
+    glyphName: string
+): string[] {
+    const glyph = fontModel?.glyphs?.find((entry) => entry?.name === glyphName);
+    const layerIds = new Set<string>();
+
+    for (const layer of glyph?.layers || []) {
+        if (typeof layer?.id === 'string' && layer.id.length > 0) {
+            layerIds.add(layer.id);
+        }
+    }
+
+    return [...layerIds].sort((left, right) => right.length - left.length);
+}
+
+function matchKnownKeyPrefix(
+    value: string,
+    keys: string[]
+): { key: string; remainder: string } | null {
+    for (const key of keys) {
+        if (value === key) {
+            return { key, remainder: '' };
+        }
+        if (value.startsWith(`${key}.`)) {
+            return {
+                key,
+                remainder: value.slice(key.length + 1)
+            };
+        }
+    }
+
+    return null;
+}
+
+function getFallbackGlyphMatch(value: string): {
+    key: string;
+    remainder: string;
+} {
+    const layersMarkerIndex = value.indexOf('.layers.');
+    if (layersMarkerIndex >= 0) {
+        return {
+            key: value.slice(0, layersMarkerIndex),
+            remainder: value.slice(layersMarkerIndex + 1)
+        };
+    }
+
+    const firstDotIndex = value.indexOf('.');
+    if (firstDotIndex < 0) {
+        return { key: value, remainder: '' };
+    }
+
+    return {
+        key: value.slice(0, firstDotIndex),
+        remainder: value.slice(firstDotIndex + 1)
+    };
+}
+
+function splitGlyphPath(path: string): string[] | null {
+    if (!path.startsWith('glyphs.')) {
+        return null;
+    }
+
+    const fontModel = getPathResolutionFontModel();
+    const glyphPath = path.slice('glyphs.'.length);
+    const glyphMatch =
+        matchKnownKeyPrefix(glyphPath, getKnownGlyphNames(fontModel)) ||
+        getFallbackGlyphMatch(glyphPath);
+
+    const segments = ['glyphs', glyphMatch.key];
+    if (!glyphMatch.remainder) {
+        return segments;
+    }
+
+    if (!glyphMatch.remainder.startsWith('layers.')) {
+        return [...segments, ...glyphMatch.remainder.split('.')];
+    }
+
+    const layerPath = glyphMatch.remainder.slice('layers.'.length);
+    const layerMatch =
+        matchKnownKeyPrefix(
+            layerPath,
+            getKnownLayerIds(fontModel, glyphMatch.key)
+        ) || getFallbackGlyphMatch(layerPath);
+
+    segments.push('layers', layerMatch.key);
+    if (!layerMatch.remainder) {
+        return segments;
+    }
+
+    return [...segments, ...layerMatch.remainder.split('.')];
+}
+
 function getPathSegments(path: string): string[] {
     if (!path || path === 'font') {
         return [];
     }
-    return path.split('.');
+
+    return splitGlyphPath(path) || path.split('.');
 }
 
 function derivePropertyFromPath(path: string): string {

@@ -26,7 +26,10 @@ const {
     createLogEntry,
     resetLogCounter,
     deriveGlyphName,
+    deriveGlyphNameFromPath,
+    deriveLayerIdFromPath,
     deriveObjectInfo,
+    deriveObjectInfoFromPath,
     normalizeChangeLogEntry,
     resolveHistoryTargetItemId
 } = require('../js/change-log');
@@ -1597,6 +1600,91 @@ describe('change-log', () => {
         });
         expect(layerItems).toHaveLength(1);
         expect(layerItems[0].undoScope).toBe('font');
+    });
+
+    test('path-derived history metadata resolves dotted glyph and layer names', () => {
+        resetLogCounter();
+        const previousFontModel = window.currentFontModel;
+        window.currentFontModel = {
+            glyphs: [
+                {
+                    name: 'behDotless-ar.medi',
+                    layers: [{ id: 'layer.regular.v1' }]
+                }
+            ]
+        };
+
+        try {
+            const path =
+                'glyphs.behDotless-ar.medi.layers.layer.regular.v1.anchors.0.y';
+            const entry = createLogEntry({
+                timestamp: 1,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId: 'history-item-1',
+                historyAction: 'change',
+                transactionLabel: 'Arrow key',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'layer',
+                path,
+                oldValue: -96,
+                newValue: -95
+            });
+
+            expect(deriveGlyphNameFromPath(path)).toBe('behDotless-ar.medi');
+            expect(deriveLayerIdFromPath(path)).toBe('layer.regular.v1');
+            expect(deriveObjectInfoFromPath(path)).toEqual({
+                objectType: 'anchor',
+                objectId: 'behDotless-ar.medi/layer.regular.v1/anchor0'
+            });
+            expect(entry.glyphName).toBe('behDotless-ar.medi');
+            expect(entry.layerId).toBe('layer.regular.v1');
+            expect(
+                buildHistoryStackItems([entry], {
+                    glyphName: 'behDotless-ar.medi',
+                    layerId: 'layer.regular.v1'
+                })
+            ).toHaveLength(1);
+        } finally {
+            window.currentFontModel = previousFontModel;
+        }
+    });
+
+    test('path-derived glyph metadata resolves dotted glyph names for glyph-scoped paths', () => {
+        resetLogCounter();
+        const previousFontModel = window.currentFontModel;
+        window.currentFontModel = {
+            glyphs: [{ name: 'a.ss04', layers: [{ id: 'master-regular' }] }]
+        };
+
+        try {
+            const path = 'glyphs.a.ss04.note';
+            const entry = createLogEntry({
+                timestamp: 1,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId: 'history-item-1',
+                historyAction: 'change',
+                transactionLabel: 'Rename note',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'glyph',
+                path,
+                oldValue: '',
+                newValue: 'changed'
+            });
+
+            expect(deriveGlyphNameFromPath(path)).toBe('a.ss04');
+            expect(entry.glyphName).toBe('a.ss04');
+            expect(
+                buildHistoryStackItems([entry], {
+                    glyphName: 'a.ss04'
+                })
+            ).toHaveLength(1);
+        } finally {
+            window.currentFontModel = previousFontModel;
+        }
     });
 });
 
