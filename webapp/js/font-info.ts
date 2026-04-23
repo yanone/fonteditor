@@ -18,6 +18,7 @@ import './mode-fea';
 const console = new Logger('FontInfo');
 
 const FONTINFO_TAB_STORAGE_KEY = 'fontinfo-selected-tab';
+const FEATURE_CODE_COMPILE_DEBOUNCE_MS = 5000;
 
 type FontInfoTab = 'names' | 'features';
 type FeatureItemType = 'prefix' | 'class' | 'feature';
@@ -107,6 +108,7 @@ class FontInfoManager {
     private featureErrorTarget: SidebarFeatureErrorTarget | null = null;
     private featureErrorIssue: FeatureErrorSpanIssue | null = null;
     private pendingModelSyncRefresh = false;
+    private featureCodeCommitDebounceTimer: number | null = null;
 
     init() {
         const viewContent = document.querySelector(
@@ -1763,6 +1765,7 @@ class FontInfoManager {
         this.fontDataLoaded = false;
         this.pendingModelSyncRefresh = false;
         this.featureCodeDirty = false;
+        this.clearFeatureCodeCommitDebounce();
         // Clear editor state
         this.selectedItem = null;
         this.prefixListItems.clear();
@@ -2731,6 +2734,7 @@ class FontInfoManager {
 
     private clearEditor() {
         this.selectedItem = null;
+        this.clearFeatureCodeCommitDebounce();
         this.clearFeatureErrorMarker();
         this.featureErrorTarget = null;
         this.notifyHistoryScopeChange();
@@ -2754,11 +2758,35 @@ class FontInfoManager {
         }
     }
 
+    /**
+     * Clear any pending delayed feature-code commit.
+     */
+    private clearFeatureCodeCommitDebounce() {
+        if (this.featureCodeCommitDebounceTimer === null) {
+            return;
+        }
+
+        clearTimeout(this.featureCodeCommitDebounceTimer);
+        this.featureCodeCommitDebounceTimer = null;
+    }
+
+    /**
+     * Schedule a feature-code commit after typing settles.
+     */
+    private scheduleFeatureCodeCommitDebounce() {
+        this.clearFeatureCodeCommitDebounce();
+        this.featureCodeCommitDebounceTimer = window.setTimeout(() => {
+            this.featureCodeCommitDebounceTimer = null;
+            this.commitFeatureCodeChanges();
+        }, FEATURE_CODE_COMPILE_DEBOUNCE_MS);
+    }
+
     private onFeatureCodeChanged() {
         if (this.suppressFeatureEditorChange) {
             return;
         }
         this.featureCodeDirty = true;
+        this.scheduleFeatureCodeCommitDebounce();
         this.clearFeatureErrorMarker();
         this.featureErrorTarget = null;
         this.featureErrorIssue = null;
@@ -2766,6 +2794,8 @@ class FontInfoManager {
     }
 
     private commitFeatureCodeChanges() {
+        this.clearFeatureCodeCommitDebounce();
+
         if (!this.featuresEditor || !this.selectedItem) {
             this.featureCodeDirty = false;
             return;
