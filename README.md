@@ -48,7 +48,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ .glyphs input/outut
 - ✅ .glyphspackage input
 - ✅ .sfb input
-- ◻️ .vfj input
+- ✅ .vfj input
 - ◻️ .vfb input
 - ✅ Python scripts I/O
 - ✅ Glyph overview
@@ -78,7 +78,6 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Edit sidebearings
 - ◻️ Edit guidelines
 - ✅ Draw new outlines
-- ✅ Layer management UI
 - ◻️ Python script inference UI
 - ✅ Undo/redo system
 - ◻️ Clipboard operations
@@ -86,7 +85,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ◻️ Edit Font Info
 - ◻️ Master/instance management
 - ◻️ Path operations (boolean)
-- ◻️ Kerning
+- ◻️ Kerning UI
 - ✅ Automatic glyph metric updates
 - ✅ Automatic glyph composition
 - ◻️ Font export
