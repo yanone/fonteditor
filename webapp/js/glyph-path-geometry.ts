@@ -160,13 +160,23 @@ function collectCubicExtrema(
     );
 }
 
+function getGlyphNodeType(node: Babelfont.Node | undefined): string {
+    return (node?.nodetype || (node as Unsafe | undefined)?.type || '')
+        .toString()
+        .toLowerCase();
+}
+
 function isOnCurve(node: Babelfont.Node | undefined): boolean {
-    const type = node?.nodetype;
+    const type = getGlyphNodeType(node);
     return (
-        type === 'Move' ||
-        type === 'Line' ||
-        type === 'Curve' ||
-        type === 'QCurve'
+        type === 'm' ||
+        type === 'move' ||
+        type === 'l' ||
+        type === 'line' ||
+        type === 'c' ||
+        type === 'curve' ||
+        type === 'q' ||
+        type === 'qcurve'
     );
 }
 
@@ -647,7 +657,11 @@ export function calculateGlyphPathBounds(pathData: {
             continue;
         }
 
-        if (controls.length >= 2 && next.node.nodetype === 'Curve') {
+        const nextNodeType = getGlyphNodeType(next.node);
+        if (
+            controls.length >= 2 &&
+            (nextNodeType === 'c' || nextNodeType === 'curve')
+        ) {
             const p0 = current.node;
             const p1 = controls[0];
             const p2 = controls[1];
@@ -738,8 +752,10 @@ export function calculateGlyphPathBounds(pathData: {
         }
     }
 
-    for (const node of nodes) {
-        includePoint(node.x, node.y);
+    if (!Number.isFinite(minX)) {
+        for (const { node } of onCurveIndices) {
+            includePoint(node.x, node.y);
+        }
     }
 
     return boundsFromMinMax(minX, minY, maxX, maxY);
