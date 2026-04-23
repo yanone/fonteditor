@@ -2,34 +2,63 @@ import type { Babelfont } from './babelfont';
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
+export const IDENTITY_AFFINE = [1, 0, 0, 1, 0, 0] as const;
+
 const REST_OF_THE_WORLD_TRANSFORM_ORDER =
     'RestOfTheWorld' as Babelfont.TransformOrder;
 const GLYPHS_TRANSFORM_ORDER = 'Glyphs' as Babelfont.TransformOrder;
 
 function composeTransforms(...transforms: number[][]): number[] {
     return transforms.reduce(
-        (acc, transform) => {
-            const [a1, b1, c1, d1, tx1, ty1] = acc;
-            const [a2, b2, c2, d2, tx2, ty2] = transform;
-            return [
-                a1 * a2 + c1 * b2,
-                b1 * a2 + d1 * b2,
-                a1 * c2 + c1 * d2,
-                b1 * c2 + d1 * d2,
-                a1 * tx2 + c1 * ty2 + tx1,
-                b1 * tx2 + d1 * ty2 + ty1
-            ];
-        },
-        [1, 0, 0, 1, 0, 0]
+        (acc, transform) => multiplyAffineTransforms(acc, transform),
+        createIdentityAffine()
     );
 }
 
 function transformNode(node: Unsafe, transform: number[]): Unsafe {
-    const [a, b, c, d, tx, ty] = transform;
+    const transformed = transformPointWithAffine(transform, node.x, node.y);
     return {
         ...node,
-        x: a * node.x + c * node.y + tx,
-        y: b * node.x + d * node.y + ty
+        x: transformed.x,
+        y: transformed.y
+    };
+}
+
+export function createIdentityAffine(): [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number
+] {
+    return [...IDENTITY_AFFINE];
+}
+
+export function multiplyAffineTransforms(
+    left: number[],
+    right: number[]
+): [number, number, number, number, number, number] {
+    const [a1, b1, c1, d1, tx1, ty1] = left;
+    const [a2, b2, c2, d2, tx2, ty2] = right;
+    return [
+        a1 * a2 + c1 * b2,
+        b1 * a2 + d1 * b2,
+        a1 * c2 + c1 * d2,
+        b1 * c2 + d1 * d2,
+        a1 * tx2 + c1 * ty2 + tx1,
+        b1 * tx2 + d1 * ty2 + ty1
+    ];
+}
+
+export function transformPointWithAffine(
+    transform: number[],
+    x: number,
+    y: number
+): { x: number; y: number } {
+    return {
+        x: transform[0] * x + transform[2] * y + transform[4],
+        y: transform[1] * x + transform[3] * y + transform[5]
     };
 }
 
@@ -189,6 +218,84 @@ export function decomposedAffineToAffine(
         scaleMatrix,
         skewMatrix
     ) as [number, number, number, number, number, number];
+}
+
+export function normalizeAffineTransform(
+    transformRaw: unknown
+): [number, number, number, number, number, number] {
+    if (!transformRaw) {
+        return createIdentityAffine();
+    }
+
+    if (Array.isArray(transformRaw) && transformRaw.length >= 6) {
+        return [
+            Number(transformRaw[0]) || 1,
+            Number(transformRaw[1]) || 0,
+            Number(transformRaw[2]) || 0,
+            Number(transformRaw[3]) || 1,
+            Number(transformRaw[4]) || 0,
+            Number(transformRaw[5]) || 0
+        ];
+    }
+
+    if (
+        typeof transformRaw === 'object' &&
+        ('translation' in transformRaw ||
+            'scale' in transformRaw ||
+            'rotation' in transformRaw ||
+            'skew' in transformRaw)
+    ) {
+        return decomposedAffineToAffine(
+            transformRaw as Babelfont.DecomposedAffine
+        );
+    }
+
+    if (
+        typeof transformRaw === 'object' &&
+        ['a', 'b', 'c', 'd', 'e', 'f'].every((key) => key in transformRaw)
+    ) {
+        const affine = transformRaw as Record<string, unknown>;
+        return [
+            Number(affine.a) || 1,
+            Number(affine.b) || 0,
+            Number(affine.c) || 0,
+            Number(affine.d) || 1,
+            Number(affine.e) || 0,
+            Number(affine.f) || 0
+        ];
+    }
+
+    if (
+        typeof transformRaw === 'object' &&
+        ['xx', 'yx', 'xy', 'yy', 'x0', 'y0'].every((key) => key in transformRaw)
+    ) {
+        const affine = transformRaw as Record<string, unknown>;
+        return [
+            Number(affine.xx) || 1,
+            Number(affine.yx) || 0,
+            Number(affine.xy) || 0,
+            Number(affine.yy) || 1,
+            Number(affine.x0) || 0,
+            Number(affine.y0) || 0
+        ];
+    }
+
+    const coeffs =
+        typeof transformRaw === 'object'
+            ? (transformRaw as Record<string, unknown>).coeffs
+            : undefined;
+    if (Array.isArray(coeffs) && coeffs.length >= 6) {
+        return [
+            Number(coeffs[0]) || 1,
+            Number(coeffs[1]) || 0,
+            Number(coeffs[2]) || 0,
+            Number(coeffs[3]) || 1,
+            Number(coeffs[4]) || 0,
+            Number(coeffs[5]) || 0
+        ];
+    }
+
+    return createIdentityAffine();
 }
 
 export function affineToDecomposedAffine(
@@ -640,7 +747,7 @@ export function calculateGlyphPathBounds(pathData: {
 
 export function calculateGlyphShapeBounds(
     shapes: Unsafe[] | undefined,
-    parentTransform: number[] = [1, 0, 0, 1, 0, 0]
+    parentTransform: number[] = IDENTITY_AFFINE as unknown as number[]
 ): {
     minX: number;
     minY: number;
@@ -722,12 +829,9 @@ export function calculateGlyphShapeBounds(
         }
 
         const componentTransform = Array.isArray(componentData.transform)
-            ? componentData.transform
-            : Array.from(
-                  decomposedAffineToAffine(
-                      componentData.transform ||
-                          createIdentityDecomposedAffine()
-                  )
+            ? normalizeAffineTransform(componentData.transform)
+            : normalizeAffineTransform(
+                  componentData.transform || createIdentityDecomposedAffine()
               );
         includeBounds(
             calculateGlyphShapeBounds(

@@ -1,12 +1,16 @@
 import { Logger } from '../logger';
 import type { Babelfont } from '../babelfont';
 import type { GlyphCanvas } from '../glyph-canvas';
+import {
+    createIdentityAffine,
+    multiplyAffineTransforms,
+    normalizeAffineTransform
+} from '../glyph-path-geometry';
 import { LayerDataNormalizer } from '../layer-data-normalizer';
-import { DecomposedAffineTransform } from '../babelfont-model';
 
 const console: Logger = new Logger('StackPreviewAnimator');
 
-const IDENTITY_TRANSFORM = [1, 0, 0, 1, 0, 0];
+const IDENTITY_TRANSFORM = createIdentityAffine();
 
 /**
  * Layer tree node representing a single component instance at a nesting level
@@ -300,11 +304,8 @@ export class StackPreviewAnimator {
 
             const compTransform =
                 (shape as any).transform || IDENTITY_TRANSFORM;
-            // Convert to array format if needed
-            const transformArray = Array.isArray(compTransform)
-                ? compTransform
-                : DecomposedAffineTransform.toAffine(compTransform);
-            const newTransform = this.multiplyMatrices(
+            const transformArray = normalizeAffineTransform(compTransform);
+            const newTransform = multiplyAffineTransforms(
                 accumulatedTransform,
                 transformArray
             );
@@ -328,18 +329,6 @@ export class StackPreviewAnimator {
                 );
             }
         }
-    }
-
-    /** Multiply two 2D affine transformation matrices [a, b, c, d, tx, ty] */
-    private multiplyMatrices(m1: number[], m2: number[]): number[] {
-        return [
-            m1[0] * m2[0] + m1[2] * m2[1],
-            m1[1] * m2[0] + m1[3] * m2[1],
-            m1[0] * m2[2] + m1[2] * m2[3],
-            m1[1] * m2[2] + m1[3] * m2[3],
-            m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
-            m1[1] * m2[4] + m1[3] * m2[5] + m1[5]
-        ];
     }
 
     /** Transform point using affine matrix */
@@ -512,11 +501,8 @@ export class StackPreviewAnimator {
             if ('reference' in shape) {
                 const compTransform =
                     (shape as any).transform || IDENTITY_TRANSFORM;
-                // Convert to array format if needed
-                const transformArray = Array.isArray(compTransform)
-                    ? compTransform
-                    : DecomposedAffineTransform.toAffine(compTransform);
-                const combinedTransform = this.multiplyMatrices(
+                const transformArray = normalizeAffineTransform(compTransform);
+                const combinedTransform = multiplyAffineTransforms(
                     transform,
                     transformArray
                 );

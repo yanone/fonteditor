@@ -21,6 +21,7 @@ import APP_SETTINGS from '../settings';
 import { userspaceToDesignspace, designspaceToUserspace } from '../locations';
 import type { DesignspaceLocation, UserspaceLocation } from '../locations';
 import { SavedVariationState } from '../saved-variation-state';
+import { normalizeAffineTransform } from '../glyph-path-geometry';
 import {
     applyLiveSidebearingVisualSync,
     formatSidebearingHistoryValue,
@@ -5116,13 +5117,9 @@ export class OutlineEditor {
             }
 
             const transformRaw = shape.transform;
-            const transform = !transformRaw
-                ? ([1, 0, 0, 1, 0, 0] as Transform)
-                : Array.isArray(transformRaw)
-                  ? (transformRaw as Transform)
-                  : (DecomposedAffineTransform.toAffine(
-                        transformRaw
-                    ) as Transform);
+            const transform = normalizeAffineTransform(
+                transformRaw
+            ) as Transform;
             const bounds = Layer.calculateShapeBounds(
                 shape.layerData.shapes,
                 transform

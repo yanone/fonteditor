@@ -5,7 +5,8 @@
 import {
     buildGlyphPathFromNodes,
     calculateGlyphShapeBounds,
-    decomposedAffineToAffine,
+    multiplyAffineTransforms,
+    normalizeAffineTransform,
     parseGlyphNodes
 } from './glyph-path-geometry';
 import { Logger } from './logger';
@@ -79,77 +80,7 @@ class FastGlyphTileRenderer {
     }
 
     private parseTransform(transformRaw: any): number[] {
-        if (!transformRaw) {
-            return [1, 0, 0, 1, 0, 0];
-        }
-
-        if (Array.isArray(transformRaw) && transformRaw.length >= 6) {
-            return [
-                Number(transformRaw[0]) || 1,
-                Number(transformRaw[1]) || 0,
-                Number(transformRaw[2]) || 0,
-                Number(transformRaw[3]) || 1,
-                Number(transformRaw[4]) || 0,
-                Number(transformRaw[5]) || 0
-            ];
-        }
-
-        if (
-            typeof transformRaw === 'object' &&
-            ('translation' in transformRaw ||
-                'scale' in transformRaw ||
-                'rotation' in transformRaw ||
-                'skew' in transformRaw)
-        ) {
-            return decomposedAffineToAffine(transformRaw);
-        }
-
-        if (
-            typeof transformRaw === 'object' &&
-            ['a', 'b', 'c', 'd', 'e', 'f'].every((key) => key in transformRaw)
-        ) {
-            return [
-                Number(transformRaw.a) || 1,
-                Number(transformRaw.b) || 0,
-                Number(transformRaw.c) || 0,
-                Number(transformRaw.d) || 1,
-                Number(transformRaw.e) || 0,
-                Number(transformRaw.f) || 0
-            ];
-        }
-
-        if (
-            typeof transformRaw === 'object' &&
-            ['xx', 'yx', 'xy', 'yy', 'x0', 'y0'].every(
-                (key) => key in transformRaw
-            )
-        ) {
-            return [
-                Number(transformRaw.xx) || 1,
-                Number(transformRaw.yx) || 0,
-                Number(transformRaw.xy) || 0,
-                Number(transformRaw.yy) || 1,
-                Number(transformRaw.x0) || 0,
-                Number(transformRaw.y0) || 0
-            ];
-        }
-
-        if (
-            typeof transformRaw === 'object' &&
-            Array.isArray(transformRaw.coeffs) &&
-            transformRaw.coeffs.length >= 6
-        ) {
-            return [
-                Number(transformRaw.coeffs[0]) || 1,
-                Number(transformRaw.coeffs[1]) || 0,
-                Number(transformRaw.coeffs[2]) || 0,
-                Number(transformRaw.coeffs[3]) || 1,
-                Number(transformRaw.coeffs[4]) || 0,
-                Number(transformRaw.coeffs[5]) || 0
-            ];
-        }
-
-        return [1, 0, 0, 1, 0, 0];
+        return normalizeAffineTransform(transformRaw);
     }
 
     /**
@@ -448,16 +379,7 @@ class FastGlyphTileRenderer {
      * Multiply two transformation matrices
      */
     private multiplyTransforms(t1: number[], t2: number[]): number[] {
-        const [a1, b1, c1, d1, tx1, ty1] = t1;
-        const [a2, b2, c2, d2, tx2, ty2] = t2;
-        return [
-            a1 * a2 + c1 * b2,
-            b1 * a2 + d1 * b2,
-            a1 * c2 + c1 * d2,
-            b1 * c2 + d1 * d2,
-            a1 * tx2 + c1 * ty2 + tx1,
-            b1 * tx2 + d1 * ty2 + ty1
-        ];
+        return multiplyAffineTransforms(t1, t2);
     }
 }
 

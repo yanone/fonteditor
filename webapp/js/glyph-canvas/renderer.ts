@@ -3,6 +3,10 @@ import APP_SETTINGS from '../settings';
 import { Layer, DecomposedAffineTransform } from '../babelfont-model';
 import { Logger } from '../logger';
 import { get_glyph_name } from '../../wasm-dist/babelfont_fontc_web';
+import {
+    normalizeAffineTransform,
+    transformPointWithAffine as applyAffineToPoint
+} from '../glyph-path-geometry';
 
 const console = new Logger('Renderer');
 
@@ -419,10 +423,7 @@ export class GlyphCanvasRenderer {
         y: number,
         transform: number[]
     ): { x: number; y: number } {
-        return {
-            x: transform[0] * x + transform[2] * y + transform[4],
-            y: transform[1] * x + transform[3] * y + transform[5]
-        };
+        return applyAffineToPoint(transform, x, y);
     }
 
     private getLayerLocalBounds(
@@ -465,9 +466,7 @@ export class GlyphCanvasRenderer {
                 const transformRaw =
                     (shape as any).transform ||
                     DecomposedAffineTransform.identity();
-                const transform = Array.isArray(transformRaw)
-                    ? transformRaw
-                    : DecomposedAffineTransform.toAffine(transformRaw);
+                const transform = normalizeAffineTransform(transformRaw);
 
                 this.ctx.save();
                 this.ctx.transform(
@@ -1861,11 +1860,7 @@ export class GlyphCanvasRenderer {
                     'reference' in shape && shape.transform
                         ? shape.transform
                         : undefined;
-                const transform = !transformRaw
-                    ? [1, 0, 0, 1, 0, 0]
-                    : Array.isArray(transformRaw)
-                      ? transformRaw
-                      : DecomposedAffineTransform.toAffine(transformRaw);
+                const transform = normalizeAffineTransform(transformRaw);
                 const [a, b, c, d, tx, ty] = transform;
 
                 this.ctx.save();
