@@ -927,6 +927,25 @@ describe('Automatic Glyph Composition canonical behavior', () => {
         expect(grave.toAffineArray()[4]).toBeCloseTo(320, 5);
     });
 
+    test('live automatic placement keeps attached components anchored after scaling raw layer data', () => {
+        const font = makeAutomaticCompositionFont();
+        const layer = font.findGlyph('adieresis').layers[0];
+
+        layer.rebuildAutomaticComposition();
+        const liveLayerData = layer.toJSON();
+        liveLayerData.shapes[0].transform.scale = [2, 2];
+
+        const changed =
+            layer.applyAutomaticCompositionToLayerData(liveLayerData);
+        const [baseShape, acuteShape, graveShape] = liveLayerData.shapes;
+
+        expect(changed).toBe(true);
+        expect(getSerializedTranslationX(baseShape)).toBeCloseTo(0, 5);
+        expect(getSerializedTranslationX(acuteShape)).toBeCloseTo(500, 5);
+        expect(getSerializedTranslationX(graveShape)).toBeCloseTo(500, 5);
+        expect(liveLayerData.width).toBeCloseTo(1000, 5);
+    });
+
     test('moving a source anchor rebuilds downstream automatic composites', () => {
         const font = makeAutomaticCompositionFont();
         const baseLayer = font.findGlyph('A').layers[0];

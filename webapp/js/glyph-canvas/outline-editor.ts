@@ -10077,6 +10077,7 @@ export class OutlineEditor {
     private handleSelectionResizeDrag(e: MouseEvent): void {
         const snapshot = this.selectionResizeSnapshot;
         const currentLayerData = this.getCurrentLayerDataFromStack();
+        const currentLayerModel = this.getCurrentLayerModel();
         if (!snapshot || !currentLayerData) {
             return;
         }
@@ -10456,6 +10457,12 @@ export class OutlineEditor {
             (shape as any).transform = componentSnapshot.usesArrayTransform
                 ? [...transformed]
                 : affineToDecomposed(transformed);
+        }
+
+        if (snapshot.components.length > 0) {
+            currentLayerModel?.applyAutomaticCompositionToLayerData?.(
+                currentLayerData
+            );
         }
 
         const movementEpsilon = 0.000001;

@@ -6354,6 +6354,247 @@ export class Layer extends ArrayElementBase {
         return changed;
     }
 
+    /**
+     * Apply automatic component anchoring and derived width to mutable layer
+     * data without mutating the model layer itself.
+     *
+     * This is used by live editor interactions, such as resize-box scaling,
+     * where component transforms are already edited on a working copy and only
+     * the automatic translations and width need to be refreshed.
+     */
+    applyAutomaticCompositionToLayerData(layerData: {
+        shapes?: Unsafe[];
+        width?: number;
+    }): boolean {
+        if (
+            !this.isAutomaticAlignedLayer() ||
+            !Array.isArray(layerData.shapes)
+        ) {
+            return false;
+        }
+
+        const componentShapes = layerData.shapes.filter(
+            (shape) =>
+                shape &&
+                typeof shape === 'object' &&
+                ('reference' in shape || 'Component' in shape)
+        );
+        if (
+            componentShapes.length === 0 ||
+            componentShapes.length !== layerData.shapes.length
+        ) {
+            return false;
+        }
+
+        const availableAnchors = new Map<
+            string,
+            AutomaticCompositionAnchorPoint
+        >();
+        let baseAdvanceCursor = 0;
+        let baseAdvanceMinX: number | null = null;
+        let baseAdvanceMaxX: number | null = null;
+        let baseAdvanceWidth = 0;
+        let changed = false;
+
+        for (const shape of componentShapes) {
+            const componentData = (
+                'Component' in shape ? shape.Component : shape
+            ) as Unsafe;
+            const reference =
+                typeof componentData.reference === 'string'
+                    ? componentData.reference
+                    : null;
+            if (!reference) {
+                continue;
+            }
+
+            const componentLayer =
+                this.getMatchingLayerOnGlyph(reference) ??
+                this.getInterpolatedLayerOnGlyph(reference) ??
+                this.getFont()?.findGlyph(reference)?.layers?.[0];
+            if (!componentLayer) {
+                continue;
+            }
+
+            const transformRaw = componentData.transform;
+            const usesArrayTransform = Array.isArray(transformRaw);
+            const originalTransform = !transformRaw
+                ? ([1, 0, 0, 1, 0, 0] as number[])
+                : usesArrayTransform
+                  ? ([...transformRaw] as number[])
+                  : Array.from(
+                        DecomposedAffineTransform.toAffine(transformRaw)
+                    );
+            const baseTransform = [...originalTransform];
+            baseTransform[4] = 0;
+            baseTransform[5] = 0;
+
+            const overrideAnchorName =
+                typeof componentData.format_specific?.[
+                    GLYPHS_COMPONENT_ANCHOR_KEY
+                ] === 'string'
+                    ? (componentData.format_specific[
+                          GLYPHS_COMPONENT_ANCHOR_KEY
+                      ] as string)
+                    : undefined;
+
+            let attachment: AutomaticCompositionAttachment | null = null;
+            const chainedBaseEntryAnchor = (componentLayer.anchors || []).find(
+                (anchor) => isChainedBaseEntryAnchor(anchor.name)
+            );
+            if (chainedBaseEntryAnchor) {
+                const chainedBaseTargetAnchor = availableAnchors.get(
+                    CHAINED_BASE_EXIT_ANCHOR
+                );
+                if (chainedBaseTargetAnchor) {
+                    attachment = {
+                        sourceAnchor: chainedBaseEntryAnchor,
+                        targetAnchorName: CHAINED_BASE_EXIT_ANCHOR,
+                        targetAnchor: chainedBaseTargetAnchor,
+                        kind: 'chained-base'
+                    };
+                }
+            }
+
+            if (!attachment) {
+                const incomingAnchors = (componentLayer.anchors || []).filter(
+                    (anchor) => isAutomaticAttachmentAnchor(anchor.name)
+                );
+                for (const incomingAnchor of incomingAnchors) {
+                    if (!incomingAnchor.name) {
+                        continue;
+                    }
+
+                    const choices = this.getAutomaticComponentAnchorChoices(
+                        incomingAnchor.name,
+                        availableAnchors,
+                        overrideAnchorName
+                    );
+                    if (choices.length === 0) {
+                        continue;
+                    }
+
+                    const preferredTargetName =
+                        overrideAnchorName &&
+                        choices.includes(overrideAnchorName)
+                            ? overrideAnchorName
+                            : choices[0];
+                    const targetAnchor =
+                        availableAnchors.get(preferredTargetName);
+                    if (!targetAnchor) {
+                        continue;
+                    }
+
+                    attachment = {
+                        sourceAnchor: incomingAnchor,
+                        targetAnchorName: preferredTargetName,
+                        targetAnchor,
+                        kind: 'mark'
+                    };
+                    break;
+                }
+            }
+
+            let translationX =
+                baseAdvanceCursor === 0
+                    ? originalTransform[4]
+                    : baseAdvanceCursor;
+            let translationY = originalTransform[5];
+            const contributesBaseMetrics =
+                !attachment || attachment.kind === 'chained-base';
+
+            if (attachment) {
+                const sourcePosition = transformPointWithAffine(
+                    baseTransform,
+                    attachment.sourceAnchor.x,
+                    attachment.sourceAnchor.y
+                );
+                translationX = attachment.targetAnchor.x - sourcePosition.x;
+                translationY = attachment.targetAnchor.y - sourcePosition.y;
+            }
+
+            const nextTranslationX = roundMetricValue(translationX);
+            const nextTranslationY = roundMetricValue(translationY);
+            if (
+                Math.abs(originalTransform[4] - nextTranslationX) >
+                    METRIC_UPDATE_EPSILON ||
+                Math.abs(originalTransform[5] - nextTranslationY) >
+                    METRIC_UPDATE_EPSILON
+            ) {
+                changed = true;
+            }
+
+            const appliedTransform = [...baseTransform];
+            appliedTransform[4] = nextTranslationX;
+            appliedTransform[5] = nextTranslationY;
+            componentData.transform = usesArrayTransform
+                ? appliedTransform
+                : DecomposedAffineTransform.fromAffine(appliedTransform);
+
+            if (contributesBaseMetrics) {
+                const componentShapesData = componentLayer.toJSON().shapes;
+                if (componentShapesData) {
+                    const componentBounds = Layer.calculateShapeBounds(
+                        componentShapesData,
+                        appliedTransform
+                    );
+                    if (componentBounds) {
+                        const advanceStart = transformPointWithAffine(
+                            appliedTransform,
+                            0,
+                            0
+                        );
+                        const advanceEnd = transformPointWithAffine(
+                            appliedTransform,
+                            componentLayer.width,
+                            0
+                        );
+                        const advanceMin = Math.min(
+                            advanceStart.x,
+                            advanceEnd.x
+                        );
+                        const advanceMax = Math.max(
+                            advanceStart.x,
+                            advanceEnd.x
+                        );
+
+                        baseAdvanceMinX =
+                            baseAdvanceMinX === null
+                                ? advanceMin
+                                : Math.min(baseAdvanceMinX, advanceMin);
+                        baseAdvanceMaxX =
+                            baseAdvanceMaxX === null
+                                ? advanceMax
+                                : Math.max(baseAdvanceMaxX, advanceMax);
+                        baseAdvanceCursor = roundMetricValue(
+                            Math.max(baseAdvanceCursor, advanceMax)
+                        );
+                        baseAdvanceWidth = roundMetricValue(
+                            (baseAdvanceMaxX ?? 0) - (baseAdvanceMinX ?? 0)
+                        );
+                    }
+                }
+            }
+
+            for (const anchorPoint of this.collectAutomaticComponentAnchors(
+                componentLayer,
+                appliedTransform
+            )) {
+                availableAnchors.set(anchorPoint.name, anchorPoint);
+            }
+        }
+
+        if (
+            layerData.width === undefined ||
+            Math.abs(layerData.width - baseAdvanceWidth) > METRIC_UPDATE_EPSILON
+        ) {
+            layerData.width = roundMetricValue(baseAdvanceWidth);
+            changed = true;
+        }
+
+        return changed;
+    }
+
     private getPrimaryAutoAlignedComponentLayer(): Layer | undefined {
         const firstComponentShape = (this.shapes || []).find((shape) =>
             shape.isComponent()
