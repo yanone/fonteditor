@@ -158,26 +158,9 @@ async function getSelectionState(page: any) {
     });
 }
 
-async function getGlyphScreenPoint(page: any, glyphIndex: number) {
-    return await page.evaluate((index) => {
-        const glyphCanvas = window.glyphCanvas;
-        const shapedGlyph = glyphCanvas.textRunEditor.shapedGlyphs[index];
-        const glyphPosition =
-            glyphCanvas.textRunEditor._getGlyphPosition(index);
-        const fontX =
-            glyphPosition.xPosition +
-            glyphPosition.xOffset +
-            shapedGlyph.ax / 2;
-        const fontY = glyphPosition.yOffset;
-        const screenPoint = glyphCanvas.viewportManager.fontToScreenCoordinates(
-            fontX,
-            fontY
-        );
-        const rect = glyphCanvas.canvas.getBoundingClientRect();
-        return {
-            x: rect.left + screenPoint.x,
-            y: rect.top + screenPoint.y
-        };
+async function doubleClickGlyph(page: any, glyphIndex: number) {
+    await page.evaluate((index) => {
+        window.glyphCanvas.doubleClickOnGlyph(index);
     }, glyphIndex);
 }
 
@@ -215,16 +198,14 @@ test.describe('Glyph selection restore in browser', () => {
         await openYanoneFont(page);
         const initialSelection = await prepareSelection(page);
 
-        const secondGlyphPoint = await getGlyphScreenPoint(page, 1);
-        await page.mouse.dblclick(secondGlyphPoint.x, secondGlyphPoint.y);
+        await doubleClickGlyph(page, 1);
         await page.waitForTimeout(400);
         const switchedState = await getSelectionState(page);
 
         expect(switchedState.selectedGlyphIndex).toBe(1);
         expect(switchedState.selectedPoints).toEqual([]);
 
-        const firstGlyphPoint = await getGlyphScreenPoint(page, 0);
-        await page.mouse.dblclick(firstGlyphPoint.x, firstGlyphPoint.y);
+        await doubleClickGlyph(page, 0);
         await page.waitForTimeout(400);
         const restoredState = await getSelectionState(page);
 
