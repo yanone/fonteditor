@@ -2,8 +2,12 @@
 // Renders glyph outlines directly to canvas elements without data URL conversion
 // Uses a shared offscreen canvas for path building, then draws to target canvases
 
-import { LayerDataNormalizer } from './layer-data-normalizer';
-import { DecomposedAffineTransform, Layer } from './babelfont-model';
+import {
+    buildGlyphPathFromNodes,
+    calculateGlyphShapeBounds,
+    decomposedAffineToAffine,
+    parseGlyphNodes
+} from './glyph-path-geometry';
 import { Logger } from './logger';
 import APP_SETTINGS from './settings';
 
@@ -97,7 +101,7 @@ class FastGlyphTileRenderer {
                 'rotation' in transformRaw ||
                 'skew' in transformRaw)
         ) {
-            return DecomposedAffineTransform.toAffine(transformRaw);
+            return decomposedAffineToAffine(transformRaw);
         }
 
         if (
@@ -219,7 +223,7 @@ class FastGlyphTileRenderer {
         yMin: number;
         yMax: number;
     } | null {
-        const bounds = Layer.calculateShapeBounds(shapes, parentTransform);
+        const bounds = calculateGlyphShapeBounds(shapes, parentTransform);
         if (!bounds) {
             return null;
         }
@@ -395,10 +399,10 @@ class FastGlyphTileRenderer {
             if (normalized?.kind === 'path') {
                 let nodes = normalized.data.nodes;
                 if (typeof nodes === 'string') {
-                    nodes = LayerDataNormalizer.parseNodes(nodes);
+                    nodes = parseGlyphNodes(nodes);
                 }
                 if (nodes && nodes.length > 0) {
-                    LayerDataNormalizer.buildPathFromNodes(nodes, ctx);
+                    buildGlyphPathFromNodes(nodes, ctx);
                     ctx.closePath();
                 }
             } else if (normalized?.kind === 'component') {
@@ -430,10 +434,10 @@ class FastGlyphTileRenderer {
             if (normalized?.kind === 'path') {
                 let nodes = normalized.data.nodes;
                 if (typeof nodes === 'string') {
-                    nodes = LayerDataNormalizer.parseNodes(nodes);
+                    nodes = parseGlyphNodes(nodes);
                 }
                 if (nodes && nodes.length > 0) {
-                    LayerDataNormalizer.buildPathFromNodes(nodes, ctx);
+                    buildGlyphPathFromNodes(nodes, ctx);
                     ctx.closePath();
                 }
             }

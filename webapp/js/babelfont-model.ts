@@ -13,6 +13,16 @@
 
 import type { Babelfont } from './babelfont';
 import { setYPath } from './change-bridge-ydoc';
+import {
+    affineToDecomposedAffine,
+    calculateGlyphPathBounds,
+    calculateGlyphShapeBounds,
+    createIdentityDecomposedAffine,
+    decomposedAffineToAffine,
+    mapGlyphNodeType,
+    parseGlyphNodes,
+    serializeGlyphNodes
+} from './glyph-path-geometry';
 import { LayerDataNormalizer } from './layer-data-normalizer';
 import { designspaceToUserspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
@@ -186,7 +196,7 @@ function getAutomaticAdvanceDeltaX(transform: number[], width: number): number {
 function getAutomaticComponentTransform(
     component: Component
 ): Babelfont.DecomposedAffine {
-    return component.transform || DecomposedAffineTransform.identity();
+    return component.transform || createIdentityDecomposedAffine();
 }
 
 function isAutomaticAlignedComponent(component: Component): boolean {
@@ -2583,61 +2593,7 @@ export class DecomposedAffineTransform {
     static toAffine(
         decomposed: Babelfont.DecomposedAffine
     ): [number, number, number, number, number, number] {
-        const translation = decomposed.translation || [0, 0];
-        const scale = decomposed.scale || [1, 1];
-        const rotation = decomposed.rotation || 0;
-        const skew = decomposed.skew || [0, 0];
-        const order = decomposed.order || 'RestOfTheWorld';
-
-        // Helper to compose transformations
-        const composeTransforms = (...transforms: number[][]): number[] => {
-            return transforms.reduce(
-                (acc, t) => {
-                    const [a1, b1, c1, d1, e1, f1] = acc;
-                    const [a2, b2, c2, d2, e2, f2] = t;
-                    return [
-                        a1 * a2 + c1 * b2,
-                        b1 * a2 + d1 * b2,
-                        a1 * c2 + c1 * d2,
-                        b1 * c2 + d1 * d2,
-                        a1 * e2 + c1 * f2 + e1,
-                        b1 * e2 + d1 * f2 + f1
-                    ];
-                },
-                [1, 0, 0, 1, 0, 0]
-            );
-        };
-
-        // Individual transform matrices
-        const translateMatrix = [1, 0, 0, 1, translation[0], translation[1]];
-        const rotateMatrix = [
-            Math.cos(rotation),
-            Math.sin(rotation),
-            -Math.sin(rotation),
-            Math.cos(rotation),
-            0,
-            0
-        ];
-        const scaleMatrix = [scale[0], 0, 0, scale[1], 0, 0];
-        const skewMatrix = [1, Math.tan(skew[1]), Math.tan(skew[0]), 1, 0, 0];
-
-        if (order === 'Glyphs') {
-            // Glyphs order: translate → skew → rotate → scale
-            return composeTransforms(
-                translateMatrix,
-                skewMatrix,
-                rotateMatrix,
-                scaleMatrix
-            ) as [number, number, number, number, number, number];
-        } else {
-            // RestOfTheWorld order: translate → rotate → scale → skew
-            return composeTransforms(
-                translateMatrix,
-                rotateMatrix,
-                scaleMatrix,
-                skewMatrix
-            ) as [number, number, number, number, number, number];
-        }
+        return decomposedAffineToAffine(decomposed);
     }
 
     /**
@@ -2646,13 +2602,7 @@ export class DecomposedAffineTransform {
     static identity(
         order?: Babelfont.TransformOrder
     ): Babelfont.DecomposedAffine {
-        return {
-            translation: [0, 0],
-            scale: [1, 1],
-            rotation: 0,
-            skew: [0, 0],
-            order: order || ('RestOfTheWorld' as Babelfont.TransformOrder)
-        };
+        return createIdentityDecomposedAffine(order);
     }
 
     /**
@@ -2663,49 +2613,7 @@ export class DecomposedAffineTransform {
         affine: number[],
         order?: Babelfont.TransformOrder
     ): Babelfont.DecomposedAffine {
-        const [rawA, rawB, rawC, rawD, rawTx, rawTy] = [
-            Number(affine[0]) || 0,
-            Number(affine[1]) || 0,
-            Number(affine[2]) || 0,
-            Number(affine[3]) || 0,
-            Number(affine[4]) || 0,
-            Number(affine[5]) || 0
-        ];
-
-        let a = rawA;
-        let b = rawB;
-        const c = rawC;
-        const d = rawD;
-        const sxSign = a === 0 ? 1 : Math.sign(a);
-
-        if (sxSign < 0) {
-            a *= sxSign;
-            b *= sxSign;
-        }
-
-        const delta = a * d - b * c;
-        let rotation = 0;
-        let scale: [number, number] = [0, 0];
-        let skew: [number, number] = [0, 0];
-
-        if (a !== 0 || b !== 0) {
-            const r = Math.hypot(a, b);
-            rotation = delta >= 0 ? Math.atan2(-b, a) : Math.atan2(b, a);
-            scale = [r * sxSign, delta / r];
-            skew = [Math.atan((a * c + b * d) / (r * r)) * sxSign, 0];
-        } else if (c !== 0 || d !== 0) {
-            const s = Math.hypot(c, d);
-            rotation = delta >= 0 ? Math.atan2(c, d) : Math.atan2(-c, d);
-            scale = [delta / s, s];
-        }
-
-        return {
-            translation: [rawTx, rawTy],
-            scale,
-            rotation,
-            skew,
-            order: order || ('RestOfTheWorld' as Babelfont.TransformOrder)
-        };
+        return affineToDecomposedAffine(affine, order);
     }
 }
 
@@ -3984,112 +3892,21 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
      * Types: m, l, o, c, q (with optional 's' suffix for smooth)
      */
     static parseNodesString(nodesStr: string): Babelfont.Node[] {
-        const trimmed = nodesStr.trim();
-        if (!trimmed) return [];
-
-        const tokens = trimmed.split(/\s+/);
-        const nodesArray: Babelfont.Node[] = [];
-
-        for (let i = 0; i + 2 < tokens.length; i += 3) {
-            const typeStr = tokens[i + 2];
-            const smooth = typeStr.endsWith('s');
-            const nodetype = Path.mapNodeType(
-                smooth ? typeStr.slice(0, -1) : typeStr
-            );
-
-            const node: Babelfont.Node = {
-                x: parseFloat(tokens[i]),
-                y: parseFloat(tokens[i + 1]),
-                nodetype: nodetype
-            };
-
-            if (smooth) {
-                node.smooth = true;
-            }
-
-            nodesArray.push(node);
-        }
-
-        return nodesArray;
+        return parseGlyphNodes(nodesStr);
     }
 
     /**
      * Map short node type to Babelfont.NodeType
      */
     static mapNodeType(shortType: string): Babelfont.NodeType {
-        const map = {
-            m: 'Move' as const,
-            l: 'Line' as const,
-            o: 'OffCurve' as const,
-            c: 'Curve' as const,
-            q: 'QCurve' as const
-        };
-        return (map[shortType as keyof typeof map] ||
-            'Line') as Babelfont.NodeType;
+        return mapGlyphNodeType(shortType);
     }
 
     /**
      * Convert nodes array back to compact string format for serialization
      */
     static nodesToString(nodes: Babelfont.Node[]): string {
-        const tokens: string[] = [];
-
-        for (const node of nodes) {
-            // Ensure we have valid numbers
-            const x =
-                typeof node.x === 'number'
-                    ? node.x
-                    : parseFloat(String(node.x));
-            const y =
-                typeof node.y === 'number'
-                    ? node.y
-                    : parseFloat(String(node.y));
-
-            if (isNaN(x) || isNaN(y)) {
-                console.error('[Path]', 'Invalid node coordinates:', node);
-                continue;
-            }
-
-            tokens.push(x.toString());
-            tokens.push(y.toString());
-
-            // Get node type - check both 'nodetype' (object model) and 'type' (normalizer)
-            const nodeType = (node as Unsafe).nodetype || (node as Unsafe).type;
-
-            // Map nodetype back to short form
-            const typeMap: Record<string, string> = {
-                Move: 'm',
-                Line: 'l',
-                OffCurve: 'o',
-                Curve: 'c',
-                QCurve: 'q',
-                // Also handle short forms directly (from normalizer)
-                m: 'm',
-                l: 'l',
-                o: 'o',
-                c: 'c',
-                q: 'q',
-                ms: 'm',
-                ls: 'l',
-                os: 'o',
-                cs: 'c',
-                qs: 'q'
-            };
-
-            let typeStr = typeMap[nodeType] || 'l';
-
-            // Handle smooth flag - check if it's in the type string or separate property
-            const isSmooth =
-                node.smooth ||
-                (typeof nodeType === 'string' && nodeType.endsWith('s'));
-            if (isSmooth) {
-                typeStr += 's';
-            }
-
-            tokens.push(typeStr);
-        }
-
-        return tokens.join(' ');
+        return serializeGlyphNodes(nodes);
     }
 
     get closed(): boolean {
@@ -8003,49 +7820,7 @@ export class Layer extends ArrayElementBase {
         width: number;
         height: number;
     } | null {
-        if (!pathData?.nodes) {
-            return null;
-        }
-
-        const nodes =
-            typeof pathData.nodes === 'string'
-                ? LayerDataNormalizer.parseNodes(pathData.nodes)
-                : pathData.nodes;
-
-        if (!Array.isArray(nodes) || nodes.length === 0) {
-            return null;
-        }
-
-        const normalizedNodes = nodes.filter(
-            (node) =>
-                node && typeof node.x === 'number' && typeof node.y === 'number'
-        );
-        if (!normalizedNodes.length) {
-            return null;
-        }
-
-        const segmentBounds = Layer.boundsFromSegments(
-            Layer.processPathSegments({
-                nodes: normalizedNodes,
-                closed: pathData.closed
-            })
-        );
-        if (segmentBounds) {
-            return segmentBounds;
-        }
-
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-        for (const node of normalizedNodes) {
-            minX = Math.min(minX, node.x);
-            minY = Math.min(minY, node.y);
-            maxX = Math.max(maxX, node.x);
-            maxY = Math.max(maxY, node.y);
-        }
-
-        return Layer.boundsFromMinMax(minX, minY, maxX, maxY);
+        return calculateGlyphPathBounds(pathData);
     }
 
     static calculateShapeBounds(
@@ -8059,118 +7834,7 @@ export class Layer extends ArrayElementBase {
         width: number;
         height: number;
     } | null {
-        if (!Array.isArray(shapes) || shapes.length === 0) {
-            return null;
-        }
-
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-
-        const includeBounds = (
-            bounds:
-                | {
-                      minX: number;
-                      minY: number;
-                      maxX: number;
-                      maxY: number;
-                  }
-                | null
-                | undefined
-        ) => {
-            if (!bounds) {
-                return;
-            }
-            minX = Math.min(minX, bounds.minX);
-            minY = Math.min(minY, bounds.minY);
-            maxX = Math.max(maxX, bounds.maxX);
-            maxY = Math.max(maxY, bounds.maxY);
-        };
-
-        const composeTransforms = (t1: number[], t2: number[]): number[] => {
-            const [a1, b1, c1, d1, tx1, ty1] = t1;
-            const [a2, b2, c2, d2, tx2, ty2] = t2;
-            return [
-                a1 * a2 + c1 * b2,
-                b1 * a2 + d1 * b2,
-                a1 * c2 + c1 * d2,
-                b1 * c2 + d1 * d2,
-                a1 * tx2 + c1 * ty2 + tx1,
-                b1 * tx2 + d1 * ty2 + ty1
-            ];
-        };
-
-        const transformNode = (node: Unsafe, transform: number[]): Unsafe => {
-            const [a, b, c, d, tx, ty] = transform;
-            return {
-                ...node,
-                x: a * node.x + c * node.y + tx,
-                y: b * node.x + d * node.y + ty
-            };
-        };
-
-        for (const shape of shapes) {
-            if (!shape || typeof shape !== 'object') {
-                continue;
-            }
-
-            const pathData =
-                'nodes' in shape
-                    ? shape
-                    : 'Path' in shape && shape.Path
-                      ? shape.Path
-                      : 'Contour' in shape && shape.Contour
-                        ? shape.Contour
-                        : null;
-
-            if (pathData?.nodes) {
-                const nodes =
-                    typeof pathData.nodes === 'string'
-                        ? LayerDataNormalizer.parseNodes(pathData.nodes)
-                        : pathData.nodes;
-                if (Array.isArray(nodes) && nodes.length > 0) {
-                    const transformedNodes = nodes.map((node: Unsafe) =>
-                        transformNode(node, parentTransform)
-                    );
-                    includeBounds(
-                        Layer.calculatePathBounds({
-                            nodes: transformedNodes,
-                            closed: pathData.closed
-                        })
-                    );
-                }
-                continue;
-            }
-
-            const componentData =
-                'reference' in shape
-                    ? shape
-                    : 'Component' in shape && shape.Component
-                      ? shape.Component
-                      : null;
-
-            if (!componentData?.layerData?.shapes) {
-                continue;
-            }
-
-            const componentTransform = Array.isArray(componentData.transform)
-                ? componentData.transform
-                : Array.from(
-                      DecomposedAffineTransform.toAffine(
-                          componentData.transform ||
-                              DecomposedAffineTransform.identity()
-                      )
-                  );
-            includeBounds(
-                Layer.calculateShapeBounds(
-                    componentData.layerData.shapes,
-                    composeTransforms(parentTransform, componentTransform)
-                )
-            );
-        }
-
-        return Layer.boundsFromMinMax(minX, minY, maxX, maxY);
+        return calculateGlyphShapeBounds(shapes, parentTransform);
     }
 
     static calculateSvgPathBounds(pathData: string): {
