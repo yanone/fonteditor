@@ -107,6 +107,10 @@ export interface ChangeLogEntry {
     oldValue: unknown;
     /** Value after the change (undefined for "remove" ops) */
     newValue: unknown;
+    /** Optional replay payload before the change, when labels differ from replay data */
+    replayOldValue?: unknown;
+    /** Optional replay payload after the change, when labels differ from replay data */
+    replayNewValue?: unknown;
     /** Optional features-editor target type for scoped history */
     historyTargetType: HistoryTargetType | null;
     /** Optional stable-enough features-editor target key */
@@ -152,6 +156,8 @@ export function createLogEntry(
         historyTargetLabel?: string | null;
         visualAnchorSide?: 'left' | 'right' | null;
         workerReplayTargets?: WorkerReplayTarget[];
+        replayOldValue?: unknown;
+        replayNewValue?: unknown;
     }
 ): ChangeLogEntry {
     const nextId = _nextId++;
@@ -172,6 +178,8 @@ export function createLogEntry(
         path: fields.path,
         oldValue: fields.oldValue,
         newValue: fields.newValue,
+        replayOldValue: fields.replayOldValue,
+        replayNewValue: fields.replayNewValue,
         historyTargetType: fields.historyTargetType ?? null,
         historyTargetKey: fields.historyTargetKey ?? null,
         historyTargetLabel: fields.historyTargetLabel ?? null,
@@ -204,6 +212,8 @@ export type ChangeLogEntryLike = Omit<
     historyTargetLabel?: string | null;
     visualAnchorSide?: 'left' | 'right' | null;
     workerReplayTargets?: WorkerReplayTarget[] | null;
+    replayOldValue?: unknown;
+    replayNewValue?: unknown;
 };
 
 export interface HistoryStackItem {
@@ -977,6 +987,8 @@ export function normalizeChangeLogEntry(
         path: entry.path,
         oldValue: entry.oldValue,
         newValue: entry.newValue,
+        replayOldValue: entry.replayOldValue,
+        replayNewValue: entry.replayNewValue,
         historyItemId: normalizeHistoryItemId(entry.historyItemId, entry.id),
         historyAction: normalizeHistoryAction(entry.historyAction),
         undoScope: entry.undoScope ?? deriveUndoScope(glyphName, layerId),

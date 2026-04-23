@@ -389,22 +389,35 @@ function syncImmediateUndoOutlineLayerFromModel(
     layerId: string | null
 ): void {
     const gc = window.glyphCanvas;
+    const outlineEditor = gc?.outlineEditor as unknown as {
+        parseGlyphStack?: () => Array<{ glyphName: string }>;
+        replaceCurrentLayerDataInStack?: (layerData: unknown) => boolean;
+        cancelPendingLayerSwitchAnimation?: () => void;
+        performHitDetection?: (event: MouseEvent | null) => void;
+    } | null;
     const fontModel = window.fontManager?.currentFont?.fontModel;
     const editedGlyphName = getActiveEditedGlyphName() ?? glyphName;
     if (!gc || !fontModel || !editedGlyphName || !layerId) {
         return;
     }
 
-    gc.outlineEditor?.cancelPendingLayerSwitchAnimation?.();
+    outlineEditor?.cancelPendingLayerSwitchAnimation?.();
 
     const layer = fontModel.findGlyph(editedGlyphName)?.findLayerById(layerId);
     if (!layer) {
         return;
     }
 
-    gc.syncCurrentOutlineLayerDataFromModel?.(layer);
+    const parsedGlyphStack = outlineEditor?.parseGlyphStack?.() ?? [];
+    const isNestedEditing = parsedGlyphStack.length > 1;
+
+    if (isNestedEditing) {
+        outlineEditor?.replaceCurrentLayerDataInStack?.(layer.toJSON());
+    } else {
+        gc.syncCurrentOutlineLayerDataFromModel?.(layer);
+    }
     gc.updatePropertyPanel?.();
-    gc.outlineEditor.performHitDetection?.(null);
+    outlineEditor?.performHitDetection?.(null);
     gc.render?.();
 }
 

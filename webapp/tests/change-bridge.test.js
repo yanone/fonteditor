@@ -4942,6 +4942,90 @@ describe('syncGlyphFromJson', () => {
         bridge.destroy();
     });
 
+    test('layer snapshot history stays undoable after newer layer and font-scope undos exhaust the layer undo stack', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('layer-replay-fallback');
+        bridge.initFromJson(fontJson);
+
+        const originalFirstPointX =
+            fontJson.glyphs[0].layers[0].shapes[0].nodes[0].x;
+        const originalSecondPointX =
+            fontJson.glyphs[0].layers[0].shapes[0].nodes[1].x;
+        const originalAnchorX = fontJson.glyphs[0].layers[0].anchors[0].x;
+        const originalWidthB = fontJson.glyphs[1].layers[0].width;
+
+        fontJson.glyphs[0].layers[0].shapes[0].nodes[0].x =
+            originalFirstPointX + 40;
+        bridge.syncGlyphFromJson(
+            'A',
+            'Drag point 1',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+
+        fontJson.glyphs[0].layers[0].shapes[0].nodes[1].x =
+            originalSecondPointX - 30;
+        bridge.syncGlyphFromJson(
+            'A',
+            'Drag point 2',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+
+        fontJson.glyphs[0].layers[0].anchors[0].x = originalAnchorX + 25;
+        fontJson.glyphs[1].layers[0].width = originalWidthB + 60;
+        bridge.syncLayersFromJson(
+            [
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'B', layerId: 'layer-2' }
+            ],
+            'Drag anchor',
+            undefined,
+            undefined,
+            undefined,
+            [
+                { glyphName: 'A', layerId: 'layer-1' },
+                { glyphName: 'B', layerId: 'layer-2' }
+            ]
+        );
+
+        fontJson.glyphs[0].layers[0].shapes[0].nodes[0].x =
+            originalFirstPointX + 90;
+        bridge.syncGlyphFromJson(
+            'A',
+            'Drag point 3',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+
+        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
+        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
+        expect(fontJson.glyphs[0].layers[0].anchors[0].x).toBe(originalAnchorX);
+        expect(fontJson.glyphs[1].layers[0].width).toBe(originalWidthB);
+
+        expect(bridge.undo('A', 'layer-1')).not.toBeNull();
+        expect(fontJson.glyphs[0].layers[0].shapes[0].nodes[1].x).toBe(
+            originalSecondPointX
+        );
+
+        expect(bridge.canUndo('A', 'layer-1')).toBe(true);
+
+        const replayUndoResult = bridge.undo('A', 'layer-1');
+
+        expect(replayUndoResult).not.toBeNull();
+        expect(replayUndoResult?.historyItem?.transactionLabel).toBe(
+            'Drag point 1'
+        );
+        expect(fontJson.glyphs[0].layers[0].shapes[0].nodes[0].x).toBe(
+            originalFirstPointX
+        );
+
+        bridge.destroy();
+    });
+
     test('linked window emits layerFingerprintChanged when receiving a remote undo that changes a layer fingerprint', () => {
         const font1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('primary');

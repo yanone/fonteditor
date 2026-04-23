@@ -60,6 +60,7 @@ type BatchApplyMode = 'default' | 'glyph-snapshot' | 'layer-snapshot';
 
 type BufferedChangeOperation = SyntheticChangeOperation & {
     applyPath?: (string | number)[];
+    applyOldValue?: unknown;
     applyNewValue?: unknown;
     applyMode?: BatchApplyMode;
 };
@@ -1001,6 +1002,12 @@ export class ChangeBridge {
                           )
                       )
                     : undefined;
+                const previousLayerSnapshot = layerId
+                    ? previousGlyphLayers.find(
+                          (layer: Record<string, unknown>) =>
+                              layer.id === layerId
+                      )
+                    : undefined;
                 const isLayerScope = undoScope === 'layer' && layerId;
 
                 return {
@@ -1021,6 +1028,9 @@ export class ChangeBridge {
                     applyPath: isLayerScope
                         ? ['glyphs', target.glyphName, 'layers', layerId]
                         : ['glyphs', target.glyphName],
+                    applyOldValue: isLayerScope
+                        ? previousLayerSnapshot
+                        : target.previousGlyphJson,
                     applyNewValue: isLayerScope ? layerSnapshot : glyphSnapshot,
                     applyMode: isLayerScope
                         ? 'layer-snapshot'
@@ -1108,6 +1118,7 @@ export class ChangeBridge {
                     visualAnchorSide,
                     workerReplayTargets,
                     applyPath: ['glyphs', glyphName, 'layers', layerId],
+                    applyOldValue: yLayerJson,
                     applyNewValue: layerSnapshot,
                     applyMode: 'layer-snapshot'
                 }
@@ -1145,8 +1156,17 @@ export class ChangeBridge {
             targetItem
         );
         const { manager: um, scope } = this._getUndoManagerForTarget(target);
-        if (scope !== 'font' && (!um || um.undoStack.length === 0)) {
-            return null;
+        const shouldReplayHistoryItem = !!(
+            targetItem && this._canReplayHistoryItemDirectly(targetItem, 'undo')
+        );
+        if (
+            scope !== 'font' &&
+            !shouldReplayHistoryItem &&
+            (!um || um.undoStack.length === 0)
+        ) {
+            if (!targetItem) {
+                return null;
+            }
         }
         if (scope === 'font' && !targetItem) {
             return null;
@@ -1184,7 +1204,7 @@ export class ChangeBridge {
             });
             this._appendChangeLogEntry(entry);
 
-            if (scope === 'font' && targetItem) {
+            if (targetItem && (scope === 'font' || shouldReplayHistoryItem)) {
                 this._applyHistoryItem(targetItem, 'undo');
             } else {
                 um?.undo();
@@ -1231,8 +1251,17 @@ export class ChangeBridge {
             targetItem
         );
         const { manager: um, scope } = this._getUndoManagerForTarget(target);
-        if (scope !== 'font' && (!um || um.redoStack.length === 0)) {
-            return null;
+        const shouldReplayHistoryItem = !!(
+            targetItem && this._canReplayHistoryItemDirectly(targetItem, 'redo')
+        );
+        if (
+            scope !== 'font' &&
+            !shouldReplayHistoryItem &&
+            (!um || um.redoStack.length === 0)
+        ) {
+            if (!targetItem) {
+                return null;
+            }
         }
         if (scope === 'font' && !targetItem) {
             return null;
@@ -1269,7 +1298,7 @@ export class ChangeBridge {
             });
             this._appendChangeLogEntry(entry);
 
-            if (scope === 'font' && targetItem) {
+            if (targetItem && (scope === 'font' || shouldReplayHistoryItem)) {
                 this._applyHistoryItem(targetItem, 'redo');
             } else {
                 um?.redo();
@@ -1317,6 +1346,12 @@ export class ChangeBridge {
         if (scope === 'font') {
             return !!targetItem;
         }
+        if (
+            targetItem &&
+            this._canReplayHistoryItemDirectly(targetItem, 'undo')
+        ) {
+            return true;
+        }
         return um ? um.undoStack.length > 0 : false;
     }
 
@@ -1341,6 +1376,12 @@ export class ChangeBridge {
         const { manager: um, scope } = this._getUndoManagerForTarget(target);
         if (scope === 'font') {
             return !!targetItem;
+        }
+        if (
+            targetItem &&
+            this._canReplayHistoryItemDirectly(targetItem, 'redo')
+        ) {
+            return true;
         }
         return um ? um.redoStack.length > 0 : false;
     }
@@ -1818,6 +1859,10 @@ export class ChangeBridge {
                     ...op,
                     oldValue: cloneHistoryValue(op.oldValue),
                     newValue: cloneHistoryValue(op.newValue),
+                    applyOldValue:
+                        op.applyOldValue === undefined
+                            ? undefined
+                            : cloneHistoryValue(op.applyOldValue),
                     applyNewValue:
                         op.applyNewValue === undefined
                             ? undefined
@@ -1845,6 +1890,7 @@ export class ChangeBridge {
             applyPath: operation.applyPath
                 ? [...operation.applyPath]
                 : undefined,
+            applyOldValue: operation.applyOldValue,
             applyNewValue: operation.applyNewValue,
             applyMode: operation.applyMode ?? 'default'
         };
@@ -1906,6 +1952,22 @@ export class ChangeBridge {
                 path: operation.path.join('.'),
                 oldValue: operation.oldValue,
                 newValue: operation.newValue,
+                replayOldValue:
+                    operation.op !== 'set'
+                        ? undefined
+                        : cloneHistoryValue(
+                              operation.applyOldValue === undefined
+                                  ? operation.oldValue
+                                  : operation.applyOldValue
+                          ),
+                replayNewValue:
+                    operation.op !== 'set'
+                        ? undefined
+                        : cloneHistoryValue(
+                              operation.applyNewValue === undefined
+                                  ? operation.newValue
+                                  : operation.applyNewValue
+                          ),
                 visualAnchorSide: operation.visualAnchorSide ?? null,
                 workerReplayTargets,
                 historyTargetType: operationHistoryTarget?.type ?? null,
@@ -2635,8 +2697,10 @@ export class ChangeBridge {
         this.yDoc.transact(() => {
             for (const entry of entries) {
                 const path = this._toYDocPath(this._parseEntryPath(entry.path));
-                const replayValue =
-                    direction === 'undo' ? entry.oldValue : entry.newValue;
+                const replayValue = this._getHistoryReplayValue(
+                    entry,
+                    direction
+                );
                 if (this._isGlyphRootPath(path) && replayValue) {
                     this._applyGlyphSnapshot(String(path[1]), replayValue);
                     continue;
@@ -2670,6 +2734,57 @@ export class ChangeBridge {
                 setYPath(this.fontMap, path, entry.newValue);
             }
         }, HISTORY_REPLAY_ORIGIN);
+    }
+
+    private _getHistoryReplayValue(
+        entry: ChangeLogEntry,
+        direction: 'undo' | 'redo'
+    ): unknown {
+        if (direction === 'undo') {
+            return entry.replayOldValue ?? entry.oldValue;
+        }
+        return entry.replayNewValue ?? entry.newValue;
+    }
+
+    private _canReplayHistoryItemDirectly(
+        item: HistoryStackItem,
+        direction: 'undo' | 'redo'
+    ): boolean {
+        if (!item.entries.length) {
+            return false;
+        }
+
+        return item.entries.every((entry) => {
+            if (entry.op !== 'set') {
+                return false;
+            }
+
+            const path = this._toYDocPath(this._parseEntryPath(entry.path));
+            const replayValue =
+                direction === 'undo'
+                    ? entry.replayOldValue
+                    : entry.replayNewValue;
+
+            if (replayValue === undefined) {
+                return false;
+            }
+
+            if (this._isGlyphRootPath(path)) {
+                return !!replayValue && typeof replayValue === 'object';
+            }
+
+            if (
+                path.length === 4 &&
+                path[0] === 'glyphs' &&
+                path[2] === 'layers' &&
+                typeof path[1] === 'string' &&
+                typeof path[3] === 'string'
+            ) {
+                return !!replayValue && typeof replayValue === 'object';
+            }
+
+            return true;
+        });
     }
 
     private _isGlyphRootPath(path: (string | number)[]): boolean {

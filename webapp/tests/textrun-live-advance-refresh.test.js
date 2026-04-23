@@ -686,6 +686,133 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         ]);
     });
 
+    test('undo nested point drag refreshes the active stack layer instead of root layerData', async () => {
+        const refreshGlyphAdvancesLive = jest.fn();
+        const replaceCurrentLayerDataInStack = jest.fn(() => true);
+        const syncCurrentOutlineLayerDataFromModel = jest.fn();
+        const performHitDetection = jest.fn();
+        const render = jest.fn();
+        const updatedLayerJson = {
+            id: 'layer-1',
+            width: 520,
+            shapes: []
+        };
+        const updatedLayer = {
+            id: 'layer-1',
+            width: 520,
+            toJSON: jest.fn(() => updatedLayerJson)
+        };
+        const fontModelBeforeUndo = {
+            recomputeMetricsKeys: jest.fn(() => new Set(['nested'])),
+            findGlyph: jest.fn((glyphName) => {
+                if (glyphName === 'nested') {
+                    return {
+                        findLayerById: jest.fn(() => ({
+                            id: 'layer-1',
+                            width: 500
+                        }))
+                    };
+                }
+
+                return null;
+            })
+        };
+        const fontModelAfterUndo = {
+            recomputeMetricsKeys: fontModelBeforeUndo.recomputeMetricsKeys,
+            findGlyph: jest.fn((glyphName) => {
+                if (glyphName === 'nested') {
+                    return {
+                        findLayerById: jest.fn(() => updatedLayer)
+                    };
+                }
+
+                return null;
+            })
+        };
+
+        const currentFont = {
+            fontModel: fontModelBeforeUndo,
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        originalWindow.glyphCanvas = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive
+            },
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'root-layer',
+                parseGlyphStack: jest.fn(() => [
+                    { glyphName: 'root', layerId: 'root-layer' },
+                    {
+                        glyphName: 'nested',
+                        layerId: 'layer-1',
+                        componentIndex: 0
+                    }
+                ]),
+                replaceCurrentLayerDataInStack,
+                fetchLayerData: jest.fn().mockResolvedValue(),
+                runDeterministicRefresh: jest.fn(async (task) => await task()),
+                performHitDetection
+            },
+            getCurrentGlyphName: jest.fn(() => 'root'),
+            syncCurrentOutlineLayerDataFromModel,
+            updatePropertyPanel: jest.fn(),
+            render,
+            requestRepaintAfterCompile: jest.fn()
+        };
+
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            lastChangeSource: null,
+            lastEditType: null
+        };
+
+        originalWindow.changeBridge = {
+            runWithoutRecording: jest.fn((fn) => fn()),
+            undo: jest.fn(() => {
+                currentFont.fontModel = fontModelAfterUndo;
+                return {
+                    scope: 'layer',
+                    glyphName: 'nested',
+                    layerId: 'layer-1',
+                    historyItem: {
+                        transactionLabel: 'Drag point',
+                        touchedPaths: ['glyphs.nested.layers.layer-1'],
+                        entries: [
+                            {
+                                oldValue: '(10, 20)',
+                                newValue: '(20, 20)'
+                            }
+                        ]
+                    }
+                };
+            })
+        };
+
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        await runBridgeUndoRedo('undo', 'nested', 'root', 'layer-1', null);
+
+        expect(replaceCurrentLayerDataInStack).toHaveBeenCalledWith(
+            updatedLayerJson
+        );
+        expect(syncCurrentOutlineLayerDataFromModel).not.toHaveBeenCalled();
+        expect(performHitDetection).toHaveBeenCalled();
+        expect(render).toHaveBeenCalled();
+        expect(refreshGlyphAdvancesLive.mock.calls).toContainEqual([
+            { nested: 520 },
+            { render: false }
+        ]);
+    });
+
     test('undo keyed point drag forces a full Rust cache sync before refetch', async () => {
         const originalIsInitialized = fontCompilation.isInitialized;
         const originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
