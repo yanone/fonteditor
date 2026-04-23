@@ -1330,6 +1330,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
     let originalOpenedFonts;
     let originalCurrentFontId;
     let originalWindowFontManager;
+    let originalWindowGlyphCanvas;
     let originalAutoCompileManager;
 
     beforeEach(() => {
@@ -1344,8 +1345,10 @@ describe('GlyphCanvas property panel metrics edits', () => {
         originalOpenedFonts = fontManager.openedFonts;
         originalCurrentFontId = fontManager.currentFontId;
         originalWindowFontManager = window.fontManager;
+        originalWindowGlyphCanvas = window.glyphCanvas;
         originalAutoCompileManager = window.autoCompileManager;
         window.fontManager = fontManager;
+        window.glyphCanvas = canvas;
         window.autoCompileManager = {
             checkAndSchedule: jest.fn()
         };
@@ -1361,6 +1364,7 @@ describe('GlyphCanvas property panel metrics edits', () => {
         fontManager.openedFonts = originalOpenedFonts;
         fontManager.currentFontId = originalCurrentFontId;
         window.fontManager = originalWindowFontManager;
+        window.glyphCanvas = originalWindowGlyphCanvas;
         window.autoCompileManager = originalAutoCompileManager;
         canvas.destroy();
     });
@@ -2131,11 +2135,8 @@ describe('GlyphCanvas property panel metrics edits', () => {
         ).toHaveBeenCalledWith({ a: 494 }, { render: false });
     });
 
-    test('reapplyActiveEditedGlyphAdvanceAfterShape restores visible dependent glyph advances for anchor edits', () => {
+    test('reapplyActiveEditedGlyphAdvanceAfterShape preserves HarfBuzz advances for anchor edits', () => {
         const originalLastEditType = fontManager.lastEditType;
-        const originalGetAutomaticCompositionDragScopeGlyphNames =
-            fontManager.getAutomaticCompositionDragScopeGlyphNames;
-        const currentFontSpy = jest.spyOn(fontManager, 'currentFont', 'get');
 
         try {
             canvas.outlineEditor.active = true;
@@ -2151,43 +2152,15 @@ describe('GlyphCanvas property panel metrics edits', () => {
             canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
 
             fontManager.lastEditType = 'anchor';
-            currentFontSpy.mockReturnValue({
-                fontModel: {
-                    findGlyph: jest.fn((glyphName) => {
-                        if (glyphName === 'a') {
-                            return {
-                                findLayerById: jest.fn(() => ({ width: 494 }))
-                            };
-                        }
-
-                        if (glyphName === 'adieresis') {
-                            return {
-                                findLayerById: jest.fn(() => ({ width: 500 }))
-                            };
-                        }
-
-                        return null;
-                    })
-                }
-            });
-            fontManager.getAutomaticCompositionDragScopeGlyphNames = jest.fn(
-                () => new Set(['a', 'adieresis'])
-            );
 
             expect(canvas.reapplyActiveEditedGlyphAdvanceAfterShape()).toBe(
-                true
+                false
             );
             expect(
                 canvas.textRunEditor.refreshGlyphAdvancesLive
-            ).toHaveBeenCalledWith(
-                { a: 494, adieresis: 500 },
-                { render: false }
-            );
+            ).not.toHaveBeenCalled();
         } finally {
             fontManager.lastEditType = originalLastEditType;
-            fontManager.getAutomaticCompositionDragScopeGlyphNames =
-                originalGetAutomaticCompositionDragScopeGlyphNames;
-            currentFontSpy.mockRestore();
         }
     });
 
@@ -2271,6 +2244,9 @@ describe('GlyphCanvas property panel metrics edits', () => {
         expect(canvas.textRunEditor.setFont).toHaveBeenCalledTimes(1);
         expect(canvas.axesManager.updateAxesUI).toHaveBeenCalledTimes(1);
         expect(canvas.textRunEditor.shapeText).toHaveBeenCalledWith(true);
+        expect(
+            canvas.reapplyActiveEditedGlyphAdvanceAfterShape
+        ).not.toHaveBeenCalled();
         expect(canvas.updatePropertiesUI).not.toHaveBeenCalled();
     });
 });

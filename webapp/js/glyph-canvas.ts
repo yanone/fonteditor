@@ -1814,7 +1814,6 @@ class GlyphCanvas {
                 this.textRunEditor!.shapeText(
                     options?.skipInitialShapeRender === true
                 );
-                this.reapplyActiveEditedGlyphAdvanceAfterShape();
                 timelineSpanEnd(shapeTextSpanId);
                 console.log(
                     '[GlyphCanvas]',
@@ -3786,6 +3785,13 @@ class GlyphCanvas {
 
     reapplyActiveEditedGlyphAdvanceAfterShape(): boolean {
         if (!this.textRunEditor) {
+            return false;
+        }
+
+        // Anchor-only recompiles must preserve HarfBuzz's freshly computed
+        // cursive/GPOS advances. Overwriting them with model widths can tear
+        // apart connected Arabic shaping until a later full render path.
+        if (fontManager.lastEditType === 'anchor') {
             return false;
         }
 
@@ -6698,7 +6704,6 @@ function setupFontLoadingListener() {
                         gc.axesManager!.fontBytes = fontBytesArray;
                         gc.textRunEditor!.swapFontBlob(fontBytesArray);
                         gc.textRunEditor!.shapeText(true);
-                        gc.reapplyActiveEditedGlyphAdvanceAfterShape();
                         timelineMark(
                             'canvas.editingFontCompiled.anchorOnlySwapped'
                         );
@@ -6777,45 +6782,7 @@ function setupFontLoadingListener() {
                         'canvas.editingFontCompiled.forceShapeText'
                     );
                     gc.textRunEditor!.shapeText(true);
-                    gc.reapplyActiveEditedGlyphAdvanceAfterShape();
                     timelineSpanEnd(forceShapeTextSpanId);
-
-                    // After any full compile (mid-drag OR post-commit), shapeText() resets all
-                    // shapedGlyphs advances from HarfBuzz. reapplyActiveEditedGlyphAdvanceAfterShape
-                    // only re-applies the active glyph's model width. Glyphs that share
-                    // the active glyph's metrics key (e.g. 'a', 'n' when dragging 'l')
-                    // still hold HarfBuzz values instead of the live model values.
-                    // Re-apply model widths for every glyph in the buffer so that the
-                    // pre-existing panX (computed against model values) stays correct.
-                    if (gc.outlineEditor?.active && gc.textRunEditor) {
-                        const fontModel =
-                            window.fontManager?.currentFont?.fontModel;
-                        const selectedLayerId =
-                            gc.outlineEditor?.selectedLayerId;
-                        if (fontModel && selectedLayerId) {
-                            const allAdvances: Record<string, number> = {};
-                            for (const name of gc.textRunEditor
-                                .glyphNameBuffer) {
-                                if (!name || name in allAdvances) continue;
-                                const glyph = fontModel.findGlyph(name);
-                                const layer =
-                                    glyph?.findLayerById(selectedLayerId);
-                                if (layer && Number.isFinite(layer.width)) {
-                                    allAdvances[name] = layer.width;
-                                }
-                            }
-                            if (Object.keys(allAdvances).length > 0) {
-                                const refreshAdvancesSpanId = timelineSpanStart(
-                                    'canvas.editingFontCompiled.refreshAllAdvances'
-                                );
-                                gc.textRunEditor.refreshGlyphAdvancesLive(
-                                    allAdvances,
-                                    { render: false }
-                                );
-                                timelineSpanEnd(refreshAdvancesSpanId);
-                            }
-                        }
-                    }
 
                     timelineMark('canvas.editingFontCompiled.shapeTextForced');
 
