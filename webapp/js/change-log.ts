@@ -250,7 +250,13 @@ function getLayerScopeKey(
     return getLayerTouchKey(glyphName, layerId);
 }
 
-function getPathResolutionFontModel(): PathResolutionFontModel | null {
+function getPathResolutionFontModel(
+    fontModel?: PathResolutionFontModel | null
+): PathResolutionFontModel | null {
+    if (fontModel !== undefined) {
+        return fontModel;
+    }
+
     const globalScope = globalThis as typeof globalThis & {
         currentFontModel?: PathResolutionFontModel | null;
         window?: {
@@ -337,15 +343,18 @@ function getFallbackGlyphMatch(value: string): {
     };
 }
 
-function splitGlyphPath(path: string): string[] | null {
+function splitGlyphPath(
+    path: string,
+    fontModel?: PathResolutionFontModel | null
+): string[] | null {
     if (!path.startsWith('glyphs.')) {
         return null;
     }
 
-    const fontModel = getPathResolutionFontModel();
+    const resolvedFontModel = getPathResolutionFontModel(fontModel);
     const glyphPath = path.slice('glyphs.'.length);
     const glyphMatch =
-        matchKnownKeyPrefix(glyphPath, getKnownGlyphNames(fontModel)) ||
+        matchKnownKeyPrefix(glyphPath, getKnownGlyphNames(resolvedFontModel)) ||
         getFallbackGlyphMatch(glyphPath);
 
     const segments = ['glyphs', glyphMatch.key];
@@ -361,7 +370,7 @@ function splitGlyphPath(path: string): string[] | null {
     const layerMatch =
         matchKnownKeyPrefix(
             layerPath,
-            getKnownLayerIds(fontModel, glyphMatch.key)
+            getKnownLayerIds(resolvedFontModel, glyphMatch.key)
         ) || getFallbackGlyphMatch(layerPath);
 
     segments.push('layers', layerMatch.key);
@@ -372,12 +381,15 @@ function splitGlyphPath(path: string): string[] | null {
     return [...segments, ...layerMatch.remainder.split('.')];
 }
 
-export function getPathSegments(path: string): string[] {
+export function getPathSegments(
+    path: string,
+    fontModel?: PathResolutionFontModel | null
+): string[] {
     if (!path || path === 'font') {
         return [];
     }
 
-    return splitGlyphPath(path) || path.split('.');
+    return splitGlyphPath(path, fontModel) || path.split('.');
 }
 
 function derivePropertyFromPath(path: string): string {
@@ -916,25 +928,34 @@ export function deriveLayerId(path: (string | number)[]): string | null {
     return null;
 }
 
-export function deriveGlyphNameFromPath(path: string): string | null {
+export function deriveGlyphNameFromPath(
+    path: string,
+    fontModel?: PathResolutionFontModel | null
+): string | null {
     if (!path) {
         return null;
     }
-    return deriveGlyphName(getPathSegments(path));
+    return deriveGlyphName(getPathSegments(path, fontModel));
 }
 
-export function deriveLayerIdFromPath(path: string): string | null {
+export function deriveLayerIdFromPath(
+    path: string,
+    fontModel?: PathResolutionFontModel | null
+): string | null {
     if (!path) {
         return null;
     }
-    return deriveLayerId(getPathSegments(path));
+    return deriveLayerId(getPathSegments(path, fontModel));
 }
 
-export function deriveObjectInfoFromPath(path: string): {
+export function deriveObjectInfoFromPath(
+    path: string,
+    fontModel?: PathResolutionFontModel | null
+): {
     objectType: ChangeObjectType;
     objectId: string;
 } {
-    return deriveObjectInfo(getPathSegments(path));
+    return deriveObjectInfo(getPathSegments(path, fontModel));
 }
 
 export function deriveGlyphNamesFromPaths(paths: string[]): string[] {

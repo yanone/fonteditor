@@ -4811,6 +4811,66 @@ describe('syncGlyphFromJson', () => {
         receiverBridge.destroy();
     });
 
+    test('linked window applies explicit layer-property removals for dotted glyph and layer names', () => {
+        const senderFontJson = makeMinimalFont();
+        senderFontJson.glyphs[0].name = 'behDotless-ar.medi';
+        senderFontJson.glyphs[0].layers[0].id = 'layer.regular.v1';
+
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge(
+            'sender-remove-dotted-layer-prop'
+        );
+        const receiverBridge = new ChangeBridge(
+            'receiver-remove-dotted-layer-prop'
+        );
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        const oldGuides = cloneValue(senderFontJson.glyphs[0].layers[0].guides);
+        delete senderFontJson.glyphs[0].layers[0].guides;
+
+        senderBridge.beginTransaction('Delete layer guides');
+        senderBridge.recordRemove(
+            [
+                'glyphs',
+                'behDotless-ar.medi',
+                'layers',
+                'layer.regular.v1',
+                'guides'
+            ],
+            oldGuides
+        );
+        senderBridge.endTransaction();
+
+        receiverBridge.applyRemoteUpdate(
+            lastUpdate,
+            senderBridge.getNewChangeLogEntries()
+        );
+
+        expect(
+            getYPath(receiverBridge.fontMap, [
+                'glyphs',
+                'behDotless-ar.medi',
+                'layers',
+                'layer.regular.v1',
+                'guides'
+            ])
+        ).toBeUndefined();
+        expect('guides' in receiverFontJson.glyphs[0].layers[0]).toBe(false);
+        expect(receiverFontJson.glyphs[0].layers[0].anchors).toEqual(
+            senderFontJson.glyphs[0].layers[0].anchors
+        );
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
     test('syncLayersFromJson preserves multi-target worker replay metadata across remote apply', () => {
         const senderFontJson = makeMinimalFont();
         const receiverFontJson = cloneValue(senderFontJson);

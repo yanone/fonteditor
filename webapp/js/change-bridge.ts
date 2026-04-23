@@ -1410,15 +1410,17 @@ export class ChangeBridge {
             if (remoteEntries?.length) {
                 const glyphNames = new Set(
                     remoteEntries
-                        .map((entry) => deriveGlyphNameFromPath(entry.path))
+                        .map((entry) =>
+                            this._deriveGlyphNameFromPath(entry.path)
+                        )
                         .filter((glyphName): glyphName is string => !!glyphName)
                 );
                 for (const glyphName of glyphNames) {
                     this.getGlyphUndoManager(glyphName);
                 }
                 for (const entry of remoteEntries) {
-                    const glyphName = deriveGlyphNameFromPath(entry.path);
-                    const layerId = deriveLayerIdFromPath(entry.path);
+                    const glyphName = this._deriveGlyphNameFromPath(entry.path);
+                    const layerId = this._deriveLayerIdFromPath(entry.path);
                     if (glyphName && layerId) {
                         this.getLayerUndoManager(glyphName, layerId);
                     }
@@ -1470,7 +1472,9 @@ export class ChangeBridge {
                 continue;
             }
 
-            const pathSegments = String(entry.path || '').split('.');
+            const pathSegments = this._getPathSegments(
+                String(entry.path || '')
+            );
             if (
                 pathSegments.length !== 5 ||
                 pathSegments[0] !== 'glyphs' ||
@@ -1538,7 +1542,7 @@ export class ChangeBridge {
             return this._changeLog;
         }
         return this._changeLog.filter(
-            (entry) => deriveGlyphNameFromPath(entry.path) === glyphName
+            (entry) => this._deriveGlyphNameFromPath(entry.path) === glyphName
         );
     }
 
@@ -2287,15 +2291,15 @@ export class ChangeBridge {
         );
         const glyphNames = new Set(
             remoteEntries
-                .map((entry) => deriveGlyphNameFromPath(entry.path))
+                .map((entry) => this._deriveGlyphNameFromPath(entry.path))
                 .filter((glyphName): glyphName is string => !!glyphName)
         );
         const layerKeys = new Set(
             remoteEntries
                 .filter((entry) => entry.undoScope === 'layer')
                 .map((entry) => {
-                    const glyphName = deriveGlyphNameFromPath(entry.path);
-                    const layerId = deriveLayerIdFromPath(entry.path);
+                    const glyphName = this._deriveGlyphNameFromPath(entry.path);
+                    const layerId = this._deriveLayerIdFromPath(entry.path);
                     return glyphName && layerId
                         ? getLayerManagerKey(glyphName, layerId)
                         : null;
@@ -2311,12 +2315,12 @@ export class ChangeBridge {
                 targetItem ??
                 remoteEntries.find(
                     (candidate) =>
-                        !!deriveGlyphNameFromPath(candidate.path) &&
-                        !!deriveLayerIdFromPath(candidate.path)
+                        !!this._deriveGlyphNameFromPath(candidate.path) &&
+                        !!this._deriveLayerIdFromPath(candidate.path)
                 );
             if (entry) {
-                const glyphName = deriveGlyphNameFromPath(entry.path);
-                const layerId = deriveLayerIdFromPath(entry.path);
+                const glyphName = this._deriveGlyphNameFromPath(entry.path);
+                const layerId = this._deriveLayerIdFromPath(entry.path);
                 if (glyphName && layerId) {
                     return getLayerEditOrigin(glyphName, layerId);
                 }
@@ -2337,8 +2341,8 @@ export class ChangeBridge {
 
         if (
             remoteEntries.some((entry) => {
-                const glyphName = deriveGlyphNameFromPath(entry.path);
-                const layerId = deriveLayerIdFromPath(entry.path);
+                const glyphName = this._deriveGlyphNameFromPath(entry.path);
+                const layerId = this._deriveLayerIdFromPath(entry.path);
                 return !!glyphName && !layerId;
             })
         ) {
@@ -2355,8 +2359,8 @@ export class ChangeBridge {
                     return [];
                 }
 
-                const glyphName = deriveGlyphNameFromPath(entry.path);
-                const layerId = deriveLayerIdFromPath(entry.path);
+                const glyphName = this._deriveGlyphNameFromPath(entry.path);
+                const layerId = this._deriveLayerIdFromPath(entry.path);
                 return glyphName && layerId ? [{ glyphName, layerId }] : [];
             })
         );
@@ -2433,7 +2437,7 @@ export class ChangeBridge {
         const touchedGlyphNames = new Set(
             remoteEntries
                 .flatMap((entry) => [
-                    deriveGlyphNameFromPath(entry.path),
+                    this._deriveGlyphNameFromPath(entry.path),
                     ...normalizeWorkerReplayTargets(
                         entry.workerReplayTargets
                     ).map((target) => target.glyphName)
@@ -2677,8 +2681,29 @@ export class ChangeBridge {
         };
     }
 
+    private _getPathSegments(path: string): string[] {
+        return getPathSegments(
+            path,
+            this._fontJson as Parameters<typeof getPathSegments>[1]
+        );
+    }
+
+    private _deriveGlyphNameFromPath(path: string): string | null {
+        return deriveGlyphNameFromPath(
+            path,
+            this._fontJson as Parameters<typeof deriveGlyphNameFromPath>[1]
+        );
+    }
+
+    private _deriveLayerIdFromPath(path: string): string | null {
+        return deriveLayerIdFromPath(
+            path,
+            this._fontJson as Parameters<typeof deriveLayerIdFromPath>[1]
+        );
+    }
+
     private _parseEntryPath(path: string): (string | number)[] {
-        return getPathSegments(path).map((segment) =>
+        return this._getPathSegments(path).map((segment) =>
             /^\d+$/.test(segment) ? Number.parseInt(segment, 10) : segment
         );
     }
