@@ -1,6 +1,6 @@
 # Unreleased
 
-- **Add items here** for the next release (Replace this comment)
+- **AI Assistan Streaming** Instead of waiting for the entire chat assistant response to finish before displaying it, the replies are now streamed akin to other AI chat excperiences, which is a much more pleasant experience.
 
 # v0.2.1
 
