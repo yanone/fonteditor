@@ -1,5 +1,7 @@
 # Font Object Model API Documentation
 
+**Version:** v0.2.1
+
 *Auto-generated from JavaScript object model introspection*
 
 
@@ -130,7 +132,8 @@ font = Font()
 
 ### Methods
 
-#### `recomputeMetricsKeys(changedGlyphNames: Set<string> | None = None) -> Set<string>`
+#### `rebuildAutomaticCompositesForGlyphs(changedGlyphNames: Set<string> | None = None, options: { allowedGlyphNames?: Set<string>; preferredLayerId?: string | null; preferredSourceGlyphName?: string | null; } | None = None) -> Set<string>`
+#### `recomputeMetricsKeys(changedGlyphNames: Set<string> | None = None, options: { allowedGlyphNames?: Set<string>; skipAutomaticCompositeRebuild?: boolean; } | None = None) -> Set<string>`
 #### `findGlyph(name: str) -> [Glyph](#glyph) | None`
 Find a glyph by name
 
@@ -148,6 +151,12 @@ Find a glyph by codepoint
 ```python
 glyph = font.findGlyphByCodepoint(0x0041)  # Find 'A'
 ```
+
+#### `invalidateReverseComponentIndex() -> None`
+#### `invalidateLayoutCachesForGlyphs(glyphNames: Iterable<string>) -> None`
+Invalidate automatic composition layout caches for all layers
+of the specified glyphs. Call before recomputing compositions
+so that stale cached layouts from a previous frame are not reused.
 
 #### `findGlyphsUsingComponent(componentGlyphName: str) -> list[str]`
 Find all glyphs that reference a given glyph as a component
@@ -273,7 +282,7 @@ glyph = font.findGlyph("A")
 
 #### `getPathSegment() -> list[(string | number)]`
 #### `normalizeCategory(value: Babelfont.GlyphCategory | str | None) -> Babelfont.GlyphCategory`
-#### `addLayer(width: float | int, master: Babelfont.LayerType | None = None) -> [Layer](#layer)`
+#### `addLayer(width: float | int, master: Babelfont.LayerType | None = None, requestedLayerId: str | None | None = None) -> [Layer](#layer)`
 Add a new layer to the glyph
 
 **Example:**
@@ -283,6 +292,9 @@ layer = glyph.addLayer(500)  # 500 units wide
 
 #### `removeLayer(index: float | int) -> None`
 Remove a layer at the specified index
+
+#### `removeLayerById(id: str) -> None`
+Remove a layer by its backing-array ID.
 
 #### `findLayerById(id: str) -> [Layer](#layer) | None`
 Find a layer by ID
@@ -345,8 +357,44 @@ sorted by name and guides excluded.
 
 ### Methods
 
+#### `toJSON() -> Unsafe`
+#### `invalidateShapeCache() -> None`
+Force shape wrapper rebuild on next access.
+Call after replacing `data.shapes` externally so that
+setDirectSidebearing operates on the current shapes array.
+
+#### `invalidateContentCaches() -> None`
+#### `invalidateLayoutCache() -> None`
+Invalidate only the automatic composition layout cache.
+Cheaper than full invalidateContentCaches() when only
+anchor/composition state has changed (not shapes/guides).
+
+#### `syncFromEditorLayerData(layerData: { width: number; height?: number; vertWidth?: number; shapes?: Unsafe[]; anchors?: Unsafe[]; guides?: Unsafe[]; format_specific?: Record<string, Unsafe>; }) -> None`
+Bulk-sync mutable properties from the outline editor's working
+copy into this layer's model data. Skips the expensive toJSON()
+round-trip and layout recomputation that would otherwise occur
+for automatic-aligned layers.
+
+Must be called inside withSuppressedModelRecording so that the
+individual property mutations don't trigger recordAndMarkDirty.
+
 #### `setDirectSidebearing(side: SidebearingSide, value: float | int) -> None`
+#### `recomputeOwnMetricsKeys() -> bool`
+Resolve and apply this layer's own metrics keys (left/right)
+without scanning the full font. Use during interactive editing
+(keyboard/mouse) where only the current layer needs updating.
+
 #### `isAutomaticAlignedLayer() -> bool`
+#### `getAutomaticComponentTargetAnchorOptions(component: [Component](#component)) -> list[str]`
+#### `rebuildAutomaticComposition() -> bool`
+#### `applyAutomaticCompositionToLayerData(layerData: { shapes?: Unsafe[]; width?: number; }) -> bool`
+Apply automatic component anchoring and derived width to mutable layer
+data without mutating the model layer itself.
+
+This is used by live editor interactions, such as resize-box scaling,
+where component transforms are already edited on a working copy and only
+the automatic translations and width need to be refreshed.
+
 #### `resolveMetricsKey(side: SidebearingSide, stack: Set<string>) -> MetricsKeyResolution`
 #### `applySidebearingInput(side: SidebearingSide, rawValue: str) -> MetricsKeyResolution`
 #### `getPathSegment() -> list[(string | number)]`
@@ -376,6 +424,15 @@ component = layer.addComponent("A")
 component = layer.addComponent("acutecomb", [1, 0, 0, 1, 250, 500])
 ```
 
+#### `insertShapeAt(index: float | int, shape: Babelfont.Shape) -> [Shape](#shape)`
+Insert a new shape at the specified index
+
+#### `splitOpenPathAtNode(pathOrIndex: float | int | [Shape](#shape) | [Path](#path), nodeIndex: float | int) -> { shapeIndex: number; insertedShapeIndex: number } | None`
+Split an open path into two open paths at an interior on-curve node.
+
+#### `connectOpenPathEndpoints(sourcePathOrIndex: float | int | [Shape](#shape) | [Path](#path), sourceEdge: 'start' | 'end', targetPathOrIndex: float | int | [Shape](#shape) | [Path](#path), targetEdge: 'start' | 'end') -> { shapeIndex: number; boundaryNodeIndex: number; closed: boolean; } | None`
+Connect two open-path endpoints or close a single open path by merging its endpoints.
+
 #### `removeShape(shapeOrIndex: float | int | [Shape](#shape) | [Path](#path) | [Component](#component)) -> None`
 Remove a shape at the specified index
 
@@ -399,6 +456,7 @@ Handles the babelfont node format where:
 - Segments are sequences: [oncurve] [offcurve*] [oncurve]
 - For closed paths, the path can start with offcurve nodes
 
+#### `getPathSegmentDescriptors(pathData: { nodes: Unsafe[]; closed?: boolean; }) -> Array<{ segmentId: number; type: 'line' | 'quadratic' | 'cubic'; points: Array<{ x: number; y: number }>; startNodeIndex: number; endNodeIndex: number; controlNodeIndices: number[]; runStartNodeIndex: number; runEndNodeIndex: number; runControlNodeIndices: number[]; segmentIndexInRun: number; wrapsAround: boolean; }>`
 #### `calculatePathBounds(pathData: list[{ nodes?: Unsafe] | string; closed?: boolean; }) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
 #### `calculateShapeBounds(shapes: list[Unsafe] | None, parentTransform: list[float | int]) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
 #### `calculateSvgPathBounds(pathData: str) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
@@ -557,11 +615,13 @@ All properties are read/write:
 - **`reference`** (str)
 - **`transform`** (Babelfont.DecomposedAffine)
 - **`location`** (DesignspaceLocation | None)
+- **`anchor`** (str | None): Glyphs attachment anchor name stored in format_specific.
 - **`format_specific`** (dict | None)
 
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
+#### `isAutomaticAligned() -> bool`
 #### `toAffineArray() -> list[float | int]`
 Convert transform to affine matrix array [a, b, c, d, e, f]
 Uses the proper DecomposedAffineTransform utility
