@@ -4049,6 +4049,22 @@ flex-direction: row;
     font-weight: 400;
 }
 
+.ai-model-option-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--accent-orange);
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.ai-model-option-warning .material-symbols-outlined {
+    font-size: 12px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
 .ai-auto-run-label {
     display: flex;
     align-items: center;

@@ -146,16 +146,24 @@ class StreamingMarkdownRenderer {
                 }
 
                 // Python fence — find closing fence
-                const closeFenceIndex = remaining.indexOf('```', fenceIndex + 3);
+                const closeFenceIndex = remaining.indexOf(
+                    '```',
+                    fenceIndex + 3
+                );
                 if (closeFenceIndex === -1) {
                     const textBefore = remaining.slice(0, fenceIndex);
                     if (textBefore) this._renderMarkdownText(textBefore);
 
                     this.state = 'CODE';
-                    this.currentCodeBlock = new ScrollingCodeBlock(this.bodyDiv);
+                    this.currentCodeBlock = new ScrollingCodeBlock(
+                        this.bodyDiv
+                    );
 
                     // Skip past ```python\n
-                    let codeStart = firstNewline !== -1 ? firstNewline + 1 : fenceIndex + 3 + tag.length;
+                    let codeStart =
+                        firstNewline !== -1
+                            ? firstNewline + 1
+                            : fenceIndex + 3 + tag.length;
                     this.processedOffset += codeStart;
                     break;
                 }
@@ -163,9 +171,10 @@ class StreamingMarkdownRenderer {
                 const textBefore = remaining.slice(0, fenceIndex);
                 if (textBefore) this._renderMarkdownText(textBefore);
 
-                const codeStart = firstNewline !== -1 && firstNewline < closeFenceIndex
-                    ? firstNewline + 1
-                    : fenceIndex + 3 + tag.length;
+                const codeStart =
+                    firstNewline !== -1 && firstNewline < closeFenceIndex
+                        ? firstNewline + 1
+                        : fenceIndex + 3 + tag.length;
                 const codeContent = remaining.slice(codeStart, closeFenceIndex);
 
                 const codeBlock = new ScrollingCodeBlock(this.bodyDiv);
@@ -197,7 +206,9 @@ class StreamingMarkdownRenderer {
 
     private _renderMarkdownText(text: string) {
         if (!text) return;
-        let textContainer = this.bodyDiv.querySelector('.ai-streaming-text') as HTMLElement;
+        let textContainer = this.bodyDiv.querySelector(
+            '.ai-streaming-text'
+        ) as HTMLElement;
         if (!textContainer) {
             textContainer = document.createElement('div');
             textContainer.className = 'ai-streaming-text';
@@ -726,6 +737,12 @@ class AIAssistant {
             // Format pricing
             const priceText = `$${model.inputPerMillion}/$${model.outputPerMillion} (I/O) per million tokens`;
 
+            const warningText =
+                model.warning ||
+                (model.id === 'deepseek-v4-flash'
+                    ? 'DeepSeek requires allowing training on user prompts. Choose Kimi to avoid this.'
+                    : '');
+
             option.innerHTML = `
                 <div class="ai-model-option-header">
                     <span class="ai-model-option-name">${model.shortName}</span>
@@ -734,6 +751,7 @@ class AIAssistant {
                 ${model.description ? `<div class="ai-model-option-description">${model.description}</div>` : ''}
                 <div class="ai-model-option-price">${priceText}</div>
                 ${model.hint ? `<div class="ai-model-option-hint">${model.hint}</div>` : ''}
+                ${warningText ? `<div class="ai-model-option-warning"><span class="material-symbols-outlined">warning</span>${warningText}</div>` : ''}
             `;
 
             option.addEventListener('click', () => this.selectModel(model.id));
@@ -1190,10 +1208,7 @@ class AIAssistant {
         return `<div class="ai-message-header"><span>${iconHtml} ${label} - ${timestamp}</span></div>`;
     }
 
-    addMessage(
-        role: string,
-        content: string
-    ) {
+    addMessage(role: string, content: string) {
         // Show messages container on first message
         if (
             this.messagesContainer.style.display === 'none' ||
@@ -1969,10 +1984,7 @@ ${errorTraceback}
         } catch (error) {
             const errorMessage =
                 error instanceof Error ? error.message : String(error);
-            this.addMessage(
-                'error',
-                `Failed: ${errorMessage}`
-            );
+            this.addMessage('error', `Failed: ${errorMessage}`);
         } finally {
             // Hide typing indicator
             this.hideTypingIndicator();
@@ -1997,7 +2009,8 @@ ${errorTraceback}
             const linkedFilePath = this.sessionManager.getLinkedFilePath();
             if (linkedFilePath) {
                 try {
-                    currentScript = await this.readGlyphFilterFile(linkedFilePath);
+                    currentScript =
+                        await this.readGlyphFilterFile(linkedFilePath);
                 } catch (error) {
                     console.error(
                         '[AIAssistant] Failed to read glyph filter file:',
@@ -2069,9 +2082,7 @@ ${errorTraceback}
             } else if (response.status === 402) {
                 throw new Error(errorData.message || 'Insufficient credits');
             } else if (response.status === 429) {
-                throw new Error(
-                    'Rate limit exceeded. Please try again later.'
-                );
+                throw new Error('Rate limit exceeded. Please try again later.');
             }
             throw new Error(
                 `API error: ${errorData.error || errorData.message || response.statusText}`
@@ -2266,7 +2277,8 @@ ${errorTraceback}
             const reviewBtn = document.createElement('button');
             reviewBtn.className = 'ai-btn ai-review-changes-btn';
             reviewBtn.innerHTML = `<span class="material-symbols-outlined">visibility</span>${window.translations.ai.buttons.reviewChanges.text}`;
-            reviewBtn.title = window.translations.ai.buttons.reviewChanges.title;
+            reviewBtn.title =
+                window.translations.ai.buttons.reviewChanges.title;
             reviewBtn.addEventListener('click', (event: Event) => {
                 event.stopPropagation();
                 this.showDiffReview(code, markdownText);
