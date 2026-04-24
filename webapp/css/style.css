@@ -3575,16 +3575,56 @@ flex-direction: row;
     color: var(--glyphfilter-context-text);
 }
 
-.ai-code-toggle-link {
+.ai-code-block-label {
+    font-family: var(--font-families-mono);
+    font-size: calc(var(--size, 1) * (10px / var(--pixel-density, 1)));
+    line-height: 1.4;
     color: var(--text-muted);
-    cursor: pointer;
-    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
-    font-weight: normal;
-    user-select: none;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 8px 0 2px 0;
+    padding-left: 8px;
 }
 
-.ai-code-toggle-link:hover {
+.ai-streaming-code-block {
+    height: calc(7 * 1.4em);
+    overflow: hidden;
+    position: relative;
+    font-family: var(--font-families-mono);
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+    line-height: 1.4;
+    background-color: var(--code-bg);
+    border-radius: 4px;
+    border-left: 2px solid var(--ai-assistant-text);
+    margin: 4px 0;
+}
+
+.ai-streaming-code-block-inner {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 8px;
+    white-space: pre-wrap;
+    word-break: break-all;
     color: var(--text-tertiary);
+}
+
+.ai-streaming-code-block.is-complete {
+    overflow-y: auto;
+}
+
+.ai-streaming-code-block.is-complete .ai-streaming-code-block-inner {
+    position: static;
+}
+
+.ai-streaming-text {
+    font-family: 'Inter', sans-serif;
+    font-size: calc(var(--size, 1) * (12px / var(--pixel-density, 1)));
+    line-height: 1.6;
+    color: var(--text-tertiary);
+    padding: 8px 0;
+    white-space: pre-wrap;
 }
 
 .ai-message-content {
@@ -3626,10 +3666,6 @@ flex-direction: row;
 
 .ai-code code {
     color: var(--text-tertiary);
-}
-
-.ai-code-collapsible {
-    margin-top: 4px;
 }
 
 .ai-output-with-code {
@@ -3790,10 +3826,7 @@ flex-direction: row;
     color: var(--text-tertiary);
     white-space: pre-wrap;
     border-left: 2px solid var(--ai-assistant-text);
-}
-
-.ai-code.collapsed {
-    display: none;
+    border-radius: 4px;
 }
 
 .ai-button-group {

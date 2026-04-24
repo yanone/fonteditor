@@ -2,6 +2,230 @@
 // Sends prompts to Anthropic Claude with Python API docs
 // Executes generated Python code with error handling and retry
 
+/**
+ * A fixed-height code block that shows the latest 7 lines.
+ * Content grows upward from the bottom; earlier lines scroll out of view.
+ */
+class ScrollingCodeBlock {
+    container: HTMLDivElement;
+    inner: HTMLDivElement;
+
+    constructor(parent: HTMLElement, label = 'Python Input') {
+        const labelDiv = document.createElement('div');
+        labelDiv.className = 'ai-code-block-label';
+        labelDiv.textContent = label;
+        parent.appendChild(labelDiv);
+
+        this.container = document.createElement('div');
+        this.container.className = 'ai-streaming-code-block';
+
+        this.inner = document.createElement('div');
+        this.inner.className = 'ai-streaming-code-block-inner';
+
+        this.container.appendChild(this.inner);
+        parent.appendChild(this.container);
+    }
+
+    appendText(text: string) {
+        const current = this.inner.textContent || '';
+        this.inner.textContent = current + text;
+    }
+
+    finalize() {
+        this.container.classList.add('is-complete');
+    }
+}
+
+/**
+ * Renders a streaming markdown response, detecting ``` transitions
+ * and creating inline ScrollingCodeBlock containers for code.
+ */
+class StreamingMarkdownRenderer {
+    messageDiv: HTMLDivElement;
+    bodyDiv: HTMLDivElement;
+    textBuffer: string;
+    state: 'TEXT' | 'CODE';
+    currentCodeBlock: ScrollingCodeBlock | null;
+    processedOffset: number;
+
+    constructor(parentContainer: HTMLElement) {
+        this.messageDiv = document.createElement('div');
+        this.messageDiv.className = 'ai-message ai-message-assistant';
+
+        const header = document.createElement('div');
+        header.className = 'ai-message-header';
+        const timestamp = new Date().toLocaleTimeString();
+        header.innerHTML = `<span><span class="material-symbols-outlined">attach_file</span> Assistant - ${timestamp}</span>`;
+        this.messageDiv.appendChild(header);
+
+        this.bodyDiv = document.createElement('div');
+        this.bodyDiv.className = 'ai-streaming-body';
+        this.messageDiv.appendChild(this.bodyDiv);
+
+        parentContainer.appendChild(this.messageDiv);
+        parentContainer.scrollTop = parentContainer.scrollHeight;
+
+        this.textBuffer = '';
+        this.state = 'TEXT';
+        this.currentCodeBlock = null;
+        this.processedOffset = 0;
+    }
+
+    appendChunk(chunk: string) {
+        this.textBuffer += chunk;
+        this._processBuffer();
+    }
+
+    private _processBuffer() {
+        while (this.processedOffset < this.textBuffer.length) {
+            const remaining = this.textBuffer.slice(this.processedOffset);
+
+            if (this.state === 'TEXT') {
+                const fenceIndex = remaining.indexOf('```');
+                if (fenceIndex === -1) {
+                    const tail = remaining.slice(-3);
+                    const backtickCount = (tail.match(/`/g) || []).length;
+                    if (backtickCount > 0) {
+                        const safeRender = remaining.slice(0, -backtickCount);
+                        if (safeRender) this._renderMarkdownText(safeRender);
+                        this.processedOffset += safeRender.length;
+                        break;
+                    }
+                    this._renderMarkdownText(remaining);
+                    this.processedOffset = this.textBuffer.length;
+                    break;
+                }
+
+                // Determine what kind of fence this is
+                const afterFence = remaining.slice(fenceIndex + 3);
+                const firstNewline = remaining.indexOf('\n', fenceIndex + 3);
+                let tag = '';
+                if (firstNewline !== -1) {
+                    tag = remaining.slice(fenceIndex + 3, firstNewline).trim();
+                } else if (remaining.length - fenceIndex - 3 < 20) {
+                    // Fence might be incomplete, wait for more text
+                    const safeRender = remaining.slice(0, fenceIndex);
+                    if (safeRender) this._renderMarkdownText(safeRender);
+                    this.processedOffset += fenceIndex;
+                    break;
+                }
+
+                // Skip JSON blocks entirely (metadata)
+                if (tag === 'json') {
+                    const closeIndex = remaining.indexOf('```', fenceIndex + 3);
+                    if (closeIndex !== -1) {
+                        const before = remaining.slice(0, fenceIndex);
+                        if (before) this._renderMarkdownText(before);
+                        this.processedOffset += closeIndex + 3;
+                        continue;
+                    }
+                    // Incomplete json block — wait for more text
+                    const safeRender = remaining.slice(0, fenceIndex);
+                    if (safeRender) this._renderMarkdownText(safeRender);
+                    this.processedOffset += fenceIndex;
+                    break;
+                }
+
+                // Only ```python triggers a scrolling code block
+                const isPythonFence = tag === 'python';
+
+                if (!isPythonFence) {
+                    // For non-python fences, treat as regular markdown text
+                    // Include the fence markers so marked.parse() can format them
+                    const nextFence = remaining.indexOf('```', fenceIndex + 3);
+                    if (nextFence === -1) {
+                        // Incomplete fence block — wait for more
+                        const safeRender = remaining.slice(0, fenceIndex);
+                        if (safeRender) this._renderMarkdownText(safeRender);
+                        this.processedOffset += fenceIndex;
+                        break;
+                    }
+                    this._renderMarkdownText(remaining.slice(0, nextFence + 3));
+                    this.processedOffset += nextFence + 3;
+                    continue;
+                }
+
+                // Python fence — find closing fence
+                const closeFenceIndex = remaining.indexOf('```', fenceIndex + 3);
+                if (closeFenceIndex === -1) {
+                    const textBefore = remaining.slice(0, fenceIndex);
+                    if (textBefore) this._renderMarkdownText(textBefore);
+
+                    this.state = 'CODE';
+                    this.currentCodeBlock = new ScrollingCodeBlock(this.bodyDiv);
+
+                    // Skip past ```python\n
+                    let codeStart = firstNewline !== -1 ? firstNewline + 1 : fenceIndex + 3 + tag.length;
+                    this.processedOffset += codeStart;
+                    break;
+                }
+
+                const textBefore = remaining.slice(0, fenceIndex);
+                if (textBefore) this._renderMarkdownText(textBefore);
+
+                const codeStart = firstNewline !== -1 && firstNewline < closeFenceIndex
+                    ? firstNewline + 1
+                    : fenceIndex + 3 + tag.length;
+                const codeContent = remaining.slice(codeStart, closeFenceIndex);
+
+                const codeBlock = new ScrollingCodeBlock(this.bodyDiv);
+                codeBlock.appendText(codeContent);
+                codeBlock.finalize();
+
+                this.processedOffset += closeFenceIndex + 3;
+            } else if (this.state === 'CODE') {
+                const closeFenceIndex = remaining.indexOf('```');
+                if (closeFenceIndex === -1) {
+                    if (this.currentCodeBlock) {
+                        this.currentCodeBlock.appendText(remaining);
+                    }
+                    this.processedOffset = this.textBuffer.length;
+                    break;
+                }
+
+                const codeContent = remaining.slice(0, closeFenceIndex);
+                if (this.currentCodeBlock) {
+                    this.currentCodeBlock.appendText(codeContent);
+                    this.currentCodeBlock.finalize();
+                }
+                this.currentCodeBlock = null;
+                this.state = 'TEXT';
+                this.processedOffset += closeFenceIndex + 3;
+            }
+        }
+    }
+
+    private _renderMarkdownText(text: string) {
+        if (!text) return;
+        let textContainer = this.bodyDiv.querySelector('.ai-streaming-text') as HTMLElement;
+        if (!textContainer) {
+            textContainer = document.createElement('div');
+            textContainer.className = 'ai-streaming-text';
+            this.bodyDiv.appendChild(textContainer);
+        }
+        // Accumulate raw markdown and re-render with marked
+        const currentRaw = textContainer.getAttribute('data-raw') || '';
+        const newRaw = currentRaw + text;
+        textContainer.setAttribute('data-raw', newRaw);
+        if (typeof marked !== 'undefined') {
+            textContainer.innerHTML = marked.parse(newRaw);
+        } else {
+            textContainer.textContent = newRaw;
+        }
+    }
+
+    finalize() {
+        if (this.currentCodeBlock) {
+            this.currentCodeBlock.finalize();
+            this.currentCodeBlock = null;
+        }
+    }
+
+    getFullText(): string {
+        return this.textBuffer;
+    }
+}
+
 class AIAssistant {
     [key: string]: any;
 
@@ -968,9 +1192,7 @@ class AIAssistant {
 
     addMessage(
         role: string,
-        content: string,
-        isCode = false,
-        isCollapsible = false
+        content: string
     ) {
         // Show messages container on first message
         if (
@@ -986,97 +1208,49 @@ class AIAssistant {
         const header = this.createMessageHeader(role);
 
         let body;
-        if (isCode) {
-            if (isCollapsible) {
-                // Collapsible code block
-                const codeId =
-                    'code-' +
-                    Date.now() +
-                    Math.random().toString(36).substr(2, 9);
-                const btnId =
-                    'btn-' +
-                    Date.now() +
-                    Math.random().toString(36).substr(2, 9);
-                body = `
-                    <div class="ai-code-collapsible">
-                        <button class="ai-code-toggle" id="${btnId}" onclick="
-                            const code = document.getElementById('${codeId}');
-                            const btn = document.getElementById('${btnId}');
-                            code.classList.toggle('collapsed');
-                            if (code.classList.contains('collapsed')) {
-                                btn.textContent = '▶ Show Python Code';
-                            } else {
-                                btn.textContent = '▼ Hide Python Code';
-                            }
-                        ">▶ Show Python Code</button>
-                        <pre class="ai-code collapsed" id="${codeId}"><code>${this.escapeHtml(content)}</code></pre>
-                    </div>`;
-            } else {
-                body = `<pre class="ai-code"><code>${this.escapeHtml(content)}</code></pre>`;
-            }
-        } else {
-            // For user messages, check if there's script context to show collapsibly
-            if (role === 'user') {
-                const scriptContextMatch = content.match(
-                    /Current script in editor:\s*```python\s*\n([\s\S]*?)```\s*\n\nUser request: ([\s\S]*)/
-                );
-                if (scriptContextMatch) {
-                    const scriptCode = scriptContextMatch[1];
-                    const userRequest = scriptContextMatch[2];
-                    const codeId =
-                        'code-' +
-                        Date.now() +
-                        Math.random().toString(36).substr(2, 9);
-                    const btnId =
-                        'btn-' +
-                        Date.now() +
-                        Math.random().toString(36).substr(2, 9);
+        // For user messages, check if there's script context to show inline
+        if (role === 'user') {
+            const scriptContextMatch = content.match(
+                /Current script in editor:\s*```python\s*\n([\s\S]*?)```\s*\n\nUser request: ([\s\S]*)/
+            );
+            if (scriptContextMatch) {
+                const scriptCode = scriptContextMatch[1];
+                const userRequest = scriptContextMatch[2];
 
-                    // Create toggle link for header
-                    const codeToggleHtml = `<span class="ai-code-toggle-link" id="${btnId}" onclick="
-                        const code = document.getElementById('${codeId}');
-                        const btn = document.getElementById('${btnId}');
-                        code.classList.toggle('collapsed');
-                        if (code.classList.contains('collapsed')) {
-                            btn.textContent = '▶ Show Origin Script';
-                        } else {
-                            btn.textContent = '▼ Hide Origin Script';
-                        }
-                    ">▶ Show Origin Script</span>`;
+                const bodyDiv = document.createElement('div');
+                const codeBlock = new ScrollingCodeBlock(bodyDiv);
+                codeBlock.appendText(scriptCode);
+                codeBlock.finalize();
 
-                    // Recreate header with toggle link
-                    const headerWithToggle = this.createMessageHeader(role, {
-                        rightContent: codeToggleHtml
-                    });
+                const requestDiv = document.createElement('div');
+                requestDiv.className = 'ai-message-content';
+                requestDiv.textContent = userRequest;
+                bodyDiv.appendChild(requestDiv);
 
-                    body = `
-                        <pre class="ai-code collapsed" id="${codeId}"><code>${this.escapeHtml(scriptCode)}</code></pre>
-                        <div class="ai-message-content">${this.escapeHtml(userRequest)}</div>`;
+                messageDiv.insertAdjacentHTML('beforeend', header);
+                messageDiv.appendChild(bodyDiv);
 
-                    messageDiv.innerHTML = headerWithToggle + body;
+                // Store the user request part as the prompt for reuse
+                content = userRequest;
+                messageDiv.setAttribute('data-prompt', content);
 
-                    // Store the user request part as the prompt for reuse
-                    content = userRequest;
-                    messageDiv.setAttribute('data-prompt', content);
+                this.messagesContainer.appendChild(messageDiv);
+                this.messagesContainer.scrollTop =
+                    this.messagesContainer.scrollHeight;
+                this.scrollToBottom();
 
-                    this.messagesContainer.appendChild(messageDiv);
-                    this.messagesContainer.scrollTop =
-                        this.messagesContainer.scrollHeight;
-                    this.scrollToBottom();
-
-                    return messageDiv;
-                } else {
-                    body = `<div class="ai-message-content">${this.escapeHtml(content)}</div>`;
-                }
-            } else if (role === 'error') {
-                // Error messages use markdown formatting for code blocks
-                body = `<div class="ai-markdown-explanation">${this.formatMarkdown(content)}</div>`;
-            } else if (role === 'assistant') {
-                // Assistant messages use markdown formatting
-                body = `<div class="ai-markdown-explanation">${this.formatMarkdown(content)}</div>`;
+                return messageDiv;
             } else {
                 body = `<div class="ai-message-content">${this.escapeHtml(content)}</div>`;
             }
+        } else if (role === 'error') {
+            // Error messages use markdown formatting for code blocks
+            body = `<div class="ai-markdown-explanation">${this.formatMarkdown(content)}</div>`;
+        } else if (role === 'assistant') {
+            // Assistant messages use markdown formatting
+            body = `<div class="ai-markdown-explanation">${this.formatMarkdown(content)}</div>`;
+        } else {
+            body = `<div class="ai-message-content">${this.escapeHtml(content)}</div>`;
         }
 
         messageDiv.innerHTML = header + body;
@@ -1229,159 +1403,44 @@ class AIAssistant {
         const messageDiv = document.createElement('div');
         messageDiv.className = 'ai-message ai-message-output';
 
-        // Generate unique IDs
-        const codeId =
-            'code-' + Date.now() + Math.random().toString(36).substr(2, 9);
-        const btnId =
-            'btn-' + Date.now() + Math.random().toString(36).substr(2, 9);
-        const runBtnId =
-            'run-' + Date.now() + Math.random().toString(36).substr(2, 9);
-        const openBtnId =
-            'open-' + Date.now() + Math.random().toString(36).substr(2, 9);
+        const header = this.createMessageHeader('assistant');
 
-        // Create toggle link for code visibility
-        const codeToggleHtml = `<span class="ai-code-toggle-link" id="${btnId}" onclick="
-            const code = document.getElementById('${codeId}');
-            const btn = document.getElementById('${btnId}');
-            code.classList.toggle('collapsed');
-            if (code.classList.contains('collapsed')) {
-                btn.textContent = '▶ Show Code';
-            } else {
-                btn.textContent = '▼ Hide Code';
-            }
-        ">▶ Show Code</span>`;
+        const bodyDiv = document.createElement('div');
+        bodyDiv.className = 'ai-output-with-code';
 
-        const header = this.createMessageHeader('assistant', {
-            rightContent: codeToggleHtml
-        });
-
-        // Show appropriate buttons based on context
-        let buttonContainerHtml = '';
-        if (this.context === 'script') {
-            // Script context: show both Review Changes and Open in Script Editor buttons
-            const directOpenBtnId =
-                'direct-open-' +
-                Date.now() +
-                Math.random().toString(36).substr(2, 9);
-            buttonContainerHtml = `
-                <div class="ai-button-group">
-                    <button class="ai-btn ai-review-changes-btn" id="${openBtnId}" title="${window.translations.ai.buttons.reviewChanges.title}"><span class="material-symbols-outlined">visibility</span>${window.translations.ai.buttons.reviewChanges.text}</button>
-                    <button class="ai-btn ai-open-in-editor-btn" id="${directOpenBtnId}" title="${window.translations.ai.buttons.openInEditor.title}"><span class="material-symbols-outlined">edit</span>${window.translations.ai.buttons.openInEditor.text}</button>
-                </div>`;
-        } else if (this.context === 'glyphfilter') {
-            // Glyph filter context: no buttons - code is auto-saved to file
-            buttonContainerHtml = '';
-        } else if (showRunButton) {
-            // Font context: show both buttons
-            buttonContainerHtml = `
-                <div class="ai-button-group">
-                    <button class="ai-btn ai-open-in-editor-btn" id="${openBtnId}" title="${window.translations.ai.buttons.openInEditor.title}"><span class="material-symbols-outlined">edit</span>${window.translations.ai.buttons.openInEditor.text}</button>
-                    <button class="ai-btn ai-run-in-console-btn" id="${runBtnId}"><span class="material-symbols-outlined">play_arrow</span>Run in Console</button>
-                </div>`;
-        }
+        // Inline scrolling code block with label
+        const codeBlock = new ScrollingCodeBlock(bodyDiv, 'Python Input');
+        codeBlock.appendText(code);
+        codeBlock.finalize();
 
         // Show markdown explanation if present
-        const markdownHtml =
-            markdownText && markdownText.trim()
-                ? `<div class="ai-markdown-explanation">${this.formatMarkdown(markdownText)}</div>`
-                : '';
+        if (markdownText && markdownText.trim()) {
+            const markdownDiv = document.createElement('div');
+            markdownDiv.className = 'ai-markdown-explanation';
+            markdownDiv.innerHTML = this.formatMarkdown(markdownText);
+            bodyDiv.appendChild(markdownDiv);
+        }
 
         // Show Python output if present
-        const outputHtml =
-            output && output.trim()
-                ? `<div class="ai-python-output">${this.escapeHtml(output)}</div>`
-                : '';
+        if (output && output.trim()) {
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'ai-code-block-label';
+            labelDiv.textContent = 'Python Output';
+            bodyDiv.appendChild(labelDiv);
 
-        const body = `
-            <div class="ai-output-with-code">
-                <pre class="ai-code collapsed" id="${codeId}"><code>${this.escapeHtml(code)}</code></pre>
-                ${markdownHtml}
-                ${outputHtml}
-                ${buttonContainerHtml}
-            </div>`;
+            const outputDiv = document.createElement('div');
+            outputDiv.className = 'ai-python-output';
+            outputDiv.textContent = output;
+            bodyDiv.appendChild(outputDiv);
+        }
 
-        messageDiv.innerHTML = header + body;
+        messageDiv.insertAdjacentHTML('beforeend', header);
+        messageDiv.appendChild(bodyDiv);
         this.messagesContainer.appendChild(messageDiv);
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
-        // Add event listeners for buttons if they exist
-        const openBtn = document.getElementById(openBtnId);
-        if (openBtn) {
-            if (this.context === 'script') {
-                // In script context, this is the Review Changes button
-                openBtn.addEventListener('click', (event: Event) => {
-                    event.stopPropagation(); // Prevent view focus
-                    this.showDiffReview(code, markdownText);
-                });
-            } else if (this.context !== 'glyphfilter') {
-                // In font context, open directly in editor
-                openBtn.addEventListener('click', (event: Event) => {
-                    event.stopPropagation(); // Prevent view focus
-                    this.openCodeInEditor(code);
-                });
-            }
-        }
-
-        // Handle direct open button in script context
-        if (this.context === 'script') {
-            const directOpenBtnId = messageDiv.querySelector(
-                '.ai-button-group .ai-open-in-editor-btn'
-            )?.id;
-            const directOpenBtn = directOpenBtnId
-                ? document.getElementById(directOpenBtnId)
-                : null;
-            if (directOpenBtn) {
-                directOpenBtn.addEventListener('click', (event: Event) => {
-                    event.stopPropagation(); // Prevent view focus
-                    this.openCodeInEditor(code);
-                });
-            }
-        }
-
-        if (
-            showRunButton &&
-            this.context !== 'script' &&
-            this.context !== 'glyphfilter'
-        ) {
-            const runBtn = document.getElementById(runBtnId);
-            if (runBtn) {
-                const runButton = runBtn as HTMLButtonElement;
-                runBtn.addEventListener('click', async (event: Event) => {
-                    event.stopPropagation(); // Prevent view focus
-                    runButton.disabled = true;
-                    runButton.innerHTML =
-                        '<span class="material-symbols-outlined">hourglass_empty</span>Running...';
-                    try {
-                        await this.runCodeInConsole(code);
-                        runButton.innerHTML =
-                            '<span class="material-symbols-outlined">check_circle</span>Executed';
-                        setTimeout(() => {
-                            runButton.innerHTML =
-                                '<span class="material-symbols-outlined">play_arrow</span>Run in Console';
-                            this.updateButtonShortcuts();
-                            runButton.disabled = false;
-                        }, 2000);
-                    } catch (error) {
-                        console.error(
-                            '[AIAssistant]',
-                            'Error running code in console:',
-                            error
-                        );
-                        runButton.innerHTML =
-                            '<span class="material-symbols-outlined">error</span>Error';
-                        setTimeout(() => {
-                            runButton.innerHTML =
-                                '<span class="material-symbols-outlined">play_arrow</span>Run in Console';
-                            this.updateButtonShortcuts();
-                            runButton.disabled = false;
-                        }, 2000);
-                    }
-                });
-            }
-        }
-
-        // Update which buttons show shortcuts (only the last ones)
-        this.updateButtonShortcuts();
+        // Add action buttons
+        this._addActionButtons(messageDiv, code, markdownText);
 
         // Scroll the view-content to bottom
         this.scrollToBottom();
@@ -1906,13 +1965,13 @@ ${errorTraceback}
         this.showTypingIndicator();
 
         try {
-            await this.executeWithRetry(prompt, 0);
+            await this.streamClaude(prompt);
         } catch (error) {
             const errorMessage =
                 error instanceof Error ? error.message : String(error);
             this.addMessage(
                 'error',
-                `Failed after ${this.maxRetries} attempts: ${errorMessage}`
+                `Failed: ${errorMessage}`
             );
         } finally {
             // Hide typing indicator
@@ -1922,6 +1981,359 @@ ${errorTraceback}
             this.sendButton.disabled = false;
             this.autoResizeTextarea();
             this.promptInput.focus();
+        }
+    }
+
+    async streamClaude(userPrompt: string) {
+        // Get current script content if in script/glyphfilter mode
+        let currentScript: string | null = null;
+        if (
+            this.context === 'script' &&
+            window.scriptEditor &&
+            window.scriptEditor.editor
+        ) {
+            currentScript = window.scriptEditor.editor.getValue();
+        } else if (this.context === 'glyphfilter' && this.sessionManager) {
+            const linkedFilePath = this.sessionManager.getLinkedFilePath();
+            if (linkedFilePath) {
+                try {
+                    currentScript = await this.readGlyphFilterFile(linkedFilePath);
+                } catch (error) {
+                    console.error(
+                        '[AIAssistant] Failed to read glyph filter file:',
+                        error
+                    );
+                }
+            }
+        }
+
+        let fullPrompt = userPrompt;
+        if (
+            currentScript &&
+            currentScript.trim() &&
+            !userPrompt.includes(currentScript.substring(0, 100))
+        ) {
+            fullPrompt = `Current script in editor:\n\`\`\`python\n${currentScript}\n\`\`\`\n\nUser request: ${userPrompt}`;
+        }
+
+        const sessionToken = window.authManager
+            ? window.authManager.getSessionToken()
+            : null;
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        };
+        if (sessionToken) {
+            headers['Authorization'] = `Bearer ${sessionToken}`;
+        }
+
+        const editorVersion = process.env.EDITOR_VERSION;
+        if (editorVersion) {
+            headers['X-Editor-Version'] = editorVersion;
+        }
+
+        const selectedModel =
+            this.selectedModelId || 'claude-sonnet-4-5-20250929';
+        const chatId = this.sessionManager
+            ? this.sessionManager.currentChatId
+            : null;
+
+        const response = await fetch(`${this.websiteURL}/api/ai/assistant`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: headers,
+            body: JSON.stringify({
+                prompt: fullPrompt,
+                chatId: chatId,
+                context: currentScript,
+                contextType: this.context,
+                model: selectedModel,
+                stream: true
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            if (response.status === 401) {
+                if (
+                    confirm(
+                        'You need to sign in to use the AI assistant. Sign in now?'
+                    )
+                ) {
+                    window.authManager.login();
+                }
+                throw new Error('Authentication required');
+            } else if (response.status === 403) {
+                throw new Error(
+                    errorData.error || 'Active subscription required'
+                );
+            } else if (response.status === 402) {
+                throw new Error(errorData.message || 'Insufficient credits');
+            } else if (response.status === 429) {
+                throw new Error(
+                    'Rate limit exceeded. Please try again later.'
+                );
+            }
+            throw new Error(
+                `API error: ${errorData.error || errorData.message || response.statusText}`
+            );
+        }
+
+        if (!response.body) {
+            throw new Error('No response body');
+        }
+
+        const renderer = new StreamingMarkdownRenderer(this.messagesContainer);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let doneData: any = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data: ')) continue;
+                const data = trimmed.slice(6);
+                if (!data) continue;
+
+                try {
+                    const event = JSON.parse(data);
+                    if (event.type === 'chunk' && event.content) {
+                        renderer.appendChunk(event.content);
+                    } else if (event.type === 'done') {
+                        doneData = event;
+                    } else if (event.type === 'error') {
+                        throw new Error(event.error || 'Stream error');
+                    }
+                } catch (_e) {
+                    // ignore parse errors on individual lines
+                }
+            }
+        }
+
+        if (buffer.trim()) {
+            for (const line of buffer.split('\n')) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data: ')) continue;
+                const data = trimmed.slice(6);
+                if (!data) continue;
+                try {
+                    const event = JSON.parse(data);
+                    if (event.type === 'chunk' && event.content) {
+                        renderer.appendChunk(event.content);
+                    } else if (event.type === 'done') {
+                        doneData = event;
+                    }
+                } catch (_e) {
+                    // ignore
+                }
+            }
+        }
+
+        renderer.finalize();
+
+        if (doneData) {
+            if (doneData.chatId && this.sessionManager) {
+                this.sessionManager.currentChatId = doneData.chatId;
+                this.sessionManager.isContextLocked = true;
+                if (
+                    this.context === 'glyphfilter' &&
+                    this.sessionManager.linkedFilePath
+                ) {
+                    this.sessionManager.setLinkedFilePath(
+                        this.sessionManager.linkedFilePath
+                    );
+                }
+            }
+            if (doneData.chatHistory && this.sessionManager) {
+                this.sessionManager.updateChatHistory(doneData.chatHistory);
+            }
+            if (doneData.usage) {
+                console.log('[AIAssistant]', 'Usage:', doneData.usage);
+            }
+        }
+
+        const fullResponse = renderer.getFullText();
+        let pythonCode = '';
+        let markdownText = fullResponse;
+
+        const codeBlockRegex = /```python\s*\n([\s\S]*?)```/g;
+        const matches = fullResponse.matchAll(codeBlockRegex);
+        for (const match of matches) {
+            pythonCode += match[1];
+        }
+
+        if (!pythonCode.trim()) {
+            const genericCodeBlockRegex = /```\s*\n([\s\S]*?)```/g;
+            const genericMatches = fullResponse.matchAll(genericCodeBlockRegex);
+            for (const match of genericMatches) {
+                pythonCode += match[1];
+            }
+        }
+
+        pythonCode = pythonCode.trim();
+        markdownText = markdownText
+            .replace(/```python\s*\n[\s\S]*?```/g, '')
+            .replace(/```\s*\n[\s\S]*?```/g, '')
+            .trim();
+
+        this.conversationHistory.push({
+            role: 'user',
+            content: fullPrompt
+        });
+        this.conversationHistory.push({
+            role: 'assistant',
+            content: fullResponse
+        });
+        if (this.conversationHistory.length > 20) {
+            this.conversationHistory = this.conversationHistory.slice(-20);
+        }
+
+        this.addReuseButtonsToOldMessages();
+
+        const hasCode = pythonCode && pythonCode.trim().length > 0;
+        if (!hasCode) {
+            return;
+        }
+
+        this._addActionButtons(renderer.messageDiv, pythonCode, markdownText);
+
+        if (this.context === 'glyphfilter' && this.sessionManager) {
+            const linkedFilePath = this.sessionManager.getLinkedFilePath();
+            if (linkedFilePath) {
+                await this.saveCodeToFile(pythonCode, linkedFilePath);
+            }
+        }
+
+        if (this.context === 'script' || this.context === 'glyphfilter') {
+            return;
+        }
+
+        if (this.autoRun) {
+            try {
+                const output = await this.executePython(pythonCode);
+                if (output && output.trim()) {
+                    const labelDiv = document.createElement('div');
+                    labelDiv.className = 'ai-code-block-label';
+                    labelDiv.textContent = 'Python Output';
+                    renderer.messageDiv.appendChild(labelDiv);
+
+                    const outputDiv = document.createElement('div');
+                    outputDiv.className = 'ai-python-output';
+                    outputDiv.textContent = output;
+                    renderer.messageDiv.appendChild(outputDiv);
+                    this.scrollToBottom();
+                }
+            } catch (error) {
+                const errorMessage =
+                    error instanceof Error ? error.message : String(error);
+                const cleanedError =
+                    error instanceof Error &&
+                    error.constructor?.name === 'PythonError'
+                        ? window.cleanPythonTraceback(errorMessage)
+                        : errorMessage;
+
+                this.addMessage(
+                    'error',
+                    `The script encountered an error during execution:\n\n\`\`\`\n${cleanedError}\n\`\`\``
+                );
+
+                this.addMessage(
+                    'system',
+                    `Retrying (attempt 2/${this.maxRetries})...`
+                );
+                await this.executeWithRetry(userPrompt, 1, cleanedError);
+            }
+        }
+    }
+
+    _addActionButtons(
+        messageDiv: HTMLElement,
+        code: string,
+        markdownText: string
+    ) {
+        const buttonGroup = document.createElement('div');
+        buttonGroup.className = 'ai-button-group';
+
+        if (this.context === 'script') {
+            const reviewBtn = document.createElement('button');
+            reviewBtn.className = 'ai-btn ai-review-changes-btn';
+            reviewBtn.innerHTML = `<span class="material-symbols-outlined">visibility</span>${window.translations.ai.buttons.reviewChanges.text}`;
+            reviewBtn.title = window.translations.ai.buttons.reviewChanges.title;
+            reviewBtn.addEventListener('click', (event: Event) => {
+                event.stopPropagation();
+                this.showDiffReview(code, markdownText);
+            });
+            buttonGroup.appendChild(reviewBtn);
+
+            const openBtn = document.createElement('button');
+            openBtn.className = 'ai-btn ai-open-in-editor-btn';
+            openBtn.innerHTML = `<span class="material-symbols-outlined">edit</span>${window.translations.ai.buttons.openInEditor.text}`;
+            openBtn.title = window.translations.ai.buttons.openInEditor.title;
+            openBtn.addEventListener('click', (event: Event) => {
+                event.stopPropagation();
+                this.openCodeInEditor(code);
+            });
+            buttonGroup.appendChild(openBtn);
+        } else if (this.context !== 'glyphfilter') {
+            const openBtn = document.createElement('button');
+            openBtn.className = 'ai-btn ai-open-in-editor-btn';
+            openBtn.innerHTML = `<span class="material-symbols-outlined">edit</span>${window.translations.ai.buttons.openInEditor.text}`;
+            openBtn.title = window.translations.ai.buttons.openInEditor.title;
+            openBtn.addEventListener('click', (event: Event) => {
+                event.stopPropagation();
+                this.openCodeInEditor(code);
+            });
+            buttonGroup.appendChild(openBtn);
+
+            const runBtn = document.createElement('button');
+            runBtn.className = 'ai-btn ai-run-in-console-btn';
+            runBtn.innerHTML = `<span class="material-symbols-outlined">play_arrow</span>Run in Console`;
+            runBtn.addEventListener('click', async (event: Event) => {
+                event.stopPropagation();
+                runBtn.disabled = true;
+                runBtn.innerHTML =
+                    '<span class="material-symbols-outlined">hourglass_empty</span>Running...';
+                try {
+                    await this.runCodeInConsole(code);
+                    runBtn.innerHTML =
+                        '<span class="material-symbols-outlined">check_circle</span>Executed';
+                    setTimeout(() => {
+                        runBtn.innerHTML =
+                            '<span class="material-symbols-outlined">play_arrow</span>Run in Console';
+                        this.updateButtonShortcuts();
+                        runBtn.disabled = false;
+                    }, 2000);
+                } catch (error) {
+                    console.error(
+                        '[AIAssistant]',
+                        'Error running code in console:',
+                        error
+                    );
+                    runBtn.innerHTML =
+                        '<span class="material-symbols-outlined">error</span>Error';
+                    setTimeout(() => {
+                        runBtn.innerHTML =
+                            '<span class="material-symbols-outlined">play_arrow</span>Run in Console';
+                        this.updateButtonShortcuts();
+                        runBtn.disabled = false;
+                    }, 2000);
+                }
+            });
+            buttonGroup.appendChild(runBtn);
+        }
+
+        if (buttonGroup.children.length > 0) {
+            messageDiv.appendChild(buttonGroup);
+            this.updateButtonShortcuts();
+            this.scrollToBottom();
         }
     }
 
@@ -2138,7 +2550,8 @@ ${errorTraceback}
                 chatId: chatId,
                 context: currentScript,
                 contextType: this.context,
-                model: selectedModel
+                model: selectedModel,
+                stream: false
             })
         });
 
