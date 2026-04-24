@@ -1,5 +1,9 @@
 # Unreleased
 
+- **Add items here** for the next release (Replace this comment)
+
+# v0.2.1
+
 - **Intermediate Layers and Reinterpolation**: Implemented intermediate layer insertion and deletion together with normal layer reinterpolation flows in the editor.
 - **Outline Editing**: Implemented basic outline editing as well as adding nodes to curve and line segments with alt+click complete with preview, and deleting nodes. No drawing new paths yet.
 - **Sidebearing Arithmetics**: Added metrics-key editing for left and right sidebearings in the editor property panel, including numeric values, glyph references, local `==` overrides, mirrored references, `@height` measurements, and automatic component offsets. Dependent glyph spacing now recomputes in one batch with synchronized canvas, overview, and editing-font refreshes. The object model now exposes Glyphs-style `leftMetricsKey` and `rightMetricsKey` accessors on glyphs and layers, and the user documentation now includes a dedicated guide to sidebearing arithmetics.
