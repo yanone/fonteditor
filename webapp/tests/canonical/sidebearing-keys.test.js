@@ -346,6 +346,24 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
     test('dragging a sidebearing on glyph l updates downstream glyph n width', () => {
         const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
         const { glyph, layer, masterId } = setupCanvasForGlyph(font, 'l');
+        canvas.textRunEditor.glyphNameBuffer = ['l', 'n', 'a'];
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: layer.width, dx: 0, dy: 0, g: 0, cl: 0 },
+            {
+                ax: font.findGlyph('n').findLayerByMasterId(masterId).width,
+                dx: 0,
+                dy: 0,
+                g: 0,
+                cl: 1
+            },
+            {
+                ax: font.findGlyph('a').findLayerByMasterId(masterId).width,
+                dx: 0,
+                dy: 0,
+                g: 0,
+                cl: 2
+            }
+        ];
 
         // n has metricLeft = "=l-5" and metricRight = "=l-10"
         // Changing l's width should cascade to n, and from n possibly to a
@@ -375,6 +393,39 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
         expect(advancesCall).toHaveProperty('l');
         expect(advancesCall).toHaveProperty('n');
         expect(advancesCall).toHaveProperty('a');
+    });
+
+    test('sidebearing drag defers hidden downstream glyphs until final recompute', () => {
+        const font = Font.fromData(loadFontFixture('metricskeys.glyphs'));
+        const { layer, masterId } = setupCanvasForGlyph(font, 'l');
+        canvas.textRunEditor.glyphNameBuffer = ['l'];
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: layer.width, dx: 0, dy: 0, g: 0, cl: 0 }
+        ];
+
+        const nLayer = font.findGlyph('n').findLayerByMasterId(masterId);
+        const nWidthBefore = nLayer.width;
+
+        canvas.outlineEditor.isDraggingSidebearing = true;
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'right',
+            editable: true
+        };
+
+        canvas.outlineEditor._updateDraggedSidebearing(17);
+
+        expect(nLayer.width).toBe(nWidthBefore);
+        const liveAdvances =
+            canvas.textRunEditor.refreshGlyphAdvancesLive.mock.calls[0][0];
+        expect(liveAdvances).toHaveProperty('l');
+        expect(liveAdvances).not.toHaveProperty('n');
+
+        canvas.outlineEditor.isDraggingSidebearing = false;
+        const finalUpdate =
+            canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer(false);
+
+        expect(nLayer.width).not.toBe(nWidthBefore);
+        expect(finalUpdate.affectedGlyphNames.has('n')).toBe(true);
     });
 
     test('point drag on glyph with LEFT sidebearing key keeps the right edge anchored', () => {
@@ -447,7 +498,7 @@ describe('Sidebearing keys: live recompute during mouse drags', () => {
 
         canvas.outlineEditor.applyMetricsKeysToCurrentEditedLayer();
 
-        expect(fullRecomputeSpy).toHaveBeenCalledWith(new Set(['n']));
+        expect(fullRecomputeSpy).toHaveBeenCalledWith(new Set(['n']), {});
         fullRecomputeSpy.mockRestore();
     });
 

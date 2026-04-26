@@ -535,6 +535,117 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
+    test('sidebearing mouseup recomputes complete cascade before YDoc target collection', () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const targets = [
+            { glyphName: 'l', layerId: 'layer-1' },
+            { glyphName: 'n', layerId: 'layer-1' },
+            { glyphName: 'a', layerId: 'layer-1' }
+        ];
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockImplementation(() => {});
+        const applyMetricsSpy = jest
+            .spyOn(canvas.outlineEditor, 'applyMetricsKeysToCurrentEditedLayer')
+            .mockReturnValue({
+                glyphName: 'l',
+                nextWidth: 540,
+                glyphAdvances: {},
+                advancesRefreshed: false,
+                affectedGlyphNames: new Set(['l', 'n', 'a'])
+            });
+        const collectTargetsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'collectMatchingLayerWorkerReplayTargets'
+            )
+            .mockReturnValue(targets);
+        const syncSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+        const getSidebearingSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentDirectSidebearing')
+            .mockReturnValue(20);
+        const syncDependentsSpy = jest
+            .spyOn(
+                canvas.outlineEditor,
+                'syncDependentGlyphsAfterSidebearingEdit'
+            )
+            .mockImplementation(() => {});
+        const glyphModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentGlyphModel')
+            .mockReturnValue({ name: 'l' });
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.selectedSidebearingHandle = {
+                side: 'right',
+                editable: true
+            };
+            canvas.outlineEditor.layerData = {
+                width: 540,
+                shapes: [],
+                anchors: []
+            };
+            canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+                { glyphName: 'l' }
+            ]);
+            canvas.getCurrentGlyphName = jest.fn(() => 'l');
+            canvas.outlineEditor.isDraggingSidebearing = true;
+            canvas.outlineEditor._dragType = 'sidebearing';
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor._preDragDesc = 'RSB: 10';
+            canvas.outlineEditor._metricsKeyEditedSide = 'right';
+            canvas.outlineEditor._sidebearingAffectedGlyphNames = new Set([
+                'l'
+            ]);
+
+            canvas.outlineEditor.onMouseUp({ clientX: 10, clientY: 20 });
+
+            expect(applyMetricsSpy).toHaveBeenCalledWith(true, {
+                rebuildAutomaticComposites: true
+            });
+            expect(collectTargetsSpy).toHaveBeenCalledWith(
+                expect.any(Set),
+                'layer-1'
+            );
+            const collectedGlyphNames = collectTargetsSpy.mock.calls[0][0];
+            expect([...collectedGlyphNames].sort()).toEqual(['a', 'l', 'n']);
+            expect(syncSpy).toHaveBeenCalledWith(
+                'Set RSB',
+                'RSB: 10',
+                'RIGHT RIGHT 20',
+                'right',
+                targets,
+                targets
+            );
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            glyphModelSpy.mockRestore();
+            syncDependentsSpy.mockRestore();
+            getSidebearingSpy.mockRestore();
+            syncSpy.mockRestore();
+            collectTargetsSpy.mockRestore();
+            applyMetricsSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
     test('point drag that returns to original position does not sync to YDoc', () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
@@ -2778,6 +2889,26 @@ describe('GlyphCanvas sidebearing handle movement', () => {
         canvas.outlineEditor.selectedLayerId = layer.id;
         canvas.outlineEditor.parseGlyphStack = jest.fn(() => [{ glyphName }]);
         canvas.getCurrentGlyphName = jest.fn(() => glyphName);
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.glyphNameBuffer = [
+            'l',
+            'n',
+            'a',
+            'adieresis',
+            'aring'
+        ];
+        canvas.textRunEditor.shapedGlyphs =
+            canvas.textRunEditor.glyphNameBuffer.map(
+                (visibleGlyphName, index) => ({
+                    ax: font
+                        .findGlyph(visibleGlyphName)
+                        .findLayerByMasterId(masterId).width,
+                    dx: 0,
+                    dy: 0,
+                    g: index,
+                    cl: index
+                })
+            );
         canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
         canvas.outlineEditor.selectedSidebearingHandle = {
             side: 'right',
@@ -2797,9 +2928,98 @@ describe('GlyphCanvas sidebearing handle movement', () => {
                 a: font.findGlyph('a').findLayerByMasterId(masterId).width,
                 adieresis: font
                     .findGlyph('adieresis')
-                    .findLayerByMasterId(masterId).width,
-                aring: font.findGlyph('aring').findLayerByMasterId(masterId)
-                    .width
+                    .findLayerByMasterId(masterId).width
+            },
+            { render: false }
+        );
+    });
+
+    test('sidebearing drag resolves visible dependent advances through matching layer ids', () => {
+        const dependentLayer = {
+            width: 777
+        };
+        const sourceLayer = {
+            width: 520,
+            master: { master: 'master-1' },
+            toJSON: jest.fn(() => ({
+                width: 520,
+                height: 0,
+                vertWidth: 0,
+                shapes: [],
+                anchors: [],
+                guides: []
+            })),
+            invalidateShapeCache: jest.fn(),
+            getMatchingLayerOnGlyph: jest.fn((glyphName) =>
+                glyphName === 'dependent' ? dependentLayer : undefined
+            )
+        };
+        const sourceGlyph = {
+            findLayerById: jest.fn((layerId) =>
+                layerId === 'active-brace-layer' ? sourceLayer : undefined
+            )
+        };
+        const dependentGlyph = {
+            findLayerById: jest.fn(() => undefined),
+            findLayerByMasterId: jest.fn(() => undefined)
+        };
+        const fontModel = {
+            findGlyph: jest.fn((glyphName) => {
+                if (glyphName === 'active') {
+                    return sourceGlyph;
+                }
+                if (glyphName === 'dependent') {
+                    return dependentGlyph;
+                }
+                return undefined;
+            }),
+            recomputeMetricsKeys: jest.fn(() => new Set(['dependent']))
+        };
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel });
+
+        canvas.outlineEditor.layerData = {
+            width: 520,
+            height: 0,
+            vertWidth: 0,
+            shapes: [],
+            anchors: [],
+            guides: [],
+            isInterpolated: false
+        };
+        canvas.outlineEditor.selectedLayerId = 'active-brace-layer';
+        canvas.outlineEditor.parseGlyphStack = jest.fn(() => [
+            { glyphName: 'active' }
+        ]);
+        canvas.getCurrentGlyphName = jest.fn(() => 'active');
+        canvas.textRunEditor.refreshGlyphAdvancesLive = jest.fn(() => true);
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.glyphNameBuffer = ['active', 'dependent'];
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 500, dx: 0, dy: 0, g: 0, cl: 0 },
+            { ax: 600, dx: 0, dy: 0, g: 1, cl: 1 }
+        ];
+        canvas.outlineEditor.selectedSidebearingHandle = {
+            side: 'right',
+            editable: true
+        };
+        canvas.outlineEditor.isDraggingSidebearing = true;
+        window.changeBridge = null;
+
+        canvas.outlineEditor._updateDraggedSidebearing(20);
+
+        expect(sourceLayer.getMatchingLayerOnGlyph).toHaveBeenCalledWith(
+            'dependent'
+        );
+        expect(
+            canvas.textRunEditor.refreshGlyphAdvancesLive
+        ).toHaveBeenCalledWith(
+            {
+                active: 520,
+                dependent: 777
             },
             { render: false }
         );

@@ -3505,15 +3505,30 @@ export class OutlineEditor {
             return {};
         }
 
+        const uniqueGlyphNames = Array.from(
+            new Set(
+                Array.from(glyphNames || []).filter(
+                    (glyphName): glyphName is string =>
+                        typeof glyphName === 'string' && glyphName.length > 0
+                )
+            )
+        );
+        const sourceLayer = uniqueGlyphNames
+            .map((glyphName) =>
+                fontModel.findGlyph(glyphName)?.findLayerById(layerId)
+            )
+            .find((layer) => layer !== undefined);
+
         const glyphAdvances: Record<string, number> = {};
-        for (const glyphName of glyphNames) {
-            if (!glyphName || glyphName in glyphAdvances) {
+        for (const glyphName of uniqueGlyphNames) {
+            if (glyphName in glyphAdvances) {
                 continue;
             }
 
             const glyph = fontModel.findGlyph(glyphName);
             const layer =
                 glyph?.findLayerById(layerId) ||
+                sourceLayer?.getMatchingLayerOnGlyph?.(glyphName) ||
                 (masterId ? glyph?.findLayerByMasterId(masterId) : undefined);
             if (!layer || !Number.isFinite(layer.width)) {
                 continue;
@@ -3541,18 +3556,47 @@ export class OutlineEditor {
 
     private recomputeMetricsKeysForGlyph(
         glyphName: string | null | undefined,
-        options?: { allowedGlyphNames?: Set<string> }
+        options?: {
+            allowedGlyphNames?: Set<string>;
+            skipAutomaticCompositeRebuild?: boolean;
+            seedGlyphNames?: Set<string>;
+        }
     ): Set<string> {
         const fontModel = fontManager.currentFont?.fontModel;
-        if (!glyphName || glyphName === 'undefined' || !fontModel) {
+        if (!fontModel) {
             return new Set();
         }
 
-        const affectedGlyphNames = new Set<string>([glyphName]);
+        const seedGlyphNames = new Set(
+            Array.from(options?.seedGlyphNames || [glyphName]).filter(
+                (candidateGlyphName): candidateGlyphName is string =>
+                    typeof candidateGlyphName === 'string' &&
+                    candidateGlyphName.length > 0 &&
+                    candidateGlyphName !== 'undefined'
+            )
+        );
+        if (seedGlyphNames.size === 0) {
+            return new Set();
+        }
+
+        const affectedGlyphNames = new Set<string>(seedGlyphNames);
         const recompute = () => {
-            const recomputedGlyphNames = options
-                ? fontModel.recomputeMetricsKeys(new Set([glyphName]), options)
-                : fontModel.recomputeMetricsKeys(new Set([glyphName]));
+            const recomputedGlyphNames = fontModel.recomputeMetricsKeys(
+                seedGlyphNames,
+                options
+                    ? {
+                          ...(options.allowedGlyphNames
+                              ? {
+                                    allowedGlyphNames:
+                                        options.allowedGlyphNames
+                                }
+                              : undefined),
+                          ...(options.skipAutomaticCompositeRebuild
+                              ? { skipAutomaticCompositeRebuild: true }
+                              : undefined)
+                      }
+                    : undefined
+            );
 
             for (const recomputedGlyphName of recomputedGlyphNames) {
                 affectedGlyphNames.add(recomputedGlyphName);
@@ -3571,7 +3615,10 @@ export class OutlineEditor {
 
     private applyMetricsKeysToCurrentEditedLayer(
         refreshGlyphAdvances: boolean = true,
-        options?: { useVisibleDragScope?: boolean }
+        options?: {
+            useVisibleDragScope?: boolean;
+            rebuildAutomaticComposites?: boolean;
+        }
     ): {
         glyphName: string;
         nextWidth: number;
@@ -3630,14 +3677,99 @@ export class OutlineEditor {
         layerModel.invalidateShapeCache();
 
         const allowedGlyphNames = options?.useVisibleDragScope
-            ? this.getVisibleGlyphNamesForDragMetricsRefresh(glyphName)
+            ? new Set([
+                  ...this.getVisibleGlyphNamesForDragMetricsRefresh(glyphName),
+                  ...(typeof fontModel.findGlyphsUsingComponent ===
+                  'function'
+                      ? fontManager.getAutomaticCompositionDragScopeGlyphNames(
+                            glyphName,
+                            fontModel
+                        )
+                      : [])
+              ])
             : undefined;
+        const extendAutomaticCompositionDragScope = (
+            sourceGlyphNames: Iterable<string>
+        ): boolean => {
+            if (
+                !allowedGlyphNames ||
+                typeof fontModel.findGlyphsUsingComponent !== 'function'
+            ) {
+                return false;
+            }
+
+            const sizeBefore = allowedGlyphNames.size;
+            for (const sourceGlyphName of sourceGlyphNames) {
+                if (
+                    typeof sourceGlyphName !== 'string' ||
+                    !sourceGlyphName.length
+                ) {
+                    continue;
+                }
+
+                for (const scopedGlyphName of fontManager.getAutomaticCompositionDragScopeGlyphNames(
+                    sourceGlyphName,
+                    fontModel
+                )) {
+                    allowedGlyphNames.add(scopedGlyphName);
+                }
+            }
+
+            return allowedGlyphNames.size > sizeBefore;
+        };
         const affectedGlyphNames = new Set<string>([glyphName]);
+        const seedGlyphNames = new Set<string>([glyphName]);
+
+        if (options?.rebuildAutomaticComposites) {
+            for (const affectedGlyphName of this.rebuildAutomaticCompositesForCurrentEditedGlyph(
+                allowedGlyphNames ? { allowedGlyphNames } : undefined
+            )) {
+                affectedGlyphNames.add(affectedGlyphName);
+                seedGlyphNames.add(affectedGlyphName);
+            }
+        }
+
         for (const affectedGlyphName of this.recomputeMetricsKeysForGlyph(
             glyphName,
-            allowedGlyphNames ? { allowedGlyphNames } : undefined
+            {
+                ...(allowedGlyphNames ? { allowedGlyphNames } : undefined),
+                ...(options?.rebuildAutomaticComposites
+                    ? {
+                          skipAutomaticCompositeRebuild: true,
+                          seedGlyphNames
+                      }
+                    : undefined)
+            }
         )) {
             affectedGlyphNames.add(affectedGlyphName);
+        }
+
+        if (
+            options?.rebuildAutomaticComposites &&
+            extendAutomaticCompositionDragScope(affectedGlyphNames)
+        ) {
+            const expandedSeedGlyphNames = new Set<string>(affectedGlyphNames);
+
+            for (const affectedGlyphName of this.rebuildAutomaticCompositesForCurrentEditedGlyph(
+                {
+                    ...(allowedGlyphNames ? { allowedGlyphNames } : undefined),
+                    changedGlyphNames: affectedGlyphNames
+                }
+            )) {
+                affectedGlyphNames.add(affectedGlyphName);
+                expandedSeedGlyphNames.add(affectedGlyphName);
+            }
+
+            for (const affectedGlyphName of this.recomputeMetricsKeysForGlyph(
+                glyphName,
+                {
+                    ...(allowedGlyphNames ? { allowedGlyphNames } : undefined),
+                    skipAutomaticCompositeRebuild: true,
+                    seedGlyphNames: expandedSeedGlyphNames
+                }
+            )) {
+                affectedGlyphNames.add(affectedGlyphName);
+            }
         }
 
         currentLayerData.width = rawLayer.width;
@@ -4001,6 +4133,7 @@ export class OutlineEditor {
     private rebuildAutomaticCompositesForCurrentEditedGlyph(options?: {
         limitToDragVisibleGlyphs?: boolean;
         allowedGlyphNames?: Set<string>;
+        changedGlyphNames?: Iterable<string>;
     }): Set<string> {
         const currentLayerData = this.getCurrentLayerDataFromStack();
         const currentLayerId = this.getCurrentLayerId();
@@ -4027,6 +4160,26 @@ export class OutlineEditor {
             return new Set();
         }
 
+        const changedGlyphNames = new Set(
+            Array.from(options?.changedGlyphNames || [glyphName]).filter(
+                (candidateGlyphName): candidateGlyphName is string =>
+                    typeof candidateGlyphName === 'string' &&
+                    candidateGlyphName.length > 0 &&
+                    candidateGlyphName !== 'undefined'
+            )
+        );
+        if (changedGlyphNames.size === 0) {
+            return new Set();
+        }
+
+        if (
+            typeof layerModel.syncFromEditorLayerData !== 'function' ||
+            typeof fontModel.rebuildAutomaticCompositesForGlyphs !==
+                'function'
+        ) {
+            return new Set(changedGlyphNames);
+        }
+
         // Bulk-sync the editor's working copy into the model layer,
         // avoiding the expensive toJSON() round-trip that would
         // trigger layout recomputation for automatic-aligned layers.
@@ -4051,7 +4204,7 @@ export class OutlineEditor {
               : undefined;
         const rebuild = () => {
             for (const affectedGlyphName of fontModel.rebuildAutomaticCompositesForGlyphs(
-                new Set([glyphName]),
+                changedGlyphNames,
                 {
                     ...(allowedGlyphNames ? { allowedGlyphNames } : undefined),
                     ...(options?.allowedGlyphNames && currentLayerId
@@ -4070,7 +4223,11 @@ export class OutlineEditor {
         const wrappedRebuild = () =>
             withSuppressedModelRecording(() =>
                 withSuppressedMetricsKeyRecompute(() => {
-                    if (allowedGlyphNames) {
+                    if (
+                        allowedGlyphNames &&
+                        typeof fontModel.invalidateLayoutCachesForGlyphs ===
+                            'function'
+                    ) {
                         fontModel.invalidateLayoutCachesForGlyphs(
                             allowedGlyphNames
                         );
@@ -4084,29 +4241,31 @@ export class OutlineEditor {
             wrappedRebuild();
         }
 
-        const dependencyQueue = Array.from(affectedGlyphNames);
-        while (dependencyQueue.length > 0) {
-            const changedGlyphName = dependencyQueue.shift();
-            if (!changedGlyphName) {
-                continue;
-            }
-
-            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
-                changedGlyphName
-            )) {
-                if (
-                    allowedGlyphNames &&
-                    !allowedGlyphNames.has(dependentGlyphName)
-                ) {
+        if (typeof fontModel.findGlyphsUsingComponent === 'function') {
+            const dependencyQueue = Array.from(affectedGlyphNames);
+            while (dependencyQueue.length > 0) {
+                const changedGlyphName = dependencyQueue.shift();
+                if (!changedGlyphName) {
                     continue;
                 }
 
-                if (affectedGlyphNames.has(dependentGlyphName)) {
-                    continue;
-                }
+                for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
+                    changedGlyphName
+                )) {
+                    if (
+                        allowedGlyphNames &&
+                        !allowedGlyphNames.has(dependentGlyphName)
+                    ) {
+                        continue;
+                    }
 
-                affectedGlyphNames.add(dependentGlyphName);
-                dependencyQueue.push(dependentGlyphName);
+                    if (affectedGlyphNames.has(dependentGlyphName)) {
+                        continue;
+                    }
+
+                    affectedGlyphNames.add(dependentGlyphName);
+                    dependencyQueue.push(dependentGlyphName);
+                }
             }
         }
 
@@ -4340,43 +4499,16 @@ export class OutlineEditor {
                 return;
             }
 
-            // Sync the editor's working copy into the model layer so that
-            // recomputeMetricsKeys sees the latest width/shapes.
-            const currentLayerData = this.getCurrentLayerDataFromStack();
-            const currentLayerId = this.getCurrentLayerId();
-            const glyph = fontModel.findGlyph(sourceGlyphName);
-            const layerModel = glyph?.findLayerById(currentLayerId ?? '');
-            if (currentLayerData && layerModel) {
-                layerModel.syncFromEditorLayerData({
-                    width: currentLayerData.width,
-                    height: currentLayerData.height,
-                    vertWidth: currentLayerData.vertWidth,
-                    shapes: currentLayerData.shapes,
-                    anchors: currentLayerData.anchors,
-                    guides: currentLayerData.guides,
-                    format_specific: currentLayerData.format_specific
-                });
-            }
-
-            // Recompute metrics keys scoped to visible glyphs in the text run.
-            // Skip full automatic-composite recomposition since sidebearing
-            // cascades only need width updates on downstream layers.
-            const allowedGlyphNames =
-                this.getVisibleGlyphNamesForDragMetricsRefresh(sourceGlyphName);
-            const bridge = window.changeBridge;
-            const recompute = () =>
-                fontModel.recomputeMetricsKeys(new Set([sourceGlyphName]), {
-                    allowedGlyphNames,
-                    skipAutomaticCompositeRebuild: true
-                });
-            const affectedGlyphNames = new Set<string>([sourceGlyphName]);
-            const recomputedNames =
-                typeof bridge?.runWithoutRecording === 'function'
-                    ? bridge.runWithoutRecording(recompute)
-                    : recompute();
-            for (const glyphName of recomputedNames) {
-                affectedGlyphNames.add(glyphName);
-            }
+            const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(
+                false,
+                {
+                    useVisibleDragScope: true,
+                    rebuildAutomaticComposites: true
+                }
+            );
+            const affectedGlyphNames =
+                metricsUpdate?.affectedGlyphNames ||
+                new Set<string>([sourceGlyphName]);
 
             try {
                 const explicitLayerInput =
@@ -11210,6 +11342,21 @@ export class OutlineEditor {
                               )
                             : undefined;
                 }
+                if (dragType === 'sidebearing') {
+                    const completeMetricsUpdate =
+                        this.applyMetricsKeysToCurrentEditedLayer(true, {
+                            rebuildAutomaticComposites: true
+                        });
+                    const parsed = this.parseGlyphStack();
+                    const glyphName =
+                        completeMetricsUpdate?.glyphName ||
+                        (parsed.length > 0
+                            ? parsed[parsed.length - 1].glyphName
+                            : this.glyphCanvas.getCurrentGlyphName());
+                    this._sidebearingAffectedGlyphNames =
+                        completeMetricsUpdate?.affectedGlyphNames ||
+                        new Set([glyphName].filter(Boolean) as string[]);
+                }
                 const normalizeDragDesc = (
                     value: string | null | undefined
                 ): string | null => {
@@ -14894,16 +15041,22 @@ export class OutlineEditor {
         currentLayerData.width =
             (currentLayerData.width || 0) + sidebearingDelta;
 
-        const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(false);
+        const metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(false, {
+            useVisibleDragScope: this.isDraggingSidebearing,
+            rebuildAutomaticComposites: true
+        });
         const parsed = this.parseGlyphStack();
         const glyphName =
             metricsUpdate?.glyphName ||
             (parsed.length > 0
                 ? parsed[parsed.length - 1].glyphName
                 : this.glyphCanvas.getCurrentGlyphName());
-        this._sidebearingAffectedGlyphNames =
+        const affectedGlyphNames =
             metricsUpdate?.affectedGlyphNames ||
             new Set([glyphName].filter(Boolean) as string[]);
+        if (!this.isDraggingSidebearing) {
+            this._sidebearingAffectedGlyphNames = affectedGlyphNames;
+        }
 
         const { widthDelta } = applyLiveSidebearingVisualSync(
             this.glyphCanvas,

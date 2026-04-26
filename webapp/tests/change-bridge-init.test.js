@@ -1,4 +1,8 @@
-const { handleRemoteChangeRefresh } = require('../js/change-bridge-init');
+const {
+    handleRemoteChangeRefresh,
+    syncRustCacheAndRefreshCanvas
+} = require('../js/change-bridge-init');
+const { fontCompilation } = require('../js/font-compilation');
 
 describe('handleRemoteChangeRefresh', () => {
     test('queues remote cache refresh before the first compile request', async () => {
@@ -122,6 +126,101 @@ describe('handleRemoteChangeRefresh', () => {
             2,
             'remote-outline',
             'outline'
+        );
+    });
+});
+
+describe('syncRustCacheAndRefreshCanvas', () => {
+    const originalGlyphCanvas = window.glyphCanvas;
+    const originalFontManager = window.fontManager;
+    const originalFontCompilationInitialized = fontCompilation.isInitialized;
+
+    afterEach(() => {
+        window.glyphCanvas = originalGlyphCanvas;
+        window.fontManager = originalFontManager;
+        fontCompilation.isInitialized = originalFontCompilationInitialized;
+    });
+
+    test('refreshes visible advances from worker replay targets with matched layer ids', async () => {
+        const activeLayer = {
+            id: 'active-brace-layer',
+            width: 510,
+            getMatchingLayerOnGlyph: jest.fn((glyphName) =>
+                glyphName === 'n'
+                    ? {
+                          id: 'dependent-brace-layer',
+                          width: 640
+                      }
+                    : undefined
+            )
+        };
+        const activeGlyph = {
+            findLayerById: jest.fn((layerId) =>
+                layerId === 'active-brace-layer' ? activeLayer : undefined
+            )
+        };
+        const dependentGlyph = {
+            findLayerById: jest.fn((layerId) =>
+                layerId === 'dependent-brace-layer'
+                    ? { id: 'dependent-brace-layer', width: 640 }
+                    : undefined
+            )
+        };
+        const fontModel = {
+            findGlyph: jest.fn((glyphName) => {
+                if (glyphName === 'l') {
+                    return activeGlyph;
+                }
+                if (glyphName === 'n') {
+                    return dependentGlyph;
+                }
+                return undefined;
+            })
+        };
+        const refreshGlyphAdvancesLive = jest.fn();
+        const fetchLayerData = jest.fn(async () => {});
+        const reconcileSelectionAfterModelSync = jest.fn(async () => {});
+
+        fontCompilation.isInitialized = false;
+        window.fontManager = {
+            currentFont: {
+                fontModel
+            }
+        };
+        window.glyphCanvas = {
+            textRunEditor: {
+                refreshGlyphAdvancesLive,
+                computePrecedingAdvanceDelta: jest.fn(() => 0)
+            },
+            requestRepaintAfterCompile: jest.fn(),
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'active-brace-layer',
+                draggingSomething: false,
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'l' }]),
+                reconcileSelectionAfterModelSync,
+                fetchLayerData
+            }
+        };
+
+        await syncRustCacheAndRefreshCanvas(undefined, 'l', false, {
+            skipDeferredCanvasRepaint: true,
+            workerReplayTargets: [
+                { glyphName: 'l', layerId: 'active-brace-layer' },
+                { glyphName: 'n', layerId: 'dependent-brace-layer' }
+            ]
+        });
+
+        expect(reconcileSelectionAfterModelSync).toHaveBeenCalledWith({
+            skipRender: true
+        });
+        expect(fetchLayerData).toHaveBeenCalledWith(true, 'l');
+        expect(refreshGlyphAdvancesLive).toHaveBeenCalledWith(
+            {
+                l: 510,
+                n: 640
+            },
+            { render: false }
         );
     });
 });

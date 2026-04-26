@@ -107,7 +107,10 @@ function getLayerWidth(
 function refreshLiveTextRunAdvances(
     glyphNames: Iterable<string>,
     layerId?: string,
-    options?: { compensatePanX?: boolean }
+    options?: {
+        compensatePanX?: boolean;
+        workerReplayTargets?: WorkerReplayTarget[];
+    }
 ): void {
     const gc = window.glyphCanvas;
     const textRunEditor = gc?.textRunEditor;
@@ -116,15 +119,44 @@ function refreshLiveTextRunAdvances(
         return;
     }
 
+    const uniqueGlyphNames = Array.from(
+        new Set(
+            Array.from(glyphNames || []).filter(
+                (glyphName): glyphName is string =>
+                    typeof glyphName === 'string' && glyphName.length > 0
+            )
+        )
+    );
+    const replayTargetMap = new Map(
+        normalizeWorkerReplayTargets(options?.workerReplayTargets).map(
+            (target) => [target.glyphName, target.layerId] as const
+        )
+    );
+    const sourceLayer =
+        uniqueGlyphNames
+            .map((glyphName) =>
+                fontModel.findGlyph(glyphName)?.findLayerById(layerId)
+            )
+            .find((layer) => layer !== undefined) ||
+        Array.from(replayTargetMap.entries())
+            .map(([glyphName, replayLayerId]) =>
+                fontModel.findGlyph(glyphName)?.findLayerById(replayLayerId)
+            )
+            .find((layer) => layer !== undefined);
+
     const glyphAdvances: Record<string, number> = {};
 
-    for (const glyphName of glyphNames) {
-        if (!glyphName || glyphName in glyphAdvances) {
+    for (const glyphName of uniqueGlyphNames) {
+        if (glyphName in glyphAdvances) {
             continue;
         }
 
         const glyph = fontModel.findGlyph(glyphName);
-        const layer = glyph?.findLayerById(layerId);
+        const replayLayerId = replayTargetMap.get(glyphName);
+        const layer =
+            (replayLayerId ? glyph?.findLayerById(replayLayerId) : undefined) ||
+            glyph?.findLayerById(layerId) ||
+            sourceLayer?.getMatchingLayerOnGlyph?.(glyphName);
         if (!layer) {
             continue;
         }
@@ -299,12 +331,18 @@ export async function syncRustCacheAndRefreshCanvas(
             refreshLiveTextRunAdvances(
                 new Set(
                     [
+                        ...normalizeWorkerReplayTargets(
+                            options?.workerReplayTargets
+                        ).map((target) => target.glyphName),
                         refreshRootGlyphName,
                         editedGlyphName,
                         getActiveEditedGlyphName()
                     ].filter((glyphName): glyphName is string => !!glyphName)
                 ),
-                selectedLayerId
+                selectedLayerId,
+                {
+                    workerReplayTargets: options?.workerReplayTargets
+                }
             );
         };
 

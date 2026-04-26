@@ -4928,6 +4928,62 @@ describe('syncGlyphFromJson', () => {
         receiverBridge.destroy();
     });
 
+    test('syncLayersFromJson carries recomposed dependent sidebearing layers across remote apply', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-sidebearing-batch');
+        const receiverBridge = new ChangeBridge('receiver-sidebearing-batch');
+        let lastUpdate = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update) => {
+            lastUpdate = update;
+        });
+
+        senderFontJson.glyphs[1].layers[0].width = 777;
+        senderFontJson.glyphs[0].layers[0].width = 690;
+        senderFontJson.glyphs[0].layers[0].shapes[1].transform.translation = [
+            123,
+            45
+        ];
+        const changedTargets = [
+            { glyphName: 'B', layerId: 'layer-2' },
+            { glyphName: 'A', layerId: 'layer-1' }
+        ];
+
+        senderBridge.syncLayersFromJson(
+            changedTargets,
+            'Set LSB',
+            undefined,
+            'LEFT 40',
+            'left',
+            changedTargets
+        );
+
+        const remoteEntries = senderBridge.getNewChangeLogEntries();
+        const changeEntries = remoteEntries.filter(
+            (entry) => entry.historyAction === 'change'
+        );
+
+        expect(changeEntries).toHaveLength(2);
+        changeEntries.forEach((entry) => {
+            expect(entry.workerReplayTargets).toEqual(changedTargets);
+        });
+
+        receiverBridge.applyRemoteUpdate(lastUpdate, remoteEntries);
+
+        expect(receiverFontJson.glyphs[1].layers[0].width).toBe(777);
+        expect(receiverFontJson.glyphs[0].layers[0].width).toBe(690);
+        expect(
+            receiverFontJson.glyphs[0].layers[0].shapes[1].transform.translation
+        ).toEqual([123, 45]);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
     test('applyRemoteUpdate repairs a malformed remote layer root from the full-state payload', () => {
         const senderFontJson = makeThreeMasterThreeLayerFont();
         const receiverFontJson = cloneValue(senderFontJson);
