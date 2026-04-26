@@ -4945,8 +4945,7 @@ describe('syncGlyphFromJson', () => {
         senderFontJson.glyphs[1].layers[0].width = 777;
         senderFontJson.glyphs[0].layers[0].width = 690;
         senderFontJson.glyphs[0].layers[0].shapes[1].transform.translation = [
-            123,
-            45
+            123, 45
         ];
         const changedTargets = [
             { glyphName: 'B', layerId: 'layer-2' },

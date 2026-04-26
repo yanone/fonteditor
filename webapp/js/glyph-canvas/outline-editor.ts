@@ -3587,8 +3587,7 @@ export class OutlineEditor {
                     ? {
                           ...(options.allowedGlyphNames
                               ? {
-                                    allowedGlyphNames:
-                                        options.allowedGlyphNames
+                                    allowedGlyphNames: options.allowedGlyphNames
                                 }
                               : undefined),
                           ...(options.skipAutomaticCompositeRebuild
@@ -3679,8 +3678,7 @@ export class OutlineEditor {
         const allowedGlyphNames = options?.useVisibleDragScope
             ? new Set([
                   ...this.getVisibleGlyphNamesForDragMetricsRefresh(glyphName),
-                  ...(typeof fontModel.findGlyphsUsingComponent ===
-                  'function'
+                  ...(typeof fontModel.findGlyphsUsingComponent === 'function'
                       ? fontManager.getAutomaticCompositionDragScopeGlyphNames(
                             glyphName,
                             fontModel
@@ -4174,8 +4172,7 @@ export class OutlineEditor {
 
         if (
             typeof layerModel.syncFromEditorLayerData !== 'function' ||
-            typeof fontModel.rebuildAutomaticCompositesForGlyphs !==
-                'function'
+            typeof fontModel.rebuildAutomaticCompositesForGlyphs !== 'function'
         ) {
             return new Set(changedGlyphNames);
         }
