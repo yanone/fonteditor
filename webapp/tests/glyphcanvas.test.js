@@ -1086,10 +1086,19 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(refreshGlyphsAfterModelBatchSpy).toHaveBeenCalledWith(
                 ['A'],
                 'layer-1',
-                {
+                expect.objectContaining({
                     dispatchGlyphChanged: false,
-                    skipFingerprintBaseline: true
-                }
+                    skipFingerprintBaseline: true,
+                    explicitLayerData: [
+                        expect.objectContaining({
+                            glyphName: 'A',
+                            layerId: 'layer-1',
+                            layerData: expect.objectContaining({
+                                width: 520
+                            })
+                        })
+                    ]
+                })
             );
             expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
 

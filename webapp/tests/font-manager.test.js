@@ -413,6 +413,57 @@ describe('FontManager saveLayerData', () => {
         });
     });
 
+    test('refreshGlyphsAfterModelBatch uses explicit live layer data without serializing the model layer', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const modelLayer = currentFont.fontModel
+            .findGlyph('a')
+            .findLayerById(layerId);
+        const storedLayer = currentFont.babelfontData.glyphs
+            .find((entry) => entry.name === 'a')
+            .layers.find((entry) => entry.id === layerId);
+        const explicitLayer = {
+            ...cloneJson(storedLayer),
+            width: storedLayer.width + 37
+        };
+        const toJSONSpy = jest.spyOn(modelLayer, 'toJSON');
+
+        try {
+            await fontManager.refreshGlyphsAfterModelBatch(['a'], layerId, {
+                dispatchGlyphChanged: false,
+                skipFingerprintBaseline: true,
+                explicitLayerData: [
+                    {
+                        glyphName: 'a',
+                        layerId,
+                        layerData: explicitLayer
+                    }
+                ]
+            });
+        } finally {
+            toJSONSpy.mockRestore();
+        }
+
+        expect(toJSONSpy).not.toHaveBeenCalled();
+        expect(sendMessageSpy).toHaveBeenCalledWith({
+            type: 'storeLayerUpdates',
+            updates: [
+                {
+                    glyphName: 'a',
+                    layerId,
+                    layerData: expect.objectContaining({
+                        width: explicitLayer.width
+                    })
+                }
+            ]
+        });
+        expect(
+            currentFont.babelfontData.glyphs
+                .find((entry) => entry.name === 'a')
+                .layers.find((entry) => entry.id === layerId).width
+        ).toBe(explicitLayer.width);
+    });
+
     test('refreshGlyphsAfterModelBatch drops invalid hybrid shapes before sending layer data to Rust', async () => {
         const currentFont = fontManager.currentFont;
         const glyph = currentFont.babelfontData.glyphs.find(

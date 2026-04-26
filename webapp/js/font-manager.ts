@@ -66,6 +66,8 @@ type LayerCacheUpdate = {
     layerData: Babelfont.Layer;
 };
 
+type ExplicitLayerCacheInput = LayerCacheUpdate;
+
 type ReloadCurrentFontOptions = {
     preserveUiState?: boolean;
 };
@@ -2909,7 +2911,10 @@ class FontManager {
     private collectChangedLayerUpdatesFromModel(
         glyphNames: Iterable<string>,
         preferredLayerId?: string | null,
-        options?: { skipFingerprintBaseline?: boolean }
+        options?: {
+            skipFingerprintBaseline?: boolean;
+            explicitLayerData?: Iterable<ExplicitLayerCacheInput>;
+        }
     ): LayerCacheUpdate[] | null {
         const currentFont = this.currentFont;
         if (!currentFont) {
@@ -2917,6 +2922,18 @@ class FontManager {
         }
 
         const updates: LayerCacheUpdate[] = [];
+        const explicitLayerData = new Map<string, Babelfont.Layer>();
+        for (const input of options?.explicitLayerData || []) {
+            if (input?.glyphName && input?.layerId && input?.layerData) {
+                explicitLayerData.set(
+                    this.getWorkerLayerFingerprintKey(
+                        input.glyphName,
+                        input.layerId
+                    ),
+                    input.layerData
+                );
+            }
+        }
         const glyphNameList = Array.from(glyphNames);
         const storedJsonFingerprints = options?.skipFingerprintBaseline
             ? new Map<string, string>()
@@ -2961,10 +2978,16 @@ class FontManager {
                     return null;
                 }
 
+                const fingerprintKey = this.getWorkerLayerFingerprintKey(
+                    glyphName,
+                    layerId
+                );
+                const explicitLayer = explicitLayerData.get(fingerprintKey);
                 const rawLayerData =
-                    typeof modelLayer.toJSON === 'function'
+                    explicitLayer ??
+                    (typeof modelLayer.toJSON === 'function'
                         ? modelLayer.toJSON()
-                        : modelLayer;
+                        : modelLayer);
                 const serializedLayer = this.serializeLayerForStorage(
                     glyphName,
                     layerId,
@@ -2973,11 +2996,6 @@ class FontManager {
                 if (!serializedLayer) {
                     return null;
                 }
-
-                const fingerprintKey = this.getWorkerLayerFingerprintKey(
-                    glyphName,
-                    layerId
-                );
 
                 // When skipFingerprintBaseline is set (live drag), skip the
                 // expensive fingerprint comparison and always include the update
@@ -3257,9 +3275,6 @@ class FontManager {
         layerData: Babelfont.Layer,
         changeSource: string = 'unknown'
     ) {
-        console.log(
-            `[DRAG-DEBUG] FontManager.saveLayerData called — glyph=${glyphName}, layer=${layerId}, changeSource=${changeSource}, pendingBabelfontJsonSyncAfterDrag=${this.pendingBabelfontJsonSyncAfterDrag}`
-        );
         const layerDataCopy = this.serializeLayerForStorage(
             glyphName,
             layerId,
@@ -3388,10 +3403,6 @@ class FontManager {
             const currentLayerId =
                 window.glyphCanvas?.outlineEditor?.selectedLayerId;
 
-            console.log(
-                `[DRAG-DEBUG] FontManager.updateWorkerFontCache called — currentGlyphName=${currentGlyphName ?? 'null'}, currentLayerId=${currentLayerId ?? 'null'}, pendingBabelfontJsonSyncAfterDrag=${this.pendingBabelfontJsonSyncAfterDrag}`
-            );
-
             let updatedViaIncrementalLayer = false;
             if (
                 this.pendingBabelfontJsonSyncAfterDrag &&
@@ -3453,9 +3464,6 @@ class FontManager {
                         type: 'storeFontJson',
                         babelfontJson: this.currentFont.babelfontJson
                     });
-                    console.log(
-                        '[FontManager] Worker font cache updated after drag'
-                    );
                 }
 
                 // After updating the cache, dispatch glyphChanged event for all affected glyphs
@@ -3489,10 +3497,6 @@ class FontManager {
 
                 // Dispatch glyphChanged events for all affected glyphs
                 for (const glyphName of glyphsToRefresh) {
-                    console.log(
-                        '[FontManager] Dispatching glyphChanged event for',
-                        glyphName
-                    );
                     window.dispatchEvent(
                         new CustomEvent('glyphChanged', {
                             detail: {
@@ -3581,6 +3585,7 @@ class FontManager {
         options?: {
             dispatchGlyphChanged?: boolean;
             skipFingerprintBaseline?: boolean;
+            explicitLayerData?: Iterable<ExplicitLayerCacheInput>;
         }
     ): Promise<void> {
         const refreshPromise = (async () => {
@@ -3603,8 +3608,19 @@ class FontManager {
                 this.collectChangedLayerUpdatesFromModel(
                     uniqueGlyphNames,
                     layerId,
-                    options?.skipFingerprintBaseline
-                        ? { skipFingerprintBaseline: true }
+                    options?.skipFingerprintBaseline ||
+                        options?.explicitLayerData
+                        ? {
+                              ...(options?.skipFingerprintBaseline
+                                  ? { skipFingerprintBaseline: true }
+                                  : undefined),
+                              ...(options?.explicitLayerData
+                                  ? {
+                                        explicitLayerData:
+                                            options.explicitLayerData
+                                    }
+                                  : undefined)
+                          }
                         : undefined
                 );
 

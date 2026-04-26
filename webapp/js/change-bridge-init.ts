@@ -274,13 +274,7 @@ export async function syncRustCacheAndRefreshCanvas(
         // reset layerData to the pre-drag (Y.Doc) state, corrupting the drag
         // baseline and producing wrong undo history. Defer the refresh until
         // the drag ends (onMouseUp checks pendingRemoteRefreshAfterDrag).
-        console.log(
-            `[DRAG-DEBUG] syncRustCacheAndRefreshCanvas: gc exists, oe?.draggingSomething=${oe?.draggingSomething}`
-        );
         if (oe?.draggingSomething) {
-            console.warn(
-                '[DRAG-DEBUG] DRAG IN PROGRESS — deferring fetchLayerData, setting pendingRemoteRefreshAfterDrag'
-            );
             if (oe) {
                 oe.pendingRemoteRefreshAfterDrag = true;
             }
@@ -1026,10 +1020,6 @@ function initializeBridge(detail: {
         if (!fm?.currentFont) return;
 
         // Reset compilation state so next compile is a clean full build
-        const oe2 = window.glyphCanvas?.outlineEditor;
-        console.log(
-            `[DRAG-DEBUG] onAfterSync called — draggingSomething=${oe2?.draggingSomething}`
-        );
         fm.lastChangeSource = null;
         fm.lastEditType = null;
         // Mark babelfontJson as stale; it will be rebuilt lazily (see comment above).
@@ -1076,11 +1066,6 @@ function initializeBridge(detail: {
     //      compile uses the matching fast path (anchor-only / outline-only)
     //      instead of always falling back to the slowest full mode.
     bridge.onRemoteChange((entries: ChangeLogEntry[]) => {
-        const oeRef = window.glyphCanvas?.outlineEditor;
-        console.log(
-            `[DRAG-DEBUG] onRemoteChange fired — draggingSomething=${oeRef?.draggingSomething}, pendingRemoteRefreshAfterDrag=${oeRef?.pendingRemoteRefreshAfterDrag}`
-        );
-
         void handleRemoteChangeRefresh(entries);
     });
 
