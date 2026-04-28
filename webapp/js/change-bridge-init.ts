@@ -677,16 +677,21 @@ async function refreshGlyphOverviewAfterUndoRedo(
     );
 
     if (refreshGlyphNames.length) {
-        for (const glyphName of refreshGlyphNames) {
-            window.dispatchEvent(
-                new CustomEvent('glyphChanged', {
-                    detail: {
-                        glyphName,
-                        layerId: layerId ?? undefined
-                    }
-                })
-            );
-        }
+        window.dispatchEvent(
+            new CustomEvent('glyphChanged', {
+                detail:
+                    refreshGlyphNames.length === 1
+                        ? {
+                              glyphName: refreshGlyphNames[0],
+                              layerId: layerId ?? undefined
+                          }
+                        : {
+                              glyphName: refreshGlyphNames[0],
+                              glyphNames: refreshGlyphNames,
+                              layerId: layerId ?? undefined
+                          }
+            })
+        );
         return;
     }
 
