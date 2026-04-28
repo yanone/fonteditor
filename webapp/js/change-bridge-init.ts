@@ -752,7 +752,7 @@ async function requestUndoRedoEditingFontCompile(
         return;
     }
 
-    fm.lastChangeSource = 'undo-redo';
+    fm.lastChangeSource = editType ? 'keyboard-undo-redo' : 'undo-redo';
     // Preserve the edit-type hint from the undone history item so the
     // compile loop uses the matching fast-path mode (e.g. anchor-only)
     // instead of always falling back to a full compile. The trailing

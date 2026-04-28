@@ -1883,6 +1883,44 @@ describe('ChangeBridge', () => {
         window.changeBridge = undefined;
     });
 
+    test('applySyntheticChangeSet notifies change-log listeners once for a multi-operation batch', () => {
+        const { bridge } = createTestBridge('test-1');
+        const listener = jest.fn();
+        const unsubscribe = bridge.onChangeLogUpdate(listener);
+
+        listener.mockClear();
+
+        try {
+            bridge.beginTransaction('Batch sidebearing edit');
+            bridge.applySyntheticChangeSet('Batch sidebearing edit', [
+                {
+                    op: 'set',
+                    path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                    oldValue: 600,
+                    newValue: 650
+                },
+                {
+                    op: 'set',
+                    path: ['glyphs', 'A', 'layers', 'layer-1', 'name'],
+                    oldValue: 'Regular',
+                    newValue: 'Regular Updated'
+                }
+            ]);
+            bridge.endTransaction();
+        } finally {
+            unsubscribe();
+            bridge.destroy();
+            window.changeBridge = undefined;
+        }
+
+        expect(listener).toHaveBeenCalledTimes(1);
+        expect(listener.mock.calls[0][0]).toHaveLength(2);
+        expect(listener.mock.calls[0][0].map((entry) => entry.path)).toEqual([
+            'glyphs.A.layers.layer-1.width',
+            'glyphs.A.layers.layer-1.name'
+        ]);
+    });
+
     test('change log is suppressed during initFromJson', () => {
         const { bridge } = createTestBridge('test-1');
         // initFromJson should not produce log entries

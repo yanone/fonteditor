@@ -99,6 +99,20 @@ type ParsedMetricsKey =
           referencedGlyphNames: string[];
       };
 
+type MetricsKeyDependencyEntry = {
+    layer: Layer;
+    glyph: Glyph;
+    glyphName: string;
+    side: SidebearingSide;
+    parsed: ParsedMetricsKey;
+};
+
+type MetricsKeyDependencyLookup = {
+    keyedEntriesByGlyph: Map<string, MetricsKeyDependencyEntry[]>;
+    referencedEntriesByGlyph: Map<string, MetricsKeyDependencyEntry[]>;
+    automaticOffsetEntriesByGlyph: Map<string, MetricsKeyDependencyEntry[]>;
+};
+
 const GLYPHS_GLYPH_METRIC_LEFT_KEY = 'metric_left';
 const GLYPHS_GLYPH_METRIC_RIGHT_KEY = 'metric_right';
 const GLYPHS_LAYER_METRIC_LEFT_KEY = 'com.schriftgestalt.Glyphs.metricLeft';
@@ -2885,6 +2899,20 @@ function isPlainNumericText(value: string): boolean {
 
 function roundMetricValue(value: number): number {
     return Math.round(value);
+}
+
+function appendMapArrayValue<Key, Value>(
+    map: Map<Key, Value[]>,
+    key: Key,
+    value: Value
+): void {
+    const existingValues = map.get(key);
+    if (existingValues) {
+        existingValues.push(value);
+        return;
+    }
+
+    map.set(key, [value]);
 }
 
 function getModelFormatSpecific(
@@ -10115,6 +10143,93 @@ export class Font extends ModelBase {
         return rebuiltGlyphNames;
     }
 
+    private collectMetricsKeyDependencyEntries(options?: {
+        allowedGlyphNames?: Set<string>;
+    }): MetricsKeyDependencyEntry[] {
+        const entries: MetricsKeyDependencyEntry[] = [];
+
+        for (const glyph of this.glyphs) {
+            if (
+                options?.allowedGlyphNames &&
+                !options.allowedGlyphNames.has(glyph.name)
+            ) {
+                continue;
+            }
+
+            for (const layer of glyph.layers || []) {
+                for (const side of ['left', 'right'] as SidebearingSide[]) {
+                    const key =
+                        side === 'left'
+                            ? layer.leftMetricsKey || glyph.leftMetricsKey
+                            : layer.rightMetricsKey || glyph.rightMetricsKey;
+                    if (!key) {
+                        continue;
+                    }
+
+                    const parsed = parseMetricsKey(this, key);
+                    if ('error' in parsed) {
+                        continue;
+                    }
+
+                    entries.push({
+                        layer,
+                        glyph,
+                        glyphName: glyph.name,
+                        side,
+                        parsed
+                    });
+                }
+            }
+        }
+
+        return entries;
+    }
+
+    private buildMetricsKeyDependencyLookup(
+        entries: MetricsKeyDependencyEntry[]
+    ): MetricsKeyDependencyLookup {
+        const keyedEntriesByGlyph = new Map<
+            string,
+            MetricsKeyDependencyEntry[]
+        >();
+        const referencedEntriesByGlyph = new Map<
+            string,
+            MetricsKeyDependencyEntry[]
+        >();
+        const automaticOffsetEntriesByGlyph = new Map<
+            string,
+            MetricsKeyDependencyEntry[]
+        >();
+
+        for (const entry of entries) {
+            appendMapArrayValue(keyedEntriesByGlyph, entry.glyphName, entry);
+
+            if (entry.parsed.kind === 'automatic-offset') {
+                appendMapArrayValue(
+                    automaticOffsetEntriesByGlyph,
+                    entry.glyphName,
+                    entry
+                );
+                continue;
+            }
+
+            for (const referencedGlyphName of entry.parsed
+                .referencedGlyphNames) {
+                appendMapArrayValue(
+                    referencedEntriesByGlyph,
+                    referencedGlyphName,
+                    entry
+                );
+            }
+        }
+
+        return {
+            keyedEntriesByGlyph,
+            referencedEntriesByGlyph,
+            automaticOffsetEntriesByGlyph
+        };
+    }
+
     rebuildAutomaticCompositesForGlyphs(
         changedGlyphNames?: Set<string>,
         options?: {
@@ -10137,50 +10252,91 @@ export class Font extends ModelBase {
             return new Set();
         }
 
-        const layersWithKeys: Layer[] = [];
-        for (const glyph of this.glyphs) {
-            if (
-                options?.allowedGlyphNames &&
-                !options.allowedGlyphNames.has(glyph.name)
-            ) {
-                continue;
-            }
-
-            for (const layer of glyph.layers || []) {
-                if (
-                    layer.leftMetricsKey ||
-                    layer.rightMetricsKey ||
-                    glyph.leftMetricsKey ||
-                    glyph.rightMetricsKey
-                ) {
-                    layersWithKeys.push(layer);
-                }
-            }
-        }
-
         this._isRecomputingMetricsKeys = true;
         const recomputedGlyphNames = new Set<string>();
         const skipCompositeRebuild = !!options?.skipAutomaticCompositeRebuild;
         try {
+            const allowedGlyphNames = options?.allowedGlyphNames;
+            const filterGlyphNames = (
+                glyphNames: Iterable<string>
+            ): Set<string> =>
+                new Set(
+                    Array.from(glyphNames).filter(
+                        (glyphName): glyphName is string =>
+                            typeof glyphName === 'string' &&
+                            glyphName.length > 0 &&
+                            (!allowedGlyphNames ||
+                                allowedGlyphNames.has(glyphName))
+                    )
+                );
             const skipSelfAutomaticRebuildGlyphNames = new Set<string>();
-            let pendingGlyphNames =
+            const initialGlyphNames =
                 changedGlyphNames && changedGlyphNames.size > 0
-                    ? new Set(
-                          [...changedGlyphNames].filter(
-                              (glyphName) =>
-                                  !options?.allowedGlyphNames ||
-                                  options.allowedGlyphNames.has(glyphName)
-                          )
-                      )
-                    : new Set(
-                          this.glyphs
-                              .map((glyph) => glyph.name)
-                              .filter(
-                                  (glyphName) =>
-                                      !options?.allowedGlyphNames ||
-                                      options.allowedGlyphNames.has(glyphName)
-                              )
-                      );
+                    ? filterGlyphNames(changedGlyphNames)
+                    : filterGlyphNames(this.glyphs.map((glyph) => glyph.name));
+
+            const dependencyEntries = this.collectMetricsKeyDependencyEntries({
+                allowedGlyphNames
+            });
+            const dependencyLookup =
+                this.buildMetricsKeyDependencyLookup(dependencyEntries);
+            const reverseComponentIndex = this._ensureReverseComponentIndex();
+            const getDirectComponentDependents = (
+                glyphName: string
+            ): string[] => {
+                const dependentGlyphNames =
+                    reverseComponentIndex.get(glyphName);
+                if (!dependentGlyphNames || dependentGlyphNames.size === 0) {
+                    return [];
+                }
+
+                return Array.from(dependentGlyphNames).filter(
+                    (dependentGlyphName) =>
+                        !allowedGlyphNames ||
+                        allowedGlyphNames.has(dependentGlyphName)
+                );
+            };
+            const pendingGlyphNames: string[] = [];
+            const queuedGlyphNames = new Set<string>();
+            const processedGlyphCounts = new Map<string, number>();
+            const maxGlyphVisits = Math.max(
+                (allowedGlyphNames?.size ?? this.glyphs.length) * 2,
+                8
+            );
+            let warnedAboutMetricsKeyCascade = false;
+
+            const enqueueGlyphName = (glyphName: string | null | undefined) => {
+                if (
+                    !glyphName ||
+                    (allowedGlyphNames && !allowedGlyphNames.has(glyphName)) ||
+                    queuedGlyphNames.has(glyphName)
+                ) {
+                    return;
+                }
+
+                pendingGlyphNames.push(glyphName);
+                queuedGlyphNames.add(glyphName);
+            };
+
+            const recordChangedGlyph = (
+                glyphName: string,
+                changedOnlyByAutomaticOffset: boolean,
+                enqueueForPropagation: boolean
+            ) => {
+                recomputedGlyphNames.add(glyphName);
+                if (enqueueForPropagation) {
+                    enqueueGlyphName(glyphName);
+                }
+                if (changedOnlyByAutomaticOffset) {
+                    skipSelfAutomaticRebuildGlyphNames.add(glyphName);
+                    return;
+                }
+                skipSelfAutomaticRebuildGlyphNames.delete(glyphName);
+            };
+
+            for (const glyphName of initialGlyphNames) {
+                enqueueGlyphName(glyphName);
+            }
 
             // When skipping full automatic-composite rebuild (sidebearing fast
             // path), still rebuild composites for the initially changed glyphs
@@ -10188,265 +10344,236 @@ export class Font extends ModelBase {
             // only the downstream cascade rebuilds that are expensive and
             // unnecessary when only sidebearing widths have changed.
             for (const glyphName of skipCompositeRebuild
-                ? this.rebuildAutomaticComposites(pendingGlyphNames, {
+                ? this.rebuildAutomaticComposites(initialGlyphNames, {
                       skipSelfGlyphNames: new Set<string>(),
-                      allowedGlyphNames: options?.allowedGlyphNames
+                      allowedGlyphNames
                   })
-                : this.rebuildAutomaticComposites(pendingGlyphNames, {
+                : this.rebuildAutomaticComposites(initialGlyphNames, {
                       skipSelfGlyphNames: skipSelfAutomaticRebuildGlyphNames,
-                      allowedGlyphNames: options?.allowedGlyphNames
+                      allowedGlyphNames
                   })) {
                 recomputedGlyphNames.add(glyphName);
-                pendingGlyphNames.add(glyphName);
+                enqueueGlyphName(glyphName);
             }
 
-            if (layersWithKeys.length === 0) {
+            if (dependencyEntries.length === 0) {
                 return recomputedGlyphNames;
             }
 
-            const processedGlyphNames = new Set<string>();
-            const maxPasses = Math.max(layersWithKeys.length + 2, 4);
+            while (pendingGlyphNames.length > 0) {
+                const changedGlyphName = pendingGlyphNames.shift() as string;
+                queuedGlyphNames.delete(changedGlyphName);
 
-            for (
-                let pass = 0;
-                pass < maxPasses && pendingGlyphNames.size > 0;
-                pass++
-            ) {
-                if (!skipCompositeRebuild) {
-                    for (const glyphName of this.rebuildAutomaticComposites(
-                        pendingGlyphNames,
+                const nextProcessedGlyphCount =
+                    (processedGlyphCounts.get(changedGlyphName) || 0) + 1;
+                processedGlyphCounts.set(
+                    changedGlyphName,
+                    nextProcessedGlyphCount
+                );
+                if (nextProcessedGlyphCount > maxGlyphVisits) {
+                    if (!warnedAboutMetricsKeyCascade) {
+                        warnedAboutMetricsKeyCascade = true;
+                        console.warn(
+                            '[MetricsKeys] Bailing out of a repeated metrics-key cascade',
+                            {
+                                seedGlyphNames: [...initialGlyphNames],
+                                repeatedGlyphName: changedGlyphName,
+                                maxGlyphVisits
+                            }
+                        );
+                    }
+                    continue;
+                }
+
+                const directComponentDependents = new Set(
+                    getDirectComponentDependents(changedGlyphName)
+                );
+                const candidateEntries = new Set<MetricsKeyDependencyEntry>([
+                    ...(dependencyLookup.keyedEntriesByGlyph.get(
+                        changedGlyphName
+                    ) || []),
+                    ...(dependencyLookup.referencedEntriesByGlyph.get(
+                        changedGlyphName
+                    ) || [])
+                ]);
+
+                for (const dependentGlyphName of directComponentDependents) {
+                    for (const entry of dependencyLookup.automaticOffsetEntriesByGlyph.get(
+                        dependentGlyphName
+                    ) || []) {
+                        candidateEntries.add(entry);
+                    }
+                }
+
+                const changedGlyphStates = new Map<
+                    string,
+                    { changedOnlyByAutomaticOffset: boolean }
+                >();
+
+                for (const entry of candidateEntries) {
+                    const shouldRecompute =
+                        entry.parsed.kind === 'automatic-offset'
+                            ? entry.glyphName === changedGlyphName ||
+                              directComponentDependents.has(entry.glyphName)
+                            : entry.glyphName === changedGlyphName ||
+                              entry.parsed.referencedGlyphNames.includes(
+                                  changedGlyphName
+                              );
+                    if (!shouldRecompute) {
+                        continue;
+                    }
+
+                    const resolution = entry.layer.resolveMetricsKey(
+                        entry.side
+                    );
+                    const applied = getAppliedMetricsKeySidebearing(
+                        entry.layer,
+                        entry.side,
+                        resolution
+                    );
+                    const currentValue =
+                        entry.side === 'left'
+                            ? entry.layer.lsb
+                            : entry.layer.rsb;
+                    if (
+                        applied.error ||
+                        applied.value === null ||
+                        Math.abs(currentValue - applied.value) <=
+                            METRIC_UPDATE_EPSILON
+                    ) {
+                        continue;
+                    }
+
+                    if (!entry.layer.isAutomaticAlignedLayer()) {
+                        entry.layer.setDirectSidebearing(
+                            entry.side,
+                            applied.value
+                        );
+                    } else if (skipCompositeRebuild) {
+                        // Fast path: for automatic-aligned layers whose
+                        // sidebearing changed via a metrics-key cascade,
+                        // update the width directly instead of going
+                        // through the expensive rebuildAutomaticComposition.
+                        // LSB changes also translate the layer contents so
+                        // that RSB stays intact; RSB changes only adjust
+                        // the advance width.
+                        const appliedValue = applied.value;
+                        if (appliedValue === null) {
+                            continue;
+                        }
+                        if (entry.side === 'left') {
+                            const currentLsb = entry.layer.lsb;
+                            const offset = appliedValue - currentLsb;
+                            if (Math.abs(offset) > METRIC_UPDATE_EPSILON) {
+                                withSuppressedMetricsKeyRecompute(() => {
+                                    withSuppressedModelRecording(() => {
+                                        translateLayerContentsX(
+                                            {
+                                                shapes:
+                                                    entry.layer.shapes || [],
+                                                anchors:
+                                                    entry.layer.anchors || [],
+                                                getPathNodes: (shape) =>
+                                                    shape.isPath()
+                                                        ? shape.asPath().nodes
+                                                        : null,
+                                                getOrCreateComponentTransform: (
+                                                    shape
+                                                ) => {
+                                                    if (!shape.isComponent()) {
+                                                        return null;
+                                                    }
+                                                    const component =
+                                                        shape.asComponent();
+                                                    if (!component.transform) {
+                                                        component.transform =
+                                                            DecomposedAffineTransform.identity();
+                                                    } else if (
+                                                        Array.isArray(
+                                                            component.transform
+                                                        )
+                                                    ) {
+                                                        component.transform =
+                                                            DecomposedAffineTransform.fromAffine(
+                                                                component.transform
+                                                            );
+                                                    }
+                                                    return component.transform as Babelfont.DecomposedAffine;
+                                                },
+                                                shiftAnchor: (
+                                                    anchor,
+                                                    deltaX
+                                                ) => {
+                                                    anchor.x += deltaX;
+                                                }
+                                            },
+                                            offset
+                                        );
+                                        const currentRsb = entry.layer.rsb;
+                                        const bbox =
+                                            entry.layer.getBoundingBox(false);
+                                        entry.layer.width = bbox
+                                            ? roundMetricValue(
+                                                  roundMetricValue(bbox.maxX) +
+                                                      currentRsb
+                                              )
+                                            : roundMetricValue(
+                                                  appliedValue + currentRsb
+                                              );
+                                    });
+                                });
+                            }
+                        } else {
+                            const currentRsb = entry.layer.rsb;
+                            if (
+                                Math.abs(appliedValue - currentRsb) >
+                                METRIC_UPDATE_EPSILON
+                            ) {
+                                const bbox = entry.layer.getBoundingBox(false);
+                                if (bbox) {
+                                    entry.layer.width = roundMetricValue(
+                                        bbox.maxX + appliedValue
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    const previousState = changedGlyphStates.get(
+                        entry.glyphName
+                    );
+                    changedGlyphStates.set(entry.glyphName, {
+                        changedOnlyByAutomaticOffset:
+                            previousState?.changedOnlyByAutomaticOffset !==
+                            false
+                                ? entry.parsed.kind === 'automatic-offset'
+                                : false
+                    });
+                }
+
+                for (const [glyphName, glyphState] of changedGlyphStates) {
+                    recordChangedGlyph(
+                        glyphName,
+                        glyphState.changedOnlyByAutomaticOffset,
+                        glyphName !== changedGlyphName
+                    );
+
+                    if (skipCompositeRebuild) {
+                        continue;
+                    }
+
+                    for (const rebuiltGlyphName of this.rebuildAutomaticComposites(
+                        new Set([glyphName]),
                         {
                             skipSelfGlyphNames:
                                 skipSelfAutomaticRebuildGlyphNames,
-                            allowedGlyphNames: options?.allowedGlyphNames
+                            allowedGlyphNames
                         }
                     )) {
-                        recomputedGlyphNames.add(glyphName);
-                        pendingGlyphNames.add(glyphName);
+                        recomputedGlyphNames.add(rebuiltGlyphName);
+                        enqueueGlyphName(rebuiltGlyphName);
                     }
                 }
-
-                const autoAlignedDependents = new Set<string>();
-                for (const glyphName of pendingGlyphNames) {
-                    for (const dependentName of this.findGlyphsUsingComponent(
-                        glyphName
-                    )) {
-                        if (
-                            options?.allowedGlyphNames &&
-                            !options.allowedGlyphNames.has(dependentName)
-                        ) {
-                            continue;
-                        }
-
-                        autoAlignedDependents.add(dependentName);
-                    }
-                }
-
-                const nextGlyphNames = new Set<string>();
-
-                for (const layer of layersWithKeys) {
-                    const glyph = layer.parent() as Glyph;
-                    const glyphName = glyph?.name;
-                    let layerChanged = false;
-                    let changedOnlyByAutomaticOffset = true;
-
-                    for (const side of ['left', 'right'] as SidebearingSide[]) {
-                        const key =
-                            side === 'left'
-                                ? layer.leftMetricsKey || glyph.leftMetricsKey
-                                : layer.rightMetricsKey ||
-                                  glyph.rightMetricsKey;
-                        if (!key) {
-                            continue;
-                        }
-
-                        const parsed = parseMetricsKey(this, key);
-                        if ('error' in parsed) {
-                            continue;
-                        }
-
-                        const currentGlyphChanged =
-                            pendingGlyphNames.has(glyphName);
-                        const referencedGlyphChanged =
-                            parsed.referencedGlyphNames.some((name) =>
-                                pendingGlyphNames.has(name)
-                            );
-
-                        const shouldRecompute =
-                            (parsed.kind === 'automatic-offset' &&
-                                (autoAlignedDependents.has(glyphName) ||
-                                    currentGlyphChanged)) ||
-                            (parsed.kind !== 'automatic-offset' &&
-                                (currentGlyphChanged ||
-                                    referencedGlyphChanged));
-
-                        if (!shouldRecompute) {
-                            continue;
-                        }
-
-                        const resolution = layer.resolveMetricsKey(side);
-                        const applied = getAppliedMetricsKeySidebearing(
-                            layer,
-                            side,
-                            resolution
-                        );
-                        const currentValue =
-                            side === 'left' ? layer.lsb : layer.rsb;
-                        if (
-                            applied.error ||
-                            applied.value === null ||
-                            Math.abs(currentValue - applied.value) <=
-                                METRIC_UPDATE_EPSILON
-                        ) {
-                            continue;
-                        }
-
-                        if (!layer.isAutomaticAlignedLayer()) {
-                            layer.setDirectSidebearing(side, applied.value);
-                        } else if (skipCompositeRebuild) {
-                            // Fast path: for automatic-aligned layers whose
-                            // sidebearing changed via a metrics-key cascade,
-                            // update the width directly instead of going
-                            // through the expensive rebuildAutomaticComposition.
-                            // LSB changes also translate the layer contents so
-                            // that RSB stays intact; RSB changes only adjust
-                            // the advance width.
-                            const appliedValue = applied.value;
-                            if (appliedValue === null) {
-                                continue;
-                            }
-                            if (side === 'left') {
-                                const currentLsb = layer.lsb;
-                                const offset = appliedValue - currentLsb;
-                                if (Math.abs(offset) > METRIC_UPDATE_EPSILON) {
-                                    withSuppressedMetricsKeyRecompute(() => {
-                                        withSuppressedModelRecording(() => {
-                                            translateLayerContentsX(
-                                                {
-                                                    shapes: layer.shapes || [],
-                                                    anchors:
-                                                        layer.anchors || [],
-                                                    getPathNodes: (shape) =>
-                                                        shape.isPath()
-                                                            ? shape.asPath()
-                                                                  .nodes
-                                                            : null,
-                                                    getOrCreateComponentTransform:
-                                                        (shape) => {
-                                                            if (
-                                                                !shape.isComponent()
-                                                            ) {
-                                                                return null;
-                                                            }
-                                                            const component =
-                                                                shape.asComponent();
-                                                            if (
-                                                                !component.transform
-                                                            ) {
-                                                                component.transform =
-                                                                    DecomposedAffineTransform.identity();
-                                                            } else if (
-                                                                Array.isArray(
-                                                                    component.transform
-                                                                )
-                                                            ) {
-                                                                component.transform =
-                                                                    DecomposedAffineTransform.fromAffine(
-                                                                        component.transform
-                                                                    );
-                                                            }
-                                                            return component.transform as Babelfont.DecomposedAffine;
-                                                        },
-                                                    shiftAnchor: (
-                                                        anchor,
-                                                        deltaX
-                                                    ) => {
-                                                        anchor.x += deltaX;
-                                                    }
-                                                },
-                                                offset
-                                            );
-                                            const currentRsb = layer.rsb;
-                                            const bbox =
-                                                layer.getBoundingBox(false);
-                                            layer.width = bbox
-                                                ? roundMetricValue(
-                                                      roundMetricValue(
-                                                          bbox.maxX
-                                                      ) + currentRsb
-                                                  )
-                                                : roundMetricValue(
-                                                      appliedValue + currentRsb
-                                                  );
-                                        });
-                                    });
-                                }
-                            } else {
-                                // RSB: only width changes
-                                const currentRsb = layer.rsb;
-                                if (
-                                    Math.abs(appliedValue - currentRsb) >
-                                    METRIC_UPDATE_EPSILON
-                                ) {
-                                    const bbox = layer.getBoundingBox(false);
-                                    if (bbox) {
-                                        layer.width = roundMetricValue(
-                                            bbox.maxX + appliedValue
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        layerChanged = true;
-                        if (glyphName) {
-                            recomputedGlyphNames.add(glyphName);
-                        }
-                        if (parsed.kind !== 'automatic-offset') {
-                            changedOnlyByAutomaticOffset = false;
-                        }
-                    }
-
-                    if (
-                        layerChanged &&
-                        glyphName &&
-                        !processedGlyphNames.has(glyphName)
-                    ) {
-                        if (changedOnlyByAutomaticOffset) {
-                            skipSelfAutomaticRebuildGlyphNames.add(glyphName);
-                        } else {
-                            skipSelfAutomaticRebuildGlyphNames.delete(
-                                glyphName
-                            );
-                        }
-
-                        nextGlyphNames.add(glyphName);
-
-                        if (!skipCompositeRebuild) {
-                            for (const rebuiltGlyphName of this.rebuildAutomaticComposites(
-                                new Set([glyphName]),
-                                {
-                                    skipSelfGlyphNames:
-                                        skipSelfAutomaticRebuildGlyphNames,
-                                    allowedGlyphNames:
-                                        options?.allowedGlyphNames
-                                }
-                            )) {
-                                recomputedGlyphNames.add(rebuiltGlyphName);
-                                nextGlyphNames.add(rebuiltGlyphName);
-                            }
-                        }
-                    }
-                }
-
-                for (const glyphName of pendingGlyphNames) {
-                    processedGlyphNames.add(glyphName);
-                }
-
-                pendingGlyphNames = new Set(
-                    [...nextGlyphNames].filter(
-                        (glyphName) => !processedGlyphNames.has(glyphName)
-                    )
-                );
             }
 
             return recomputedGlyphNames;

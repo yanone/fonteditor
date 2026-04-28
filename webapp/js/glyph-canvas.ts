@@ -3826,10 +3826,11 @@ class GlyphCanvas {
             return;
         }
 
-        fontManager.lastChangeSource = 'metrics-key';
-        fontManager.lastEditType = null;
+        fontManager.lastChangeSource = 'keyboard-sidebearing';
+        fontManager.lastEditType = 'outline';
         fontManager.currentFont.requestRecompileWithoutDataChange();
         window.autoCompileManager?.checkAndSchedule?.();
+        fontManager.scheduleFullCompileDebounce?.();
     }
 
     private async commitPropertyPanelValue(
@@ -3913,6 +3914,8 @@ class GlyphCanvas {
             !resolution.error &&
             !isPlainNumericInputValue(trimmedValue) &&
             affectedGlyphNames.length > 0;
+        const shouldFetchLayerData =
+            usesIncrementalLayerRefresh || layer.isAutomaticAlignedLayer();
 
         if (!modelChanged && !shouldRecompileAfterRefresh) {
             fontManager.lastChangeSource = previousChangeSource;
@@ -3933,19 +3936,21 @@ class GlyphCanvas {
                 this.requestEditingFontRecompileAfterSidebearingKeyRefresh();
             }
 
-            console.log(
-                '[DRAG-DEBUG] GlyphCanvas.refreshAfterPropertyPanelCommit before outlineEditor.fetchLayerData(true)'
-            );
-            await this.outlineEditor.fetchLayerData(true);
+            if (shouldFetchLayerData) {
+                await this.outlineEditor.fetchLayerData(true);
+            }
         } catch (error) {
             console.warn(
                 'Failed to refresh layer after property-panel update',
                 error
             );
         }
-        this.updatePropertyPanel();
-        this.outlineEditor.performHitDetection(null);
-        this.render();
+
+        if (shouldFetchLayerData) {
+            this.updatePropertyPanel();
+            this.outlineEditor.performHitDetection(null);
+            this.render();
+        }
     }
 
     syncCurrentOutlineLayerDataFromModel(layer: Layer): void {

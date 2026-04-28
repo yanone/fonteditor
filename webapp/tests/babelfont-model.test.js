@@ -1245,6 +1245,66 @@ describe('Babelfont Object Model', () => {
             }
         });
 
+        test('Fustat o keyed sidebearing edits propagate once through direct and nested composites', () => {
+            const glyphO = font.findGlyph('o');
+            const layerO = glyphO.layers[0];
+            const odieresis = font.findGlyph('odieresis');
+            const oslash = font.findGlyph('oslash');
+            const oslashacute = font.findGlyph('oslashacute');
+            const odieresisLayer = odieresis.layers[0];
+            const oslashLayer = oslash.layers[0];
+            const oslashacuteLayer = oslashacute.layers[0];
+            const originalWidths = {
+                o: layerO.width,
+                odieresis: odieresisLayer.width,
+                oslash: oslashLayer.width,
+                oslashacute: oslashacuteLayer.width
+            };
+
+            const fixedValueResolution = layerO.applySidebearingInput(
+                'left',
+                '=50'
+            );
+
+            expect(fixedValueResolution.error).toBeNull();
+            expect(fixedValueResolution.updateScope).toBe('font');
+            expect(fixedValueResolution.affectedGlyphNames).toEqual(
+                expect.arrayContaining([
+                    'o',
+                    'odieresis',
+                    'oslash',
+                    'oslashacute'
+                ])
+            );
+            expect(glyphO.leftMetricsKey).toBe('=50');
+            expect(layerO.lsb).toBe(50);
+            expect(odieresisLayer.width).toBe(layerO.width);
+            expect(oslashLayer.width).toBe(layerO.width);
+            expect(oslashacuteLayer.width).toBeGreaterThan(0);
+
+            const glyphA = font.findGlyph('a');
+            const glyphAWidth = glyphA.layers[0].width;
+            const glyphRefResolution = layerO.applySidebearingInput(
+                'left',
+                '=a'
+            );
+
+            expect(glyphRefResolution.error).toBeNull();
+            expect(glyphRefResolution.affectedGlyphNames).toEqual(
+                expect.arrayContaining([
+                    'o',
+                    'odieresis',
+                    'oslash',
+                    'oslashacute'
+                ])
+            );
+            expect(glyphO.leftMetricsKey).toBe('=a');
+            expect(layerO.lsb).toBe(glyphA.layers[0].lsb);
+            expect(layerO.width).not.toBe(glyphAWidth);
+            expect(odieresisLayer.width).toBe(layerO.width);
+            expect(oslashacuteLayer.width).not.toBe(originalWidths.oslashacute);
+        });
+
         test('batches geometry history updates during a left-sidebearing translation', () => {
             const glyph = font.findGlyph('A');
             const layer = glyph.layers[0];

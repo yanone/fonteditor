@@ -1399,22 +1399,42 @@ class GlyphOverview {
      */
     private async onGlyphChanged(event: Event): Promise<void> {
         const detail = (event as CustomEvent).detail;
-        const glyphName = detail?.glyphName;
-        if (!glyphName) return;
-
-        // Find tile by glyph name
-        let targetTile: GlyphTile | undefined;
-        for (const tile of this.tiles.values()) {
-            if (tile.glyphName === glyphName) {
-                targetTile = tile;
-                break;
-            }
+        const glyphNames = Array.isArray(detail?.glyphNames)
+            ? detail.glyphNames.filter(
+                  (glyphName: unknown): glyphName is string =>
+                      typeof glyphName === 'string' && glyphName.length > 0
+              )
+            : typeof detail?.glyphName === 'string' && detail.glyphName.length
+              ? [detail.glyphName]
+              : [];
+        if (!glyphNames.length) {
+            return;
         }
 
-        if (!targetTile) return;
+        let queuedAnyGlyph = false;
 
-        targetTile.cachedData = undefined;
-        this.pendingChangedGlyphNames.add(glyphName);
+        for (const glyphName of glyphNames) {
+            let targetTile: GlyphTile | undefined;
+            for (const tile of this.tiles.values()) {
+                if (tile.glyphName === glyphName) {
+                    targetTile = tile;
+                    break;
+                }
+            }
+
+            if (!targetTile) {
+                continue;
+            }
+
+            targetTile.cachedData = undefined;
+            this.pendingChangedGlyphNames.add(glyphName);
+            queuedAnyGlyph = true;
+        }
+
+        if (!queuedAnyGlyph) {
+            return;
+        }
+
         this.schedulePendingChangedGlyphRefresh();
     }
 

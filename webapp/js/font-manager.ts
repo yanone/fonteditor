@@ -2066,6 +2066,8 @@ class FontManager {
                 // (with kern/features). Do this regardless of needsRecompile — if a compile
                 // is still in progress, the auto-compile loop's data-changed retry will pick
                 // up lastEditType = null and produce a full compile instead of outline-only.
+                this.lastChangeSource =
+                    'debounced-post-interaction-full-compile';
                 this.lastEditType = null;
                 this.currentFont.requestRecompileWithoutDataChange();
                 window.autoCompileManager.checkAndSchedule();
@@ -3653,16 +3655,21 @@ class FontManager {
                 return;
             }
 
-            for (const glyphName of uniqueGlyphNames) {
-                window.dispatchEvent(
-                    new CustomEvent('glyphChanged', {
-                        detail: {
-                            glyphName,
-                            layerId: layerId ?? undefined
-                        }
-                    })
-                );
-            }
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail:
+                        uniqueGlyphNames.length === 1
+                            ? {
+                                  glyphName: uniqueGlyphNames[0],
+                                  layerId: layerId ?? undefined
+                              }
+                            : {
+                                  glyphName: uniqueGlyphNames[0],
+                                  glyphNames: uniqueGlyphNames,
+                                  layerId: layerId ?? undefined
+                              }
+                })
+            );
         })();
 
         this.workerCacheUpdatePromise = refreshPromise;

@@ -369,6 +369,10 @@ describe('FontManager saveLayerData', () => {
             expect(
                 window.autoCompileManager.checkAndSchedule
             ).toHaveBeenCalledTimes(1);
+            expect(fontManager.lastChangeSource).toBe(
+                'debounced-post-interaction-full-compile'
+            );
+            expect(fontManager.lastEditType).toBeNull();
             expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
         } finally {
             syncSpy.mockRestore();
@@ -572,13 +576,12 @@ describe('FontManager saveLayerData', () => {
                 .find((entry) => entry.name === secondGlyph.name)
                 .layers.find((entry) => entry.id === secondLayer.id).width
         ).toBe(secondLayer.width);
-        expect(glyphChangedHandler).toHaveBeenCalledTimes(2);
-        expect(glyphChangedHandler.mock.calls[0][0].detail.glyphName).toBe(
-            firstGlyph.name
-        );
-        expect(glyphChangedHandler.mock.calls[1][0].detail.glyphName).toBe(
-            secondGlyph.name
-        );
+        expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
+        expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
+            glyphName: firstGlyph.name,
+            glyphNames: [firstGlyph.name, secondGlyph.name],
+            layerId: firstLayer.id
+        });
     });
 
     test('updateWorkerFontCache batches the incremental post-drag layer refresh', async () => {
@@ -858,6 +861,49 @@ describe('FontManager editing subset inclusion', () => {
                 }
             ]
         });
+    });
+
+    test('keyboard-sidebearing compiles stay on the outline-only incremental fast path', async () => {
+        fontManager.lastChangeSource = 'keyboard-sidebearing';
+        fontManager.lastEditType = 'outline';
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'keyboard-sidebearing',
+            optionOverrides: {
+                skip_features: true,
+                skip_kerning: true,
+                produce_varc_table: false
+            },
+            dirtyLayerUpdates: [
+                {
+                    glyphName: 'n',
+                    layerId: 'layer-1',
+                    layerData: expect.any(Object)
+                }
+            ]
+        });
+    });
+
+    test('debounced post-interaction full compiles do not send incremental dirty-layer patches', async () => {
+        fontManager.lastChangeSource =
+            'debounced-post-interaction-full-compile';
+        fontManager.lastEditType = null;
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'debounced-post-interaction-full-compile'
+        });
+        expect(
+            compileEditingSpy.mock.calls[0][3].dirtyLayerUpdates
+        ).toBeUndefined();
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).toBeUndefined();
     });
 
     test('recompileEditingFont waits for replay-target worker refresh before compiling', async () => {

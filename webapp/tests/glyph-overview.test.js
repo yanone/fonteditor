@@ -93,6 +93,43 @@ describe('GlyphOverview glyphChanged refresh scheduling', () => {
         });
         expect(overview.renderTile).toHaveBeenCalledTimes(1);
     });
+
+    test('batches multi-glyph change details from a single glyphChanged event', async () => {
+        overview.tiles.set('glyph-b', {
+            glyphId: 'glyph-b',
+            glyphName: 'b',
+            selected: false,
+            element: document.createElement('div'),
+            cachedData: { name: 'b', stale: true }
+        });
+        window.fontCompilation.sendMessage.mockResolvedValue({
+            outlinesJson: JSON.stringify([{ name: 'a' }, { name: 'b' }])
+        });
+
+        window.dispatchEvent(
+            new CustomEvent('glyphChanged', {
+                detail: { glyphName: 'a', glyphNames: ['a', 'b'] }
+            })
+        );
+
+        jest.advanceTimersByTime(500);
+        await Promise.resolve();
+
+        expect(window.fontCompilation.sendMessage).not.toHaveBeenCalled();
+
+        window.glyphCanvas.outlineEditor.draggingSomething = false;
+        jest.advanceTimersByTime(120);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(window.fontCompilation.sendMessage).toHaveBeenLastCalledWith({
+            type: 'getGlyphOutlines',
+            glyphNames: ['a', 'b'],
+            location: {},
+            flattenComponents: false
+        });
+        expect(overview.renderTile).toHaveBeenCalledTimes(2);
+    });
 });
 
 describe('GlyphOverview virtualized lines rendering', () => {

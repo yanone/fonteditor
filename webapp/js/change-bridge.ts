@@ -1927,6 +1927,7 @@ export class ChangeBridge {
         const nextHistoryItemId =
             historyItemId ?? this._getCurrentHistoryItemId();
         const timestamp = Date.now();
+        const changeLogEntries: ChangeLogEntry[] = [];
 
         for (const operation of effectiveOperations) {
             const operationHistoryTarget =
@@ -1971,8 +1972,10 @@ export class ChangeBridge {
                 historyTargetKey: operationHistoryTarget?.key ?? null,
                 historyTargetLabel: operationHistoryTarget?.label ?? null
             });
-            this._appendChangeLogEntry(entry);
+            changeLogEntries.push(entry);
         }
+
+        this._appendChangeLogEntries(changeLogEntries);
 
         this.yDoc.transact(() => {
             for (const operation of effectiveOperations) {
