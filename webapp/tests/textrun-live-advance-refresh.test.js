@@ -475,6 +475,90 @@ describe('runBridgeUndoRedo sidebearing sync', () => {
         });
     });
 
+    test('redo batches glyphChanged notifications for glyph overview refresh', async () => {
+        const glyphChangedHandler = jest.fn();
+
+        const currentFont = {
+            fontModel: {
+                findGlyph: jest.fn(() => ({
+                    findLayerById: jest.fn(() => ({ width: 500 }))
+                })),
+                findGlyphsUsingComponent: jest.fn((glyphName) =>
+                    glyphName === 'a' ? ['adieresis', 'aring'] : []
+                )
+            },
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        originalWindow.glyphCanvas = {
+            viewportManager: {
+                panX: 100,
+                scale: 2
+            },
+            textRunEditor: {
+                refreshGlyphAdvancesLive: jest.fn()
+            },
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                fetchLayerData: jest.fn().mockResolvedValue(),
+                runDeterministicRefresh: jest.fn(async (task) => await task()),
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: jest.fn(() => 'a'),
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            updatePropertyPanel: jest.fn(),
+            render: jest.fn(),
+            requestRepaintAfterCompile: jest.fn()
+        };
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            lastChangeSource: null,
+            lastEditType: null,
+            scheduleFullCompileDebounce: jest.fn()
+        };
+        originalWindow.changeBridge = {
+            redo: jest.fn(() => ({
+                scope: 'layer',
+                glyphName: 'a',
+                layerId: 'layer-1',
+                historyItem: {
+                    transactionLabel: 'Redo Set LSB',
+                    touchedPaths: [
+                        'glyphs.a.layers.layer-1.width',
+                        'glyphs.adieresis.layers.layer-1.width'
+                    ],
+                    entries: [
+                        {
+                            oldValue: 'LEFT 40',
+                            newValue: 'LEFT 60'
+                        }
+                    ]
+                }
+            }))
+        };
+        originalWindow.autoCompileManager = {
+            checkAndSchedule: jest.fn()
+        };
+
+        window.addEventListener('glyphChanged', glyphChangedHandler);
+
+        try {
+            await runBridgeUndoRedo('redo', 'a', 'a', 'layer-1', null);
+        } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
+        }
+
+        expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
+        expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
+            glyphName: 'a',
+            glyphNames: ['a', 'adieresis', 'aring'],
+            layerId: 'layer-1'
+        });
+    });
+
     test('undo sidebearing sync uses stack-resolved edited glyph width for LSB drags', async () => {
         const refreshGlyphAdvancesLive = jest.fn();
         const fontModelBeforeUndo = {
