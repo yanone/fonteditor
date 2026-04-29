@@ -255,6 +255,25 @@ export function store_font(babelfont_json: string): void;
 export function update_cached_layer(glyph_name: string, layer_id: string, layer_json: string): void;
 
 /**
+ * Apply a batch of layer updates in a single WASM call.
+ *
+ * The input is a JSON array of `{ glyphName, layerId, layerData }` entries,
+ * where `layerData` is the parsed layer object (NOT a string).  Compared
+ * to invoking `update_cached_layer` once per layer, this:
+ *   * crosses the JS↔WASM boundary once instead of N times,
+ *   * acquires each cache lock (`FONT_CACHE`, `PREPARED_SUBSET_FONT_CACHE`,
+ *     `FILTERED_FONT_CACHE`) exactly once for the whole batch,
+ *   * lets the caller skip a separate `JSON.stringify` per layer in the
+ *     worker, since the entire batch is one JSON string.
+ *
+ * Behaviour for each individual entry matches `update_cached_layer`:
+ * the parsed layer replaces an existing matching layer or is appended
+ * to the glyph's layer list, and downstream caches are patched in place
+ * when present.  All affected glyphs have their outline caches cleared.
+ */
+export function update_cached_layers_batch(updates_json: string): void;
+
+/**
  * Get version information
  */
 export function version(): string;
@@ -277,6 +296,7 @@ export interface InitOutput {
     readonly prime_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly store_font: (a: number, b: number) => [number, number];
     readonly update_cached_layer: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly update_cached_layers_batch: (a: number, b: number) => [number, number];
     readonly version: () => [number, number];
     readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];

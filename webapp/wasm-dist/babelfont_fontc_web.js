@@ -603,6 +603,33 @@ export function update_cached_layer(glyph_name, layer_id, layer_json) {
 }
 
 /**
+ * Apply a batch of layer updates in a single WASM call.
+ *
+ * The input is a JSON array of `{ glyphName, layerId, layerData }` entries,
+ * where `layerData` is the parsed layer object (NOT a string).  Compared
+ * to invoking `update_cached_layer` once per layer, this:
+ *   * crosses the JS↔WASM boundary once instead of N times,
+ *   * acquires each cache lock (`FONT_CACHE`, `PREPARED_SUBSET_FONT_CACHE`,
+ *     `FILTERED_FONT_CACHE`) exactly once for the whole batch,
+ *   * lets the caller skip a separate `JSON.stringify` per layer in the
+ *     worker, since the entire batch is one JSON string.
+ *
+ * Behaviour for each individual entry matches `update_cached_layer`:
+ * the parsed layer replaces an existing matching layer or is appended
+ * to the glyph's layer list, and downstream caches are patched in place
+ * when present.  All affected glyphs have their outline caches cleared.
+ * @param {string} updates_json
+ */
+export function update_cached_layers_batch(updates_json) {
+    const ptr0 = passStringToWasm0(updates_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.update_cached_layers_batch(ptr0, len0);
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
  * Get version information
  * @returns {string}
  */

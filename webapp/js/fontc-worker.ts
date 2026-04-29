@@ -7,6 +7,7 @@ import init, {
     compile_cached_font_from_last_layout_closure,
     store_font,
     update_cached_layer,
+    update_cached_layers_batch,
     prime_layout_closure_cache,
     interpolate_glyph,
     clear_font_cache,
@@ -78,13 +79,25 @@ function normalizeIncrementalLayerUpdates(
 }
 
 function applyIncrementalLayerUpdates(updates: IncrementalLayerUpdate[]): void {
-    for (const update of updates) {
+    if (updates.length === 0) return;
+
+    // Single-update fast path keeps the original boundary for the very common
+    // case (one keyboard nudge or one drag tick on one layer).
+    if (updates.length === 1) {
+        const update = updates[0];
         update_cached_layer(
             update.glyphName,
             update.layerId,
             JSON.stringify(update.layerData)
         );
+        return;
     }
+
+    // Batch path: cross the JS↔WASM boundary once for the whole cascade.
+    // Acquiring each Rust cache lock once instead of N times is a real win
+    // for anchor edits with many auto-composite dependents and for sidebearing
+    // edits that fan out through metrics-key cascades.
+    update_cached_layers_batch(JSON.stringify(updates));
 }
 
 type TimelineTraceContext = {

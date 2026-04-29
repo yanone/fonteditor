@@ -152,7 +152,7 @@ All three triggers must use the same commit path: write the current Ace buffer i
 The fast path depends on these rules staying true:
 
 1. Drag and keyboard layer edits use the incremental sentinel JSON path in `font-compilation.ts` rather than sending the full babelfont JSON to the worker.
-2. `fontc-worker.ts` patches the cached font via `update_cached_layer()` whenever dirty glyph, layer ID, and layer data are available.
+2. `fontc-worker.ts` patches the cached font via `update_cached_layer()` whenever dirty glyph, layer ID, and layer data are available. Batches of more than one dirty layer (anchor cascades, sidebearing-key cascades, multi-glyph automatic-composite refresh, undo/redo replay) MUST go through `update_cached_layers_batch()` so the JS↔WASM boundary is crossed once and each Rust cache lock (`FONT_CACHE`, `PREPARED_SUBSET_FONT_CACHE`, `FILTERED_FONT_CACHE`) is acquired once for the whole batch. The single-update fast path keeps using `update_cached_layer()` directly.
 3. The editing subset key is reused when unchanged so layout closure does not get rebuilt unnecessarily.
 4. Full `store_font()` calls are fallbacks for invalidation or missing cache state, not the steady-state path for interactive editing.
 

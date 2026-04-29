@@ -867,6 +867,221 @@ pub fn update_cached_layer(
     Ok(())
 }
 
+/// Apply a batch of layer updates in a single WASM call.
+///
+/// The input is a JSON array of `{ glyphName, layerId, layerData }` entries,
+/// where `layerData` is the parsed layer object (NOT a string).  Compared
+/// to invoking `update_cached_layer` once per layer, this:
+///   * crosses the JS↔WASM boundary once instead of N times,
+///   * acquires each cache lock (`FONT_CACHE`, `PREPARED_SUBSET_FONT_CACHE`,
+///     `FILTERED_FONT_CACHE`) exactly once for the whole batch,
+///   * lets the caller skip a separate `JSON.stringify` per layer in the
+///     worker, since the entire batch is one JSON string.
+///
+/// Behaviour for each individual entry matches `update_cached_layer`:
+/// the parsed layer replaces an existing matching layer or is appended
+/// to the glyph's layer list, and downstream caches are patched in place
+/// when present.  All affected glyphs have their outline caches cleared.
+#[wasm_bindgen]
+pub fn update_cached_layers_batch(updates_json: &str) -> Result<(), JsValue> {
+    let _batch_span = PerfSpan::start("update_cached_layers_batch.total");
+
+    let _parse_span = PerfSpan::start("update_cached_layers_batch.parse_json");
+    let raw_entries: serde_json::Value = serde_json::from_str(updates_json)
+        .map_err(|e| JsValue::from_str(&format!("Layer batch JSON parse error: {}", e)))?;
+    let raw_array = match raw_entries {
+        serde_json::Value::Array(arr) => arr,
+        _ => {
+            return Err(JsValue::from_str(
+                "update_cached_layers_batch expects a JSON array",
+            ));
+        }
+    };
+    drop(_parse_span);
+
+    if raw_array.is_empty() {
+        return Ok(());
+    }
+
+    // Pre-parse each layer once so we don't pay the deserialize cost twice
+    // when patching the prepared subset and filtered font caches.
+    let _convert_span = PerfSpan::start("update_cached_layers_batch.convert_layers");
+    let mut parsed: Vec<(String, String, babelfont::Layer)> =
+        Vec::with_capacity(raw_array.len());
+    for raw in raw_array {
+        let mut obj = match raw {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(JsValue::from_str(
+                    "update_cached_layers_batch entry must be an object",
+                ));
+            }
+        };
+
+        let glyph_name = match obj.remove("glyphName") {
+            Some(serde_json::Value::String(s)) if !s.is_empty() => s,
+            _ => {
+                return Err(JsValue::from_str(
+                    "Missing or invalid glyphName in batch entry",
+                ));
+            }
+        };
+        let layer_id = match obj.remove("layerId") {
+            Some(serde_json::Value::String(s)) if !s.is_empty() => s,
+            _ => {
+                return Err(JsValue::from_str(
+                    "Missing or invalid layerId in batch entry",
+                ));
+            }
+        };
+        let layer_data = obj
+            .remove("layerData")
+            .ok_or_else(|| JsValue::from_str("Missing layerData in batch entry"))?;
+
+        let layer: babelfont::Layer = serde_json::from_value(layer_data)
+            .map_err(|e| JsValue::from_str(&format!("Layer JSON parse error: {}", e)))?;
+        parsed.push((glyph_name, layer_id, layer));
+    }
+    drop(_convert_span);
+
+    // ── Patch the primary FONT_CACHE under a single lock. ────────
+    {
+        let _cache_span = PerfSpan::start("update_cached_layers_batch.cache_write");
+        let mut cache = FONT_CACHE.lock().unwrap();
+        let font = cache
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("No font cached. Call store_font() first."))?;
+
+        // Pre-validate every glyph exists before mutating anything so the
+        // batch is atomic by construction. Without this, a missing glyph
+        // partway through would leave FONT_CACHE partially mutated while
+        // FONT_CACHE_EPOCH stays unbumped — the next compile would silently
+        // reuse the stale prepared subset.
+        {
+            let known: std::collections::HashSet<&str> =
+                font.glyphs.iter().map(|g| g.name.as_str()).collect();
+            for (glyph_name, _, _) in &parsed {
+                if !known.contains(glyph_name.as_str()) {
+                    return Err(JsValue::from_str(&format!(
+                        "Glyph '{}' not found in cached font.",
+                        glyph_name
+                    )));
+                }
+            }
+        }
+
+        for (glyph_name, layer_id, layer) in &parsed {
+            let target_glyph = font
+                .glyphs
+                .iter_mut()
+                .find(|glyph| glyph.name.as_str() == glyph_name.as_str())
+                .expect("glyph existence pre-validated above");
+
+            if let Some(existing_layer) = target_glyph
+                .layers
+                .iter_mut()
+                .find(|l| l.id.as_deref() == Some(layer_id.as_str()))
+            {
+                *existing_layer = layer.clone();
+            } else {
+                target_glyph.layers.push(layer.clone());
+            }
+        }
+    }
+
+    let next_epoch = FONT_CACHE_EPOCH.fetch_add(1, Ordering::Relaxed) + 1;
+
+    // ── Patch the PREPARED_SUBSET_FONT_CACHE in place. ───────────
+    {
+        let _prepared_span =
+            PerfSpan::start("update_cached_layers_batch.patch_prepared_subset");
+        let mut prepared_cache = PREPARED_SUBSET_FONT_CACHE.lock().unwrap();
+        if let Some((_subset_key, prepared_epoch, prepared_font)) = prepared_cache.as_mut() {
+            let mut any_applied = false;
+            for (glyph_name, layer_id, layer) in &parsed {
+                if let Some(prepared_glyph) = prepared_font
+                    .glyphs
+                    .iter_mut()
+                    .find(|glyph| glyph.name.as_str() == glyph_name.as_str())
+                {
+                    if let Some(prepared_layer) = prepared_glyph
+                        .layers
+                        .iter_mut()
+                        .find(|l| l.id.as_deref() == Some(layer_id.as_str()))
+                    {
+                        *prepared_layer = layer.clone();
+                    } else {
+                        prepared_glyph.layers.push(layer.clone());
+                    }
+                    any_applied = true;
+                }
+            }
+            if any_applied {
+                *prepared_epoch = next_epoch;
+                PREPARED_SUBSET_PATCHED_IN_PLACE.store(true, Ordering::Release);
+                perf_mark(&format!(
+                    "{}:update_cached_layers_batch.patch_prepared_subset.applied{}",
+                    PERF_PREFIX,
+                    current_perf_trace_suffix()
+                ));
+            }
+        }
+    }
+
+    // ── Patch the FILTERED_FONT_CACHE in place. ──────────────────
+    {
+        let _filtered_span =
+            PerfSpan::start("update_cached_layers_batch.patch_filtered_font");
+        let mut filtered_cache = FILTERED_FONT_CACHE.lock().unwrap();
+        if let Some(entry) = filtered_cache.as_mut() {
+            let mut any_applied = false;
+            // Arc::make_mut is O(1) here because WASM is single-threaded.
+            let filtered_font = Arc::make_mut(&mut entry.font);
+            for (glyph_name, layer_id, layer) in &parsed {
+                if let Some(filtered_glyph) = filtered_font
+                    .glyphs
+                    .iter_mut()
+                    .find(|glyph| glyph.name.as_str() == glyph_name.as_str())
+                {
+                    if let Some(filtered_layer) = filtered_glyph
+                        .layers
+                        .iter_mut()
+                        .find(|l| l.id.as_deref() == Some(layer_id.as_str()))
+                    {
+                        *filtered_layer = layer.clone();
+                    } else {
+                        filtered_glyph.layers.push(layer.clone());
+                    }
+                    any_applied = true;
+                }
+            }
+            if any_applied {
+                FILTERED_FONT_PATCHED_IN_PLACE.store(true, Ordering::Release);
+                perf_mark(&format!(
+                    "{}:update_cached_layers_batch.patch_filtered_font.applied{}",
+                    PERF_PREFIX,
+                    current_perf_trace_suffix()
+                ));
+            }
+        }
+    }
+
+    // ── Clear the outline cache for every affected glyph. ────────
+    {
+        let _outline_clear_span =
+            PerfSpan::start("update_cached_layers_batch.clear_outline_cache");
+        // Glyph names may repeat across the batch; collect distinct names.
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for (glyph_name, _, _) in &parsed {
+            if seen.insert(glyph_name.as_str()) {
+                glyph_outlines::clear_outline_cache_for_glyph(glyph_name);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Clear the cached font from memory
 #[wasm_bindgen]
 pub fn clear_font_cache() {

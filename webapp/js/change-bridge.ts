@@ -338,17 +338,65 @@ export class ChangeBridge {
             return snapshot;
         }
 
-        const targetKeys = targets?.length
-            ? new Set(
-                  targets.map((target) =>
-                      getLayerFingerprintTargetKey(
-                          target.glyphName,
-                          target.layerId
-                      )
-                  )
-              )
-            : null;
+        // Targeted fast path: when the caller scoped this to a small set of
+        // (glyph, layer) pairs, do an indexed lookup instead of iterating
+        // every glyph and every layer in the font. For 1058 glyphs with
+        // ~5 layers each, this is the difference between 5000+ iterations
+        // and N (typically 1-20) per call. _syncJsonFromYDoc fires this
+        // twice (before/after) on every Yjs sync (undo, remote, scoped).
+        if (targets?.length) {
+            // Build glyph-name → glyph index once. Build lazily so we only
+            // pay the O(glyphs) cost on the first miss; if every target's
+            // glyph is at the head of the array, we can avoid even that.
+            let glyphIndex: Map<string, Unsafe> | null = null;
+            const ensureGlyphIndex = (): Map<string, Unsafe> => {
+                if (glyphIndex) return glyphIndex;
+                const idx = new Map<string, Unsafe>();
+                for (const glyph of glyphs) {
+                    const name =
+                        typeof glyph?.name === 'string' ? glyph.name : null;
+                    if (name && !idx.has(name)) {
+                        idx.set(name, glyph);
+                    }
+                }
+                glyphIndex = idx;
+                return idx;
+            };
 
+            const dedupe = new Set<string>();
+            for (const target of targets) {
+                const glyphName = target?.glyphName;
+                const layerId = target?.layerId;
+                if (!glyphName || !layerId) continue;
+
+                const targetKey = getLayerFingerprintTargetKey(
+                    glyphName,
+                    layerId
+                );
+                if (dedupe.has(targetKey)) continue;
+                dedupe.add(targetKey);
+
+                const glyph = ensureGlyphIndex().get(glyphName);
+                if (!glyph) continue;
+
+                const layers = Array.isArray(glyph.layers) ? glyph.layers : [];
+                // Layer counts per glyph are tiny (typically 1-10). A linear
+                // find here is faster than building a per-glyph index.
+                const layer = layers.find(
+                    (l: Unsafe) => typeof l?.id === 'string' && l.id === layerId
+                );
+                if (!layer) continue;
+
+                snapshot.set(targetKey, {
+                    glyphName,
+                    layerId,
+                    fingerprint: getLayerFingerprintFromJson(layer)
+                });
+            }
+            return snapshot;
+        }
+
+        // Untargeted path: full font scan. Used for full Yjs rebuilds.
         for (const glyph of glyphs) {
             const glyphName =
                 typeof glyph?.name === 'string' ? glyph.name : null;
@@ -367,10 +415,6 @@ export class ChangeBridge {
                     glyphName,
                     layerId
                 );
-                if (targetKeys && !targetKeys.has(targetKey)) {
-                    continue;
-                }
-
                 snapshot.set(targetKey, {
                     glyphName,
                     layerId,
