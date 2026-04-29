@@ -37,6 +37,21 @@ When these files disagree with this document, treat that as a bug and reconcile 
 8. Text input uses its own subset-only fast path and still schedules a deferred full compile after typing settles.
 9. Full compiles remain the correctness fallback after interactive editing or when an edit type does not have a specialized fast path.
 10. Linked windows must not run full-font compilation or Fontspector; only the main window may schedule and execute them. The `full-font-compile-manager` checks `windowRole.isMainWindow()` at every scheduling entry point and suppresses the monitor loop for linked windows.
+11. Every interactive commit MUST cross the JS ↔ Rust/worker boundary through `submitLayerUpdatesToWorkerCache` (one batched `storeLayerUpdates` worker message per commit, regardless of the number of changed layers). Full-font `storeFontJson` crossings MUST stay at zero outside of font open, external reload, and explicit force-full sync (`forceFullWorkerCacheUpdate`). The receiver path (`syncRustCacheAndRefreshCanvas`) and undo/redo path use `refreshWorkerCacheForReplayTargets` for the same single-batch crossing; the receiver fallback `submitLayerToWorkerCache` (singular) routes through the same batched API so its boundary-crossing counters and fingerprint-cache updates are uniform. The fingerprint baseline used to skip unchanged layers is the in-memory `workerLayerFingerprintCache`; it is updated incrementally on every successful submit and cleared on every full-font crossing (`recordFullFontCrossing`), so the cache stays consistent with whatever Rust currently holds without ever re-deriving fingerprints by parsing `babelfontJson` on the hot path.
+
+## Boundary-Crossing Budget
+
+`FontManager` exposes `getBoundaryCrossingStats()` and `resetBoundaryCrossingStats()` so tests and the AI profiling harness can pin per-edit traffic across the JS ↔ Rust/worker boundary. The locked-down budget is:
+
+| Operation                                                       | `submitBatchCalls` | `layersTransmitted` | `glyphsTransmitted` | `fullFontCrossings` |
+| --------------------------------------------------------------- | ------------------ | ------------------- | ------------------- | ------------------- |
+| Single-layer commit (keyboard / drag-end)                       | `1`                | `1`                 | `1`                 | `0`                 |
+| Multi-glyph cascade commit (e.g. anchor cascade, metrics keys)  | `1`                | `N` (changed)       | `M` (distinct)      | `0`                 |
+| Receiver `syncRustCacheAndRefreshCanvas` with replay targets    | `1`                | `N` (targets)       | `M` (distinct)      | `0`                 |
+| Undo / redo with `workerReplayTargets`                          | `1`                | `N` (targets)       | `M` (distinct)      | `0`                 |
+| Font open / external reload / `forceFullWorkerCacheUpdate`      | `0`                | `0`                 | `0`                 | `1`                 |
+
+Steady-state lock-down: 50+ sequential commits MUST keep the per-commit budget flat at `(1, 1, 1, 0)`. Any growth indicates a regression. `tests/font-manager.test.js` (`FontManager boundary-crossing budget`) enforces this directly.
 
 ## Edit-Type Matrix
 

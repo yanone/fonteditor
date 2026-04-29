@@ -68,6 +68,38 @@ type LayerCacheUpdate = {
 
 type ExplicitLayerCacheInput = LayerCacheUpdate;
 
+/**
+ * Counters that record traffic across the JS ↔ Rust/worker boundary.
+ *
+ * These are the numbers the Counterpunch compilation policy locks down:
+ * during interactive editing every commit MUST flow through the batched
+ * layer-update path (`submitLayerUpdatesToWorkerCache` → `storeLayerUpdates`
+ * worker message → `update_cached_layers_batch` Rust call). Full-font
+ * crossings (`storeFontJson`) MUST stay at zero outside of font open,
+ * external reload, and explicit force-full sync. Tests assert the
+ * deltas of these counters per edit/cascade/undo/remote operation.
+ */
+export type BoundaryCrossingStats = {
+    /** Number of `submitLayerUpdatesToWorkerCache` calls (1 per batch). */
+    submitBatchCalls: number;
+    /** Total number of layer entries crossed in batches. */
+    layersTransmitted: number;
+    /** Number of distinct glyphs crossed in batches (running count). */
+    glyphsTransmitted: number;
+    /**
+     * Number of full-font `storeFontJson` crossings since the last
+     * reset. Should stay 0 during normal interactive editing.
+     */
+    fullFontCrossings: number;
+};
+
+/**
+ * Shared empty fingerprint baseline map. Returned by the (now no-op)
+ * `getLayerFingerprintsFromStoredJson` to avoid re-parsing the
+ * megabyte-scale `babelfontJson` on every commit batch.
+ */
+const EMPTY_FINGERPRINT_MAP: Map<string, string> = new Map();
+
 type ReloadCurrentFontOptions = {
     preserveUiState?: boolean;
 };
@@ -477,6 +509,22 @@ class FontManager {
     workerCacheUpdatePromise: Promise<void> | null;
     forceFullEditingCacheRefresh: boolean;
     workerLayerFingerprintCache: Map<string, string>;
+
+    /**
+     * Running counters for traffic across the JS \u2194 Rust/worker boundary.
+     * See {@link BoundaryCrossingStats} and {@link getBoundaryCrossingStats}.
+     */
+    private _boundaryCrossingStats: {
+        submitBatchCalls: number;
+        layersTransmitted: number;
+        fullFontCrossings: number;
+        transmittedGlyphs: Set<string>;
+    } = {
+        submitBatchCalls: 0,
+        layersTransmitted: 0,
+        fullFontCrossings: 0,
+        transmittedGlyphs: new Set<string>()
+    };
 
     constructor() {
         this.fontDisplay = null;
@@ -913,6 +961,7 @@ class FontManager {
             const babelfontJson =
                 await this.loadBabelfontJsonFromSource(previousOpenedFont);
 
+            this.recordFullFontCrossing();
             const storeResult = await fontCompilation.sendMessage({
                 type: 'storeFontJson',
                 babelfontJson
@@ -2871,43 +2920,27 @@ class FontManager {
         return JSON.stringify(this.normalizeLayerForRust(layerData));
     }
 
+    /**
+     * Baseline fingerprints for changed-layer detection.
+     *
+     * Historically this parsed the entire `currentFont.babelfontJson`
+     * (multi-megabyte JSON) on every commit batch — a steady ~50-100ms
+     * cost per edit even though the only baseline that matters is
+     * "what is currently in the Rust worker cache". That state is
+     * already tracked incrementally in `workerLayerFingerprintCache`:
+     * it is cleared whenever the worker cache is fully reseeded
+     * (`storeFontJson`/`forceFullWorkerCacheUpdate` via
+     * {@link recordFullFontCrossing}) and updated on every successful
+     * `submitLayerUpdatesToWorkerCache`. Returning an empty Map here
+     * keeps the logic correct (a missing fingerprint forces the layer
+     * to be included in the next batch — the safe fallback) while
+     * removing the per-commit JSON.parse from the hot path entirely.
+     * See COMPILATION_EDIT_POLICY.md.
+     */
     private getLayerFingerprintsFromStoredJson(
-        glyphNames: Iterable<string>
+        _glyphNames: Iterable<string>
     ): Map<string, string> {
-        const currentFont = this.currentFont;
-        const fingerprints = new Map<string, string>();
-        if (!currentFont?.babelfontJson) {
-            return fingerprints;
-        }
-
-        try {
-            const storedData = JSON.parse(currentFont.babelfontJson);
-            const glyphNameSet = new Set(glyphNames);
-
-            for (const glyph of storedData.glyphs || []) {
-                if (!glyphNameSet.has(glyph?.name)) {
-                    continue;
-                }
-
-                for (const layer of glyph.layers || []) {
-                    if (typeof layer?.id !== 'string' || !layer.id) {
-                        continue;
-                    }
-
-                    fingerprints.set(
-                        this.getWorkerLayerFingerprintKey(glyph.name, layer.id),
-                        this.getLayerWorkerFingerprint(layer)
-                    );
-                }
-            }
-        } catch (error) {
-            console.warn(
-                '[FontManager] Failed to parse babelfontJson baseline for incremental layer refresh:',
-                error
-            );
-        }
-
-        return fingerprints;
+        return EMPTY_FINGERPRINT_MAP;
     }
 
     private collectChangedLayerUpdatesFromModel(
@@ -3045,6 +3078,11 @@ class FontManager {
             return false;
         }
 
+        if (!updates.length) {
+            // Nothing to cross the boundary for.
+            return true;
+        }
+
         try {
             // Normalize once per layer and reuse for both postMessage and fingerprint
             const normalizedUpdates = updates.map((update) => {
@@ -3065,11 +3103,16 @@ class FontManager {
                 }))
             });
 
+            // Update fingerprint baseline cache + boundary-crossing stats.
+            this._boundaryCrossingStats.submitBatchCalls++;
+            this._boundaryCrossingStats.layersTransmitted +=
+                normalizedUpdates.length;
             for (const u of normalizedUpdates) {
                 this.workerLayerFingerprintCache.set(
                     this.getWorkerLayerFingerprintKey(u.glyphName, u.layerId),
                     JSON.stringify(u.normalized)
                 );
+                this._boundaryCrossingStats.transmittedGlyphs.add(u.glyphName);
             }
             return true;
         } catch (error) {
@@ -3083,6 +3126,54 @@ class FontManager {
             );
             return false;
         }
+    }
+
+    /**
+     * Snapshot the running JS ↔ Rust/worker boundary-crossing counters.
+     * Call {@link resetBoundaryCrossingStats} at the start of an edit
+     * and read the snapshot at the end to assert that exactly the
+     * expected number of batched layer updates / full-font crossings
+     * occurred.
+     */
+    getBoundaryCrossingStats(): BoundaryCrossingStats {
+        return {
+            submitBatchCalls: this._boundaryCrossingStats.submitBatchCalls,
+            layersTransmitted: this._boundaryCrossingStats.layersTransmitted,
+            glyphsTransmitted:
+                this._boundaryCrossingStats.transmittedGlyphs.size,
+            fullFontCrossings: this._boundaryCrossingStats.fullFontCrossings
+        };
+    }
+
+    /**
+     * Reset the running boundary-crossing counters. Tests and the AI
+     * profiling harness call this between edits to measure per-edit
+     * costs in isolation.
+     */
+    resetBoundaryCrossingStats(): void {
+        this._boundaryCrossingStats.submitBatchCalls = 0;
+        this._boundaryCrossingStats.layersTransmitted = 0;
+        this._boundaryCrossingStats.fullFontCrossings = 0;
+        this._boundaryCrossingStats.transmittedGlyphs.clear();
+    }
+
+    /**
+     * Record a full-font crossing (`storeFontJson`). Centralised so the
+     * boundary-crossing counters cover every full-font path.
+     *
+     * After a full crossing the worker has received a fresh
+     * `babelfontJson` and the previous incremental fingerprints become
+     * a stale baseline (they refer to a state that may not match what
+     * Rust now has). Clearing the cache forces the next batch to
+     * include every touched layer \u2014 the safe direction \u2014 and the
+     * cache is then incrementally rebuilt by subsequent successful
+     * `submitLayerUpdatesToWorkerCache` calls. This keeps the
+     * fingerprint cache as the documented single source of truth (see
+     * COMPILATION_EDIT_POLICY.md \u00a711).
+     */
+    recordFullFontCrossing(): void {
+        this._boundaryCrossingStats.fullFontCrossings++;
+        this.workerLayerFingerprintCache.clear();
     }
 
     async refreshWorkerCacheForReplayTargets(
@@ -3368,6 +3459,7 @@ class FontManager {
         // Skip during dragging to prevent clearing caches repeatedly - will update on drag end
         if (!isInteractiveEdit) {
             try {
+                this.recordFullFontCrossing();
                 await fontCompilation.sendMessage({
                     type: 'storeFontJson',
                     babelfontJson: this.currentFont!.babelfontJson
@@ -3462,6 +3554,7 @@ class FontManager {
                         this.pendingBabelfontJsonSyncAfterDrag = false;
                     }
 
+                    this.recordFullFontCrossing();
                     await fontCompilation.sendMessage({
                         type: 'storeFontJson',
                         babelfontJson: this.currentFont.babelfontJson
@@ -3547,6 +3640,7 @@ class FontManager {
             // Invalidate the "already stored" sentinel so fontCompilation doesn't skip the send.
             fontCompilation.lastStoredFontJson = null;
             try {
+                this.recordFullFontCrossing();
                 await fontCompilation.sendMessage({
                     type: 'storeFontJson',
                     babelfontJson: this.currentFont!.babelfontJson,
@@ -3645,6 +3739,7 @@ class FontManager {
                     return;
                 }
 
+                this.recordFullFontCrossing();
                 await fontCompilation.sendMessage({
                     type: 'storeFontJson',
                     babelfontJson: currentFont.babelfontJson
@@ -3700,29 +3795,23 @@ class FontManager {
             return false;
         }
 
-        try {
-            const rawLayerData =
-                typeof layer.toJSON === 'function' ? layer.toJSON() : layer;
-            const layerDataCopy = this.normalizeLayerForRust(rawLayerData);
-            await fontCompilation.sendMessage({
-                type: 'storeLayerUpdates',
-                updates: [
-                    {
-                        glyphName,
-                        layerId,
-                        layerData: layerDataCopy
-                    }
-                ]
-            });
-            return true;
-        } catch (error) {
-            console.warn(
-                '[FontManager] Failed to submit layer to worker cache:',
-                { glyphName, layerId },
-                error
-            );
+        const rawLayerData =
+            typeof layer.toJSON === 'function' ? layer.toJSON() : layer;
+        const serializedLayer = this.serializeLayerForStorage(
+            glyphName,
+            layerId,
+            rawLayerData
+        );
+        if (!serializedLayer) {
             return false;
         }
+
+        // Route through the batched single-call path so the boundary-crossing
+        // counters and `workerLayerFingerprintCache` are updated uniformly.
+        // See COMPILATION_EDIT_POLICY.md \u00a711.
+        return this.submitLayerUpdatesToWorkerCache([
+            { glyphName, layerId, layerData: serializedLayer }
+        ]);
     }
 }
 
@@ -3921,6 +4010,7 @@ window.addEventListener('fontLoaded', async (event: Event) => {
         // Store font in worker's Rust instance for glyph operations
         // This ensures the font is cached BEFORE fontReady fires
         try {
+            fontManager?.recordFullFontCrossing?.();
             const storeResult = await fontCompilation.sendMessage({
                 type: 'storeFontJson',
                 babelfontJson: detail.babelfontJson

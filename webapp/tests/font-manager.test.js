@@ -1051,3 +1051,219 @@ describe('FontManager loadFont', () => {
         ).toBeCloseTo(braceLayer.width);
     });
 });
+
+describe('FontManager boundary-crossing budget', () => {
+    // Lock down the JS <-> Rust/worker traffic per the compilation policy:
+    //   - every interactive edit must funnel through the batched
+    //     `storeLayerUpdates` worker message (1 batch per commit, no matter
+    //     how many layers are in the batch),
+    //   - no full-font `storeFontJson` crossings during interactive edits,
+    //   - no progressive growth in per-edit work after many edits.
+    // See developer-docs/COMPILATION_EDIT_POLICY.md.
+
+    let originalOpenedFonts;
+    let originalCurrentFontId;
+    let originalFontCompilationInitialized;
+    let originalLastStoredFontJson;
+    let intermediateFontData;
+    let updateDirtyIndicatorSpy;
+    let sendMessageSpy;
+
+    beforeAll(() => {
+        const fixturePath = path.join(
+            __dirname,
+            '..',
+            'examples',
+            'intermediate_layer_on_a.glyphs'
+        );
+        intermediateFontData = loadFontFile(fixturePath);
+    });
+
+    beforeEach(() => {
+        originalOpenedFonts = fontManager.openedFonts;
+        originalCurrentFontId = fontManager.currentFontId;
+        originalFontCompilationInitialized = fontCompilation.isInitialized;
+        originalLastStoredFontJson = fontCompilation.lastStoredFontJson;
+
+        const fontData = cloneJson(intermediateFontData);
+        const fakeCurrentFont = {
+            babelfontJson: JSON.stringify(fontData),
+            babelfontData: fontData,
+            fontModel: Font.fromData(fontData),
+            name: 'Sukoon',
+            markDirty: jest.fn(),
+            syncJsonFromModel: jest.fn(function () {
+                this.babelfontJson = this.fontModel.toJSONString();
+            })
+        };
+
+        fontManager.openedFonts = new Map([['test-font', fakeCurrentFont]]);
+        fontManager.currentFontId = 'test-font';
+        fontManager.pendingBabelfontJsonSyncAfterDrag = false;
+        fontManager.scheduleFullCompileDebounce = jest.fn();
+        fontManager.workerLayerFingerprintCache = new Map();
+        fontManager.resetBoundaryCrossingStats();
+
+        updateDirtyIndicatorSpy = jest
+            .spyOn(fontManager, 'updateDirtyIndicator')
+            .mockResolvedValue();
+        window.autoCompileManager = { checkAndSchedule: jest.fn() };
+
+        fontCompilation.isInitialized = true;
+        sendMessageSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+    });
+
+    afterEach(() => {
+        updateDirtyIndicatorSpy?.mockRestore();
+        sendMessageSpy?.mockRestore();
+        fontManager.openedFonts = originalOpenedFonts;
+        fontManager.currentFontId = originalCurrentFontId;
+        fontCompilation.isInitialized = originalFontCompilationInitialized;
+        fontCompilation.lastStoredFontJson = originalLastStoredFontJson;
+        delete window.autoCompileManager;
+    });
+
+    test('getLayerFingerprintsFromStoredJson does not parse babelfontJson on the hot path', () => {
+        const currentFont = fontManager.currentFont;
+        const parseSpy = jest.spyOn(JSON, 'parse');
+
+        try {
+            const fingerprints =
+                fontManager.getLayerFingerprintsFromStoredJson([
+                    'a',
+                    'aacute',
+                    'n'
+                ]);
+            expect(fingerprints.size).toBe(0);
+            // Must NOT touch the megabyte-scale babelfontJson string.
+            const touched = parseSpy.mock.calls.some(
+                (args) => args[0] === currentFont.babelfontJson
+            );
+            expect(touched).toBe(false);
+        } finally {
+            parseSpy.mockRestore();
+        }
+    });
+
+    test('single-layer commit crosses the boundary exactly once with no full-font sync', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const modelLayer = currentFont.fontModel
+            .findGlyph('a')
+            .findLayerById(layerId);
+        modelLayer.width += 23;
+
+        await fontManager.refreshGlyphsAfterModelBatch(['a'], layerId);
+
+        const stats = fontManager.getBoundaryCrossingStats();
+        expect(stats.submitBatchCalls).toBe(1);
+        expect(stats.layersTransmitted).toBe(1);
+        expect(stats.glyphsTransmitted).toBe(1);
+        expect(stats.fullFontCrossings).toBe(0);
+
+        // Exactly one storeLayerUpdates message reached the worker, no storeFontJson.
+        const messageTypes = sendMessageSpy.mock.calls.map(
+            (args) => args[0]?.type
+        );
+        expect(messageTypes).toEqual(['storeLayerUpdates']);
+    });
+
+    test('multi-glyph cascade batches all layers into a single boundary crossing', async () => {
+        const currentFont = fontManager.currentFont;
+        const [first, second] = currentFont.fontModel.glyphs;
+        const firstLayer = first.layers[0];
+        const secondLayer = second.layers[0];
+
+        firstLayer.width += 11;
+        secondLayer.width += 17;
+
+        await fontManager.refreshGlyphsAfterModelBatch(
+            [first.name, second.name],
+            firstLayer.id
+        );
+
+        const stats = fontManager.getBoundaryCrossingStats();
+        expect(stats.submitBatchCalls).toBe(1);
+        expect(stats.layersTransmitted).toBe(2);
+        expect(stats.glyphsTransmitted).toBe(2);
+        expect(stats.fullFontCrossings).toBe(0);
+    });
+
+    test('refreshWorkerCacheForReplayTargets uses the same single-batch path as direct edits', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
+        const layerN = currentFont.fontModel.findGlyph('n');
+        const layerNId = layerN ? layerN.layers[0].id : null;
+
+        const targets = [{ glyphName: 'a', layerId }];
+        if (layerNId) {
+            targets.push({ glyphName: 'n', layerId: layerNId });
+        }
+
+        await fontManager.refreshWorkerCacheForReplayTargets(targets);
+
+        const stats = fontManager.getBoundaryCrossingStats();
+        expect(stats.submitBatchCalls).toBe(1);
+        expect(stats.layersTransmitted).toBe(targets.length);
+        expect(stats.fullFontCrossings).toBe(0);
+        const messageTypes = sendMessageSpy.mock.calls.map(
+            (args) => args[0]?.type
+        );
+        expect(messageTypes).toEqual(['storeLayerUpdates']);
+    });
+
+    test('submitLayerToWorkerCache routes the singular receiver-fallback path through the batched API', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
+
+        await fontManager.submitLayerToWorkerCache('a', layerId);
+
+        const stats = fontManager.getBoundaryCrossingStats();
+        expect(stats.submitBatchCalls).toBe(1);
+        expect(stats.layersTransmitted).toBe(1);
+        expect(stats.glyphsTransmitted).toBe(1);
+        expect(stats.fullFontCrossings).toBe(0);
+        expect(
+            fontManager.workerLayerFingerprintCache.has(`a::${layerId}`)
+        ).toBe(true);
+    });
+
+    test('recordFullFontCrossing clears the layer fingerprint cache', () => {
+        fontManager.workerLayerFingerprintCache.set('a::layer-1', 'abc');
+        fontManager.workerLayerFingerprintCache.set('n::layer-1', 'def');
+
+        fontManager.recordFullFontCrossing();
+
+        const stats = fontManager.getBoundaryCrossingStats();
+        expect(stats.fullFontCrossings).toBe(1);
+        expect(fontManager.workerLayerFingerprintCache.size).toBe(0);
+    });
+
+    test('per-edit boundary cost stays flat across 50 sequential commits', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const modelLayer = currentFont.fontModel
+            .findGlyph('a')
+            .findLayerById(layerId);
+
+        for (let i = 0; i < 50; i++) {
+            fontManager.resetBoundaryCrossingStats();
+            modelLayer.width += 1;
+
+            await fontManager.refreshGlyphsAfterModelBatch(['a'], layerId);
+
+            const stats = fontManager.getBoundaryCrossingStats();
+            // EVERY commit must cost exactly 1 batch crossing for 1 layer of
+            // 1 glyph and zero full-font crossings -- no progressive growth.
+            expect(stats).toEqual({
+                submitBatchCalls: 1,
+                layersTransmitted: 1,
+                glyphsTransmitted: 1,
+                fullFontCrossings: 0
+            });
+        }
+    });
+});
+

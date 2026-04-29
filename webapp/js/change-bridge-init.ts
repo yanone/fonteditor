@@ -289,6 +289,7 @@ export async function syncRustCacheAndRefreshCanvas(
                     // undo/redo/remote Yjs updates where Rust may still hold an
                     // incrementally-mutated cache that no longer matches current JSON.
                     fontCompilation.lastStoredFontJson = null;
+                    fm?.recordFullFontCrossing?.();
                     await fontCompilation.sendMessage({
                         type: 'storeFontJson',
                         babelfontJson: currentFont.babelfontJson,
