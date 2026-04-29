@@ -1130,12 +1130,9 @@ describe('FontManager boundary-crossing budget', () => {
         const parseSpy = jest.spyOn(JSON, 'parse');
 
         try {
-            const fingerprints =
-                fontManager.getLayerFingerprintsFromStoredJson([
-                    'a',
-                    'aacute',
-                    'n'
-                ]);
+            const fingerprints = fontManager.getLayerFingerprintsFromStoredJson(
+                ['a', 'aacute', 'n']
+            );
             expect(fingerprints.size).toBe(0);
             // Must NOT touch the megabyte-scale babelfontJson string.
             const touched = parseSpy.mock.calls.some(
@@ -1266,4 +1263,3 @@ describe('FontManager boundary-crossing budget', () => {
         }
     });
 });
-

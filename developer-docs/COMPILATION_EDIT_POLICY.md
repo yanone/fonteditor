@@ -43,13 +43,13 @@ When these files disagree with this document, treat that as a bug and reconcile 
 
 `FontManager` exposes `getBoundaryCrossingStats()` and `resetBoundaryCrossingStats()` so tests and the AI profiling harness can pin per-edit traffic across the JS ↔ Rust/worker boundary. The locked-down budget is:
 
-| Operation                                                       | `submitBatchCalls` | `layersTransmitted` | `glyphsTransmitted` | `fullFontCrossings` |
-| --------------------------------------------------------------- | ------------------ | ------------------- | ------------------- | ------------------- |
-| Single-layer commit (keyboard / drag-end)                       | `1`                | `1`                 | `1`                 | `0`                 |
-| Multi-glyph cascade commit (e.g. anchor cascade, metrics keys)  | `1`                | `N` (changed)       | `M` (distinct)      | `0`                 |
-| Receiver `syncRustCacheAndRefreshCanvas` with replay targets    | `1`                | `N` (targets)       | `M` (distinct)      | `0`                 |
-| Undo / redo with `workerReplayTargets`                          | `1`                | `N` (targets)       | `M` (distinct)      | `0`                 |
-| Font open / external reload / `forceFullWorkerCacheUpdate`      | `0`                | `0`                 | `0`                 | `1`                 |
+| Operation                                                      | `submitBatchCalls` | `layersTransmitted` | `glyphsTransmitted` | `fullFontCrossings` |
+| -------------------------------------------------------------- | ------------------ | ------------------- | ------------------- | ------------------- |
+| Single-layer commit (keyboard / drag-end)                      | `1`                | `1`                 | `1`                 | `0`                 |
+| Multi-glyph cascade commit (e.g. anchor cascade, metrics keys) | `1`                | `N` (changed)       | `M` (distinct)      | `0`                 |
+| Receiver `syncRustCacheAndRefreshCanvas` with replay targets   | `1`                | `N` (targets)       | `M` (distinct)      | `0`                 |
+| Undo / redo with `workerReplayTargets`                         | `1`                | `N` (targets)       | `M` (distinct)      | `0`                 |
+| Font open / external reload / `forceFullWorkerCacheUpdate`     | `0`                | `0`                 | `0`                 | `1`                 |
 
 Steady-state lock-down: 50+ sequential commits MUST keep the per-commit budget flat at `(1, 1, 1, 0)`. Any growth indicates a regression. `tests/font-manager.test.js` (`FontManager boundary-crossing budget`) enforces this directly.
 
