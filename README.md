@@ -66,7 +66,7 @@ Run the app locally with `cd webapp && npm run dev`, test with `npm run test`. F
 - ✅ Basic documentation
 - ✅ First video
 
-### v0.3 (April 23rd, 2026)
+### v0.3
 
 **Counterpunch becomes a simple font editor**
 
