@@ -3676,4 +3676,65 @@ describe('Babelfont Object Model', () => {
             expect(layerWithKey.rsb).toBeCloseTo(expectedRsb, 1);
         });
     });
+
+    describe('Font.getGlyphNamesByLengthDesc() cache invalidation', () => {
+        test('returns names sorted by length descending', () => {
+            const names = metricsKeysFont.getGlyphNamesByLengthDesc();
+            for (let i = 1; i < names.length; i++) {
+                expect(names[i - 1].length).toBeGreaterThanOrEqual(
+                    names[i].length
+                );
+            }
+        });
+
+        test('returns the same array instance on consecutive calls (cached)', () => {
+            const a = metricsKeysFont.getGlyphNamesByLengthDesc();
+            const b = metricsKeysFont.getGlyphNamesByLengthDesc();
+            expect(a).toBe(b);
+        });
+
+        test('cache invalidates after addGlyph', () => {
+            const before = metricsKeysFont.getGlyphNamesByLengthDesc();
+            const beforeLen = before.length;
+            metricsKeysFont.addGlyph('zzz_added_test_glyph', 'Base');
+            const after = metricsKeysFont.getGlyphNamesByLengthDesc();
+            expect(after).not.toBe(before);
+            expect(after.length).toBe(beforeLen + 1);
+            expect(after).toContain('zzz_added_test_glyph');
+            metricsKeysFont.removeGlyph('zzz_added_test_glyph');
+        });
+
+        test('cache invalidates after removeGlyph', () => {
+            metricsKeysFont.addGlyph('zzz_temp_for_remove', 'Base');
+            const before = metricsKeysFont.getGlyphNamesByLengthDesc();
+            expect(before).toContain('zzz_temp_for_remove');
+            metricsKeysFont.removeGlyph('zzz_temp_for_remove');
+            const after = metricsKeysFont.getGlyphNamesByLengthDesc();
+            expect(after).not.toBe(before);
+            expect(after).not.toContain('zzz_temp_for_remove');
+        });
+
+        test('cache invalidates after Glyph.name rename', () => {
+            metricsKeysFont.addGlyph('zzz_rename_src', 'Base');
+            const before = metricsKeysFont.getGlyphNamesByLengthDesc();
+            expect(before).toContain('zzz_rename_src');
+            const renamed = metricsKeysFont.findGlyph('zzz_rename_src');
+            renamed.name = 'zzz_rename_dst';
+            const after = metricsKeysFont.getGlyphNamesByLengthDesc();
+            expect(after).not.toBe(before);
+            expect(after).toContain('zzz_rename_dst');
+            expect(after).not.toContain('zzz_rename_src');
+            metricsKeysFont.removeGlyph('zzz_rename_dst');
+        });
+
+        test('cache invalidates after duplicateGlyph', () => {
+            const source = metricsKeysFont.glyphs[0];
+            const before = metricsKeysFont.getGlyphNamesByLengthDesc();
+            metricsKeysFont.duplicateGlyph(source, 'zzz_duplicated_test');
+            const after = metricsKeysFont.getGlyphNamesByLengthDesc();
+            expect(after).not.toBe(before);
+            expect(after).toContain('zzz_duplicated_test');
+            metricsKeysFont.removeGlyph('zzz_duplicated_test');
+        });
+    });
 });

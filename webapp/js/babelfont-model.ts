@@ -2986,10 +2986,7 @@ function getGlyphNamePrefixMatch(
     font: Font,
     text: string
 ): { glyphName: string; rest: string } | null {
-    const glyphNames = font.glyphs
-        .map((glyph) => glyph.name)
-        .filter(Boolean)
-        .sort((a, b) => b.length - a.length);
+    const glyphNames = font.getGlyphNamesByLengthDesc();
 
     for (const glyphName of glyphNames) {
         if (text === glyphName) {
@@ -9094,6 +9091,15 @@ export class Glyph extends ArrayElementBase {
     set name(value: string) {
         const old = this.data.name;
         this.data.name = value;
+        // Invalidate caches that key on glyph names (e.g. metrics-key prefix
+        // lookup table and reverse component index).
+        const font = this.parent() as Font | null;
+        if (
+            font &&
+            typeof font.invalidateReverseComponentIndex === 'function'
+        ) {
+            font.invalidateReverseComponentIndex();
+        }
         recordAndMarkDirty(this, 'name', old, value);
     }
 
@@ -9943,6 +9949,12 @@ export class Font extends ModelBase {
     private _isRecomputingMetricsKeys = false;
     /** Reverse index: componentGlyphName → Set of glyph names that use it */
     private _reverseComponentIndex: Map<string, Set<string>> | null = null;
+    /**
+     * Cache of glyph names sorted by length descending. Used as a longest-prefix
+     * lookup table by metrics-key parsing (`getGlyphNamePrefixMatch`). Invalidated
+     * alongside `_reverseComponentIndex` whenever glyphs are added/removed/renamed.
+     */
+    private _glyphNamesByLengthDesc: string[] | null = null;
 
     constructor(data: Babelfont.Font) {
         super(data);
@@ -10787,6 +10799,24 @@ export class Font extends ModelBase {
 
     invalidateReverseComponentIndex(): void {
         this._reverseComponentIndex = null;
+        this._glyphNamesByLengthDesc = null;
+    }
+
+    /**
+     * Returns glyph names sorted by length descending, cached. Used by metrics-key
+     * parsing for longest-prefix matching. Cache is invalidated when glyphs are
+     * added/removed/renamed (see `invalidateReverseComponentIndex`).
+     */
+    getGlyphNamesByLengthDesc(): string[] {
+        if (!this._glyphNamesByLengthDesc) {
+            const names: string[] = [];
+            for (const g of this._data.glyphs) {
+                if (g && g.name) names.push(g.name);
+            }
+            names.sort((a, b) => b.length - a.length);
+            this._glyphNamesByLengthDesc = names;
+        }
+        return this._glyphNamesByLengthDesc;
     }
 
     /**
@@ -10878,6 +10908,7 @@ export class Font extends ModelBase {
         // Add the cloned glyph to the font
         this._data.glyphs.push(clonedData);
         this._glyphWrappers = null; // Invalidate cache
+        this.invalidateReverseComponentIndex();
         recordAddAndMarkDirty(['glyphs', newName], clonedData);
 
         // Return the newly created glyph
@@ -10933,7 +10964,7 @@ export class Font extends ModelBase {
         };
         this._data.glyphs.push(glyphData);
         this._glyphWrappers = null; // Invalidate cache
-        this._reverseComponentIndex = null;
+        this.invalidateReverseComponentIndex();
         recordAddAndMarkDirty(['glyphs', name], glyphData);
         return new Glyph(this._data.glyphs, this._data.glyphs.length - 1, this);
     }
@@ -10951,7 +10982,7 @@ export class Font extends ModelBase {
             const removedGlyph = this._data.glyphs[index];
             this._data.glyphs.splice(index, 1);
             this._glyphWrappers = null; // Invalidate cache
-            this._reverseComponentIndex = null;
+            this.invalidateReverseComponentIndex();
             recordRemoveAndMarkDirty(['glyphs', name], removedGlyph);
             return true;
         }
