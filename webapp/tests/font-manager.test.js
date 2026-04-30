@@ -887,6 +887,116 @@ describe('FontManager editing subset inclusion', () => {
         });
     });
 
+    test('mouse-drag anchor compiles keep kerning enabled in anchor-only mode', async () => {
+        fontManager.lastChangeSource = 'mouse-drag-anchor';
+        fontManager.lastEditType = 'anchor';
+        window.glyphCanvas.outlineEditor.draggingSomething = false;
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'mouse-drag-anchor',
+            dragActive: true,
+            optionOverrides: {
+                produce_varc_table: false
+            },
+            dirtyLayerUpdates: [
+                {
+                    glyphName: 'n',
+                    layerId: 'layer-1',
+                    layerData: expect.any(Object)
+                }
+            ]
+        });
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_kerning');
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_features');
+    });
+
+    test('keyboard-anchor compiles keep kerning enabled in anchor-only mode', async () => {
+        fontManager.lastChangeSource = 'keyboard-anchor';
+        fontManager.lastEditType = 'anchor';
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'keyboard-anchor',
+            optionOverrides: {
+                produce_varc_table: false
+            },
+            dirtyLayerUpdates: [
+                {
+                    glyphName: 'n',
+                    layerId: 'layer-1',
+                    layerData: expect.any(Object)
+                }
+            ]
+        });
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_kerning');
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_features');
+    });
+
+    test('remote-anchor compiles keep kerning enabled in anchor-only mode', async () => {
+        fontManager.lastChangeSource = 'remote-anchor';
+        fontManager.lastEditType = 'anchor';
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'remote-anchor',
+            optionOverrides: {
+                produce_varc_table: false
+            }
+        });
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_kerning');
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_features');
+        expect(
+            compileEditingSpy.mock.calls[0][3].dirtyLayerUpdates
+        ).toBeUndefined();
+    });
+
+    test('anchor undo-redo compiles keep kerning enabled in anchor-only mode', async () => {
+        fontManager.lastChangeSource = 'keyboard-undo-redo';
+        fontManager.lastEditType = 'anchor';
+
+        await fontManager.compileEditingFont('a', [], ['a']);
+
+        expect(compileEditingSpy).toHaveBeenCalledTimes(1);
+        expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
+            compileSource: 'keyboard-undo-redo',
+            optionOverrides: {
+                produce_varc_table: false
+            },
+            dirtyLayerUpdates: [
+                {
+                    glyphName: 'n',
+                    layerId: 'layer-1',
+                    layerData: expect.any(Object)
+                }
+            ]
+        });
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_kerning');
+        expect(
+            compileEditingSpy.mock.calls[0][3].optionOverrides
+        ).not.toHaveProperty('skip_features');
+    });
+
     test('debounced post-interaction full compiles do not send incremental dirty-layer patches', async () => {
         fontManager.lastChangeSource =
             'debounced-post-interaction-full-compile';

@@ -1687,7 +1687,6 @@ class FontManager {
                 ) {
                     compilationMode = 'anchor-only';
                     optionOverrides = {
-                        skip_kerning: true,
                         produce_varc_table: false
                     };
                 } else if (isTextInputEdit) {

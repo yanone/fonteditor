@@ -949,8 +949,9 @@ export function runBridgeUndoRedo(
         // is sufficient (reads directly from the model, no babelfontJson needed).
         // For glyph/font scope, force a full Rust font cache refresh.
         // When the undone history item was an anchor edit, propagate the
-        // edit type so the compile loop uses anchor-only mode (skip kerning,
-        // skip VARC) instead of falling back to a full compile.
+        // edit type so the compile loop uses anchor-only mode (keep
+        // positioning tables live, skip VARC) instead of falling back to a
+        // full compile.
         // When the undone history item was a sidebearing edit, use outline-only
         // mode for the same speed benefit.
         const historyItem =
@@ -988,8 +989,8 @@ export function runBridgeUndoRedo(
         // font is rebuilt from the restored state.
         await requestUndoRedoEditingFontCompile(true, undoEditType);
 
-        // Anchor-only and outline-only compiles skip features/kerning/VARC
-        // for speed; schedule a trailing debounced full compile so the editor
+        // Anchor-only and outline-only compiles still use the interactive
+        // fast path; schedule a trailing debounced full compile so the editor
         // returns to a fully correct font (same pattern as the forward edit path).
         if (undoEditType === 'anchor' || undoEditType === 'outline') {
             window.fontManager?.scheduleFullCompileDebounce?.();
