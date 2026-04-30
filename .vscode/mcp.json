@@ -8,13 +8,6 @@
         "github": {
             "command": "npx",
             "args": ["-y", "@modelcontextprotocol/server-github"]
-        },
-        "gitnexus": {
-            "command": "node",
-            "args": [
-                "${workspaceFolder}/.tools/gitnexus/node_modules/gitnexus/dist/cli/index.js",
-                "mcp"
-            ]
         }
     }
 }
