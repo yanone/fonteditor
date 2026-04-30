@@ -1,31 +1,29 @@
 {
-  "servers": {
-    "chromeDevtools": {
-      "args": [
-        "chrome-devtools-mcp",
-        "--no-usage-statistics"
-      ],
-      "command": "npx",
-      "type": "stdio"
-    },
-    "github": {
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-github"
-      ],
-      "command": "npx"
-    },
-    "gortex": {
-      "args": [
-        "mcp",
-        "--index",
-        ".",
-        "--watch"
-      ],
-      "command": "gortex",
-      "env": {
-        "GORTEX_INDEX_WORKERS": "8"
-      }
+    "servers": {
+        "chromeDevtools": {
+            "args": ["chrome-devtools-mcp", "--no-usage-statistics"],
+            "command": "npx",
+            "type": "stdio"
+        },
+        "github": {
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "command": "npx"
+        },
+        "gortex": {
+            "args": ["mcp", "--index", ".", "--watch"],
+            "command": "gortex",
+            "env": {
+                "GORTEX_INDEX_WORKERS": "8"
+            }
+        },
+        "counterpunch": {
+            "type": "stdio",
+            "command": "node",
+            "args": ["webapp/scripts/counterpunch-mcp-server.mjs"],
+            "env": {
+                "COUNTERPUNCH_MCP_URL": "https://localhost:8000",
+                "COUNTERPUNCH_MCP_HEADLESS": "false"
+            }
+        }
     }
-  }
 }

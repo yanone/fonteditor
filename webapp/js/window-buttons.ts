@@ -9,6 +9,7 @@
 import { Logger } from './logger';
 import { runBridgeUndoRedo } from './change-bridge-init';
 import { getUndoRedoContext } from './undo-redo-context';
+import { encodeLocation } from './url-state';
 import { windowRole } from './window-role';
 
 const console = new Logger('WindowButtons');
@@ -26,6 +27,13 @@ interface EditorThemeMessage {
     sourceWindowId: string;
     preference: ThemePreference;
     theme: 'light' | 'dark';
+}
+
+export interface LinkedWindowLaunchInfo {
+    url: string;
+    linkedOrdinal: number;
+    sessionId: string;
+    fontPath: string;
 }
 
 function isThemePreference(value: unknown): value is ThemePreference {
@@ -124,6 +132,66 @@ function registerEditorChildWindow(win: Window): void {
 
     win.addEventListener('load', pushTheme);
     window.setTimeout(pushTheme, 200);
+}
+
+export function prepareLinkedWindowOpen(): LinkedWindowLaunchInfo {
+    const url = new URL(window.location.href);
+    const fontPath = window.fontManager?.currentFont?.path ?? 'unsaved';
+    const editorFile = window.stateManager?.editor_file;
+    const textBuffer = window.stateManager?.editor_text_buffer;
+    const cursorPosition = window.stateManager?.editor_cursor_position;
+    const editorMode = window.stateManager?.editor_mode;
+    const variationLocation = window.stateManager?.editor_variation_location;
+
+    if (typeof editorFile === 'string' && editorFile.length > 0) {
+        url.searchParams.set('file', editorFile);
+    }
+    if (typeof textBuffer === 'string') {
+        url.searchParams.set('text', textBuffer);
+    }
+    if (typeof cursorPosition === 'number' && Number.isFinite(cursorPosition)) {
+        url.searchParams.set('cursor', String(cursorPosition));
+    }
+    if (editorMode === 'text' || editorMode === 'edit') {
+        url.searchParams.set('mode', editorMode);
+    }
+    if (
+        variationLocation &&
+        typeof variationLocation === 'object' &&
+        Object.keys(variationLocation).length > 0
+    ) {
+        url.searchParams.set('location', encodeLocation(variationLocation));
+    }
+
+    windowRole.configureLinkedWindowUrl(url, fontPath);
+    url.searchParams.set('theme', getCurrentThemePreference());
+
+    const linkedOrdinal = Number.parseInt(
+        url.searchParams.get('linked') || '',
+        10
+    );
+
+    if (!Number.isFinite(linkedOrdinal) || linkedOrdinal <= 0) {
+        throw new Error('Failed to allocate linked window ordinal');
+    }
+
+    return {
+        url: url.toString(),
+        linkedOrdinal,
+        sessionId: windowRole.sessionId,
+        fontPath
+    };
+}
+
+export function openLinkedEditorWindow(
+    launchInfo?: LinkedWindowLaunchInfo
+): Window | null {
+    const preparedLaunch = launchInfo || prepareLinkedWindowOpen();
+    const childWindow = window.open(preparedLaunch.url, '_blank');
+    if (childWindow) {
+        registerEditorChildWindow(childWindow);
+    }
+    return childWindow;
 }
 
 function applyRemoteThemePreference(preference: ThemePreference): void {
@@ -236,14 +304,7 @@ function initWindowButtons(): void {
 
     if (newWindowBtn) {
         newWindowBtn.addEventListener('click', () => {
-            const url = new URL(window.location.href);
-            const fontPath = window.fontManager?.currentFont?.path ?? 'unsaved';
-            windowRole.configureLinkedWindowUrl(url, fontPath);
-            url.searchParams.set('theme', getCurrentThemePreference());
-            const childWindow = window.open(url.toString(), '_blank');
-            if (childWindow) {
-                registerEditorChildWindow(childWindow);
-            }
+            openLinkedEditorWindow();
         });
     }
 }
