@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "gortex": {
+      "command": "gortex",
+      "args": [
+        "mcp",
+        "--index", ".",
+        "--watch",
+        "--web"
+      ],
+      "env": {
+        "GORTEX_INDEX_WORKERS": "${GORTEX_WORKERS:-8}"
+      }
+    }
+  }
+}

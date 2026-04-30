@@ -1,13 +1,31 @@
 {
-    "servers": {
-        "chromeDevtools": {
-            "type": "stdio",
-            "command": "npx",
-            "args": ["chrome-devtools-mcp", "--no-usage-statistics"]
-        },
-        "github": {
-            "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-github"]
-        }
+  "servers": {
+    "chromeDevtools": {
+      "args": [
+        "chrome-devtools-mcp",
+        "--no-usage-statistics"
+      ],
+      "command": "npx",
+      "type": "stdio"
+    },
+    "github": {
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "command": "npx"
+    },
+    "gortex": {
+      "args": [
+        "mcp",
+        "--index",
+        ".",
+        "--watch"
+      ],
+      "command": "gortex",
+      "env": {
+        "GORTEX_INDEX_WORKERS": "8"
+      }
     }
+  }
 }

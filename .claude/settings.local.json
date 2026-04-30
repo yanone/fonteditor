@@ -1,0 +1,53 @@
+{
+  "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/gortex hook",
+            "statusMessage": "Injecting Gortex orientation snapshot...",
+            "timeout": 3000,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/gortex hook",
+            "statusMessage": "Enriching with Gortex graph context...",
+            "timeout": 3000,
+            "type": "command"
+          }
+        ],
+        "matcher": "Read|Grep|Glob|Task|Bash|Edit|Write"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/gortex hook",
+            "statusMessage": "Loading Gortex graph orientation...",
+            "timeout": 3000,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/gortex hook",
+            "statusMessage": "Running Gortex post-task diagnostics...",
+            "timeout": 5000,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}
