@@ -511,6 +511,24 @@ class FontManager {
     workerLayerFingerprintCache: Map<string, string>;
 
     /**
+     * Memoizes the result of validateAndFixBabelfontJsonForRust.
+     * The validator parses, walks, and re-serializes the entire ~6 MB
+     * babelfontJson on every interactive editing compile because the
+     * `pendingBabelfontJsonSyncAfterDrag` flag forces it. During a stream
+     * of interactive edits, `currentFont.babelfontJson` is not re-synced
+     * (sync is deferred to the debounced full compile), so the same
+     * input string is validated repeatedly. Caching by input identity
+     * eliminates ~50 ms of pure overhead per interactive compile.
+     * Cache is invalidated implicitly: any new input string (a different
+     * object reference or different content) misses and re-runs the
+     * validator. Safe because validation is a pure function of input.
+     */
+    private _validatedBabelfontJsonCache: {
+        input: string;
+        output: string;
+    } | null = null;
+
+    /**
      * Running counters for traffic across the JS \u2194 Rust/worker boundary.
      * See {@link BoundaryCrossingStats} and {@link getBoundaryCrossingStats}.
      */
@@ -2176,6 +2194,26 @@ class FontManager {
             return babelfontJson;
         }
 
+        // Memoize: validation is a pure function of the input string.
+        // During a stream of interactive edits, `currentFont.babelfontJson`
+        // is not re-synced from the model (sync is deferred to the
+        // debounced full compile), so the same string is otherwise
+        // re-validated on every keystroke at ~50 ms a pop. Reference
+        // equality is sufficient: a new string means new content; an
+        // identical string means identical (already-validated) content.
+        const cached = this._validatedBabelfontJsonCache;
+        if (cached && cached.input === babelfontJson) {
+            return cached.output;
+        }
+
+        const cacheAndReturn = (output: string): string => {
+            this._validatedBabelfontJsonCache = {
+                input: babelfontJson,
+                output
+            };
+            return output;
+        };
+
         // Parse, fix, re-serialize
         try {
             const data = JSON.parse(babelfontJson);
@@ -2629,7 +2667,7 @@ class FontManager {
                 console.warn(
                     `[FontManager] Fixed ${fixCount} issues in babelfontJson before compile`
                 );
-                return JSON.stringify(data, null, 2);
+                return cacheAndReturn(JSON.stringify(data, null, 2));
             } else if (forceValidation) {
                 console.log(
                     `[FontManager] Validation ran (forceValidation=${forceValidation}), no issues found`
@@ -2642,7 +2680,7 @@ class FontManager {
             );
         }
 
-        return babelfontJson;
+        return cacheAndReturn(babelfontJson);
     }
 
     private syncBabelfontJsonFromCurrentModel(): boolean {

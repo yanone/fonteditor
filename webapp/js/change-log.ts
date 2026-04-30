@@ -540,6 +540,19 @@ function deriveHistoryItemUndoScope(
 function stripMutableHistoryItem(
     item: MutableHistoryStackItem
 ): HistoryStackItem {
+    // Materialize the user-visible array views once here, after every
+    // entry for this item has been folded into the underlying Set/Map.
+    // Materializing inside the per-entry loop in `computeHistoryState`
+    // is O(N²) per item: each new path / target key / replay target
+    // would re-spread the entire collection. For anchor cascades that
+    // attach 30-50 replay targets per entry to history items spanning
+    // 40+ entries, this dominated commit time and produced the long
+    // freeze observed when switching outline→anchor→outline. See
+    // COMPILATION_EDIT_POLICY.md.
+    item.touchedPaths = [...item.touchedPathSet];
+    item.historyTargetKeys = [...item.historyTargetKeySet];
+    item.workerReplayTargets = [...item.workerReplayTargetMap.values()];
+
     const {
         glyphNameSet: _glyphNameSet,
         layerIdSet: _layerIdSet,
@@ -563,16 +576,24 @@ type MutableHistoryStackItem = HistoryStackItem & {
     workerReplayTargetMap: Map<string, WorkerReplayTarget>;
 };
 
-function computeHistoryState(entries: ChangeLogEntry[]): {
+type HistoryState = {
     orderedItemIds: string[];
     itemsById: Map<string, MutableHistoryStackItem>;
     activeByScope: Map<string, string[]>;
     undoneByScope: Map<string, string[]>;
-} {
-    const orderedItemIds: string[] = [];
-    const itemsById = new Map<string, MutableHistoryStackItem>();
-    const activeByScope = new Map<string, string[]>();
-    const undoneByScope = new Map<string, string[]>();
+};
+
+function makeEmptyHistoryState(): HistoryState {
+    return {
+        orderedItemIds: [],
+        itemsById: new Map<string, MutableHistoryStackItem>(),
+        activeByScope: new Map<string, string[]>(),
+        undoneByScope: new Map<string, string[]>()
+    };
+}
+
+function processHistoryEntry(entry: ChangeLogEntry, state: HistoryState): void {
+    const { orderedItemIds, itemsById, activeByScope, undoneByScope } = state;
 
     const ensureItem = (entry: ChangeLogEntry): MutableHistoryStackItem => {
         let item = itemsById.get(entry.historyItemId);
@@ -603,123 +624,130 @@ function computeHistoryState(entries: ChangeLogEntry[]): {
         return item;
     };
 
-    for (const entry of entries) {
-        const entryGlyphName = deriveGlyphNameFromPath(entry.path);
-        const entryLayerId = deriveLayerIdFromPath(entry.path);
-        const glyphScopeKey = getGlyphScopeKey(entryGlyphName);
+    const entryGlyphName = deriveGlyphNameFromPath(entry.path);
+    const entryLayerId = deriveLayerIdFromPath(entry.path);
+    const glyphScopeKey = getGlyphScopeKey(entryGlyphName);
 
-        if (entry.historyAction === 'change') {
-            const item = ensureItem(entry);
-            item.entries.push(entry);
-            item.timestamp = entry.timestamp;
-            item.windowRoleLabel = entry.windowRoleLabel;
-            item.transactionLabel = entry.transactionLabel;
-            item.isActive = true;
-            item.lastAction = 'change';
-            if (entryGlyphName && !item.glyphNameSet.has(entryGlyphName)) {
-                item.glyphNameSet.add(entryGlyphName);
-            }
-            if (entryLayerId && !item.layerIdSet.has(entryLayerId)) {
-                item.layerIdSet.add(entryLayerId);
-            }
-            if (!item.touchedPathSet.has(entry.path)) {
-                item.touchedPathSet.add(entry.path);
-                item.touchedPaths = [...item.touchedPathSet];
-            }
-            const touchedLayerKey = getLayerTouchKey(
-                entryGlyphName,
-                entryLayerId
+    if (entry.historyAction === 'change') {
+        const item = ensureItem(entry);
+        item.entries.push(entry);
+        item.timestamp = entry.timestamp;
+        item.windowRoleLabel = entry.windowRoleLabel;
+        item.transactionLabel = entry.transactionLabel;
+        item.isActive = true;
+        item.lastAction = 'change';
+        if (entryGlyphName && !item.glyphNameSet.has(entryGlyphName)) {
+            item.glyphNameSet.add(entryGlyphName);
+        }
+        if (entryLayerId && !item.layerIdSet.has(entryLayerId)) {
+            item.layerIdSet.add(entryLayerId);
+        }
+        if (!item.touchedPathSet.has(entry.path)) {
+            item.touchedPathSet.add(entry.path);
+        }
+        const touchedLayerKey = getLayerTouchKey(entryGlyphName, entryLayerId);
+        if (touchedLayerKey && !item.touchedLayerKeySet.has(touchedLayerKey)) {
+            item.touchedLayerKeySet.add(touchedLayerKey);
+        }
+        if (
+            entry.historyTargetKey &&
+            !item.historyTargetKeySet.has(entry.historyTargetKey)
+        ) {
+            item.historyTargetKeySet.add(entry.historyTargetKey);
+        }
+        for (const target of normalizeWorkerReplayTargets(
+            entry.workerReplayTargets
+        )) {
+            const targetKey = getLayerTouchKey(
+                target.glyphName,
+                target.layerId
             );
-            if (
-                touchedLayerKey &&
-                !item.touchedLayerKeySet.has(touchedLayerKey)
-            ) {
-                item.touchedLayerKeySet.add(touchedLayerKey);
+            if (targetKey && !item.workerReplayTargetMap.has(targetKey)) {
+                item.workerReplayTargetMap.set(targetKey, target);
             }
-            if (
-                entry.historyTargetKey &&
-                !item.historyTargetKeySet.has(entry.historyTargetKey)
-            ) {
-                item.historyTargetKeySet.add(entry.historyTargetKey);
-                item.historyTargetKeys = [...item.historyTargetKeySet];
-            }
-            for (const target of normalizeWorkerReplayTargets(
-                entry.workerReplayTargets
-            )) {
-                const targetKey = getLayerTouchKey(
-                    target.glyphName,
-                    target.layerId
-                );
-                if (targetKey && !item.workerReplayTargetMap.has(targetKey)) {
-                    item.workerReplayTargetMap.set(targetKey, target);
-                    item.workerReplayTargets = [
-                        ...item.workerReplayTargetMap.values()
-                    ];
-                }
-            }
-            item.undoScope = deriveHistoryItemUndoScope(
-                item.entries,
-                item.glyphNameSet,
-                item.layerIdSet
-            );
+        }
+        item.undoScope = deriveHistoryItemUndoScope(
+            item.entries,
+            item.glyphNameSet,
+            item.layerIdSet
+        );
 
-            if (!item.scopeKeys.has(glyphScopeKey)) {
-                item.scopeKeys.add(glyphScopeKey);
-                getStack(activeByScope, glyphScopeKey).push(item.id);
-            }
-
-            const layerScopeKey = getLayerScopeKey(
-                entryGlyphName,
-                entryLayerId
-            );
-            if (layerScopeKey && !item.scopeKeys.has(layerScopeKey)) {
-                item.scopeKeys.add(layerScopeKey);
-                getStack(activeByScope, layerScopeKey).push(item.id);
-            }
-
-            getStack(undoneByScope, glyphScopeKey).length = 0;
-            if (layerScopeKey) {
-                getStack(undoneByScope, layerScopeKey).length = 0;
-            }
-            continue;
+        if (!item.scopeKeys.has(glyphScopeKey)) {
+            item.scopeKeys.add(glyphScopeKey);
+            getStack(activeByScope, glyphScopeKey).push(item.id);
         }
 
-        const sourceMap =
-            entry.historyAction === 'undo' ? activeByScope : undoneByScope;
-        const targetMap =
-            entry.historyAction === 'undo' ? undoneByScope : activeByScope;
-        const sourceStack = getStack(sourceMap, glyphScopeKey);
-        const targetStack = getStack(targetMap, glyphScopeKey);
-        const targetItemId =
-            entry.targetHistoryItemId ?? sourceStack[sourceStack.length - 1];
-
-        if (!targetItemId) {
-            continue;
+        const layerScopeKey = getLayerScopeKey(entryGlyphName, entryLayerId);
+        if (layerScopeKey && !item.scopeKeys.has(layerScopeKey)) {
+            item.scopeKeys.add(layerScopeKey);
+            getStack(activeByScope, layerScopeKey).push(item.id);
         }
 
-        const item = itemsById.get(targetItemId);
-        if (item) {
-            const itemScopeKeys =
-                item.scopeKeys.size > 0 ? [...item.scopeKeys] : [glyphScopeKey];
-            for (const scopeKey of itemScopeKeys) {
-                removeFromStack(getStack(sourceMap, scopeKey), targetItemId);
-                getStack(targetMap, scopeKey).push(targetItemId);
-            }
-            item.isActive = entry.historyAction === 'redo';
-            item.lastAction = entry.historyAction;
-            item.timestamp = entry.timestamp;
-        } else {
-            removeFromStack(sourceStack, targetItemId);
-            targetStack.push(targetItemId);
+        getStack(undoneByScope, glyphScopeKey).length = 0;
+        if (layerScopeKey) {
+            getStack(undoneByScope, layerScopeKey).length = 0;
         }
+        return;
     }
 
-    return {
-        orderedItemIds,
-        itemsById,
-        activeByScope,
-        undoneByScope
-    };
+    const sourceMap =
+        entry.historyAction === 'undo' ? activeByScope : undoneByScope;
+    const targetMap =
+        entry.historyAction === 'undo' ? undoneByScope : activeByScope;
+    const sourceStack = getStack(sourceMap, glyphScopeKey);
+    const targetStack = getStack(targetMap, glyphScopeKey);
+    const targetItemId =
+        entry.targetHistoryItemId ?? sourceStack[sourceStack.length - 1];
+
+    if (!targetItemId) {
+        return;
+    }
+
+    const item = itemsById.get(targetItemId);
+    if (item) {
+        const itemScopeKeys =
+            item.scopeKeys.size > 0 ? [...item.scopeKeys] : [glyphScopeKey];
+        for (const scopeKey of itemScopeKeys) {
+            removeFromStack(getStack(sourceMap, scopeKey), targetItemId);
+            getStack(targetMap, scopeKey).push(targetItemId);
+        }
+        item.isActive = entry.historyAction === 'redo';
+        item.lastAction = entry.historyAction;
+        item.timestamp = entry.timestamp;
+    } else {
+        removeFromStack(sourceStack, targetItemId);
+        targetStack.push(targetItemId);
+    }
+}
+
+/**
+ * Cache of computed history state, keyed by the change-log array reference.
+ * Because `_changeLog` is append-only between resets (see change-bridge.ts),
+ * we can incrementally fold only the new tail entries into the cached state
+ * on subsequent calls. Resetting `_changeLog` reassigns the array and the
+ * WeakMap entry naturally falls out, forcing a fresh computation.
+ *
+ * Without this cache, every history-view re-render walks the entire change
+ * log from scratch (O(N) per render). On long sessions with anchor cascades,
+ * this dominated commit time and produced the long freeze observed when
+ * switching outline\u2192anchor\u2192outline. See COMPILATION_EDIT_POLICY.md.
+ */
+const historyStateCache = new WeakMap<
+    ChangeLogEntry[],
+    { processedLength: number; state: HistoryState }
+>();
+
+function computeHistoryState(entries: ChangeLogEntry[]): HistoryState {
+    let cached = historyStateCache.get(entries);
+    if (!cached || cached.processedLength > entries.length) {
+        cached = { processedLength: 0, state: makeEmptyHistoryState() };
+        historyStateCache.set(entries, cached);
+    }
+    for (let i = cached.processedLength; i < entries.length; i++) {
+        processHistoryEntry(entries[i], cached.state);
+    }
+    cached.processedLength = entries.length;
+    return cached.state;
 }
 
 export function resolveHistoryTargetItemId(

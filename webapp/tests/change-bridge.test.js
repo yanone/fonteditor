@@ -1686,6 +1686,186 @@ describe('change-log', () => {
             window.currentFontModel = previousFontModel;
         }
     });
+
+    test('buildHistoryStackItems scales sub-linearly when called repeatedly on a growing append-only log', () => {
+        // Regression guard: computeHistoryState was O(N) per call and did
+        // O(N\u00b2) array spreads inside its inner loop. Combined with one
+        // re-render per change-log notification, this produced a long
+        // freeze in long sessions (see COMPILATION_EDIT_POLICY.md).
+        // We rely on incremental memoization keyed by the entries-array
+        // reference: appending and re-querying must process only the new
+        // tail entries, not the whole log.
+        resetLogCounter();
+        const log = [];
+
+        const makeChange = (i, replayCount) => {
+            const targets = [];
+            for (let t = 0; t < replayCount; t++) {
+                targets.push({
+                    glyphName: `dep_${t}`,
+                    layerId: 'layer-1'
+                });
+            }
+            return createLogEntry({
+                timestamp: i,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId: `history-item-${i}`,
+                historyAction: 'change',
+                transactionLabel: 'Edit',
+                transactionId: i,
+                op: 'set',
+                objectType: 'glyph',
+                objectId: 'A',
+                glyphName: 'A',
+                property: 'width',
+                path: `glyphs.A.layers.layer-1.width`,
+                oldValue: 600,
+                newValue: 600 + i,
+                workerReplayTargets: targets
+            });
+        };
+
+        // Warm: 50 entries with cascade-like 30 replay targets each
+        for (let i = 0; i < 50; i++) log.push(makeChange(i, 30));
+        buildHistoryStackItems(log);
+
+        // Append + query loop: repeated build calls must reuse the
+        // memoized state for the existing prefix.
+        const start = Date.now();
+        for (let i = 50; i < 250; i++) {
+            log.push(makeChange(i, 30));
+            buildHistoryStackItems(log);
+        }
+        const elapsed = Date.now() - start;
+
+        // Sanity: the function still returns the right shape.
+        const items = buildHistoryStackItems(log);
+        expect(items).toHaveLength(250);
+        expect(items[0].workerReplayTargets).toHaveLength(30);
+
+        // Perf budget: 200 appends + queries on a 50-prefilled log,
+        // each item carrying 30 replay targets, must finish well under
+        // the threshold a fully-quadratic implementation would hit.
+        // The previous implementation took several seconds at this size;
+        // the memoized + non-spreading implementation is comfortably
+        // under 1 second on CI hardware.
+        expect(elapsed).toBeLessThan(1000);
+    });
+
+    test('incremental cache correctly applies undo/redo entries appended after a prior query', () => {
+        // Locks in correctness of the WeakMap-keyed incremental fold in
+        // computeHistoryState specifically against the most error-prone
+        // branch: stack rotation when undo/redo entries are appended
+        // after a previous build call has already cached state for the
+        // change-only prefix.
+        resetLogCounter();
+        const log = [];
+
+        log.push(
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId: 'h1',
+                historyAction: 'change',
+                transactionLabel: 'Edit 1',
+                transactionId: 1,
+                op: 'set',
+                objectType: 'glyph',
+                objectId: 'A',
+                glyphName: 'A',
+                property: 'width',
+                path: 'glyphs.A.layers.layer-1.width',
+                oldValue: 600,
+                newValue: 610
+            })
+        );
+        log.push(
+            createLogEntry({
+                timestamp: 2,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyItemId: 'h2',
+                historyAction: 'change',
+                transactionLabel: 'Edit 2',
+                transactionId: 2,
+                op: 'set',
+                objectType: 'glyph',
+                objectId: 'A',
+                glyphName: 'A',
+                property: 'width',
+                path: 'glyphs.A.layers.layer-1.width',
+                oldValue: 610,
+                newValue: 620
+            })
+        );
+
+        // Prime the cache.
+        let items = buildHistoryStackItems(log, { glyphName: 'A' });
+        expect(items).toHaveLength(2);
+        expect(items.map((i) => i.isActive)).toEqual([true, true]);
+
+        // Append undo for h2; incremental fold must rotate it out.
+        log.push(
+            createLogEntry({
+                timestamp: 3,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyAction: 'undo',
+                targetHistoryItemId: 'h2',
+                transactionLabel: 'Undo',
+                transactionId: null,
+                op: 'set',
+                objectType: 'glyph',
+                objectId: 'A',
+                glyphName: 'A',
+                property: '',
+                path: 'glyphs.A',
+                oldValue: undefined,
+                newValue: 'undo'
+            })
+        );
+
+        items = buildHistoryStackItems(log, {
+            glyphName: 'A',
+            includeUndone: true
+        });
+        const h2AfterUndo = items.find((i) => i.id === 'h2');
+        expect(h2AfterUndo).toBeDefined();
+        expect(h2AfterUndo.isActive).toBe(false);
+        expect(items.find((i) => i.id === 'h1').isActive).toBe(true);
+
+        // Default (active-only) view must hide undone h2.
+        expect(
+            buildHistoryStackItems(log, { glyphName: 'A' }).map((i) => i.id)
+        ).toEqual(['h1']);
+
+        // Append redo for h2; incremental fold must rotate it back.
+        log.push(
+            createLogEntry({
+                timestamp: 4,
+                windowId: 'w',
+                windowRoleLabel: 'Main',
+                historyAction: 'redo',
+                targetHistoryItemId: 'h2',
+                transactionLabel: 'Redo',
+                transactionId: null,
+                op: 'set',
+                objectType: 'glyph',
+                objectId: 'A',
+                glyphName: 'A',
+                property: '',
+                path: 'glyphs.A',
+                oldValue: undefined,
+                newValue: 'redo'
+            })
+        );
+
+        items = buildHistoryStackItems(log, { glyphName: 'A' });
+        expect(items).toHaveLength(2);
+        expect(items.find((i) => i.id === 'h2').isActive).toBe(true);
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -3151,6 +3331,182 @@ describe('WindowSync', () => {
         bridgeA.destroy();
         bridgeB.destroy();
         receiver.destroy();
+    });
+
+    // Regression: bundling the full Yjs state on every yjs-update used
+    // to add 100-200 ms of synchronous work per local edit (full-doc
+    // encode + typed-array \u2192 plain-array copy of ~3 MB) even when
+    // no peer window was listening. With no peers, fullState must be
+    // omitted entirely; with at least one peer, it must still be sent
+    // when there are change-log entries (peers rely on it for repair).
+    // See COMPILATION_EDIT_POLICY.md \u2014 Window-Sync Budget.
+    test('no peers: yjs-update broadcast omits fullState and never re-encodes the doc', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('win-solo');
+        bridge.initFromJson(fontJson);
+        const sync = new WindowSync(bridge, 'font-channel-solo');
+
+        const getFullStateSpy = jest.spyOn(bridge, 'getFullState');
+
+        // Capture broadcast messages by attaching a second listener.
+        const captured = [];
+        const eavesdropper = new BroadcastChannel('font-channel-solo');
+        eavesdropper.onmessage = (ev) => {
+            captured.push(ev.data);
+        };
+
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            800
+        );
+        flushTimers();
+
+        const yjsUpdates = captured.filter((m) => m.type === 'yjs-update');
+        expect(yjsUpdates).toHaveLength(1);
+        expect(yjsUpdates[0].fullState).toBeUndefined();
+        expect(getFullStateSpy).not.toHaveBeenCalled();
+
+        getFullStateSpy.mockRestore();
+        eavesdropper.close();
+        sync.destroy();
+        bridge.destroy();
+    });
+
+    test('with a peer: yjs-update broadcast still includes fullState', () => {
+        const fontJson1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('win-1');
+        bridge1.initFromJson(fontJson1);
+        const bridge2 = new ChangeBridge('win-2');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(bridge1, 'font-channel-pair');
+        const sync2 = new WindowSync(bridge2, 'font-channel-pair');
+
+        // Prime peer awareness in both directions.
+        bridge1.recordChange([], 'upm', 1000, 1001);
+        flushTimers();
+        bridge2.recordChange([], 'upm', 1001, 1002);
+        flushTimers();
+
+        expect(sync1.peers.has('win-2')).toBe(true);
+
+        const captured = [];
+        const eavesdropper = new BroadcastChannel('font-channel-pair');
+        eavesdropper.onmessage = (ev) => {
+            captured.push(ev.data);
+        };
+
+        bridge1.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            800
+        );
+        flushTimers();
+
+        const fromWin1 = captured.filter(
+            (m) => m.type === 'yjs-update' && m.windowId === 'win-1'
+        );
+        expect(fromWin1.length).toBeGreaterThan(0);
+        expect(fromWin1[fromWin1.length - 1].fullState).toBeDefined();
+
+        eavesdropper.close();
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+
+    test('undo with no peers: yjs-update broadcast omits fullState', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('win-undo-solo');
+        bridge.initFromJson(fontJson);
+        const sync = new WindowSync(bridge, 'font-channel-undo-solo');
+
+        // Make a layer-scoped change so undo has something to revert.
+        bridge.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            800
+        );
+        flushTimers();
+
+        const getFullStateSpy = jest.spyOn(bridge, 'getFullState');
+        const captured = [];
+        const eavesdropper = new BroadcastChannel('font-channel-undo-solo');
+        eavesdropper.onmessage = (ev) => {
+            captured.push(ev.data);
+        };
+
+        bridge.undo();
+        flushTimers();
+
+        const yjsUpdates = captured.filter((m) => m.type === 'yjs-update');
+        expect(yjsUpdates.length).toBeGreaterThan(0);
+        for (const m of yjsUpdates) {
+            expect(m.fullState).toBeUndefined();
+        }
+        expect(getFullStateSpy).not.toHaveBeenCalled();
+
+        getFullStateSpy.mockRestore();
+        eavesdropper.close();
+        sync.destroy();
+        bridge.destroy();
+    });
+
+    test('peer cleanup: window-closing re-engages no-peer fast path', () => {
+        const fontJson1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('win-1c');
+        bridge1.initFromJson(fontJson1);
+        const bridge2 = new ChangeBridge('win-2c');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(bridge1, 'font-channel-cleanup');
+        const sync2 = new WindowSync(bridge2, 'font-channel-cleanup');
+
+        // Establish mutual peer awareness.
+        bridge1.recordChange([], 'upm', 1000, 1001);
+        flushTimers();
+        bridge2.recordChange([], 'upm', 1001, 1002);
+        flushTimers();
+        expect(sync1.peers.has('win-2c')).toBe(true);
+
+        // Peer disconnects cleanly.
+        sync2.destroy();
+        flushTimers();
+        expect(sync1.peers.size).toBe(0);
+
+        // Subsequent edit on the surviving window must take the fast path.
+        const getFullStateSpy = jest.spyOn(bridge1, 'getFullState');
+        const captured = [];
+        const eavesdropper = new BroadcastChannel('font-channel-cleanup');
+        eavesdropper.onmessage = (ev) => {
+            captured.push(ev.data);
+        };
+
+        bridge1.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            800,
+            900
+        );
+        flushTimers();
+
+        const yjsUpdates = captured.filter((m) => m.type === 'yjs-update');
+        expect(yjsUpdates.length).toBeGreaterThan(0);
+        for (const m of yjsUpdates) {
+            expect(m.fullState).toBeUndefined();
+        }
+        expect(getFullStateSpy).not.toHaveBeenCalled();
+
+        getFullStateSpy.mockRestore();
+        eavesdropper.close();
+        sync1.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
     });
 
     test('window-closing removes peer', () => {

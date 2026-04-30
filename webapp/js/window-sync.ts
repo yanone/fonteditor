@@ -73,14 +73,27 @@ export class WindowSync {
             // Wire bridge's local updates to broadcast
             bridge.onLocalUpdate((update) => {
                 const changeLogEntries = bridge.getNewChangeLogEntries();
+                // Only ship the full Yjs state when at least one peer
+                // window is known. `getFullState()` re-encodes the entire
+                // ~3+ MB Yjs document and `Array.from()` then performs a
+                // typed-array \u2192 plain-array copy, both of which cost
+                // 100-200 ms per commit on real fonts. With no peers
+                // (the common single-window case) the receiver code path
+                // is dead, so this work was pure overhead added to every
+                // user edit. Peers bootstrap via `full-state-request`
+                // when they open, so divergence is recovered there. See
+                // COMPILATION_EDIT_POLICY.md \u2014 \u201cHistory-Notification
+                // Budget\u201d / \u201cWindow-Sync Budget\u201d.
+                const hasPeers = this._peers.size > 0;
                 this._send({
                     type: 'yjs-update',
                     update: Array.from(update),
                     windowId: bridge.windowId,
                     changeLogEntries,
-                    fullState: (changeLogEntries ?? []).length
-                        ? Array.from(bridge.getFullState())
-                        : undefined
+                    fullState:
+                        hasPeers && (changeLogEntries ?? []).length
+                            ? Array.from(bridge.getFullState())
+                            : undefined
                 });
             });
         }

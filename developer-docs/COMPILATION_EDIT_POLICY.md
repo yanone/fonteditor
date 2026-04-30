@@ -53,6 +53,36 @@ When these files disagree with this document, treat that as a bug and reconcile 
 
 Steady-state lock-down: 50+ sequential commits MUST keep the per-commit budget flat at `(1, 1, 1, 0)`. Any growth indicates a regression. `tests/font-manager.test.js` (`FontManager boundary-crossing budget`) enforces this directly.
 
+## History-Notification Budget
+
+Every change-log notification fires `bridge.onChangeLogUpdate` listeners synchronously inside the transaction commit, so any per-listener cost is paid as freeze time on the commit critical path. The locked-down rules:
+
+- **`computeHistoryState` MUST be incremental.** It is keyed by the `_changeLog` array reference (a `WeakMap`) and folds only the new tail entries on each call. The cache is invalidated automatically when `_changeLog` is reassigned (font open, restore, reset). The change-log MUST stay append-only between resets — no `splice`/`pop`/`shift`/`length=N`/in-place reorder. Any code that needs to mutate it in place must reset and rebuild instead.
+- **`computeHistoryState` MUST NOT materialize per-item array views inside its entry loop.** `touchedPaths`, `historyTargetKeys`, and `workerReplayTargets` are O(N²) hazards (each new path/target re-spreads the full set). They are materialized exactly once per visible item in `stripMutableHistoryItem`, after the fold is complete.
+- **`history-view.render()` MUST be coalesced** behind `requestAnimationFrame` for all change-log-driven invocations. Multiple commits in the same animation frame produce one DOM rebuild. Synchronous `render()` calls are reserved for explicit user-driven scope/breadcrumb changes.
+- Tests in `tests/change-bridge.test.js` (`buildHistoryStackItems scales sub-linearly...` and `incremental cache correctly applies undo/redo entries...`) lock in both the perf budget and the correctness of the incremental fold under undo/redo stack rotation.
+
+## Window-Sync Budget
+
+The local-update broadcast in `window-sync.ts` runs synchronously inside the
+Yjs transaction. Encoding the full Yjs document (`Y.encodeStateAsUpdate` plus
+`Array.from()` to send over `BroadcastChannel`) for a 3 MB font costs
+100–200 ms per commit and was the dominant freeze source on routine outline
+edits.
+
+- The `yjs-update` broadcast MUST omit the `fullState` payload when the sender
+  has no known peers (`_peers.size === 0`). This is the common single-window
+  case; the receiver code path is dead, so encoding is pure overhead.
+- When at least one peer is known, the existing repair behavior is preserved:
+  `fullState` is bundled with `yjs-update` whenever the message carries
+  change-log entries, so peers can recover from CRDT divergence.
+- New peers still bootstrap correctly via the `full-state-request` /
+  `full-state-response` round-trip in `_handleMessage`. They do not depend on
+  the bundled `fullState` from `yjs-update` for first-time bootstrap.
+- Tests in `tests/change-bridge.test.js` (`no peers: yjs-update broadcast omits
+fullState...` and `with a peer: yjs-update broadcast still includes
+fullState`) lock the budget.
+
 ## Edit-Type Matrix
 
 | Edit source                             | Origin                                                           | `lastEditType`                        | Immediate scheduling                                                                 | Trailing debounce                                                                                         | `compilationMode` | Option overrides                                                         | Worker font update path                                                                                                                                                                | Canvas behavior                                                                                       |

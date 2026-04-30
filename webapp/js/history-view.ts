@@ -49,6 +49,7 @@ class HistoryViewController {
     private unsubscribeBridge: (() => void) | null = null;
     private attachedTextRunEditor: TextRunSelectionEmitter | null = null;
     private metadataTooltips: TippyInstance[] = [];
+    private pendingRenderHandle: number | null = null;
 
     constructor() {
         if (document.readyState === 'loading') {
@@ -150,6 +151,23 @@ class HistoryViewController {
         }
 
         this.unsubscribeBridge = bridge.onChangeLogUpdate(() => {
+            this.scheduleRender();
+        });
+    }
+
+    /**
+     * Coalesce history-view DOM re-renders. Multiple change-log appends in
+     * the same task or animation frame produce a single rebuild instead of
+     * one per commit. Each render rebuilds N DOM rows + tippy tooltips, so
+     * back-to-back commits without coalescing produce a long freeze. See
+     * COMPILATION_EDIT_POLICY.md.
+     */
+    private scheduleRender(): void {
+        if (this.pendingRenderHandle !== null) {
+            return;
+        }
+        this.pendingRenderHandle = requestAnimationFrame(() => {
+            this.pendingRenderHandle = null;
             this.render();
         });
     }
