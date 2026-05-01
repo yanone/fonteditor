@@ -93,9 +93,9 @@ edits.
   the bundled `fullState` from `yjs-update` for first-time bootstrap.
 - Tests in `tests/change-bridge.test.js` (`no peers: yjs-update broadcast omits
 fullState...`, `with a peer: yjs-update broadcast omits fullState...`, and
-`same-tick local updates are batched...`) lock the budget. The same suite also
-locks compact repair payload behavior and layer-scoped undo after inbound
-batching.
+  `same-tick local updates are batched...`) lock the budget. The same suite also
+  locks compact repair payload behavior and layer-scoped undo after inbound
+  batching.
 
 ## Edit-Type Matrix
 
