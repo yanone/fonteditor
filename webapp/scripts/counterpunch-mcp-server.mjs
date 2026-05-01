@@ -7,8 +7,8 @@ const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_NAME = 'counterpunch';
 const SERVER_VERSION = '0.1.0';
 const DEFAULT_APP_URL = process.env.CI
-    ? 'http://localhost:9000/?test=true'
-    : 'https://localhost:8000/?test=true';
+    ? 'http://localhost:9000'
+    : 'https://localhost:8000';
 const APP_URL = process.env.COUNTERPUNCH_MCP_URL || DEFAULT_APP_URL;
 const HEADLESS = process.env.COUNTERPUNCH_MCP_HEADLESS !== 'false';
 const TOOL_TIMEOUT_MS = 30000;
