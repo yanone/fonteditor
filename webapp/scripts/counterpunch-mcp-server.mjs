@@ -214,7 +214,7 @@ const tools = [
         name: 'open_font',
         title: 'Open Font',
         description:
-            'Open a font in Counterpunch from a filesystem URI such as memory:///user/Fustat.glyphs and resolve after fontReady.',
+            'Open a font in Counterpunch from a filesystem URI such as memory:///user/Fustat.glyphs and resolve after fontReady. Note: fontReady takes 5-15 seconds for large fonts like Fustat.glyphs due to WASM compilation and initial render. Use timeoutMs=60000 for safety.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -224,7 +224,7 @@ const tools = [
                 },
                 timeoutMs: {
                     type: 'number',
-                    description: 'Optional fontReady timeout in milliseconds'
+                    description: 'Optional fontReady timeout in milliseconds (default: 30000; use 60000 for large fonts)'
                 }
             },
             required: ['path'],
@@ -235,13 +235,13 @@ const tools = [
         name: 'open_linked_window',
         title: 'Open Linked Window',
         description:
-            'Open a linked Counterpunch editor window and resolve only after that window has fired fontReady.',
+            'Open a linked Counterpunch editor window and resolve only after that window has fired fontReady. Note: fontReady on linked windows takes 5-20 seconds due to Yjs full-state transfer, model rebuild, and initial WASM compilation. Use timeoutMs=60000 for safety.',
         inputSchema: {
             type: 'object',
             properties: {
                 timeoutMs: {
                     type: 'number',
-                    description: 'Optional readiness timeout in milliseconds'
+                    description: 'Optional readiness timeout in milliseconds (default: 30000; use 60000 for large fonts)'
                 }
             },
             additionalProperties: false
