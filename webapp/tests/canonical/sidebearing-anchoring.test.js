@@ -306,4 +306,157 @@ describe('Sidebearing undo visual anchoring', () => {
             expect(afterEdges.left).toBeCloseTo(beforeEdges.left, 5);
         }
     });
+
+    // Regression guard: a 'Set sidebearing' edit that cascades across many
+    // metrics-key dependents resolves to a font-scoped undo, so the bridge's
+    // appliedChange.glyphName and appliedChange.layerId are null. Visual
+    // anchoring must still pan the canvas using the active edited glyph/layer
+    // passed into runBridgeUndoRedo so the active glyph's opposite edge stays
+    // stationary on screen during undo and redo.
+    function installFontScopedUndoHarness(
+        historyItem,
+        previousWidth,
+        nextWidth
+    ) {
+        const refreshGlyphAdvancesLive = jest.fn(() => true);
+        const glyphCanvas = {
+            viewportManager: { panX: 100, scale: 2 },
+            textRunEditor: { refreshGlyphAdvancesLive },
+            outlineEditor: {
+                active: true,
+                selectedLayerId: 'layer-1',
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'a' }]),
+                fetchLayerData: jest.fn().mockResolvedValue(),
+                runDeterministicRefresh: jest.fn(async (task) => await task()),
+                performHitDetection: jest.fn()
+            },
+            getCurrentGlyphName: jest.fn(() => 'a'),
+            syncCurrentOutlineLayerDataFromModel: jest.fn(),
+            updatePropertyPanel: jest.fn(),
+            render: jest.fn(),
+            requestRepaintAfterCompile: jest.fn()
+        };
+
+        let currentWidth = previousWidth;
+        const currentFont = {
+            fontModel: {
+                findGlyph: jest.fn(() => ({
+                    findLayerById: jest.fn(() => ({ width: currentWidth }))
+                }))
+            },
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        originalWindow.glyphCanvas = glyphCanvas;
+        originalWindow.fontManager = {
+            currentFont,
+            awaitWorkerCacheUpdate: jest.fn().mockResolvedValue(),
+            lastChangeSource: null,
+            lastEditType: null
+        };
+        originalWindow.changeBridge = {
+            undo: jest.fn(() => {
+                currentWidth = nextWidth;
+                // Font-scoped: appliedChange has no glyphName/layerId.
+                return {
+                    scope: 'font',
+                    glyphName: null,
+                    layerId: null,
+                    historyItem
+                };
+            }),
+            redo: jest.fn(() => {
+                currentWidth = nextWidth;
+                return {
+                    scope: 'font',
+                    glyphName: null,
+                    layerId: null,
+                    historyItem
+                };
+            })
+        };
+        originalWindow.autoCompileManager = { checkAndSchedule: jest.fn() };
+
+        return { glyphCanvas, refreshGlyphAdvancesLive };
+    }
+
+    test.each([
+        {
+            label: 'font-scoped undo of "Set sidebearing" left keeps the active glyph right edge stationary',
+            side: 'left'
+        },
+        {
+            label: 'font-scoped undo of "Set sidebearing" right keeps the active glyph left edge stationary',
+            side: 'right'
+        }
+    ])('$label', async ({ side }) => {
+        const previousWidth = 670;
+        const nextWidth = 620; // undo shrinks width back
+        const historyItem = {
+            transactionLabel: 'Set sidebearing',
+            entries: Array.from({ length: 5 }, (_, i) => ({
+                historyAction: 'change',
+                oldValue: { width: previousWidth },
+                newValue: { width: nextWidth },
+                visualAnchorSide: side,
+                path: `glyphs.glyph${i}.layers.layer-1`
+            }))
+        };
+        const { glyphCanvas } = installFontScopedUndoHarness(
+            historyItem,
+            previousWidth,
+            nextWidth
+        );
+        const beforeEdges = snapshotUndoEdges(glyphCanvas, previousWidth);
+
+        await runBridgeUndoRedo('undo', 'a', 'a', 'layer-1', null);
+
+        const afterEdges = snapshotUndoEdges(glyphCanvas, nextWidth);
+        if (side === 'left') {
+            expect(afterEdges.right).toBeCloseTo(beforeEdges.right, 5);
+        } else {
+            expect(afterEdges.left).toBeCloseTo(beforeEdges.left, 5);
+        }
+    });
+
+    test.each([
+        {
+            label: 'font-scoped redo of "Set sidebearing" left keeps the active glyph right edge stationary',
+            side: 'left'
+        },
+        {
+            label: 'font-scoped redo of "Set sidebearing" right keeps the active glyph left edge stationary',
+            side: 'right'
+        }
+    ])('$label', async ({ side }) => {
+        const previousWidth = 620;
+        const nextWidth = 670; // redo grows width back
+        const historyItem = {
+            transactionLabel: 'Set sidebearing',
+            entries: [
+                {
+                    historyAction: 'change',
+                    oldValue: { width: previousWidth },
+                    newValue: { width: nextWidth },
+                    visualAnchorSide: side,
+                    path: 'glyphs.a.layers.layer-1'
+                }
+            ]
+        };
+        const { glyphCanvas } = installFontScopedUndoHarness(
+            historyItem,
+            previousWidth,
+            nextWidth
+        );
+        const beforeEdges = snapshotUndoEdges(glyphCanvas, previousWidth);
+
+        await runBridgeUndoRedo('redo', 'a', 'a', 'layer-1', null);
+
+        const afterEdges = snapshotUndoEdges(glyphCanvas, nextWidth);
+        if (side === 'left') {
+            expect(afterEdges.right).toBeCloseTo(beforeEdges.right, 5);
+        } else {
+            expect(afterEdges.left).toBeCloseTo(beforeEdges.left, 5);
+        }
+    });
 });

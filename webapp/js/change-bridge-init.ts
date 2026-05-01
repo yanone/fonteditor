@@ -361,27 +361,34 @@ export async function syncRustCacheAndRefreshCanvas(
 }
 
 function applyImmediateUndoSidebearingSync(
-    glyphName: string | null,
-    layerId: string | null,
+    appliedGlyphName: string | null,
+    appliedLayerId: string | null,
     historyItem: HistoryStackItem | null,
-    previousWidth: number | null
+    previousWidth: number | null,
+    fallbackEditedGlyphName?: string | null,
+    fallbackLayerId?: string | null
 ): boolean {
     const gc = window.glyphCanvas;
     const fontModel = window.fontManager?.currentFont?.fontModel;
     const side = inferSidebearingSideFromHistoryItem(historyItem);
-    const editedGlyphName = getActiveEditedGlyphName() ?? glyphName;
-    if (
-        !gc ||
-        !fontModel ||
-        !glyphName ||
-        !layerId ||
-        !side ||
-        !editedGlyphName
-    ) {
+    // Visual anchoring follows the user-visible active glyph/layer, not the
+    // appliedChange target. Font-scoped undos (sidebearing edits that cascade
+    // across many downstream glyphs) report appliedChange.glyphName/layerId as
+    // null, but the canvas is still showing a specific glyph whose right/left
+    // edge must remain stationary on screen.
+    const editedGlyphName =
+        getActiveEditedGlyphName() ??
+        appliedGlyphName ??
+        fallbackEditedGlyphName ??
+        null;
+    const editedLayerId = appliedLayerId ?? fallbackLayerId ?? null;
+    if (!gc || !fontModel || !side || !editedGlyphName || !editedLayerId) {
         return false;
     }
 
-    const layer = fontModel.findGlyph(editedGlyphName)?.findLayerById(layerId);
+    const layer = fontModel
+        .findGlyph(editedGlyphName)
+        ?.findLayerById(editedLayerId);
     if (!layer || previousWidth === null) {
         return false;
     }
@@ -405,7 +412,8 @@ function isDirectSidebearingUndoRedo(
 ): boolean {
     return (
         historyItem?.transactionLabel === 'Set LSB' ||
-        historyItem?.transactionLabel === 'Set RSB'
+        historyItem?.transactionLabel === 'Set RSB' ||
+        historyItem?.transactionLabel === 'Set sidebearing'
     );
 }
 
@@ -805,6 +813,80 @@ async function requestRemoteEditingFontCompile(
 }
 
 /**
+ * Apply the receiver-side viewport pan compensation when a remote sidebearing
+ * edit lands on a linked window. Mirrors the sender's live pan so the active
+ * glyph's opposite edge stays visually anchored on screen during undo/redo
+ * and live edits forwarded from a peer window.
+ *
+ * Returns true when a pan was applied so the caller can avoid duplicate work.
+ */
+function applyRemoteSidebearingVisualSync(entries: ChangeLogEntry[]): boolean {
+    const gc = window.glyphCanvas;
+    const fontModel = window.fontManager?.currentFont?.fontModel;
+    if (!gc || !fontModel) {
+        return false;
+    }
+
+    const editedGlyphName = getActiveEditedGlyphName();
+    if (!editedGlyphName) {
+        return false;
+    }
+
+    const activeLayerId = gc.outlineEditor?.selectedLayerId ?? null;
+    if (!activeLayerId) {
+        return false;
+    }
+
+    const matchingEntry = entries.find((entry) => {
+        if (
+            entry.visualAnchorSide !== 'left' &&
+            entry.visualAnchorSide !== 'right'
+        ) {
+            return false;
+        }
+        const path = entry.path ?? '';
+        return path === `glyphs.${editedGlyphName}.layers.${activeLayerId}`;
+    });
+
+    if (!matchingEntry) {
+        return false;
+    }
+
+    const previousLayerSnapshot = matchingEntry.oldValue as
+        | { width?: number }
+        | string
+        | null
+        | undefined;
+    const previousWidth =
+        previousLayerSnapshot && typeof previousLayerSnapshot === 'object'
+            ? Number(previousLayerSnapshot.width)
+            : NaN;
+    if (!Number.isFinite(previousWidth)) {
+        return false;
+    }
+
+    const layer = fontModel
+        .findGlyph(editedGlyphName)
+        ?.findLayerById(activeLayerId);
+    if (!layer) {
+        return false;
+    }
+
+    syncModelSidebearingEditToCanvas(gc, {
+        layer,
+        glyphName: editedGlyphName,
+        side: matchingEntry.visualAnchorSide as 'left' | 'right',
+        previousWidth,
+        render: false
+    });
+    gc.updatePropertyPanel?.();
+    gc.outlineEditor?.performHitDetection?.(null);
+    gc.render?.();
+
+    return true;
+}
+
+/**
  * Refresh receiver-side Rust/cache state for a remote edit and request
  * editing compilation only after the refresh has been queued.
  */
@@ -826,6 +908,12 @@ export async function handleRemoteChangeRefresh(
         ) => Promise<void>;
     }
 ): Promise<void> {
+    // Receiver-side visual pan: when a remote sidebearing edit (live, undo, or
+    // redo) lands and matches the linked window's active glyph/layer, pan the
+    // canvas so the opposite edge stays stationary, mirroring the sender's
+    // local behavior.
+    applyRemoteSidebearingVisualSync(entries);
+
     const { editType, changeSource } = inferRemoteEditTypeFromEntries(entries);
     const replayTargets = collectReplayTargetsFromEntries(entries);
     const requestCompile =
@@ -899,7 +987,9 @@ export function runBridgeUndoRedo(
                 appliedChange.glyphName,
                 appliedChange.layerId,
                 appliedChange.historyItem as HistoryStackItem | null,
-                previousWidth
+                previousWidth,
+                editedGlyphName ?? null,
+                layerId ?? null
             );
 
         const recomputedGlyphNames = recomputeMetricsKeysAfterUndoRedo(
