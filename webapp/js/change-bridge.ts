@@ -48,6 +48,14 @@ const console = new Logger('ChangeBridge');
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
+export type RemoteLayerRepairSnapshot = {
+    glyphName: string;
+    layers: Array<{
+        layerId: string;
+        layerSnapshot: Record<string, unknown>;
+    }>;
+};
+
 type SyntheticChangeOperation = {
     op: ChangeOp;
     path: (string | number)[];
@@ -1440,7 +1448,8 @@ export class ChangeBridge {
     applyRemoteUpdate(
         update: Uint8Array,
         remoteEntries?: ChangeLogEntry[],
-        repairState?: Uint8Array
+        repairState?: Uint8Array,
+        repairSnapshots?: RemoteLayerRepairSnapshot[]
     ): void {
         this._isApplyingRemote = true;
         try {
@@ -1479,6 +1488,16 @@ export class ChangeBridge {
                 repairState &&
                 remoteEntries?.length &&
                 this._repairTouchedLayersFromState(repairState, remoteEntries)
+            ) {
+                this._syncJsonFromYDoc();
+            }
+            if (
+                repairSnapshots?.length &&
+                remoteEntries?.length &&
+                this._repairTouchedLayersFromSnapshots(
+                    repairSnapshots,
+                    remoteEntries
+                )
             ) {
                 this._syncJsonFromYDoc();
             }
@@ -1547,6 +1566,58 @@ export class ChangeBridge {
      */
     getFullState(): Uint8Array {
         return Y.encodeStateAsUpdate(this.yDoc);
+    }
+
+    getLayerRepairSnapshots(
+        remoteEntries?: ChangeLogEntry[]
+    ): RemoteLayerRepairSnapshot[] {
+        const touchedGlyphNames =
+            this._getTouchedRepairGlyphNames(remoteEntries);
+        if (!touchedGlyphNames.size) {
+            return [];
+        }
+
+        const snapshots: RemoteLayerRepairSnapshot[] = [];
+        for (const glyphName of touchedGlyphNames) {
+            const layersMap = getYPath(this.fontMap, [
+                'glyphs',
+                glyphName,
+                'layers'
+            ]);
+            if (!(layersMap instanceof Y.Map)) {
+                continue;
+            }
+
+            const layers: RemoteLayerRepairSnapshot['layers'] = [];
+            layersMap.forEach((_value: unknown, layerId: string) => {
+                const layerValue = getYPath(this.fontMap, [
+                    'glyphs',
+                    glyphName,
+                    'layers',
+                    layerId
+                ]);
+                if (!(layerValue instanceof Y.Map)) {
+                    return;
+                }
+                const layerSnapshot = fromYType(layerValue);
+                if (
+                    !layerSnapshot ||
+                    typeof layerSnapshot !== 'object' ||
+                    Array.isArray(layerSnapshot)
+                ) {
+                    return;
+                }
+                layers.push({
+                    layerId,
+                    layerSnapshot: cloneHistoryValue(
+                        layerSnapshot as Record<string, unknown>
+                    )
+                });
+            });
+            snapshots.push({ glyphName, layers });
+        }
+
+        return snapshots;
     }
 
     /**
@@ -2469,12 +2540,11 @@ export class ChangeBridge {
         return cloneHistoryValue(layerSnapshot as Record<string, unknown>);
     }
 
-    private _repairTouchedLayersFromState(
-        state: Uint8Array,
-        remoteEntries: ChangeLogEntry[]
-    ): boolean {
-        const touchedGlyphNames = new Set(
-            remoteEntries
+    private _getTouchedRepairGlyphNames(
+        remoteEntries?: ChangeLogEntry[]
+    ): Set<string> {
+        return new Set(
+            (remoteEntries ?? [])
                 .flatMap((entry) => [
                     this._deriveGlyphNameFromPath(entry.path),
                     ...normalizeWorkerReplayTargets(
@@ -2483,6 +2553,113 @@ export class ChangeBridge {
                 ])
                 .filter((glyphName): glyphName is string => !!glyphName)
         );
+    }
+
+    private _repairTouchedLayersFromSnapshots(
+        snapshots: RemoteLayerRepairSnapshot[],
+        remoteEntries: ChangeLogEntry[]
+    ): boolean {
+        const touchedGlyphNames =
+            this._getTouchedRepairGlyphNames(remoteEntries);
+        if (!touchedGlyphNames.size) {
+            return false;
+        }
+
+        const snapshotsByGlyph = new Map<string, RemoteLayerRepairSnapshot>();
+        for (const snapshot of snapshots) {
+            snapshotsByGlyph.set(snapshot.glyphName, snapshot);
+        }
+
+        const repairOperations: Array<{
+            glyphName: string;
+            layerId: string;
+            layerSnapshot: Record<string, unknown>;
+        }> = [];
+        const staleLayerDeletes: Array<{
+            glyphName: string;
+            layerId: string;
+        }> = [];
+
+        for (const glyphName of touchedGlyphNames) {
+            const snapshot = snapshotsByGlyph.get(glyphName);
+            if (!snapshot) {
+                continue;
+            }
+
+            const repairLayerIds = new Set<string>();
+            for (const layer of snapshot.layers) {
+                repairLayerIds.add(layer.layerId);
+                const localLayerValue = getYPath(this.fontMap, [
+                    'glyphs',
+                    glyphName,
+                    'layers',
+                    layer.layerId
+                ]);
+                const localLayerSnapshot =
+                    localLayerValue instanceof Y.Map
+                        ? fromYType(localLayerValue)
+                        : null;
+                if (
+                    this._isDeepEqual(localLayerSnapshot, layer.layerSnapshot)
+                ) {
+                    continue;
+                }
+
+                repairOperations.push({
+                    glyphName,
+                    layerId: layer.layerId,
+                    layerSnapshot: layer.layerSnapshot
+                });
+            }
+
+            const localLayersMap = getYPath(this.fontMap, [
+                'glyphs',
+                glyphName,
+                'layers'
+            ]);
+            if (localLayersMap instanceof Y.Map) {
+                localLayersMap.forEach((_value: unknown, layerId: string) => {
+                    if (!repairLayerIds.has(layerId)) {
+                        staleLayerDeletes.push({ glyphName, layerId });
+                    }
+                });
+            }
+        }
+
+        if (!repairOperations.length && !staleLayerDeletes.length) {
+            return false;
+        }
+
+        console.warn(
+            `[ChangeBridge] Repairing ${repairOperations.length} malformed remote layer root(s) and deleting ${staleLayerDeletes.length} stale layer root(s) from layer repair payload.`
+        );
+        this.yDoc.transact(() => {
+            for (const operation of staleLayerDeletes) {
+                deleteYPath(this.fontMap, [
+                    'glyphs',
+                    operation.glyphName,
+                    'layers',
+                    operation.layerId
+                ]);
+            }
+            for (const operation of repairOperations) {
+                this._applyLayerSnapshot(
+                    operation.glyphName,
+                    operation.layerId,
+                    operation.layerSnapshot
+                );
+            }
+        }, SYSTEM_REMOTE_ORIGIN);
+
+        return true;
+    }
+
+    private _repairTouchedLayersFromState(
+        state: Uint8Array,
+        remoteEntries: ChangeLogEntry[]
+    ): boolean {
+        const touchedGlyphNames =
+            this._getTouchedRepairGlyphNames(remoteEntries);
         if (!touchedGlyphNames.size) {
             return false;
         }

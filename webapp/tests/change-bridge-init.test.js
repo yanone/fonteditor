@@ -5,7 +5,7 @@ const {
 const { fontCompilation } = require('../js/font-compilation');
 
 describe('handleRemoteChangeRefresh', () => {
-    test('queues remote cache refresh before the first compile request', async () => {
+    test('requests remote compile only after cache refresh resolves', async () => {
         let resolveRefresh;
         const refreshOrder = [];
         const queueCacheRefresh = jest.fn(() => {
@@ -55,29 +55,19 @@ describe('handleRemoteChangeRefresh', () => {
                 ]
             }
         );
+        expect(requestCompile).not.toHaveBeenCalled();
+        expect(refreshOrder).toEqual(['queue']);
+
+        resolveRefresh();
+        await refreshPromise;
+
         expect(requestCompile).toHaveBeenCalledTimes(1);
         expect(requestCompile).toHaveBeenNthCalledWith(
             1,
             'remote-anchor',
             'anchor'
         );
-        expect(refreshOrder).toEqual(['queue', 'compile']);
-
-        resolveRefresh();
-        await refreshPromise;
-
-        expect(requestCompile).toHaveBeenCalledTimes(2);
-        expect(requestCompile).toHaveBeenNthCalledWith(
-            2,
-            'remote-anchor',
-            'anchor'
-        );
-        expect(refreshOrder).toEqual([
-            'queue',
-            'compile',
-            'refresh-resolved',
-            'compile'
-        ]);
+        expect(refreshOrder).toEqual(['queue', 'refresh-resolved', 'compile']);
     });
 
     test('classifies batched sidebearing arrow-key entries as remote outline edits', async () => {
@@ -122,11 +112,7 @@ describe('handleRemoteChangeRefresh', () => {
             'remote-outline',
             'outline'
         );
-        expect(requestCompile).toHaveBeenNthCalledWith(
-            2,
-            'remote-outline',
-            'outline'
-        );
+        expect(requestCompile).toHaveBeenCalledTimes(1);
     });
 
     describe('linked-window visual pan', () => {

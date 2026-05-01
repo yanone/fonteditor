@@ -70,18 +70,32 @@ Yjs transaction. Encoding the full Yjs document (`Y.encodeStateAsUpdate` plus
 100–200 ms per commit and was the dominant freeze source on routine outline
 edits.
 
-- The `yjs-update` broadcast MUST omit the `fullState` payload when the sender
-  has no known peers (`_peers.size === 0`). This is the common single-window
-  case; the receiver code path is dead, so encoding is pure overhead.
-- When at least one peer is known, the existing repair behavior is preserved:
-  `fullState` is bundled with `yjs-update` whenever the message carries
-  change-log entries, so peers can recover from CRDT divergence.
+- The `yjs-update` broadcast MUST omit the `fullState` payload on the ordinary
+  edit hot path, even when the sender has known peers. Encoding the full state
+  inside a local edit transaction is too expensive for routine linked-window
+  edits.
+- Local `yjs-update` broadcasts MUST be microtask-batched. Multiple Yjs updates
+  emitted during the same event-loop turn merge into one Yjs update payload and
+  one concatenated `changeLogEntries` array, producing one
+  `BroadcastChannel.postMessage` and one receiver refresh.
+- Receiver-side `yjs-update` handling MUST also be microtask-batched. Multiple
+  incoming messages in one turn merge into one `applyRemoteUpdate` call so the
+  replay targets reach `syncRustCacheAndRefreshCanvas` as one batch.
+- Broadcast payloads SHOULD use structured-cloned `Uint8Array` data instead of
+  `Array.from()` number arrays. Receivers may accept the older number-array
+  shape for compatibility.
+- When peer windows are known and a `yjs-update` carries change-log entries,
+  the sender may include compact `layerRepairSnapshots` for touched glyphs.
+  This preserves the previous malformed/stale layer-root repair guarantee
+  without encoding and transmitting the full Y.Doc state on every edit.
 - New peers still bootstrap correctly via the `full-state-request` /
   `full-state-response` round-trip in `_handleMessage`. They do not depend on
   the bundled `fullState` from `yjs-update` for first-time bootstrap.
 - Tests in `tests/change-bridge.test.js` (`no peers: yjs-update broadcast omits
-fullState...` and `with a peer: yjs-update broadcast still includes
-fullState`) lock the budget.
+fullState...`, `with a peer: yjs-update broadcast omits fullState...`, and
+`same-tick local updates are batched...`) lock the budget. The same suite also
+locks compact repair payload behavior and layer-scoped undo after inbound
+batching.
 
 ## Edit-Type Matrix
 
@@ -243,6 +257,8 @@ Linked windows share the same font model as the main window via Y.Doc sync. They
 1. Pass `workerReplayTargets` to `syncRustCacheAndRefreshCanvas` for incremental layer updates to the WASM worker cache (instead of a full JSON resync).
 2. Infer the original edit type (`anchor` / `outline`) so the linked window's editing compile uses the matching fast-path compilation mode (`anchor-only` / `outline-only`) instead of always falling back to the slowest `full` mode.
 3. Set `lastChangeSource` to `remote-anchor` or `remote-outline` (or `remote-change` for unknown types) so `isIncrementalEditingCompile` recognizes the source and the compile uses the correct compilation mode.
+
+The receiver must refresh the worker cache before requesting its remote editing-font compile. Requesting a compile before the cache refresh completes can compile against stale Rust cache data and then immediately request a second compile. The linked-window remote path therefore schedules one editing compile after `syncRustCacheAndRefreshCanvas` has applied the replay targets or completed its fallback refresh.
 
 For sidebearing edits that update downstream metrics-key dependents, the sender must sync the full affected layer batch through `syncLayersFromJson`, not only attach `workerReplayTargets`. The receiver still rebuilds the object model from the patched Y.Doc via `Font.fromData`, but that Y.Doc patch must include every affected layer so linked windows see the same downstream layer state that the Rust worker cache receives. Batched keyboard sidebearing entries may carry a generic transaction label such as `Arrow key`; in that case, explicit side metadata (`visualAnchorSide`) must still allow the receiver to classify the edit as `remote-outline` and keep the outline-only fast path.
 

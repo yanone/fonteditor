@@ -3335,10 +3335,9 @@ describe('WindowSync', () => {
 
     // Regression: bundling the full Yjs state on every yjs-update used
     // to add 100-200 ms of synchronous work per local edit (full-doc
-    // encode + typed-array \u2192 plain-array copy of ~3 MB) even when
-    // no peer window was listening. With no peers, fullState must be
-    // omitted entirely; with at least one peer, it must still be sent
-    // when there are change-log entries (peers rely on it for repair).
+    // encode + typed-array \u2192 plain-array copy of ~3 MB). Ordinary
+    // yjs-update messages must omit fullState even when peers exist;
+    // new windows still bootstrap through full-state-request/response.
     // See COMPILATION_EDIT_POLICY.md \u2014 Window-Sync Budget.
     test('no peers: yjs-update broadcast omits fullState and never re-encodes the doc', () => {
         const fontJson = makeMinimalFont();
@@ -3374,7 +3373,7 @@ describe('WindowSync', () => {
         bridge.destroy();
     });
 
-    test('with a peer: yjs-update broadcast still includes fullState', () => {
+    test('with a peer: yjs-update broadcast omits fullState and does not re-encode the doc', () => {
         const fontJson1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('win-1');
         bridge1.initFromJson(fontJson1);
@@ -3398,6 +3397,8 @@ describe('WindowSync', () => {
             captured.push(ev.data);
         };
 
+        const getFullStateSpy = jest.spyOn(bridge1, 'getFullState');
+
         bridge1.recordChange(
             ['glyphs', 'A', 'layers', 'layer-1'],
             'width',
@@ -3410,9 +3411,197 @@ describe('WindowSync', () => {
             (m) => m.type === 'yjs-update' && m.windowId === 'win-1'
         );
         expect(fromWin1.length).toBeGreaterThan(0);
-        expect(fromWin1[fromWin1.length - 1].fullState).toBeDefined();
+        expect(fromWin1[fromWin1.length - 1].fullState).toBeUndefined();
+        expect(getFullStateSpy).not.toHaveBeenCalled();
+        expect(fromWin1[fromWin1.length - 1].update).toBeInstanceOf(Uint8Array);
+        expect(fromWin1[fromWin1.length - 1].layerRepairSnapshots).toEqual([
+            expect.objectContaining({ glyphName: 'A' })
+        ]);
+
+        getFullStateSpy.mockRestore();
+        eavesdropper.close();
+        sync1.destroy();
+        sync2.destroy();
+        bridge1.destroy();
+        bridge2.destroy();
+    });
+
+    test('same-tick local updates are batched into one yjs-update message', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('win-batch');
+        bridge.initFromJson(fontJson);
+        const sync = new WindowSync(bridge, 'font-channel-batch');
+
+        const captured = [];
+        const eavesdropper = new BroadcastChannel('font-channel-batch');
+        eavesdropper.onmessage = (ev) => {
+            captured.push(ev.data);
+        };
+
+        bridge.recordChange([], 'upm', 1000, 1001);
+        bridge.recordChange([], 'familyName', 'Test', 'Test Batch');
+        flushTimers();
+
+        const yjsUpdates = captured.filter((m) => m.type === 'yjs-update');
+        expect(yjsUpdates).toHaveLength(1);
+        expect(yjsUpdates[0].changeLogEntries).toHaveLength(2);
+        expect(yjsUpdates[0].update).toBeInstanceOf(Uint8Array);
 
         eavesdropper.close();
+        sync.destroy();
+        bridge.destroy();
+    });
+
+    test('compact layer repair payload repairs malformed remote layer roots through WindowSync', () => {
+        const senderFontJson = makeThreeMasterThreeLayerFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('win-repair-sender');
+        const receiverBridge = new ChangeBridge('win-repair-receiver');
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        const receiverSync = new WindowSync(
+            receiverBridge,
+            'font-channel-compact-repair'
+        );
+
+        senderFontJson.glyphs[0].layers[0].anchors[0].x = 321;
+        senderBridge.syncGlyphFromJson(
+            'A',
+            'Drag anchor',
+            undefined,
+            undefined,
+            'master-extrathin'
+        );
+        const remoteEntries = senderBridge.getNewChangeLogEntries();
+
+        const corruptDoc = new Y.Doc();
+        const corruptFontMap = corruptDoc.getMap('font');
+        jsonToYDoc(senderFontJson, corruptFontMap);
+        setYPath(
+            corruptFontMap,
+            ['glyphs', 'A', 'layers', 'master-extrathin'],
+            'Drag anchor'
+        );
+
+        const senderChannel = new BroadcastChannel(
+            'font-channel-compact-repair'
+        );
+        senderChannel.postMessage({
+            type: 'yjs-update',
+            update: Y.encodeStateAsUpdate(corruptDoc),
+            windowId: 'win-repair-sender',
+            changeLogEntries: remoteEntries,
+            layerRepairSnapshots:
+                senderBridge.getLayerRepairSnapshots(remoteEntries)
+        });
+        flushTimers();
+
+        expect(
+            getYPath(receiverBridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'master-extrathin',
+                'id'
+            ])
+        ).toBe('master-extrathin');
+        expect(
+            getYPath(receiverBridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'master-extrathin',
+                'anchors',
+                0,
+                'x'
+            ])
+        ).toBe(321);
+
+        senderChannel.close();
+        receiverSync.destroy();
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('batched inbound same-turn updates keep receiver layer undo scoped', () => {
+        const fontJson1 = makeMinimalFont();
+        const bridge1 = new ChangeBridge('win-inbound-sender');
+        bridge1.initFromJson(fontJson1);
+        const bridge2 = new ChangeBridge('win-inbound-receiver');
+        bridge2.applyFullState(bridge1.getFullState());
+
+        const sync1 = new WindowSync(bridge1, 'font-channel-inbound-batch');
+        const sync2 = new WindowSync(bridge2, 'font-channel-inbound-batch');
+
+        bridge1.recordChange(
+            ['glyphs', 'A', 'layers', 'layer-1'],
+            'width',
+            600,
+            800
+        );
+        bridge1.recordChange(
+            ['glyphs', 'B', 'layers', 'layer-2'],
+            'width',
+            650,
+            720
+        );
+        flushTimers();
+
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(800);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'B',
+                'layers',
+                'layer-2',
+                'width'
+            ])
+        ).toBe(720);
+
+        expect(bridge2.canUndo('A', 'layer-1')).toBe(true);
+        expect(bridge2.undo('A', 'layer-1')).not.toBeNull();
+        flushTimers();
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'B',
+                'layers',
+                'layer-2',
+                'width'
+            ])
+        ).toBe(720);
+
+        expect(bridge2.canUndo('B', 'layer-2')).toBe(true);
+        expect(bridge2.undo('B', 'layer-2')).not.toBeNull();
+        flushTimers();
+        expect(
+            getYPath(bridge2.fontMap, [
+                'glyphs',
+                'B',
+                'layers',
+                'layer-2',
+                'width'
+            ])
+        ).toBe(650);
+
         sync1.destroy();
         sync2.destroy();
         bridge1.destroy();

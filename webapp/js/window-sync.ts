@@ -6,20 +6,24 @@
  * the full Y.Doc state; existing windows respond.
  */
 
-import type { ChangeBridge } from './change-bridge';
+import type { ChangeBridge, RemoteLayerRepairSnapshot } from './change-bridge';
 import type { ChangeLogEntry } from './change-log';
 import { Logger } from './logger';
+import * as Y from 'yjs';
 
 const console = new Logger('WindowSync');
+
+type BinaryPayload = number[] | Uint8Array | ArrayBuffer;
 
 // ── Protocol message types ──────────────────────────────────────────
 
 interface YjsUpdateMsg {
     type: 'yjs-update';
-    update: number[]; // Uint8Array serialised as number[]
+    update: BinaryPayload;
     windowId: string;
     changeLogEntries?: ChangeLogEntry[];
-    fullState?: number[];
+    fullState?: BinaryPayload;
+    layerRepairSnapshots?: RemoteLayerRepairSnapshot[];
 }
 
 interface FullStateRequestMsg {
@@ -29,7 +33,7 @@ interface FullStateRequestMsg {
 
 interface FullStateResponseMsg {
     type: 'full-state-response';
-    state: number[];
+    state: BinaryPayload;
     changeLog: ChangeLogEntry[];
     windowId: string;
 }
@@ -54,12 +58,28 @@ type SyncMessage =
 // ── WindowSync class ────────────────────────────────────────────────
 
 export class WindowSync {
+    private static _timingLoggingEnabled = false;
     private _channel: BroadcastChannel | null = null;
     private _bridge: ChangeBridge;
     private _peers = new Set<string>();
     private _awaitingFullState = false;
     private _hasAppliedFullState = false;
     private _mainWindowClosingListeners = new Set<() => void>();
+    private _pendingOutboundUpdates: Uint8Array[] = [];
+    private _pendingOutboundChangeLogEntries: ChangeLogEntry[] = [];
+    private _outboundFlushScheduled = false;
+    private _pendingYjsMessages: YjsUpdateMsg[] = [];
+    private _inboundFlushScheduled = false;
+
+    static enableTimingLogging(): void {
+        WindowSync._timingLoggingEnabled = true;
+        console.log('Timing logging enabled');
+    }
+
+    static disableTimingLogging(): void {
+        WindowSync._timingLoggingEnabled = false;
+        console.log('Timing logging disabled');
+    }
 
     constructor(bridge: ChangeBridge, channelName: string) {
         this._bridge = bridge;
@@ -70,31 +90,12 @@ export class WindowSync {
                 this._handleMessage(ev.data);
             };
 
-            // Wire bridge's local updates to broadcast
+            // Wire bridge's local updates to broadcast. The broadcast itself is
+            // microtask-batched so a single user transaction that emits several
+            // Yjs updates produces one channel message and one receiver refresh.
             bridge.onLocalUpdate((update) => {
                 const changeLogEntries = bridge.getNewChangeLogEntries();
-                // Only ship the full Yjs state when at least one peer
-                // window is known. `getFullState()` re-encodes the entire
-                // ~3+ MB Yjs document and `Array.from()` then performs a
-                // typed-array \u2192 plain-array copy, both of which cost
-                // 100-200 ms per commit on real fonts. With no peers
-                // (the common single-window case) the receiver code path
-                // is dead, so this work was pure overhead added to every
-                // user edit. Peers bootstrap via `full-state-request`
-                // when they open, so divergence is recovered there. See
-                // COMPILATION_EDIT_POLICY.md \u2014 \u201cHistory-Notification
-                // Budget\u201d / \u201cWindow-Sync Budget\u201d.
-                const hasPeers = this._peers.size > 0;
-                this._send({
-                    type: 'yjs-update',
-                    update: Array.from(update),
-                    windowId: bridge.windowId,
-                    changeLogEntries,
-                    fullState:
-                        hasPeers && (changeLogEntries ?? []).length
-                            ? Array.from(bridge.getFullState())
-                            : undefined
-                });
+                this._queueOutboundBroadcast(update, changeLogEntries);
             });
         }
     }
@@ -141,6 +142,7 @@ export class WindowSync {
 
     /** Clean up. */
     destroy(): void {
+        this._flushOutboundBroadcast();
         this.announceClose();
         this._channel?.close();
         this._channel = null;
@@ -156,16 +158,133 @@ export class WindowSync {
         }
     }
 
+    private _queueOutboundBroadcast(
+        update: Uint8Array,
+        changeLogEntries?: ChangeLogEntry[]
+    ): void {
+        this._pendingOutboundUpdates.push(update);
+        if (changeLogEntries?.length) {
+            this._pendingOutboundChangeLogEntries.push(...changeLogEntries);
+        }
+        if (this._outboundFlushScheduled) {
+            return;
+        }
+        this._outboundFlushScheduled = true;
+        queueMicrotask(() => this._flushOutboundBroadcast());
+    }
+
+    private _flushOutboundBroadcast(): void {
+        if (!this._outboundFlushScheduled) {
+            return;
+        }
+        this._outboundFlushScheduled = false;
+        const updates = this._pendingOutboundUpdates;
+        const changeLogEntries = this._pendingOutboundChangeLogEntries;
+        this._pendingOutboundUpdates = [];
+        this._pendingOutboundChangeLogEntries = [];
+        if (!updates.length) {
+            return;
+        }
+
+        const startTime = performance.now?.() ?? Date.now();
+        const update =
+            updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
+        const layerRepairSnapshots =
+            this._peers.size > 0 && changeLogEntries.length
+                ? this._bridge.getLayerRepairSnapshots(changeLogEntries)
+                : [];
+        this._send({
+            type: 'yjs-update',
+            update,
+            windowId: this._bridge.windowId,
+            changeLogEntries: changeLogEntries.length
+                ? changeLogEntries
+                : undefined,
+            fullState: undefined,
+            layerRepairSnapshots: layerRepairSnapshots.length
+                ? layerRepairSnapshots
+                : undefined
+        });
+        this._logTiming('outbound-yjs-update', {
+            updateCount: updates.length,
+            changeLogEntryCount: changeLogEntries.length,
+            updateBytes: update.byteLength,
+            repairGlyphCount: layerRepairSnapshots.length,
+            peerCount: this._peers.size,
+            durationMs: this._elapsed(startTime)
+        });
+    }
+
+    private _queueYjsUpdate(msg: YjsUpdateMsg): void {
+        this._pendingYjsMessages.push(msg);
+        if (this._inboundFlushScheduled) {
+            return;
+        }
+        this._inboundFlushScheduled = true;
+        queueMicrotask(() => this._flushPendingYjsUpdates());
+    }
+
+    private _flushPendingYjsUpdates(): void {
+        if (!this._inboundFlushScheduled) {
+            return;
+        }
+        this._inboundFlushScheduled = false;
+        const messages = this._pendingYjsMessages;
+        this._pendingYjsMessages = [];
+        if (!messages.length) {
+            return;
+        }
+
+        const startTime = performance.now?.() ?? Date.now();
+        const updates = messages.map((msg) => toUint8Array(msg.update));
+        const update =
+            updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
+        const changeLogEntries = messages.flatMap(
+            (msg) => msg.changeLogEntries ?? []
+        );
+        const layerRepairSnapshots = messages.flatMap(
+            (msg) => msg.layerRepairSnapshots ?? []
+        );
+        let fullState: Uint8Array | undefined;
+        for (const msg of messages) {
+            if (msg.fullState) {
+                fullState = toUint8Array(msg.fullState);
+            }
+        }
+        this._bridge.applyRemoteUpdate(
+            update,
+            changeLogEntries.length ? changeLogEntries : undefined,
+            fullState,
+            layerRepairSnapshots.length ? layerRepairSnapshots : undefined
+        );
+        this._logTiming('inbound-yjs-update', {
+            messageCount: messages.length,
+            changeLogEntryCount: changeLogEntries.length,
+            updateBytes: update.byteLength,
+            hasFullState: !!fullState,
+            repairGlyphCount: layerRepairSnapshots.length,
+            durationMs: this._elapsed(startTime)
+        });
+    }
+
+    private _elapsed(startTime: number): number {
+        const now = performance.now?.() ?? Date.now();
+        return Math.round((now - startTime) * 10) / 10;
+    }
+
+    private _logTiming(label: string, detail: Record<string, unknown>): void {
+        if (!WindowSync._timingLoggingEnabled) {
+            return;
+        }
+        console.log(label, detail);
+    }
+
     private _handleMessage(msg: SyncMessage): void {
         switch (msg.type) {
             case 'yjs-update':
                 if (msg.windowId === this._bridge.windowId) return;
                 this._peers.add(msg.windowId);
-                this._bridge.applyRemoteUpdate(
-                    new Uint8Array(msg.update),
-                    msg.changeLogEntries,
-                    msg.fullState ? new Uint8Array(msg.fullState) : undefined
-                );
+                this._queueYjsUpdate(msg);
                 break;
 
             case 'full-state-request':
@@ -175,7 +294,7 @@ export class WindowSync {
                 const state = this._bridge.getFullState();
                 this._send({
                     type: 'full-state-response',
-                    state: Array.from(state),
+                    state,
                     changeLog: this._bridge.getChangeLog(),
                     windowId: this._bridge.windowId
                 });
@@ -193,7 +312,7 @@ export class WindowSync {
                 // onRemoteChange callback (fired by applyFullState)
                 // sees the complete log.
                 this._bridge.importChangeLog(msg.changeLog);
-                this._bridge.applyFullState(new Uint8Array(msg.state));
+                this._bridge.applyFullState(toUint8Array(msg.state));
                 break;
 
             case 'window-closing':
@@ -208,4 +327,14 @@ export class WindowSync {
                 break;
         }
     }
+}
+
+function toUint8Array(payload: BinaryPayload): Uint8Array {
+    if (payload instanceof Uint8Array) {
+        return payload;
+    }
+    if (Array.isArray(payload)) {
+        return new Uint8Array(payload);
+    }
+    return new Uint8Array(payload);
 }

@@ -921,7 +921,7 @@ export async function handleRemoteChangeRefresh(
     const queueCacheRefresh =
         dependencies?.queueCacheRefresh ?? queueRustCacheAndRefreshCanvas;
 
-    const rustCacheRefreshPromise = queueCacheRefresh(
+    await queueCacheRefresh(
         undefined,
         undefined,
         false,
@@ -930,8 +930,6 @@ export async function handleRemoteChangeRefresh(
             : undefined
     );
 
-    await requestCompile(changeSource, editType);
-    await rustCacheRefreshPromise;
     await requestCompile(changeSource, editType);
 }
 
