@@ -1,7 +1,5 @@
 {
-  "permissions": {
-    "allow": [
-      "mcp__gortex__*"
-    ]
-  }
+    "permissions": {
+        "allow": ["mcp__gortex__*"]
+    }
 }

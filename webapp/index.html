@@ -58,7 +58,10 @@
 
             // Prevent webpack dev server reload errors during development and tests
             // Webpack's HMR client uses self.location.reload() which fails in some contexts
-            if (typeof self !== 'undefined' && (!self.location || typeof self.location.reload !== 'function')) {
+            if (
+                typeof self !== 'undefined' &&
+                (!self.location || typeof self.location.reload !== 'function')
+            ) {
                 Object.defineProperty(self, 'location', {
                     value: window.location,
                     writable: false,
@@ -97,8 +100,6 @@
             sizes="512x512"
             href="assets/icons/icon-512x512.png"
         />
-
-
 
         <link rel="stylesheet" href="css/style.css" id="local-css" />
         <script src="https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js"></script>
@@ -192,41 +193,52 @@
         <!-- Bootstrap Loading Animation -->
         <script>
             // Fade in loading screen when DOM is ready, before heavy scripts load
-            (function() {
+            (function () {
                 let animationComplete = false;
-                
+
                 function fadeInLoadingScreen() {
                     if (animationComplete) return;
-                    
+
                     const loadingIcon = document.querySelector('.loading-icon');
                     const loadingLogo = document.querySelector('.loading-logo');
-                    
+
                     if (loadingIcon && loadingLogo) {
                         console.log('[Bootstrap] Starting fade-in animation');
-                        
+
                         // Set transition properties
-                        loadingIcon.style.transition = 'opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
-                        loadingLogo.style.transition = 'opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
-                        
+                        loadingIcon.style.transition =
+                            'opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
+                        loadingLogo.style.transition =
+                            'opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
+
                         // First frame: ensure opacity is 0
                         requestAnimationFrame(() => {
                             loadingIcon.style.opacity = '0';
                             loadingLogo.style.opacity = '0';
-                            
+
                             // Second frame: trigger fade to opacity 1
                             requestAnimationFrame(() => {
                                 loadingIcon.style.opacity = '1';
                                 loadingLogo.style.opacity = '1';
                                 animationComplete = true;
-                                
+
                                 // After animation, show bootstrapping message
                                 setTimeout(() => {
                                     console.log('[Bootstrap] Fade-in complete');
-                                    const statusElement = document.getElementById('loading-status');
-                                    if (statusElement && statusElement.textContent === '') {
+                                    const statusElement =
+                                        document.getElementById(
+                                            'loading-status'
+                                        );
+                                    if (
+                                        statusElement &&
+                                        statusElement.textContent === ''
+                                    ) {
                                         setTimeout(() => {
-                                            if (statusElement.textContent === '') {
-                                                statusElement.textContent = 'Bootstrapping...';
+                                            if (
+                                                statusElement.textContent === ''
+                                            ) {
+                                                statusElement.textContent =
+                                                    'Bootstrapping...';
                                             }
                                         }, 100);
                                     }
@@ -237,9 +249,12 @@
                         console.warn('[Bootstrap] Loading elements not found');
                     }
                 }
-                
+
                 // Always wait for DOMContentLoaded to ensure elements exist
-                document.addEventListener('DOMContentLoaded', fadeInLoadingScreen);
+                document.addEventListener(
+                    'DOMContentLoaded',
+                    fadeInLoadingScreen
+                );
             })();
         </script>
     </head>
@@ -249,7 +264,7 @@
         <div class="toolbar">
             <div class="toolbar-left">
                 <h1 class="app-name">
-                    Counterpunch 
+                    Counterpunch
                     <span style="opacity: 0.4"
                         >Alpha <span id="app-version"></span
                     ></span>
@@ -337,8 +352,13 @@
         <!-- Loading overlay -->
         <div id="loading-overlay" class="loading-overlay">
             <div class="loading-content">
-                <img src="assets/icons/icon.svg" class="loading-icon" alt="Counterpunch icon" style="opacity: 0;" />
-                <h1 class="loading-logo" style="opacity: 0;">Counterpunch</h1>
+                <img
+                    src="assets/icons/icon.svg"
+                    class="loading-icon"
+                    alt="Counterpunch icon"
+                    style="opacity: 0"
+                />
+                <h1 class="loading-logo" style="opacity: 0">Counterpunch</h1>
             </div>
             <div id="loading-status" class="loading-status"></div>
         </div>
@@ -359,12 +379,18 @@
                                     >I</span
                                 >
                             </div>
-                            <div class="view-title-actions">
-                            </div>
+                            <div class="view-title-actions"></div>
                         </div>
                         <div class="view-title-right">
-                            <div class="overview-search-control" id="fontinfo-search-control" style="display: none;">
-                                <span class="material-symbols-outlined overview-search-icon">search</span>
+                            <div
+                                class="overview-search-control"
+                                id="fontinfo-search-control"
+                                style="display: none"
+                            >
+                                <span
+                                    class="material-symbols-outlined overview-search-icon"
+                                    >search</span
+                                >
                                 <input
                                     type="text"
                                     class="overview-search-input"
@@ -414,11 +440,14 @@
                                     >O</span
                                 >
                             </div>
-                            <div class="view-title-actions">
-                            </div>
+                            <div class="view-title-actions"></div>
                         </div>
                         <div class="view-title-right">
-                            <div class="overview-mode-toggle" role="group" aria-label="Overview mode">
+                            <div
+                                class="overview-mode-toggle"
+                                role="group"
+                                aria-label="Overview mode"
+                            >
                                 <button
                                     id="overview-mode-lines"
                                     class="view-title-button context-tab overview-mode-btn"
@@ -426,7 +455,9 @@
                                     aria-label="Normal Mode"
                                     aria-pressed="false"
                                 >
-                                    <span class="material-symbols-outlined">border_all</span>
+                                    <span class="material-symbols-outlined"
+                                        >border_all</span
+                                    >
                                 </button>
                                 <button
                                     id="overview-mode-grid"
@@ -435,11 +466,16 @@
                                     aria-label="Matrix Mode"
                                     aria-pressed="false"
                                 >
-                                    <span class="material-symbols-outlined">crossword</span>
+                                    <span class="material-symbols-outlined"
+                                        >crossword</span
+                                    >
                                 </button>
                             </div>
                             <div class="overview-search-control">
-                                <span class="material-symbols-outlined overview-search-icon">search</span>
+                                <span
+                                    class="material-symbols-outlined overview-search-icon"
+                                    >search</span
+                                >
                                 <input
                                     type="text"
                                     class="overview-search-input"
@@ -546,8 +582,7 @@
                                     >F</span
                                 >
                             </div>
-                            <div class="view-title-actions">
-                            </div>
+                            <div class="view-title-actions"></div>
                         </div>
                         <div class="view-title-right">
                             <!-- Context tabs generated dynamically by file-browser.ts -->
@@ -557,9 +592,20 @@
                         <div id="file-browser">
                             <div id="permission-banner">
                                 <div class="permission-banner-content">
-                                    <span class="material-symbols-outlined permission-banner-icon">lock</span>
-                                    <span class="permission-banner-text">Folder access expired. Re-enable to continue.</span>
-                                    <button class="permission-banner-button" onclick="window.reEnableAccess()">Re-enable</button>
+                                    <span
+                                        class="material-symbols-outlined permission-banner-icon"
+                                        >lock</span
+                                    >
+                                    <span class="permission-banner-text"
+                                        >Folder access expired. Re-enable to
+                                        continue.</span
+                                    >
+                                    <button
+                                        class="permission-banner-button"
+                                        onclick="window.reEnableAccess()"
+                                    >
+                                        Re-enable
+                                    </button>
                                 </div>
                             </div>
                             <div id="plugin-message-container">
@@ -567,12 +613,25 @@
                             </div>
                             <div id="open-folder-container">
                                 <div class="open-folder-content">
-                                    <span class="material-symbols-outlined open-folder-icon">folder_open</span>
+                                    <span
+                                        class="material-symbols-outlined open-folder-icon"
+                                        >folder_open</span
+                                    >
                                     <h2>Open Folder</h2>
-                                    <p>Select a folder from your computer to browse and edit fonts directly.</p>
-                                    <button class="open-folder-button" onclick="window.selectDiskFolder()">
-                                        <span class="material-symbols-outlined">folder_open</span>
-                                        <span class="open-folder-button-label">Select Folder</span>
+                                    <p>
+                                        Select a folder from your computer to
+                                        browse and edit fonts directly.
+                                    </p>
+                                    <button
+                                        class="open-folder-button"
+                                        onclick="window.selectDiskFolder()"
+                                    >
+                                        <span class="material-symbols-outlined"
+                                            >folder_open</span
+                                        >
+                                        <span class="open-folder-button-label"
+                                            >Select Folder</span
+                                        >
                                     </button>
                                 </div>
                             </div>
@@ -618,7 +677,9 @@
                                 <span class="material-symbols-outlined"
                                     >add</span
                                 >
-                                <span class="button-shortcut" style="opacity: 0.5"
+                                <span
+                                    class="button-shortcut"
+                                    style="opacity: 0.5"
                                     ><span class="material-symbols-outlined"
                                         >keyboard_command_key</span
                                     ><span class="material-symbols-outlined"
@@ -754,9 +815,13 @@
                                     class="ai-linked-file-path"
                                     style="display: none"
                                 >
-                                    <span class="material-symbols-outlined">link</span>
+                                    <span class="material-symbols-outlined"
+                                        >link</span
+                                    >
                                     <span class="ai-linked-file-name"></span>
-                                    <span class="ai-linked-file-full-path"></span>
+                                    <span
+                                        class="ai-linked-file-full-path"
+                                    ></span>
                                 </div>
 
                                 <!-- Locked Context Display (shown after first message) -->
@@ -868,9 +933,11 @@
                                 id="script-file-reload-btn"
                                 class="script-file-reload-btn"
                                 title="External changes detected - Click to reload"
-                                style="display: none;"
+                                style="display: none"
                             >
-                                <span class="material-symbols-outlined">refresh</span>
+                                <span class="material-symbols-outlined"
+                                    >refresh</span
+                                >
                                 Reload
                             </button>
                             <button
@@ -878,7 +945,12 @@
                                 class="script-file-dropdown-btn"
                                 title="File operations"
                             >
-                                <span id="script-file-modified-indicator" class="script-modified-indicator" style="display: none;">●</span>
+                                <span
+                                    id="script-file-modified-indicator"
+                                    class="script-modified-indicator"
+                                    style="display: none"
+                                    >●</span
+                                >
                                 File
                                 <span class="material-symbols-outlined"
                                     >expand_more</span
@@ -890,7 +962,9 @@
                                 title="Run script (Cmd+Alt+R)"
                             >
                                 Run
-                                <span class="button-shortcut" style="opacity: 0.5"
+                                <span
+                                    class="button-shortcut"
+                                    style="opacity: 0.5"
                                     ><span class="material-symbols-outlined"
                                         >keyboard_command_key</span
                                     ><span class="material-symbols-outlined"
@@ -919,8 +993,7 @@
                                     >K</span
                                 >
                             </div>
-                            <div class="view-title-actions">
-                            </div>
+                            <div class="view-title-actions"></div>
                         </div>
                         <div class="view-title-right">
                             <button
@@ -928,13 +1001,14 @@
                                 class="view-title-button"
                                 title="Clear console globally (Cmd+K)"
                             >
-                            Clear
-                            <span class="button-shortcut console-clear-shortcut"
-                                ><span class="material-symbols-outlined"
-                                    >keyboard_command_key</span
-                                >K</span
-                            >
-                        </button>
+                                Clear
+                                <span
+                                    class="button-shortcut console-clear-shortcut"
+                                    ><span class="material-symbols-outlined"
+                                        >keyboard_command_key</span
+                                    >K</span
+                                >
+                            </button>
                         </div>
                     </div>
                     <div id="console-container">
@@ -958,8 +1032,7 @@
                                     >H</span
                                 >
                             </div>
-                            <div class="view-title-actions">
-                            </div>
+                            <div class="view-title-actions"></div>
                         </div>
                         <div class="view-title-right"></div>
                     </div>
@@ -1303,8 +1376,8 @@
                             </li>
                             <li><kbd>Space</kbd> Preview outline fill</li>
                             <li>
-                                <kbd>Tab</kbd> Measurement tool (custom line
-                                by click+drag)
+                                <kbd>Tab</kbd> Measurement tool (custom line by
+                                click+drag)
                             </li>
                             <li>
                                 <kbd>Cmd/Ctrl</kbd> +
@@ -1519,9 +1592,10 @@
                     <div class="settings-item">
                         <label class="settings-item-label">UI Scaling</label>
                         <div class="settings-item-description">
-                            To scale the entire interface, use your browser's zoom
-                            menu or Ctrl/Cmd +/-. Note: When the editing canvas is
-                            focused, these shortcuts control canvas zoom instead.
+                            To scale the entire interface, use your browser's
+                            zoom menu or Ctrl/Cmd +/-. Note: When the editing
+                            canvas is focused, these shortcuts control canvas
+                            zoom instead.
                         </div>
                     </div>
 

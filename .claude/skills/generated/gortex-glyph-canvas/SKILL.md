@@ -10,6 +10,7 @@ description: "Work in the glyph-canvas area — 41 symbols across 4 files (51% c
 ## When to Use
 
 Use this skill when working on files in:
+
 - `webapp/js/glyph-canvas.ts`
 - `webapp/js/glyph-canvas/measurement-tool.ts`
 - `webapp/js/glyph-canvas/outline-editor.ts`
@@ -17,12 +18,12 @@ Use this skill when working on files in:
 
 ## Key Files
 
-| File | Symbols |
-|------|---------|
-| `webapp/js/glyph-canvas.ts` | setupEventListeners, onResize, focusCanvasForMeasurementTab, shouldBlockTextEditingDuringLoopAnimation, onBlur, ... |
-| `webapp/js/glyph-canvas/measurement-tool.ts` | handleMeasurementKeyRelease, handleMouseUp, shouldBlockHitDetection, shouldShowCrosshair, handleMeasurementKeyPress, ... |
-| `webapp/js/glyph-canvas/outline-editor.ts` | setCommandKeyPressed, onBlur, setAltKeyPressed, performHitDetection, updateHoveredResizeHandle, ... |
-| `webapp/js/glyph-canvas/stack-preview-animator.ts` | shouldRenderStackPreview |
+| File                                               | Symbols                                                                                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `webapp/js/glyph-canvas.ts`                        | setupEventListeners, onResize, focusCanvasForMeasurementTab, shouldBlockTextEditingDuringLoopAnimation, onBlur, ...      |
+| `webapp/js/glyph-canvas/measurement-tool.ts`       | handleMeasurementKeyRelease, handleMouseUp, shouldBlockHitDetection, shouldShowCrosshair, handleMeasurementKeyPress, ... |
+| `webapp/js/glyph-canvas/outline-editor.ts`         | setCommandKeyPressed, onBlur, setAltKeyPressed, performHitDetection, updateHoveredResizeHandle, ...                      |
+| `webapp/js/glyph-canvas/stack-preview-animator.ts` | shouldRenderStackPreview                                                                                                 |
 
 ## Connected Communities
 

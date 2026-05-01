@@ -1,582 +1,641 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Directory Access Demo</title>
-    <style>
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 20px;
-        background: #f5f5f5;
-      }
-      h1 {
-        color: #333;
-      }
-      .container {
-        display: grid;
-        grid-template-columns: 300px 1fr;
-        gap: 20px;
-        margin-top: 20px;
-      }
-      .sidebar {
-        background: white;
-        border-radius: 8px;
-        padding: 15px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        height: fit-content;
-      }
-      .editor-panel {
-        background: white;
-        border-radius: 8px;
-        padding: 20px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      }
-      button {
-        background: #007bff;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 5px;
-        cursor: pointer;
-        font-size: 14px;
-        margin-bottom: 15px;
-        width: 100%;
-      }
-      button:hover {
-        background: #0056b3;
-      }
-      button:disabled {
-        background: #ccc;
-        cursor: not-allowed;
-      }
-      .file-tree {
-        margin-top: 10px;
-      }
-      .file-item,
-      .dir-item {
-        padding: 5px 10px;
-        margin: 2px 0;
-        cursor: pointer;
-        border-radius: 3px;
-        font-size: 14px;
-      }
-      .file-item:hover {
-        background: #e9ecef;
-      }
-      .file-item.active {
-        background: #007bff;
-        color: white;
-      }
-      .dir-item {
-        font-weight: 600;
-        color: #495057;
-        padding-left: 5px;
-      }
-      .dir-item.expandable::before {
-        content: "▶ ";
-        display: inline-block;
-        transition: transform 0.2s;
-      }
-      .dir-item.expandable.expanded::before {
-        transform: rotate(90deg);
-      }
-      .dir-contents {
-        padding-left: 15px;
-        display: none;
-      }
-      .dir-contents.expanded {
-        display: block;
-      }
-      textarea {
-        width: 100%;
-        min-height: 400px;
-        font-family: "Monaco", "Menlo", "Consolas", monospace;
-        font-size: 13px;
-        padding: 15px;
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        resize: vertical;
-      }
-      .editor-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 15px;
-      }
-      .editor-header h3 {
-        margin: 0;
-        color: #333;
-      }
-      .editor-actions {
-        display: flex;
-        gap: 10px;
-      }
-      .editor-actions button {
-        width: auto;
-        margin: 0;
-        padding: 8px 16px;
-      }
-      .save-btn {
-        background: #28a745;
-      }
-      .save-btn:hover {
-        background: #218838;
-      }
-      .new-file-section {
-        margin-top: 15px;
-        padding-top: 15px;
-        border-top: 1px solid #ddd;
-      }
-      .new-file-section input {
-        width: 100%;
-        padding: 8px;
-        border: 1px solid #ddd;
-        border-radius: 3px;
-        font-size: 14px;
-        margin-bottom: 10px;
-      }
-      .status {
-        margin-top: 10px;
-        padding: 10px;
-        border-radius: 5px;
-        font-size: 14px;
-        display: none;
-      }
-      .status.success {
-        background: #d4edda;
-        color: #155724;
-        display: block;
-      }
-      .status.error {
-        background: #f8d7da;
-        color: #721c24;
-        display: block;
-      }
-      .empty-state {
-        color: #6c757d;
-        text-align: center;
-        padding: 40px;
-      }
-    </style>
-  </head>
-  <body>
-    <h1>📁 Directory Access API Demo</h1>
-    <p>
-      Pick a directory to browse and edit its files. Works in Chrome, Edge, and
-      Safari.
-    </p>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Directory Access Demo</title>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    sans-serif;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+                background: #f5f5f5;
+            }
+            h1 {
+                color: #333;
+            }
+            .container {
+                display: grid;
+                grid-template-columns: 300px 1fr;
+                gap: 20px;
+                margin-top: 20px;
+            }
+            .sidebar {
+                background: white;
+                border-radius: 8px;
+                padding: 15px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                height: fit-content;
+            }
+            .editor-panel {
+                background: white;
+                border-radius: 8px;
+                padding: 20px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            }
+            button {
+                background: #007bff;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 14px;
+                margin-bottom: 15px;
+                width: 100%;
+            }
+            button:hover {
+                background: #0056b3;
+            }
+            button:disabled {
+                background: #ccc;
+                cursor: not-allowed;
+            }
+            .file-tree {
+                margin-top: 10px;
+            }
+            .file-item,
+            .dir-item {
+                padding: 5px 10px;
+                margin: 2px 0;
+                cursor: pointer;
+                border-radius: 3px;
+                font-size: 14px;
+            }
+            .file-item:hover {
+                background: #e9ecef;
+            }
+            .file-item.active {
+                background: #007bff;
+                color: white;
+            }
+            .dir-item {
+                font-weight: 600;
+                color: #495057;
+                padding-left: 5px;
+            }
+            .dir-item.expandable::before {
+                content: "▶ ";
+                display: inline-block;
+                transition: transform 0.2s;
+            }
+            .dir-item.expandable.expanded::before {
+                transform: rotate(90deg);
+            }
+            .dir-contents {
+                padding-left: 15px;
+                display: none;
+            }
+            .dir-contents.expanded {
+                display: block;
+            }
+            textarea {
+                width: 100%;
+                min-height: 400px;
+                font-family: "Monaco", "Menlo", "Consolas", monospace;
+                font-size: 13px;
+                padding: 15px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                resize: vertical;
+            }
+            .editor-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 15px;
+            }
+            .editor-header h3 {
+                margin: 0;
+                color: #333;
+            }
+            .editor-actions {
+                display: flex;
+                gap: 10px;
+            }
+            .editor-actions button {
+                width: auto;
+                margin: 0;
+                padding: 8px 16px;
+            }
+            .save-btn {
+                background: #28a745;
+            }
+            .save-btn:hover {
+                background: #218838;
+            }
+            .new-file-section {
+                margin-top: 15px;
+                padding-top: 15px;
+                border-top: 1px solid #ddd;
+            }
+            .new-file-section input {
+                width: 100%;
+                padding: 8px;
+                border: 1px solid #ddd;
+                border-radius: 3px;
+                font-size: 14px;
+                margin-bottom: 10px;
+            }
+            .status {
+                margin-top: 10px;
+                padding: 10px;
+                border-radius: 5px;
+                font-size: 14px;
+                display: none;
+            }
+            .status.success {
+                background: #d4edda;
+                color: #155724;
+                display: block;
+            }
+            .status.error {
+                background: #f8d7da;
+                color: #721c24;
+                display: block;
+            }
+            .empty-state {
+                color: #6c757d;
+                text-align: center;
+                padding: 40px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>📁 Directory Access API Demo</h1>
+        <p>
+            Pick a directory to browse and edit its files. Works in Chrome,
+            Edge, and Safari.
+        </p>
 
-    <div style="display: flex; gap: 10px; align-items: center">
-      <button id="pickDir">📂 Pick Directory</button>
-      <button id="changeDirBtn" style="display: none; background: #6c757d">
-        🔄 Change Directory
-      </button>
-      <span id="currentDirName" style="color: #666; font-size: 14px"></span>
-    </div>
-
-    <div class="container">
-      <div class="sidebar">
-        <h3>Files</h3>
-        <div id="fileTree" class="file-tree">
-          <div class="empty-state">No directory selected</div>
+        <div style="display: flex; gap: 10px; align-items: center">
+            <button id="pickDir">📂 Pick Directory</button>
+            <button
+                id="changeDirBtn"
+                style="display: none; background: #6c757d"
+            >
+                🔄 Change Directory
+            </button>
+            <span
+                id="currentDirName"
+                style="color: #666; font-size: 14px"
+            ></span>
         </div>
 
-        <div class="new-file-section" id="newFileSection" style="display: none">
-          <h4>Create New File</h4>
-          <input type="text" id="newFileName" placeholder="filename.txt" />
-          <button id="createFileBtn">➕ Create File</button>
-        </div>
-      </div>
+        <div class="container">
+            <div class="sidebar">
+                <h3>Files</h3>
+                <div id="fileTree" class="file-tree">
+                    <div class="empty-state">No directory selected</div>
+                </div>
 
-      <div class="editor-panel">
-        <div id="editorEmpty" class="empty-state">
-          Select a file from the sidebar to edit
-        </div>
-        <div id="editorContent" style="display: none">
-          <div class="editor-header">
-            <h3 id="currentFileName">No file selected</h3>
-            <div class="editor-actions">
-              <button id="saveBtn" class="save-btn">💾 Save</button>
-              <button id="saveAsBtn">💾 Save As...</button>
+                <div
+                    class="new-file-section"
+                    id="newFileSection"
+                    style="display: none"
+                >
+                    <h4>Create New File</h4>
+                    <input
+                        type="text"
+                        id="newFileName"
+                        placeholder="filename.txt"
+                    />
+                    <button id="createFileBtn">➕ Create File</button>
+                </div>
             </div>
-          </div>
-          <textarea id="editor"></textarea>
-          <div id="status" class="status"></div>
+
+            <div class="editor-panel">
+                <div id="editorEmpty" class="empty-state">
+                    Select a file from the sidebar to edit
+                </div>
+                <div id="editorContent" style="display: none">
+                    <div class="editor-header">
+                        <h3 id="currentFileName">No file selected</h3>
+                        <div class="editor-actions">
+                            <button id="saveBtn" class="save-btn">
+                                💾 Save
+                            </button>
+                            <button id="saveAsBtn">💾 Save As...</button>
+                        </div>
+                    </div>
+                    <textarea id="editor"></textarea>
+                    <div id="status" class="status"></div>
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
 
-    <script>
-      let directoryHandle = null;
-      let currentFileHandle = null;
-      let currentFilePath = "";
-      const DB_NAME = "DirectoryAccessDemo";
-      const DB_VERSION = 1;
-      const STORE_NAME = "directoryHandles";
+        <script>
+            let directoryHandle = null;
+            let currentFileHandle = null;
+            let currentFilePath = "";
+            const DB_NAME = "DirectoryAccessDemo";
+            const DB_VERSION = 1;
+            const STORE_NAME = "directoryHandles";
 
-      // Check if File System Access API is supported
-      if (!("showDirectoryPicker" in window)) {
-        alert(
-          "File System Access API is not supported in this browser. Please use Chrome, Edge, or Safari.",
-        );
-      }
-
-      // IndexedDB helper functions
-      function openDB() {
-        return new Promise((resolve, reject) => {
-          const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-          request.onerror = () => reject(request.error);
-          request.onsuccess = () => resolve(request.result);
-
-          request.onupgradeneeded = (event) => {
-            const db = event.target.result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-              db.createObjectStore(STORE_NAME);
+            // Check if File System Access API is supported
+            if (!("showDirectoryPicker" in window)) {
+                alert(
+                    "File System Access API is not supported in this browser. Please use Chrome, Edge, or Safari.",
+                );
             }
-          };
-        });
-      }
 
-      async function saveDirectoryHandle(handle) {
-        try {
-          const db = await openDB();
-          const transaction = db.transaction([STORE_NAME], "readwrite");
-          const store = transaction.objectStore(STORE_NAME);
-          store.put(handle, "lastDirectory");
-          await new Promise((resolve, reject) => {
-            transaction.oncomplete = resolve;
-            transaction.onerror = () => reject(transaction.error);
-          });
-        } catch (err) {
-          console.error("Error saving directory handle:", err);
-        }
-      }
+            // IndexedDB helper functions
+            function openDB() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      async function loadDirectoryHandle() {
-        try {
-          const db = await openDB();
-          const transaction = db.transaction([STORE_NAME], "readonly");
-          const store = transaction.objectStore(STORE_NAME);
-          const request = store.get("lastDirectory");
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => resolve(request.result);
 
-          return new Promise((resolve, reject) => {
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-          });
-        } catch (err) {
-          console.error("Error loading directory handle:", err);
-          return null;
-        }
-      }
-
-      async function pickDirectory() {
-        try {
-          directoryHandle = await window.showDirectoryPicker();
-
-          // Request write permission upfront
-          const permission = await directoryHandle.requestPermission({
-            mode: "readwrite",
-          });
-
-          if (permission !== "granted") {
-            alert(
-              "Write permission is required to edit files. Please grant permission and try again.",
-            );
-            directoryHandle = null;
-            return;
-          }
-
-          // Save to IndexedDB
-          await saveDirectoryHandle(directoryHandle);
-
-          await loadDirectory();
-          updateUI();
-        } catch (err) {
-          if (err.name !== "AbortError") {
-            console.error("Error picking directory:", err);
-            alert("Error picking directory: " + err.message);
-          }
-        }
-      }
-
-      async function restoreDirectory() {
-        const savedHandle = await loadDirectoryHandle();
-
-        if (!savedHandle) {
-          return false;
-        }
-
-        try {
-          // Verify we still have access
-          const permission = await savedHandle.queryPermission({
-            mode: "readwrite",
-          });
-
-          if (permission === "granted") {
-            directoryHandle = savedHandle;
-            await loadDirectory();
-            updateUI();
-            return true;
-          } else if (permission === "prompt") {
-            // Request permission again
-            const newPermission = await savedHandle.requestPermission({
-              mode: "readwrite",
-            });
-
-            if (newPermission === "granted") {
-              directoryHandle = savedHandle;
-              await loadDirectory();
-              updateUI();
-              return true;
+                    request.onupgradeneeded = (event) => {
+                        const db = event.target.result;
+                        if (!db.objectStoreNames.contains(STORE_NAME)) {
+                            db.createObjectStore(STORE_NAME);
+                        }
+                    };
+                });
             }
-          }
-        } catch (err) {
-          console.error("Error restoring directory:", err);
-        }
 
-        return false;
-      }
-
-      function updateUI() {
-        if (directoryHandle) {
-          document.getElementById("pickDir").style.display = "none";
-          document.getElementById("changeDirBtn").style.display =
-            "inline-block";
-          document.getElementById("currentDirName").textContent =
-            `📁 ${directoryHandle.name}`;
-          document.getElementById("newFileSection").style.display = "block";
-        } else {
-          document.getElementById("pickDir").style.display = "inline-block";
-          document.getElementById("changeDirBtn").style.display = "none";
-          document.getElementById("currentDirName").textContent = "";
-          document.getElementById("newFileSection").style.display = "none";
-        }
-      }
-
-      // Initialize on page load
-      (async () => {
-        const restored = await restoreDirectory();
-        if (!restored) {
-          updateUI();
-        }
-      })();
-
-      document
-        .getElementById("pickDir")
-        .addEventListener("click", pickDirectory);
-      document
-        .getElementById("changeDirBtn")
-        .addEventListener("click", pickDirectory);
-
-      async function loadDirectory() {
-        const fileTree = document.getElementById("fileTree");
-        fileTree.innerHTML = "";
-
-        const rootDiv = document.createElement("div");
-        rootDiv.className = "dir-item expandable expanded";
-        rootDiv.textContent = directoryHandle.name;
-        rootDiv.onclick = (e) => {
-          e.stopPropagation();
-          toggleDirectory(rootDiv, rootContents);
-        };
-        fileTree.appendChild(rootDiv);
-
-        const rootContents = document.createElement("div");
-        rootContents.className = "dir-contents expanded";
-        fileTree.appendChild(rootContents);
-
-        await buildFileTree(directoryHandle, rootContents, "");
-      }
-
-      async function buildFileTree(dirHandle, parentElement, path) {
-        const entries = [];
-
-        for await (const entry of dirHandle.values()) {
-          entries.push(entry);
-        }
-
-        // Sort: directories first, then files
-        entries.sort((a, b) => {
-          if (a.kind !== b.kind) {
-            return a.kind === "directory" ? -1 : 1;
-          }
-          return a.name.localeCompare(b.name);
-        });
-
-        for (const entry of entries) {
-          const fullPath = path ? `${path}/${entry.name}` : entry.name;
-
-          if (entry.kind === "directory") {
-            const dirDiv = document.createElement("div");
-            dirDiv.className = "dir-item expandable";
-            dirDiv.textContent = entry.name;
-
-            const contentsDiv = document.createElement("div");
-            contentsDiv.className = "dir-contents";
-
-            dirDiv.onclick = async (e) => {
-              e.stopPropagation();
-              if (!contentsDiv.hasChildNodes()) {
-                await buildFileTree(entry, contentsDiv, fullPath);
-              }
-              toggleDirectory(dirDiv, contentsDiv);
-            };
-
-            parentElement.appendChild(dirDiv);
-            parentElement.appendChild(contentsDiv);
-          } else {
-            const fileDiv = document.createElement("div");
-            fileDiv.className = "file-item";
-            fileDiv.textContent = entry.name;
-            fileDiv.onclick = () => openFile(entry, fullPath);
-            parentElement.appendChild(fileDiv);
-          }
-        }
-      }
-
-      function toggleDirectory(dirDiv, contentsDiv) {
-        dirDiv.classList.toggle("expanded");
-        contentsDiv.classList.toggle("expanded");
-      }
-
-      async function openFile(fileHandle, path) {
-        try {
-          const file = await fileHandle.getFile();
-          const text = await file.text();
-
-          document.getElementById("editor").value = text;
-          document.getElementById("currentFileName").textContent = path;
-          document.getElementById("editorEmpty").style.display = "none";
-          document.getElementById("editorContent").style.display = "block";
-
-          currentFileHandle = fileHandle;
-          currentFilePath = path;
-
-          // Update active state in file tree
-          document.querySelectorAll(".file-item").forEach((item) => {
-            item.classList.remove("active");
-            if (item.textContent === fileHandle.name) {
-              item.classList.add("active");
+            async function saveDirectoryHandle(handle) {
+                try {
+                    const db = await openDB();
+                    const transaction = db.transaction(
+                        [STORE_NAME],
+                        "readwrite",
+                    );
+                    const store = transaction.objectStore(STORE_NAME);
+                    store.put(handle, "lastDirectory");
+                    await new Promise((resolve, reject) => {
+                        transaction.oncomplete = resolve;
+                        transaction.onerror = () => reject(transaction.error);
+                    });
+                } catch (err) {
+                    console.error("Error saving directory handle:", err);
+                }
             }
-          });
 
-          hideStatus();
-        } catch (err) {
-          console.error("Error opening file:", err);
-          showStatus("Error opening file: " + err.message, "error");
-        }
-      }
+            async function loadDirectoryHandle() {
+                try {
+                    const db = await openDB();
+                    const transaction = db.transaction(
+                        [STORE_NAME],
+                        "readonly",
+                    );
+                    const store = transaction.objectStore(STORE_NAME);
+                    const request = store.get("lastDirectory");
 
-      document.getElementById("saveBtn").addEventListener("click", async () => {
-        if (!currentFileHandle) {
-          showStatus("No file is currently open", "error");
-          return;
-        }
+                    return new Promise((resolve, reject) => {
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    });
+                } catch (err) {
+                    console.error("Error loading directory handle:", err);
+                    return null;
+                }
+            }
 
-        try {
-          const writable = await currentFileHandle.createWritable();
-          await writable.write(document.getElementById("editor").value);
-          await writable.close();
-          showStatus("File saved successfully!", "success");
-        } catch (err) {
-          console.error("Error saving file:", err);
-          showStatus("Error saving file: " + err.message, "error");
-        }
-      });
+            async function pickDirectory() {
+                try {
+                    directoryHandle = await window.showDirectoryPicker();
 
-      document
-        .getElementById("saveAsBtn")
-        .addEventListener("click", async () => {
-          if (!directoryHandle) {
-            showStatus("No directory selected", "error");
-            return;
-          }
+                    // Request write permission upfront
+                    const permission = await directoryHandle.requestPermission({
+                        mode: "readwrite",
+                    });
 
-          const fileName = prompt("Enter new filename:", "new-file.txt");
-          if (!fileName) return;
+                    if (permission !== "granted") {
+                        alert(
+                            "Write permission is required to edit files. Please grant permission and try again.",
+                        );
+                        directoryHandle = null;
+                        return;
+                    }
 
-          try {
-            const newFileHandle = await directoryHandle.getFileHandle(
-              fileName,
-              { create: true },
-            );
-            const writable = await newFileHandle.createWritable();
-            await writable.write(document.getElementById("editor").value);
-            await writable.close();
+                    // Save to IndexedDB
+                    await saveDirectoryHandle(directoryHandle);
 
-            currentFileHandle = newFileHandle;
-            currentFilePath = fileName;
-            document.getElementById("currentFileName").textContent = fileName;
+                    await loadDirectory();
+                    updateUI();
+                } catch (err) {
+                    if (err.name !== "AbortError") {
+                        console.error("Error picking directory:", err);
+                        alert("Error picking directory: " + err.message);
+                    }
+                }
+            }
 
-            showStatus("File saved as " + fileName, "success");
-            await loadDirectory(); // Refresh file tree
-          } catch (err) {
-            console.error("Error saving file:", err);
-            showStatus("Error saving file: " + err.message, "error");
-          }
-        });
+            async function restoreDirectory() {
+                const savedHandle = await loadDirectoryHandle();
 
-      document
-        .getElementById("createFileBtn")
-        .addEventListener("click", async () => {
-          const fileName = document.getElementById("newFileName").value.trim();
-          if (!fileName) {
-            showStatus("Please enter a filename", "error");
-            return;
-          }
+                if (!savedHandle) {
+                    return false;
+                }
 
-          try {
-            const newFileHandle = await directoryHandle.getFileHandle(
-              fileName,
-              { create: true },
-            );
-            const writable = await newFileHandle.createWritable();
-            await writable.write("// New file\n");
-            await writable.close();
+                try {
+                    // Verify we still have access
+                    const permission = await savedHandle.queryPermission({
+                        mode: "readwrite",
+                    });
 
-            document.getElementById("newFileName").value = "";
-            showStatus("File created: " + fileName, "success");
-            await loadDirectory(); // Refresh file tree
+                    if (permission === "granted") {
+                        directoryHandle = savedHandle;
+                        await loadDirectory();
+                        updateUI();
+                        return true;
+                    } else if (permission === "prompt") {
+                        // Request permission again
+                        const newPermission =
+                            await savedHandle.requestPermission({
+                                mode: "readwrite",
+                            });
 
-            // Automatically open the new file
-            await openFile(newFileHandle, fileName);
-          } catch (err) {
-            console.error("Error creating file:", err);
-            showStatus("Error creating file: " + err.message, "error");
-          }
-        });
+                        if (newPermission === "granted") {
+                            directoryHandle = savedHandle;
+                            await loadDirectory();
+                            updateUI();
+                            return true;
+                        }
+                    }
+                } catch (err) {
+                    console.error("Error restoring directory:", err);
+                }
 
-      function showStatus(message, type) {
-        const status = document.getElementById("status");
-        status.textContent = message;
-        status.className = "status " + type;
+                return false;
+            }
 
-        if (type === "success") {
-          setTimeout(hideStatus, 3000);
-        }
-      }
+            function updateUI() {
+                if (directoryHandle) {
+                    document.getElementById("pickDir").style.display = "none";
+                    document.getElementById("changeDirBtn").style.display =
+                        "inline-block";
+                    document.getElementById("currentDirName").textContent =
+                        `📁 ${directoryHandle.name}`;
+                    document.getElementById("newFileSection").style.display =
+                        "block";
+                } else {
+                    document.getElementById("pickDir").style.display =
+                        "inline-block";
+                    document.getElementById("changeDirBtn").style.display =
+                        "none";
+                    document.getElementById("currentDirName").textContent = "";
+                    document.getElementById("newFileSection").style.display =
+                        "none";
+                }
+            }
 
-      function hideStatus() {
-        const status = document.getElementById("status");
-        status.className = "status";
-      }
+            // Initialize on page load
+            (async () => {
+                const restored = await restoreDirectory();
+                if (!restored) {
+                    updateUI();
+                }
+            })();
 
-      // Handle Enter key in new file input
-      document
-        .getElementById("newFileName")
-        .addEventListener("keypress", (e) => {
-          if (e.key === "Enter") {
-            document.getElementById("createFileBtn").click();
-          }
-        });
-    </script>
-  </body>
+            document
+                .getElementById("pickDir")
+                .addEventListener("click", pickDirectory);
+            document
+                .getElementById("changeDirBtn")
+                .addEventListener("click", pickDirectory);
+
+            async function loadDirectory() {
+                const fileTree = document.getElementById("fileTree");
+                fileTree.innerHTML = "";
+
+                const rootDiv = document.createElement("div");
+                rootDiv.className = "dir-item expandable expanded";
+                rootDiv.textContent = directoryHandle.name;
+                rootDiv.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleDirectory(rootDiv, rootContents);
+                };
+                fileTree.appendChild(rootDiv);
+
+                const rootContents = document.createElement("div");
+                rootContents.className = "dir-contents expanded";
+                fileTree.appendChild(rootContents);
+
+                await buildFileTree(directoryHandle, rootContents, "");
+            }
+
+            async function buildFileTree(dirHandle, parentElement, path) {
+                const entries = [];
+
+                for await (const entry of dirHandle.values()) {
+                    entries.push(entry);
+                }
+
+                // Sort: directories first, then files
+                entries.sort((a, b) => {
+                    if (a.kind !== b.kind) {
+                        return a.kind === "directory" ? -1 : 1;
+                    }
+                    return a.name.localeCompare(b.name);
+                });
+
+                for (const entry of entries) {
+                    const fullPath = path
+                        ? `${path}/${entry.name}`
+                        : entry.name;
+
+                    if (entry.kind === "directory") {
+                        const dirDiv = document.createElement("div");
+                        dirDiv.className = "dir-item expandable";
+                        dirDiv.textContent = entry.name;
+
+                        const contentsDiv = document.createElement("div");
+                        contentsDiv.className = "dir-contents";
+
+                        dirDiv.onclick = async (e) => {
+                            e.stopPropagation();
+                            if (!contentsDiv.hasChildNodes()) {
+                                await buildFileTree(
+                                    entry,
+                                    contentsDiv,
+                                    fullPath,
+                                );
+                            }
+                            toggleDirectory(dirDiv, contentsDiv);
+                        };
+
+                        parentElement.appendChild(dirDiv);
+                        parentElement.appendChild(contentsDiv);
+                    } else {
+                        const fileDiv = document.createElement("div");
+                        fileDiv.className = "file-item";
+                        fileDiv.textContent = entry.name;
+                        fileDiv.onclick = () => openFile(entry, fullPath);
+                        parentElement.appendChild(fileDiv);
+                    }
+                }
+            }
+
+            function toggleDirectory(dirDiv, contentsDiv) {
+                dirDiv.classList.toggle("expanded");
+                contentsDiv.classList.toggle("expanded");
+            }
+
+            async function openFile(fileHandle, path) {
+                try {
+                    const file = await fileHandle.getFile();
+                    const text = await file.text();
+
+                    document.getElementById("editor").value = text;
+                    document.getElementById("currentFileName").textContent =
+                        path;
+                    document.getElementById("editorEmpty").style.display =
+                        "none";
+                    document.getElementById("editorContent").style.display =
+                        "block";
+
+                    currentFileHandle = fileHandle;
+                    currentFilePath = path;
+
+                    // Update active state in file tree
+                    document.querySelectorAll(".file-item").forEach((item) => {
+                        item.classList.remove("active");
+                        if (item.textContent === fileHandle.name) {
+                            item.classList.add("active");
+                        }
+                    });
+
+                    hideStatus();
+                } catch (err) {
+                    console.error("Error opening file:", err);
+                    showStatus("Error opening file: " + err.message, "error");
+                }
+            }
+
+            document
+                .getElementById("saveBtn")
+                .addEventListener("click", async () => {
+                    if (!currentFileHandle) {
+                        showStatus("No file is currently open", "error");
+                        return;
+                    }
+
+                    try {
+                        const writable =
+                            await currentFileHandle.createWritable();
+                        await writable.write(
+                            document.getElementById("editor").value,
+                        );
+                        await writable.close();
+                        showStatus("File saved successfully!", "success");
+                    } catch (err) {
+                        console.error("Error saving file:", err);
+                        showStatus(
+                            "Error saving file: " + err.message,
+                            "error",
+                        );
+                    }
+                });
+
+            document
+                .getElementById("saveAsBtn")
+                .addEventListener("click", async () => {
+                    if (!directoryHandle) {
+                        showStatus("No directory selected", "error");
+                        return;
+                    }
+
+                    const fileName = prompt(
+                        "Enter new filename:",
+                        "new-file.txt",
+                    );
+                    if (!fileName) return;
+
+                    try {
+                        const newFileHandle =
+                            await directoryHandle.getFileHandle(fileName, {
+                                create: true,
+                            });
+                        const writable = await newFileHandle.createWritable();
+                        await writable.write(
+                            document.getElementById("editor").value,
+                        );
+                        await writable.close();
+
+                        currentFileHandle = newFileHandle;
+                        currentFilePath = fileName;
+                        document.getElementById("currentFileName").textContent =
+                            fileName;
+
+                        showStatus("File saved as " + fileName, "success");
+                        await loadDirectory(); // Refresh file tree
+                    } catch (err) {
+                        console.error("Error saving file:", err);
+                        showStatus(
+                            "Error saving file: " + err.message,
+                            "error",
+                        );
+                    }
+                });
+
+            document
+                .getElementById("createFileBtn")
+                .addEventListener("click", async () => {
+                    const fileName = document
+                        .getElementById("newFileName")
+                        .value.trim();
+                    if (!fileName) {
+                        showStatus("Please enter a filename", "error");
+                        return;
+                    }
+
+                    try {
+                        const newFileHandle =
+                            await directoryHandle.getFileHandle(fileName, {
+                                create: true,
+                            });
+                        const writable = await newFileHandle.createWritable();
+                        await writable.write("// New file\n");
+                        await writable.close();
+
+                        document.getElementById("newFileName").value = "";
+                        showStatus("File created: " + fileName, "success");
+                        await loadDirectory(); // Refresh file tree
+
+                        // Automatically open the new file
+                        await openFile(newFileHandle, fileName);
+                    } catch (err) {
+                        console.error("Error creating file:", err);
+                        showStatus(
+                            "Error creating file: " + err.message,
+                            "error",
+                        );
+                    }
+                });
+
+            function showStatus(message, type) {
+                const status = document.getElementById("status");
+                status.textContent = message;
+                status.className = "status " + type;
+
+                if (type === "success") {
+                    setTimeout(hideStatus, 3000);
+                }
+            }
+
+            function hideStatus() {
+                const status = document.getElementById("status");
+                status.className = "status";
+            }
+
+            // Handle Enter key in new file input
+            document
+                .getElementById("newFileName")
+                .addEventListener("keypress", (e) => {
+                    if (e.key === "Enter") {
+                        document.getElementById("createFileBtn").click();
+                    }
+                });
+        </script>
+    </body>
 </html>

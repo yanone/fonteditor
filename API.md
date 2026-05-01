@@ -2,26 +2,24 @@
 
 **Version:** v0.2.1
 
-*Auto-generated from JavaScript object model introspection*
-
+_Auto-generated from JavaScript object model introspection_
 
 ## Table of Contents
 
-
 - [Overview](#overview)
 - [Class Reference](#class-reference)
-  - [Font](#font) - The main font class representing a complete font
-  - [Glyph](#glyph) - Glyph in the font
-  - [Layer](#layer) - Layer in a glyph representing a master or intermediate design
-  - [Shape](#shape) - Shape wrapper that can contain either a Component or a Path
-  - [Path](#path) - Path (contour) in a layer
-  - [Node](#node) - Point in a path
-  - [Component](#component) - Component reference to another glyph
-  - [Anchor](#anchor) - Anchor point in a layer
-  - [Guide](#guide) - Guideline in a layer or master
-  - [Axis](#axis) - Variation axis in a variable font
-  - [Master](#master) - Master/source in a design space
-  - [Instance](#instance) - Named instance in a variable font
+    - [Font](#font) - The main font class representing a complete font
+    - [Glyph](#glyph) - Glyph in the font
+    - [Layer](#layer) - Layer in a glyph representing a master or intermediate design
+    - [Shape](#shape) - Shape wrapper that can contain either a Component or a Path
+    - [Path](#path) - Path (contour) in a layer
+    - [Node](#node) - Point in a path
+    - [Component](#component) - Component reference to another glyph
+    - [Anchor](#anchor) - Anchor point in a layer
+    - [Guide](#guide) - Guideline in a layer or master
+    - [Axis](#axis) - Variation axis in a variable font
+    - [Master](#master) - Master/source in a design space
+    - [Instance](#instance) - Named instance in a variable font
 - [Complete Examples](#complete-examples)
 - [Tips and Best Practices](#tips-and-best-practices)
 
@@ -80,6 +78,7 @@ All objects in the hierarchy have a `parent()` method that returns their parent 
 allowing navigation up the object tree to the root Font object.
 
 **Example:**
+
 ```python
 # Navigate from node up to font
 node = font.glyphs[0].layers[0].paths[0].nodes[0]
@@ -92,15 +91,14 @@ font = glyph.parent()     # Font object
 
 ---
 
-
 ## Class Reference
-
 
 ## Font
 
 The main font class representing a complete font
 
 **Access:**
+
 ```python
 # fonteditor module is pre-loaded
 font = Font()
@@ -133,11 +131,15 @@ font = Font()
 ### Methods
 
 #### `rebuildAutomaticCompositesForGlyphs(changedGlyphNames: Set<string> | None = None, options: { allowedGlyphNames?: Set<string>; preferredLayerId?: string | null; preferredSourceGlyphName?: string | null; } | None = None) -> Set<string>`
+
 #### `recomputeMetricsKeys(changedGlyphNames: Set<string> | None = None, options: { allowedGlyphNames?: Set<string>; skipAutomaticCompositeRebuild?: boolean; } | None = None) -> Set<string>`
+
 #### `findGlyph(name: str) -> [Glyph](#glyph) | None`
+
 Find a glyph by name
 
 **Example:**
+
 ```python
 glyph = font.findGlyph("A")
 if glyph:
@@ -145,100 +147,126 @@ if glyph:
 ```
 
 #### `findGlyphByCodepoint(codepoint: float | int) -> [Glyph](#glyph) | None`
+
 Find a glyph by codepoint
 
 **Example:**
+
 ```python
 glyph = font.findGlyphByCodepoint(0x0041)  # Find 'A'
 ```
 
 #### `invalidateReverseComponentIndex() -> None`
+
 #### `invalidateLayoutCachesForGlyphs(glyphNames: Iterable<string>) -> None`
+
 Invalidate automatic composition layout caches for all layers
 of the specified glyphs. Call before recomputing compositions
 so that stale cached layouts from a previous frame are not reused.
 
 #### `findGlyphsUsingComponent(componentGlyphName: str) -> list[str]`
+
 Find all glyphs that reference a given glyph as a component
 This recursively finds glyphs at each nesting level
 
 **Example:**
+
 ```python
 glyphs = font.findGlyphsUsingComponent("o")
 # Returns ["ö", "õ", "ø", ...] if they use "o" as a component
 ```
 
 #### `duplicateGlyph(glyph: [Glyph](#glyph), newName: str) -> [Glyph](#glyph)`
+
 Duplicate a glyph with a new name
 
 **Example:**
+
 ```python
 new_glyph = font.duplicateGlyph(glyph, "A.alt")
 ```
 
 #### `findAxis(id: str) -> [Axis](#axis) | None`
+
 Find an axis by ID
 
 #### `findAxisByTag(tag: str) -> [Axis](#axis) | None`
+
 Find an axis by tag
 
 **Example:**
+
 ```python
 weight_axis = font.findAxisByTag("wght")
 ```
 
 #### `findMaster(id: str) -> [Master](#master) | None`
+
 Find a master by ID
 
 #### `addGlyph(name: str, category: Babelfont.GlyphCategory | str) -> [Glyph](#glyph)`
+
 Add a new glyph to the font
 
 **Example:**
+
 ```python
 glyph = font.addGlyph("myGlyph", "Base")
 ```
 
 #### `removeGlyph(name: str) -> bool`
+
 Remove a glyph by name
 
 **Example:**
+
 ```python
 font.removeGlyph("oldGlyph")
 ```
 
 #### `toJSONString() -> str`
+
 Serialize the font back to JSON string
 
 #### `fromJSONString(json: str) -> [Font](#font)`
+
 Create a Font instance from JSON string
 
 #### `fromData(data: Babelfont.Font) -> [Font](#font)`
+
 Create a Font instance from parsed JSON data
 
 #### `toString() -> str`
+
 #### `analyzeFeatureTables(featureTag: str) -> { hasGSUB: boolean; hasGPOS: boolean; }`
+
 Analyze a feature's code to determine if it contains GSUB and/or GPOS rules
 
 **Example:**
+
 ```python
 const analysis = font.analyzeFeatureTables("liga")
 if (analysis.hasGSUB) console.log("Feature has substitution rules")
 ```
 
 #### `analyzeOpenTypeCode(code: str) -> { hasGSUB: boolean; hasGPOS: boolean; }`
+
 Analyze OpenType feature code to determine if it contains GSUB and/or GPOS rules
 This is a general-purpose method that can analyze code from features, prefixes, or other sources
 
 **Example:**
+
 ```python
 const analysis = font.analyzeOpenTypeCode("substitute a by b;")
 if (analysis.hasGSUB) console.log("Code contains substitution rules")
 ```
 
 #### `analyzePrefix(prefixName: str) -> { hasGSUB: boolean; hasGPOS: boolean; }`
+
 Analyze a prefix's code to determine if it contains GSUB and/or GPOS rules
 
 **Example:**
+
 ```python
 const analysis = font.analyzePrefix("myLookup")
 if (analysis.hasGSUB) console.log("Prefix contains substitution rules")
@@ -246,12 +274,12 @@ if (analysis.hasGSUB) console.log("Prefix contains substitution rules")
 
 ---
 
-
 ## Glyph
 
 Glyph in the font
 
 **Access:**
+
 ```python
 glyph = font.glyphs[0]
 # or
@@ -281,42 +309,52 @@ glyph = font.findGlyph("A")
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
+
 #### `normalizeCategory(value: Babelfont.GlyphCategory | str | None) -> Babelfont.GlyphCategory`
+
 #### `addLayer(width: float | int, master: Babelfont.LayerType | None = None, requestedLayerId: str | None | None = None) -> [Layer](#layer)`
+
 Add a new layer to the glyph
 
 **Example:**
+
 ```python
 layer = glyph.addLayer(500)  # 500 units wide
 ```
 
 #### `removeLayer(index: float | int) -> None`
+
 Remove a layer at the specified index
 
 #### `removeLayerById(id: str) -> None`
+
 Remove a layer by its backing-array ID.
 
 #### `findLayerById(id: str) -> [Layer](#layer) | None`
+
 Find a layer by ID
 
 #### `findLayerByMasterId(masterId: str) -> [Layer](#layer) | None`
+
 Find a layer by master ID
 
 #### `calculateOutlineCompatibility() -> { compatible: boolean; layerCount: number; referenceLayerId?: string; incompatibleLayerIds: string[]; }`
+
 Compare outline structure across main layers (the same list shown in the UI).
 
 For compatibility checks, mixed shape sequences are normalized by moving
 components before paths while preserving their relative order inside each type.
 
 #### `toString() -> str`
----
 
+---
 
 ## Layer
 
 Layer in a glyph representing a master or intermediate design
 
 **Access:**
+
 ```python
 layer = glyph.layers[0]
 ```
@@ -331,13 +369,13 @@ layer = glyph.layers[0]
 - **`lsb`** (float | int): Get the left sidebearing (LSB) - the distance from x=0 to the left edge of the bounding box
 - **`rsb`** (float | int): Get the right sidebearing (RSB) - the distance from the right edge of the bounding box to the advance width
 - **`linked`** (bool): Whether this layer is linked for editor multi-layer operations.
-This is editor-only runtime state keyed by glyph and layer ID; it is not persisted into font data.
+  This is editor-only runtime state keyed by glyph and layer ID; it is not persisted into font data.
 - **`name`** (str | None)
 - **`id`** (str | None)
 - **`master`** (Babelfont.LayerType | None)
 - **`smart_component_location`** (UserspaceLocation | None)
 - **`selection`** (list[SelectableLayerObject]): Current UI selection on this layer.
-Assign a node, anchor, component, guide, or a list of them to replace the selection.
+  Assign a node, anchor, component, guide, or a list of them to replace the selection.
 - **`color`** (Babelfont.Color | None)
 - **`layer_index`** (float | int | None)
 - **`is_background`** (bool | None)
@@ -352,24 +390,29 @@ Assign a node, anchor, component, guide, or a list of them to replace the select
 - **`components`** (list[[Component](#component)]): Direct component objects in this layer, ready to use without Shape.asComponent()
 - **`anchors`** (list[[Anchor](#anchor)] | None)
 - **`fingerprint`** (str): Returns a normalized outline-compatibility fingerprint for this layer.
-The fingerprint includes components, paths, and anchors, with anchors
-sorted by name and guides excluded.
+  The fingerprint includes components, paths, and anchors, with anchors
+  sorted by name and guides excluded.
 
 ### Methods
 
 #### `toJSON() -> Unsafe`
+
 #### `invalidateShapeCache() -> None`
+
 Force shape wrapper rebuild on next access.
 Call after replacing `data.shapes` externally so that
 setDirectSidebearing operates on the current shapes array.
 
 #### `invalidateContentCaches() -> None`
+
 #### `invalidateLayoutCache() -> None`
+
 Invalidate only the automatic composition layout cache.
 Cheaper than full invalidateContentCaches() when only
 anchor/composition state has changed (not shapes/guides).
 
 #### `syncFromEditorLayerData(layerData: { width: number; height?: number; vertWidth?: number; shapes?: Unsafe[]; anchors?: Unsafe[]; guides?: Unsafe[]; format_specific?: Record<string, Unsafe>; }) -> None`
+
 Bulk-sync mutable properties from the outline editor's working
 copy into this layer's model data. Skips the expensive toJSON()
 round-trip and layout recomputation that would otherwise occur
@@ -379,15 +422,21 @@ Must be called inside withSuppressedModelRecording so that the
 individual property mutations don't trigger recordAndMarkDirty.
 
 #### `setDirectSidebearing(side: SidebearingSide, value: float | int) -> None`
+
 #### `recomputeOwnMetricsKeys() -> bool`
+
 Resolve and apply this layer's own metrics keys (left/right)
 without scanning the full font. Use during interactive editing
 (keyboard/mouse) where only the current layer needs updating.
 
 #### `isAutomaticAlignedLayer() -> bool`
+
 #### `getAutomaticComponentTargetAnchorOptions(component: [Component](#component)) -> list[str]`
+
 #### `rebuildAutomaticComposition() -> bool`
+
 #### `applyAutomaticCompositionToLayerData(layerData: { shapes?: Unsafe[]; width?: number; }) -> bool`
+
 Apply automatic component anchoring and derived width to mutable layer
 data without mutating the model layer itself.
 
@@ -396,28 +445,38 @@ where component transforms are already edited on a working copy and only
 the automatic translations and width need to be refreshed.
 
 #### `resolveMetricsKey(side: SidebearingSide, stack: Set<string>) -> MetricsKeyResolution`
+
 #### `applySidebearingInput(side: SidebearingSide, rawValue: str) -> MetricsKeyResolution`
+
 #### `getPathSegment() -> list[(string | number)]`
+
 #### `getMaster() -> [Master](#master) | None`
+
 Get the resolved master object for this layer.
 Returns a Master only when this layer is a DefaultForMaster layer.
 
 #### `getComputedName() -> str`
+
 #### `addShape(shape: Babelfont.Shape) -> [Shape](#shape)`
+
 Add a new shape to the layer
 
 #### `addPath(closed: bool | dict, Unsafe>) -> [Path](#path)`
+
 Add a new path to the layer
 
 **Example:**
+
 ```python
 path = layer.addPath(closed=True)
 ```
 
 #### `addComponent(reference: str, transform: list[float | int] | Babelfont.DecomposedAffine | None = None) -> [Component](#component)`
+
 Add a new component to the layer
 
 **Example:**
+
 ```python
 component = layer.addComponent("A")
 # With transformation matrix (legacy 6-element format converted to DecomposedAffine)
@@ -425,69 +484,91 @@ component = layer.addComponent("acutecomb", [1, 0, 0, 1, 250, 500])
 ```
 
 #### `insertShapeAt(index: float | int, shape: Babelfont.Shape) -> [Shape](#shape)`
+
 Insert a new shape at the specified index
 
 #### `splitOpenPathAtNode(pathOrIndex: float | int | [Shape](#shape) | [Path](#path), nodeIndex: float | int) -> { shapeIndex: number; insertedShapeIndex: number } | None`
+
 Split an open path into two open paths at an interior on-curve node.
 
 #### `connectOpenPathEndpoints(sourcePathOrIndex: float | int | [Shape](#shape) | [Path](#path), sourceEdge: 'start' | 'end', targetPathOrIndex: float | int | [Shape](#shape) | [Path](#path), targetEdge: 'start' | 'end') -> { shapeIndex: number; boundaryNodeIndex: number; closed: boolean; } | None`
+
 Connect two open-path endpoints or close a single open path by merging its endpoints.
 
 #### `removeShape(shapeOrIndex: float | int | [Shape](#shape) | [Path](#path) | [Component](#component)) -> None`
+
 Remove a shape at the specified index
 
 #### `addAnchor(x: float | int, y: float | int, name: str | None = None) -> [Anchor](#anchor)`
+
 Add a new anchor to the layer
 
 **Example:**
+
 ```python
 anchor = layer.addAnchor(250, 700, "top")
 ```
 
 #### `addGuide(pos: Babelfont.Position, name: str | None = None, color: Babelfont.Color | None = None) -> [Guide](#guide)`
+
 #### `removeAnchor(index: float | int) -> None`
+
 Remove an anchor at the specified index
 
 #### `removeGuide(index: float | int) -> None`
+
 #### `processPathSegments(pathData: { nodes: Unsafe[]; closed?: boolean; }) -> Array<{ points: Array<{ x: number; y: number }>; type: 'line' | 'quadratic' | 'cubic'; }>`
+
 Process a path into Bezier curve segments
 Handles the babelfont node format where:
+
 - Nodes can have 'type' (lowercase: o, c, l, q, etc.) or 'nodetype' (capitalized: OffCurve, Curve, Line, etc.)
 - Segments are sequences: [oncurve] [offcurve*] [oncurve]
 - For closed paths, the path can start with offcurve nodes
 
 #### `getPathSegmentDescriptors(pathData: { nodes: Unsafe[]; closed?: boolean; }) -> Array<{ segmentId: number; type: 'line' | 'quadratic' | 'cubic'; points: Array<{ x: number; y: number }>; startNodeIndex: number; endNodeIndex: number; controlNodeIndices: number[]; runStartNodeIndex: number; runEndNodeIndex: number; runControlNodeIndices: number[]; segmentIndexInRun: number; wrapsAround: boolean; }>`
+
 #### `calculatePathBounds(pathData: list[{ nodes?: Unsafe] | string; closed?: boolean; }) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
+
 #### `calculateShapeBounds(shapes: list[Unsafe] | None, parentTransform: list[float | int]) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
+
 #### `calculateSvgPathBounds(pathData: str) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
+
 #### `getAllPaths() -> list[Babelfont.Path]`
+
 Get all paths in this layer including transformed paths from components (recursively flattened)
 
 #### `calculateBoundingBox(layerData: Unsafe, includeAnchors: bool, font: [Font](#font) | None = None, masterId: str | None = None) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
+
 Calculate bounding box for layer data
 
 #### `getBoundingBox(includeAnchors: bool) -> { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number; } | None`
+
 Calculate bounding box for this layer
 
 #### `getIntersectionsOnLine(p1: { x: number; y: number }, p2: { x: number; y: number }, includeComponents: bool) -> Array<{ x: number; y: number; t: number }>`
+
 Calculate intersections between a line segment and all paths in this layer
 
 #### `getSidebearingsAtHeight(y: float | int) -> { left: number; right: number; } | None`
+
 Calculate sidebearings at a given Y height by measuring distance from glyph edges to first/last outline intersections
 
 #### `getMatchingLayerOnGlyph(glyphName: str) -> [Layer](#layer) | None`
+
 Find the exact matching stored layer on another glyph for this layer's
 effective designspace location.
 
 #### `toString() -> str`
----
 
+---
 
 ## Shape
 
 Shape wrapper that can contain either a Component or a Path
 
 **Access:**
+
 ```python
 path = layer.paths[0]
 shape = path.parent()
@@ -496,27 +577,33 @@ shape = path.parent()
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
+
 #### `isComponent() -> bool`
+
 Check if this shape is a component
 
 #### `isPath() -> bool`
+
 Check if this shape is a path
 
 #### `asComponent() -> [Component](#component)`
+
 Get as Component (throws if not a component)
 
 #### `asPath() -> [Path](#path)`
+
 Get as Path (throws if not a path)
 
 #### `toString() -> str`
----
 
+---
 
 ## Path
 
 Path (contour) in a layer
 
 **Access:**
+
 ```python
 path = layer.paths[0]
 ```
@@ -532,51 +619,62 @@ All properties are read/write:
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
+
 #### `parseNodesString(nodesStr: str) -> list[Babelfont.Node]`
+
 Parse nodes from babelfont-rs string format
 Format: "x1 y1 type x2 y2 type ..."
 Types: m, l, o, c, q (with optional 's' suffix for smooth)
 
 #### `mapNodeType(shortType: str) -> Babelfont.NodeType`
+
 Map short node type to Babelfont.NodeType
 
 #### `nodesToString(nodes: list[Babelfont.Node]) -> str`
+
 Convert nodes array back to compact string format for serialization
 
 #### `insertNode(index: float | int, x: float | int, y: float | int, nodetype: Babelfont.NodeType, smooth: bool | None = None) -> [Node](#node)`
+
 Insert a node at the specified index
 
 **Example:**
+
 ```python
 path.insertNode(1, 150, 250, "Line")  # Insert at index 1
 ```
 
 #### `removeNode(index: float | int) -> None`
+
 Remove a node at the specified index
 
 **Example:**
+
 ```python
 path.removeNode(0)  # Remove first node
 ```
 
 #### `appendNode(x: float | int, y: float | int, nodetype: Babelfont.NodeType, smooth: bool | None = None) -> [Node](#node)`
+
 Append a node to the end of the path
 
 **Example:**
+
 ```python
 path.appendNode(100, 200, "Line")
 path.appendNode(300, 400, "Curve", smooth=True)
 ```
 
 #### `toString() -> str`
----
 
+---
 
 ## Node
 
 Point in a path
 
 **Access:**
+
 ```python
 node = path.nodes[0]
 ```
@@ -594,15 +692,17 @@ All properties are read/write:
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
-#### `toString() -> str`
----
 
+#### `toString() -> str`
+
+---
 
 ## Component
 
 Component reference to another glyph
 
 **Access:**
+
 ```python
 component = layer.components[0]
 ```
@@ -621,24 +721,29 @@ All properties are read/write:
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
+
 #### `isAutomaticAligned() -> bool`
+
 #### `toAffineArray() -> list[float | int]`
+
 Convert transform to affine matrix array [a, b, c, d, e, f]
 Uses the proper DecomposedAffineTransform utility
 
 #### `toString() -> str`
+
 #### `getTransformedPaths() -> list[Babelfont.Path]`
+
 Get all paths from this component with transforms applied recursively
 Automatically determines the correct master by walking up the parent chain
 
 ---
-
 
 ## Anchor
 
 Anchor point in a layer
 
 **Access:**
+
 ```python
 anchor = layer.anchors[0]
 ```
@@ -656,15 +761,17 @@ All properties are read/write:
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
-#### `toString() -> str`
----
 
+#### `toString() -> str`
+
+---
 
 ## Guide
 
 Guideline in a layer or master
 
 **Access:**
+
 ```python
 guide = layer.guides[0]
 # or
@@ -684,15 +791,17 @@ All properties are read/write:
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
-#### `toString() -> str`
----
 
+#### `toString() -> str`
+
+---
 
 ## Axis
 
 Variation axis in a variable font
 
 **Access:**
+
 ```python
 axis = font.axes[0]
 # or
@@ -717,15 +826,17 @@ All properties are read/write:
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
-#### `toString() -> str`
----
 
+#### `toString() -> str`
+
+---
 
 ## Master
 
 Master/source in a design space
 
 **Access:**
+
 ```python
 master = font.masters[0]
 # or
@@ -751,17 +862,21 @@ master = font.findMaster("master-id")
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
-#### `addGuide(pos: Babelfont.Position, name: str | None = None, color: Babelfont.Color | None = None) -> [Guide](#guide)`
-#### `removeGuide(index: float | int) -> None`
-#### `toString() -> str`
----
 
+#### `addGuide(pos: Babelfont.Position, name: str | None = None, color: Babelfont.Color | None = None) -> [Guide](#guide)`
+
+#### `removeGuide(index: float | int) -> None`
+
+#### `toString() -> str`
+
+---
 
 ## Instance
 
 Named instance in a variable font
 
 **Access:**
+
 ```python
 instance = font.instances[0]
 ```
@@ -781,9 +896,10 @@ All properties are read/write:
 ### Methods
 
 #### `getPathSegment() -> list[(string | number)]`
-#### `toString() -> str`
----
 
+#### `toString() -> str`
+
+---
 
 ## Complete Examples
 
@@ -818,16 +934,16 @@ font = Font()
 glyph_a = font.findGlyph("A")
 if glyph_a:
     layer = glyph_a.layers[0]
-    
+
     # Modify all nodes
     for path in layer.paths:
         for node in path.nodes:
             node.x += 10  # Shift 10 units right
             node.y += 5   # Shift 5 units up
-    
+
     # Add an anchor
     layer.addAnchor(250, 700, "top")
-    
+
     print(f"Modified {glyph_a.name}")
 ```
 
@@ -876,7 +992,7 @@ if font.axes:
     print("Variable font axes:")
     for axis in font.axes:
         print(f"  {axis.tag}: {axis.min} - {axis.max} (default: {axis.default})")
-    
+
     # Check masters
     if font.masters:
         print(f"\nFont has {len(font.masters)} masters:")
@@ -898,13 +1014,13 @@ for glyph in font.glyphs:
         for layer in glyph.layers:
             # Scale width
             layer.width *= scale_factor
-            
+
             # Scale all outline paths
             for path in layer.paths:
                 for node in path.nodes:
                     node.x *= scale_factor
                     node.y *= scale_factor
-            
+
             # Scale anchors
             if layer.anchors:
                 for anchor in layer.anchors:
@@ -1036,6 +1152,7 @@ if layer and layer.paths:
 **Q: Why does `glyph.layers[0].paths[0].nodes` fail?**
 
 A: Optional properties may be `None`. Use safe access:
+
 ```python
 # Check each step
 if glyph.layers and len(glyph.layers) > 0:
@@ -1048,6 +1165,7 @@ if glyph.layers and len(glyph.layers) > 0:
 **Q: How do I access only paths or only components in a layer?**
 
 A: Use `layer.paths` and `layer.components` directly:
+
 ```python
 for path in layer.paths:
     print(len(path.nodes))
@@ -1058,4 +1176,4 @@ for component in layer.components:
 
 ---
 
-*Generated by `generate-api-docs.mjs`*
+_Generated by `generate-api-docs.mjs`_

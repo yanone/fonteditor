@@ -1,179 +1,179 @@
 {
-  "label": "font-loaded",
-  "state": {
-    "focused_view": "view-editor",
-    "editor_file": "memory:///user/Fustat.glyphs",
-    "editor_text_buffer": "Hamburgevons",
-    "editor_cursor_position": 0,
-    "editor_mode": "text",
-    "editor_glyph_stack": "",
-    "editor_harfbuzz_glyph_buffer": [
-      {
-        "g": 1,
-        "cl": 0,
-        "dx": 0,
-        "dy": 0,
-        "ax": 680,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 2,
-        "cl": 1,
-        "dx": 0,
-        "dy": 0,
-        "ax": 533,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 6,
-        "cl": 2,
-        "dx": 0,
-        "dy": 0,
-        "ax": 893,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 3,
-        "cl": 3,
-        "dx": 0,
-        "dy": 0,
-        "ax": 611,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 11,
-        "cl": 4,
-        "dx": 0,
-        "dy": 0,
-        "ax": 564,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 9,
-        "cl": 5,
-        "dx": 0,
-        "dy": 0,
-        "ax": 304,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 5,
-        "cl": 6,
-        "dx": 0,
-        "dy": 0,
-        "ax": 496,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 4,
-        "cl": 7,
-        "dx": 0,
-        "dy": 0,
-        "ax": 524,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 12,
-        "cl": 8,
-        "dx": 0,
-        "dy": 0,
-        "ax": 442,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 8,
-        "cl": 9,
-        "dx": 0,
-        "dy": 0,
-        "ax": 570,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 7,
-        "cl": 10,
-        "dx": 0,
-        "dy": 0,
-        "ax": 564,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 10,
-        "cl": 11,
-        "dx": 0,
-        "dy": 0,
-        "ax": 456,
-        "ay": 0,
-        "flags": 0
-      }
-    ],
-    "editor_harfbuzz_gid_to_name": [
-      {
-        "gid": 1,
-        "name": "H"
-      },
-      {
-        "gid": 2,
-        "name": "a"
-      },
-      {
-        "gid": 3,
-        "name": "b"
-      },
-      {
-        "gid": 4,
-        "name": "e"
-      },
-      {
-        "gid": 5,
-        "name": "g"
-      },
-      {
-        "gid": 6,
-        "name": "m"
-      },
-      {
-        "gid": 7,
-        "name": "n"
-      },
-      {
-        "gid": 8,
-        "name": "o"
-      },
-      {
-        "gid": 9,
-        "name": "r"
-      },
-      {
-        "gid": 10,
-        "name": "s"
-      },
-      {
-        "gid": 11,
-        "name": "u"
-      },
-      {
-        "gid": 12,
-        "name": "v"
-      }
-    ],
-    "editor_isInterpolating": false,
-    "editor_isAnimating": false,
-    "editor_opentype_features_in_subset": {},
-    "editor_opentype_features_not_in_subset": {},
-    "editor_variation_location": {
-      "wght": 200
-    },
-    "editor_active_canvas_plugins": []
-  }
+    "label": "font-loaded",
+    "state": {
+        "focused_view": "view-editor",
+        "editor_file": "memory:///user/Fustat.glyphs",
+        "editor_text_buffer": "Hamburgevons",
+        "editor_cursor_position": 0,
+        "editor_mode": "text",
+        "editor_glyph_stack": "",
+        "editor_harfbuzz_glyph_buffer": [
+            {
+                "g": 1,
+                "cl": 0,
+                "dx": 0,
+                "dy": 0,
+                "ax": 680,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 2,
+                "cl": 1,
+                "dx": 0,
+                "dy": 0,
+                "ax": 533,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 6,
+                "cl": 2,
+                "dx": 0,
+                "dy": 0,
+                "ax": 893,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 3,
+                "cl": 3,
+                "dx": 0,
+                "dy": 0,
+                "ax": 611,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 11,
+                "cl": 4,
+                "dx": 0,
+                "dy": 0,
+                "ax": 564,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 9,
+                "cl": 5,
+                "dx": 0,
+                "dy": 0,
+                "ax": 304,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 5,
+                "cl": 6,
+                "dx": 0,
+                "dy": 0,
+                "ax": 496,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 4,
+                "cl": 7,
+                "dx": 0,
+                "dy": 0,
+                "ax": 524,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 12,
+                "cl": 8,
+                "dx": 0,
+                "dy": 0,
+                "ax": 442,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 8,
+                "cl": 9,
+                "dx": 0,
+                "dy": 0,
+                "ax": 570,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 7,
+                "cl": 10,
+                "dx": 0,
+                "dy": 0,
+                "ax": 564,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 10,
+                "cl": 11,
+                "dx": 0,
+                "dy": 0,
+                "ax": 456,
+                "ay": 0,
+                "flags": 0
+            }
+        ],
+        "editor_harfbuzz_gid_to_name": [
+            {
+                "gid": 1,
+                "name": "H"
+            },
+            {
+                "gid": 2,
+                "name": "a"
+            },
+            {
+                "gid": 3,
+                "name": "b"
+            },
+            {
+                "gid": 4,
+                "name": "e"
+            },
+            {
+                "gid": 5,
+                "name": "g"
+            },
+            {
+                "gid": 6,
+                "name": "m"
+            },
+            {
+                "gid": 7,
+                "name": "n"
+            },
+            {
+                "gid": 8,
+                "name": "o"
+            },
+            {
+                "gid": 9,
+                "name": "r"
+            },
+            {
+                "gid": 10,
+                "name": "s"
+            },
+            {
+                "gid": 11,
+                "name": "u"
+            },
+            {
+                "gid": 12,
+                "name": "v"
+            }
+        ],
+        "editor_isInterpolating": false,
+        "editor_isAnimating": false,
+        "editor_opentype_features_in_subset": {},
+        "editor_opentype_features_not_in_subset": {},
+        "editor_variation_location": {
+            "wght": 200
+        },
+        "editor_active_canvas_plugins": []
+    }
 }

@@ -1,40 +1,40 @@
 {
-  "label": "layer-second-selected",
-  "state": {
-    "focused_view": "view-editor",
-    "editor_file": "memory:///user/Fustat.glyphs",
-    "editor_text_buffer": "hello مَرحَباً",
-    "editor_cursor_position": 14,
-    "editor_mode": "edit",
-    "editor_glyph_stack": "meem-ar.init@14EEE41F-D714-4243-A717-73445EE7DABA",
-    "editor_isInterpolating": false,
-    "editor_isAnimating": false,
-    "editor_opentype_features_in_subset": {
-      "liga": true,
-      "pnum": false,
-      "tnum": false,
-      "dlig": false,
-      "ss01": false,
-      "ss04": false,
-      "kern": true
-    },
-    "editor_opentype_features_not_in_subset": {
-      "locl": true,
-      "subs": false,
-      "sinf": false,
-      "sups": false,
-      "frac": false,
-      "ordn": false,
-      "case": false,
-      "zero": false,
-      "ss02": false,
-      "ss03": false,
-      "ss05": false,
-      "ss06": false
-    },
-    "editor_variation_location": {
-      "wght": 400
-    },
-    "editor_active_canvas_plugins": []
-  }
+    "label": "layer-second-selected",
+    "state": {
+        "focused_view": "view-editor",
+        "editor_file": "memory:///user/Fustat.glyphs",
+        "editor_text_buffer": "hello مَرحَباً",
+        "editor_cursor_position": 14,
+        "editor_mode": "edit",
+        "editor_glyph_stack": "meem-ar.init@14EEE41F-D714-4243-A717-73445EE7DABA",
+        "editor_isInterpolating": false,
+        "editor_isAnimating": false,
+        "editor_opentype_features_in_subset": {
+            "liga": true,
+            "pnum": false,
+            "tnum": false,
+            "dlig": false,
+            "ss01": false,
+            "ss04": false,
+            "kern": true
+        },
+        "editor_opentype_features_not_in_subset": {
+            "locl": true,
+            "subs": false,
+            "sinf": false,
+            "sups": false,
+            "frac": false,
+            "ordn": false,
+            "case": false,
+            "zero": false,
+            "ss02": false,
+            "ss03": false,
+            "ss05": false,
+            "ss06": false
+        },
+        "editor_variation_location": {
+            "wght": 400
+        },
+        "editor_active_canvas_plugins": []
+    }
 }

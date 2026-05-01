@@ -9,7 +9,9 @@
     display: flex;
     flex-direction: column;
     gap: 0;
-    transition: width 0.22s ease, min-width 0.22s ease;
+    transition:
+        width 0.22s ease,
+        min-width 0.22s ease;
 }
 
 #glyph-editor-scroll-content {
@@ -370,8 +372,6 @@
     flex-direction: column;
     gap: 4px;
     padding-right: 4px;
-
-
 }
 
 .font-qc-item {

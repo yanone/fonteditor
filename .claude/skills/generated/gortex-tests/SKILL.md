@@ -10,17 +10,18 @@ description: "Work in the tests area — 51 symbols across 3 files (50% cohesion
 ## When to Use
 
 Use this skill when working on files in:
+
 - `webapp/js/glyph-canvas/outline-editor.ts`
 - `webapp/tests/change-bridge-cross-window.spec.ts`
 - `webapp/tests/open-close-path.spec.ts`
 
 ## Key Files
 
-| File | Symbols |
-|------|---------|
-| `webapp/js/glyph-canvas/outline-editor.ts` | _handleDrag, usesSharedSnapDrag, _getPrimaryDragNodePos, _updateDraggedAnchors, getCurrentLayerDataFromStack, ... |
-| `webapp/tests/change-bridge-cross-window.spec.ts` | extractActiveInterpolatedRenderState |
-| `webapp/tests/open-close-path.spec.ts` | waitForOutlineState, getActiveLayerOutlineState |
+| File                                              | Symbols                                                                                                              |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `webapp/js/glyph-canvas/outline-editor.ts`        | \_handleDrag, usesSharedSnapDrag, \_getPrimaryDragNodePos, \_updateDraggedAnchors, getCurrentLayerDataFromStack, ... |
+| `webapp/tests/change-bridge-cross-window.spec.ts` | extractActiveInterpolatedRenderState                                                                                 |
+| `webapp/tests/open-close-path.spec.ts`            | waitForOutlineState, getActiveLayerOutlineState                                                                      |
 
 ## Connected Communities
 

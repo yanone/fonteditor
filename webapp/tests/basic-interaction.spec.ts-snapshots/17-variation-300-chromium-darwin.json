@@ -1,230 +1,230 @@
 {
-  "label": "variation-300",
-  "state": {
-    "focused_view": "view-editor",
-    "editor_file": "memory:///user/Fustat.glyphs",
-    "editor_text_buffer": "hello مَرحَباً",
-    "editor_cursor_position": 14,
-    "editor_mode": "edit",
-    "editor_glyph_stack": "meem-ar.init@3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
-    "editor_harfbuzz_glyph_buffer": [
-      {
-        "g": 2,
-        "cl": 0,
-        "dx": 0,
-        "dy": 0,
-        "ax": 573,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 1,
-        "cl": 1,
-        "dx": 0,
-        "dy": 0,
-        "ax": 551,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 3,
-        "cl": 2,
-        "dx": 0,
-        "dy": 0,
-        "ax": 223,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 3,
-        "cl": 3,
-        "dx": 0,
-        "dy": 0,
-        "ax": 223,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 4,
-        "cl": 4,
-        "dx": 0,
-        "dy": 0,
-        "ax": 571,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 30,
-        "cl": 5,
-        "dx": 0,
-        "dy": 0,
-        "ax": 216,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 36,
-        "cl": 12,
-        "dx": -2,
-        "dy": 288,
-        "ax": 0,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 9,
-        "cl": 12,
-        "dx": 0,
-        "dy": 0,
-        "ax": 215,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 33,
-        "cl": 11,
-        "dx": 56,
-        "dy": -96,
-        "ax": 0,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 12,
-        "cl": 11,
-        "dx": 0,
-        "dy": 0,
-        "ax": 227,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 35,
-        "cl": 9,
-        "dx": 86,
-        "dy": -1,
-        "ax": 0,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 19,
-        "cl": 9,
-        "dx": 0,
-        "dy": 0,
-        "ax": 640,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 21,
-        "cl": 8,
-        "dx": 0,
-        "dy": 0,
-        "ax": 278,
-        "ay": 0,
-        "flags": 1
-      },
-      {
-        "g": 35,
-        "cl": 6,
-        "dx": 160,
-        "dy": 14,
-        "ax": 0,
-        "ay": 0,
-        "flags": 0
-      },
-      {
-        "g": 27,
-        "cl": 6,
-        "dx": 0,
-        "dy": 0,
-        "ax": 498,
-        "ay": 0,
-        "flags": 0
-      }
-    ],
-    "editor_harfbuzz_gid_to_name": [
-      {
-        "gid": 1,
-        "name": "e"
-      },
-      {
-        "gid": 2,
-        "name": "h"
-      },
-      {
-        "gid": 3,
-        "name": "l"
-      },
-      {
-        "gid": 4,
-        "name": "o"
-      },
-      {
-        "gid": 9,
-        "name": "alef-ar.short.fina"
-      },
-      {
-        "gid": 12,
-        "name": "behDotless-ar.medi"
-      },
-      {
-        "gid": 19,
-        "name": "hah-ar.init"
-      },
-      {
-        "gid": 21,
-        "name": "reh-ar.fina"
-      },
-      {
-        "gid": 27,
-        "name": "meem-ar.init"
-      },
-      {
-        "gid": 30,
-        "name": "space"
-      },
-      {
-        "gid": 33,
-        "name": "dotbelow-ar"
-      },
-      {
-        "gid": 35,
-        "name": "fatha-ar"
-      },
-      {
-        "gid": 36,
-        "name": "fathatan-ar"
-      }
-    ],
-    "editor_isInterpolating": false,
-    "editor_isAnimating": false,
-    "editor_opentype_features_in_subset": {
-      "liga": true,
-      "pnum": false,
-      "tnum": false,
-      "dlig": false,
-      "ss01": false,
-      "ss04": false
-    },
-    "editor_opentype_features_not_in_subset": {
-      "locl": true,
-      "subs": false,
-      "sinf": false,
-      "sups": false,
-      "frac": false,
-      "ordn": false,
-      "case": false,
-      "zero": false,
-      "ss02": false,
-      "ss03": false,
-      "ss05": false,
-      "ss06": false
-    },
-    "editor_variation_location": {
-      "wght": 300
-    },
-    "editor_active_canvas_plugins": []
-  }
+    "label": "variation-300",
+    "state": {
+        "focused_view": "view-editor",
+        "editor_file": "memory:///user/Fustat.glyphs",
+        "editor_text_buffer": "hello مَرحَباً",
+        "editor_cursor_position": 14,
+        "editor_mode": "edit",
+        "editor_glyph_stack": "meem-ar.init@3114FB65-9464-41A5-B67E-A8F9F43C0EF1",
+        "editor_harfbuzz_glyph_buffer": [
+            {
+                "g": 2,
+                "cl": 0,
+                "dx": 0,
+                "dy": 0,
+                "ax": 573,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 1,
+                "cl": 1,
+                "dx": 0,
+                "dy": 0,
+                "ax": 551,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 3,
+                "cl": 2,
+                "dx": 0,
+                "dy": 0,
+                "ax": 223,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 3,
+                "cl": 3,
+                "dx": 0,
+                "dy": 0,
+                "ax": 223,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 4,
+                "cl": 4,
+                "dx": 0,
+                "dy": 0,
+                "ax": 571,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 30,
+                "cl": 5,
+                "dx": 0,
+                "dy": 0,
+                "ax": 216,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 36,
+                "cl": 12,
+                "dx": -2,
+                "dy": 288,
+                "ax": 0,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 9,
+                "cl": 12,
+                "dx": 0,
+                "dy": 0,
+                "ax": 215,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 33,
+                "cl": 11,
+                "dx": 56,
+                "dy": -96,
+                "ax": 0,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 12,
+                "cl": 11,
+                "dx": 0,
+                "dy": 0,
+                "ax": 227,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 35,
+                "cl": 9,
+                "dx": 86,
+                "dy": -1,
+                "ax": 0,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 19,
+                "cl": 9,
+                "dx": 0,
+                "dy": 0,
+                "ax": 640,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 21,
+                "cl": 8,
+                "dx": 0,
+                "dy": 0,
+                "ax": 278,
+                "ay": 0,
+                "flags": 1
+            },
+            {
+                "g": 35,
+                "cl": 6,
+                "dx": 160,
+                "dy": 14,
+                "ax": 0,
+                "ay": 0,
+                "flags": 0
+            },
+            {
+                "g": 27,
+                "cl": 6,
+                "dx": 0,
+                "dy": 0,
+                "ax": 498,
+                "ay": 0,
+                "flags": 0
+            }
+        ],
+        "editor_harfbuzz_gid_to_name": [
+            {
+                "gid": 1,
+                "name": "e"
+            },
+            {
+                "gid": 2,
+                "name": "h"
+            },
+            {
+                "gid": 3,
+                "name": "l"
+            },
+            {
+                "gid": 4,
+                "name": "o"
+            },
+            {
+                "gid": 9,
+                "name": "alef-ar.short.fina"
+            },
+            {
+                "gid": 12,
+                "name": "behDotless-ar.medi"
+            },
+            {
+                "gid": 19,
+                "name": "hah-ar.init"
+            },
+            {
+                "gid": 21,
+                "name": "reh-ar.fina"
+            },
+            {
+                "gid": 27,
+                "name": "meem-ar.init"
+            },
+            {
+                "gid": 30,
+                "name": "space"
+            },
+            {
+                "gid": 33,
+                "name": "dotbelow-ar"
+            },
+            {
+                "gid": 35,
+                "name": "fatha-ar"
+            },
+            {
+                "gid": 36,
+                "name": "fathatan-ar"
+            }
+        ],
+        "editor_isInterpolating": false,
+        "editor_isAnimating": false,
+        "editor_opentype_features_in_subset": {
+            "liga": true,
+            "pnum": false,
+            "tnum": false,
+            "dlig": false,
+            "ss01": false,
+            "ss04": false
+        },
+        "editor_opentype_features_not_in_subset": {
+            "locl": true,
+            "subs": false,
+            "sinf": false,
+            "sups": false,
+            "frac": false,
+            "ordn": false,
+            "case": false,
+            "zero": false,
+            "ss02": false,
+            "ss03": false,
+            "ss05": false,
+            "ss06": false
+        },
+        "editor_variation_location": {
+            "wght": 300
+        },
+        "editor_active_canvas_plugins": []
+    }
 }

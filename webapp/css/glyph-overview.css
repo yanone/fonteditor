@@ -31,7 +31,7 @@
 }
 
 .glyph-grid-header-row {
- position: sticky;
+    position: sticky;
     top: -2px;
     z-index: 3;
     padding-top: 5px;
@@ -67,7 +67,11 @@
 .glyph-grid-cell.empty {
     border: 1px solid color-mix(in srgb, var(--border-primary) 35%, transparent);
     border-radius: 3px;
-    background-color: color-mix(in srgb, var(--background-secondary) 25%, transparent);
+    background-color: color-mix(
+        in srgb,
+        var(--background-secondary) 25%,
+        transparent
+    );
 }
 
 /* Glyph tile base styles */
@@ -103,13 +107,21 @@
 
 /* Selected state (inactive view) */
 .glyph-tile.selected {
-    background-color: color-mix(in srgb, var(--filter-color), var(--glyph-tile-selected-inactive));
+    background-color: color-mix(
+        in srgb,
+        var(--filter-color),
+        var(--glyph-tile-selected-inactive)
+    );
     border-color: var(--border-hover);
 }
 
 /* Selected state (active/focused view) */
 .view-overview.focused .glyph-tile.selected {
-    background-color: color-mix(in srgb, var(--filter-color), var(--glyph-tile-selected-active));
+    background-color: color-mix(
+        in srgb,
+        var(--filter-color),
+        var(--glyph-tile-selected-active)
+    );
 }
 .view-overview.focused .glyph-tile.selected .glyph-tile-label {
     background-color: transparent;
@@ -132,7 +144,6 @@
     margin: 2px;
     padding: 1px;
 }
-
 
 /* Legacy canvas inside tile (kept for compatibility) */
 .glyph-tile canvas {
@@ -363,7 +374,6 @@
     font-size: 14px;
 }
 
-
 .glyph-filter-node-label {
     font-size: 9px;
     font-weight: 700;
@@ -565,8 +575,12 @@
 }
 
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .glyph-filter-no-access,
@@ -625,4 +639,3 @@
     padding: 8px 16px;
     font-size: 13px;
 }
-

@@ -10,6 +10,7 @@ description: "Work in the src area — 35 symbols across 4 files (88% cohesion)"
 ## When to Use
 
 Use this skill when working on files in:
+
 - `babelfont-fontc-build/src/glyph_outlines.rs`
 - `babelfont-fontc-build/src/lib.rs`
 - `webapp/js/glyph-canvas/outline-editor.ts`
@@ -17,12 +18,12 @@ Use this skill when working on files in:
 
 ## Key Files
 
-| File | Symbols |
-|------|---------|
-| `babelfont-fontc-build/src/glyph_outlines.rs` | clear_outline_cache, clear_outline_cache_for_glyph, get_glyphs_outlines |
-| `babelfont-fontc-build/src/lib.rs` | compile_cached_font_from_last_layout_closure, canonical_subset_key_from_sorted_unique, start, drop, PerfSpan, ... |
-| `webapp/js/glyph-canvas/outline-editor.ts` | get |
-| `webapp/js/pyodide-official-console.ts` | lock |
+| File                                          | Symbols                                                                                                           |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `babelfont-fontc-build/src/glyph_outlines.rs` | clear_outline_cache, clear_outline_cache_for_glyph, get_glyphs_outlines                                           |
+| `babelfont-fontc-build/src/lib.rs`            | compile_cached_font_from_last_layout_closure, canonical_subset_key_from_sorted_unique, start, drop, PerfSpan, ... |
+| `webapp/js/glyph-canvas/outline-editor.ts`    | get                                                                                                               |
+| `webapp/js/pyodide-official-console.ts`       | lock                                                                                                              |
 
 ## Entry Points
 

@@ -224,7 +224,8 @@ const tools = [
                 },
                 timeoutMs: {
                     type: 'number',
-                    description: 'Optional fontReady timeout in milliseconds (default: 30000; use 60000 for large fonts)'
+                    description:
+                        'Optional fontReady timeout in milliseconds (default: 30000; use 60000 for large fonts)'
                 }
             },
             required: ['path'],
@@ -241,7 +242,8 @@ const tools = [
             properties: {
                 timeoutMs: {
                     type: 'number',
-                    description: 'Optional readiness timeout in milliseconds (default: 30000; use 60000 for large fonts)'
+                    description:
+                        'Optional readiness timeout in milliseconds (default: 30000; use 60000 for large fonts)'
                 }
             },
             additionalProperties: false

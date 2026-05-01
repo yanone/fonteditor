@@ -151,14 +151,14 @@ CREATE TABLE sessions (
 ```javascript
 // Store code
 await env.AUTH_CODES.put(`code:${email}`, code, {
-  expirationTtl: 600, // 10 minutes
+    expirationTtl: 600, // 10 minutes
 });
 
 // Verify and delete
 const storedCode = await env.AUTH_CODES.get(`code:${email}`);
 if (storedCode === userCode) {
-  await env.AUTH_CODES.delete(`code:${email}`);
-  // Create session...
+    await env.AUTH_CODES.delete(`code:${email}`);
+    // Create session...
 }
 ```
 
@@ -249,21 +249,21 @@ await env.DB.prepare('UPDATE usage SET synced = 1 WHERE timestamp > ?')
 ```javascript
 // Worker intercept upload
 export default {
-  async fetch(request, env) {
-    const file = await request.formData().get("file");
-    const sizeGB = file.size / 1024 / 1024 / 1024;
-    const monthlyCost = sizeGB * 0.015;
+    async fetch(request, env) {
+        const file = await request.formData().get("file");
+        const sizeGB = file.size / 1024 / 1024 / 1024;
+        const monthlyCost = sizeGB * 0.015;
 
-    // Store in R2
-    await env.CDN_BUCKET.put(key, file.stream());
+        // Store in R2
+        await env.CDN_BUCKET.put(key, file.stream());
 
-    // Log cost to D1
-    await env.DB.prepare(
-      "INSERT INTO usage (user_id, service, cost_usd, timestamp) VALUES (?, ?, ?, ?)"
-    )
-      .bind(userId, "cdn", monthlyCost, Date.now())
-      .run();
-  },
+        // Log cost to D1
+        await env.DB.prepare(
+            "INSERT INTO usage (user_id, service, cost_usd, timestamp) VALUES (?, ?, ?, ?)",
+        )
+            .bind(userId, "cdn", monthlyCost, Date.now())
+            .run();
+    },
 };
 ```
 

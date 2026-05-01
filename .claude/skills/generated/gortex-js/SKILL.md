@@ -10,12 +10,13 @@ description: "Work in the js area — 34 symbols across 1 files (50% cohesion)"
 ## When to Use
 
 Use this skill when working on files in:
+
 - `webapp/js/font-info.ts`
 
 ## Key Files
 
-| File | Symbols |
-|------|---------|
+| File                     | Symbols                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------- |
 | `webapp/js/font-info.ts` | FontInfoManager, prefixCodeData, searchInput, featureErrorLineWidget, namesTab, ... |
 
 ## How to Explore
