@@ -518,10 +518,21 @@ class GlyphCanvas {
             }
         });
 
+        // Reset modifier key states when window regains focus (e.g., Cmd+Tab back to app).
+        // Without this, the app behaves as if Cmd/Ctrl is still held after switching back
+        // because the keyup for the modifier may fire before focus returns or may be
+        // intercepted by the OS. Resetting on focus ensures a clean slate — the user
+        // must press the modifier key again within the app to activate Cmd/Ctrl features.
+        window.addEventListener('focus', () => {
+            this.outlineEditor.setCommandKeyPressed(false);
+            this.outlineEditor.setAltKeyPressed(false);
+        });
+
         // Also reset when canvas loses focus
         this.canvas!.addEventListener('blur', () => {
             this.measurementKeyPressed = false;
             this.isDraggingCanvas = false;
+            this.outlineEditor.setCommandKeyPressed(false);
             // Note: Don't reset spaceKeyPressed here - it should be handled by the keyup event
             // Resetting it here causes preview mode to malfunction because the keyup handler
             // can't tell if preview mode was activated
