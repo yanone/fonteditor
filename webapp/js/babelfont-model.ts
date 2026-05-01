@@ -5707,7 +5707,7 @@ export class Layer extends ArrayElementBase {
         );
     }
 
-    private clearEffectiveSidebearingKey(side: SidebearingSide): void {
+    clearEffectiveSidebearingKey(side: SidebearingSide): void {
         if (this.hasLocalSidebearingKey(side)) {
             this.setLocalSidebearingKey(side, undefined);
             return;

@@ -4105,24 +4105,18 @@ export class OutlineEditor {
             return;
         }
 
-        // Non-drag path: incremental worker cache update + dispatch
-        // glyphChanged events for downstream tiles in the overview.
+        // Non-drag path: incremental worker cache update + a single
+        // batched glyphChanged event covers source+downstream tiles in the
+        // overview. The redundant per-glyph dispatch loop that used to live
+        // here caused a multi-second main-thread freeze when a sidebearing
+        // edit cascaded to many dependent glyphs (history-view re-renders
+        // synchronously per event).
         fontManager
             .refreshGlyphsAfterModelBatch(
                 [...(glyphName ? [glyphName] : []), ...downstreamGlyphNames],
                 currentLayerId
             )
             .then(() => {
-                for (const affectedGlyphName of downstreamGlyphNames) {
-                    window.dispatchEvent(
-                        new CustomEvent('glyphChanged', {
-                            detail: {
-                                glyphName: affectedGlyphName,
-                                layerId: currentLayerId
-                            }
-                        })
-                    );
-                }
                 currentFont.requestRecompileWithoutDataChange();
                 window.autoCompileManager?.checkAndSchedule?.();
             });
@@ -15087,6 +15081,18 @@ export class OutlineEditor {
         const currentSidebearing = this.getCurrentDirectSidebearing(side);
         if (currentSidebearing === null) {
             return false;
+        }
+
+        // Plain numeric set means the user wants this exact value as a direct
+        // sidebearing — clear any existing metrics key so the next
+        // recomputeMetricsKeys pass doesn't re-derive the width back to the
+        // keyed value (BUG: typing `60` over an existing `=50` left the key
+        // intact and snapped back).
+        const layer = this.getSelectionScopeLayerModel(
+            this.getCurrentLayerId()
+        );
+        if (layer && typeof layer.clearEffectiveSidebearingKey === 'function') {
+            layer.clearEffectiveSidebearingKey(side);
         }
 
         if (
