@@ -1409,4 +1409,26 @@ describe('FontManager boundary-crossing budget', () => {
             });
         }
     });
+
+    test('undo/redo replay targets keep boundary crossing budget at zero full-font crossings', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+        const modelLayer = currentFont.fontModel
+            .findGlyph('a')
+            .findLayerById(layerId);
+
+        // Make an edit to create undo history
+        modelLayer.width += 50;
+        await fontManager.refreshGlyphsAfterModelBatch(['a'], layerId);
+
+        // Reset stats and simulate undo via replay targets
+        fontManager.resetBoundaryCrossingStats();
+        await fontManager.refreshWorkerCacheForReplayTargets([
+            { glyphName: 'a', layerId }
+        ]);
+
+        const stats = fontManager.getBoundaryCrossingStats();
+        expect(stats.submitBatchCalls).toBe(1);
+        expect(stats.fullFontCrossings).toBe(0);
+    });
 });

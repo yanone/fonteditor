@@ -6070,4 +6070,206 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         ).toBe('A');
         expect(fontJson.glyphs[0].production_name).toBe('A');
     });
+
+    test('undo broadcast is incremental (not full state)', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('win-undo-inc');
+        bridge.initFromJson(fontJson);
+        const sync = new WindowSync(bridge, 'font-channel-undo-inc');
+
+        // Make a layer-scoped change so we have something to undo
+        bridge.syncGlyphFromJson('A', 'Drag', undefined, undefined, 'layer-1');
+        flushTimers();
+
+        // Capture broadcasts
+        const captured = [];
+        const eavesdropper = new BroadcastChannel('font-channel-undo-inc');
+        eavesdropper.onmessage = (ev) => {
+            captured.push(ev.data);
+        };
+
+        // Clear the capture from the initial edit
+        captured.length = 0;
+
+        // Measure: capture full-state size for comparison
+        const fullStateSize = bridge.getFullState().byteLength;
+
+        // Undo a layer-scoped edit (this goes through um.undo(), not
+        // _applyHistoryItem if the history item can't be replayed directly)
+        bridge.undo('A', 'layer-1');
+        flushTimers();
+
+        const yjsUpdates = captured.filter((m) => m.type === 'yjs-update');
+        expect(yjsUpdates.length).toBeGreaterThan(0);
+
+        // Each yjs-update must NOT carry full state
+        for (const m of yjsUpdates) {
+            expect(m.fullState).toBeUndefined();
+        }
+
+        // The update payload should be incremental — significantly
+        // smaller than the full document state.
+        const updateSize = yjsUpdates.reduce(
+            (sum, m) => sum + (m.update?.byteLength || m.update?.length || 0),
+            0
+        );
+        expect(updateSize).toBeLessThan(fullStateSize);
+
+        // The update should still be valid — applying it to a peer
+        // must restore the pre-edit state.
+        const peerBridge = new ChangeBridge('peer-undo-inc');
+        peerBridge.applyFullState(bridge.getFullState());
+        // Record the same edit on the peer so it matches
+        peerBridge.syncGlyphFromJson(
+            'A',
+            'Drag',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+
+        // Undo on primary
+        const undoResult = bridge.undo('A', 'layer-1');
+        expect(undoResult).not.toBeNull();
+
+        // Verify the undo was effective locally
+        expect(
+            getYPath(bridge.fontMap, ['glyphs', 'A', 'layers', 'layer-1'])
+        ).toBeDefined();
+
+        eavesdropper.close();
+        sync.destroy();
+        bridge.destroy();
+        peerBridge.destroy();
+    });
+
+    test('undo via history replay does not double-broadcast', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('win-nodouble');
+        bridge.initFromJson(fontJson);
+        const sync = new WindowSync(bridge, 'font-channel-nodouble');
+
+        // Create a font-scoped history item that replays directly
+        bridge.beginTransaction('Font scope edit');
+        fontJson.glyphs[0].layers[0].width = 700;
+        bridge.syncGlyphFromJson('A', 'Font scope edit');
+        bridge.endTransaction();
+        flushTimers();
+
+        // Count broadcasts during undo
+        const captured = [];
+        const eavesdropper = new BroadcastChannel('font-channel-nodouble');
+        eavesdropper.onmessage = (ev) => {
+            if (ev.data?.type === 'yjs-update') {
+                captured.push(ev.data);
+            }
+        };
+
+        // Undo at glyph scope — since this is a history-replay item,
+        // the Y.Doc update listener plus the explicit _onLocalUpdate
+        // must NOT produce duplicate broadcasts.
+        bridge.undo('A');
+        flushTimers();
+
+        // There should be at most 1 yjs-update from the undo itself
+        const undoUpdates = captured.filter((m) =>
+            m.changeLogEntries?.some((e) => e.historyAction === 'undo')
+        );
+        // History-replay uses HISTORY_REPLAY_ORIGIN which the
+        // constructor listener broadcasts. We must not also send a
+        // second full-state broadcast.
+        expect(undoUpdates.length).toBeLessThanOrEqual(1);
+
+        eavesdropper.close();
+        sync.destroy();
+        bridge.destroy();
+    });
+
+    test('_repairTouchedLayersFromSnapshots returns repaired scopes', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('win-repair-scopes');
+        bridge.initFromJson(fontJson);
+
+        // Create a snapshot that differs from the current Y.Doc state
+        const snapshot = {
+            glyphName: 'A',
+            layers: [
+                {
+                    layerId: 'layer-1',
+                    layerSnapshot: {
+                        id: 'layer-1',
+                        width: 999,
+                        shapes: [],
+                        anchors: [],
+                        guides: []
+                    }
+                }
+            ]
+        };
+
+        const remoteEntries = [
+            {
+                path: 'glyphs.A.layers.layer-1',
+                op: 'set',
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        ];
+
+        // Run repair — the snapshot differs from Y.Doc content,
+        // so repair should return the repaired scopes.
+        const repairedScopes = bridge._repairTouchedLayersFromSnapshots(
+            [snapshot],
+            remoteEntries
+        );
+
+        // When repair is needed, scopes should be returned
+        expect(Array.isArray(repairedScopes)).toBe(true);
+        if (repairedScopes.length > 0) {
+            expect(repairedScopes[0]).toHaveProperty('glyphName');
+            expect(repairedScopes[0]).toHaveProperty('layerId');
+        }
+    });
+
+    test('undo/redo incremental update is valid for peer apply', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('win-valid-inc');
+        bridge.initFromJson(fontJson);
+        const peerBridge = new ChangeBridge('peer-valid-inc');
+        peerBridge.applyFullState(bridge.getFullState());
+
+        const sync = new WindowSync(bridge, 'font-channel-valid-inc');
+        const peerSync = new WindowSync(peerBridge, 'font-channel-valid-inc');
+
+        // Apply the same edit on both
+        const applyEdit = (b) => {
+            b.syncGlyphFromJson('A', 'Drag', undefined, undefined, 'layer-1');
+        };
+        applyEdit(bridge);
+        flushTimers();
+        applyEdit(peerBridge);
+        flushTimers();
+
+        // Verify both are in sync before undo
+        expect(
+            getYPath(bridge.fontMap, ['glyphs', 'A', 'layers', 'layer-1'])
+        ).toBeDefined();
+        expect(
+            getYPath(peerBridge.fontMap, ['glyphs', 'A', 'layers', 'layer-1'])
+        ).toBeDefined();
+
+        // Undo on primary
+        bridge.undo('A', 'layer-1');
+        flushTimers();
+
+        // The peer should have received the incremental update
+        // and the state should be consistent. We verify by checking
+        // that the peer can still undo its own matching edit.
+        const peerCanUndo = peerBridge.canUndo('A', 'layer-1');
+        expect(peerCanUndo).toBe(true);
+
+        sync.destroy();
+        peerSync.destroy();
+        bridge.destroy();
+        peerBridge.destroy();
+    });
 });

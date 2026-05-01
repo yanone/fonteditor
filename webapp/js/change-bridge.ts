@@ -1257,19 +1257,42 @@ export class ChangeBridge {
             });
             this._appendChangeLogEntry(entry);
 
-            if (targetItem && (scope === 'font' || shouldReplayHistoryItem)) {
+            const isHistoryReplay =
+                !!targetItem && (scope === 'font' || shouldReplayHistoryItem);
+
+            // For history replay, _applyHistoryItem transacts with
+            // HISTORY_REPLAY_ORIGIN which the constructor's Y.Doc
+            // 'update' listener already broadcasts as an incremental
+            // update. For um.undo() (non-replay path), capture the
+            // pre-state vector so we can encode only the diff.
+            let preStateVector: Uint8Array | null = null;
+            if (!isHistoryReplay) {
+                preStateVector = Y.encodeStateVector(this.yDoc);
+            }
+
+            if (isHistoryReplay) {
                 this._applyHistoryItem(targetItem, 'undo');
             } else {
                 um?.undo();
             }
+
             this._syncJsonFromYDoc(
                 scope === 'layer' && target.glyphName && target.layerId
                     ? { glyphName: target.glyphName, layerId: target.layerId }
                     : null
             );
-            if (scope !== 'font') {
-                this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
+
+            // Broadcast incremental update instead of encoding the
+            // full document state. The history-replay path is already
+            // handled by the constructor's Y.Doc 'update' listener.
+            if (preStateVector && scope !== 'font') {
+                const incrementalUpdate = Y.encodeStateAsUpdate(
+                    this.yDoc,
+                    preStateVector
+                );
+                this._onLocalUpdate?.(incrementalUpdate);
             }
+
             this._onAfterSync?.();
             this._onDirty?.();
             return {
@@ -1351,19 +1374,42 @@ export class ChangeBridge {
             });
             this._appendChangeLogEntry(entry);
 
-            if (targetItem && (scope === 'font' || shouldReplayHistoryItem)) {
+            const isHistoryReplay =
+                !!targetItem && (scope === 'font' || shouldReplayHistoryItem);
+
+            // For history replay, _applyHistoryItem transacts with
+            // HISTORY_REPLAY_ORIGIN which the constructor's Y.Doc
+            // 'update' listener already broadcasts as an incremental
+            // update. For um.redo() (non-replay path), capture the
+            // pre-state vector so we can encode only the diff.
+            let preStateVector: Uint8Array | null = null;
+            if (!isHistoryReplay) {
+                preStateVector = Y.encodeStateVector(this.yDoc);
+            }
+
+            if (isHistoryReplay) {
                 this._applyHistoryItem(targetItem, 'redo');
             } else {
                 um?.redo();
             }
+
             this._syncJsonFromYDoc(
                 scope === 'layer' && target.glyphName && target.layerId
                     ? { glyphName: target.glyphName, layerId: target.layerId }
                     : null
             );
-            if (scope !== 'font') {
-                this._onLocalUpdate?.(Y.encodeStateAsUpdate(this.yDoc));
+
+            // Broadcast incremental update instead of encoding the
+            // full document state. The history-replay path is already
+            // handled by the constructor's Y.Doc 'update' listener.
+            if (preStateVector && scope !== 'font') {
+                const incrementalUpdate = Y.encodeStateAsUpdate(
+                    this.yDoc,
+                    preStateVector
+                );
+                this._onLocalUpdate?.(incrementalUpdate);
             }
+
             this._onAfterSync?.();
             this._onDirty?.();
             return {
@@ -1484,22 +1530,24 @@ export class ChangeBridge {
             );
             this._syncJsonFromYDoc(remoteLayerScopes);
             this._applyExplicitLayerPropertyRemovalsToFontJson(remoteEntries);
-            if (
-                repairState &&
-                remoteEntries?.length &&
-                this._repairTouchedLayersFromState(repairState, remoteEntries)
-            ) {
-                this._syncJsonFromYDoc();
-            }
-            if (
-                repairSnapshots?.length &&
-                remoteEntries?.length &&
-                this._repairTouchedLayersFromSnapshots(
-                    repairSnapshots,
+            if (repairState && remoteEntries?.length) {
+                const repairedStateScopes = this._repairTouchedLayersFromState(
+                    repairState,
                     remoteEntries
-                )
-            ) {
-                this._syncJsonFromYDoc();
+                );
+                if (repairedStateScopes.length) {
+                    this._syncJsonFromYDoc(repairedStateScopes);
+                }
+            }
+            if (repairSnapshots?.length && remoteEntries?.length) {
+                const repairedSnapshotScopes =
+                    this._repairTouchedLayersFromSnapshots(
+                        repairSnapshots,
+                        remoteEntries
+                    );
+                if (repairedSnapshotScopes.length) {
+                    this._syncJsonFromYDoc(repairedSnapshotScopes);
+                }
             }
             this._onAfterSync?.();
             this._onDirty?.();
@@ -2558,11 +2606,11 @@ export class ChangeBridge {
     private _repairTouchedLayersFromSnapshots(
         snapshots: RemoteLayerRepairSnapshot[],
         remoteEntries: ChangeLogEntry[]
-    ): boolean {
+    ): Array<{ glyphName: string; layerId: string }> {
         const touchedGlyphNames =
             this._getTouchedRepairGlyphNames(remoteEntries);
         if (!touchedGlyphNames.size) {
-            return false;
+            return [];
         }
 
         const snapshotsByGlyph = new Map<string, RemoteLayerRepairSnapshot>();
@@ -2627,7 +2675,7 @@ export class ChangeBridge {
         }
 
         if (!repairOperations.length && !staleLayerDeletes.length) {
-            return false;
+            return [];
         }
 
         console.warn(
@@ -2651,17 +2699,20 @@ export class ChangeBridge {
             }
         }, SYSTEM_REMOTE_ORIGIN);
 
-        return true;
+        return repairOperations.map((op) => ({
+            glyphName: op.glyphName,
+            layerId: op.layerId
+        }));
     }
 
     private _repairTouchedLayersFromState(
         state: Uint8Array,
         remoteEntries: ChangeLogEntry[]
-    ): boolean {
+    ): Array<{ glyphName: string; layerId: string }> {
         const touchedGlyphNames =
             this._getTouchedRepairGlyphNames(remoteEntries);
         if (!touchedGlyphNames.size) {
-            return false;
+            return [];
         }
 
         const repairDoc = new Y.Doc();
@@ -2740,7 +2791,7 @@ export class ChangeBridge {
         }
 
         if (!repairOperations.length && !staleLayerDeletes.length) {
-            return false;
+            return [];
         }
 
         console.warn(
@@ -2764,7 +2815,10 @@ export class ChangeBridge {
             }
         }, SYSTEM_REMOTE_ORIGIN);
 
-        return true;
+        return repairOperations.map((op) => ({
+            glyphName: op.glyphName,
+            layerId: op.layerId
+        }));
     }
 
     private _resolveUndoHistoryItem(

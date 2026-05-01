@@ -14839,17 +14839,31 @@ export class OutlineEditor {
         this._anchorAffectedGlyphNames =
             this.rebuildAutomaticCompositesForCurrentEditedGlyph();
 
-        // Save to object model (non-blocking)
-        this.saveLayerData('keyboard-anchor');
-        void this.syncDependentGlyphsAfterAnchorEdit(
-            this.getCurrentGlyphModel()?.name,
-            this._anchorAffectedGlyphNames
-        ).catch((error) => {
-            console.error(
-                '[OutlineEditor] Error refreshing anchor-dependent glyphs after keyboard move:',
-                error
-            );
-        });
+        // Wrap keyboard edit in a transaction so model changes from
+        // saveLayerData and auto-composite cascade are committed as
+        // a single Yjs transaction with one broadcast.
+        const bridge = window.changeBridge;
+        const hasTransaction = typeof bridge?.beginTransaction === 'function';
+        if (hasTransaction) {
+            bridge.beginTransaction('Move anchor');
+        }
+        try {
+            // Save to object model (non-blocking)
+            this.saveLayerData('keyboard-anchor');
+            void this.syncDependentGlyphsAfterAnchorEdit(
+                this.getCurrentGlyphModel()?.name,
+                this._anchorAffectedGlyphNames
+            ).catch((error) => {
+                console.error(
+                    '[OutlineEditor] Error refreshing anchor-dependent glyphs after keyboard move:',
+                    error
+                );
+            });
+        } finally {
+            if (hasTransaction) {
+                bridge.endTransaction();
+            }
+        }
         this.glyphCanvas.render();
     }
 
@@ -15101,24 +15115,38 @@ export class OutlineEditor {
             return false;
         }
 
-        this.saveLayerData('keyboard-outline');
-        this.syncDependentGlyphsAfterSidebearingEdit(
-            this.getCurrentGlyphModel()?.name,
-            this._sidebearingAffectedGlyphNames
-        );
-        const sidebearingChangedLayerTargets =
-            this.collectMatchingLayerWorkerReplayTargets(
-                this._sidebearingAffectedGlyphNames,
-                this.getCurrentLayerId()
+        // Wrap keyboard edit in a transaction so model changes from
+        // saveLayerData and metrics-key cascade recomputation are
+        // committed as a single Yjs transaction with one broadcast.
+        const bridge = window.changeBridge;
+        const hasTransaction = typeof bridge?.beginTransaction === 'function';
+        if (hasTransaction) {
+            bridge.beginTransaction('Set sidebearing');
+        }
+        try {
+            this.saveLayerData('keyboard-outline');
+            this.syncDependentGlyphsAfterSidebearingEdit(
+                this.getCurrentGlyphModel()?.name,
+                this._sidebearingAffectedGlyphNames
             );
-        this._syncCurrentGlyphToYDoc(
-            'Set sidebearing',
-            formatSidebearingHistoryValue(side, currentSidebearing),
-            formatSidebearingHistoryValue(side, targetValue),
-            side,
-            sidebearingChangedLayerTargets,
-            sidebearingChangedLayerTargets
-        );
+            const sidebearingChangedLayerTargets =
+                this.collectMatchingLayerWorkerReplayTargets(
+                    this._sidebearingAffectedGlyphNames,
+                    this.getCurrentLayerId()
+                );
+            this._syncCurrentGlyphToYDoc(
+                'Set sidebearing',
+                formatSidebearingHistoryValue(side, currentSidebearing),
+                formatSidebearingHistoryValue(side, targetValue),
+                side,
+                sidebearingChangedLayerTargets,
+                sidebearingChangedLayerTargets
+            );
+        } finally {
+            if (hasTransaction) {
+                bridge.endTransaction();
+            }
+        }
         return true;
     }
 
@@ -15142,11 +15170,25 @@ export class OutlineEditor {
             return;
         }
 
-        this.saveLayerData('keyboard-outline');
-        this.syncDependentGlyphsAfterSidebearingEdit(
-            this.getCurrentGlyphModel()?.name,
-            this._sidebearingAffectedGlyphNames
-        );
+        // Wrap keyboard edit in a transaction so model changes from
+        // saveLayerData and metrics-key cascade are committed as a
+        // single Yjs transaction with one broadcast.
+        const bridge = window.changeBridge;
+        const hasTransaction = typeof bridge?.beginTransaction === 'function';
+        if (hasTransaction) {
+            bridge.beginTransaction('Move sidebearing');
+        }
+        try {
+            this.saveLayerData('keyboard-outline');
+            this.syncDependentGlyphsAfterSidebearingEdit(
+                this.getCurrentGlyphModel()?.name,
+                this._sidebearingAffectedGlyphNames
+            );
+        } finally {
+            if (hasTransaction) {
+                bridge.endTransaction();
+            }
+        }
         this.glyphCanvas.updatePropertyPanel();
         this.glyphCanvas.render();
     }
