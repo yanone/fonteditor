@@ -3677,6 +3677,79 @@ describe('Babelfont Object Model', () => {
         });
     });
 
+    describe('Layer.clearEffectiveSidebearingKey()', () => {
+        // Guards the fix for the bug where typing a plain numeric value (e.g.
+        // `60`) over an existing metrics key (e.g. `=50`) left the key intact
+        // so the next recomputeMetricsKeys pass snapped the sidebearing back.
+
+        test('removes a glyph-level left metrics key', () => {
+            const glyph = metricsKeysFont.findGlyph('a');
+            const layer = glyph.layers[0];
+
+            // Establish a glyph-level key via the public API.
+            layer.applySidebearingInput('left', '=50');
+            expect(glyph.leftMetricsKey).toBe('=50');
+            expect(layer.leftMetricsKey).toBeUndefined();
+
+            layer.clearEffectiveSidebearingKey('left');
+
+            expect(glyph.leftMetricsKey).toBeUndefined();
+            expect(layer.leftMetricsKey).toBeUndefined();
+        });
+
+        test('removes a glyph-level right metrics key', () => {
+            const glyph = metricsKeysFont.findGlyph('a');
+            const layer = glyph.layers[0];
+
+            layer.applySidebearingInput('right', '=50');
+            expect(glyph.rightMetricsKey).toBe('=50');
+
+            layer.clearEffectiveSidebearingKey('right');
+
+            expect(glyph.rightMetricsKey).toBeUndefined();
+        });
+
+        test('removes a layer-local left metrics key (== prefix)', () => {
+            const glyph = metricsKeysFont.findGlyph('a');
+            const layer = glyph.layers[0];
+
+            // Force a layer-local key via the `==` prefix.
+            layer.applySidebearingInput('left', '==+10');
+            expect(layer.leftMetricsKey).toBe('==+10');
+
+            layer.clearEffectiveSidebearingKey('left');
+
+            expect(layer.leftMetricsKey).toBeUndefined();
+        });
+
+        test('plain numeric setSidebearingValue no longer snaps back after a keyed value', () => {
+            // Full round-trip: set key via applySidebearingInput, then override
+            // it with a plain numeric value via clearEffectiveSidebearingKey +
+            // setDirectSidebearing, confirm recomputeMetricsKeys does not
+            // restore the old keyed value.
+            const glyph = font.findGlyph('A');
+            const layer = glyph.layers[0];
+
+            // Clear any pre-existing key state so the test starts clean.
+            glyph.leftMetricsKey = undefined;
+            layer.leftMetricsKey = undefined;
+
+            layer.applySidebearingInput('left', '=50');
+            expect(glyph.leftMetricsKey).toBe('=50');
+            expect(layer.lsb).toBe(50);
+
+            // Simulate what setSidebearingValue now does before applySidebearingDelta.
+            layer.clearEffectiveSidebearingKey('left');
+            layer.lsb = 60;
+
+            // A subsequent recomputeMetricsKeys must NOT snap back to 50.
+            font.recomputeMetricsKeys(new Set([glyph.name]));
+
+            expect(glyph.leftMetricsKey).toBeUndefined();
+            expect(layer.lsb).toBe(60);
+        });
+    });
+
     describe('Font.getGlyphNamesByLengthDesc() cache invalidation', () => {
         test('returns names sorted by length descending', () => {
             const names = metricsKeysFont.getGlyphNamesByLengthDesc();

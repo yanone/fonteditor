@@ -584,6 +584,43 @@ describe('FontManager saveLayerData', () => {
         });
     });
 
+    test('refreshGlyphsAfterModelBatch emits exactly one glyphChanged for source + all downstream glyphs', async () => {
+        // Regression guard for the sidebearing perf fix: the old code in
+        // syncDependentGlyphsAfterSidebearingEdit dispatched one glyphChanged
+        // per downstream glyph *on top of* the single batched event from
+        // refreshGlyphsAfterModelBatch.  Each event synchronously re-rendered
+        // the HistoryView (~200 ms), causing a ~10 s freeze on large fonts.
+        // refreshGlyphsAfterModelBatch is the authoritative source of the
+        // batched notification and must never fire more than once per call.
+        const currentFont = fontManager.currentFont;
+        const glyphChangedHandler = jest.fn();
+        const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
+
+        // Simulate a sidebearing cascade: source glyph 'a' plus four
+        // downstream dependents (as would happen when 'a' has a metrics key
+        // referenced by adieresis, aacute, agrave, aring etc.).
+        const allGlyphNames = ['a', 'adieresis', 'aacute', 'agrave', 'aring'];
+
+        fontCompilation.lastStoredFontJson = currentFont.babelfontJson;
+        window.addEventListener('glyphChanged', glyphChangedHandler);
+
+        try {
+            await fontManager.refreshGlyphsAfterModelBatch(
+                allGlyphNames,
+                layerId
+            );
+        } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
+        }
+
+        // Exactly one event must have fired, carrying all glyph names.
+        expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
+        const detail = glyphChangedHandler.mock.calls[0][0].detail;
+        expect(detail.glyphName).toBe('a');
+        expect(detail.glyphNames).toEqual(allGlyphNames);
+        expect(detail.layerId).toBe(layerId);
+    });
+
     test('updateWorkerFontCache batches the incremental post-drag layer refresh', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = '1FA54028-AD2E-4209-AA7B-72DF2DF16264';
