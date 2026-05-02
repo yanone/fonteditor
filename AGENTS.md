@@ -434,6 +434,13 @@ When changing compilation scheduling, compile-mode selection, worker cache inval
 - Pyodide: https://pyodide.org/
 - HarfBuzz.js: https://github.com/harfbuzz/harfbuzzjs
 
+## Gortex Usage
+
+Gortex provides a code graph index of this repository accessible via:
+
+- **MCP server** (`gortex___*` tools) — graph-aware search, symbol lookup, edit planning, blast radius analysis, and change detection. Use these tools instead of raw `Grep`/`Read` for navigating the codebase.
+- **Skills** (listed below) — shorthand commands like `/gortex-js`, `/gortex-glyph-canvas`, `/gortex-get`, `/gortex-src`, and `/gortex-tests` that scope work to specific communities. Invoke them via the `Skill` tool to load community-specific context.
+
 <!-- gortex:communities:start -->
 <!-- gortex:skills:start -->
 
