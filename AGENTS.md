@@ -441,6 +441,8 @@ Gortex provides a code graph index of this repository accessible via:
 - **MCP server** (`gortex___*` tools) — graph-aware search, symbol lookup, edit planning, blast radius analysis, and change detection. Use these tools instead of raw `Grep`/`Read` for navigating the codebase.
 - **Skills** (listed below) — shorthand commands like `/gortex-js`, `/gortex-glyph-canvas`, `/gortex-get`, `/gortex-src`, and `/gortex-tests` that scope work to specific communities. Invoke them via the `Skill` tool to load community-specific context.
 
+Use Gortex tools or skills whenever possible. Local indexing tools like Gortex leads to massive speed and token efficiency gains.
+
 <!-- gortex:communities:start -->
 <!-- gortex:skills:start -->
 
@@ -458,7 +460,7 @@ Gortex provides a code graph index of this repository accessible via:
 | Get          | 59 symbols  | `/gortex-get`          |
 | Tests        | 51 symbols  | `/gortex-tests`        |
 | Js           | 50 symbols  | `/gortex-js`           |
-| Js           | 49 symbols  | `/gortex-js`           |
+| Js           | 49 symbols  | `2`                    |
 | Js           | 49 symbols  | `/gortex-js`           |
 | Js           | 45 symbols  | `/gortex-js`           |
 | Js           | 42 symbols  | `/gortex-js`           |
