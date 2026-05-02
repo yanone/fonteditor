@@ -964,6 +964,74 @@ from users who regularly work offline with cloud fonts.
   `userId`; they are tagged offline-authored only by their creation
   timestamp. They are still attributable on replay.
 
+### Connection observer and UI message ownership
+
+**All connection-awareness logic lives inside `CloudAdapter`.** The main app
+shell is transport-agnostic: it does not know about WebSockets, does not run
+a polling loop, and does not inspect the network itself. A future plugin that
+uses a different transport (HTTP long-polling, WebRTC data channel, etc.)
+should be able to provide the same user-visible behaviour without any changes
+to the main app.
+
+The boundary between plugin and app shell is a single callback added to the
+`FileSystemAdapter` interface:
+
+```ts
+interface FileSystemAdapter {
+    // ... existing contract ...
+    onConnectionStatus?: (status: ConnectionStatus) => void;
+}
+
+type ConnectionStatus =
+    | { state: "connected" }
+    | { state: "reconnecting"; sinceMs: number; pendingEdits: number }
+    | { state: "offline"; sinceMs: number; pendingEdits: number }
+    | { state: "not-applicable" }; // Memory / Disk plugins report this
+```
+
+The main app shell subscribes to `onConnectionStatus` when it activates a
+plugin and passes the reported status to the toolbar status renderer. The
+toolbar renders whatever it receives; it has no plugin-specific logic.
+
+`CloudAdapter` drives the status internally:
+
+- **Primary trigger — WebSocket events.** `close` and `error` events are the
+  reliable source of truth. On `close`, the adapter starts an exponential-
+  backoff reconnect loop and immediately emits `{ state: 'reconnecting', ... }`.
+  On successful `open` + `auth-ok`, it emits `{ state: 'connected' }`.
+- **Secondary trigger — browser online/offline events.** `window` `offline`
+  fires immediately when the OS network stack reports no connectivity
+  (faster than a TCP timeout). The adapter uses this to give the user an
+  immediate hint but does not use `navigator.onLine` to gate reconnect
+  logic — it is unreliable (can be `true` while the server is
+  unreachable). `window` `online` prompts an early reconnect attempt but
+  does not suppress the normal backoff loop.
+- **No app-level cron or polling.** The WebSocket close event is sufficient.
+  Polling would add battery and server cost with no benefit.
+
+`CloudAdapter` also self-manages the `beforeunload` handler. It installs the
+handler when `pendingEdits > 0` and removes it when the queue drains to zero.
+The main app does not touch `beforeunload`; this is plugin-internal state.
+
+The UI message strings ("Reconnecting…", "N edits not yet saved to cloud")
+are defined inside `CloudAdapter` (or a companion `CloudAdapterUI` helper it
+owns), not in the shared toolbar code. The toolbar renders a generic status
+slot; the plugin decides what text and severity to put there.
+
+**Summary of ownership:**
+
+| Concern                         | Owner             |
+| ------------------------------- | ----------------- |
+| WebSocket lifecycle             | `CloudAdapter`    |
+| Reconnect backoff loop          | `CloudAdapter`    |
+| Pending-edit queue              | `CloudAdapter`    |
+| Connection status observable    | `CloudAdapter`    |
+| `beforeunload` handler          | `CloudAdapter`    |
+| UI message strings and severity | `CloudAdapter`    |
+| Toolbar status slot (rendering) | Main app shell    |
+| `navigator.onLine` / OS events  | `CloudAdapter`    |
+| Cron / polling for connectivity | Nobody — not used |
+
 ## Compile And Worker Integration
 
 Cloud-applied remote updates must not regress the editor's compile fast
