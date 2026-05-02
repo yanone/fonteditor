@@ -36,6 +36,7 @@ import {
     deriveLayerIdFromPath,
     deriveLayerIdsFromPaths,
     getPathSegments,
+    joinPathWithGlyphSeparator,
     normalizeWorkerReplayTargets,
     normalizeChangeLogEntry,
     resolveHistoryTargetItem,
@@ -1587,12 +1588,19 @@ export class ChangeBridge {
                 pathSegments[0] !== 'glyphs' ||
                 pathSegments[2] !== 'layers'
             ) {
-                continue;
             }
 
             const glyphName = pathSegments[1];
             const layerId = pathSegments[3];
             const propertyKey = pathSegments[4];
+            console.error(
+                '[DEBUG-ERR] passed checks, glyphName=',
+                glyphName,
+                'layerId=',
+                layerId,
+                'propertyKey=',
+                propertyKey
+            );
 
             const glyphRecord = glyphs.find(
                 (glyph) => glyph?.name === glyphName
@@ -2110,7 +2118,7 @@ export class ChangeBridge {
                     deriveGlyphName(operation.path),
                     deriveLayerId(operation.path)
                 ),
-                path: operation.path.join('.'),
+                path: joinPathWithGlyphSeparator(operation.path),
                 oldValue: operation.oldValue,
                 newValue: operation.newValue,
                 replayOldValue:
@@ -2151,7 +2159,7 @@ export class ChangeBridge {
 
         if (effectiveOperations.length === 1) {
             console.log(
-                `[ChangeBridge] Change recorded: ${effectiveOperations[0].path.join('.')}`
+                `[ChangeBridge] Change recorded: ${joinPathWithGlyphSeparator(effectiveOperations[0].path)}`
             );
         }
     }
@@ -2952,24 +2960,15 @@ export class ChangeBridge {
     }
 
     private _getPathSegments(path: string): string[] {
-        return getPathSegments(
-            path,
-            this._fontJson as Parameters<typeof getPathSegments>[1]
-        );
+        return getPathSegments(path);
     }
 
     private _deriveGlyphNameFromPath(path: string): string | null {
-        return deriveGlyphNameFromPath(
-            path,
-            this._fontJson as Parameters<typeof deriveGlyphNameFromPath>[1]
-        );
+        return deriveGlyphNameFromPath(path);
     }
 
     private _deriveLayerIdFromPath(path: string): string | null {
-        return deriveLayerIdFromPath(
-            path,
-            this._fontJson as Parameters<typeof deriveLayerIdFromPath>[1]
-        );
+        return deriveLayerIdFromPath(path);
     }
 
     private _parseEntryPath(path: string): (string | number)[] {

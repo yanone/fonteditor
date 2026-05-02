@@ -232,13 +232,6 @@ export interface HistoryStackItem {
 
 const FONT_SCOPE_KEY = '__font__';
 
-type PathResolutionFontModel = {
-    glyphs?: Array<{
-        name?: unknown;
-        layers?: Array<{ id?: unknown }>;
-    }>;
-};
-
 function getGlyphScopeKey(glyphName: string | null): string {
     return glyphName ?? FONT_SCOPE_KEY;
 }
@@ -250,146 +243,75 @@ function getLayerScopeKey(
     return getLayerTouchKey(glyphName, layerId);
 }
 
-function getPathResolutionFontModel(
-    fontModel?: PathResolutionFontModel | null
-): PathResolutionFontModel | null {
-    if (fontModel !== undefined) {
-        return fontModel;
-    }
-
-    const globalScope = globalThis as typeof globalThis & {
-        currentFontModel?: PathResolutionFontModel | null;
-        window?: {
-            currentFontModel?: PathResolutionFontModel | null;
-        };
-    };
-
-    return (
-        globalScope.currentFontModel ??
-        globalScope.window?.currentFontModel ??
-        null
-    );
+/**
+ * Join path segments using a deterministic glyph-name separator.
+ *
+ * The glyph name (path[1]) is separated from the rest of the path by ':'
+ * so that downstream parsing can extract the glyph name in O(1) without
+ * consulting a glyph-name list.  All other segments use '.'.
+ *
+ * Only applies ':' when path[0] is 'glyphs' — all other path roots
+ * (axes, masters, features, etc.) use plain dot-joining.
+ */
+export function joinPathWithGlyphSeparator(path: (string | number)[]): string {
+    if (path.length <= 2 || path[0] !== 'glyphs') return path.join('.');
+    // Separator after glyph name
+    let result = path[0] + '.' + path[1] + ':' + path[2];
+    if (path.length <= 3) return result;
+    // Separator after layer ID (path[3])
+    result += '.' + path[3] + ':' + path.slice(4).join('.');
+    return result;
 }
 
-function getKnownGlyphNames(
-    fontModel: PathResolutionFontModel | null
-): string[] {
-    const glyphNames = new Set<string>();
-
-    for (const glyph of fontModel?.glyphs || []) {
-        if (typeof glyph?.name === 'string' && glyph.name.length > 0) {
-            glyphNames.add(glyph.name);
-        }
-    }
-
-    return [...glyphNames].sort((left, right) => right.length - left.length);
-}
-
-function getKnownLayerIds(
-    fontModel: PathResolutionFontModel | null,
-    glyphName: string
-): string[] {
-    const glyph = fontModel?.glyphs?.find((entry) => entry?.name === glyphName);
-    const layerIds = new Set<string>();
-
-    for (const layer of glyph?.layers || []) {
-        if (typeof layer?.id === 'string' && layer.id.length > 0) {
-            layerIds.add(layer.id);
-        }
-    }
-
-    return [...layerIds].sort((left, right) => right.length - left.length);
-}
-
-function matchKnownKeyPrefix(
-    value: string,
-    keys: string[]
-): { key: string; remainder: string } | null {
-    for (const key of keys) {
-        if (value === key) {
-            return { key, remainder: '' };
-        }
-        if (value.startsWith(`${key}.`)) {
-            return {
-                key,
-                remainder: value.slice(key.length + 1)
-            };
-        }
-    }
-
-    return null;
-}
-
-function getFallbackGlyphMatch(value: string): {
-    key: string;
-    remainder: string;
-} {
-    const layersMarkerIndex = value.indexOf('.layers.');
-    if (layersMarkerIndex >= 0) {
-        return {
-            key: value.slice(0, layersMarkerIndex),
-            remainder: value.slice(layersMarkerIndex + 1)
-        };
-    }
-
-    const firstDotIndex = value.indexOf('.');
-    if (firstDotIndex < 0) {
-        return { key: value, remainder: '' };
-    }
-
-    return {
-        key: value.slice(0, firstDotIndex),
-        remainder: value.slice(firstDotIndex + 1)
-    };
-}
-
-function splitGlyphPath(
-    path: string,
-    fontModel?: PathResolutionFontModel | null
-): string[] | null {
+/**
+ * Split a change-path string that uses ':' as the separator at glyph-name
+ * and layer-ID boundaries.
+ *
+ * Format: glyphs.{glyphName}:layers.{layerId}:shapes.0.nodes.2.x
+ * (glyph names and layer IDs may contain dots — ':' is unambiguous.)
+ */
+function splitGlyphPath(path: string): string[] | null {
     if (!path.startsWith('glyphs.')) {
         return null;
     }
 
-    const resolvedFontModel = getPathResolutionFontModel(fontModel);
-    const glyphPath = path.slice('glyphs.'.length);
-    const glyphMatch =
-        matchKnownKeyPrefix(glyphPath, getKnownGlyphNames(resolvedFontModel)) ||
-        getFallbackGlyphMatch(glyphPath);
-
-    const segments = ['glyphs', glyphMatch.key];
-    if (!glyphMatch.remainder) {
-        return segments;
+    const rest = path.slice('glyphs.'.length);
+    const colonIdx = rest.indexOf(':');
+    if (colonIdx < 0) {
+        // Legacy path without ':' — fall back to dot-splitting.
+        return path.split('.');
     }
 
-    if (!glyphMatch.remainder.startsWith('layers.')) {
-        return [...segments, ...glyphMatch.remainder.split('.')];
+    const glyphName = rest.slice(0, colonIdx);
+    const afterGlyph = rest.slice(colonIdx + 1);
+    if (!afterGlyph) return ['glyphs', glyphName];
+
+    // Split layer-id boundary: layers.{layerId}:rest
+    const secondColonIdx = afterGlyph.indexOf(':');
+    if (secondColonIdx < 0) {
+        // No layer separator — remainder is all dot-delimited
+        return ['glyphs', glyphName, ...afterGlyph.split('.')];
     }
 
-    const layerPath = glyphMatch.remainder.slice('layers.'.length);
-    const layerMatch =
-        matchKnownKeyPrefix(
-            layerPath,
-            getKnownLayerIds(resolvedFontModel, glyphMatch.key)
-        ) || getFallbackGlyphMatch(layerPath);
+    const layerPart = afterGlyph.slice(0, secondColonIdx); // "layers.layer.regular.v1"
+    const afterLayer = afterGlyph.slice(secondColonIdx + 1); // "shapes.0.nodes.2.x"
 
-    segments.push('layers', layerMatch.key);
-    if (!layerMatch.remainder) {
-        return segments;
-    }
+    const layerSegments = layerPart.split('.');
+    // layerSegments[0] should be "layers", the rest is the layer ID
+    const layerId = layerSegments.slice(1).join('.');
 
-    return [...segments, ...layerMatch.remainder.split('.')];
+    const segments = ['glyphs', glyphName, 'layers', layerId];
+    if (!afterLayer) return segments;
+
+    return [...segments, ...afterLayer.split('.')];
 }
 
-export function getPathSegments(
-    path: string,
-    fontModel?: PathResolutionFontModel | null
-): string[] {
+export function getPathSegments(path: string): string[] {
     if (!path || path === 'font') {
         return [];
     }
 
-    return splitGlyphPath(path, fontModel) || path.split('.');
+    return splitGlyphPath(path) || path.split('.');
 }
 
 function derivePropertyFromPath(path: string): string {
@@ -956,34 +878,25 @@ export function deriveLayerId(path: (string | number)[]): string | null {
     return null;
 }
 
-export function deriveGlyphNameFromPath(
-    path: string,
-    fontModel?: PathResolutionFontModel | null
-): string | null {
+export function deriveGlyphNameFromPath(path: string): string | null {
     if (!path) {
         return null;
     }
-    return deriveGlyphName(getPathSegments(path, fontModel));
+    return deriveGlyphName(getPathSegments(path));
 }
 
-export function deriveLayerIdFromPath(
-    path: string,
-    fontModel?: PathResolutionFontModel | null
-): string | null {
+export function deriveLayerIdFromPath(path: string): string | null {
     if (!path) {
         return null;
     }
-    return deriveLayerId(getPathSegments(path, fontModel));
+    return deriveLayerId(getPathSegments(path));
 }
 
-export function deriveObjectInfoFromPath(
-    path: string,
-    fontModel?: PathResolutionFontModel | null
-): {
+export function deriveObjectInfoFromPath(path: string): {
     objectType: ChangeObjectType;
     objectId: string;
 } {
-    return deriveObjectInfo(getPathSegments(path, fontModel));
+    return deriveObjectInfo(getPathSegments(path));
 }
 
 export function deriveGlyphNamesFromPaths(paths: string[]): string[] {

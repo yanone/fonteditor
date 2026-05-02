@@ -30,6 +30,7 @@ const {
     deriveLayerIdFromPath,
     deriveObjectInfo,
     deriveObjectInfoFromPath,
+    joinPathWithGlyphSeparator,
     normalizeChangeLogEntry,
     resolveHistoryTargetItemId
 } = require('../js/change-log');
@@ -694,49 +695,50 @@ const COLLECTION_MUTATOR_TESTS = {
             }),
         expectedOp: 'add',
         expectedPathFragment: (glyph, logEntry) =>
-            `${glyph.getPath().join('.')}.layers.${logEntry.newValue.id}`
+            `${glyph.getPath()[0]}.${glyph.getPath()[1]}:layers.${logEntry.newValue.id}`
     },
     'Glyph.removeLayer': {
         isApplicable: (glyph) => glyph.name === 'A' && glyph.layers?.length > 0,
         invoke: (glyph) => glyph.removeLayer(0),
         expectedOp: 'remove',
         expectedPathFragment: (glyph, logEntry) =>
-            `${glyph.getPath().join('.')}.layers.${logEntry.oldValue.id}`
+            `${glyph.getPath()[0]}.${glyph.getPath()[1]}:layers.${logEntry.oldValue.id}`
     },
     'Layer.addPath': {
         isApplicable: (layer) => layer.id === 'layer-1',
         invoke: (layer) => layer.addPath(false),
         expectedOp: 'add',
         expectedPathFragment: (layer, logEntry) =>
-            `${layer.getPath().join('.')}.shapes.${findCollectionEntryIndex(layer.data.shapes, logEntry.newValue)}`
+            `${joinPathWithGlyphSeparator(layer.getPath())}shapes.${findCollectionEntryIndex(layer.data.shapes, logEntry.newValue)}`
     },
     'Layer.addComponent': {
         isApplicable: (layer) => layer.id === 'layer-1',
         invoke: (layer) => layer.addComponent('B'),
         expectedOp: 'add',
         expectedPathFragment: (layer, logEntry) =>
-            `${layer.getPath().join('.')}.shapes.${findCollectionEntryIndex(layer.data.shapes, logEntry.newValue)}`
+            `${joinPathWithGlyphSeparator(layer.getPath())}shapes.${findCollectionEntryIndex(layer.data.shapes, logEntry.newValue)}`
     },
     'Layer.removeShape': {
         isApplicable: (layer) =>
             layer.id === 'layer-1' && layer.shapes?.length > 0,
         invoke: (layer) => layer.removeShape(0),
         expectedOp: 'remove',
-        expectedPathFragment: (layer) => `${layer.getPath().join('.')}.shapes.0`
+        expectedPathFragment: (layer) =>
+            `${joinPathWithGlyphSeparator(layer.getPath())}shapes.0`
     },
     'Layer.addAnchor': {
         isApplicable: (layer) => layer.id === 'layer-1',
         invoke: (layer) => layer.addAnchor(250, 100, 'bottom'),
         expectedOp: 'add',
         expectedPathFragment: (layer, logEntry) =>
-            `${layer.getPath().join('.')}.anchors.${findCollectionEntryIndex(layer.data.anchors, logEntry.newValue)}`
+            `${joinPathWithGlyphSeparator(layer.getPath())}anchors.${findCollectionEntryIndex(layer.data.anchors, logEntry.newValue)}`
     },
     'Layer.addGuide': {
         isApplicable: (layer) => layer.id === 'layer-1',
         invoke: (layer) => layer.addGuide(450, 'waist', '#00AAFF'),
         expectedOp: 'add',
         expectedPathFragment: (layer, logEntry) =>
-            `${layer.getPath().join('.')}.guides.${findCollectionEntryIndex(layer.data.guides, logEntry.newValue)}`
+            `${joinPathWithGlyphSeparator(layer.getPath())}guides.${findCollectionEntryIndex(layer.data.guides, logEntry.newValue)}`
     },
     'Layer.removeAnchor': {
         isApplicable: (layer) =>
@@ -744,14 +746,15 @@ const COLLECTION_MUTATOR_TESTS = {
         invoke: (layer) => layer.removeAnchor(0),
         expectedOp: 'remove',
         expectedPathFragment: (layer) =>
-            `${layer.getPath().join('.')}.anchors.0`
+            `${joinPathWithGlyphSeparator(layer.getPath())}anchors.0`
     },
     'Layer.removeGuide': {
         isApplicable: (layer) =>
             layer.id === 'layer-1' && layer.guides?.length > 0,
         invoke: (layer) => layer.removeGuide(0),
         expectedOp: 'remove',
-        expectedPathFragment: (layer) => `${layer.getPath().join('.')}.guides.0`
+        expectedPathFragment: (layer) =>
+            `${joinPathWithGlyphSeparator(layer.getPath())}guides.0`
     },
     'Master.addGuide': {
         isApplicable: (master) => master.id === 'master-regular',
@@ -771,20 +774,22 @@ const COLLECTION_MUTATOR_TESTS = {
         isApplicable: (path) => path.nodes?.length > 1,
         invoke: (path) => path.insertNode(1, 175, 225, 'Line'),
         expectedOp: 'add',
-        expectedPathFragment: (path) => `${path.getPath().join('.')}.nodes.1`
+        expectedPathFragment: (path) =>
+            `${joinPathWithGlyphSeparator(path.getPath())}.nodes.1`
     },
     'Path.removeNode': {
         isApplicable: (path) => path.nodes?.length > 0,
         invoke: (path) => path.removeNode(0),
         expectedOp: 'remove',
-        expectedPathFragment: (path) => `${path.getPath().join('.')}.nodes.0`
+        expectedPathFragment: (path) =>
+            `${joinPathWithGlyphSeparator(path.getPath())}.nodes.0`
     },
     'Path.appendNode': {
         isApplicable: (path) => Array.isArray(path.nodes),
         invoke: (path) => path.appendNode(610, 10, 'Line'),
         expectedOp: 'add',
         expectedPathFragment: (path, logEntry) =>
-            `${path.getPath().join('.')}.nodes.${findCollectionEntryIndex(path.data.nodes, logEntry.newValue)}`
+            `${joinPathWithGlyphSeparator(path.getPath())}.nodes.${findCollectionEntryIndex(path.data.nodes, logEntry.newValue)}`
     }
 };
 
@@ -1398,7 +1403,7 @@ describe('change-log', () => {
             objectType: 'layer',
             objectId: 'layer-1',
             property: 'width',
-            path: 'glyphs.A.layers.layer-1.width',
+            path: 'glyphs.A:layers.layer-1:width',
             oldValue: 600,
             newValue: 700
         });
@@ -1417,7 +1422,7 @@ describe('change-log', () => {
             transactionLabel: null,
             transactionId: null,
             op: 'set',
-            path: 'glyphs.A.layers.layer-1.width',
+            path: 'glyphs.A:layers.layer-1:width',
             oldValue: 600,
             newValue: 700,
             workerReplayTargets: [
@@ -1446,7 +1451,7 @@ describe('change-log', () => {
             objectId: 'A',
             glyphName: 'A',
             property: 'width',
-            path: 'glyphs.A.layers.layer-1.width',
+            path: 'glyphs.A:layers.layer-1:width',
             oldValue: 600,
             newValue: 700
         });
@@ -1515,7 +1520,7 @@ describe('change-log', () => {
             objectId: 'A',
             glyphName: 'A',
             property: 'width',
-            path: 'glyphs.A.layers.layer-1.width',
+            path: 'glyphs.A:layers.layer-1:width',
             oldValue: 600,
             newValue: 700
         });
@@ -1557,7 +1562,7 @@ describe('change-log', () => {
             transactionId: 1,
             op: 'set',
             undoScope: 'glyph',
-            path: 'glyphs.A.layers.layer-1.note',
+            path: 'glyphs.A:layers.layer-1:note',
             oldValue: '',
             newValue: 'changed'
         });
@@ -1589,7 +1594,7 @@ describe('change-log', () => {
             transactionId: 1,
             op: 'set',
             undoScope: 'font',
-            path: 'glyphs.A.layers.layer-1.width',
+            path: 'glyphs.A:layers.layer-1:width',
             oldValue: 600,
             newValue: 610
         });
@@ -1616,7 +1621,7 @@ describe('change-log', () => {
 
         try {
             const path =
-                'glyphs.behDotless-ar.medi.layers.layer.regular.v1.anchors.0.y';
+                'glyphs.behDotless-ar.medi:layers.layer.regular.v1:anchors.0.y';
             const entry = createLogEntry({
                 timestamp: 1,
                 windowId: 'w',
@@ -1659,7 +1664,7 @@ describe('change-log', () => {
         };
 
         try {
-            const path = 'glyphs.a.ss04.note';
+            const path = 'glyphs.a.ss04:note';
             const entry = createLogEntry({
                 timestamp: 1,
                 windowId: 'w',
@@ -1719,7 +1724,7 @@ describe('change-log', () => {
                 objectId: 'A',
                 glyphName: 'A',
                 property: 'width',
-                path: `glyphs.A.layers.layer-1.width`,
+                path: `glyphs.A:layers.layer-1:width`,
                 oldValue: 600,
                 newValue: 600 + i,
                 workerReplayTargets: targets
@@ -1776,7 +1781,7 @@ describe('change-log', () => {
                 objectId: 'A',
                 glyphName: 'A',
                 property: 'width',
-                path: 'glyphs.A.layers.layer-1.width',
+                path: 'glyphs.A:layers.layer-1:width',
                 oldValue: 600,
                 newValue: 610
             })
@@ -1795,7 +1800,7 @@ describe('change-log', () => {
                 objectId: 'A',
                 glyphName: 'A',
                 property: 'width',
-                path: 'glyphs.A.layers.layer-1.width',
+                path: 'glyphs.A:layers.layer-1:width',
                 oldValue: 610,
                 newValue: 620
             })
@@ -1904,7 +1909,7 @@ describe('ChangeBridge', () => {
         expect(log[0].property).toBe('width');
         expect(log[0].oldValue).toBe(600);
         expect(log[0].newValue).toBe(700);
-        expect(log[0].path).toBe('glyphs.A.layers.layer-1.width');
+        expect(log[0].path).toBe('glyphs.A:layers.layer-1:width');
         expect(log[0].glyphName).toBe('A');
     });
 
@@ -2096,8 +2101,8 @@ describe('ChangeBridge', () => {
         expect(listener).toHaveBeenCalledTimes(1);
         expect(listener.mock.calls[0][0]).toHaveLength(2);
         expect(listener.mock.calls[0][0].map((entry) => entry.path)).toEqual([
-            'glyphs.A.layers.layer-1.width',
-            'glyphs.A.layers.layer-1.name'
+            'glyphs.A:layers.layer-1:width',
+            'glyphs.A:layers.layer-1:name'
         ]);
     });
 
@@ -2718,7 +2723,7 @@ describe('Model mutable getter change recording', () => {
 
         expect(log).toHaveLength(1);
         expect(log[0].transactionLabel).toBe('Mixed non-outline edit');
-        expect(log[0].path).toBe('glyphs.A.layers.layer-1.width');
+        expect(log[0].path).toBe('glyphs.A:layers.layer-1:width');
         expect(log[0].oldValue).toBe(600);
         expect(log[0].newValue).toBe(610);
     });
@@ -2952,9 +2957,9 @@ describe('Model collection mutator change recording', () => {
             new Set(['Set LSB'])
         );
         expect(log.map((entry) => entry.path)).toEqual([
-            'glyphs.A.layers.layer-1.shapes',
-            'glyphs.A.layers.layer-1.anchors',
-            'glyphs.A.layers.layer-1.width'
+            'glyphs.A:layers.layer-1:shapes',
+            'glyphs.A:layers.layer-1:anchors',
+            'glyphs.A:layers.layer-1:width'
         ]);
         expect(
             getYPath(bridge.fontMap, [
