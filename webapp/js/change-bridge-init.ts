@@ -953,6 +953,21 @@ export async function handleRemoteChangeRefresh(
         changedGlyphNames.add(glyphName);
     }
 
+    // Include dependent composite glyphs (glyphs that use any changed
+    // glyph as a component). Their rendered outlines also change when
+    // the source glyph's outline, anchors, or sidebearings are modified.
+    const fontModel =
+        window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
+    if (fontModel?.findGlyphsUsingComponent) {
+        for (const glyphName of [...changedGlyphNames]) {
+            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
+                glyphName
+            )) {
+                changedGlyphNames.add(dependentGlyphName);
+            }
+        }
+    }
+
     if (changedGlyphNames.size > 0) {
         const glyphNamesArray = [...changedGlyphNames];
         window.dispatchEvent(
