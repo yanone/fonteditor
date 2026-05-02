@@ -931,6 +931,48 @@ export async function handleRemoteChangeRefresh(
     );
 
     await requestCompile(changeSource, editType);
+
+    // Refresh the glyph overview for the receiving window. Extract affected
+    // glyph names from workerReplayTargets and entry paths, then dispatch
+    // glyphChanged so the overview invalidates cached tile data and
+    // schedules a re-render.
+    const changedGlyphNames = new Set<string>();
+    for (const entry of entries) {
+        for (const target of normalizeWorkerReplayTargets(
+            entry.workerReplayTargets
+        )) {
+            if (target.glyphName) {
+                changedGlyphNames.add(target.glyphName);
+            }
+        }
+    }
+    const entryPaths = entries
+        .map((e) => e.path)
+        .filter((p): p is string => !!p);
+    for (const glyphName of deriveGlyphNamesFromPaths(entryPaths)) {
+        changedGlyphNames.add(glyphName);
+    }
+
+    if (changedGlyphNames.size > 0) {
+        const glyphNamesArray = [...changedGlyphNames];
+        window.dispatchEvent(
+            new CustomEvent('glyphChanged', {
+                detail: {
+                    glyphName: glyphNamesArray[0],
+                    glyphNames: glyphNamesArray
+                }
+            })
+        );
+    } else {
+        // Fallback: full overview re-render when no specific glyphs
+        // can be identified from the change entries.
+        const glyphOverview = window.glyphOverviewInstance;
+        if (typeof glyphOverview?.renderGlyphOutlines === 'function') {
+            await glyphOverview.renderGlyphOutlines(
+                glyphOverview.currentLocation ?? {}
+            );
+        }
+    }
 }
 
 export function queueRustCacheAndRefreshCanvas(
