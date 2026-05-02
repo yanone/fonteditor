@@ -1247,6 +1247,70 @@ CREATE INDEX font_asset_events_by_scope
 A scheduled Worker (separate from Pages) runs nightly compaction. It cannot
 live in the Pages project because Pages does not support cron triggers.
 
+## Local Development Setup
+
+All server components can be developed and tested locally using Cloudflare's
+`wrangler` CLI. No Cloudflare account access is required until you need real
+multi-machine sessions or want to invite an external collaborator.
+
+### Component emulation
+
+| Component                    | Local equivalent                      | Notes                                                           |
+| ---------------------------- | ------------------------------------- | --------------------------------------------------------------- |
+| Worker + Durable Object      | `wrangler dev`                        | Full DO lifecycle including WebSocket hibernation               |
+| DO SQLite storage            | Local SQLite file managed by wrangler | `ctx.storage.sql` works identically                             |
+| D1                           | `wrangler d1 execute --local`         | Identical SQL dialect; local file under `.wrangler/state/`      |
+| R2                           | Local filesystem mock                 | Transparent to Worker code; no bucket needed                    |
+| Pages + Functions            | `wrangler pages dev`                  | Runs the full API route layer including auth middleware         |
+| Service binding (Pages → DO) | Local inter-process binding           | Both wrangler instances discover each other via `wrangler.toml` |
+
+### Dev server wiring
+
+Three processes run concurrently during local development:
+
+1. **`cf-fonts-room` Worker** — `wrangler dev` in `cf-fonts-room/` on port 8787.
+   Binds the `FontRoomDO` class and exposes the WebSocket endpoint.
+
+2. **Pages project** — `wrangler pages dev` in the repo root, with a service
+   binding pointing at the local Worker on port 8787. Handles all
+   `/api/cloud/*` HTTP routes.
+
+3. **Editor dev server** — `npm run dev` in `webapp/`, already running on
+   `https://localhost:8000`. Point `CLOUD_API_BASE` in the editor's dev config
+   at the local Pages instance (default `http://localhost:8788`).
+
+`wrangler.toml` in `cf-fonts-room/` declares the DO class, SQLite binding, and
+R2 binding. The Pages project's `wrangler.toml` (or `wrangler.pages.toml`)
+declares the service binding to the room Worker. Both files need a
+`[dev]` block that sets local ports to avoid conflicts with the editor dev
+server.
+
+### D1 local setup
+
+Run D1 migrations locally before first use:
+
+```bash
+wrangler d1 execute DB --local --file=migrations/0001_cloud_schema.sql
+```
+
+The local D1 database is a SQLite file under `.wrangler/state/v3/d1/`. It is
+gitignored and can be reset at any time by deleting that directory.
+
+### When a real Cloudflare deployment is needed
+
+Local emulation covers Phases 0–2 entirely. A deployed environment becomes
+useful when:
+
+- testing actual multi-user sessions across different machines or networks;
+- validating DO hibernation cold-start latency under real Cloudflare
+  infrastructure (local wrangler does not simulate hibernation wake latency);
+- inviting an external collaborator for Phase 3 sharing flows;
+- Phase 5 soak testing under real network conditions.
+
+The existing `release.sh` / GitHub Actions pipeline deploys the Pages project.
+The `cf-fonts-room` Worker deploys via `wrangler deploy` from its directory,
+or as a step added to the same CI workflow.
+
 ## Implementation Phases
 
 ### Phase 0 — Skeleton (no real users)
