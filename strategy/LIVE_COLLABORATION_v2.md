@@ -282,7 +282,8 @@ Response shape:
   is non-null.
 - Unauthenticated callers receive `401`.
 - Cheap: one D1 read against `user_cloud_overrides` + one row count against
-  `cloud_folder_entries` (owner rows). No DO involvement.
+  `font_assets.owner_user_id`. `cloud_folder_entries` is per accessible asset,
+  so it must not be used for owned-font quota counts. No DO involvement.
 
 `POST /api/cloud/assets` (Save As) re-checks eligibility server-side before
 creating the asset row, guarding against stale client state.
@@ -426,15 +427,19 @@ type CloudOrigin = {
 };
 ```
 
-`UndoManager.trackedOrigins` is set per scope to the predicate
-"`origin.userId === this user's id` AND scope matches". This gives the v1
-guarantee that a user's Cmd+Z only undoes their own work, even when multiple
-windows are owned by the same user. Multiple tabs of the same user share
-undo because the predicate matches `userId`, not `clientId`.
+`UndoManager.trackedOrigins` is set per scope through a helper predicate that
+accepts structured `CloudOrigin` objects where "`origin.userId === this user's
+id` AND scope matches". The same helper also recognizes that scope's own local
+UndoManager origin during undo/redo replay. This gives the v1 guarantee that a
+user's Cmd+Z only undoes their own work, even when multiple windows are owned by
+the same user. Multiple tabs of the same user share undo because the cloud
+metadata matches `userId`, not `clientId`.
 
-Remote updates from the DO arrive with the original sender's origin
-preserved; the receiver applies them inside `applyRemoteUpdate` with a local
-`'remote'` origin so they are never tracked by any local UndoManager.
+Remote update envelopes from the DO carry the original sender's `CloudOrigin`
+as metadata for attribution, compile routing, and history indexing. The
+receiver still applies the binary Yjs update inside `applyRemoteUpdate` with a
+local `'remote'` origin so remote work is never tracked by any local
+UndoManager.
 
 ## Wire Protocol (revised from v1)
 
@@ -449,7 +454,7 @@ Client → DO:
 | `sync-request`       | `{ stateVector: bytes }`                                                   |
 | `update`             | `{ seq, update: bytes, origin: CloudOrigin, changeLog: ChangeLogEntry[] }` |
 | `awareness`          | `{ awarenessUpdate: bytes }`                                               |
-| `checkpoint-request` | `{ label: string, meta?: { description?, color?, glyphs? } }`              |
+| `checkpoint-request` | `{ label: string, meta?: { description?, color?, tags?, glyphs? } }`       |
 | `ping`               | `{}`                                                                       |
 
 DO → Client:
@@ -648,7 +653,8 @@ Supported rule kinds for v2:
         "label": "30-min checkpoint",
     },
 
-    // Take a snapshot whenever a specific glyph (or any glyph in a list) is saved
+    // Take a snapshot whenever an accepted update touches a specific glyph
+    // (or any glyph in a list)
     {
         "kind": "on-glyph-save",
         "glyphs": ["A", "a", "zero"],
@@ -675,11 +681,11 @@ main history UI. Their only purpose is to bound cold-start replay time. If the
 DO restarts with only a very old semantic snapshot on record, replaying thousands
 of segments to reach the present is slow. Recovery snapshots cap that tail:
 
-| Trigger                                                                   | `kind`     | Notes                                                                                        |
-| ------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------- |
-| Every 4 segment rolls without a session-end snapshot (≈ 1024 updates)     | `recovery` | Keeps cold-start replay bounded to ≤ 1 segment worth of updates on top of the last snapshot. |
-| 30 minutes of continuous editing without a session-end                    | `recovery` | Fallback for extremely long uninterrupted sessions (e.g. all-day open tab).                  |
-| UTC midnight, if edits happened that day and no `session-end` was written | `recovery` | Safety net for rooms that are never fully closed.                                            |
+| Trigger                                                                   | `kind`     | Notes                                                                                                  |
+| ------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
+| Every 4 segment rolls without a session-end snapshot (≈ 1024 updates)     | `recovery` | Keeps cold-start replay bounded to ≤ 4 segments, or roughly 1024 updates, on top of the last snapshot. |
+| 30 minutes of continuous editing without a session-end                    | `recovery` | Fallback for extremely long uninterrupted sessions (e.g. all-day open tab).                            |
+| UTC midnight, if edits happened that day and no `session-end` was written | `recovery` | Safety net for rooms that are never fully closed.                                                      |
 
 Recovery snapshots are stored and retained normally; they simply have a
 different `kind` so the history UI can omit them from the activity feed while
@@ -702,8 +708,10 @@ D1 is the metadata + searchable index. Per-update writes do not go to D1.
 D1 receives:
 
 - `font_asset_versions` rows: one row per snapshot or named version, with
-  `yjs_state_ref`, `babelfont_ref`, `kind` (`auto` | `named` | `restore` |
-  `import`), `actor_user_id`, `label`, `summary_json`, `created_at`;
+  `yjs_state_ref`, `babelfont_ref`, `kind` (`session-end` |
+  `session-start` | `named` | `pre-op` | `recovery` | `explicit` |
+  `import` | `migration`), `actor_user_id`, `label`, `summary_json`,
+  `created_at`;
 - `font_asset_events` rows: one row per logical transaction at write-through
   granularity. The DO batches these — it inserts a single multi-row
   statement at segment-roll time, not per update — so D1 hot-write pressure
@@ -753,12 +761,16 @@ Three concepts. Keep them separated in the UI and in code.
 
 ### Personal undo
 
-- Each user undoes only their own changes (via `trackedOrigins` predicate
-  matching `userId`).
-- Multi-tab same-user windows share undo via shared `userId` in origin.
-- Undo emits a normal forward Yjs update with origin `kind: 'user-edit'`
-  (already true today). Other users see it as a new edit by the undoing
-  user.
+- Each user undoes only their own changes via the scoped UndoManager predicate
+  described above.
+- Multi-tab same-user windows share undo via shared `userId` in cloud origin
+  metadata.
+- Undo emits a normal forward Yjs update. Yjs itself uses the UndoManager
+  instance as the local transaction origin for undo/redo, so the cloud sender
+  wraps the outbound envelope with `CloudOrigin.kind = 'history-replay'`, the
+  undoing `userId`, and the original scope. Other users see it as a new edit by
+  the undoing user, but their UndoManagers apply it with a remote origin and
+  never add it to their local stacks.
 - Undo never crosses scope: a font-level undo manager does not touch glyph
   text, etc. This is already the editor's behavior; v2 just keeps it.
 
@@ -787,8 +799,10 @@ transaction:
 
 - becomes a single forward update broadcast to all connected clients;
 - is recorded as a `font_asset_events` row of type `restore`;
-- creates a named version automatically labeled `before-restore-{version}`
-  to make the restore itself reversible by another restore.
+- creates a `pre-op` snapshot automatically labeled
+  `before-restore-{version}` to make the restore itself reversible by another
+  restore. This restore point is shown in the restore surface, but it is not a
+  user-created `named` milestone.
 
 Editors restoring whole-font is intentionally disallowed in v2; if an editor
 wants that, the owner does it. Editors can restore glyphs and layers because
@@ -1088,15 +1102,17 @@ CREATE TABLE font_asset_versions (
   )),
   actor_user_id TEXT,
   label TEXT,
+  summary_json TEXT,             -- optional structured summary for history UI
   description TEXT,              -- optional longer note (from milestone meta)
   label_color TEXT,              -- optional hex color tag (from milestone meta)
   tags_json TEXT,                -- optional JSON array of short string tags
   yjs_state_ref TEXT NOT NULL,
   babelfont_ref TEXT NOT NULL,
   prior_version_id TEXT,
-  created_at INTEGER NOT NULL,
-  UNIQUE(asset_id, room_version)
+  created_at INTEGER NOT NULL
 );
+CREATE INDEX font_asset_versions_by_asset_room_version
+  ON font_asset_versions(asset_id, room_version);
 
 -- Per-user cloud hosting override. A row with revoked_at IS NULL grants access.
 -- No quota columns in v2; getMaxFontsOwned and getSnapshotRetentionDays return
@@ -1210,7 +1226,7 @@ live in the Pages project because Pages does not support cron triggers.
 - Named versions UI (create, label, restore).
 - Whole-font restore (owner), then glyph and layer restore (owner +
   editor), then kerning and features restore (owner).
-- Each restore writes a `before-restore` named version automatically.
+- Each restore writes a `before-restore` `pre-op` restore point automatically.
 
 ### Phase 5 — Hardening and observability
 
@@ -1255,8 +1271,8 @@ A v2 is "done" when, on Cloudflare:
   typical font from the latest snapshot plus a short log tail;
 - an owner can create a named version, change the font further, and restore
   one glyph from that version, observing the restore on the other user's
-  screen as a forward operation, with a `before-restore` version available
-  for one-click reversal;
+  screen as a forward operation, with a `before-restore` restore point
+  available for one-click reversal;
 - a viewer-role user cannot send document updates;
 - compile budgets and worker replay paths are unchanged from local-only
   editing in the existing benchmarks.
