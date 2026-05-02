@@ -237,7 +237,11 @@ async function isCloudHostingEnabled(db, userId) { ... }
 async function getMaxFontsOwned(db, userId) { ... }
 
 // Returns null (unlimited) for all users in the current phase.
-// Later: will return the number of days snapshots are retained (per tier).
+// Later: will return the minimum number of days `named` versions owned by
+// this user are retained (per tier). Operationally driven snapshot kinds
+// (`recovery`, `session-end`, `session-start`, `pre-op`, `explicit`) follow
+// the per-kind retention table in the Retention And Compaction section and
+// are NOT affected by this value — they are infrastructure, not user data.
 async function getSnapshotRetentionDays(db, userId) { ... }
 ```
 
@@ -306,9 +310,12 @@ yDoc
 ├─ font:         Y.Map   // family name, axes, masters, instances, info,
 │                         // features (top-level), metrics defaults
 ├─ glyphs:       Y.Map<glyphName, Y.Map>
-│                         // each glyph value is a Y.Map with `layers`,
-│                         // `unicodes`, `metricsKeys`, `anchors-default`,
-│                         // `components` etc., as today
+│                         // each glyph value is a Y.Map mirroring the
+│                         // editor's current per-glyph topology:
+│                         // `layers` (Y.Map<layerId, Y.Map> — paths,
+│                         // anchors, components, width, metrics keys),
+│                         // `unicodes`, glyph-level `metricsKeys`,
+│                         // `categories`, etc.
 ├─ kerning:      Y.Map<masterId, Y.Map<pairKey, number>>
 ├─ features:     Y.Map   // feature source blocks, classes, lookups
 └─ meta:         Y.Map   // doc schema version, last actor, lastEditAt
@@ -392,10 +399,12 @@ bootstrap shape, event index, and snapshot layout are already glyph-keyed.
 threshold (initial proposal: ≥ 4000 glyphs OR ≥ 10 MB babelfont JSON), open
 that asset in lazy mode. The DO's stored Yjs state for the asset is
 rewritten in a one-shot migration job that splits glyph maps into subdocs;
-the migration writes a new `schema_version` on `font_assets` and a new
-base snapshot. Older assets stay on `schema_version = 1` (eager) until they
-too cross the threshold or are explicitly migrated by an owner. The editor
-negotiates which mode it must use during `auth` based on `schema_version`.
+the migration bumps `font_assets.yjs_doc_schema_version` and flips
+`font_assets.load_mode` from `'eager'` to `'lazy'`, then writes a new
+base snapshot. Older assets stay on `load_mode = 'eager'` until they too
+cross the threshold or are explicitly migrated by an owner. The editor
+negotiates which mode it must use during `auth` based on
+`(yjs_doc_schema_version, load_mode)` returned in `auth-ok`.
 
 ## Yjs Origins And User Identity
 
@@ -459,22 +468,22 @@ Client → DO:
 
 DO → Client:
 
-| Type            | Payload                                                                 |
-| --------------- | ----------------------------------------------------------------------- |
-| `auth-ok`       | `{ roomVersion, serverClientId, snapshotVersion }`                      |
-| `sync-response` | `{ update: bytes, roomVersion }` (single merged Yjs update)             |
-| `update`        | `{ seq, update, origin, changeLog, roomVersion, sender }`               |
-| `ack`           | `{ clientSeq, roomVersion, durable: bool }`                             |
-| `awareness`     | `{ awarenessUpdate }`                                                   |
-| `error`         | `{ code, message, retry? }`                                             |
-| `restore-event` | `{ scope, sourceVersion, summary }` (already applied as forward update) |
+| Type            | Payload                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------- |
+| `auth-ok`       | `{ roomVersion, serverClientId, snapshotVersion, loadMode, yjsDocSchemaVersion, role }` |
+| `sync-response` | `{ update: bytes, roomVersion }` (single merged Yjs update)                             |
+| `update`        | `{ seq, update, origin, changeLog, roomVersion, sender }`                               |
+| `ack`           | `{ clientSeq, roomVersion, durable: bool }`                                             |
+| `awareness`     | `{ awarenessUpdate }`                                                                   |
+| `error`         | `{ code, message, retry? }`                                                             |
+| `restore-event` | `{ scope, sourceVersion, summary }` (already applied as forward update)                 |
 
-Two acknowledgements per update:
-
-1. `received` (implicit on broadcast back to sender) — fast.
-2. `durable: true` — emitted once the update has been written to DO SQLite
-   AND merged into the in-memory `Y.Doc`. Editor's "saving / saved" UI is
-   driven by this.
+Acknowledgement model: there is **one** explicit ack per update — `ack`
+with `durable: true` — emitted by the DO once the update has been written
+to DO SQLite AND merged into the in-memory `Y.Doc`. The DO does not echo
+the sender's own update back as a separate confirmation; the WebSocket
+frame delivery is sufficient transport-level receipt. Editor's
+"saving / saved" UI is driven exclusively by the durable ack.
 
 Editor must show "unsaved cloud" until the durable ack is observed. v1
 already said this; v2 makes it part of the wire protocol, not an
@@ -548,17 +557,26 @@ Snapshots serve two distinct purposes with different optimal triggers:
 **Semantic snapshots** — meaningful history points shown in the UI. These align
 with natural work rhythms:
 
-| Trigger                                                | `kind`          | Notes                                                                                     |
-| ------------------------------------------------------ | --------------- | ----------------------------------------------------------------------------------------- |
-| Last client disconnects while room is dirty            | `session-end`   | Primary boundary. Captures the coherent state after a work session.                       |
-| First client connects after ≥ 15 min of no connections | `session-start` | Bookmarks state _before_ the new session begins; gives history a clean before/after pair. |
-| User creates a named version / milestone               | `named`         | Most explicit semantic marker. User-labelled. Can carry custom metadata (see below).      |
-| Before any restore or destructive operation            | `pre-op`        | Automatic, created synchronously before the operation fires.                              |
+| Trigger                                                                                     | `kind`          | Notes                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Last live WebSocket closes while room is dirty (true disconnect, not hibernation)           | `session-end`   | Primary boundary. Captures the coherent state after a work session. Hibernation alone does not trigger this — the room version must have advanced since the previous snapshot. |
+| First client connects after ≥ 15 min with no live WebSockets, AND room version has advanced | `session-start` | Bookmarks state _before_ the new session begins. Skipped if no edits have landed since the previous `session-end` — there is nothing new to record.                            |
+| User creates a named version / milestone                                                    | `named`         | Most explicit semantic marker. User-labelled. Can carry custom metadata (see below).                                                                                           |
+| Before any restore or destructive operation                                                 | `pre-op`        | Created server-side at the DO before the operation's forward update is broadcast. Stored as a Yjs snapshot only (no babelfont JSON materialization) — see below.               |
 
 Semantic snapshots appear in the history UI. `session-end` and `session-start`
 are auto-labelled with timestamp and connected-user list. `pre-op` snapshots are
 shown only in the context of the operation that triggered them ("before this
 restore").
+
+`pre-op` snapshots are intentionally **Yjs-state only** (`yjs_state_ref`
+populated, `babelfont_ref` left empty until first read). Materializing a
+Brotli-compressed babelfont JSON for a 5k-glyph font can take seconds and
+would visibly stall the user invoking the operation. The Yjs state is
+sufficient to revert via a forward restore; the babelfont JSON is
+materialized lazily on first inspection of that snapshot from the history
+UI. All other snapshot kinds materialize both refs eagerly because they
+are not on the user's interactive critical path.
 
 ### Named Milestones
 
@@ -798,7 +816,9 @@ sub-tree for the requested scope, and applies it through the existing
 transaction:
 
 - becomes a single forward update broadcast to all connected clients;
-- is recorded as a `font_asset_events` row of type `restore`;
+- is recorded as a `font_asset_events` row of type `restore`, with
+  `actor_user_id` set to the user who invoked the restore (not the user
+  who authored the source snapshot);
 - creates a `pre-op` snapshot automatically labeled
   `before-restore-{version}` to make the restore itself reversible by another
   restore. This restore point is shown in the restore surface, but it is not a
@@ -868,13 +888,70 @@ Soft locks (presence-only, not enforced):
 
 ## Offline, Reconnect, And Idempotency
 
+### Offline capability scope in v2
+
+v2 distinguishes three offline scenarios with different answers:
+
+**1. Cold-start offline — not supported.** Opening a cloud font requires, in
+order: a valid session cookie, a room-token API call to the Pages control
+plane, and fetching the bootstrap snapshot. All three steps need network access.
+The PWA service worker caches only the app shell (JS, CSS, WASM); it does not
+cache per-asset font data. A user who opens the PWA with no connection and
+tries to open a cloud font will see "Cannot connect — please check your
+connection." If they need to work fully offline, they should use the Memory
+or Disk filesystem plugin with a local file instead.
+
+**2. In-session disconnect — handled gracefully, do not freeze edits.** When
+the WebSocket drops mid-session, the editor continues to accept and apply
+local edits exactly as if it were in single-user mode. The Yjs document is
+local-first: the in-memory `Y.Doc` is the user's working copy, and the
+WebSocket is the sync pipe, not the data source. Freezing edits on disconnect
+would be catastrophic UX — a network blip during a point drag would lock the
+canvas mid-gesture. Google Docs uses the same approach: it queues locally and
+syncs when reconnected; it only blocks navigation away, not in-place editing.
+
+The editor's "unsaved cloud" indicator tracks disconnect duration:
+
+| Duration          | UI treatment                                              |
+| ----------------- | --------------------------------------------------------- |
+| 0–5 s             | No change. Brief blips are invisible to the user.         |
+| 5 s – 2 min       | Subtle "reconnecting" spinner in the toolbar status area. |
+| > 2 min           | Amber "N edits not yet saved to cloud" warning badge.     |
+| Tab close attempt | Browser `beforeunload` dialog: "N edits have not reached  |
+|                   | the server. Close anyway?" (Standard browser API; only    |
+|                   | fires on intentional close/reload, not on crash.)         |
+
+**3. Extended offline in a live session — queue in memory, acknowledge the
+risk.** The in-memory queue is unbounded in v2. A user who edits for several
+hours without network access will accumulate a large queue; if the tab crashes
+or is hard-reloaded before reconnect, all queued edits are lost. This is
+unavoidable without client-side persistent storage (see v3 note below). The
+"N edits not yet saved" indicator and the `beforeunload` dialog are the
+primary safeguards. v2 imposes no forced freeze after a time limit, but the
+UX should make the risk legible.
+
+**v3 offline-first path (not in v2).** Full offline capability — open a
+cloud font, edit for days without network, sync on next connect — requires:
+persisting the Yjs state between page loads (IndexedDB or OPFS), deferring
+the room-token/bootstrap sequence until a connection is available, and
+handling the case where the offline author's state vector has diverged far
+enough that a full `force-rebase` is needed. This is feasible but adds
+significant complexity and is deferred until there is demonstrated demand
+from users who regularly work offline with cloud fonts.
+
+### Reconnect protocol
+
 - The editor queues outgoing `update` frames in memory while disconnected,
-  preserving their `(clientId, seq, origin, changeLog)`.
+  preserving their `(clientId, seq, origin, changeLog)`. The queue is
+  in-memory only; a tab crash or hard reload loses unflushed offline edits
+  and assigns a new `clientId` on next load. "Durable" only means
+  durable on the server, not crash-resilient on the client.
 - On reconnect the editor sends `auth` then `sync-request` with its current
   state vector. The DO replies with `sync-response` containing the merged
   diff update for everything past that vector, then accepts the editor's
   queued updates. The DO drops any `(clientId, seq)` it has already seen
-  thanks to the `UNIQUE` constraint, so the editor can retry safely without
+  thanks to the `UNIQUE` constraint, so in-process retries (network blip,
+  reconnect of the same tab) are idempotent without client-side
   bookkeeping.
 - If the WebSocket has been hibernating but never disconnected, the same
   flow works: the DO wakes, rehydrates from the latest snapshot + log, and
@@ -1174,71 +1251,71 @@ live in the Pages project because Pages does not support cron triggers.
 
 ### Phase 0 — Skeleton (no real users)
 
-- Add Worker + DO class `FontRoomDO` with hibernation and DO SQLite storage.
-- Add Pages route `POST /api/cloud/assets/:id/room-token` returning a signed
-  JWT. Authorization stub returns `editor` for any logged-in user.
-- Add minimal DO endpoints: `auth`, `sync-request`, `update`, `ack`. No
-  segments, no snapshots, no restore. Just live mirroring with append log.
-- Verify two browsers converge on a real font.
+- [ ] Add Worker + DO class `FontRoomDO` with hibernation and DO SQLite storage.
+- [ ] Add Pages route `POST /api/cloud/assets/:id/room-token` returning a signed
+      JWT. Authorization stub returns `editor` for any logged-in user.
+- [ ] Add minimal DO endpoints: `auth`, `sync-request`, `update`, `ack`. No
+      segments, no snapshots, no restore. Just live mirroring with append log.
+- [ ] Verify two browsers converge on a real font.
 
 ### Phase 1 — Cloud filesystem plugin and asset CRUD
 
-- D1 migrations for `cloud_folders`, `font_assets`, `font_asset_members`,
-  `font_asset_invitations`.
-- D1 migration for `user_cloud_overrides`; add `POST /api/admin/cloud/override`
-  (grant/revoke) and expose the Cloud Hosting panel in the admin dashboard.
-- `GET /api/cloud/eligibility` endpoint backed by `utils/cloud-entitlements.js`
-  (`isCloudHostingEnabled`, `getMaxFontsOwned`, `getSnapshotRetentionDays`).
-- Pages routes `/api/cloud/folders` and `/api/cloud/assets` with full
-  ACL checks using the existing auth middleware and `findUserByIdOrEmail`.
-  `POST /api/cloud/assets` re-checks `isCloudHostingEnabled` before creating
-  the asset row.
-- Editor `CloudPlugin` and `CloudAdapter` matching the existing
-  `FileSystemAdapter` contract. On init the plugin calls `GET /api/cloud/eligibility`
-  and hides itself if `cloudHostingEnabled` is false. Open returns
-  `{ assetId, role, roomEndpoint, roomToken, bootstrap }`.
-- Save-as for non-cloud fonts (creates an asset and seeds the DO).
-- Authorization in `room-token` endpoint actually checks
-  `font_asset_members`.
+- [ ] D1 migrations for `cloud_folders`, `font_assets`, `font_asset_members`,
+      `font_asset_invitations`.
+- [ ] D1 migration for `user_cloud_overrides`; add `POST /api/admin/cloud/override`
+      (grant/revoke) and expose the Cloud Hosting panel in the admin dashboard.
+- [ ] `GET /api/cloud/eligibility` endpoint backed by `utils/cloud-entitlements.js`
+      (`isCloudHostingEnabled`, `getMaxFontsOwned`, `getSnapshotRetentionDays`).
+- [ ] Pages routes `/api/cloud/folders` and `/api/cloud/assets` with full
+      ACL checks using the existing auth middleware and `findUserByIdOrEmail`.
+      `POST /api/cloud/assets` re-checks `isCloudHostingEnabled` before creating
+      the asset row.
+- [ ] Editor `CloudPlugin` and `CloudAdapter` matching the existing
+      `FileSystemAdapter` contract. On init the plugin calls `GET /api/cloud/eligibility`
+      and hides itself if `cloudHostingEnabled` is false. Open returns
+      `{ assetId, role, roomEndpoint, roomToken, bootstrap }`.
+- [ ] Save-as for non-cloud fonts (creates an asset and seeds the DO).
+- [ ] Authorization in `room-token` endpoint actually checks
+      `font_asset_members`.
 
 ### Phase 2 — Persistence cadence and snapshots
 
-- DO writes `room_log` per accepted update (Tier 1).
-- Segment roll on the documented thresholds, write to R2, prune log
-  (Tier 2).
-- Auto Yjs + babelfont snapshots on the documented thresholds (Tier 3).
-- D1 batched inserts of `font_asset_events` at segment-roll time.
-- Cold-start: load latest snapshot + replay log/segments past it.
-- Editor `unsaved cloud` UI driven by `durable: true` ack.
+- [ ] DO writes `room_log` per accepted update (Tier 1).
+- [ ] Segment roll on the documented thresholds, write to R2, prune log
+      (Tier 2).
+- [ ] Auto Yjs + babelfont snapshots on the documented thresholds (Tier 3).
+- [ ] D1 batched inserts of `font_asset_events` at segment-roll time.
+- [ ] Cold-start: load latest snapshot + replay log/segments past it.
+- [ ] Editor `unsaved cloud` UI driven by `durable: true` ack.
 
 ### Phase 3 — Sharing UI and invitations
 
-- Pages `POST /api/cloud/assets/:id/share` with email resolution.
-- Pending invitation claim on signup/login.
-- Dashboard UI for share/role management.
-- Viewer-only WebSocket flow that rejects `update` frames with
-  `error: 'role'`.
+- [ ] Pages `POST /api/cloud/assets/:id/share` with email resolution.
+- [ ] Pending invitation claim on signup/login.
+- [ ] Dashboard UI for share/role management.
+- [ ] Viewer-only WebSocket flow that rejects `update` frames with
+      `error: 'role'`.
 
 ### Phase 4 — History UI and restore
 
-- Activity feed, glyph history, kerning history backed by
-  `font_asset_events`.
-- Named versions UI (create, label, restore).
-- Whole-font restore (owner), then glyph and layer restore (owner +
-  editor), then kerning and features restore (owner).
-- Each restore writes a `before-restore` `pre-op` restore point automatically.
+- [ ] Activity feed, glyph history, kerning history backed by
+      `font_asset_events`.
+- [ ] Named versions UI (create, label, restore).
+- [ ] Whole-font restore (owner), then glyph and layer restore (owner +
+      editor), then kerning and features restore (owner).
+- [ ] Each restore writes a `before-restore` `pre-op` restore point automatically.
 
 ### Phase 5 — Hardening and observability
 
-- Per-room rate limits, payload caps, build-version compatibility checks.
-- Reconnect via state vector; idempotent retry validated by the
-  `UNIQUE(client_id, client_seq)` constraint.
-- Metrics: durable ack latency p50/p95/p99, segment roll bytes/duration,
-  snapshot duration, room cold-start time, concurrent connections per room,
-  edits per minute per room.
-- Scheduled compaction Worker.
-- Soak: 10k-edit session, large font (5k glyphs), simultaneous outline +
-  kerning, two users with reconnect storms.
+- [ ] Per-room rate limits, payload caps, build-version compatibility checks.
+- [ ] Reconnect via state vector; idempotent retry validated by the
+      `UNIQUE(client_id, client_seq)` constraint.
+- [ ] Metrics: durable ack latency p50/p95/p99, segment roll bytes/duration,
+      snapshot duration, room cold-start time, concurrent connections per room,
+      edits per minute per room.
+- [ ] Scheduled compaction Worker.
+- [ ] Soak: 10k-edit session, large font (5k glyphs), simultaneous outline +
+      kerning, two users with reconnect storms.
 
 ## Open Decisions Carried Forward
 
@@ -1273,6 +1350,8 @@ A v2 is "done" when, on Cloudflare:
   one glyph from that version, observing the restore on the other user's
   screen as a forward operation, with a `before-restore` restore point
   available for one-click reversal;
-- a viewer-role user cannot send document updates;
+- a viewer-role user cannot send document updates (the DO drops any
+  `update` frame from a connection pinned to `role = 'viewer'` and replies
+  with `error: { code: 'role' }`);
 - compile budgets and worker replay paths are unchanged from local-only
   editing in the existing benchmarks.
