@@ -1,28 +1,27 @@
 ---
 name: gortex-js
-description: "Work in the js area — 34 symbols across 1 files (50% cohesion)"
+description: "Work in the js area — 27 symbols across 1 files (36% cohesion)"
 ---
 
 # js
 
-34 symbols | 1 files | 50% cohesion
+27 symbols | 1 files | 36% cohesion
 
 ## When to Use
 
 Use this skill when working on files in:
-
-- `webapp/js/font-info.ts`
+- `webapp/js/change-bridge.ts`
 
 ## Key Files
 
-| File                     | Symbols                                                                             |
-| ------------------------ | ----------------------------------------------------------------------------------- |
-| `webapp/js/font-info.ts` | FontInfoManager, prefixCodeData, searchInput, featureErrorLineWidget, namesTab, ... |
+| File | Symbols |
+|------|---------|
+| `webapp/js/change-bridge.ts` | ChangeBridge, _txId, _txBufferedOperations, _txHistoryTarget, _fontJson, ... |
 
 ## How to Explore
 
 ```
-get_communities with id: "community-449"
+get_communities with id: "community-364"
 smart_context with task: "understand js", format: "gcx"
 ```
 
