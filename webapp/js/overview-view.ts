@@ -31,7 +31,13 @@ function timelineSpanEndSafe(spanId: string) {
 
 function waitForNextAnimationFrame() {
     return new Promise((resolve) => {
-        requestAnimationFrame(() => resolve(undefined));
+        const nextFrame =
+            window.requestAnimationFrame ||
+            globalThis.requestAnimationFrame ||
+            ((callback: FrameRequestCallback) =>
+                window.setTimeout(() => callback(performance.now()), 0));
+
+        nextFrame(() => resolve(undefined));
     });
 }
 
@@ -215,6 +221,8 @@ async function renderOverviewAndEmit(
         await waitForNextAnimationFrame();
         timelineSpanEndSafe(settleSpanId);
 
+        glyphOverviewInstance.syncActiveGlyphFocus?.();
+
         if (openSessionId) {
             window.dispatchEvent(
                 new CustomEvent('overviewInitialRenderComplete', {
@@ -360,7 +368,6 @@ async function initOverviewView() {
                 ) {
                     void (async () => {
                         await renderOverviewAndEmit('view-opened');
-                        glyphOverviewInstance.syncActiveGlyphFocus?.();
                     })();
                 }
 

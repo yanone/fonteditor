@@ -85,11 +85,13 @@ class GlyphOverview {
     private deferredTileBuildTimer: number | null = null;
     private linesVirtualizationActive = false;
     private virtualizedRenderRafPending = false;
+    private scrollVisibilitySyncRafId: number | null = null;
     private virtualizedRenderRange: { start: number; end: number } | null =
         null;
     private readonly linesVirtualizationThreshold = 1200;
     private readonly linesVirtualizationBufferRows = 6;
     private onContainerScrollBound = this.onContainerScroll.bind(this);
+    private onCapturedScrollBound = this.onCapturedScroll.bind(this);
     private lazyBatchSize = 240;
     private readonly minLazyBatchSize = 80;
     private readonly maxLazyBatchSize = 500;
@@ -177,6 +179,10 @@ class GlyphOverview {
             'editorModeChanged',
             this.onModeChanged.bind(this)
         );
+        window.addEventListener('scroll', this.onCapturedScrollBound, {
+            capture: true,
+            passive: true
+        });
 
         // Listen for variation location changes to re-render tiles
         window.addEventListener('variationLocationChanged', ((
@@ -617,15 +623,91 @@ class GlyphOverview {
             return;
         }
 
-        if (this.virtualizedRenderRafPending) {
+        this.scheduleScrollVisibilitySync();
+    }
+
+    private onCapturedScroll(event: Event): void {
+        if (!this.lazyLoadEnabled || !this.container) {
             return;
         }
 
-        this.virtualizedRenderRafPending = true;
-        requestAnimationFrame(() => {
-            this.virtualizedRenderRafPending = false;
-            this.renderVirtualizedLinesWindow();
+        const target = event.target;
+        const isRelevantScrollTarget =
+            target === this.container ||
+            (target instanceof Node &&
+                (target.contains(this.container) ||
+                    this.container.contains(target)));
+
+        if (!isRelevantScrollTarget) {
+            return;
+        }
+
+        this.scheduleScrollVisibilitySync();
+    }
+
+    private scheduleScrollVisibilitySync(): void {
+        if (this.scrollVisibilitySyncRafId !== null) {
+            return;
+        }
+
+        this.scrollVisibilitySyncRafId = requestAnimationFrame(() => {
+            this.scrollVisibilitySyncRafId = null;
+
+            if (!this.container || !this.lazyLoadEnabled) {
+                return;
+            }
+
+            if (this.linesVirtualizationActive) {
+                this.renderVirtualizedLinesWindow();
+            }
+
+            const queuedVisibleTileCount = this.queueVisibleUncachedTiles();
+            if (queuedVisibleTileCount > 0) {
+                this.scheduleBatchRender();
+            }
         });
+    }
+
+    private queueVisibleUncachedTiles(): number {
+        if (!this.container) {
+            return 0;
+        }
+
+        const containerRect = this.container.getBoundingClientRect();
+        if (containerRect.width <= 0 || containerRect.height <= 0) {
+            return 0;
+        }
+
+        const viewportMargin = 100;
+        let queuedCount = 0;
+
+        for (const tile of this.tiles.values()) {
+            if (tile.cachedData || !tile.element.isConnected) {
+                continue;
+            }
+
+            const tileRect = tile.element.getBoundingClientRect();
+            if (tileRect.width <= 0 || tileRect.height <= 0) {
+                continue;
+            }
+
+            const intersectsViewport =
+                tileRect.bottom >= containerRect.top - viewportMargin &&
+                tileRect.top <= containerRect.bottom + viewportMargin &&
+                tileRect.right >= containerRect.left - viewportMargin &&
+                tileRect.left <= containerRect.right + viewportMargin;
+
+            if (!intersectsViewport) {
+                continue;
+            }
+
+            if (!this.pendingGlyphIds.has(tile.glyphId)) {
+                this.pendingGlyphIds.add(tile.glyphId);
+                queuedCount += 1;
+            }
+        }
+
+        return queuedCount;
     }
 
     private renderVirtualizedLinesWindow(force: boolean = false): void {
@@ -701,7 +783,7 @@ class GlyphOverview {
             if (!tile) continue;
             tile.element.style.display = '';
             fragment.appendChild(tile.element);
-            if (!tile.cachedData) {
+            if (!tile.cachedData && !this.pendingGlyphIds.has(glyphId)) {
                 this.pendingGlyphIds.add(glyphId);
                 queuedVisibleTileCount += 1;
             }
@@ -1159,7 +1241,10 @@ class GlyphOverview {
 
         // Prime initial visible tiles immediately so first render is not empty
         // when screenshots/tests run right after open.
-        const primedCount = this.primeInitialVisibleTileBatch();
+        let primedCount = this.queueVisibleUncachedTiles();
+        if (primedCount === 0) {
+            primedCount = this.primeInitialVisibleTileBatch();
+        }
         if (primedCount > 0) {
             await this.processBatchRender();
         }

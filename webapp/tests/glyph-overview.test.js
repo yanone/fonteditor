@@ -241,3 +241,122 @@ describe('GlyphOverview virtualized lines rendering', () => {
         expect(intersectionObserverCallback).toBeInstanceOf(Function);
     });
 });
+
+describe('GlyphOverview scroll visibility queueing', () => {
+    let GlyphOverview;
+    let overview;
+    let parent;
+
+    const visibleRect = {
+        top: 40,
+        bottom: 140,
+        left: 0,
+        right: 120,
+        width: 120,
+        height: 100
+    };
+
+    beforeEach(() => {
+        jest.useFakeTimers();
+        jest.resetModules();
+
+        global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+        global.cancelAnimationFrame = (id) => clearTimeout(id);
+
+        global.IntersectionObserver = class IntersectionObserver {
+            observe() {}
+
+            disconnect() {}
+        };
+        window.IntersectionObserver = global.IntersectionObserver;
+
+        require('../js/glyph-overview');
+        GlyphOverview = window.GlyphOverview;
+
+        document.body.innerHTML = '';
+        parent = document.createElement('div');
+        document.body.appendChild(parent);
+
+        overview = new GlyphOverview(parent);
+        overview.lazyLoadEnabled = true;
+
+        overview.container.getBoundingClientRect = jest.fn(() => ({
+            top: 0,
+            bottom: 200,
+            left: 0,
+            right: 200,
+            width: 200,
+            height: 200
+        }));
+
+        jest.spyOn(overview, 'scheduleBatchRender').mockImplementation(
+            () => {}
+        );
+        overview.setupLazyLoading();
+    });
+
+    afterEach(() => {
+        jest.runOnlyPendingTimers();
+        jest.useRealTimers();
+        jest.restoreAllMocks();
+        delete global.IntersectionObserver;
+        delete window.IntersectionObserver;
+        delete window.GlyphOverview;
+    });
+
+    function installUncachedTile(overviewInstance, glyphId, glyphName) {
+        const element = document.createElement('div');
+        element.dataset.glyphId = glyphId;
+        const canvas = document.createElement('canvas');
+        element.appendChild(canvas);
+        overviewInstance.container.appendChild(element);
+
+        const tile = {
+            glyphId,
+            glyphName,
+            selected: false,
+            element,
+            canvas,
+            cachedData: undefined
+        };
+
+        overviewInstance.tiles = new Map([[glyphId, tile]]);
+        return tile;
+    }
+
+    test('queues newly visible uncached tiles when the overview container scrolls', () => {
+        const tile = installUncachedTile(overview, 'glyph-1', 'g1');
+        tile.element.getBoundingClientRect = jest
+            .fn()
+            .mockReturnValueOnce({
+                top: 340,
+                bottom: 440,
+                left: 0,
+                right: 120,
+                width: 120,
+                height: 100
+            })
+            .mockReturnValue(visibleRect);
+
+        overview.container.dispatchEvent(new Event('scroll'));
+        jest.runOnlyPendingTimers();
+        expect(Array.from(overview.pendingGlyphIds)).toEqual([]);
+
+        overview.container.dispatchEvent(new Event('scroll'));
+        jest.runOnlyPendingTimers();
+
+        expect(Array.from(overview.pendingGlyphIds)).toEqual(['glyph-1']);
+        expect(overview.scheduleBatchRender).toHaveBeenCalledTimes(1);
+    });
+
+    test('queues newly visible uncached tiles when an ancestor overview surface scrolls', () => {
+        const tile = installUncachedTile(overview, 'glyph-2', 'g2');
+        tile.element.getBoundingClientRect = jest.fn(() => visibleRect);
+
+        parent.dispatchEvent(new Event('scroll'));
+        jest.runOnlyPendingTimers();
+
+        expect(Array.from(overview.pendingGlyphIds)).toEqual(['glyph-2']);
+        expect(overview.scheduleBatchRender).toHaveBeenCalledTimes(1);
+    });
+});
