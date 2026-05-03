@@ -45,16 +45,44 @@ class ResizableViews {
      * Get the minimum width for a view based on its type
      */
     getMinWidth(view: Element): number {
+        if ((view as HTMLElement).closest('.top-row')) {
+            return ResizableViews.FONTINFO_MIN_WIDTH;
+        }
         if (view.classList.contains('view-editor')) {
             return ResizableViews.PRIMARY_MIN_WIDTH;
         }
-        if (
-            view.classList.contains('view-fontinfo') ||
-            view.classList.contains('view-overview')
-        ) {
-            return ResizableViews.FONTINFO_MIN_WIDTH;
-        }
         return ResizableViews.SECONDARY_MIN_WIDTH;
+    }
+
+    getTopRowReplacementFocusViewId(collapsedView: HTMLElement): string | null {
+        const topRow = collapsedView.closest('.top-row');
+        if (!topRow) {
+            return null;
+        }
+
+        const threshold = 5;
+        const siblings = Array.from(topRow.querySelectorAll('.view')).filter(
+            (view): view is HTMLElement => view instanceof HTMLElement
+        );
+        const expandedSiblings = siblings.filter((view) => {
+            if (view.id === collapsedView.id) {
+                return false;
+            }
+
+            return (
+                view.getBoundingClientRect().width >
+                this.getMinWidth(view) + threshold
+            );
+        });
+
+        if (expandedSiblings.length === 0) {
+            return null;
+        }
+
+        const editorSibling = expandedSiblings.find(
+            (view) => view.id === 'view-editor'
+        );
+        return editorSibling?.id || expandedSiblings[0].id;
     }
 
     /**
@@ -78,39 +106,34 @@ class ResizableViews {
      */
     updateCollapsedStates() {
         const views = document.querySelectorAll('.view');
-        let shouldFocusEditor = false;
+        let replacementFocusViewId: string | null = null;
         const currentFocusedView = window.getCurrentFocusedView
             ? window.getCurrentFocusedView()
             : null;
 
         views.forEach((view: Element) => {
             const viewEl = view as HTMLElement;
-            // Skip the editor (primary view)
-            if (viewEl.classList.contains('view-editor')) return;
-
             const rect = viewEl.getBoundingClientRect();
             const titleBarHeight = ResizableViews.TITLE_BAR_HEIGHT;
             const threshold = 5; // Tolerance for float comparison
 
-            if (
-                viewEl.classList.contains('view-fontinfo') ||
-                viewEl.classList.contains('view-overview')
-            ) {
-                // Font info and overview collapse by width
+            if (viewEl.closest('.top-row')) {
+                // Top-row views collapse by width
                 const isWidthCollapsed =
-                    rect.width <= ResizableViews.FONTINFO_MIN_WIDTH + threshold;
+                    rect.width <= this.getMinWidth(viewEl) + threshold;
                 const wasCollapsed =
                     viewEl.classList.contains('collapsed-width');
                 viewEl.classList.toggle('collapsed-width', isWidthCollapsed);
                 viewEl.classList.remove('collapsed');
 
-                // If this view just became collapsed and it was the focused view, mark to focus editor
+                // If this view just became collapsed and it was the focused view, move focus to an expanded sibling
                 if (
                     isWidthCollapsed &&
                     !wasCollapsed &&
                     viewEl.id === currentFocusedView
                 ) {
-                    shouldFocusEditor = true;
+                    replacementFocusViewId ||=
+                        this.getTopRowReplacementFocusViewId(viewEl);
                 }
             } else {
                 // Other secondary views collapse by height
@@ -126,14 +149,14 @@ class ResizableViews {
                     !wasCollapsed &&
                     viewEl.id === currentFocusedView
                 ) {
-                    shouldFocusEditor = true;
+                    replacementFocusViewId ||= 'view-editor';
                 }
             }
         });
 
-        // Focus editor if any secondary view that was focused was just collapsed
-        if (shouldFocusEditor && window.focusView) {
-            window.focusView('view-editor');
+        // Focus a still-expanded replacement if the currently focused view collapsed
+        if (replacementFocusViewId && window.focusView) {
+            window.focusView(replacementFocusViewId);
         }
     }
 
@@ -560,8 +583,6 @@ class ResizableViews {
             return this.startWidths[index] > minWidth + 5;
         });
 
-        if (nonCollapsedRightViews.length === 0) return;
-
         // Calculate current widths
         const leftStartWidth = this.startWidths[dividerIndex];
         let newLeftWidth = leftStartWidth + deltaX;
@@ -575,24 +596,26 @@ class ResizableViews {
             newLeftWidth = leftMinWidth;
         }
 
-        // Calculate total width of non-collapsed right views
-        let rightTotalWidth = 0;
+        const widthChangeBeforeClamp = newLeftWidth - leftStartWidth;
+        const isExpandingRightSide = widthChangeBeforeClamp < 0;
+
+        if (!isExpandingRightSide && nonCollapsedRightViews.length === 0) {
+            return;
+        }
+
+        // Clamp left width to the available slack on the right side
+        let rightSlack = 0;
         nonCollapsedRightViews.forEach((view) => {
             const index = views.indexOf(view);
-            rightTotalWidth += this.startWidths[index];
+            rightSlack += this.startWidths[index] - this.getMinWidth(view);
         });
 
-        const newRightTotalWidth =
-            rightTotalWidth - (newLeftWidth - leftStartWidth);
-
-        let minRightTotalWidth = 0;
-        nonCollapsedRightViews.forEach((view) => {
-            minRightTotalWidth += this.getMinWidth(view);
-        });
-
-        // Clamp left width to minimum if it would go below
+        const maxLeftWidth = leftStartWidth + rightSlack;
         if (newLeftWidth < leftMinWidth) {
             newLeftWidth = leftMinWidth;
+        }
+        if (newLeftWidth > maxLeftWidth) {
+            newLeftWidth = maxLeftWidth;
         }
 
         // Calculate new widths
@@ -601,16 +624,61 @@ class ResizableViews {
         // Set new left width (clamped to minimum)
         newWidths[dividerIndex] = newLeftWidth;
 
-        // Recalculate right width after clamping
+        // Recalculate right widths after clamping, keeping each view above its minimum
         const widthChange = newLeftWidth - leftStartWidth;
-        const finalRightWidth = rightTotalWidth - widthChange;
+        const rightViewsToAdjust =
+            widthChange >= 0 ? nonCollapsedRightViews : rightViews;
 
-        // Scale non-collapsed right views proportionally to fit available space
-        if (nonCollapsedRightViews.length > 0) {
-            const rightScale = finalRightWidth / rightTotalWidth;
-            nonCollapsedRightViews.forEach((view) => {
+        if (rightViewsToAdjust.length > 0) {
+            if (widthChange >= 0) {
+                const totalSlack = nonCollapsedRightViews.reduce(
+                    (sum, view) => {
+                        const index = views.indexOf(view);
+                        return (
+                            sum +
+                            (this.startWidths[index] - this.getMinWidth(view))
+                        );
+                    },
+                    0
+                );
+
+                nonCollapsedRightViews.forEach((view) => {
+                    const index = views.indexOf(view);
+                    const minWidth = this.getMinWidth(view);
+                    const viewSlack = this.startWidths[index] - minWidth;
+                    const reduction =
+                        totalSlack > 0
+                            ? (viewSlack / totalSlack) * widthChange
+                            : 0;
+                    newWidths[index] = this.startWidths[index] - reduction;
+                });
+            } else {
+                const expansion = Math.abs(widthChange);
+                const totalStartWidth = rightViewsToAdjust.reduce(
+                    (sum, view) => {
+                        const index = views.indexOf(view);
+                        return sum + this.startWidths[index];
+                    },
+                    0
+                );
+
+                rightViewsToAdjust.forEach((view) => {
+                    const index = views.indexOf(view);
+                    const proportion =
+                        totalStartWidth > 0
+                            ? this.startWidths[index] / totalStartWidth
+                            : 1 / rightViewsToAdjust.length;
+                    newWidths[index] =
+                        this.startWidths[index] + expansion * proportion;
+                });
+            }
+
+            rightViewsToAdjust.forEach((view) => {
                 const index = views.indexOf(view);
-                newWidths[index] = this.startWidths[index] * rightScale;
+                const minWidth = this.getMinWidth(view);
+                if (newWidths[index] < minWidth) {
+                    newWidths[index] = minWidth;
+                }
             });
         }
 
@@ -689,8 +757,8 @@ class ResizableViews {
                 // Collapsed view - use fixed pixel width
                 view.style.flex = `0 0 ${minWidth}px`;
             } else {
-                // Non-collapsed view - use flex ratio
-                view.style.flex = `${adjustedWidths[index] / totalWidth}`;
+                // Non-collapsed view - keep pixel-proportional flex weights so the row fully fills.
+                view.style.flex = `${adjustedWidths[index]}`;
             }
         });
 

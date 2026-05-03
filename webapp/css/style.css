@@ -679,6 +679,8 @@ kbd + kbd {
     flex: 1.61;
     /* 63% of total height */
     min-height: 200px; /* Primary view (editor) minimum */
+    width: 100%;
+    min-width: 0;
 }
 
 .bottom-row {
@@ -686,6 +688,8 @@ kbd + kbd {
     flex: 1;
     /* 37% of total height */
     min-height: 24px; /* Secondary views can collapse to title bar */
+    width: 100%;
+    min-width: 0;
 }
 
 .view {
@@ -694,7 +698,7 @@ kbd + kbd {
     overflow: hidden;
     min-width: 100px;
     min-height: 24px; /* Title bar height - allows secondary views to collapse */
-    flex: 1;
+    flex: 1 1 0;
     position: relative;
     color: var(--text-secondary);
     transition:
@@ -706,8 +710,12 @@ kbd + kbd {
 
 /* Primary view (editor) - larger minimum size */
 .view.view-editor {
-    min-width: 200px;
+    min-width: 24px;
     min-height: 200px;
+}
+
+.top-row > .view {
+    min-width: 24px;
 }
 
 /* Secondary views - can collapse to title bar only */
@@ -785,7 +793,9 @@ kbd + kbd {
 
 .view.collapsed-width .view-title-bar .view-title-button,
 .view.collapsed-width .view-title-bar .view-title-action-btn,
-.view.collapsed-width .view-title-bar .view-title-actions {
+.view.collapsed-width .view-title-bar .view-title-actions,
+.view.collapsed-width .view-title-bar .editor-plugins-toggle,
+.view.collapsed-width .editor-glyph-name {
     display: none !important;
 }
 
@@ -2530,28 +2540,6 @@ kbd + kbd {
 @keyframes spin {
     to {
         transform: translate(-50%, -50%) rotate(360deg);
-    }
-}
-
-/* Responsive design */
-@media (max-width: 768px) {
-    .container {
-        flex-direction: column;
-    }
-
-    .top-row,
-    .bottom-row {
-        flex-direction: column;
-    }
-
-    .vertical-divider {
-        width: 100%;
-        height: 4px;
-        cursor: row-resize;
-    }
-
-    .horizontal-divider {
-        display: none;
     }
 }
 

@@ -33,6 +33,18 @@ function isViewCollapsed(view: HTMLElement): boolean {
     );
 }
 
+function getExpandedTopRowViewCount(): number {
+    const topRow = document.querySelector('.top-row');
+    if (!topRow) {
+        return 0;
+    }
+
+    const topRowViews = Array.from(topRow.querySelectorAll('.view')).filter(
+        (view): view is HTMLElement => view instanceof HTMLElement
+    );
+    return topRowViews.filter((view) => !isViewCollapsed(view)).length;
+}
+
 /**
  * Check if a view is maximized (or near maximum size)
  * Uses the same thresholds as keyboard-navigation.js resizeView logic
@@ -144,13 +156,17 @@ function updateButtonVisibility(viewId: string): void {
 
     const collapsed = isViewCollapsed(view);
     const maximized = isViewMaximized(viewId);
+    const isTopRow = view.closest('.top-row') !== null;
+    const expandedTopRowViewCount = isTopRow ? getExpandedTopRowViewCount() : 0;
 
     // Maximize button: visible when NOT collapsed AND NOT maximized
     maximizeBtn.style.display = !collapsed && !maximized ? 'flex' : 'none';
 
     // Collapse button: always visible when NOT collapsed (if it exists)
     if (collapseBtn) {
-        collapseBtn.style.display = !collapsed ? 'flex' : 'none';
+        const shouldShowCollapseButton =
+            !collapsed && (!isTopRow || expandedTopRowViewCount > 1);
+        collapseBtn.style.display = shouldShowCollapseButton ? 'flex' : 'none';
     }
 }
 
@@ -228,19 +244,16 @@ function addButtonsToView(viewConfig: ViewInfo): void {
     });
 
     // Append buttons to left-side window actions
-    // Skip collapse button for editor view
-    if (viewConfig.id !== 'view-editor') {
-        const collapseBtn = document.createElement('button');
-        collapseBtn.className = 'view-title-action-btn view-title-collapse-btn';
-        collapseBtn.title = 'Collapse view (⌘Escape)';
-        collapseBtn.innerHTML = `<span class="material-symbols-outlined">close</span>`;
-        collapseBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            handleCollapseClick(viewConfig.id);
-        });
-        titleWindowActions.appendChild(collapseBtn);
-    }
+    const collapseBtn = document.createElement('button');
+    collapseBtn.className = 'view-title-action-btn view-title-collapse-btn';
+    collapseBtn.title = 'Collapse view (⌘Escape)';
+    collapseBtn.innerHTML = `<span class="material-symbols-outlined">close</span>`;
+    collapseBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleCollapseClick(viewConfig.id);
+    });
+    titleWindowActions.appendChild(collapseBtn);
     titleWindowActions.appendChild(maximizeBtn);
 
     // Update initial visibility
@@ -278,7 +291,18 @@ function setupStateObserver(): void {
             ) {
                 const target = mutation.target as HTMLElement;
                 if (target.classList.contains('view') && target.id) {
-                    updateButtonVisibility(target.id);
+                    if (target.closest('.top-row')) {
+                        VIEW_CONFIGS.filter((viewConfig) => {
+                            const rowView = document.getElementById(
+                                viewConfig.id
+                            );
+                            return rowView?.closest('.top-row');
+                        }).forEach((viewConfig) => {
+                            updateButtonVisibility(viewConfig.id);
+                        });
+                    } else {
+                        updateButtonVisibility(target.id);
+                    }
                 }
             }
         });
@@ -309,7 +333,12 @@ function setupStateObserver(): void {
     window.addEventListener('viewResized', ((e: CustomEvent) => {
         const viewId = e.detail?.viewId;
         if (viewId) {
-            updateButtonVisibility(viewId);
+            const view = document.getElementById(viewId);
+            if (view?.closest('.top-row')) {
+                updateAllButtonStates();
+            } else {
+                updateButtonVisibility(viewId);
+            }
         }
     }) as EventListener);
 }

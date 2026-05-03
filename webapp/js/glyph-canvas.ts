@@ -150,6 +150,8 @@ export type QCCanvasMarker = {
 };
 
 class GlyphCanvas {
+    static COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH = 96;
+
     container: HTMLElement;
     canvasHost: HTMLElement | null = null;
     canvas: HTMLCanvasElement | null = null;
@@ -198,6 +200,16 @@ class GlyphCanvas {
     // Track previous container dimensions for resize handling
     lastContainerWidth: number = 0;
     lastContainerHeight: number = 0;
+    lastStableViewportSnapshot: {
+        scale: number;
+        panX: number;
+        panY: number;
+    } | null = null;
+    collapsedViewportSnapshot: {
+        scale: number;
+        panX: number;
+        panY: number;
+    } | null = null;
 
     propertiesSection: HTMLElement | null = null;
     propertyPanel: HTMLElement | null = null;
@@ -1713,11 +1725,48 @@ class GlyphCanvas {
 
         this.setupHiDPI();
 
+        if (!this.viewportManager) {
+            this.render();
+            return;
+        }
+
+        const freezeWidth = GlyphCanvas.COLLAPSED_EDITOR_VIEWPORT_FREEZE_WIDTH;
+        const wasCollapsedWidth = oldWidth <= freezeWidth;
+        const isCollapsedWidth = newWidth <= freezeWidth;
+
+        if (isCollapsedWidth) {
+            if (!this.collapsedViewportSnapshot) {
+                this.collapsedViewportSnapshot =
+                    this.lastStableViewportSnapshot || {
+                        scale: this.viewportManager.scale,
+                        panX: this.viewportManager.panX,
+                        panY: this.viewportManager.panY
+                    };
+            }
+
+            this.render();
+            return;
+        }
+
+        if (wasCollapsedWidth && this.collapsedViewportSnapshot) {
+            this.viewportManager.scale = this.collapsedViewportSnapshot.scale;
+            this.viewportManager.panX = this.collapsedViewportSnapshot.panX;
+            this.viewportManager.panY = this.collapsedViewportSnapshot.panY;
+            this.lastStableViewportSnapshot = {
+                ...this.collapsedViewportSnapshot
+            };
+            this.collapsedViewportSnapshot = null;
+            this.render();
+            return;
+        }
+
         // Skip viewport adjustment if no viewportManager or dimensions unchanged
-        if (
-            !this.viewportManager ||
-            (oldWidth === newWidth && oldHeight === newHeight)
-        ) {
+        if (oldWidth === newWidth && oldHeight === newHeight) {
+            this.lastStableViewportSnapshot = {
+                scale: this.viewportManager.scale,
+                panX: this.viewportManager.panX,
+                panY: this.viewportManager.panY
+            };
             this.render();
             return;
         }
@@ -1756,6 +1805,12 @@ class GlyphCanvas {
             newCenterX - this.viewportManager.scale * fontSpaceCenter.x;
         this.viewportManager.panY =
             newCenterY + this.viewportManager.scale * fontSpaceCenter.y;
+
+        this.lastStableViewportSnapshot = {
+            scale: this.viewportManager.scale,
+            panX: this.viewportManager.panX,
+            panY: this.viewportManager.panY
+        };
 
         this.render();
     }

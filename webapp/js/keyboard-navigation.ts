@@ -124,13 +124,7 @@
     }
 
     function getViewMinimumWidth(view: HTMLElement): number {
-        if (view.classList.contains('view-editor')) {
-            return 200;
-        }
-        if (
-            view.classList.contains('view-fontinfo') ||
-            view.classList.contains('view-overview')
-        ) {
+        if (view.closest('.top-row')) {
             return 24;
         }
         return 100;
@@ -162,18 +156,38 @@
             }
 
             const minWidth = getViewMinimumWidth(rowView);
-            if (nextWidth <= minWidth + threshold) {
-                if (
-                    rowView.classList.contains('view-fontinfo') ||
-                    rowView.classList.contains('view-overview')
-                ) {
-                    rowView.style.flex = `0 0 ${minWidth}px`;
-                    return;
-                }
+            if (
+                nextWidth <= minWidth + threshold &&
+                rowView.closest('.top-row')
+            ) {
+                rowView.style.flex = `0 0 ${minWidth}px`;
+                return;
             }
 
             rowView.style.flex = `${nextWidth}`;
         });
+    }
+
+    function getTopRowReplacementFocusViewId(viewId: string): string | null {
+        const view = document.getElementById(viewId) as HTMLElement | null;
+        const topRow = view?.closest('.top-row');
+        if (!topRow) {
+            return null;
+        }
+
+        const topViews = Array.from(
+            topRow.querySelectorAll('.view')
+        ) as HTMLElement[];
+        const expandedViews = topViews.filter(
+            (rowView) =>
+                rowView.id !== viewId &&
+                rowView.offsetWidth > getViewMinimumWidth(rowView) + 5
+        );
+
+        const editorView = expandedViews.find(
+            (rowView) => rowView.id === 'view-editor'
+        );
+        return editorView?.id || expandedViews[0]?.id || null;
     }
 
     function ensureActivationMinimumWidth(viewId: string): boolean {
@@ -239,6 +253,65 @@
         return true;
     }
 
+    function expandCollapsedTopRowEditorToPeerWidth(viewId: string): boolean {
+        if (viewId !== 'view-editor') {
+            return false;
+        }
+
+        const editorView = document.getElementById(viewId) as HTMLElement | null;
+        const topRow = editorView?.closest('.top-row') as HTMLElement | null;
+        if (!editorView || !topRow) {
+            return false;
+        }
+
+        const editorMinWidth = getViewMinimumWidth(editorView);
+        if (editorView.offsetWidth > editorMinWidth + 5) {
+            return false;
+        }
+
+        const rowViews = getRowViews('top');
+        const widthsByViewId = rowViews.reduce<Record<string, number>>(
+            (widths, rowView) => {
+                widths[rowView.id] = rowView.offsetWidth;
+                return widths;
+            },
+            {}
+        );
+
+        const pinnedCollapsedViews = rowViews.filter(
+            (rowView) =>
+                rowView.id !== viewId &&
+                rowView.offsetWidth <= getViewMinimumWidth(rowView) + 5
+        );
+        const expandedPeerViews = rowViews.filter(
+            (rowView) =>
+                rowView.id !== viewId &&
+                rowView.offsetWidth > getViewMinimumWidth(rowView) + 5
+        );
+
+        if (expandedPeerViews.length === 0) {
+            return false;
+        }
+
+        const pinnedCollapsedWidth = pinnedCollapsedViews.reduce(
+            (sum, rowView) => sum + getViewMinimumWidth(rowView),
+            0
+        );
+        const availableWidth = topRow.offsetWidth - pinnedCollapsedWidth;
+        const sharedWidth = availableWidth / (expandedPeerViews.length + 1);
+
+        widthsByViewId[viewId] = sharedWidth;
+        expandedPeerViews.forEach((rowView) => {
+            widthsByViewId[rowView.id] = sharedWidth;
+        });
+        pinnedCollapsedViews.forEach((rowView) => {
+            widthsByViewId[rowView.id] = getViewMinimumWidth(rowView);
+        });
+
+        applyRowViewWidths(rowViews, widthsByViewId);
+        return true;
+    }
+
     /**
      * Update collapsed states on views after resize
      */
@@ -280,7 +353,11 @@
 
         let expanded = false;
 
-        if (isTopRow || isBottomRow) {
+        if (isTopRow && viewId === 'view-editor') {
+            expanded = expandCollapsedTopRowEditorToPeerWidth(viewId) || expanded;
+        }
+
+        if ((isTopRow || isBottomRow) && !expanded) {
             expanded = ensureActivationMinimumWidth(viewId) || expanded;
         }
 
@@ -612,11 +689,8 @@
     function collapseActiveView(viewId: string) {
         console.log('[KeyboardNav]', 'collapseActiveView called for:', viewId);
         const view = document.getElementById(viewId);
-        if (!view || viewId === 'view-editor') {
-            console.log(
-                '[KeyboardNav]',
-                'Aborting - view not found or is editor'
-            );
+        if (!view) {
+            console.log('[KeyboardNav]', 'Aborting - view not found');
             return;
         }
 
@@ -646,13 +720,15 @@
         }
 
         if (isTopRow) {
-            // Collapse width to minimum (24px for fontinfo/overview)
+            // Collapse width to minimum (24px for top-row views)
             const topRow = view.closest('.top-row') as HTMLElement;
             const views = Array.from(
                 topRow.querySelectorAll('.view')
             ) as HTMLElement[];
             const viewIndex = views.indexOf(view);
-            const minWidth = 24; // Minimum collapsed width
+            const minWidth = getViewMinimumWidth(view); // Minimum collapsed width
+            const replacementFocusViewId =
+                getTopRowReplacementFocusViewId(viewId);
 
             const currentWidth = view.offsetWidth;
             const freedSpace = currentWidth - minWidth;
@@ -670,7 +746,7 @@
                 (v, i) => i !== viewIndex
             ) as HTMLElement[];
             const nonCollapsedOtherViews = otherViews.filter(
-                (v) => v.offsetWidth > 24 + 5
+                (v) => v.offsetWidth > getViewMinimumWidth(v) + 5
             );
 
             if (nonCollapsedOtherViews.length === 0) {
@@ -691,9 +767,9 @@
                 if (i === viewIndex) {
                     // Collapse this view to exactly 24px
                     v.style.flex = `0 0 ${minWidth}px`;
-                } else if (v.offsetWidth <= 24 + 5) {
+                } else if (v.offsetWidth <= getViewMinimumWidth(v) + 5) {
                     // Keep already-collapsed views at exactly 24px
-                    v.style.flex = `0 0 24px`;
+                    v.style.flex = `0 0 ${getViewMinimumWidth(v)}px`;
                 } else {
                     // Expand non-collapsed views proportionally
                     const proportion = v.offsetWidth / totalOtherWidth;
@@ -701,6 +777,10 @@
                     v.style.flex = `${newWidth}`;
                 }
             });
+
+            if (viewId === currentFocusedView && replacementFocusViewId) {
+                focusView(replacementFocusViewId);
+            }
         } else if (isBottomRow) {
             // Collapse bottom row to minimum height (title bar height)
             const topRow = document.querySelector('.top-row') as HTMLElement;
@@ -1625,7 +1705,7 @@
             return;
         }
 
-        // Cmd+Escape - Collapse active view (except editor)
+        // Cmd+Escape - Collapse active view
         if (cmdKey && !shiftKey && !event.altKey && key === 'escape') {
             console.log(
                 '[KeyboardNav]',
@@ -1636,7 +1716,7 @@
             event.stopPropagation();
             event.stopImmediatePropagation();
 
-            if (currentFocusedView && currentFocusedView !== 'view-editor') {
+            if (currentFocusedView) {
                 console.log(
                     '[KeyboardNav]',
                     'Collapsing view:',
@@ -1646,7 +1726,7 @@
             } else {
                 console.log(
                     '[KeyboardNav]',
-                    'Not collapsing - either no focus or editor focused'
+                    'Not collapsing - no focused view'
                 );
             }
             return;
