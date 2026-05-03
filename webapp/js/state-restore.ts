@@ -288,6 +288,7 @@ async function applyStateToManagers(glyphCanvas: GlyphCanvas): Promise<void> {
                 }
 
                 glyphCanvas.renderer?.render();
+                window.glyphOverviewInstance?.syncActiveGlyphFocus?.();
             } else {
                 // If glyph selection failed, keep state as text mode to avoid inconsistent UI
                 glyphCanvas.outlineEditor.active = false;

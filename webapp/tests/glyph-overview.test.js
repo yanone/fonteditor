@@ -360,3 +360,60 @@ describe('GlyphOverview scroll visibility queueing', () => {
         expect(overview.scheduleBatchRender).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('GlyphOverview initial active tile highlighting', () => {
+    let GlyphOverview;
+    let overview;
+    let parent;
+
+    beforeEach(() => {
+        jest.useFakeTimers();
+        jest.resetModules();
+
+        global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+        global.cancelAnimationFrame = (id) => clearTimeout(id);
+
+        require('../js/glyph-overview');
+        GlyphOverview = window.GlyphOverview;
+
+        document.body.innerHTML = '';
+        parent = document.createElement('div');
+        document.body.appendChild(parent);
+
+        overview = new GlyphOverview(parent);
+        jest.spyOn(overview, 'scheduleHighlightedGlyphVisibilitySync');
+    });
+
+    afterEach(() => {
+        jest.runOnlyPendingTimers();
+        jest.useRealTimers();
+        jest.restoreAllMocks();
+        delete window.GlyphOverview;
+    });
+
+    test('applies the active highlight when the tile is created after the glyph name is already known', () => {
+        overview.highlightedGlyphName = 'A';
+
+        const tile = overview.createGlyphTile('glyph-1', 'A');
+
+        expect(tile.element.style.boxShadow).toBe(
+            'inset 0 0 0 2px var(--accent-blue)'
+        );
+    });
+
+    test('reapplies the active highlight for the same glyph when sync runs again later', () => {
+        overview.highlightedGlyphName = 'A';
+        const tile = overview.createGlyphTile('glyph-1', 'A');
+        tile.element.style.boxShadow = '';
+        overview.tiles = new Map([['glyph-1', tile]]);
+
+        overview.setEditingHighlight('A');
+
+        expect(tile.element.style.boxShadow).toBe(
+            'inset 0 0 0 2px var(--accent-blue)'
+        );
+        expect(
+            overview.scheduleHighlightedGlyphVisibilitySync
+        ).toHaveBeenCalledTimes(1);
+    });
+});

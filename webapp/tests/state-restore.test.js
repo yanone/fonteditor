@@ -70,4 +70,78 @@ describe('ensureStartupStateReady', () => {
             variationListener
         );
     });
+
+    test('syncs the glyph overview highlight after restoring edit mode from URL', async () => {
+        global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+        global.cancelAnimationFrame = (id) => clearTimeout(id);
+
+        const initStateSync = jest.fn();
+        const enableSync = jest.fn();
+
+        jest.doMock('../js/state-sync', () => ({
+            initStateSync,
+            enableSync
+        }));
+
+        const { restoreStateFromUrl } = require('../js/state-restore');
+
+        window.history.replaceState({}, '', '/?text=ab&cursor=1&mode=edit');
+
+        const selectGlyphByIndex = jest
+            .fn()
+            .mockImplementation(async (index) => {
+                glyphCanvas.textRunEditor.selectedGlyphIndex = index;
+            });
+        const setTextBuffer = jest.fn();
+        const updateCursorVisualPosition = jest.fn();
+        const fetchLayerData = jest.fn().mockResolvedValue(undefined);
+        const syncActiveGlyphFocus = jest.fn();
+        const render = jest.fn();
+
+        const glyphCanvas = {
+            featuresManager: null,
+            axesManager: null,
+            textRunEditor: {
+                textBuffer: 'ab',
+                shapedGlyphs: [{}, {}],
+                selectedGlyphIndex: -1,
+                setTextBuffer,
+                updateCursorVisualPosition,
+                selectGlyphByIndex
+            },
+            outlineEditor: {
+                active: false,
+                selectedLayerId: 'layer-1',
+                fetchLayerData,
+                interpolateCurrentGlyph: jest.fn(),
+                parseGlyphStack: jest.fn(() => [{ glyphName: 'b' }])
+            },
+            renderer: { render },
+            autoSelectMatchingMaster: jest.fn().mockResolvedValue(undefined),
+            alignTextModeEscapeStateWithCurrentMaster: jest.fn()
+        };
+
+        window.stateManager = {
+            editor_file: '',
+            editor_text_buffer: '',
+            editor_cursor_position: 0,
+            editor_mode: 'text',
+            editor_variation_location: {},
+            editor_opentype_features_in_subset: {},
+            editor_opentype_features_not_in_subset: {}
+        };
+        window.glyphOverviewInstance = {
+            syncActiveGlyphFocus
+        };
+
+        await restoreStateFromUrl(glyphCanvas);
+
+        expect(selectGlyphByIndex).toHaveBeenCalledWith(1);
+        expect(fetchLayerData).toHaveBeenCalledWith(true);
+        expect(syncActiveGlyphFocus).toHaveBeenCalledTimes(1);
+
+        delete global.requestAnimationFrame;
+        delete global.cancelAnimationFrame;
+        delete window.glyphOverviewInstance;
+    });
 });

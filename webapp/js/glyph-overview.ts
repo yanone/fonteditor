@@ -1703,7 +1703,24 @@ class GlyphOverview {
      * Set the editing highlight on a specific glyph tile
      */
     private setEditingHighlight(glyphName: string | null): void {
-        if (glyphName === this.highlightedGlyphName) return;
+        if (glyphName === this.highlightedGlyphName) {
+            if (!glyphName) {
+                return;
+            }
+
+            for (const tile of this.tiles.values()) {
+                if (tile.glyphName !== glyphName) {
+                    continue;
+                }
+
+                tile.element.style.boxShadow =
+                    'inset 0 0 0 2px var(--accent-blue)';
+                this.scheduleHighlightedGlyphVisibilitySync();
+                return;
+            }
+
+            return;
+        }
 
         if (this.highlightScrollSyncRafId !== null) {
             cancelAnimationFrame(this.highlightScrollSyncRafId);
@@ -2136,6 +2153,9 @@ class GlyphOverview {
         tileElement.className = 'glyph-tile';
         tileElement.dataset.glyphId = glyphId;
         tileElement.dataset.glyphName = glyphName;
+        if (glyphName === this.highlightedGlyphName) {
+            tileElement.style.boxShadow = 'inset 0 0 0 2px var(--accent-blue)';
+        }
 
         // Pre-create canvas to avoid DOM insertion during render
         const canvas = document.createElement('canvas');
