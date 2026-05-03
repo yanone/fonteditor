@@ -347,6 +347,10 @@
 .glyph-filter-node {
     display: flex;
     flex-direction: column;
+    padding-left: calc(
+        var(--glyph-filter-node-depth, 0) *
+            var(--top-row-overview-filter-node-indent-step, 8px)
+    );
 }
 
 .glyph-filter-node-header {
@@ -390,13 +394,19 @@
     gap: 1px;
 }
 
-.glyph-filter-item {
+.glyph-filter-item,
+.glyph-filter-item.sidebar-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding:
-        var(--top-row-overview-filter-item-block-padding, 3px)
-        var(--top-row-overview-filter-item-inline-padding, 6px);
+    padding-top: var(--top-row-overview-filter-item-block-padding, 3px);
+    padding-right: var(--top-row-overview-filter-item-inline-padding, 6px);
+    padding-bottom: var(--top-row-overview-filter-item-block-padding, 3px);
+    padding-left: calc(
+        var(--top-row-overview-filter-item-base-indent, 8px) +
+            var(--glyph-filter-item-depth, 0) *
+            var(--top-row-overview-filter-item-indent-step, 4px)
+    );
     cursor: pointer;
     border-radius: 2px;
     user-select: none;

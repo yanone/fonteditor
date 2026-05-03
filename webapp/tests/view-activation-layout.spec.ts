@@ -217,6 +217,12 @@ async function getResponsiveSidebarMetrics(page: Page) {
         const editorRightSidebar = document.getElementById(
             'glyph-editor-sidebar'
         );
+        const overviewFilterItem = document.querySelector(
+            '.glyph-filter-item'
+        ) as HTMLElement | null;
+        const overviewFilterNode = document.querySelector(
+            '.glyph-filter-node'
+        ) as HTMLElement | null;
 
         return {
             fontInfoSidebarWidthVar: readPx(
@@ -230,6 +236,13 @@ async function getResponsiveSidebarMetrics(page: Page) {
                 fontInfoView
                     ? getComputedStyle(fontInfoView).getPropertyValue(
                           '--top-row-sidebar-padding'
+                      )
+                    : '0'
+            ),
+            fontInfoFeatureItemPaddingVar: readPx(
+                fontInfoView
+                    ? getComputedStyle(fontInfoView).getPropertyValue(
+                          '--top-row-sidebar-item-inline-padding'
                       )
                     : '0'
             ),
@@ -258,6 +271,12 @@ async function getResponsiveSidebarMetrics(page: Page) {
                 : 0,
             editorRightSidebarWidth: editorRightSidebar
                 ? readPx(getComputedStyle(editorRightSidebar).width)
+                : 0,
+            overviewFilterItemPaddingLeft: overviewFilterItem
+                ? readPx(getComputedStyle(overviewFilterItem).paddingLeft)
+                : 0,
+            overviewFilterNodePaddingLeft: overviewFilterNode
+                ? readPx(getComputedStyle(overviewFilterNode).paddingLeft)
                 : 0
         };
     });
@@ -651,9 +670,12 @@ test('top-row sidebars interpolate width and padding per view width', async ({
     expect(compactMetrics.overviewSidebarWidth).toBeCloseTo(100, 0);
     expect(compactMetrics.overviewSidebarPaddingLeft).toBeCloseTo(8, 0);
     expect(compactMetrics.overviewFilterItemPaddingVar).toBeCloseTo(4, 0);
+    expect(compactMetrics.overviewFilterNodePaddingLeft).toBeCloseTo(0, 0);
+    expect(compactMetrics.overviewFilterItemPaddingLeft).toBeCloseTo(9, 0);
     expect(compactMetrics.editorSidebarWidthVar).toBeCloseTo(100, 0);
     expect(compactMetrics.editorLeftSidebarWidth).toBeCloseTo(100, 0);
     expect(compactMetrics.editorRightSidebarWidth).toBeCloseTo(100, 0);
+    expect(compactMetrics.fontInfoFeatureItemPaddingVar).toBeCloseTo(8, 0);
 
     await setTopRowViewWidths(page, {
         'view-fontinfo': 1200,
@@ -667,7 +689,10 @@ test('top-row sidebars interpolate width and padding per view width', async ({
     expect(expandedMetrics.overviewSidebarWidth).toBeCloseTo(200, 0);
     expect(expandedMetrics.overviewSidebarPaddingLeft).toBeCloseTo(12, 0);
     expect(expandedMetrics.overviewFilterItemPaddingVar).toBeCloseTo(6, 0);
+    expect(expandedMetrics.overviewFilterNodePaddingLeft).toBeCloseTo(0, 0);
+    expect(expandedMetrics.overviewFilterItemPaddingLeft).toBeCloseTo(12, 0);
     expect(expandedMetrics.editorSidebarWidthVar).toBeCloseTo(200, 0);
     expect(expandedMetrics.editorLeftSidebarWidth).toBeCloseTo(200, 0);
     expect(expandedMetrics.editorRightSidebarWidth).toBeCloseTo(200, 0);
+    expect(expandedMetrics.fontInfoFeatureItemPaddingVar).toBeCloseTo(12, 0);
 });

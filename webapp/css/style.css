@@ -6331,7 +6331,9 @@ kbd + kbd {
     position: relative;
     align-items: center;
     gap: 8px;
-    padding: 3px 12px;
+    padding:
+        var(--top-row-sidebar-item-block-padding, 3px)
+        var(--top-row-sidebar-item-inline-padding, 12px);
     cursor: pointer;
     border-radius: 0;
     font-family: var(--font-families-sans);
@@ -6477,8 +6479,8 @@ kbd + kbd {
 .draggable-feature.feature-drop-target-after::after {
     content: '';
     position: absolute;
-    left: 12px;
-    right: 12px;
+    left: var(--top-row-sidebar-item-inline-padding, 12px);
+    right: var(--top-row-sidebar-item-inline-padding, 12px);
     height: 2px;
     border-radius: 999px;
     background-color: var(--accent-cyan);
@@ -6498,11 +6500,42 @@ kbd + kbd {
 /* Script selector dropdown */
 .feature-script-selector {
     margin-bottom: 8px;
-    padding: 0 12px;
+    padding: 0 var(--top-row-fontinfo-control-inline-padding, 12px);
     display: flex;
     align-items: center;
     gap: 6px;
     font-size: 11px;
+}
+
+.feature-script-selector-label {
+    color: var(--text-secondary);
+}
+
+.feature-script-dropdown {
+    flex: 1;
+    padding:
+        var(--top-row-fontinfo-control-block-padding, 4px)
+        var(--top-row-fontinfo-control-inline-padding, 8px);
+    background: var(--input-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    font-family: var(--font-families-mono);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.feature-section-separator {
+    padding:
+        var(--top-row-fontinfo-control-block-padding, 6px)
+        var(--top-row-fontinfo-control-inline-padding, 12px);
+    font-size: 10px;
+    color: var(--text-secondary);
+    opacity: 0.5;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-top: 8px;
 }
 
 .feature-script-dropdown:hover {

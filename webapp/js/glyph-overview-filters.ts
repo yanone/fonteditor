@@ -1119,7 +1119,10 @@ export class GlyphOverviewFilterManager {
         for (const [key, childNode] of sortedChildren) {
             const nodeElement = document.createElement('div');
             nodeElement.className = 'glyph-filter-node';
-            nodeElement.style.paddingLeft = `${depth * 8}px`;
+            nodeElement.style.setProperty(
+                '--glyph-filter-node-depth',
+                String(depth)
+            );
 
             // Category header with expand/collapse toggle
             const header = document.createElement('div');
@@ -1214,7 +1217,7 @@ export class GlyphOverviewFilterManager {
         if (this.activeFilter === plugin) {
             item.classList.add('active');
         }
-        item.style.paddingLeft = `${depth * 4 + 8}px`;
+        item.style.setProperty('--glyph-filter-item-depth', String(depth));
 
         const label = document.createElement('span');
         label.className = 'glyph-filter-item-label';

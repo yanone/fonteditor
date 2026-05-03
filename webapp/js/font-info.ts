@@ -2116,31 +2116,13 @@ class FontInfoManager {
         if (availableShapers.length > 1) {
             const scriptSelectorContainer = document.createElement('div');
             scriptSelectorContainer.className = 'feature-script-selector';
-            scriptSelectorContainer.style.cssText = `
-                margin-bottom: 8px;
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                font-size: 11px;
-            `;
 
             const label = document.createElement('span');
+            label.className = 'feature-script-selector-label';
             label.textContent = 'Shaper:';
-            label.style.color = 'var(--text-secondary)';
 
             const select = document.createElement('select');
             select.className = 'feature-script-dropdown';
-            select.style.cssText = `
-                flex: 1;
-                padding: 4px 8px;
-                background: var(--input-bg);
-                color: var(--text-primary);
-                border: 1px solid var(--border-primary);
-                border-radius: 4px;
-                font-family: var(--font-families-mono);
-                font-size: 11px;
-                cursor: pointer;
-            `;
 
             availableShapers.forEach((shaper) => {
                 const option = document.createElement('option');
@@ -2189,16 +2171,6 @@ class FontInfoManager {
         const addSectionHeader = (text: string) => {
             const separator = document.createElement('div');
             separator.className = 'feature-section-separator';
-            separator.style.cssText = `
-                padding: 6px 12px;
-                font-size: 10px;
-                color: var(--text-secondary);
-                opacity: 0.5;
-                font-weight: 500;
-                letter-spacing: 0.05em;
-                text-transform: uppercase;
-                margin-top: 8px;
-            `;
             separator.textContent = text;
             listContainer.appendChild(separator);
         };
