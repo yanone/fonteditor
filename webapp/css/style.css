@@ -5148,8 +5148,10 @@ kbd + kbd {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    padding: 5px 12px;
+    gap: var(--top-row-sidebar-element-gap, 8px);
+    padding:
+        var(--top-row-sidebar-item-block-padding, 5px)
+        var(--top-row-sidebar-item-inline-padding, 12px);
     border-radius: 0;
     cursor: pointer;
     font-size: 11px;
@@ -5413,7 +5415,9 @@ kbd + kbd {
     font-family: var(--font-families-mono);
     font-size: 11px;
     font-weight: 600;
-    padding: 3px 6px;
+    padding:
+        max(1px, calc(var(--top-row-sidebar-item-block-padding, 5px) - 2px))
+        var(--top-row-sidebar-item-inline-padding, 12px);
     border: 1px solid var(--border-primary);
     border-radius: 3px;
     background: transparent;
@@ -5421,7 +5425,7 @@ kbd + kbd {
     cursor: pointer;
     transition: all 0.15s ease;
     flex-shrink: 0;
-    min-width: 42px;
+    min-width: 36px;
     text-align: center;
 }
 

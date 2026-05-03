@@ -2532,7 +2532,7 @@ class GlyphCanvas {
             target?: LayerListContextTarget
         ): HTMLDivElement => {
             const item = document.createElement('div');
-            item.className = 'editor-layer-item sidebar-item';
+            item.className = 'editor-layer-item';
             item.setAttribute('data-master-id', master.id!);
             if (target?.glyphName) {
                 item.setAttribute('data-glyph-name', target.glyphName);

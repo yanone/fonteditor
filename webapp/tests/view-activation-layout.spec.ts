@@ -223,7 +223,6 @@ async function getResponsiveSidebarMetrics(page: Page) {
         const overviewFilterNode = document.querySelector(
             '.glyph-filter-node'
         ) as HTMLElement | null;
-
         return {
             fontInfoSidebarWidthVar: readPx(
                 fontInfoView
@@ -277,6 +276,20 @@ async function getResponsiveSidebarMetrics(page: Page) {
                 editorView
                     ? getComputedStyle(editorView).getPropertyValue(
                           '--top-row-sidebar-width'
+                      )
+                    : '0'
+            ),
+            editorSidebarItemPaddingVar: readPx(
+                editorView
+                    ? getComputedStyle(editorView).getPropertyValue(
+                          '--top-row-sidebar-item-inline-padding'
+                      )
+                    : '0'
+            ),
+            editorSidebarElementGapVar: readPx(
+                editorView
+                    ? getComputedStyle(editorView).getPropertyValue(
+                          '--top-row-sidebar-element-gap'
                       )
                     : '0'
             ),
@@ -688,6 +701,8 @@ test('top-row sidebars interpolate width and padding per view width', async ({
     expect(compactMetrics.overviewFilterNodePaddingLeft).toBeCloseTo(0, 0);
     expect(compactMetrics.overviewFilterItemPaddingLeft).toBeCloseTo(6, 0);
     expect(compactMetrics.editorSidebarWidthVar).toBeCloseTo(100, 0);
+    expect(compactMetrics.editorSidebarItemPaddingVar).toBeCloseTo(6, 0);
+    expect(compactMetrics.editorSidebarElementGapVar).toBeCloseTo(3, 0);
     expect(compactMetrics.editorLeftSidebarWidth).toBeCloseTo(100, 0);
     expect(compactMetrics.editorRightSidebarWidth).toBeCloseTo(100, 0);
     expect(compactMetrics.fontInfoFeatureItemPaddingVar).toBeCloseTo(6, 0);
@@ -709,6 +724,8 @@ test('top-row sidebars interpolate width and padding per view width', async ({
     expect(expandedMetrics.overviewFilterNodePaddingLeft).toBeCloseTo(0, 0);
     expect(expandedMetrics.overviewFilterItemPaddingLeft).toBeCloseTo(12, 0);
     expect(expandedMetrics.editorSidebarWidthVar).toBeCloseTo(200, 0);
+    expect(expandedMetrics.editorSidebarItemPaddingVar).toBeCloseTo(12, 0);
+    expect(expandedMetrics.editorSidebarElementGapVar).toBeCloseTo(8, 0);
     expect(expandedMetrics.editorLeftSidebarWidth).toBeCloseTo(200, 0);
     expect(expandedMetrics.editorRightSidebarWidth).toBeCloseTo(200, 0);
     expect(expandedMetrics.fontInfoFeatureItemPaddingVar).toBeCloseTo(12, 0);

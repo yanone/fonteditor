@@ -225,10 +225,6 @@ export class FeaturesManager {
         // Add section header with reset button
         const headerRow = document.createElement('div');
         headerRow.className = 'editor-section-header';
-        headerRow.style.display = 'flex';
-        headerRow.style.justifyContent = 'space-between';
-        headerRow.style.alignItems = 'center';
-        headerRow.style.marginBottom = '8px';
 
         const title = document.createElement('div');
         title.className = 'editor-section-title';
@@ -239,8 +235,6 @@ export class FeaturesManager {
         resetButton.className = 'feature-reset-button';
         resetButton.textContent = 'Reset';
         resetButton.style.fontSize = '11px';
-        resetButton.style.padding = '2px 8px';
-        resetButton.style.cursor = 'pointer';
         resetButton.style.opacity = '0.5';
         resetButton.style.pointerEvents = 'none';
         resetButton.disabled = true;
@@ -275,21 +269,11 @@ export class FeaturesManager {
         features.forEach((feature: any) => {
             const featureRow = document.createElement('div');
             featureRow.className = 'editor-feature-row';
-            featureRow.style.display = 'flex';
-            featureRow.style.alignItems = 'center';
-            featureRow.style.gap = '8px';
             featureRow.style.fontSize = '12px';
-            featureRow.style.padding = '2px 0';
 
             // Add GSUB/GPOS indicator
             const tableIndicator = document.createElement('div');
             tableIndicator.className = 'feature-table-indicator';
-            tableIndicator.style.width = '11px';
-            tableIndicator.style.height = '12px';
-            tableIndicator.style.display = 'flex';
-            tableIndicator.style.alignItems = 'center';
-            tableIndicator.style.justifyContent = 'space-between';
-            tableIndicator.style.flexShrink = '0';
 
             const tables = feature.tables || [];
             const hasGSUB = tables.includes('GSUB');
