@@ -22,27 +22,32 @@ function applySidebarInterpolation(view: HTMLElement): void {
     );
 
     const sidebarWidth = lerp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, ratio);
-    const sidebarPadding = lerp(8, 12, ratio);
-    const sidebarGap = lerp(8, 12, ratio);
-    const sectionTitleMarginTop = lerp(4, 6, ratio);
-    const itemInlinePadding = lerp(8, 12, ratio);
-    const itemBlockPadding = lerp(4, 5, ratio);
-    const filterTreeInset = lerp(6, 9, ratio);
-    const filterNodeHeaderInlinePadding = lerp(3, 4, ratio);
-    const filterNodeHeaderBlockPadding = lerp(2, 3, ratio);
-    const filterNodeIndentStep = lerp(6, 8, ratio);
-    const filterItemInlinePadding = lerp(4, 6, ratio);
-    const filterItemBlockPadding = lerp(2, 3, ratio);
-    const filterItemBaseIndent = lerp(6, 8, ratio);
-    const filterItemIndentStep = lerp(3, 4, ratio);
-    const filterCountInlinePadding = lerp(4, 5, ratio);
+    const sidebarPadding = lerp(6, 12, ratio);
+    const sidebarGap = lerp(4, 12, ratio);
+    const sidebarElementGap = lerp(3, 8, ratio);
+    const sectionTitleMarginTop = lerp(3, 6, ratio);
+    const itemInlinePadding = lerp(6, 12, ratio);
+    const itemBlockPadding = lerp(3, 5, ratio);
+    const filterTreeInset = lerp(4, 9, ratio);
+    const filterNodeHeaderInlinePadding = lerp(2, 4, ratio);
+    const filterNodeHeaderBlockPadding = lerp(1, 3, ratio);
+    const filterNodeIndentStep = lerp(4, 8, ratio);
+    const filterItemInlinePadding = lerp(3, 6, ratio);
+    const filterItemBlockPadding = lerp(1, 3, ratio);
+    const filterItemBaseIndent = lerp(4, 8, ratio);
+    const filterItemIndentStep = lerp(2, 4, ratio);
+    const filterCountInlinePadding = lerp(3, 5, ratio);
     const filterCountMinWidth = lerp(16, 20, ratio);
-    const fontInfoControlInlinePadding = lerp(8, 12, ratio);
-    const fontInfoControlBlockPadding = lerp(4, 6, ratio);
+    const fontInfoControlInlinePadding = lerp(6, 12, ratio);
+    const fontInfoControlBlockPadding = lerp(3, 6, ratio);
 
     view.style.setProperty('--top-row-sidebar-width', `${sidebarWidth}px`);
     view.style.setProperty('--top-row-sidebar-padding', `${sidebarPadding}px`);
     view.style.setProperty('--top-row-sidebar-gap', `${sidebarGap}px`);
+    view.style.setProperty(
+        '--top-row-sidebar-element-gap',
+        `${sidebarElementGap}px`
+    );
     view.style.setProperty(
         '--top-row-sidebar-list-bleed',
         `${sidebarPadding}px`

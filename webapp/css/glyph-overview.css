@@ -338,7 +338,7 @@
 .glyph-filter-tree {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: calc(var(--top-row-sidebar-element-gap, 8px) - 2px);
     margin-left: calc(var(--top-row-overview-filter-tree-inset, 9px) * -1);
     margin-right: calc(var(--top-row-overview-filter-tree-inset, 9px) * -1);
     margin-top: 10px;
@@ -356,7 +356,7 @@
 .glyph-filter-node-header {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: calc(var(--top-row-sidebar-element-gap, 8px) - 2px);
     padding:
         var(--top-row-overview-filter-node-header-block-padding, 3px)
         var(--top-row-overview-filter-node-header-inline-padding, 4px);
@@ -391,7 +391,7 @@
 .glyph-filter-node-content {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: calc(var(--top-row-sidebar-element-gap, 8px) - 3px);
 }
 
 .glyph-filter-item,

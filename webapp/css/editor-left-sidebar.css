@@ -13,5 +13,5 @@
 #glyph-properties-section {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: calc(var(--top-row-sidebar-element-gap, 8px) + 2px);
 }

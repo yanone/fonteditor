@@ -6300,8 +6300,8 @@ kbd + kbd {
 
 /* Section titles for prefixes, classes, features */
 .features-sidebar .editor-section-title {
-    margin-top: 6px;
-    margin-bottom: 6px;
+    margin-top: var(--top-row-sidebar-section-title-margin-top, 6px);
+    margin-bottom: var(--top-row-sidebar-element-gap, 8px);
 }
 
 .features-sidebar .editor-section-title:first-child {
@@ -6316,7 +6316,7 @@ kbd + kbd {
 }
 
 .features-list + .editor-section-title {
-    margin-top: 20px;
+    margin-top: calc(var(--top-row-sidebar-element-gap, 8px) * 2);
 }
 
 .features-empty {
@@ -6330,7 +6330,7 @@ kbd + kbd {
     display: flex;
     position: relative;
     align-items: center;
-    gap: 8px;
+    gap: var(--top-row-sidebar-element-gap, 8px);
     padding:
         var(--top-row-sidebar-item-block-padding, 3px)
         var(--top-row-sidebar-item-inline-padding, 12px);
@@ -6503,7 +6503,7 @@ kbd + kbd {
     padding: 0 var(--top-row-fontinfo-control-inline-padding, 12px);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--top-row-sidebar-element-gap, 8px);
     font-size: 11px;
 }
 
