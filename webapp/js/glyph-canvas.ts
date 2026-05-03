@@ -13,6 +13,7 @@ import fontManager from './font-manager';
 import { OutlineEditor } from './glyph-canvas/outline-editor';
 import { Logger } from './logger';
 import APP_SETTINGS from './settings';
+import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
 import { designspaceToUserspace, userspaceToDesignspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import {
@@ -210,6 +211,7 @@ class GlyphCanvas {
         panX: number;
         panY: number;
     } | null = null;
+    suppressNextViewportResizeAdjustment: boolean = false;
 
     propertiesSection: HTMLElement | null = null;
     propertyPanel: HTMLElement | null = null;
@@ -1756,6 +1758,19 @@ class GlyphCanvas {
                 ...this.collapsedViewportSnapshot
             };
             this.collapsedViewportSnapshot = null;
+            this.suppressNextViewportResizeAdjustment = true;
+            this.render();
+            return;
+        }
+
+        if (
+            this.suppressNextViewportResizeAdjustment &&
+            this.lastStableViewportSnapshot
+        ) {
+            this.suppressNextViewportResizeAdjustment = false;
+            this.viewportManager.scale = this.lastStableViewportSnapshot.scale;
+            this.viewportManager.panX = this.lastStableViewportSnapshot.panX;
+            this.viewportManager.panY = this.lastStableViewportSnapshot.panY;
             this.render();
             return;
         }
@@ -5580,6 +5595,11 @@ function initCanvas() {
         mainContainer.appendChild(rightSidebar);
         editorContent.appendChild(mainContainer);
 
+        const responsiveEditorView = document.getElementById('view-editor');
+        if (responsiveEditorView) {
+            attachTopRowSidebarInterpolation(responsiveEditorView);
+        }
+
         // Initialize canvas
         window.glyphCanvas = new GlyphCanvas('glyph-canvas-container');
 
@@ -5723,9 +5743,30 @@ function initCanvas() {
             glyphName: string;
             lastKnownPosition: [number, number] | null;
         } | null = null;
-        const sidebarCollapsedWidth =
-            Number.parseFloat(rightSidebar.style.width) || 200;
-        const sidebarExpandedWidth = sidebarCollapsedWidth * 2;
+        const getSidebarCollapsedWidth = (): number => {
+            const responsiveWidth = Number.parseFloat(
+                getComputedStyle(rightSidebar).getPropertyValue(
+                    '--top-row-sidebar-width'
+                )
+            );
+            if (Number.isFinite(responsiveWidth) && responsiveWidth > 0) {
+                return responsiveWidth;
+            }
+
+            return Number.parseFloat(getComputedStyle(rightSidebar).width) || 200;
+        };
+
+        const syncRightSidebarWidth = (): void => {
+            if (qcExpanded) {
+                const expandedWidth = getSidebarCollapsedWidth() * 2;
+                rightSidebar.style.width = `${expandedWidth}px`;
+                rightSidebar.style.minWidth = `${expandedWidth}px`;
+                return;
+            }
+
+            rightSidebar.style.width = '';
+            rightSidebar.style.minWidth = '';
+        };
         const qcFilters: Record<'fail' | 'warn' | 'info', boolean> = {
             fail: true,
             warn: true,
@@ -6323,11 +6364,7 @@ function initCanvas() {
             fontQcSection.classList.toggle('collapsed', !expanded);
             rightSidebar.classList.toggle('font-qc-expanded', expanded);
             rightSidebarScrollContent.style.display = expanded ? 'none' : '';
-            const sidebarTargetWidth = expanded
-                ? sidebarExpandedWidth
-                : sidebarCollapsedWidth;
-            rightSidebar.style.width = `${sidebarTargetWidth}px`;
-            rightSidebar.style.minWidth = `${sidebarTargetWidth}px`;
+            syncRightSidebarWidth();
 
             if (expanded) {
                 renderQcList();
@@ -6335,6 +6372,13 @@ function initCanvas() {
                 clearActiveQcSelection();
             }
         };
+
+        if (responsiveEditorView) {
+            const responsiveSidebarObserver = new ResizeObserver(() => {
+                syncRightSidebarWidth();
+            });
+            responsiveSidebarObserver.observe(responsiveEditorView);
+        }
 
         const syncProfileOptions = (
             profiles: string[],

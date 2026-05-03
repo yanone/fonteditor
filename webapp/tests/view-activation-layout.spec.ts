@@ -181,6 +181,88 @@ async function dragVerticalDivider(
     );
 }
 
+async function setTopRowViewWidths(
+    page: Page,
+    widths: Record<string, number>
+) {
+    await page.evaluate((requestedWidths: Record<string, number>) => {
+        for (const [viewId, width] of Object.entries(requestedWidths)) {
+            const view = document.getElementById(viewId) as HTMLElement | null;
+            if (!view) {
+                continue;
+            }
+
+            view.style.flex = `0 0 ${width}px`;
+            view.style.width = `${width}px`;
+            view.style.minWidth = `${width}px`;
+            view.style.maxWidth = `${width}px`;
+        }
+
+        window.dispatchEvent(new Event('resize'));
+    }, widths);
+
+    await page.waitForTimeout(350);
+}
+
+async function getResponsiveSidebarMetrics(page: Page) {
+    return await page.evaluate(() => {
+        const readPx = (value: string | null) => Number.parseFloat(value || '0');
+        const fontInfoView = document.getElementById('view-fontinfo');
+        const overviewView = document.getElementById('view-overview');
+        const editorView = document.getElementById('view-editor');
+        const overviewSidebar = document.getElementById('overview-sidebar');
+        const editorLeftSidebar = document.getElementById(
+            'glyph-properties-sidebar'
+        );
+        const editorRightSidebar = document.getElementById(
+            'glyph-editor-sidebar'
+        );
+
+        return {
+            fontInfoSidebarWidthVar: readPx(
+                fontInfoView
+                    ? getComputedStyle(fontInfoView).getPropertyValue(
+                          '--top-row-sidebar-width'
+                      )
+                    : '0'
+            ),
+            fontInfoSidebarPaddingVar: readPx(
+                fontInfoView
+                    ? getComputedStyle(fontInfoView).getPropertyValue(
+                          '--top-row-sidebar-padding'
+                      )
+                    : '0'
+            ),
+            overviewSidebarWidth: overviewSidebar
+                ? readPx(getComputedStyle(overviewSidebar).width)
+                : 0,
+            overviewSidebarPaddingLeft: overviewSidebar
+                ? readPx(getComputedStyle(overviewSidebar).paddingLeft)
+                : 0,
+            overviewFilterItemPaddingVar: readPx(
+                overviewView
+                    ? getComputedStyle(overviewView).getPropertyValue(
+                          '--top-row-overview-filter-item-inline-padding'
+                      )
+                    : '0'
+            ),
+            editorSidebarWidthVar: readPx(
+                editorView
+                    ? getComputedStyle(editorView).getPropertyValue(
+                          '--top-row-sidebar-width'
+                      )
+                    : '0'
+            ),
+            editorLeftSidebarWidth: editorLeftSidebar
+                ? readPx(getComputedStyle(editorLeftSidebar).width)
+                : 0,
+            editorRightSidebarWidth: editorRightSidebar
+                ? readPx(getComputedStyle(editorRightSidebar).width)
+                : 0
+        };
+    });
+}
+
 test('activation width uses previous row focus order and persists it', async ({
     page
 }) => {
@@ -546,4 +628,46 @@ test('collapsed editor reopens to peer width by shortcut and title click', async
             topRowState.widths['view-editor'] - topRowState.widths['view-overview']
         )
     ).toBeLessThanOrEqual(4);
+});
+
+test('top-row sidebars interpolate width and padding per view width', async ({
+    page
+}) => {
+    await clearStoredViewLayout(page);
+
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.goto('/?test=true');
+    await waitForCanvasReady(page);
+
+    await setTopRowViewWidths(page, {
+        'view-fontinfo': 600,
+        'view-overview': 600,
+        'view-editor': 600
+    });
+
+    const compactMetrics = await getResponsiveSidebarMetrics(page);
+    expect(compactMetrics.fontInfoSidebarWidthVar).toBeCloseTo(100, 0);
+    expect(compactMetrics.fontInfoSidebarPaddingVar).toBeCloseTo(8, 0);
+    expect(compactMetrics.overviewSidebarWidth).toBeCloseTo(100, 0);
+    expect(compactMetrics.overviewSidebarPaddingLeft).toBeCloseTo(8, 0);
+    expect(compactMetrics.overviewFilterItemPaddingVar).toBeCloseTo(4, 0);
+    expect(compactMetrics.editorSidebarWidthVar).toBeCloseTo(100, 0);
+    expect(compactMetrics.editorLeftSidebarWidth).toBeCloseTo(100, 0);
+    expect(compactMetrics.editorRightSidebarWidth).toBeCloseTo(100, 0);
+
+    await setTopRowViewWidths(page, {
+        'view-fontinfo': 1200,
+        'view-overview': 1200,
+        'view-editor': 1200
+    });
+
+    const expandedMetrics = await getResponsiveSidebarMetrics(page);
+    expect(expandedMetrics.fontInfoSidebarWidthVar).toBeCloseTo(200, 0);
+    expect(expandedMetrics.fontInfoSidebarPaddingVar).toBeCloseTo(12, 0);
+    expect(expandedMetrics.overviewSidebarWidth).toBeCloseTo(200, 0);
+    expect(expandedMetrics.overviewSidebarPaddingLeft).toBeCloseTo(12, 0);
+    expect(expandedMetrics.overviewFilterItemPaddingVar).toBeCloseTo(6, 0);
+    expect(expandedMetrics.editorSidebarWidthVar).toBeCloseTo(200, 0);
+    expect(expandedMetrics.editorLeftSidebarWidth).toBeCloseTo(200, 0);
+    expect(expandedMetrics.editorRightSidebarWidth).toBeCloseTo(200, 0);
 });

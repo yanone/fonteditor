@@ -4,6 +4,7 @@
  */
 
 import { Logger } from './logger';
+import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
 import type { TransactionHistoryTarget } from './change-bridge';
 import type { Babelfont } from './babelfont';
 import {
@@ -142,6 +143,11 @@ class FontInfoManager {
 
         // Set up ResizeObserver to resize the Ace editor continuously during dragging
         this.setupResizeObserver();
+
+        const fontInfoView = document.getElementById('view-fontinfo');
+        if (fontInfoView) {
+            attachTopRowSidebarInterpolation(fontInfoView);
+        }
 
         // Set up keyboard navigation for feature editor
         this.setupKeyboardNavigation();

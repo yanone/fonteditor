@@ -1,13 +1,13 @@
 #glyph-properties-sidebar {
-    width: 200px;
-    min-width: 200px;
+    width: var(--top-row-sidebar-width, 200px);
+    min-width: var(--top-row-sidebar-width, 200px);
     height: 100%;
     border-right: 1px solid var(--border-primary);
-    padding: 12px;
+    padding: var(--top-row-sidebar-padding, 12px);
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--top-row-sidebar-gap, 12px);
 }
 
 #glyph-properties-section {

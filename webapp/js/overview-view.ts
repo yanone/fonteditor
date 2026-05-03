@@ -3,6 +3,8 @@
 // Note: glyphOverviewFilterManager is loaded via glyph-overview.ts bundle
 // and available on window.glyphOverviewFilterManager
 
+import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
+
 function timelineSpanStartSafe(
     stage: string,
     detail?: Record<string, unknown>
@@ -263,15 +265,6 @@ async function initOverviewView() {
         const leftSidebar = document.createElement('div');
         leftSidebar.id = 'overview-sidebar';
         leftSidebar.className = 'view-sidebar view-sidebar-left';
-        leftSidebar.style.width = '200px';
-        leftSidebar.style.height = '100%';
-        leftSidebar.style.borderRight = '1px solid var(--border-primary)';
-        leftSidebar.style.padding = '12px';
-        leftSidebar.style.overflowY = 'auto';
-        leftSidebar.style.display = 'flex';
-        leftSidebar.style.flexDirection = 'column';
-        leftSidebar.style.gap = '12px';
-        leftSidebar.style.flexShrink = '0'; // Prevent sidebar from shrinking
 
         // Create filter sidebar container
         const filterSidebarContainer = document.createElement('div');
@@ -343,14 +336,19 @@ async function initOverviewView() {
         mainContainer.appendChild(mainContent);
         overviewContent.appendChild(mainContainer);
 
+        const overviewView = document.getElementById('view-overview');
+        if (overviewView) {
+            attachTopRowSidebarInterpolation(overviewView);
+        }
+
         // Observe when the overview view gains/loses focus (via 'focused' class)
         // CSS handles sidebar background color changes based on .view.focused
-        const overviewView = document.querySelector('#view-overview');
-        if (overviewView) {
+        const overviewViewElement = document.querySelector('#view-overview');
+        if (overviewViewElement) {
             let wasCollapsed: boolean | null = null;
             const updateCollapsedState = () => {
                 const isCollapsed =
-                    overviewView.classList.contains('collapsed-width');
+                    overviewViewElement.classList.contains('collapsed-width');
                 // Hide entire container when view is collapsed
                 mainContainer.style.display = isCollapsed ? 'none' : 'flex';
 
@@ -381,7 +379,7 @@ async function initOverviewView() {
                     });
                 }
             );
-            observer.observe(overviewView, {
+            observer.observe(overviewViewElement, {
                 attributes: true,
                 attributeFilter: ['class']
             });
