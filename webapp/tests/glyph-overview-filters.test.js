@@ -227,3 +227,41 @@ describe('GlyphOverviewFilterManager auto-update events', () => {
         );
     });
 });
+
+describe('GlyphOverviewFilterManager All Glyphs behavior', () => {
+    let manager;
+
+    beforeEach(() => {
+        localStorage.clear();
+        manager = new GlyphOverviewFilterManager();
+        manager.glyphOverview = {
+            setActiveFilter: jest.fn(),
+            updateSelectedGlyphGroups: jest.fn(),
+            showFilterNotice: jest.fn(),
+            showFilterError: jest.fn()
+        };
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+    });
+
+    test('clearing group selection keeps All Glyphs unfiltered', () => {
+        manager.activeFilter = {
+            path: 'basic',
+            keyword: 'com.context.allglyphs',
+            display_name: 'All Glyphs',
+            instance: null,
+            lastResults: [],
+            groups: {}
+        };
+
+        manager.activeGroupFilters = new Set(['dummy-group']);
+
+        manager.clearGroupSelection();
+
+        expect(manager.glyphOverview.setActiveFilter).toHaveBeenCalledWith(
+            null
+        );
+    });
+});

@@ -2063,6 +2063,11 @@ export class GlyphOverviewFilterManager {
     private applyGroupFilter(): void {
         if (!this.glyphOverview || !this.activeFilter) return;
 
+        if (this.activeFilter.keyword === ALL_GLYPHS_FILTER_KEYWORD) {
+            this.glyphOverview.setActiveFilter(null);
+            return;
+        }
+
         const results = this.activeFilter.lastResults;
         if (!results) return;
 
