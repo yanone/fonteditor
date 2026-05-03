@@ -181,10 +181,7 @@ async function dragVerticalDivider(
     );
 }
 
-async function setTopRowViewWidths(
-    page: Page,
-    widths: Record<string, number>
-) {
+async function setTopRowViewWidths(page: Page, widths: Record<string, number>) {
     await page.evaluate((requestedWidths: Record<string, number>) => {
         for (const [viewId, width] of Object.entries(requestedWidths)) {
             const view = document.getElementById(viewId) as HTMLElement | null;
@@ -206,7 +203,8 @@ async function setTopRowViewWidths(
 
 async function getResponsiveSidebarMetrics(page: Page) {
     return await page.evaluate(() => {
-        const readPx = (value: string | null) => Number.parseFloat(value || '0');
+        const readPx = (value: string | null) =>
+            Number.parseFloat(value || '0');
         const fontInfoView = document.getElementById('view-fontinfo');
         const overviewView = document.getElementById('view-overview');
         const editorView = document.getElementById('view-editor');
@@ -612,7 +610,9 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
             | HTMLElement
             | undefined;
         const editorView = visibleTopRow?.querySelector('#view-editor');
-        return !!editorView && !editorView.classList.contains('collapsed-width');
+        return (
+            !!editorView && !editorView.classList.contains('collapsed-width')
+        );
     });
 
     const afterExpandViewport = await getEditorViewportState(page);
@@ -653,7 +653,8 @@ test('collapsed editor reopens to peer width by shortcut and title click', async
     expect(topRowState.widths['view-editor']).toBeGreaterThan(100);
     expect(
         Math.abs(
-            topRowState.widths['view-editor'] - topRowState.widths['view-overview']
+            topRowState.widths['view-editor'] -
+                topRowState.widths['view-overview']
         )
     ).toBeLessThanOrEqual(4);
 
@@ -671,7 +672,8 @@ test('collapsed editor reopens to peer width by shortcut and title click', async
     expect(topRowState.widths['view-editor']).toBeGreaterThan(100);
     expect(
         Math.abs(
-            topRowState.widths['view-editor'] - topRowState.widths['view-overview']
+            topRowState.widths['view-editor'] -
+                topRowState.widths['view-overview']
         )
     ).toBeLessThanOrEqual(4);
 });

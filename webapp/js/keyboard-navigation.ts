@@ -258,7 +258,9 @@
             return false;
         }
 
-        const editorView = document.getElementById(viewId) as HTMLElement | null;
+        const editorView = document.getElementById(
+            viewId
+        ) as HTMLElement | null;
         const topRow = editorView?.closest('.top-row') as HTMLElement | null;
         if (!editorView || !topRow) {
             return false;
@@ -354,7 +356,8 @@
         let expanded = false;
 
         if (isTopRow && viewId === 'view-editor') {
-            expanded = expandCollapsedTopRowEditorToPeerWidth(viewId) || expanded;
+            expanded =
+                expandCollapsedTopRowEditorToPeerWidth(viewId) || expanded;
         }
 
         if ((isTopRow || isBottomRow) && !expanded) {
