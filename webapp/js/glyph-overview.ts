@@ -2296,7 +2296,8 @@ class GlyphOverview {
     }
 
     private insertExplicitGlyphTokenText(tokenText: string): void {
-        const textRunEditor = window.glyphCanvas?.textRunEditor;
+        const glyphCanvas = window.glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
         if (!textRunEditor) {
             console.warn(
                 '[GlyphOverview]',
@@ -2305,7 +2306,14 @@ class GlyphOverview {
             return;
         }
 
-        textRunEditor.insertText(tokenText);
+        if (
+            glyphCanvas?.outlineEditor?.active &&
+            typeof textRunEditor.insertTextAfterSelectedGlyph === 'function'
+        ) {
+            void textRunEditor.insertTextAfterSelectedGlyph(tokenText);
+        } else {
+            textRunEditor.insertText(tokenText);
+        }
         console.log(
             '[GlyphOverview]',
             'Inserted explicit glyph token text:',

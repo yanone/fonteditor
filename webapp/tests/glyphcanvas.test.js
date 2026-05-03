@@ -12077,6 +12077,69 @@ describe('OutlineEditor per-layer selection memory', () => {
         expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
         expect(canvas.outlineEditor.selectedComponents).toEqual([]);
     });
+
+    test('insertTextAfterSelectedGlyph inserts after the active glyph and selects the inserted glyph', async () => {
+        const insertText = jest
+            .spyOn(canvas.textRunEditor, 'insertText')
+            .mockImplementation((text) => {
+                expect(text).toBe('/n ');
+                expect(canvas.textRunEditor.cursorPosition).toBe(1);
+
+                canvas.textRunEditor.shapedGlyphs = [
+                    { ax: 500, dx: 0, dy: 0, g: 1, cl: 0 },
+                    {
+                        ax: 480,
+                        dx: 0,
+                        dy: 0,
+                        g: 0,
+                        cl: 1,
+                        explicitGlyphName: 'n',
+                        explicitTokenStart: 1,
+                        explicitTokenEnd: 4
+                    },
+                    { ax: 460, dx: 0, dy: 0, g: 2, cl: 4 }
+                ];
+            });
+        const selectGlyphByIndex = jest
+            .spyOn(canvas.textRunEditor, 'selectGlyphByIndex')
+            .mockResolvedValue();
+
+        canvas.textRunEditor.textBuffer = 'An';
+        canvas.textRunEditor.selectedGlyphIndex = 0;
+        canvas.textRunEditor.shapedGlyphs = [
+            { ax: 500, dx: 0, dy: 0, g: 1, cl: 0 },
+            { ax: 460, dx: 0, dy: 0, g: 2, cl: 1 }
+        ];
+        canvas.textRunEditor.clusterMap = [
+            {
+                glyphIndex: 0,
+                glyphCount: 1,
+                start: 0,
+                end: 1,
+                x: 0,
+                width: 500,
+                isRTL: false,
+                isExplicitToken: false,
+                isAtomicCluster: false
+            },
+            {
+                glyphIndex: 1,
+                glyphCount: 1,
+                start: 1,
+                end: 2,
+                x: 500,
+                width: 460,
+                isRTL: false,
+                isExplicitToken: false,
+                isAtomicCluster: false
+            }
+        ];
+
+        await canvas.textRunEditor.insertTextAfterSelectedGlyph('/n ');
+
+        expect(insertText).toHaveBeenCalledWith('/n ');
+        expect(selectGlyphByIndex).toHaveBeenCalledWith(1);
+    });
 });
 
 // ==================== Keyboard Interaction Tests ====================

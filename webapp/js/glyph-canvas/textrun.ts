@@ -288,6 +288,60 @@ export class TextRunEditor {
         return this._findGlyphAtClusterPosition(clusterPos, true);
     }
 
+    private getClusterRangeForGlyphIndex(
+        glyphIndex: number
+    ): { start: number; end: number } | null {
+        for (const cluster of this.clusterMap) {
+            const clusterEndIndex = cluster.glyphIndex + cluster.glyphCount;
+            if (
+                glyphIndex >= cluster.glyphIndex &&
+                glyphIndex < clusterEndIndex
+            ) {
+                return {
+                    start: cluster.start,
+                    end: cluster.end
+                };
+            }
+        }
+
+        const glyph = this.shapedGlyphs[glyphIndex];
+        if (!glyph) {
+            return null;
+        }
+
+        const start = glyph.explicitTokenStart ?? glyph.cl ?? 0;
+        const end = glyph.explicitTokenEnd ?? start + 1;
+        return { start, end };
+    }
+
+    private findPreferredInsertedGlyphIndex(
+        insertStart: number,
+        insertEnd: number
+    ): number {
+        let fallbackIndex = -1;
+        let explicitGlyphIndex = -1;
+
+        for (let i = 0; i < this.shapedGlyphs.length; i++) {
+            const glyph = this.shapedGlyphs[i];
+            const glyphStart = glyph.explicitTokenStart ?? glyph.cl ?? -1;
+
+            if (glyphStart < insertStart || glyphStart >= insertEnd) {
+                continue;
+            }
+
+            fallbackIndex = i;
+            if (glyph.explicitGlyphName) {
+                explicitGlyphIndex = i;
+            }
+        }
+
+        if (explicitGlyphIndex >= 0) {
+            return explicitGlyphIndex;
+        }
+
+        return fallbackIndex;
+    }
+
     private syncTextBufferToStateManager() {
         if (!window.stateManager) {
             return;
@@ -956,6 +1010,36 @@ export class TextRunEditor {
         this.cursorPosition += text.length;
 
         this.reshapeAndRender();
+    }
+
+    async insertTextAfterSelectedGlyph(text: string) {
+        if (
+            this.selectedGlyphIndex < 0 ||
+            this.selectedGlyphIndex >= this.shapedGlyphs.length
+        ) {
+            this.insertText(text);
+            return;
+        }
+
+        const clusterRange = this.getClusterRangeForGlyphIndex(
+            this.selectedGlyphIndex
+        );
+        if (!clusterRange) {
+            this.insertText(text);
+            return;
+        }
+
+        const insertionStart = clusterRange.end;
+        this.cursorPosition = insertionStart;
+        this.insertText(text);
+
+        const insertedGlyphIndex = this.findPreferredInsertedGlyphIndex(
+            insertionStart,
+            insertionStart + text.length
+        );
+        if (insertedGlyphIndex >= 0) {
+            await this.selectGlyphByIndex(insertedGlyphIndex);
+        }
     }
 
     deleteBackward() {

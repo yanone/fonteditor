@@ -423,6 +423,7 @@ describe('GlyphOverview double-click insertion', () => {
     let overview;
     let parent;
     let insertText;
+    let insertTextAfterSelectedGlyph;
 
     beforeEach(() => {
         jest.resetModules();
@@ -435,9 +436,14 @@ describe('GlyphOverview double-click insertion', () => {
         document.body.appendChild(parent);
 
         insertText = jest.fn();
+        insertTextAfterSelectedGlyph = jest.fn();
         window.glyphCanvas = {
+            outlineEditor: {
+                active: false
+            },
             textRunEditor: {
-                insertText
+                insertText,
+                insertTextAfterSelectedGlyph
             }
         };
 
@@ -472,5 +478,17 @@ describe('GlyphOverview double-click insertion', () => {
         expect(insertText).toHaveBeenCalledWith('/B ');
         expect(tileA.selected).toBe(true);
         expect(tileB.selected).toBe(false);
+    });
+
+    test('uses edit-mode insertion after the active glyph when the outline editor is active', () => {
+        const tileB = overview.createGlyphTile('glyph-b', 'B');
+        window.glyphCanvas.outlineEditor.active = true;
+
+        tileB.element.dispatchEvent(
+            new MouseEvent('dblclick', { bubbles: true, detail: 2 })
+        );
+
+        expect(insertTextAfterSelectedGlyph).toHaveBeenCalledWith('/B ');
+        expect(insertText).not.toHaveBeenCalled();
     });
 });
