@@ -417,3 +417,60 @@ describe('GlyphOverview initial active tile highlighting', () => {
         ).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('GlyphOverview double-click insertion', () => {
+    let GlyphOverview;
+    let overview;
+    let parent;
+    let insertText;
+
+    beforeEach(() => {
+        jest.resetModules();
+
+        require('../js/glyph-overview');
+        GlyphOverview = window.GlyphOverview;
+
+        document.body.innerHTML = '';
+        parent = document.createElement('div');
+        document.body.appendChild(parent);
+
+        insertText = jest.fn();
+        window.glyphCanvas = {
+            textRunEditor: {
+                insertText
+            }
+        };
+
+        overview = new GlyphOverview(parent);
+        jest.spyOn(overview, 'isViewActive').mockReturnValue(true);
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+        delete window.glyphCanvas;
+        delete window.GlyphOverview;
+    });
+
+    test('inserts the double-clicked glyph even when restoring an older selection', () => {
+        const tileA = overview.createGlyphTile('glyph-a', 'A');
+        const tileB = overview.createGlyphTile('glyph-b', 'B');
+
+        overview.tiles = new Map([
+            ['glyph-a', tileA],
+            ['glyph-b', tileB]
+        ]);
+
+        overview.selectTile('glyph-a');
+
+        tileB.element.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, detail: 1 })
+        );
+        tileB.element.dispatchEvent(
+            new MouseEvent('dblclick', { bubbles: true, detail: 2 })
+        );
+
+        expect(insertText).toHaveBeenCalledWith('/B ');
+        expect(tileA.selected).toBe(true);
+        expect(tileB.selected).toBe(false);
+    });
+});

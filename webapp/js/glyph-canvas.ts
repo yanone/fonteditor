@@ -270,6 +270,7 @@ class GlyphCanvas {
     // Flag to suppress rendering during critical operations (e.g., layer data swap)
     renderSuppressed: boolean = false;
     hasDeferredRenderRequest: boolean = false;
+    editModeGlyphResyncInProgress: boolean = false;
 
     // Flag to prevent overlapping updatePropertiesUI calls
     isUpdatingPropertiesUI: boolean = false;
@@ -1106,6 +1107,21 @@ class GlyphCanvas {
             this.onTextChange();
         });
         this.textRunEditor!.on('render', () => {
+            if (this.outlineEditor.active) {
+                const nextGlyphName = this.getCurrentGlyphName();
+                const activeRootGlyphName =
+                    this.getActiveEditModeRootGlyphName();
+
+                if (
+                    nextGlyphName &&
+                    nextGlyphName !== 'undefined' &&
+                    nextGlyphName !== activeRootGlyphName
+                ) {
+                    void this.syncEditModeGlyphAfterTextMutation();
+                    return;
+                }
+            }
+
             this.render();
         });
         this.textRunEditor!.on('exitcomponentediting', () => {
@@ -1738,12 +1754,12 @@ class GlyphCanvas {
 
         if (isCollapsedWidth) {
             if (!this.collapsedViewportSnapshot) {
-                this.collapsedViewportSnapshot =
-                    this.lastStableViewportSnapshot || {
-                        scale: this.viewportManager.scale,
-                        panX: this.viewportManager.panX,
-                        panY: this.viewportManager.panY
-                    };
+                this.collapsedViewportSnapshot = this
+                    .lastStableViewportSnapshot || {
+                    scale: this.viewportManager.scale,
+                    panX: this.viewportManager.panX,
+                    panY: this.viewportManager.panY
+                };
             }
 
             this.render();
@@ -3312,7 +3328,13 @@ class GlyphCanvas {
 
         // Get glyph ID from shaped glyphs (after OpenType feature substitutions)
         const shapedGlyph = this.textRunEditor!.shapedGlyphs[selectedIndex];
+        if (shapedGlyph.explicitGlyphName) {
+            return shapedGlyph.explicitGlyphName;
+        }
+
         const glyphId = shapedGlyph.g;
+        const bufferedGlyphName =
+            this.textRunEditor!.glyphNameBuffer[selectedIndex] || null;
 
         // Get actual glyph name from the shaped glyph ID
         // This ensures we edit the correct glyph (e.g., "a.ss04" instead of "a")
@@ -3322,11 +3344,16 @@ class GlyphCanvas {
                     this.textRunEditor!.fontBlob,
                     glyphId
                 );
-                return glyphName;
+                if (glyphName && glyphName !== '.notdef') {
+                    return glyphName;
+                }
             } catch (e) {
                 console.warn(`Failed to get glyph name for GID ${glyphId}:`, e);
-                return `GID ${glyphId}`;
             }
+        }
+
+        if (bufferedGlyphName) {
+            return bufferedGlyphName;
         }
 
         // Fallback to GID if font blob is not available
@@ -3343,6 +3370,56 @@ class GlyphCanvas {
         if (this.outlineEditor.selectedLayerId !== null) {
             this.render();
             this.outlineEditor.performHitDetection(null);
+        }
+    }
+
+    private getActiveEditModeRootGlyphName(): string | null {
+        const parsedStack = this.outlineEditor.parseGlyphStack();
+        return (
+            parsedStack[0]?.glyphName ||
+            this.outlineEditor.currentGlyphName ||
+            null
+        );
+    }
+
+    private async syncEditModeGlyphAfterTextMutation(): Promise<void> {
+        if (this.editModeGlyphResyncInProgress || !this.outlineEditor.active) {
+            return;
+        }
+
+        const nextGlyphName = this.getCurrentGlyphName();
+        if (!nextGlyphName || nextGlyphName === 'undefined') {
+            return;
+        }
+
+        const activeRootGlyphName = this.getActiveEditModeRootGlyphName();
+        if (activeRootGlyphName === nextGlyphName) {
+            return;
+        }
+
+        this.editModeGlyphResyncInProgress = true;
+
+        try {
+            if (activeRootGlyphName) {
+                this.outlineEditor.prepareForGlyphSwitch(nextGlyphName);
+            }
+
+            this.outlineEditor.layerData = null;
+            this.outlineEditor.glyphStack = '';
+            this.outlineEditor.currentGlyphName = nextGlyphName;
+
+            await this.updatePropertiesUI();
+            this.updateComponentBreadcrumb();
+            this.updatePropertyPanel();
+
+            if (this.outlineEditor.selectedLayerId !== null) {
+                this.render();
+                this.outlineEditor.performHitDetection(null);
+            }
+
+            this.outlineEditor.onGlyphSelected();
+        } finally {
+            this.editModeGlyphResyncInProgress = false;
         }
     }
 
@@ -5753,7 +5830,9 @@ function initCanvas() {
                 return responsiveWidth;
             }
 
-            return Number.parseFloat(getComputedStyle(rightSidebar).width) || 200;
+            return (
+                Number.parseFloat(getComputedStyle(rightSidebar).width) || 200
+            );
         };
 
         const syncRightSidebarWidth = (): void => {

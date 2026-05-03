@@ -2210,7 +2210,7 @@ class GlyphOverview {
                 );
             }
 
-            this.insertSelectedGlyphTokens(glyphName);
+            this.insertGlyphToken(glyphName);
         });
 
         return {
@@ -2289,6 +2289,10 @@ class GlyphOverview {
             .map((glyphName) => `/${glyphName}`)
             .join(' ');
         this.insertExplicitGlyphTokenText(`${tokenText} `);
+    }
+
+    private insertGlyphToken(glyphName: string): void {
+        this.insertExplicitGlyphTokenText(`/${glyphName} `);
     }
 
     private insertExplicitGlyphTokenText(tokenText: string): void {
