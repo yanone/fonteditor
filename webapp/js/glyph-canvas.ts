@@ -213,6 +213,51 @@ class GlyphCanvas {
     } | null = null;
     suppressNextViewportResizeAdjustment: boolean = false;
 
+    private snapshotCurrentViewport(): {
+        scale: number;
+        panX: number;
+        panY: number;
+    } | null {
+        if (!this.viewportManager) {
+            return null;
+        }
+
+        return {
+            scale: this.viewportManager.scale,
+            panX: this.viewportManager.panX,
+            panY: this.viewportManager.panY
+        };
+    }
+
+    freezeViewportForCollapse(): void {
+        const liveViewportSnapshot = this.snapshotCurrentViewport();
+        if (!liveViewportSnapshot) {
+            return;
+        }
+
+        this.collapsedViewportSnapshot = liveViewportSnapshot;
+        this.lastStableViewportSnapshot = liveViewportSnapshot;
+    }
+
+    restoreViewportAfterCollapse(): void {
+        if (!this.viewportManager) {
+            return;
+        }
+
+        const snapshot =
+            this.collapsedViewportSnapshot || this.lastStableViewportSnapshot;
+        if (!snapshot) {
+            return;
+        }
+
+        this.viewportManager.scale = snapshot.scale;
+        this.viewportManager.panX = snapshot.panX;
+        this.viewportManager.panY = snapshot.panY;
+        this.lastStableViewportSnapshot = { ...snapshot };
+        this.suppressNextViewportResizeAdjustment = true;
+        this.render();
+    }
+
     propertiesSection: HTMLElement | null = null;
     propertyPanel: HTMLElement | null = null;
     leftSidebar: HTMLElement | null = null;
@@ -1755,12 +1800,7 @@ class GlyphCanvas {
 
         if (isCollapsedWidth) {
             if (!this.collapsedViewportSnapshot) {
-                this.collapsedViewportSnapshot = this
-                    .lastStableViewportSnapshot || {
-                    scale: this.viewportManager.scale,
-                    panX: this.viewportManager.panX,
-                    panY: this.viewportManager.panY
-                };
+                this.freezeViewportForCollapse();
             }
 
             this.render();

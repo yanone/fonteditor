@@ -584,6 +584,7 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
         window.glyphCanvas.viewportManager.scale = 1.75;
         window.glyphCanvas.viewportManager.panX = 321;
         window.glyphCanvas.viewportManager.panY = 654;
+        window.glyphCanvas.freezeViewportForCollapse?.();
         window.glyphCanvas.render();
     });
 
@@ -614,6 +615,24 @@ test('editor collapse and reopen restores the previous canvas viewport', async (
             !!editorView && !editorView.classList.contains('collapsed-width')
         );
     });
+
+    await page.waitForFunction(
+        ({ scale, panX, panY }) => {
+            const viewportManager = window.glyphCanvas?.viewportManager;
+            if (!viewportManager) {
+                return false;
+            }
+
+            const epsilon = 0.00001;
+            return (
+                Math.abs(viewportManager.scale - scale) <= epsilon &&
+                Math.abs(viewportManager.panX - panX) <= epsilon &&
+                Math.abs(viewportManager.panY - panY) <= epsilon
+            );
+        },
+        beforeCollapseViewport,
+        { timeout: 2000 }
+    );
 
     const afterExpandViewport = await getEditorViewportState(page);
 

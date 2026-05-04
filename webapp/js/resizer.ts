@@ -750,13 +750,25 @@ class ResizableViews {
             });
         }
 
+        let shouldRestoreCollapsedEditorViewport = false;
+
         // Apply the adjusted widths - use fixed pixel width for collapsed views
         views.forEach((view, index) => {
             const minWidth = this.getMinWidth(view);
             if (adjustedWidths[index] <= minWidth + 5) {
+                const isNewlyCollapsed = this.startWidths[index] > minWidth + 5;
+                if (isNewlyCollapsed && view.id === 'view-editor') {
+                    window.glyphCanvas?.freezeViewportForCollapse?.();
+                }
+
                 // Collapsed view - use fixed pixel width
                 view.style.flex = `0 0 ${minWidth}px`;
             } else {
+                const isNewlyExpanded = this.startWidths[index] <= minWidth + 5;
+                if (isNewlyExpanded && view.id === 'view-editor') {
+                    shouldRestoreCollapsedEditorViewport = true;
+                }
+
                 // Non-collapsed view - keep pixel-proportional flex weights so the row fully fills.
                 view.style.flex = `${adjustedWidths[index]}`;
             }
@@ -764,6 +776,14 @@ class ResizableViews {
 
         // Update collapsed states
         this.updateCollapsedStates();
+
+        if (shouldRestoreCollapsedEditorViewport) {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    window.glyphCanvas?.restoreViewportAfterCollapse?.();
+                });
+            });
+        }
     }
 
     resizeHorizontal(e: MouseEvent) {
