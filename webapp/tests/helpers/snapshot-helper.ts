@@ -940,6 +940,48 @@ async function waitForEditorModeActivation(page: any) {
     });
 }
 
+export async function waitForFeatureCompilationError(
+    page: any,
+    options?: { timeout?: number }
+) {
+    const timeout = options?.timeout ?? 7000;
+
+    await page.waitForFunction(
+        () => {
+            const errorDisplay = document.getElementById(
+                'sidebar-error-display'
+            ) as HTMLElement | null;
+            const manager = (window as any).fontInfoManager;
+            const lineWidgetEl =
+                (manager?.featureErrorLineWidget?.el as HTMLElement | null) ||
+                null;
+
+            const sidebarVisible =
+                !!errorDisplay &&
+                errorDisplay.style.display !== 'none' &&
+                !!errorDisplay.textContent?.trim();
+            const inlineVisible =
+                !!lineWidgetEl &&
+                lineWidgetEl.isConnected &&
+                !!lineWidgetEl.textContent?.trim();
+
+            return sidebarVisible && inlineVisible;
+        },
+        { timeout }
+    );
+
+    await page.evaluate(async () => {
+        await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+        );
+        await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+        );
+    });
+
+    await page.waitForTimeout(100);
+}
+
 /**
  * Take a complete snapshot (JSON + PNG) with a 100ms wait
  * This wrapper combines both snapshot types and adds a stabilization delay

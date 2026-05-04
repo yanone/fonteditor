@@ -7,6 +7,7 @@ import {
     snapshotForComparison,
     takeSnapshot,
     waitForCanvasReady,
+    waitForFeatureCompilationError,
     waitForFontLoaded,
     waitForFontspectorReady,
     waitForOpenSessionReady,
@@ -747,48 +748,79 @@ test.describe('Font Editor Basic Workflow', () => {
             );
         });
 
-        // Delete the first character of the feature content via ace API,
-        // then wait for the typing compilation to fail and show the error.
-        console.log('[Test] Deleting first character to trigger compile error');
+        // Insert an invalid token on a lower visible line so the reported
+        // feature error anchors inside the editor body instead of near the
+        // very top of the file.
+        console.log('[Test] Inserting invalid token to trigger compile error');
         await page.evaluate(() => {
-            return new Promise<void>((resolve) => {
-                const editor = (window as any).fontInfoManager?.featuresEditor;
-                // Move cursor to very beginning and delete one character
-                editor.moveCursorTo(0, 0);
-                editor.remove('right');
+            const manager = (window as any).fontInfoManager;
+            const editor = manager?.featuresEditor;
+            if (!editor) {
+                return;
+            }
 
-                // The compilation error shows in #sidebar-error-display;
-                // observe its visibility rather than listening to a compiled
-                // event which won't fire on error.
-                const target = document.getElementById('sidebar-error-display');
-                if (!target) {
-                    resolve();
-                    return;
-                }
-                const observer = new MutationObserver(() => {
-                    if (
-                        (target as HTMLElement).style.display !== 'none' &&
-                        target.textContent &&
-                        target.textContent.trim().length > 0
-                    ) {
-                        observer.disconnect();
-                        resolve();
-                    }
-                });
-                observer.observe(target, {
-                    attributes: true,
-                    childList: true,
-                    subtree: true
-                });
-                // Safety: resolve after 10 s regardless
-                setTimeout(() => {
-                    observer.disconnect();
-                    resolve();
-                }, 10000);
-            });
+            const content = editor.getValue?.() || '';
+            const errorAnchor = 'language KSH;';
+            const errorIndex = content.indexOf(errorAnchor);
+            const errorPosition =
+                errorIndex >= 0
+                    ? editor.session.doc.indexToPosition(errorIndex)
+                    : { row: 10, column: 0 };
+
+            editor.focus();
+            editor.clearSelection();
+            editor.moveCursorTo(errorPosition.row, errorPosition.column);
+            editor.insert('@');
+
+            if (typeof editor.execCommand === 'function') {
+                editor.execCommand('commitFeatureCodeChanges');
+                return;
+            }
+
+            if (typeof manager?.commitFeatureCodeChanges === 'function') {
+                manager.commitFeatureCodeChanges();
+            }
         });
 
-        await page.waitForTimeout(300);
+        await waitForFeatureCompilationError(page, { timeout: 7000 });
+
+        await page.evaluate(async () => {
+            const manager = (window as any).fontInfoManager;
+            const target = manager?.featureErrorTarget;
+            const editor = manager?.featuresEditor;
+
+            if (typeof window.focusView === 'function') {
+                window.focusView('view-fontinfo');
+            }
+
+            manager?.switchTab?.('features');
+
+            if (target) {
+                manager?.selectItem?.(target.type, target.key, true);
+            }
+
+            const widgetRow = manager?.featureErrorLineWidget?.row;
+            if (
+                editor &&
+                typeof widgetRow === 'number' &&
+                typeof editor.scrollToLine === 'function'
+            ) {
+                editor.scrollToLine(widgetRow, true, true);
+                editor.gotoLine?.(widgetRow + 1, 0, true);
+                editor.focus();
+                editor.resize?.();
+                editor.renderer?.updateFull?.();
+            }
+
+            await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve())
+            );
+            await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve())
+            );
+        });
+
+        await page.waitForTimeout(150);
 
         // SNAPSHOT POINT 19: Feature compilation error shown
         console.log('[Test] Taking snapshot 19: feature compile error');
@@ -796,12 +828,9 @@ test.describe('Font Editor Basic Workflow', () => {
         expect(snapshotForComparison(snapshot19)).toMatchSnapshot(
             '19-feature-compile-error.json'
         );
-        await expect(page).toHaveScreenshot(
+        await expect(page.locator('#view-fontinfo')).toHaveScreenshot(
             '19-feature-compile-error-window.png',
-            {
-                maxDiffPixelRatio: 0.02,
-                mask: [page.locator('#console-container')]
-            }
+            { maxDiffPixelRatio: 0.02 }
         );
 
         // Restore valid feature code before taking the final editor screenshot.

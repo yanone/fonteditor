@@ -25,7 +25,11 @@ function parseSpan(
     }
 
     if (typeof spanValue === 'string') {
-        const match = spanValue.match(/(\d+)\.\.(\d+)/);
+        const match =
+            spanValue.match(/(\d+)\.\.(\d+)/) ||
+            spanValue.match(
+                /Span\s*\{\s*start:\s*(\d+)\s*,\s*end:\s*(\d+)\s*\}/i
+            );
         if (!match) {
             return undefined;
         }
@@ -67,7 +71,7 @@ function parseBoolean(value: unknown, fallback: boolean): boolean {
 }
 
 function collectFromRustDebugString(source: string): ParsedFeatureIssue[] {
-    if (!/featureparsing|featureerror/i.test(source)) {
+    if (!/feature\s*parsing|featureerror/i.test(source)) {
         return [];
     }
 
@@ -98,8 +102,33 @@ function collectFromRustDebugString(source: string): ParsedFeatureIssue[] {
         return issues;
     }
 
+    const diagnosticRegex =
+        /Diagnostic\s*\{\s*message:\s*Message\s*\{\s*text:\s*"((?:[^"\\]|\\.)*)"\s*,\s*file:\s*FileId\(\d+\)\s*,\s*span:\s*Span\s*\{\s*start:\s*(\d+)\s*,\s*end:\s*(\d+)\s*\}\s*\}\s*,\s*level:\s*(Error|Warning)\s*\}/gi;
+
+    for (const match of source.matchAll(diagnosticRegex)) {
+        const start = Number(match[2]);
+        const end = Number(match[3]);
+        issues.push({
+            category,
+            message: decodeRustString(
+                match[1] || 'Feature compilation error'
+            ),
+            isError: (match[4] || 'Error').toLowerCase() === 'error',
+            start: Number.isFinite(start) ? start : undefined,
+            end: Number.isFinite(end) ? end : undefined
+        });
+    }
+
+    if (issues.length > 0) {
+        return issues;
+    }
+
     const messageMatch = source.match(/message:\s*"((?:[^"\\]|\\.)*)"/i);
-    const spanMatch = source.match(/span:\s*(\d+)\.\.(\d+)/i);
+    const spanMatch =
+        source.match(/span:\s*(\d+)\.\.(\d+)/i) ||
+        source.match(
+            /span:\s*Span\s*\{\s*start:\s*(\d+)\s*,\s*end:\s*(\d+)\s*\}/i
+        );
     if (!messageMatch && !spanMatch) {
         return [];
     }
