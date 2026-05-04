@@ -16,6 +16,10 @@
                 "GORTEX_INDEX_WORKERS": "8"
             }
         },
+        "gitnexus": {
+            "command": "node_modules/.bin/gitnexus",
+            "args": ["mcp"]
+        },
         "counterpunch": {
             "type": "stdio",
             "command": "node",

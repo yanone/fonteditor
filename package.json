@@ -12,6 +12,7 @@
         "typescript": "^5.0.0"
     },
     "devDependencies": {
-        "chrome-devtools-mcp": "^0.21.0"
+        "chrome-devtools-mcp": "^0.21.0",
+        "gitnexus": "^1.6.3"
     }
 }
