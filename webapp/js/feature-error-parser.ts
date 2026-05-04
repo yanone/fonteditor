@@ -110,9 +110,7 @@ function collectFromRustDebugString(source: string): ParsedFeatureIssue[] {
         const end = Number(match[3]);
         issues.push({
             category,
-            message: decodeRustString(
-                match[1] || 'Feature compilation error'
-            ),
+            message: decodeRustString(match[1] || 'Feature compilation error'),
             isError: (match[4] || 'Error').toLowerCase() === 'error',
             start: Number.isFinite(start) ? start : undefined,
             end: Number.isFinite(end) ? end : undefined
