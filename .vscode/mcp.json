@@ -9,13 +9,13 @@
             "args": ["-y", "@modelcontextprotocol/server-github"],
             "command": "npx"
         },
-        "gortex": {
-            "args": ["mcp", "--index", ".", "--watch"],
-            "command": "gortex",
-            "env": {
-                "GORTEX_INDEX_WORKERS": "8"
-            }
-        },
+        // "gortex": {
+        //     "args": ["mcp", "--index", ".", "--watch"],
+        //     "command": "gortex",
+        //     "env": {
+        //         "GORTEX_INDEX_WORKERS": "8"
+        //     }
+        // },
         "gitnexus": {
             "command": "node_modules/.bin/gitnexus",
             "args": ["mcp"]

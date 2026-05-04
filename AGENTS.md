@@ -434,46 +434,8 @@ When changing compilation scheduling, compile-mode selection, worker cache inval
 - Pyodide: https://pyodide.org/
 - HarfBuzz.js: https://github.com/harfbuzz/harfbuzzjs
 
-## Gortex Usage
-
-Gortex provides a code graph index of this repository accessible via:
-
-- **MCP server** (`gortex___*` tools) — graph-aware search, symbol lookup, edit planning, blast radius analysis, and change detection. Use these tools instead of raw `Grep`/`Read` for navigating the codebase.
-- **Skills** (listed below) — shorthand commands like `/gortex-js`, `/gortex-glyph-canvas`, `/gortex-get`, `/gortex-src`, and `/gortex-tests` that scope work to specific communities. Invoke them via the `Skill` tool to load community-specific context.
-
-Use Gortex tools or skills whenever possible. Local indexing tools like Gortex leads to massive speed and token efficiency gains.
-
-<!-- gortex:communities:start -->
-<!-- gortex:skills:start -->
-## Community Skills
-
-| Area | Description | Skill |
-|------|-------------|-------|
-| Js | 331 symbols | `/gortex-js` |
-| Glyph Canvas | 120 symbols | `/gortex-glyph-canvas` |
-| Get | 85 symbols | `/gortex-get` |
-| Js | 68 symbols | `/gortex-js` |
-| Js | 64 symbols | `/gortex-js` |
-| Js | 61 symbols | `/gortex-js` |
-| Js | 59 symbols | `/gortex-js` |
-| Js | 59 symbols | `/gortex-js` |
-| Js | 53 symbols | `/gortex-js` |
-| Js | 49 symbols | `/gortex-js` |
-| Glyph Canvas | 41 symbols | `/gortex-glyph-canvas` |
-| Js | 39 symbols | `/gortex-js` |
-| Js | 38 symbols | `/gortex-js` |
-| Get | 37 symbols | `/gortex-get` |
-| Js | 35 symbols | `/gortex-js` |
-| Js | 34 symbols | `/gortex-js` |
-| Js | 32 symbols | `/gortex-js` |
-| Src | 31 symbols | `/gortex-src` |
-| Js | 29 symbols | `/gortex-js` |
-| Js | 27 symbols | `/gortex-js` |
-<!-- gortex:skills:end -->
-
-<!-- gortex:communities:end -->
-
 <!-- gitnexus:start -->
+
 # GitNexus — Code Intelligence
 
 This project is indexed by GitNexus as **editor** (16111 symbols, 29817 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
@@ -497,22 +459,22 @@ This project is indexed by GitNexus as **editor** (16111 symbols, 29817 relation
 
 ## Resources
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/editor/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/editor/clusters` | All functional areas |
-| `gitnexus://repo/editor/processes` | All execution flows |
-| `gitnexus://repo/editor/process/{name}` | Step-by-step execution trace |
+| Resource                                | Use for                                  |
+| --------------------------------------- | ---------------------------------------- |
+| `gitnexus://repo/editor/context`        | Codebase overview, check index freshness |
+| `gitnexus://repo/editor/clusters`       | All functional areas                     |
+| `gitnexus://repo/editor/processes`      | All execution flows                      |
+| `gitnexus://repo/editor/process/{name}` | Step-by-step execution trace             |
 
 ## CLI
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Task                                         | Read this skill file                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
+| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
+| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
+| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
+| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
