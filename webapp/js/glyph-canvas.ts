@@ -5387,7 +5387,9 @@ class GlyphCanvas {
             selectedLayerId: this.outlineEditor.selectedLayerId ?? null,
             glyphStack: this.outlineEditor.glyphStack || '',
             hasLayerData: Boolean(this.outlineEditor.layerData),
-            isInterpolated: Boolean(this.outlineEditor.layerData?.isInterpolated)
+            isInterpolated: Boolean(
+                this.outlineEditor.layerData?.isInterpolated
+            )
         };
         (window as any).__glyphCanvasRenderState = nextRenderState;
         window.dispatchEvent(

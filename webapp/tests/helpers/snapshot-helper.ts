@@ -928,10 +928,7 @@ async function waitForEditorModeActivation(page: any) {
             const cleanup = () => {
                 window.clearTimeout(timeoutId);
                 window.removeEventListener(eventName, onReadyCheck);
-                window.removeEventListener(
-                    'glyphCanvasRendered',
-                    onReadyCheck
-                );
+                window.removeEventListener('glyphCanvasRendered', onReadyCheck);
             };
 
             window.addEventListener(eventName, onReadyCheck);
