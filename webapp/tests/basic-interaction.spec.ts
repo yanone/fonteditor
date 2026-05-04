@@ -451,6 +451,10 @@ test.describe('Font Editor Basic Workflow', () => {
         // Wait for edit mode to activate
         await page.waitForTimeout(300);
 
+        console.log('[Test] Framing glyph after entering edit mode');
+        await page.keyboard.press('Meta+0');
+        await page.waitForTimeout(300);
+
         // SNAPSHOT POINT 5: Edit mode entered
         console.log('[Test] Taking snapshot 5: edit mode');
         const snapshot5 = await takeSnapshot(page, '05', 'edit-mode', expect);

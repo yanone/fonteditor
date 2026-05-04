@@ -838,6 +838,111 @@ export async function waitForOverviewTilesRendered(page: any) {
     await page.waitForTimeout(150);
 }
 
+async function waitForEditorModeActivation(page: any) {
+    await page.evaluate(async () => {
+        const waitForNextPaint = async () => {
+            await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve())
+            );
+            await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve())
+            );
+        };
+
+        const getRenderState = () =>
+            ((window as any).__glyphCanvasRenderState as
+                | {
+                      sequence?: number;
+                      mode?: 'text' | 'edit';
+                      selectedGlyphIndex?: number;
+                      selectedLayerId?: string | null;
+                      glyphStack?: string;
+                      hasLayerData?: boolean;
+                      isInterpolated?: boolean;
+                  }
+                | undefined) ?? null;
+
+        const isExpectedModeRendered = () => {
+            const state =
+                window.stateManager?.getStateSnapshot?.()?.state || null;
+            const glyphCanvas = (window as any).glyphCanvas;
+            const outlineEditor = glyphCanvas?.outlineEditor;
+            const textRunEditor = glyphCanvas?.textRunEditor;
+            const renderState = getRenderState();
+
+            if (!state || !glyphCanvas || !outlineEditor || !textRunEditor) {
+                return false;
+            }
+
+            if (state.editor_mode === 'edit') {
+                return (
+                    outlineEditor.active === true &&
+                    textRunEditor.selectedGlyphIndex >= 0 &&
+                    renderState?.mode === 'edit' &&
+                    renderState.selectedGlyphIndex ===
+                        textRunEditor.selectedGlyphIndex &&
+                    Boolean(renderState.glyphStack) &&
+                    Boolean(renderState.hasLayerData) &&
+                    (Boolean(renderState.selectedLayerId) ||
+                        Boolean(renderState.isInterpolated))
+                );
+            }
+
+            return (
+                outlineEditor.active === false &&
+                textRunEditor.selectedGlyphIndex === -1 &&
+                renderState?.mode === 'text' &&
+                renderState.selectedGlyphIndex === -1
+            );
+        };
+
+        if (isExpectedModeRendered()) {
+            await waitForNextPaint();
+            return;
+        }
+
+        const state = window.stateManager?.getStateSnapshot?.()?.state || {};
+        const expectedMode = state.editor_mode === 'edit' ? 'edit' : 'text';
+        const eventName =
+            expectedMode === 'edit' ? 'editModeActivated' : 'textModeActivated';
+
+        await new Promise<void>((resolve, reject) => {
+            const timeoutId = window.setTimeout(() => {
+                cleanup();
+                reject(
+                    new Error(
+                        `Timed out waiting for ${eventName} while state manager expected ${expectedMode} mode`
+                    )
+                );
+            }, 5000);
+
+            const onReadyCheck = () => {
+                if (!isExpectedModeRendered()) {
+                    return;
+                }
+
+                cleanup();
+                resolve();
+            };
+
+            const cleanup = () => {
+                window.clearTimeout(timeoutId);
+                window.removeEventListener(eventName, onReadyCheck);
+                window.removeEventListener(
+                    'glyphCanvasRendered',
+                    onReadyCheck
+                );
+            };
+
+            window.addEventListener(eventName, onReadyCheck);
+            window.addEventListener('glyphCanvasRendered', onReadyCheck);
+            onReadyCheck();
+        });
+
+        await waitForNextPaint();
+    });
+}
+
 /**
  * Take a complete snapshot (JSON + PNG) with a 100ms wait
  * This wrapper combines both snapshot types and adds a stabilization delay
@@ -849,8 +954,8 @@ export async function takeSnapshot(
     expect: any,
     maxDiffPixelRatio: number = 0.02
 ): Promise<any> {
-    // Wait 100ms for rendering to stabilize
-    await page.waitForTimeout(100);
+    await waitForEditorModeActivation(page);
+    await page.waitForTimeout(50);
 
     // Capture state snapshot
     const snapshot = await captureSnapshot(page, label);

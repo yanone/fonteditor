@@ -1310,6 +1310,7 @@ class GlyphCanvas {
                 }
 
                 this.outlineEditor.onGlyphSelected();
+                this.dispatchModeActivationEvent('edit', 'glyphselected');
             }
         );
     }
@@ -2061,6 +2062,7 @@ class GlyphCanvas {
         console.log(`Exited glyph edit mode - returned to text edit mode`);
         this.updatePropertiesUI();
         this.render();
+        this.dispatchModeActivationEvent('text', 'exitGlyphEditMode');
     }
 
     async displayMastersList(
@@ -3371,6 +3373,35 @@ class GlyphCanvas {
             this.render();
             this.outlineEditor.performHitDetection(null);
         }
+    }
+
+    private dispatchModeActivationEvent(
+        mode: 'text' | 'edit',
+        source: string
+    ): void {
+        const eventName =
+            mode === 'edit' ? 'editModeActivated' : 'textModeActivated';
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                const isModeActive =
+                    mode === 'edit'
+                        ? this.outlineEditor.active &&
+                          this.textRunEditor!.selectedGlyphIndex >= 0
+                        : !this.outlineEditor.active &&
+                          this.textRunEditor!.selectedGlyphIndex === -1;
+
+                if (!isModeActive) {
+                    return;
+                }
+
+                window.dispatchEvent(
+                    new CustomEvent(eventName, {
+                        detail: { mode, source }
+                    })
+                );
+            });
+        });
     }
 
     private getActiveEditModeRootGlyphName(): string | null {
@@ -5086,6 +5117,13 @@ class GlyphCanvas {
                 await this.outlineEditor.autoSelectMatchingLayer({
                     skipRender: true
                 });
+                if (
+                    this.outlineEditor.active &&
+                    this.textRunEditor!.selectedGlyphIndex >= 0
+                ) {
+                    this.render();
+                    this.outlineEditor.performHitDetection(null);
+                }
             }
         } finally {
             this.isUpdatingPropertiesUI = false;
@@ -5338,6 +5376,25 @@ class GlyphCanvas {
         }
 
         this.renderer!.render();
+        const lastRenderState =
+            ((window as any).__glyphCanvasRenderState as
+                | { sequence?: number }
+                | undefined) ?? undefined;
+        const nextRenderState = {
+            sequence: (lastRenderState?.sequence ?? 0) + 1,
+            mode: this.outlineEditor.active ? 'edit' : 'text',
+            selectedGlyphIndex: this.textRunEditor?.selectedGlyphIndex ?? -1,
+            selectedLayerId: this.outlineEditor.selectedLayerId ?? null,
+            glyphStack: this.outlineEditor.glyphStack || '',
+            hasLayerData: Boolean(this.outlineEditor.layerData),
+            isInterpolated: Boolean(this.outlineEditor.layerData?.isInterpolated)
+        };
+        (window as any).__glyphCanvasRenderState = nextRenderState;
+        window.dispatchEvent(
+            new CustomEvent('glyphCanvasRendered', {
+                detail: nextRenderState
+            })
+        );
         timelineMark('canvas.render.completed');
     }
 
