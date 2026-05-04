@@ -189,6 +189,13 @@ export class WindowSync {
         const startTime = performance.now?.() ?? Date.now();
         const update =
             updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
+        const needsFullStateRepair = changeLogEntries.some(
+            (entry) => entry.undoScope === 'glyph' || entry.undoScope === 'font'
+        );
+        const fullState =
+            needsFullStateRepair && this._peers.size > 0
+                ? this._bridge.getFullState()
+                : undefined;
         const layerRepairSnapshots =
             this._peers.size > 0 && changeLogEntries.length
                 ? this._bridge.getLayerRepairSnapshots(changeLogEntries)
@@ -200,7 +207,7 @@ export class WindowSync {
             changeLogEntries: changeLogEntries.length
                 ? changeLogEntries
                 : undefined,
-            fullState: undefined,
+            fullState,
             layerRepairSnapshots: layerRepairSnapshots.length
                 ? layerRepairSnapshots
                 : undefined
@@ -209,6 +216,7 @@ export class WindowSync {
             updateCount: updates.length,
             changeLogEntryCount: changeLogEntries.length,
             updateBytes: update.byteLength,
+            hasFullState: !!fullState,
             repairGlyphCount: layerRepairSnapshots.length,
             peerCount: this._peers.size,
             durationMs: this._elapsed(startTime)

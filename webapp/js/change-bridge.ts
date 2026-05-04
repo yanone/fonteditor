@@ -1554,6 +1554,7 @@ export class ChangeBridge {
             this._onDirty?.();
             if (remoteEntries && remoteEntries.length > 0) {
                 this._appendChangeLogEntries(remoteEntries);
+                this._lastBroadcastLogIndex = this._changeLog.length;
             }
             this._onRemoteChange?.(remoteEntries ?? []);
         } finally {
@@ -2707,10 +2708,16 @@ export class ChangeBridge {
             }
         }, SYSTEM_REMOTE_ORIGIN);
 
-        return repairOperations.map((op) => ({
-            glyphName: op.glyphName,
-            layerId: op.layerId
-        }));
+        return normalizeWorkerReplayTargets([
+            ...repairOperations.map((op) => ({
+                glyphName: op.glyphName,
+                layerId: op.layerId
+            })),
+            ...staleLayerDeletes.map((op) => ({
+                glyphName: op.glyphName,
+                layerId: op.layerId
+            }))
+        ]);
     }
 
     private _repairTouchedLayersFromState(
@@ -2823,10 +2830,16 @@ export class ChangeBridge {
             }
         }, SYSTEM_REMOTE_ORIGIN);
 
-        return repairOperations.map((op) => ({
-            glyphName: op.glyphName,
-            layerId: op.layerId
-        }));
+        return normalizeWorkerReplayTargets([
+            ...repairOperations.map((op) => ({
+                glyphName: op.glyphName,
+                layerId: op.layerId
+            })),
+            ...staleLayerDeletes.map((op) => ({
+                glyphName: op.glyphName,
+                layerId: op.layerId
+            }))
+        ]);
     }
 
     private _resolveUndoHistoryItem(

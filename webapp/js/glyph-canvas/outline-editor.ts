@@ -7174,6 +7174,11 @@ export class OutlineEditor {
             glyph.removeLayerById?.(layerId);
         });
 
+        const currentFont = fontManager.currentFont;
+        if (typeof currentFont?.syncJsonFromModel === 'function') {
+            currentFont.syncJsonFromModel();
+        }
+
         const deleteBridge = window.changeBridge;
         if (deleteBridge) {
             deleteBridge.syncGlyphFromJson(glyphName, 'Delete layer sync');
