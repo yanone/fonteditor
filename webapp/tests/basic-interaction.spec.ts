@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 import {
     collapseView,
     captureSnapshot,
+    expectJsonSnapshot,
     focusView,
     openFileFromFilesView,
-    snapshotForComparison,
     takeSnapshot,
     waitForCanvasReady,
     waitForFeatureCompilationError,
@@ -82,8 +82,10 @@ test.describe('Font Editor Basic Workflow', () => {
     ) => {
         await page.waitForTimeout(100);
         const snapshot = await captureSnapshot(page, label);
-        expect(snapshotForComparison(snapshot)).toMatchSnapshot(
-            `${snapshotNumber}-${label}.json`
+        await expectJsonSnapshot(
+            snapshot,
+            `${snapshotNumber}-${label}.json`,
+            expect
         );
         const maskLocators = [page.locator('#console-container')];
         if (options?.maskFontspector) {
@@ -825,8 +827,10 @@ test.describe('Font Editor Basic Workflow', () => {
         // SNAPSHOT POINT 19: Feature compilation error shown
         console.log('[Test] Taking snapshot 19: feature compile error');
         const snapshot19 = await captureSnapshot(page, 'feature-compile-error');
-        expect(snapshotForComparison(snapshot19)).toMatchSnapshot(
-            '19-feature-compile-error.json'
+        await expectJsonSnapshot(
+            snapshot19,
+            '19-feature-compile-error.json',
+            expect
         );
         await expect(page.locator('#view-fontinfo')).toHaveScreenshot(
             '19-feature-compile-error-window.png',

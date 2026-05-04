@@ -1,3 +1,5 @@
+import { test } from '@playwright/test';
+
 /**
  * Test Snapshot Helper
  *
@@ -10,11 +12,89 @@ export interface AppSnapshot {
     state: Record<string, any>;
 }
 
+type JsonValue =
+    | null
+    | boolean
+    | number
+    | string
+    | JsonValue[]
+    | { [key: string]: JsonValue };
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sortJsonValue(value: unknown): JsonValue {
+    if (Array.isArray(value)) {
+        return value.map((entry) => sortJsonValue(entry));
+    }
+
+    if (isPlainObject(value)) {
+        return Object.fromEntries(
+            Object.keys(value)
+                .sort((left, right) => left.localeCompare(right))
+                .map((key) => [key, sortJsonValue(value[key])])
+        );
+    }
+
+    return (value ?? null) as JsonValue;
+}
+
+function normalizeSnapshot(snapshot: AppSnapshot): AppSnapshot {
+    return sortJsonValue(snapshot) as unknown as AppSnapshot;
+}
+
+async function readSnapshotFile(path: string): Promise<string> {
+    const loadFsPromises = new Function(
+        'modulePath',
+        'return import(modulePath);'
+    ) as (modulePath: string) => Promise<{
+        readFile: (filePath: string, encoding: string) => Promise<string>;
+    }>;
+
+    const fsPromises = await loadFsPromises('fs/promises');
+    return fsPromises.readFile(path, 'utf8');
+}
+
 /**
- * Prepare snapshot for comparison by removing timestamp
+ * Prepare snapshot for comparison with stable key ordering.
  */
 export function snapshotForComparison(snapshot: AppSnapshot): string {
-    return JSON.stringify(snapshot, null, 2);
+    return JSON.stringify(normalizeSnapshot(snapshot), null, 4);
+}
+
+export async function expectJsonSnapshot(
+    snapshot: AppSnapshot,
+    snapshotName: string,
+    expect: any
+): Promise<void> {
+    const normalizedSnapshot = normalizeSnapshot(snapshot);
+    const snapshotText = snapshotForComparison(normalizedSnapshot);
+    const testInfo = test.info();
+    const snapshotPath = testInfo.snapshotPath(snapshotName);
+
+    if (
+        testInfo.config.updateSnapshots === 'all' ||
+        testInfo.config.updateSnapshots === 'changed'
+    ) {
+        expect(snapshotText).toMatchSnapshot(snapshotName);
+        return;
+    }
+
+    try {
+        const expectedSnapshotText = await readSnapshotFile(snapshotPath);
+        const expectedSnapshot = normalizeSnapshot(
+            JSON.parse(expectedSnapshotText) as AppSnapshot
+        );
+
+        expect(normalizedSnapshot).toEqual(expectedSnapshot);
+    } catch (error) {
+        if ((error as { code?: string }).code !== 'ENOENT') {
+            throw error;
+        }
+
+        expect(snapshotText).toMatchSnapshot(snapshotName);
+    }
 }
 
 /**
@@ -1000,8 +1080,10 @@ export async function takeSnapshot(
     const snapshot = await captureSnapshot(page, label);
 
     // Assert JSON snapshot
-    expect(snapshotForComparison(snapshot)).toMatchSnapshot(
-        `${snapshotNumber}-${label}.json`
+    await expectJsonSnapshot(
+        snapshot,
+        `${snapshotNumber}-${label}.json`,
+        expect
     );
 
     // Assert PNG screenshot with optional threshold
