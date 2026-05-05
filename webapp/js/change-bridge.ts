@@ -1703,13 +1703,34 @@ export class ChangeBridge {
         }
     }
 
-    /**
-     * Encode the current Y.Doc state as a Yjs update binary.
-     * Used by CloudAdapter to send the full local state to the room server
-     * so other peers have enough context to apply incremental updates.
-     */
+    /** Encode the full Y.Doc state as a Yjs update binary. */
     encodeBridgeState(): Uint8Array {
         return Y.encodeStateAsUpdate(this.yDoc);
+    }
+
+    /** Encode the Y.Doc state vector (compact — one entry per known client). */
+    encodeBridgeStateVector(): Uint8Array {
+        return Y.encodeStateVector(this.yDoc);
+    }
+
+    /**
+     * Encode the minimal update diff that a peer (described by peerStateVector)
+     * is missing. Returns an empty update if we have nothing new to share.
+     */
+    encodeStateDiff(peerStateVector: Uint8Array): Uint8Array {
+        return Y.encodeStateAsUpdate(this.yDoc, peerStateVector);
+    }
+
+    /**
+     * Apply a Yjs update directly to the Y.Doc without triggering compilation
+     * or JSON synchronisation.  Used by CloudAdapter to re-seed the Y.Doc
+     * after a bridge replacement (fontModelReady) so that subsequent
+     * incremental updates from remote peers can be applied (their left-sibling
+     * references will be resolvable).
+     */
+    applyYDocUpdateSilent(update: Uint8Array): void {
+        if (!update || update.length === 0) return;
+        Y.applyUpdate(this.yDoc, update);
     }
 
     // ── Change log ───────────────────────────────────────────────
