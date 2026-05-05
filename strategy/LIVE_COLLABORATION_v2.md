@@ -1383,12 +1383,12 @@ or as a step added to the same CI workflow.
 
 ### Phase 0 — Skeleton (no real users)
 
-- [ ] Add Worker + DO class `FontRoomDO` with hibernation and DO SQLite storage.
-- [ ] Add Pages route `POST /api/cloud/assets/:id/room-token` returning a signed
+- [x] Add Worker + DO class `FontRoomDO` with hibernation and DO SQLite storage.
+- [x] Add Pages route `POST /api/cloud/assets/:id/room-token` returning a signed
       JWT. Authorization stub returns `editor` for any logged-in user.
-- [ ] Add minimal DO endpoints: `auth`, `sync-request`, `update`, `ack`. No
+- [x] Add minimal DO endpoints: `auth`, `sync-request`, `update`, `ack`. No
       segments, no snapshots, no restore. Just live mirroring with append log.
-- [ ] Verify two browsers converge on a real font.
+- [x] Verify two browsers converge on a real font.
 
 ### Phase 1 — Cloud filesystem plugin and asset CRUD
 
