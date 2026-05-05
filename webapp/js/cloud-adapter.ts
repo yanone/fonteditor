@@ -92,10 +92,9 @@ export class CloudAdapter implements FileSystemAdapter {
     private _assetId: string;
     private _websiteBaseUrl: string;
     private _roomWorkerBaseUrl: string;
-    private _onConnectionStatus: ((
-        status: CloudConnectionStatus,
-        detail?: string
-    ) => void) | null;
+    private _onConnectionStatus:
+        | ((status: CloudConnectionStatus, detail?: string) => void)
+        | null;
 
     private _bridge: ChangeBridge | null = null;
     private _ws: WebSocket | null = null;
@@ -232,10 +231,7 @@ export class CloudAdapter implements FileSystemAdapter {
         }
     }
 
-    private async _openWebSocket(
-        token: string,
-        wsUrl: string
-    ): Promise<void> {
+    private async _openWebSocket(token: string, wsUrl: string): Promise<void> {
         if (this._destroyed) return;
         try {
             console.log(`Connecting to room ${this._assetId} at ${wsUrl}`);
@@ -307,7 +303,7 @@ export class CloudAdapter implements FileSystemAdapter {
                     this._ws?.send(
                         JSON.stringify({
                             type: 'sync-request',
-                            stateVector: u8ToBase64(sv),
+                            stateVector: u8ToBase64(sv)
                         })
                     );
                 }
@@ -333,7 +329,7 @@ export class CloudAdapter implements FileSystemAdapter {
                     this._incomingResponseChunks = {
                         chunks: new Array(msg.totalChunks as number),
                         received: 0,
-                        total: msg.totalChunks as number,
+                        total: msg.totalChunks as number
                     };
                     this._hasSynced = true;
                     this._setStatus('connected');
@@ -460,7 +456,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 );
                 const frame: Record<string, unknown> = {
                     type: isLast ? 'sync-complete' : 'sync-chunk',
-                    update: u8ToBase64(chunk),
+                    update: u8ToBase64(chunk)
                 };
                 if (totalChunks > 1) {
                     frame.chunkIndex = i;
@@ -501,7 +497,7 @@ export class CloudAdapter implements FileSystemAdapter {
                     type: 'update',
                     update: u8ToBase64(update),
                     clientId: this._clientId ?? '',
-                    seq,
+                    seq
                 })
             );
         };
@@ -522,7 +518,7 @@ export class CloudAdapter implements FileSystemAdapter {
         const resp = await fetch(url, {
             method: 'POST',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' }
         });
 
         if (!resp.ok) {
@@ -537,19 +533,14 @@ export class CloudAdapter implements FileSystemAdapter {
             roomUrl: string;
         };
         if (!data.token || !data.roomUrl) {
-            throw new Error(
-                'room-token response missing token or roomUrl'
-            );
+            throw new Error('room-token response missing token or roomUrl');
         }
         return data;
     }
 
     // ── Helpers ───────────────────────────────────────────────────
 
-    private _setStatus(
-        status: CloudConnectionStatus,
-        detail?: string
-    ): void {
+    private _setStatus(status: CloudConnectionStatus, detail?: string): void {
         this._status = status;
         this._onConnectionStatus?.(status, detail);
     }
@@ -580,30 +571,22 @@ export class CloudAdapter implements FileSystemAdapter {
     }
 
     async readFile(_path: string): Promise<string | Uint8Array> {
-        throw new Error(
-            'CloudAdapter.readFile not implemented in Phase 0'
-        );
+        throw new Error('CloudAdapter.readFile not implemented in Phase 0');
     }
 
     async writeFile(
         _path: string,
         _content: string | Uint8Array
     ): Promise<void> {
-        throw new Error(
-            'CloudAdapter.writeFile not implemented in Phase 0'
-        );
+        throw new Error('CloudAdapter.writeFile not implemented in Phase 0');
     }
 
     async createFolder(_path: string): Promise<void> {
-        throw new Error(
-            'CloudAdapter.createFolder not implemented in Phase 0'
-        );
+        throw new Error('CloudAdapter.createFolder not implemented in Phase 0');
     }
 
     async deleteItem(_path: string, _isDir: boolean): Promise<void> {
-        throw new Error(
-            'CloudAdapter.deleteItem not implemented in Phase 0'
-        );
+        throw new Error('CloudAdapter.deleteItem not implemented in Phase 0');
     }
 
     async renameItem(
@@ -611,9 +594,7 @@ export class CloudAdapter implements FileSystemAdapter {
         _newName: string,
         _isDir: boolean
     ): Promise<void> {
-        throw new Error(
-            'CloudAdapter.renameItem not implemented in Phase 0'
-        );
+        throw new Error('CloudAdapter.renameItem not implemented in Phase 0');
     }
 
     async fileExists(_path: string): Promise<boolean> {

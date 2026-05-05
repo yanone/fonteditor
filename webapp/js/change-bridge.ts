@@ -275,7 +275,8 @@ export class ChangeBridge {
     private _onRemoteChange: ((entries: ChangeLogEntry[]) => void) | null =
         null;
     /** Callback when the Y.Doc is updated locally (for broadcasting) */
-    private _localUpdateListeners: Set<(update: Uint8Array) => void> = new Set();
+    private _localUpdateListeners: Set<(update: Uint8Array) => void> =
+        new Set();
     /** Callback to trigger dirty marking on the font manager side */
     private _onDirty: (() => void) | null = null;
     /** Callback after _syncJsonFromYDoc (undo/redo/remote) for external resync */
@@ -1296,7 +1297,8 @@ export class ChangeBridge {
                     this.yDoc,
                     preStateVector
                 );
-                for (const cb of this._localUpdateListeners) cb(incrementalUpdate);
+                for (const cb of this._localUpdateListeners)
+                    cb(incrementalUpdate);
             }
 
             this._onAfterSync?.();
@@ -1413,7 +1415,8 @@ export class ChangeBridge {
                     this.yDoc,
                     preStateVector
                 );
-                for (const cb of this._localUpdateListeners) cb(incrementalUpdate);
+                for (const cb of this._localUpdateListeners)
+                    cb(incrementalUpdate);
             }
 
             this._onAfterSync?.();

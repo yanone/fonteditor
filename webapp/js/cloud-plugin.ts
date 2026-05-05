@@ -6,7 +6,11 @@
  */
 
 import { FilesystemPlugin } from './filesystem-plugins';
-import { CloudAdapter, CloudAdapterOptions, CloudConnectionStatus } from './cloud-adapter';
+import {
+    CloudAdapter,
+    CloudAdapterOptions,
+    CloudConnectionStatus
+} from './cloud-adapter';
 import { Logger } from './logger';
 
 const console = new Logger('CloudPlugin');
@@ -14,13 +18,22 @@ const console = new Logger('CloudPlugin');
 export class CloudPlugin extends FilesystemPlugin {
     private _cloudAdapter: CloudAdapter;
 
-    constructor(options: Omit<CloudAdapterOptions, 'assetId'> & { assetId?: string } = {}) {
+    constructor(
+        options: Omit<CloudAdapterOptions, 'assetId'> & {
+            assetId?: string;
+        } = {}
+    ) {
         const assetId = options.assetId ?? '__none__';
         const adapter = new CloudAdapter({
             ...options,
             assetId,
-            onConnectionStatus: (status: CloudConnectionStatus, detail?: string) => {
-                console.log(`Connection status: ${status}${detail ? ` (${detail})` : ''}`);
+            onConnectionStatus: (
+                status: CloudConnectionStatus,
+                detail?: string
+            ) => {
+                console.log(
+                    `Connection status: ${status}${detail ? ` (${detail})` : ''}`
+                );
             }
         });
         super(adapter);
@@ -76,8 +89,13 @@ export class CloudPlugin extends FilesystemPlugin {
         // Create a new adapter for the new assetId
         this._cloudAdapter = new CloudAdapter({
             assetId,
-            onConnectionStatus: (status: CloudConnectionStatus, detail?: string) => {
-                console.log(`[${assetId}] Status: ${status}${detail ? ` (${detail})` : ''}`);
+            onConnectionStatus: (
+                status: CloudConnectionStatus,
+                detail?: string
+            ) => {
+                console.log(
+                    `[${assetId}] Status: ${status}${detail ? ` (${detail})` : ''}`
+                );
                 window.dispatchEvent(
                     new CustomEvent('cloudConnectionStatusChanged', {
                         detail: { assetId, status, detail }
@@ -113,8 +131,13 @@ export class CloudPlugin extends FilesystemPlugin {
 
         this._cloudAdapter = new CloudAdapter({
             assetId,
-            onConnectionStatus: (status: CloudConnectionStatus, detail?: string) => {
-                console.log(`[${assetId}] Status: ${status}${detail ? ` (${detail})` : ''}`);
+            onConnectionStatus: (
+                status: CloudConnectionStatus,
+                detail?: string
+            ) => {
+                console.log(
+                    `[${assetId}] Status: ${status}${detail ? ` (${detail})` : ''}`
+                );
                 window.dispatchEvent(
                     new CustomEvent('cloudConnectionStatusChanged', {
                         detail: { assetId, status, detail }

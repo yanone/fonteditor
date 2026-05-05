@@ -591,7 +591,11 @@ declare global {
         cloudDebug:
             | {
                   connectToRoom: (assetId: string) => Promise<void>;
-                  connectWithToken: (assetId: string, token: string, roomUrl: string) => Promise<void>;
+                  connectWithToken: (
+                      assetId: string,
+                      token: string,
+                      roomUrl: string
+                  ) => Promise<void>;
                   disconnectFromRoom: () => void;
                   getStatus: () => string;
               }
