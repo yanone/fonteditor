@@ -586,6 +586,16 @@ declare global {
 
         // From view-title-buttons.ts
         updateViewTitleButtonVisibility: (viewId: string) => void;
+
+        // From cloud-plugin.ts — dev helper for Phase 0 cloud testing
+        cloudDebug:
+            | {
+                  connectToRoom: (assetId: string) => Promise<void>;
+                  connectWithToken: (assetId: string, token: string, roomUrl: string) => Promise<void>;
+                  disconnectFromRoom: () => void;
+                  getStatus: () => string;
+              }
+            | undefined;
     }
 }
 

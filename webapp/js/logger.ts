@@ -27,6 +27,8 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     Bootstrap: false,
     CanvasPluginManager: false,
     ChangeBridge: false,
+    CloudAdapter: true,
+    CloudPlugin: true,
     ChangeBridgeInit: false,
     CriticalErrorHandler: false,
     Design: false,

@@ -449,6 +449,7 @@ import './toolbar-menus';
 import './automation-runtime';
 import './window-buttons';
 import { initViewTitleButtons } from './view-title-buttons';
+import { CloudPlugin } from './cloud-plugin';
 
 // Initialize view title buttons after DOM is ready and keyboard navigation is initialized
 if (document.readyState === 'loading') {
@@ -463,3 +464,15 @@ if (document.readyState === 'loading') {
         initViewTitleButtons();
     }, 100);
 }
+
+// Cloud collaboration dev helper — exposed for Phase 0 testing in the browser console:
+//   window.cloudDebug.connectToRoom('my-asset-id')
+//   window.cloudDebug.connectWithToken('my-asset-id', token, 'ws://localhost:8787/room/my-asset-id')
+const _cloudPlugin = new CloudPlugin();
+window.cloudDebug = {
+    connectToRoom: (assetId: string) => _cloudPlugin.connectToRoom(assetId),
+    connectWithToken: (assetId: string, token: string, roomUrl: string) =>
+        _cloudPlugin.connectToRoomWithToken(assetId, token, roomUrl),
+    disconnectFromRoom: () => _cloudPlugin.disconnectFromRoom(),
+    getStatus: () => _cloudPlugin.connectionStatus
+};

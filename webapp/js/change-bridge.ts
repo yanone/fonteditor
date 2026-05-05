@@ -275,7 +275,7 @@ export class ChangeBridge {
     private _onRemoteChange: ((entries: ChangeLogEntry[]) => void) | null =
         null;
     /** Callback when the Y.Doc is updated locally (for broadcasting) */
-    private _onLocalUpdate: ((update: Uint8Array) => void) | null = null;
+    private _localUpdateListeners: Set<(update: Uint8Array) => void> = new Set();
     /** Callback to trigger dirty marking on the font manager side */
     private _onDirty: (() => void) | null = null;
     /** Callback after _syncJsonFromYDoc (undo/redo/remote) for external resync */
@@ -498,7 +498,7 @@ export class ChangeBridge {
         };
         this.yDoc.on('update', (update: Uint8Array, origin: unknown) => {
             if (isLocalEditOrigin(origin) && !this._isApplyingRemote) {
-                this._onLocalUpdate?.(update);
+                for (const cb of this._localUpdateListeners) cb(update);
             }
         });
     }
@@ -539,7 +539,12 @@ export class ChangeBridge {
 
     /** Register a callback for local Y.Doc updates (for broadcasting). */
     onLocalUpdate(cb: (update: Uint8Array) => void): void {
-        this._onLocalUpdate = cb;
+        this._localUpdateListeners.add(cb);
+    }
+
+    /** Unregister a callback previously passed to onLocalUpdate. */
+    offLocalUpdate(cb: (update: Uint8Array) => void): void {
+        this._localUpdateListeners.delete(cb);
     }
 
     /** Register a callback to mark the font as dirty. */
@@ -568,7 +573,7 @@ export class ChangeBridge {
         this._fontJson = null;
         this._changeLog = [];
         this._onRemoteChange = null;
-        this._onLocalUpdate = null;
+        this._localUpdateListeners.clear();
         this._onDirty = null;
         this._onAfterSync = null;
         this._changeLogListeners.clear();
@@ -1291,7 +1296,7 @@ export class ChangeBridge {
                     this.yDoc,
                     preStateVector
                 );
-                this._onLocalUpdate?.(incrementalUpdate);
+                for (const cb of this._localUpdateListeners) cb(incrementalUpdate);
             }
 
             this._onAfterSync?.();
@@ -1408,7 +1413,7 @@ export class ChangeBridge {
                     this.yDoc,
                     preStateVector
                 );
-                this._onLocalUpdate?.(incrementalUpdate);
+                for (const cb of this._localUpdateListeners) cb(incrementalUpdate);
             }
 
             this._onAfterSync?.();
@@ -1696,6 +1701,15 @@ export class ChangeBridge {
         } finally {
             this._isApplyingRemote = false;
         }
+    }
+
+    /**
+     * Encode the current Y.Doc state as a Yjs update binary.
+     * Used by CloudAdapter to send the full local state to the room server
+     * so other peers have enough context to apply incremental updates.
+     */
+    encodeBridgeState(): Uint8Array {
+        return Y.encodeStateAsUpdate(this.yDoc);
     }
 
     // ── Change log ───────────────────────────────────────────────
