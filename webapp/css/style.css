@@ -2761,7 +2761,8 @@ kbd + kbd {
 }
 
 /* Open Folder Container (similar to AI login) */
-#open-folder-container {
+#open-folder-container,
+#cloud-panel {
     display: none;
     flex-direction: column;
     align-items: center;
@@ -2770,7 +2771,8 @@ kbd + kbd {
     padding: 40px 20px;
 }
 
-#open-folder-container.visible {
+#open-folder-container.visible,
+#cloud-panel.visible {
     display: flex;
 }
 

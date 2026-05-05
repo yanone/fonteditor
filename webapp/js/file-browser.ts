@@ -581,7 +581,8 @@ async function maybeReloadCurrentFontFromDisk(
     }
 }
 
-function formatFileSize(bytes: number): string {
+function formatFileSize(bytes: number | undefined): string {
+    if (bytes === undefined || bytes < 0) return '—';
     if (bytes === 0) return '0 kB';
     return `${Math.max(1, Math.ceil(bytes / 1024))} kB`;
 }
@@ -637,10 +638,16 @@ function syncEditorFileState(fileUri: string, eventType: string): void {
 function syncEditorFileStateFromCurrentFont(): void {
     const currentFont = window.fontManager?.currentFont;
     const pluginId = currentFont?.sourcePlugin?.getId?.();
-    const path = currentFont?.path;
+    let path = currentFont?.path;
 
     if (!pluginId || !path) {
         return;
+    }
+
+    // Cloud paths may be stored as 'cloud://assetId' but createFileUri expects
+    // just the assetId portion (without the scheme prefix).
+    if (pluginId === 'cloud' && path.startsWith('cloud://')) {
+        path = path.slice('cloud://'.length);
     }
 
     syncEditorFileState(createFileUri(pluginId, path), 'file_opened');
@@ -1047,6 +1054,12 @@ function getPluginTabDescription(plugin: FilesystemPlugin): string {
         return folderName ? `Folder: ${folderName}` : 'Local folder access';
     }
 
+    if (pluginId === 'cloud') {
+        const authMgr = (window as any).authManager;
+        const user = authMgr?.user ?? null;
+        return user ? 'Cloud storage' : 'Log in to access';
+    }
+
     return 'Filesystem plugin';
 }
 
@@ -1318,6 +1331,18 @@ async function openFont(
             timelineSpanEnd(pythonReadySpan);
         }
 
+        // Cloud URI — delegate to CloudPlugin and return early.
+        if (path.startsWith('cloud://')) {
+            const assetId = path.slice('cloud://'.length).replace(/^\/+/, '');
+            const cloudPlugin = (window as any).cloudPlugin;
+            if (!cloudPlugin) {
+                throw new Error('cloudPlugin is not available');
+            }
+            await cloudPlugin.openAsset(assetId);
+            timelineSpanEnd(openSpan);
+            return;
+        }
+
         const startTime = performance.now();
         console.log('[FileBrowser]', `Opening font: ${path}`);
         const isReplacingOpenFont = !!window.fontManager?.currentFont;
@@ -1550,6 +1575,19 @@ async function saveCurrentFontAsToPath(): Promise<void> {
         return;
     }
 
+    // If the active plugin handles Save As itself (e.g. cloud), delegate and
+    // close the dialog — no writeFile needed.
+    if (fileSystemCache.currentPlugin?.interceptsSaveAs) {
+        const handled =
+            await fileSystemCache.currentPlugin.handleSaveAs(rawFileName);
+        if (handled) {
+            syncEditorFileStateFromCurrentFont();
+            await refreshFileSystem();
+            closeFontFileDialog();
+        }
+        return;
+    }
+
     const targetPath =
         fileSystemCache.currentPath === '/'
             ? `/${rawFileName}`
@@ -1586,12 +1624,7 @@ async function saveCurrentFontAsToPath(): Promise<void> {
 
     const pluginId = fileSystemCache.currentPlugin.getId();
     const fileUri = createFileUri(pluginId, targetPath);
-    if (window.stateManager) {
-        window.stateManager.editor_file = fileUri;
-        window.stateManager.recordEvent('file_saved_as', 'FileBrowser', {
-            fileUri
-        });
-    }
+    syncEditorFileState(fileUri, 'file_saved_as');
 
     await window.fontManager.updateFontDisplay();
     await window.fontManager.updateDirtyIndicator();
@@ -2312,7 +2345,13 @@ async function buildFileTree(rootPath = '/') {
         const fontSourceClass = isFontFile ? 'font-source' : '';
 
         // Add 'current-font' class if this is the opened font
-        const isCurrentFont = isFontFile && currentFontPath === data.path;
+        const isCurrentFont =
+            isFontFile &&
+            (currentFontPath === data.path ||
+                // Cloud: currentFont.path may be bare assetId while data.path
+                // uses the cloud:// prefix, or vice-versa.
+                'cloud://' + currentFontPath === data.path ||
+                currentFontPath === 'cloud://' + data.path);
         const currentFontClass = isCurrentFont ? 'current-font' : '';
 
         // Add 'in-font-path' class if this is a directory in the path to the current font
@@ -2374,7 +2413,8 @@ async function navigateToPath(path: string, highlightFolder?: string) {
             </button>`
                 : '';
 
-        const supportsUpload = fileSystemCache.currentPlugin.supportsUpload();
+        const currentPlugin = fileSystemCache.currentPlugin;
+        const supportsUpload = currentPlugin.supportsUpload();
         const uploadButtons = supportsUpload
             ? `
                 <button onclick="document.getElementById('file-upload-input').click()" class="file-header-btn" title="Upload files">
@@ -2388,18 +2428,26 @@ async function navigateToPath(path: string, highlightFolder?: string) {
             `
             : '';
 
+        const newFileBtn = currentPlugin.supportsNewFile()
+            ? `<button onclick="createFile()" class="file-header-btn" title="Create new file">
+                    <span class="material-symbols-outlined">note_add</span>
+                    <span class="file-header-btn-label">New File</span>
+                </button>`
+            : '';
+
+        const newFolderBtn = currentPlugin.supportsNewFolder()
+            ? `<button onclick="createFolder()" class="file-header-btn" title="Create new folder">
+                    <span class="material-symbols-outlined">create_new_folder</span>
+                    <span class="file-header-btn-label">New Folder</span>
+                </button>`
+            : '';
+
         pathHeader.innerHTML = `
             <span class="file-path-text" title="${path}" data-full-path="${path}">${path}</span>
             <div class="file-header-actions">
                 ${parentBtn}
-                <button onclick="createFile()" class="file-header-btn" title="Create new file">
-                    <span class="material-symbols-outlined">note_add</span>
-                    <span class="file-header-btn-label">New File</span>
-                </button>
-                <button onclick="createFolder()" class="file-header-btn" title="Create new folder">
-                    <span class="material-symbols-outlined">create_new_folder</span>
-                    <span class="file-header-btn-label">New Folder</span>
-                </button>
+                ${newFileBtn}
+                ${newFolderBtn}
                 ${uploadButtons}
                 <button onclick="refreshFileSystem()" class="file-header-btn" title="Refresh">
                     <span class="material-symbols-outlined">refresh</span>
@@ -3232,6 +3280,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Switch to the specified plugin
                 await switchContext(pluginId);
+
+                // Cloud assets are identified by assetId, not a filesystem path.
+                // Route directly to openAsset instead of the generic file flow.
+                if (pluginId === 'cloud') {
+                    const assetId = fontPath.replace(/^\/+/, '');
+                    const cloudPlugin = (window as any).cloudPlugin;
+                    if (!cloudPlugin) {
+                        alert('Error: cloudPlugin is not available');
+                        console.error(
+                            '[FileBrowser]',
+                            'cloudPlugin not found for URL param'
+                        );
+                        return;
+                    }
+                    await cloudPlugin.openAsset(assetId);
+                    return;
+                }
 
                 // Navigate to the directory containing the font
                 const dirPath =

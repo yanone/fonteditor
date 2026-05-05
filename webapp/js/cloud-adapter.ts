@@ -326,13 +326,14 @@ export class CloudAdapter implements FileSystemAdapter {
                     // Server state is large — arriving in subsequent sync-chunk
                     // messages. Register outbound hook and start sync-complete
                     // immediately (we already have the serverStateVector).
+                    // NOTE: do NOT set 'connected' here — wait until all
+                    // response chunks are received and applied (below).
                     this._incomingResponseChunks = {
                         chunks: new Array(msg.totalChunks as number),
                         received: 0,
                         total: msg.totalChunks as number
                     };
                     this._hasSynced = true;
-                    this._setStatus('connected');
                     this._registerOutboundHook();
                     this._sendSyncComplete(serverSV);
                 } else {
@@ -371,6 +372,9 @@ export class CloudAdapter implements FileSystemAdapter {
                         );
                         this._incomingResponseChunks = null;
                         this._applyServerState(combined);
+                        // All server response chunks received and applied:
+                        // now it is safe to signal 'connected'.
+                        this._setStatus('connected');
                     }
                 }
                 break;
@@ -565,9 +569,36 @@ export class CloudAdapter implements FileSystemAdapter {
     // ── FileSystemAdapter stubs ───────────────────────────────────
 
     async scanDirectory(_path: string): Promise<Record<string, FileInfo>> {
-        throw new Error(
-            'CloudAdapter.scanDirectory not implemented in Phase 0'
-        );
+        try {
+            const resp = await fetch(
+                `${this._websiteBaseUrl}/api/cloud/assets`,
+                { credentials: 'include' }
+            );
+            if (!resp.ok) {
+                return {};
+            }
+            const data = (await resp.json()) as {
+                assets: Array<{
+                    id: string;
+                    name: string;
+                    updatedAt: number;
+                }>;
+            };
+            const items: Record<string, FileInfo> = {};
+            for (const asset of data.assets ?? []) {
+                const displayName = asset.name.endsWith('.babelfont')
+                    ? asset.name
+                    : `${asset.name}.babelfont`;
+                items[displayName] = {
+                    path: `cloud://${asset.id}`,
+                    is_dir: false,
+                    mtime: new Date(asset.updatedAt).toISOString()
+                };
+            }
+            return items;
+        } catch {
+            return {};
+        }
     }
 
     async readFile(_path: string): Promise<string | Uint8Array> {

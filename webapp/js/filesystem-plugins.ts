@@ -51,6 +51,16 @@ export abstract class FilesystemPlugin {
         return true; // Default: all plugins support upload
     }
 
+    /** Whether this plugin supports creating new folders */
+    supportsNewFolder(): boolean {
+        return true; // Default: plugins support folder creation
+    }
+
+    /** Whether this plugin supports creating new empty files */
+    supportsNewFile(): boolean {
+        return true; // Default: plugins support new file creation
+    }
+
     /** Whether this plugin requires user permission/authentication */
     requiresPermission(): boolean {
         return false; // Default: no permission needed
@@ -169,6 +179,26 @@ export abstract class FilesystemPlugin {
      */
     supportsSaveAsFilePicker(): boolean {
         return false; // Default: no save-as picker support
+    }
+
+    /**
+     * Whether this plugin handles Save As internally (bypassing writeFile).
+     * When true, the file dialog calls handleSaveAs(name) instead of
+     * adapter.writeFile(path, content). The plugin is responsible for the
+     * full save flow — creating the asset, updating currentFont, etc.
+     * Returns false if the plugin does not intercept Save As.
+     */
+    get interceptsSaveAs(): boolean {
+        return false;
+    }
+
+    /**
+     * Plugin-specific Save As handler, called instead of adapter.writeFile
+     * when interceptsSaveAs is true. The name is the value the user typed in
+     * the save-name field. Should return true on success.
+     */
+    async handleSaveAs(_name: string): Promise<boolean> {
+        return false;
     }
 
     /**

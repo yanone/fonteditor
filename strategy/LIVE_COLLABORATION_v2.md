@@ -1390,24 +1390,24 @@ or as a step added to the same CI workflow.
       segments, no snapshots, no restore. Just live mirroring with append log.
 - [x] Verify two browsers converge on a real font.
 
-### Phase 1 — Cloud filesystem plugin and asset CRUD
+### Phase 1 — Cloud filesystem plugin and asset CRUD ✅
 
-- [ ] D1 migrations for `cloud_folders`, `font_assets`, `font_asset_members`,
+- [x] D1 migrations for `cloud_folders`, `font_assets`, `font_asset_members`,
       `font_asset_invitations`.
-- [ ] D1 migration for `user_cloud_overrides`; add `POST /api/admin/cloud/override`
+- [x] D1 migration for `user_cloud_overrides`; add `POST /api/admin/cloud/override`
       (grant/revoke) and expose the Cloud Hosting panel in the admin dashboard.
-- [ ] `GET /api/cloud/eligibility` endpoint backed by `utils/cloud-entitlements.js`
+- [x] `GET /api/cloud/eligibility` endpoint backed by `utils/cloud-entitlements.js`
       (`isCloudHostingEnabled`, `getMaxFontsOwned`, `getSnapshotRetentionDays`).
-- [ ] Pages routes `/api/cloud/folders` and `/api/cloud/assets` with full
+- [x] Pages routes `/api/cloud/folders` and `/api/cloud/assets` with full
       ACL checks using the existing auth middleware and `findUserByIdOrEmail`.
       `POST /api/cloud/assets` re-checks `isCloudHostingEnabled` before creating
       the asset row.
-- [ ] Editor `CloudPlugin` and `CloudAdapter` matching the existing
+- [x] Editor `CloudPlugin` and `CloudAdapter` matching the existing
       `FileSystemAdapter` contract. On init the plugin calls `GET /api/cloud/eligibility`
       and hides itself if `cloudHostingEnabled` is false. Open returns
       `{ assetId, role, roomEndpoint, roomToken, bootstrap }`.
-- [ ] Save-as for non-cloud fonts (creates an asset and seeds the DO).
-- [ ] Authorization in `room-token` endpoint actually checks
+- [x] Save-as for non-cloud fonts (creates an asset and seeds the DO).
+- [x] Authorization in `room-token` endpoint actually checks
       `font_asset_members`.
 
 ### Phase 2 — Persistence cadence and snapshots

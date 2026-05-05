@@ -14,6 +14,7 @@ import type { ChangeBridge } from './change-bridge';
 import type { WindowSync } from './window-sync';
 import type { WindowRoleManager } from './window-role';
 import type { AutomationWindowMetadata } from './automation-runtime';
+import type { CloudPlugin, CloudEligibility, CloudAsset } from './cloud-plugin';
 
 declare global {
     var marked: any;
@@ -587,7 +588,10 @@ declare global {
         // From view-title-buttons.ts
         updateViewTitleButtonVisibility: (viewId: string) => void;
 
-        // From cloud-plugin.ts — dev helper for Phase 0 cloud testing
+        // From cloud-plugin.ts — Phase 1 cloud storage
+        cloudPlugin: CloudPlugin | undefined;
+
+        // From cloud-plugin.ts — dev helper for Phase 0/1 cloud testing
         cloudDebug:
             | {
                   connectToRoom: (assetId: string) => Promise<void>;

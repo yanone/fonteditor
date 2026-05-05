@@ -10,7 +10,7 @@ const console = new Logger('FileSystemAdapter');
 export interface FileInfo {
     path: string;
     is_dir: boolean;
-    size: number;
+    size?: number;
     mtime: string;
     handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
 }
