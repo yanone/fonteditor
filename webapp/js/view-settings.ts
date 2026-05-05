@@ -27,7 +27,7 @@ const VIEW_SETTINGS = {
         },
         'view-scripts': {
             // Scripts view
-            key: 's',
+            key: 'y',
             modifiers: { cmd: true, shift: true },
             displayModifiers: ['⌘', '⇧'],
             secondaryBehavior: 'expandToTarget'
@@ -42,13 +42,6 @@ const VIEW_SETTINGS = {
         'view-assistant': {
             // Assistant view
             key: 'a',
-            modifiers: { cmd: true, shift: true },
-            displayModifiers: ['⌘', '⇧'],
-            secondaryBehavior: 'expandToTarget'
-        },
-        'view-files': {
-            // Files view
-            key: 'f',
             modifiers: { cmd: true, shift: true },
             displayModifiers: ['⌘', '⇧'],
             secondaryBehavior: 'expandToTarget'
@@ -109,11 +102,6 @@ const VIEW_SETTINGS = {
             width: 0.33,
             height: 0.7
         },
-        'view-files': {
-            // Files view (no secondary resize)
-            width: 0.33,
-            height: 0.5
-        },
         'view-assistant': {
             // Assistant view (no secondary resize)
             width: 0.33,
@@ -154,6 +142,8 @@ const VIEW_SETTINGS = {
 window.VIEW_SETTINGS = VIEW_SETTINGS;
 
 // Export for use in other modules
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = VIEW_SETTINGS;
+const commonJsModule = (globalThis as { module?: { exports?: unknown } })
+    .module;
+if (commonJsModule?.exports) {
+    commonJsModule.exports = VIEW_SETTINGS;
 }

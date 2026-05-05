@@ -698,6 +698,36 @@ class FontManager {
         await this.onOpened();
     }
 
+    private resetStateForNewFont(): void {
+        this.openedFonts.clear();
+        this.currentFontId = null;
+        this.editingFont = null;
+        this.fullFont = null;
+        this.fullFontQcSummary = null;
+        this.glyphOrderCache = null;
+        this.closureCache = null;
+        this.editingSubsetSnapshotGlyphs = [];
+        this.editingSubsetSnapshotKey = '';
+        this.lastChangeSource = null;
+        this.lastEditType = null;
+        this.lastCompilationMode = 'full';
+        this.pendingDebugEditingFontSaveAfterDrag = false;
+        this.pendingBabelfontJsonSyncAfterDrag = false;
+        this.forceFullEditingCacheRefresh = false;
+        this.workerLayerFingerprintCache.clear();
+        window.currentFontModel = null;
+        (window.fontInterpolation as any)?.resetRequestTracking?.();
+
+        if (window.glyphCanvas) {
+            window.glyphCanvas.resetForOpenedFontReplacement();
+        }
+
+        if (this.fullCompileDebounceTimer) {
+            clearTimeout(this.fullCompileDebounceTimer);
+            this.fullCompileDebounceTimer = null;
+        }
+    }
+
     private getParentPath(path: string): string {
         const idx = path.lastIndexOf('/');
         return idx >= 0 ? path.slice(0, idx) : '';
@@ -1069,6 +1099,8 @@ class FontManager {
         fileHandle?: FileSystemFileHandle,
         directoryHandle?: FileSystemDirectoryHandle
     ) {
+        this.resetStateForNewFont();
+
         let newFont = new OpenedFont(
             babelfontJson,
             path,
@@ -1794,6 +1826,7 @@ class FontManager {
                 new CustomEvent('editingFontCompiled', {
                     detail: {
                         fontBytes: this.editingFont,
+                        fontPath: this.currentFont.path,
                         duration: duration,
                         fontRevisionKey: responseRevisionKey,
                         dragActive: dragActiveAtRequest,
@@ -4039,6 +4072,11 @@ window.addEventListener('fontLoaded', async (event: Event) => {
             path: detail.path,
             sourcePluginId: detail.sourcePlugin?.id || null
         });
+
+        fontCompilation.lastStoredFontJson = null;
+        fontCompilation.pendingStoreFontJsonPayload = null;
+        fontCompilation.pendingStoreFontJsonPromise = null;
+        fontCompilation.lastEditingSubsetKey = null;
 
         // Prioritize first-open UX over continuous background recompiles/QC.
         window.autoCompileManager?.setStartupBlocked?.(true);

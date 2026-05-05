@@ -102,6 +102,11 @@
         />
 
         <link rel="stylesheet" href="css/style.css" id="local-css" />
+        <link
+            rel="stylesheet"
+            href="css/file-dialog.css"
+            id="file-dialog-css"
+        />
         <script src="https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/jquery"></script>
         <script src="https://cdn.jsdelivr.net/npm/jquery.terminal@2.42.0/js/jquery.terminal.min.js"></script>
@@ -139,6 +144,12 @@
                     // Update CSS
                     const css = document.getElementById('local-css');
                     if (css) css.href = 'css/style.css?v=' + version;
+                    const fileDialogCss = document.getElementById(
+                        'file-dialog-css'
+                    );
+                    if (fileDialogCss) {
+                        fileDialogCss.href = 'css/file-dialog.css?v=' + version;
+                    }
                 }
             })();
         </script>
@@ -277,31 +288,41 @@
                         <span class="material-symbols-outlined">autorenew</span>
                     </button>
                 </h1>
+                <div class="toolbar-menu-bar" id="toolbar-menu-bar">
+                    <button
+                        id="toolbar-file-menu-btn"
+                        class="toolbar-menu-trigger"
+                        title="File"
+                    >
+                        <span>File</span>
+                        <span class="material-symbols-outlined"
+                            >expand_more</span
+                        >
+                    </button>
+                    <button
+                        id="toolbar-edit-menu-btn"
+                        class="toolbar-menu-trigger"
+                        title="Edit"
+                    >
+                        <span>Edit</span>
+                        <span class="material-symbols-outlined"
+                            >expand_more</span
+                        >
+                    </button>
+                    <button
+                        id="toolbar-window-menu-btn"
+                        class="toolbar-menu-trigger"
+                        title="Window"
+                    >
+                        <span>Window</span>
+                        <span class="material-symbols-outlined"
+                            >expand_more</span
+                        >
+                    </button>
+                </div>
             </div>
             <div class="toolbar-center"></div>
             <div class="toolbar-right">
-                <button
-                    id="save-font-btn"
-                    class="toolbar-button"
-                    title="Save font (Cmd+S)"
-                    disabled
-                >
-                    Save
-                </button>
-                <button
-                    id="undo-btn"
-                    class="settings-button"
-                    title="Undo (Cmd+Z)"
-                >
-                    <span class="material-symbols-outlined">undo</span>
-                </button>
-                <button
-                    id="redo-btn"
-                    class="settings-button"
-                    title="Redo (Cmd+Shift+Z)"
-                >
-                    <span class="material-symbols-outlined">redo</span>
-                </button>
                 <div class="font-display-container">
                     <span
                         id="file-dirty-indicator"
@@ -321,13 +342,6 @@
                         <span class="material-symbols-outlined">share</span>
                     </button>
                 </div>
-                <button
-                    id="open-new-window-btn"
-                    class="settings-button"
-                    title="Open in new window"
-                >
-                    <span class="material-symbols-outlined">open_in_new</span>
-                </button>
                 <button
                     id="fullscreen-btn"
                     class="settings-button"
@@ -569,80 +583,6 @@
 
             <!-- Bottom row with five views -->
             <div class="bottom-row">
-                <div class="view view-files" id="view-files">
-                    <div class="view-title-bar">
-                        <div class="view-title-left">
-                            <div class="view-title-heading">
-                                <span class="view-title-name">Files</span>
-                                <span class="view-title-shortcut"
-                                    ><span class="material-symbols-outlined"
-                                        >keyboard_command_key</span
-                                    ><span class="material-symbols-outlined"
-                                        >arrow_upward</span
-                                    >F</span
-                                >
-                            </div>
-                            <div class="view-title-actions"></div>
-                        </div>
-                        <div class="view-title-right">
-                            <!-- Context tabs generated dynamically by file-browser.ts -->
-                        </div>
-                    </div>
-                    <div class="view-content">
-                        <div id="file-browser">
-                            <div id="permission-banner">
-                                <div class="permission-banner-content">
-                                    <span
-                                        class="material-symbols-outlined permission-banner-icon"
-                                        >lock</span
-                                    >
-                                    <span class="permission-banner-text"
-                                        >Folder access expired. Re-enable to
-                                        continue.</span
-                                    >
-                                    <button
-                                        class="permission-banner-button"
-                                        onclick="window.reEnableAccess()"
-                                    >
-                                        Re-enable
-                                    </button>
-                                </div>
-                            </div>
-                            <div id="plugin-message-container">
-                                <!-- Dynamic plugin messages rendered here -->
-                            </div>
-                            <div id="open-folder-container">
-                                <div class="open-folder-content">
-                                    <span
-                                        class="material-symbols-outlined open-folder-icon"
-                                        >folder_open</span
-                                    >
-                                    <h2>Open Folder</h2>
-                                    <p>
-                                        Select a folder from your computer to
-                                        browse and edit fonts directly.
-                                    </p>
-                                    <button
-                                        class="open-folder-button"
-                                        onclick="window.selectDiskFolder()"
-                                    >
-                                        <span class="material-symbols-outlined"
-                                            >folder_open</span
-                                        >
-                                        <span class="open-folder-button-label"
-                                            >Select Folder</span
-                                        >
-                                    </button>
-                                </div>
-                            </div>
-                            <div id="file-tree"></div>
-                        </div>
-                    </div>
-                </div>
-                <div
-                    class="divider vertical-divider"
-                    id="vertical-divider-2"
-                ></div>
                 <div class="view view-assistant" id="view-assistant">
                     <div class="view-title-bar">
                         <div class="view-title-left">
@@ -913,7 +853,7 @@
                                         >keyboard_command_key</span
                                     ><span class="material-symbols-outlined"
                                         >arrow_upward</span
-                                    >S</span
+                                    >Y</span
                                 >
                             </div>
                             <div class="view-title-actions">
@@ -1042,6 +982,119 @@
         </div>
 
         <!-- Webpack will inject bootstrap.js script here -->
+
+        <div
+            class="info-popup-overlay file-dialog-overlay"
+            id="font-file-dialog"
+            style="display: none"
+        >
+            <div class="info-popup file-dialog-shell">
+                <div class="info-popup-header file-dialog-shell-header">
+                    <div class="file-dialog-title-block">
+                        <h3 id="font-file-dialog-title">Open Font</h3>
+                        <p id="font-file-dialog-subtitle">
+                            Choose a font source and location.
+                        </p>
+                    </div>
+                    <button
+                        class="info-popup-close"
+                        id="font-file-dialog-close-btn"
+                    >
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div class="file-dialog-plugin-tabs" id="file-dialog-plugin-tabs">
+                    <!-- Context tabs generated dynamically by file-browser.ts -->
+                </div>
+                <div class="info-popup-content file-dialog-shell-content">
+                    <div id="file-browser">
+                        <div id="permission-banner">
+                            <div class="permission-banner-content">
+                                <span
+                                    class="material-symbols-outlined permission-banner-icon"
+                                    >lock</span
+                                >
+                                <span class="permission-banner-text"
+                                    >Folder access expired. Re-enable to
+                                    continue.</span
+                                >
+                                <button
+                                    class="permission-banner-button"
+                                    onclick="window.reEnableAccess()"
+                                >
+                                    Re-enable
+                                </button>
+                            </div>
+                        </div>
+                        <div id="plugin-message-container">
+                            <!-- Dynamic plugin messages rendered here -->
+                        </div>
+                        <div id="open-folder-container">
+                            <div class="open-folder-content">
+                                <span
+                                    class="material-symbols-outlined open-folder-icon"
+                                    >folder_open</span
+                                >
+                                <h2>Open Folder</h2>
+                                <p>
+                                    Select a folder from your computer to
+                                    browse and edit fonts directly.
+                                </p>
+                                <button
+                                    class="open-folder-button"
+                                    onclick="window.selectDiskFolder()"
+                                >
+                                    <span class="material-symbols-outlined"
+                                        >folder_open</span
+                                    >
+                                    <span class="open-folder-button-label"
+                                        >Select Folder</span
+                                    >
+                                </button>
+                            </div>
+                        </div>
+                        <div id="file-tree"></div>
+                    </div>
+                </div>
+                <div class="file-dialog-footer" id="file-dialog-footer">
+                    <div class="file-dialog-selection" id="file-dialog-selection">
+                        No file selected.
+                    </div>
+                    <div
+                        class="file-dialog-save-fields"
+                        id="file-dialog-save-fields"
+                        style="display: none"
+                    >
+                        <label class="file-dialog-save-label" for="file-dialog-save-name"
+                            >File name</label
+                        >
+                        <input
+                            id="file-dialog-save-name"
+                            class="file-dialog-save-input"
+                            type="text"
+                            autocomplete="off"
+                        />
+                    </div>
+                    <div class="file-dialog-actions">
+                        <button
+                            id="file-dialog-cancel-btn"
+                            class="diff-modal-button diff-cancel-btn"
+                            type="button"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            id="file-dialog-confirm-btn"
+                            class="diff-modal-button diff-accept-btn"
+                            type="button"
+                            disabled
+                        >
+                            Open
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Diff Review Modal -->
         <div id="diff-review-modal" class="diff-modal">

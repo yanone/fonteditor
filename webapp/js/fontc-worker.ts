@@ -30,6 +30,7 @@ let cachedBabelfontJson: string | null = null; // Cache babelfont JSON for re-us
 let cachedFontRevisionKey: string | null = null;
 let cachedBaseSubsetKey: string | null = null;
 let cachedClosureGlyphCount: number | null = null;
+let fontCacheEpoch = 0;
 let lastStoreFontAtMs = 0;
 let dragCompilesSinceStore = 0;
 const PERF_TRACE_CONTEXT_GLOBAL_KEY = '__cpPerfTraceContext';
@@ -1103,6 +1104,7 @@ self.onmessage = async (event) => {
                 const revisionKey = String(fontRevisionKey ?? 'unknown');
                 const incomingSubsetKey =
                     typeof subsetKey === 'string' ? subsetKey : '';
+                const effectiveSubsetKey = `${fontCacheEpoch}:${incomingSubsetKey}`;
                 const baseSubsetGlyphs = Array.isArray(subsetGlyphs)
                     ? subsetGlyphs
                     : null;
@@ -1167,6 +1169,7 @@ self.onmessage = async (event) => {
                                         'Incremental layer updates failed and no full JSON available'
                                     );
                                 }
+                                clear_font_cache();
                                 store_font(babelfontJson);
                                 storedViaFullFont = true;
                                 timelineMark(
@@ -1179,12 +1182,16 @@ self.onmessage = async (event) => {
                                     'Incremental sentinel received but cannot apply layer update'
                                 );
                             }
+                            clear_font_cache();
                             store_font(babelfontJson);
                             storedViaFullFont = true;
                         }
 
                         if (!isIncrementalSentinel) {
                             cachedBabelfontJson = babelfontJson;
+                            fontCacheEpoch += 1;
+                            cachedBaseSubsetKey = null;
+                            cachedClosureGlyphCount = null;
                         }
                         cachedFontRevisionKey = revisionKey;
                         lastStoreFontAtMs = performance.now();
@@ -1212,7 +1219,7 @@ self.onmessage = async (event) => {
                     'font.worker.compileEditingCached.primeLayoutClosure'
                 );
                 const needsPrimeClosure =
-                    cachedBaseSubsetKey !== incomingSubsetKey;
+                    cachedBaseSubsetKey !== effectiveSubsetKey;
                 const isOutlineIncrementalCompile =
                     String(compileSource || '').startsWith('mouse-drag') ||
                     String(compileSource || '').startsWith('keyboard');
@@ -1226,7 +1233,7 @@ self.onmessage = async (event) => {
                         {
                             compileSource,
                             previousSubsetKey: cachedBaseSubsetKey,
-                            incomingSubsetKey,
+                            incomingSubsetKey: effectiveSubsetKey,
                             hasSubsetGlyphs: !!baseSubsetGlyphs?.length
                         }
                     );
@@ -1240,10 +1247,10 @@ self.onmessage = async (event) => {
                     }
 
                     cachedClosureGlyphCount = prime_layout_closure_cache(
-                        incomingSubsetKey,
+                        effectiveSubsetKey,
                         JSON.stringify(baseSubsetGlyphs)
                     );
-                    cachedBaseSubsetKey = incomingSubsetKey;
+                    cachedBaseSubsetKey = effectiveSubsetKey;
                     timelineMark(
                         'font.worker.compileEditingCached.primeLayoutClosure.primed'
                     );
@@ -1436,6 +1443,8 @@ self.onmessage = async (event) => {
                 // Store in cache (both in WASM and in worker)
                 store_font(babelfontJson);
                 cachedBabelfontJson = babelfontJson;
+                cachedBaseSubsetKey = null;
+                cachedClosureGlyphCount = null;
 
                 self.postMessage({
                     id,
@@ -1605,6 +1614,7 @@ self.onmessage = async (event) => {
                 cachedFontRevisionKey = null;
                 cachedBaseSubsetKey = null;
                 cachedClosureGlyphCount = null;
+                fontCacheEpoch = 0;
                 dragCompilesSinceStore = 0;
                 self.postMessage({
                     type: 'clearCache',
@@ -1662,8 +1672,10 @@ self.onmessage = async (event) => {
                                 `Invalid project entry type at ${relativePath}`
                             );
                         }
+                        clear_font_cache();
                     }
 
+                    fontCacheEpoch += 1;
                     payload = JSON.stringify(stringEntries);
                 } else {
                     // Convert Uint8Array to string for WASM

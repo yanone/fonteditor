@@ -29,6 +29,7 @@ import {
     timelineSpanStart
 } from './perf-timeline';
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
+import { reloadLinkedEditorWindows } from './window-buttons';
 
 const console = new Logger('FileBrowser');
 
@@ -83,7 +84,198 @@ let fileSystemCache: FileSystemState = {
 
 type OpenFontOptions = {
     sourcePluginOverride?: FilesystemPlugin;
+    closeDialogOnSuccess?: boolean;
 };
+
+type FileDialogMode = 'open' | 'save-as';
+
+type ShowFileDialogOptions = {
+    mode?: FileDialogMode;
+    pluginId?: string;
+    path?: string;
+    highlightPath?: string;
+    suggestedName?: string;
+};
+
+let activeFileDialogMode: FileDialogMode = 'open';
+let selectedDialogPath: string | null = null;
+let pendingDialogHighlightPath: string | null = null;
+
+function getDialogRoot(): HTMLElement | null {
+    return document.getElementById('font-file-dialog');
+}
+
+function isFileDialogOpen(): boolean {
+    return getDialogRoot()?.style.display === 'flex';
+}
+
+function getPathBasename(path: string | null | undefined): string {
+    if (!path) {
+        return '';
+    }
+
+    const normalizedPath = path.replace(/\/+$/, '');
+    const lastSlash = normalizedPath.lastIndexOf('/');
+    return lastSlash >= 0
+        ? normalizedPath.slice(lastSlash + 1)
+        : normalizedPath;
+}
+
+function getSuggestedSaveName(): string {
+    const currentFont = window.fontManager?.currentFont;
+    const currentPathName = getPathBasename(currentFont?.path);
+    if (currentPathName) {
+        return currentPathName;
+    }
+
+    const fontName = currentFont?.name?.trim();
+    if (fontName) {
+        return `${fontName}.babelfont`;
+    }
+
+    return 'Untitled Font.babelfont';
+}
+
+function getVisibleFileItem(path: string): HTMLElement | null {
+    return document.querySelector(
+        `.file-item[data-path="${CSS.escape(path)}"]`
+    ) as HTMLElement | null;
+}
+
+function isSelectedPathOpenableFont(): boolean {
+    if (!selectedDialogPath) {
+        return false;
+    }
+
+    const selectedItem = getVisibleFileItem(selectedDialogPath);
+    return selectedItem?.dataset.isFont === 'true';
+}
+
+function updateFileSelectionUi(): void {
+    document.querySelectorAll('.file-item.selected').forEach((item) => {
+        item.classList.remove('selected');
+    });
+
+    if (!selectedDialogPath) {
+        return;
+    }
+
+    getVisibleFileItem(selectedDialogPath)?.classList.add('selected');
+}
+
+function updateFileDialogFooter(): void {
+    const title = document.getElementById('font-file-dialog-title');
+    const subtitle = document.getElementById('font-file-dialog-subtitle');
+    const selection = document.getElementById('file-dialog-selection');
+    const saveFields = document.getElementById('file-dialog-save-fields');
+    const saveNameInput = document.getElementById(
+        'file-dialog-save-name'
+    ) as HTMLInputElement | null;
+    const confirmButton = document.getElementById(
+        'file-dialog-confirm-btn'
+    ) as HTMLButtonElement | null;
+
+    if (title) {
+        title.textContent =
+            activeFileDialogMode === 'open' ? 'Open Font' : 'Save Font As';
+    }
+
+    if (subtitle) {
+        subtitle.textContent =
+            activeFileDialogMode === 'open'
+                ? 'Choose a font source and location.'
+                : 'Choose a destination and file name.';
+    }
+
+    if (selection) {
+        if (!selectedDialogPath) {
+            selection.textContent =
+                activeFileDialogMode === 'open'
+                    ? 'No file selected.'
+                    : `Saving into ${fileSystemCache.currentPath}`;
+        } else {
+            selection.textContent = selectedDialogPath;
+        }
+    }
+
+    if (saveFields) {
+        saveFields.style.display =
+            activeFileDialogMode === 'save-as' ? 'flex' : 'none';
+    }
+
+    if (confirmButton) {
+        confirmButton.textContent =
+            activeFileDialogMode === 'open' ? 'Open' : 'Save As';
+        confirmButton.disabled =
+            activeFileDialogMode === 'open'
+                ? !isSelectedPathOpenableFont()
+                : !saveNameInput?.value.trim();
+    }
+}
+
+function closeFontFileDialog(): void {
+    const dialog = getDialogRoot();
+    if (!dialog) {
+        return;
+    }
+
+    dialog.style.display = 'none';
+    selectedDialogPath = null;
+    pendingDialogHighlightPath = null;
+    updateFileDialogFooter();
+
+    const editorView = document.getElementById('view-editor');
+    if (
+        editorView &&
+        editorView.classList.contains('focused') &&
+        window.glyphCanvas?.canvas
+    ) {
+        setTimeout(() => window.glyphCanvas?.canvas?.focus(), 0);
+    }
+}
+
+async function showFontFileDialog(
+    options: ShowFileDialogOptions = {}
+): Promise<void> {
+    const dialog = getDialogRoot();
+    if (!dialog) {
+        return;
+    }
+
+    activeFileDialogMode = options.mode || 'open';
+    selectedDialogPath = options.highlightPath || null;
+    pendingDialogHighlightPath = options.highlightPath || null;
+
+    const saveNameInput = document.getElementById(
+        'file-dialog-save-name'
+    ) as HTMLInputElement | null;
+    if (saveNameInput) {
+        saveNameInput.value = options.suggestedName || getSuggestedSaveName();
+    }
+
+    dialog.style.display = 'flex';
+
+    if (
+        options.pluginId &&
+        options.pluginId !== fileSystemCache.currentPlugin.getId()
+    ) {
+        await switchContext(options.pluginId);
+    }
+
+    if (options.path) {
+        await navigateToPath(options.path);
+    } else if (!document.getElementById('file-path-header')) {
+        await navigateToPath(fileSystemCache.currentPath || '/');
+    } else {
+        updateFileSelectionUi();
+    }
+
+    updateFileDialogFooter();
+
+    if (activeFileDialogMode === 'save-as') {
+        setTimeout(() => saveNameInput?.focus(), 0);
+    }
+}
 
 function isTransientGlyphsParseError(errorMessage: string): boolean {
     return (
@@ -426,6 +618,34 @@ function createFileUri(pluginId: string, path: string): string {
     return `${pluginId}:///${path.startsWith('/') ? path.slice(1) : path}`;
 }
 
+function syncEditorFileState(fileUri: string, eventType: string): void {
+    if (!window.stateManager) {
+        return;
+    }
+
+    const didChange = window.stateManager.editor_file !== fileUri;
+    if (didChange) {
+        window.stateManager.editor_file = fileUri;
+        window.stateManager.recordEvent(eventType, 'FileBrowser', {
+            fileUri
+        });
+    }
+
+    window.stateManager.syncUrlNow?.();
+}
+
+function syncEditorFileStateFromCurrentFont(): void {
+    const currentFont = window.fontManager?.currentFont;
+    const pluginId = currentFont?.sourcePlugin?.getId?.();
+    const path = currentFont?.path;
+
+    if (!pluginId || !path) {
+        return;
+    }
+
+    syncEditorFileState(createFileUri(pluginId, path), 'file_opened');
+}
+
 /**
  * Parse a file URI into plugin ID and path
  * Format: pluginId:///path/to/file
@@ -544,7 +764,7 @@ function isSupportedFontFormat(name: string, isDir: boolean): boolean {
 }
 
 function hasOpenFontInCurrentWindow(): boolean {
-    return (window.fontManager?.openedFonts.size || 0) > 0;
+    return !!window.fontManager?.currentFont;
 }
 
 // Helper functions for plugin menu dropdowns
@@ -571,18 +791,16 @@ function createFileContextMenuHtml(
 
     // Open (for supported font formats)
     if (isSupportedFontFormat(name, isDir)) {
-        if (!hasOpenFontInCurrentWindow()) {
-            items.push(`
-                <div class="plugin-menu-item" data-action="open">
-                    <span class="material-symbols-outlined">folder_open</span>
-                    <span>Open</span>
-                </div>
-            `);
-        }
+        items.push(`
+            <div class="plugin-menu-item" data-action="open">
+                <span class="material-symbols-outlined">folder_open</span>
+                <span>Open</span>
+            </div>
+        `);
         items.push(`
             <div class="plugin-menu-item" data-action="open-new-tab">
                 <span class="material-symbols-outlined">open_in_new</span>
-                <span>Open in New Tab</span>
+                <span>Open in New Window</span>
             </div>
         `);
     }
@@ -782,6 +1000,8 @@ function updatePluginMenuButtonVisibility(plugin: FilesystemPlugin): void {
         `.context-tab[data-plugin-id="${pluginId}"]`
     ) as HTMLElement;
 
+    refreshPluginTabLabel(plugin);
+
     const hostButton = button as TippyHostElement;
     if (!hostButton || !hostButton._hasMenu) return;
 
@@ -810,6 +1030,89 @@ function openFontInNewTab(path: string) {
     const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
     window.open(url, '_blank');
     console.log('[FileBrowser]', `Opening font in new tab: ${fileUri}`);
+}
+
+function getPluginTabDescription(plugin: FilesystemPlugin): string {
+    const pluginId = plugin.getId();
+
+    if (pluginId === 'memory') {
+        return 'Browser storage';
+    }
+
+    if (pluginId === 'disk') {
+        const adapter = plugin.getAdapter() as {
+            directoryHandle?: { name?: string };
+        };
+        const folderName = adapter.directoryHandle?.name;
+        return folderName ? `Folder: ${folderName}` : 'Local folder access';
+    }
+
+    return 'Filesystem plugin';
+}
+
+function refreshPluginTabLabel(plugin: FilesystemPlugin): void {
+    const pluginId = plugin.getId();
+    const descriptionElement = document.querySelector(
+        `.context-tab[data-plugin-id="${pluginId}"] .file-dialog-plugin-tab-description`
+    ) as HTMLElement | null;
+
+    if (!descriptionElement) {
+        return;
+    }
+
+    descriptionElement.textContent = getPluginTabDescription(plugin);
+}
+
+function queuePostOpenUiRefresh(
+    fontPath: string,
+    options: { reloadLinkedWindows: boolean }
+): void {
+    let settled = false;
+
+    const finish = () => {
+        if (settled) {
+            return;
+        }
+        settled = true;
+        window.removeEventListener('fontReady', onFontReady);
+        window.clearTimeout(timeoutId);
+    };
+
+    const onFontReady = async (event: Event) => {
+        const detail = (event as CustomEvent<{ path?: string }>).detail;
+        if (detail?.path !== fontPath) {
+            return;
+        }
+
+        finish();
+
+        try {
+            const glyphCanvas = window.glyphCanvas;
+            if (glyphCanvas) {
+                await glyphCanvas.updatePropertiesUI();
+                await glyphCanvas.featuresManager?.updateFeaturesUI?.();
+                glyphCanvas.render();
+            }
+
+            await window.fontManager?.updateFontDisplay?.();
+            await window.fontManager?.updateDirtyIndicator?.();
+
+            if (
+                options.reloadLinkedWindows &&
+                window.windowRole?.isMainWindow?.()
+            ) {
+                reloadLinkedEditorWindows();
+            }
+        } catch (error) {
+            console.warn('[FileBrowser]', 'Post-open UI refresh failed', error);
+        }
+    };
+
+    const timeoutId = window.setTimeout(() => {
+        finish();
+    }, 15000);
+
+    window.addEventListener('fontReady', onFontReady);
 }
 
 /**
@@ -1017,6 +1320,7 @@ async function openFont(
 
         const startTime = performance.now();
         console.log('[FileBrowser]', `Opening font: ${path}`);
+        const isReplacingOpenFont = !!window.fontManager?.currentFont;
 
         const sourcePlugin =
             options.sourcePluginOverride || fileSystemCache.currentPlugin;
@@ -1154,6 +1458,10 @@ async function openFont(
 
         const directoryHandle = directoryHandleForSource;
 
+        queuePostOpenUiRefresh(path, {
+            reloadLinkedWindows: isReplacingOpenFont
+        });
+
         // Dispatch fontLoaded event to font manager
         window.dispatchEvent(
             new CustomEvent('fontLoaded', {
@@ -1170,12 +1478,7 @@ async function openFont(
         // Update URL to reflect current file
         const pluginId = sourcePlugin.getId();
         const fileUri = createFileUri(pluginId, path);
-        if (window.stateManager) {
-            window.stateManager.editor_file = fileUri;
-            window.stateManager.recordEvent('file_opened', 'FileBrowser', {
-                fileUri
-            });
-        }
+        syncEditorFileState(fileUri, 'file_opened');
 
         // Restore focus to canvas if editor view is active
         const editorView = document.getElementById('view-editor');
@@ -1186,7 +1489,14 @@ async function openFont(
             window.glyphCanvas.canvas
         ) {
             setTimeout(() => window.glyphCanvas.canvas!.focus(), 0);
+
+            window.stateManager?.syncUrlNow?.();
         }
+
+        if (options.closeDialogOnSuccess) {
+            closeFontFileDialog();
+        }
+
         timelineSpanEnd(openSpan);
     } catch (error: unknown) {
         timelineMark('font.open.failed');
@@ -1196,6 +1506,131 @@ async function openFont(
         // Reset cursor on error
         endLoadingCursor();
     }
+}
+
+async function getDiskFileHandleForPath(
+    plugin: FilesystemPlugin,
+    path: string
+): Promise<FileSystemFileHandle | undefined> {
+    if (plugin.getId() !== 'disk') {
+        return undefined;
+    }
+
+    const adapter = plugin.getAdapter() as {
+        getFileHandle?: (
+            filePath: string
+        ) => Promise<FileSystemFileHandle | null>;
+        directoryHandle?: FileSystemDirectoryHandle;
+    };
+
+    if (!adapter.getFileHandle) {
+        return undefined;
+    }
+
+    return (await adapter.getFileHandle(path)) || undefined;
+}
+
+async function saveCurrentFontAsToPath(): Promise<void> {
+    const currentFont = window.fontManager?.currentFont;
+    if (!currentFont) {
+        return;
+    }
+
+    const saveNameInput = document.getElementById(
+        'file-dialog-save-name'
+    ) as HTMLInputElement | null;
+    const rawFileName = saveNameInput?.value.trim() || '';
+    if (!rawFileName) {
+        updateFileDialogFooter();
+        return;
+    }
+
+    if (rawFileName.includes('/') || rawFileName.includes('\\')) {
+        alert('File name cannot contain / or \\');
+        return;
+    }
+
+    const targetPath =
+        fileSystemCache.currentPath === '/'
+            ? `/${rawFileName}`
+            : `${fileSystemCache.currentPath.replace(/\/+$/, '')}/${rawFileName}`;
+
+    const fileExists =
+        await fileSystemCache.activeAdapter.fileExists(targetPath);
+    if (fileExists && !confirm(`Overwrite existing file "${rawFileName}"?`)) {
+        return;
+    }
+
+    currentFont.syncJsonFromModel();
+    await fileSystemCache.activeAdapter.writeFile(
+        targetPath,
+        currentFont.babelfontJson
+    );
+
+    currentFont.path = targetPath;
+    currentFont.sourcePlugin = fileSystemCache.currentPlugin;
+    currentFont.fileHandle = await getDiskFileHandleForPath(
+        fileSystemCache.currentPlugin,
+        targetPath
+    );
+    currentFont.directoryHandle =
+        fileSystemCache.currentPlugin.getId() === 'disk'
+            ? (
+                  fileSystemCache.currentPlugin.getAdapter() as {
+                      directoryHandle?: FileSystemDirectoryHandle;
+                  }
+              ).directoryHandle
+            : undefined;
+    currentFont.needsRecompile = false;
+    currentFont.hasUnsavedChanges = false;
+
+    const pluginId = fileSystemCache.currentPlugin.getId();
+    const fileUri = createFileUri(pluginId, targetPath);
+    if (window.stateManager) {
+        window.stateManager.editor_file = fileUri;
+        window.stateManager.recordEvent('file_saved_as', 'FileBrowser', {
+            fileUri
+        });
+    }
+
+    await window.fontManager.updateFontDisplay();
+    await window.fontManager.updateDirtyIndicator();
+    window.saveButton?.updateButtonState?.();
+
+    await refreshFileSystem();
+    selectedDialogPath = targetPath;
+    updateFileSelectionUi();
+    closeFontFileDialog();
+}
+
+async function confirmFileDialogPrimaryAction(): Promise<void> {
+    if (activeFileDialogMode === 'save-as') {
+        await saveCurrentFontAsToPath();
+        return;
+    }
+
+    if (!selectedDialogPath || !isSelectedPathOpenableFont()) {
+        updateFileDialogFooter();
+        return;
+    }
+
+    const fileHandle = (window as any)._fileHandles?.[selectedDialogPath];
+    await openFont(selectedDialogPath, fileHandle, {
+        closeDialogOnSuccess: true
+    });
+}
+
+async function locatePathInFileDialog(
+    pluginId: string,
+    fullPath: string
+): Promise<void> {
+    const dirPath = fullPath.substring(0, fullPath.lastIndexOf('/')) || '/';
+    await showFontFileDialog({
+        mode: 'open',
+        pluginId,
+        path: dirPath,
+        highlightPath: fullPath
+    });
 }
 
 async function switchContext(pluginId: string) {
@@ -1935,6 +2370,7 @@ async function navigateToPath(path: string, highlightFolder?: string) {
             path !== '/'
                 ? `<button onclick="navigateToParent()" class="file-header-btn" title="Go to parent directory">
                 <span class="material-symbols-outlined">arrow_upward</span>
+                <span class="file-header-btn-label">Parent</span>
             </button>`
                 : '';
 
@@ -1943,9 +2379,11 @@ async function navigateToPath(path: string, highlightFolder?: string) {
             ? `
                 <button onclick="document.getElementById('file-upload-input').click()" class="file-header-btn" title="Upload files">
                     <span class="material-symbols-outlined">upload_file</span>
+                    <span class="file-header-btn-label">Upload Files</span>
                 </button>
                 <button onclick="document.getElementById('folder-upload-input').click()" class="file-header-btn" title="Upload folder">
                     <span class="material-symbols-outlined">drive_folder_upload</span>
+                    <span class="file-header-btn-label">Upload Folder</span>
                 </button>
             `
             : '';
@@ -1956,13 +2394,16 @@ async function navigateToPath(path: string, highlightFolder?: string) {
                 ${parentBtn}
                 <button onclick="createFile()" class="file-header-btn" title="Create new file">
                     <span class="material-symbols-outlined">note_add</span>
+                    <span class="file-header-btn-label">New File</span>
                 </button>
                 <button onclick="createFolder()" class="file-header-btn" title="Create new folder">
                     <span class="material-symbols-outlined">create_new_folder</span>
+                    <span class="file-header-btn-label">New Folder</span>
                 </button>
                 ${uploadButtons}
                 <button onclick="refreshFileSystem()" class="file-header-btn" title="Refresh">
                     <span class="material-symbols-outlined">refresh</span>
+                    <span class="file-header-btn-label">Refresh</span>
                 </button>
             </div>
         `;
@@ -1998,6 +2439,8 @@ async function navigateToPath(path: string, highlightFolder?: string) {
             requestAnimationFrame(() => {
                 setupFileContextMenus();
                 setupFileItemClickHandlers();
+                updateFileSelectionUi();
+                updateFileDialogFooter();
 
                 // Highlight and scroll to specific folder if provided
                 if (highlightFolder) {
@@ -2020,6 +2463,26 @@ async function navigateToPath(path: string, highlightFolder?: string) {
                             folderItem.classList.remove('folder-highlight');
                         }, 600);
                     }
+                } else if (pendingDialogHighlightPath) {
+                    const highlightedItem = getVisibleFileItem(
+                        pendingDialogHighlightPath
+                    );
+                    if (highlightedItem) {
+                        highlightedItem.scrollIntoView({
+                            block: 'center',
+                            behavior: 'auto'
+                        });
+                        highlightedItem.classList.add('folder-highlight');
+                        selectedDialogPath = pendingDialogHighlightPath;
+                        updateFileSelectionUi();
+                        updateFileDialogFooter();
+                        setTimeout(() => {
+                            highlightedItem.classList.remove(
+                                'folder-highlight'
+                            );
+                        }, 600);
+                    }
+                    pendingDialogHighlightPath = null;
                 } else if (currentFont) {
                     // Only scroll to in-path folder if there's a current font open
                     const inPathItem = fileTree!.querySelector(
@@ -2135,8 +2598,10 @@ function teardownDragAndDrop() {
 }
 
 function selectFile(filePath: string) {
+    selectedDialogPath = filePath;
+    updateFileSelectionUi();
+    updateFileDialogFooter();
     console.log('[FileBrowser]', 'Selected file:', filePath);
-    // TODO: Add file selection handling (e.g., show content, download, etc.)
 }
 
 // Click tracking for single vs double-click distinction
@@ -2171,22 +2636,17 @@ function setupFileItemClickHandlers() {
 
                 // Handle double-click
                 if (isFont) {
-                    if (hasOpenFontInCurrentWindow()) {
-                        console.log(
-                            '[FileBrowser]',
-                            'Ignoring font double-click while a font is already open:',
-                            path
-                        );
-                    } else {
-                        console.log(
-                            '[FileBrowser]',
-                            'Double-click opening font:',
-                            path
-                        );
-                        openFont(path);
-                    }
+                    console.log(
+                        '[FileBrowser]',
+                        'Double-click opening font:',
+                        path
+                    );
+                    selectFile(path);
+                    void openFont(path, undefined, {
+                        closeDialogOnSuccess: true
+                    });
                 } else if (isDir) {
-                    navigateToPath(path);
+                    void navigateToPath(path);
                 }
 
                 setTimeout(() => {
@@ -2199,7 +2659,7 @@ function setupFileItemClickHandlers() {
 
                     // Handle single-click
                     if (isDir && !isFont) {
-                        navigateToPath(path);
+                        void navigateToPath(path);
                     } else {
                         selectFile(path);
                     }
@@ -2264,11 +2724,7 @@ async function navigateToCurrentFont() {
 }
 
 function updateHomeButtonVisibility() {
-    const homeBtn = document.getElementById('file-browser-home-btn');
-    if (!homeBtn) return;
-
-    const currentFont = window.fontManager?.currentFont;
-    homeBtn.style.display = currentFont ? 'flex' : 'none';
+    return;
 }
 
 function consumePendingLaunchFileHandles(): FileSystemFileHandle[] {
@@ -2388,6 +2844,51 @@ async function processPendingPwaLaunchFiles() {
     }
 }
 
+function initFileDialogModal(): void {
+    const dialog = getDialogRoot();
+    const closeBtn = document.getElementById('font-file-dialog-close-btn');
+    const cancelBtn = document.getElementById('file-dialog-cancel-btn');
+    const confirmBtn = document.getElementById('file-dialog-confirm-btn');
+    const saveNameInput = document.getElementById(
+        'file-dialog-save-name'
+    ) as HTMLInputElement | null;
+
+    if (!dialog || !closeBtn || !cancelBtn || !confirmBtn) {
+        return;
+    }
+
+    closeBtn.addEventListener('click', closeFontFileDialog);
+    cancelBtn.addEventListener('click', closeFontFileDialog);
+    confirmBtn.addEventListener('click', () => {
+        void confirmFileDialogPrimaryAction();
+    });
+
+    dialog.addEventListener('click', (event: Event) => {
+        if (event.target === dialog) {
+            closeFontFileDialog();
+        }
+    });
+
+    document.addEventListener('keydown', (event: KeyboardEvent) => {
+        if (event.key === 'Escape' && isFileDialogOpen()) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeFontFileDialog();
+        }
+    });
+
+    saveNameInput?.addEventListener('input', () => {
+        updateFileDialogFooter();
+    });
+
+    saveNameInput?.addEventListener('keydown', (event: KeyboardEvent) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            void confirmFileDialogPrimaryAction();
+        }
+    });
+}
+
 // Initialize file browser when Pyodide is ready
 async function initFileBrowser() {
     if (fileBrowserReady) {
@@ -2438,30 +2939,28 @@ async function initFileBrowser() {
             await memoryPlugin.getAdapter().createFolder('/user');
         }
 
+        initFileDialogModal();
+
         // Generate context tabs dynamically from plugin registry
-        const titleBarRight = document.querySelector(
-            '.view-files .view-title-right'
+        const titleBarRight = document.getElementById(
+            'file-dialog-plugin-tabs'
         );
         if (titleBarRight) {
             // Clear existing content
             titleBarRight.innerHTML = '';
 
-            // Add home button (navigate to current font)
-            const homeBtn = document.createElement('button');
-            homeBtn.id = 'file-browser-home-btn';
-            homeBtn.className = 'view-title-button';
-            homeBtn.title = 'Locate opened font';
-            homeBtn.innerHTML = `<span class="material-symbols-outlined">my_location</span>`;
-            homeBtn.style.display = 'none'; // Initially hidden
-            homeBtn.addEventListener('click', navigateToCurrentFont);
-            titleBarRight.appendChild(homeBtn);
-
             const plugins = pluginRegistry.getAll();
             plugins.forEach((plugin) => {
                 const button = document.createElement('button');
-                button.className = 'view-title-button context-tab';
+                button.className = 'file-dialog-plugin-tab context-tab';
                 button.setAttribute('data-plugin-id', plugin.getId());
-                button.innerHTML = `${plugin.getIcon()} ${plugin.getName()}`;
+                button.innerHTML = `
+                    <span class="file-dialog-plugin-tab-icon">${plugin.getIcon()}</span>
+                    <span class="file-dialog-plugin-tab-copy">
+                        <span class="file-dialog-plugin-tab-title">${plugin.getName()}</span>
+                        <span class="file-dialog-plugin-tab-description">${getPluginTabDescription(plugin)}</span>
+                    </span>
+                `;
 
                 // Mark default plugin as active
                 if (plugin.getId() === pluginRegistry.getDefaultId()) {
@@ -2957,6 +3456,7 @@ window.addEventListener('fontReady', async () => {
         'fileBrowser.fontReadyRefresh'
     );
     try {
+        syncEditorFileStateFromCurrentFont();
         updateCurrentFontHighlightInFileTree();
     } finally {
         timelineSpanEnd(fontReadyFileRefreshSpanId);
@@ -2995,12 +3495,13 @@ window.initFileBrowser = initFileBrowser;
 window.waitForFileBrowserReady = waitForFileBrowserReady;
 window.createFolder = createFolder;
 window.createFile = createFile;
-window.navigateToCurrentFont = navigateToCurrentFont;
-window.updateHomeButtonVisibility = updateHomeButtonVisibility;
 window.deleteItem = deleteItem;
 window.uploadFiles = uploadFiles;
 window.handleFileUpload = handleFileUpload;
 window.openFont = openFont;
+window.showFontFileDialog = showFontFileDialog;
+window.closeFontFileDialog = closeFontFileDialog;
+window.locatePathInFileDialog = locatePathInFileDialog;
 (window as any).openFontWithHandle = openFontWithHandle;
 (window as any).switchContext = switchContext;
 (window as any).selectDiskFolder = selectDiskFolder;

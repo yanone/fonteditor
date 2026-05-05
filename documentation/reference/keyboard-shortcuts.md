@@ -12,11 +12,16 @@ These shortcuts allow you to move quickly between different areas of Counterpunc
 
 - `Cmd/Ctrl + Shift + E` navigates to the Editor
 - `Cmd/Ctrl + Shift + O` opens the Overview
-- `Cmd/Ctrl + Shift + F` switches to Files
 - `Cmd/Ctrl + Shift + A` displays the Assistant
-- `Cmd/Ctrl + Shift + S` opens Scripts
+- `Cmd/Ctrl + Shift + Y` opens Scripts
 - `Cmd/Ctrl + Shift + K` shows the Konsole
 - `Cmd/Ctrl + Shift + I` reveals Font Info
+
+## File Actions
+
+- `Cmd/Ctrl + O` opens the font file dialog
+- `Cmd/Ctrl + S` saves the current font
+- `Cmd/Ctrl + Shift + S` opens the font Save As dialog
 
 ## Script and Konsole Actions
 

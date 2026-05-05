@@ -243,10 +243,11 @@ test.describe('Font Editor Basic Workflow', () => {
         }
     };
 
-    test('files view keeps font opening to new tabs once a font is loaded', async ({
-        page
-    }) => {
-        await focusView(page, 'Meta+Shift+F', 'view-files');
+    test('file dialog replaces the current font on open', async ({ page }) => {
+        await page.evaluate(async () => {
+            await (window as any).showFontFileDialog?.({ mode: 'open' });
+        });
+        await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
 
         const firstFontItem = page.locator(
             '.file-item[data-name="Fustat.glyphs"]'
@@ -260,13 +261,54 @@ test.describe('Font Editor Basic Workflow', () => {
         await waitForOpenSessionReady(page, 'Fustat.glyphs');
         await page.waitForTimeout(300);
 
+        await page.evaluate(() => {
+            (window as any).glyphCanvas?.enterGlyphEditModeAtCursor?.();
+        });
+        await page.waitForFunction(() => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            return (
+                !!glyphCanvas?.outlineEditor?.active &&
+                (glyphCanvas?.textRunEditor?.selectedGlyphIndex ?? -1) >= 0
+            );
+        });
+
         const currentFontPathBefore = await page.evaluate(() => {
             const win = window as any;
             return win.fontManager?.currentFont?.path || null;
         });
 
-        await secondFontItem.click({ button: 'right' });
+        const urlFileBefore = await page.evaluate(() => {
+            return new URL(window.location.href).searchParams.get('file');
+        });
 
+        const canvasFontHashBefore = await page.evaluate(() => {
+            const fontBlob = (window as any).glyphCanvas?.textRunEditor
+                ?.fontBlob;
+            if (!fontBlob) {
+                return null;
+            }
+
+            let hash = 0;
+            const step = Math.max(1, Math.floor(fontBlob.length / 512));
+            for (let index = 0; index < fontBlob.length; index += step) {
+                hash = (hash * 33 + fontBlob[index]) >>> 0;
+            }
+            return hash;
+        });
+
+        await page.evaluate(async () => {
+            await (window as any).showFontFileDialog?.({ mode: 'open' });
+        });
+        await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
+
+        await secondFontItem.scrollIntoViewIfNeeded();
+        await secondFontItem.click({ button: 'right', force: true });
+
+        await expect(
+            page.locator(
+                '.tippy-box:visible .plugin-menu-item[data-action="open"]'
+            )
+        ).toBeVisible();
         await expect(
             page.locator(
                 '.tippy-box:visible .plugin-menu-item[data-action="open-new-tab"]'
@@ -274,14 +316,21 @@ test.describe('Font Editor Basic Workflow', () => {
         ).toBeVisible();
         await expect(
             page.locator(
-                '.tippy-box:visible .plugin-menu-item[data-action="open"]'
+                '.tippy-box:visible .plugin-menu-item[data-action="open-new-tab"] span:last-child'
             )
-        ).toHaveCount(0);
+        ).toHaveText('Open in New Window');
 
         await page.mouse.click(10, 10);
         await page.waitForTimeout(100);
 
-        await secondFontItem.dblclick();
+        await page.evaluate(async () => {
+            await (window as any).openFont?.(
+                '/user/YanoneKaffeesatz.designspace',
+                undefined,
+                { closeDialogOnSuccess: true }
+            );
+        });
+        await waitForOpenSessionReady(page, 'YanoneKaffeesatz.designspace');
         await page.waitForTimeout(1500);
 
         await expect(page.locator('#loading-cursor-spinner')).toBeHidden();
@@ -291,7 +340,67 @@ test.describe('Font Editor Basic Workflow', () => {
             return win.fontManager?.currentFont?.path || null;
         });
 
-        expect(currentFontPathAfter).toBe(currentFontPathBefore);
+        const urlFileAfter = await page.evaluate(() => {
+            return new URL(window.location.href).searchParams.get('file');
+        });
+
+        const refreshedUiState = await page.evaluate(() => ({
+            layerCount: document.querySelectorAll(
+                '.editor-layers-list .editor-layer-item'
+            ).length,
+            featureSectionChildren:
+                document.getElementById('glyph-features-section')
+                    ?.childElementCount ?? 0,
+            sourceFeatureCount:
+                (window as any).currentFontModel?.features?.features?.length ||
+                0,
+            fontName:
+                document
+                    .querySelector('#current-font-display .font-name')
+                    ?.textContent?.trim() || '',
+            outlineEditorActive: !!(window as any).glyphCanvas?.outlineEditor
+                ?.active,
+            selectedGlyphIndex:
+                (window as any).glyphCanvas?.textRunEditor
+                    ?.selectedGlyphIndex ?? -1,
+            editorMode:
+                (window as any).stateManager?.getStateSnapshot?.()?.state
+                    ?.editor_mode || '',
+            glyphStack:
+                (window as any).glyphCanvas?.outlineEditor?.glyphStack || '',
+            canvasFontHash: (() => {
+                const fontBlob = (window as any).glyphCanvas?.textRunEditor
+                    ?.fontBlob;
+                if (!fontBlob) {
+                    return null;
+                }
+
+                let hash = 0;
+                const step = Math.max(1, Math.floor(fontBlob.length / 512));
+                for (let index = 0; index < fontBlob.length; index += step) {
+                    hash = (hash * 33 + fontBlob[index]) >>> 0;
+                }
+                return hash;
+            })()
+        }));
+
+        expect(currentFontPathAfter).not.toBe(currentFontPathBefore);
+        expect(currentFontPathAfter).toContain('YanoneKaffeesatz.designspace');
+        expect(urlFileAfter).not.toBe(urlFileBefore);
+        expect(urlFileAfter).toBe(
+            'memory:///user/YanoneKaffeesatz.designspace'
+        );
+        expect(refreshedUiState.layerCount).toBeGreaterThan(0);
+        if (refreshedUiState.sourceFeatureCount > 0) {
+            expect(refreshedUiState.featureSectionChildren).toBeGreaterThan(0);
+        }
+        expect(refreshedUiState.outlineEditorActive).toBe(false);
+        expect(refreshedUiState.selectedGlyphIndex).toBe(-1);
+        expect(refreshedUiState.editorMode).toBe('text');
+        expect(refreshedUiState.glyphStack).toBe('');
+        expect(refreshedUiState.canvasFontHash).not.toBeNull();
+        expect(refreshedUiState.canvasFontHash).not.toBe(canvasFontHashBefore);
+        expect(refreshedUiState.fontName).toContain('Yanone');
     });
 
     test('open YanoneKaffeesatz.glyphspackage and snapshot full window', async ({
@@ -360,9 +469,11 @@ test.describe('Font Editor Basic Workflow', () => {
             0.02
         );
 
-        // Activate files view with Cmd+Shift+F
-        console.log('[Test] Activating files view');
-        await focusView(page, 'Meta+Shift+F', 'view-files');
+        console.log('[Test] Opening font file dialog');
+        await page.evaluate(async () => {
+            await (window as any).showFontFileDialog?.({ mode: 'open' });
+        });
+        await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
 
         // Load font by right-clicking on a file and selecting "Open" from context menu
         console.log('[Test] Double-clicking on first .glyphs file');
@@ -891,7 +1002,7 @@ test.describe('Font Editor Basic Workflow', () => {
 
         // Collapse bottom row views so screenshot framing stays consistent.
         const bottomViewsToCollapse = [
-            { label: 'files', viewId: 'view-files' },
+            { label: 'history', viewId: 'view-history' },
             { label: 'assistant', viewId: 'view-assistant' },
             { label: 'scripts', viewId: 'view-scripts' },
             { label: 'console', viewId: 'view-console' }

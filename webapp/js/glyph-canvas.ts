@@ -2105,6 +2105,58 @@ class GlyphCanvas {
         this.dispatchModeActivationEvent('text', 'exitGlyphEditMode');
     }
 
+    resetForOpenedFontReplacement(): void {
+        this.initialFontLoaded = false;
+        this.glyphSelectionSequence++;
+        this.textChangeLastSubsetKey = '';
+        latestAppliedEditingRevision = -1;
+        editingFontApplyQueue = Promise.resolve();
+        this.textModeAutoPanAnchorScreen = null;
+        this.pendingFeatureChangeAnchor.editing = null;
+        this.pendingFeatureChangeAnchor.text = null;
+        this.renderSuppressed = false;
+        this.hasDeferredRenderRequest = false;
+        this.editModeGlyphResyncInProgress = false;
+        this.isUpdatingPropertiesUI = false;
+
+        this.outlineEditor.active = false;
+        this.outlineEditor.selectedLayerId = null;
+        this.outlineEditor.glyphStack = '';
+        this.outlineEditor.clearState();
+
+        if (this.textRunEditor) {
+            this.textRunEditor.selectedGlyphIndex = -1;
+            this.textRunEditor.selectedMasterId = null;
+            this.textRunEditor.selectionStart = null;
+            this.textRunEditor.selectionEnd = null;
+            this.textRunEditor.skipRenderingDuringFeatureChange = false;
+        }
+
+        if (this.propertiesSection) {
+            this.propertiesSection.replaceChildren();
+        }
+        if (this.axesSection) {
+            this.axesSection.replaceChildren();
+        }
+        if (this.featuresManager?.featuresSection) {
+            this.featuresManager.featuresSection.replaceChildren();
+            this.featuresManager.featureAvailabilityInEditingSubset = {};
+            this.featuresManager.editingFontBytes = null;
+        }
+
+        window.dispatchEvent(
+            new CustomEvent('editorModeChanged', {
+                detail: { mode: 'text' }
+            })
+        );
+
+        this.dispatchModeActivationEvent(
+            'text',
+            'resetForOpenedFontReplacement'
+        );
+        this.render();
+    }
+
     async displayMastersList(
         targetContainer: HTMLElement = this.propertiesSection!,
         autoSelectLayer: boolean = true
@@ -6922,6 +6974,18 @@ function setupFontLoadingListener() {
         timelineMark('canvas.editingFontCompiled.received');
         editingFontApplyQueue = editingFontApplyQueue
             .then(async () => {
+                const currentFontPath = window.fontManager?.currentFont?.path;
+                if (
+                    typeof detail?.fontPath === 'string' &&
+                    typeof currentFontPath === 'string' &&
+                    detail.fontPath !== currentFontPath
+                ) {
+                    timelineMark(
+                        'canvas.editingFontCompiled.skippedMismatchedFontPath'
+                    );
+                    return;
+                }
+
                 const incomingRevision = Number(detail?.fontRevisionKey);
                 const latestRequestedRevision = Number(
                     window.fontManager?.currentFont?.compileRequestVersion

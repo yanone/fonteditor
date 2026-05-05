@@ -9,7 +9,7 @@
 import { Logger } from './logger';
 import { runBridgeUndoRedo } from './change-bridge-init';
 import { getUndoRedoContext } from './undo-redo-context';
-import { encodeLocation } from './url-state';
+import { encodeFeatures, encodeLocation } from './url-state';
 import { windowRole } from './window-role';
 
 const console = new Logger('WindowButtons');
@@ -134,34 +134,91 @@ function registerEditorChildWindow(win: Window): void {
     window.setTimeout(pushTheme, 200);
 }
 
-export function prepareLinkedWindowOpen(): LinkedWindowLaunchInfo {
+function buildLinkedWindowReloadUrl(childWindow: Window): string {
     const url = new URL(window.location.href);
-    const fontPath = window.fontManager?.currentFont?.path ?? 'unsaved';
+    const childUrl = new URL(childWindow.location.href);
+    const linkedOrdinal = childUrl.searchParams.get('linked');
+    const sessionId = childUrl.searchParams.get('windowSession');
+
+    applyCurrentEditorStateToUrl(url);
+
+    if (linkedOrdinal) {
+        url.searchParams.set('linked', linkedOrdinal);
+    }
+    if (sessionId) {
+        url.searchParams.set('windowSession', sessionId);
+    }
+
+    url.searchParams.set('sync', 'true');
+    url.searchParams.set('theme', getCurrentThemePreference());
+    return url.toString();
+}
+
+function applyCurrentEditorStateToUrl(url: URL): void {
+    const currentFont = window.fontManager?.currentFont;
+    const currentFontPluginId = currentFont?.sourcePlugin?.getId?.();
+    const currentFontPath = currentFont?.path ?? null;
     const editorFile = window.stateManager?.editor_file;
     const textBuffer = window.stateManager?.editor_text_buffer;
     const cursorPosition = window.stateManager?.editor_cursor_position;
     const editorMode = window.stateManager?.editor_mode;
     const variationLocation = window.stateManager?.editor_variation_location;
+    const activeFeatures = Object.entries(
+        window.stateManager?.editor_opentype_features_in_subset || {}
+    )
+        .filter(([, enabled]) => enabled)
+        .map(([tag]) => tag);
 
     if (typeof editorFile === 'string' && editorFile.length > 0) {
         url.searchParams.set('file', editorFile);
+    } else if (currentFontPluginId && currentFontPath) {
+        url.searchParams.set(
+            'file',
+            `${currentFontPluginId}:///${currentFontPath.startsWith('/') ? currentFontPath.slice(1) : currentFontPath}`
+        );
+    } else {
+        url.searchParams.delete('file');
     }
+
     if (typeof textBuffer === 'string') {
         url.searchParams.set('text', textBuffer);
+    } else {
+        url.searchParams.delete('text');
     }
+
     if (typeof cursorPosition === 'number' && Number.isFinite(cursorPosition)) {
         url.searchParams.set('cursor', String(cursorPosition));
+    } else {
+        url.searchParams.delete('cursor');
     }
+
     if (editorMode === 'text' || editorMode === 'edit') {
         url.searchParams.set('mode', editorMode);
+    } else {
+        url.searchParams.delete('mode');
     }
+
     if (
         variationLocation &&
         typeof variationLocation === 'object' &&
         Object.keys(variationLocation).length > 0
     ) {
         url.searchParams.set('location', encodeLocation(variationLocation));
+    } else {
+        url.searchParams.delete('location');
     }
+
+    if (activeFeatures.length > 0) {
+        url.searchParams.set('features', encodeFeatures(activeFeatures));
+    } else {
+        url.searchParams.delete('features');
+    }
+}
+
+export function prepareLinkedWindowOpen(): LinkedWindowLaunchInfo {
+    const url = new URL(window.location.href);
+    const fontPath = window.fontManager?.currentFont?.path ?? 'unsaved';
+    applyCurrentEditorStateToUrl(url);
 
     windowRole.configureLinkedWindowUrl(url, fontPath);
     url.searchParams.set('theme', getCurrentThemePreference());
@@ -192,6 +249,23 @@ export function openLinkedEditorWindow(
         registerEditorChildWindow(childWindow);
     }
     return childWindow;
+}
+
+export function reloadLinkedEditorWindows(): void {
+    for (const childWindow of Array.from(editorChildWindows)) {
+        if (childWindow.closed) {
+            editorChildWindows.delete(childWindow);
+            continue;
+        }
+
+        try {
+            childWindow.location.replace(
+                buildLinkedWindowReloadUrl(childWindow)
+            );
+        } catch (error) {
+            console.warn('Failed to reload linked editor window', error);
+        }
+    }
 }
 
 function applyRemoteThemePreference(preference: ThemePreference): void {
@@ -239,74 +313,47 @@ themeObserver.observe(document.documentElement, {
     attributeFilter: ['data-theme']
 });
 
+async function triggerUndoRedo(direction: 'undo' | 'redo'): Promise<void> {
+    const bridge = window.changeBridge;
+    if (!bridge) {
+        return;
+    }
+
+    const oe = window.glyphCanvas?.outlineEditor;
+    const { rootGlyphName, undoGlyphName, undoLayerId, historyTargetKey } =
+        getUndoRedoContext();
+    if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
+        if (undoGlyphName || undoLayerId) {
+            console.warn(
+                `Skipping ${direction}: active outline editor has incomplete glyph stack`
+            );
+            return;
+        }
+    }
+
+    await runBridgeUndoRedo(
+        direction,
+        undoGlyphName,
+        rootGlyphName,
+        undoLayerId,
+        historyTargetKey
+    );
+}
+
+export async function triggerUndo(): Promise<void> {
+    await triggerUndoRedo('undo');
+}
+
+export async function triggerRedo(): Promise<void> {
+    await triggerUndoRedo('redo');
+}
+
 function initWindowButtons(): void {
-    const undoBtn = document.getElementById('undo-btn');
-    const redoBtn = document.getElementById('redo-btn');
-    const newWindowBtn = document.getElementById('open-new-window-btn');
-
-    if (undoBtn) {
-        undoBtn.addEventListener('click', async () => {
-            const bridge = window.changeBridge;
-            if (!bridge) return;
-            const oe = window.glyphCanvas?.outlineEditor;
-            const {
-                rootGlyphName,
-                undoGlyphName,
-                undoLayerId,
-                historyTargetKey
-            } = getUndoRedoContext();
-            if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
-                if (undoGlyphName || undoLayerId) {
-                    console.warn(
-                        'Skipping undo: active outline editor has incomplete glyph stack'
-                    );
-                    return;
-                }
-            }
-            await runBridgeUndoRedo(
-                'undo',
-                undoGlyphName,
-                rootGlyphName,
-                undoLayerId,
-                historyTargetKey
-            );
-        });
-    }
-
-    if (redoBtn) {
-        redoBtn.addEventListener('click', async () => {
-            const bridge = window.changeBridge;
-            if (!bridge) return;
-            const oe = window.glyphCanvas?.outlineEditor;
-            const {
-                rootGlyphName,
-                undoGlyphName,
-                undoLayerId,
-                historyTargetKey
-            } = getUndoRedoContext();
-            if (oe?.active && (!rootGlyphName || !undoGlyphName)) {
-                if (undoGlyphName || undoLayerId) {
-                    console.warn(
-                        'Skipping redo: active outline editor has incomplete glyph stack'
-                    );
-                    return;
-                }
-            }
-            await runBridgeUndoRedo(
-                'redo',
-                undoGlyphName,
-                rootGlyphName,
-                undoLayerId,
-                historyTargetKey
-            );
-        });
-    }
-
-    if (newWindowBtn) {
-        newWindowBtn.addEventListener('click', () => {
-            openLinkedEditorWindow();
-        });
-    }
+    (window as any).toolbarWindowActions = {
+        undo: triggerUndo,
+        redo: triggerRedo,
+        openLinkedEditorWindow
+    };
 }
 
 // Initialize after DOM ready

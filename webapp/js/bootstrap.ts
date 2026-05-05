@@ -445,6 +445,7 @@ import './save-button';
 import './script-editor';
 import './share-button';
 import './theme-switcher';
+import './toolbar-menus';
 import './automation-runtime';
 import './window-buttons';
 import { initViewTitleButtons } from './view-title-buttons';

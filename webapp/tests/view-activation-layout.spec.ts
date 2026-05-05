@@ -383,27 +383,27 @@ test('activation width uses previous row focus order and persists it', async ({
 
     await activateView(page, 'K', 'view-console');
     const bottomBeforeFiles = await getViewWidths(page, [
-        'view-files',
+        'view-history',
         'view-assistant',
         'view-scripts',
         'view-console'
     ]);
 
-    await activateView(page, 'F', 'view-files');
+    await activateView(page, 'H', 'view-history');
     const bottomAfterFiles = await getViewWidths(page, [
-        'view-files',
+        'view-history',
         'view-assistant',
         'view-scripts',
         'view-console'
     ]);
 
-    if (bottomBeforeFiles['view-files'] < minimumWidths.bottomRow) {
-        expect(bottomAfterFiles['view-files']).toBeGreaterThan(
-            bottomBeforeFiles['view-files']
+    if (bottomBeforeFiles['view-history'] < minimumWidths.bottomRow) {
+        expect(bottomAfterFiles['view-history']).toBeGreaterThan(
+            bottomBeforeFiles['view-history']
         );
     } else {
-        expect(bottomAfterFiles['view-files']).toBe(
-            bottomBeforeFiles['view-files']
+        expect(bottomAfterFiles['view-history']).toBe(
+            bottomBeforeFiles['view-history']
         );
     }
     expect(
@@ -417,7 +417,7 @@ test('activation width uses previous row focus order and persists it', async ({
             bottomAfterFiles['view-scripts'] - bottomBeforeFiles['view-scripts']
         )
     ).toBeLessThanOrEqual(4);
-    if (bottomBeforeFiles['view-files'] < minimumWidths.bottomRow) {
+    if (bottomBeforeFiles['view-history'] < minimumWidths.bottomRow) {
         expect(bottomAfterFiles['view-console']).toBeLessThan(
             bottomBeforeFiles['view-console']
         );
@@ -438,7 +438,7 @@ test('activation width uses previous row focus order and persists it', async ({
     });
 
     expect(persistedState.visitOrder.top.at(-1)).toBe('view-overview');
-    expect(persistedState.visitOrder.bottom.at(-1)).toBe('view-files');
+    expect(persistedState.visitOrder.bottom.at(-1)).toBe('view-history');
     expect(persistedState.savedVisitOrder).toEqual(persistedState.visitOrder);
 
     await page.reload();

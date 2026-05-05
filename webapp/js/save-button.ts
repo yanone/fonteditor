@@ -6,33 +6,20 @@
 declare const $: any;
 
 class SaveButton {
-    button: any;
     isSaving: boolean;
     saveEnabled: boolean;
 
     constructor() {
-        this.button = $('#save-font-btn');
         this.isSaving = false;
-        this.saveEnabled =
-            typeof window.isDevelopment === 'function'
-                ? window.isDevelopment()
-                : true;
-
-        if (!this.saveEnabled) {
-            this.button.hide().prop('disabled', true);
-            return;
-        }
-
-        // Bind event handlers
-        this.button.on('click', () => this.handleSave());
+        this.saveEnabled = true;
 
         // Global keyboard shortcut
         $(document).on('keydown', (e: KeyboardEvent) => {
             // Cmd+S (Mac) or Ctrl+S (Windows/Linux)
-            // BUT NOT Cmd+Shift+S (that's for focusing script editor)
+            // Cmd+Shift+S is reserved for font Save As
             if ((e.metaKey || e.ctrlKey) && e.key === 's' && !e.shiftKey) {
                 e.preventDefault();
-                this.handleSave();
+                void this.handleSave();
             }
         });
 
@@ -98,7 +85,7 @@ class SaveButton {
             return;
         }
 
-        if (this.isSaving || this.button.prop('disabled')) {
+        if (!this.canSave()) {
             return;
         }
 
@@ -106,7 +93,6 @@ class SaveButton {
         console.log('[SaveButton]', '🔵 Save button clicked');
 
         this.isSaving = true;
-        this.button.prop('disabled', true).text('Saving...');
 
         try {
             // Get current font
@@ -170,28 +156,35 @@ class SaveButton {
      * Update button state based on current font
      */
     updateButtonState() {
-        if (!this.saveEnabled) {
-            this.button.hide().prop('disabled', true);
-            return;
-        }
+        window.dispatchEvent(new CustomEvent('fontSaveStateChanged'));
+    }
 
-        const hasFontOpen =
-            window.fontManager && window.fontManager.currentFont;
+    hasFontOpen(): boolean {
+        return !!window.fontManager?.currentFont;
+    }
 
-        if (this.isSaving) {
-            this.button.prop('disabled', true).text('Saving...');
-        } else if (!hasFontOpen) {
-            this.button.prop('disabled', true).text('Save');
-        } else {
-            this.button.prop('disabled', false).text('Save');
-        }
+    isDirty(): boolean {
+        return !!window.fontManager?.currentFont?.hasUnsavedChanges;
+    }
+
+    canSave(): boolean {
+        return (
+            this.saveEnabled &&
+            !this.isSaving &&
+            this.hasFontOpen() &&
+            this.isDirty()
+        );
+    }
+
+    canSaveAs(): boolean {
+        return this.saveEnabled && !this.isSaving && this.hasFontOpen();
     }
 
     /**
      * Show success feedback
      */
     showSuccess() {
-        this.button.text('Saved!');
+        this.updateButtonState();
         setTimeout(() => {
             if (!this.isSaving) {
                 this.updateButtonState();
@@ -203,7 +196,7 @@ class SaveButton {
      * Show error feedback
      */
     showError() {
-        this.button.text('Save Failed');
+        this.updateButtonState();
         setTimeout(() => {
             if (!this.isSaving) {
                 this.updateButtonState();

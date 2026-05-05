@@ -348,7 +348,10 @@ export async function collapseView(page: any, viewId: string) {
 }
 
 export async function openFileFromFilesView(page: any, fileName: string) {
-    await focusView(page, 'Meta+Shift+F', 'view-files');
+    await page.evaluate(async () => {
+        await (window as any).showFontFileDialog?.({ mode: 'open' });
+    });
+    await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
     await waitForFileBrowserReady(page);
 
     const fileItem = page
@@ -412,7 +415,10 @@ export async function openFileFromFilesView(page: any, fileName: string) {
             fileItem.dblclick({ delay: 50 })
         ]);
     } catch {
-        await focusView(page, 'Meta+Shift+F', 'view-files');
+        await page.evaluate(async () => {
+            await (window as any).showFontFileDialog?.({ mode: 'open' });
+        });
+        await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
         await waitForFileBrowserReady(page);
         await waitForTargetFile();
         await fileItem.scrollIntoViewIfNeeded();

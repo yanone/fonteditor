@@ -1137,7 +1137,14 @@ test.describe('Cross-window ChangeBridge sync', () => {
         // ── 2. Open linked window ────────────────────────────────
         const [linkedPage] = await Promise.all([
             context.waitForEvent('page'),
-            mainPage.locator('#open-new-window-btn').click()
+            (async () => {
+                await mainPage.locator('#toolbar-window-menu-btn').click();
+                await mainPage
+                    .locator('.tippy-box:visible .plugin-menu-item', {
+                        hasText: 'Open In New Window'
+                    })
+                    .click();
+            })()
         ]);
 
         await waitForCanvasReady(linkedPage);
@@ -2135,7 +2142,14 @@ test.describe('Cross-window ChangeBridge sync', () => {
         // A fresh linked window must also bootstrap the latest glyph-a state.
         const [reopenedLinkedPage] = await Promise.all([
             context.waitForEvent('page'),
-            mainPage.locator('#open-new-window-btn').click()
+            (async () => {
+                await mainPage.locator('#toolbar-window-menu-btn').click();
+                await mainPage
+                    .locator('.tippy-box:visible .plugin-menu-item', {
+                        hasText: 'Open In New Window'
+                    })
+                    .click();
+            })()
         ]);
 
         await waitForCanvasReady(reopenedLinkedPage);

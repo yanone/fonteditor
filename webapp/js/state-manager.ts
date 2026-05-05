@@ -386,6 +386,24 @@ export class StateManager {
     }
 
     /**
+     * Flush URL synchronization immediately using current StateManager state.
+     * Useful when downstream consumers need the URL to be up to date in the
+     * same task, for example before reloading linked windows.
+     */
+    syncUrlNow(): void {
+        if (!this._urlSyncEnabled) {
+            return;
+        }
+
+        if (this._urlSyncDebounceTimer !== null) {
+            clearTimeout(this._urlSyncDebounceTimer);
+            this._urlSyncDebounceTimer = null;
+        }
+
+        this._performUrlSync();
+    }
+
+    /**
      * Get a snapshot of current state and history
      */
     getStateSnapshot(): {

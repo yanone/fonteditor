@@ -7,8 +7,10 @@ import {
 } from './helpers/snapshot-helper';
 
 async function openFustatFont(page: Page): Promise<void> {
-    await focusView(page, 'Meta+Shift+F', 'view-files');
-    await page.waitForTimeout(200);
+    await page.evaluate(async () => {
+        await (window as any).showFontFileDialog?.({ mode: 'open' });
+    });
+    await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
     await page.getByText('Fustat.glyphs').first().dblclick();
 
     await waitForFontLoaded(page);

@@ -278,26 +278,10 @@ const console = new Logger('ScriptEditor');
         });
 
         editor.commands.addCommand({
-            name: 'openFile',
-            bindKey: { win: 'Ctrl-O', mac: 'Command-O' },
-            exec: function () {
-                handleOpen();
-            }
-        });
-
-        editor.commands.addCommand({
             name: 'saveFile',
             bindKey: { win: 'Ctrl-S', mac: 'Command-S' },
             exec: function () {
                 handleSave();
-            }
-        });
-
-        editor.commands.addCommand({
-            name: 'saveFileAs',
-            bindKey: { win: 'Ctrl-Shift-S', mac: 'Command-Shift-S' },
-            exec: function () {
-                handleSaveAs();
             }
         });
 
@@ -362,14 +346,6 @@ const console = new Logger('ScriptEditor');
                 event.preventDefault();
                 event.stopPropagation();
                 runScript();
-                return;
-            }
-
-            // Cmd+O - Open file
-            if (cmdKey && !shiftKey && !altKey && code === 'KeyO') {
-                event.preventDefault();
-                event.stopPropagation();
-                handleOpen();
                 return;
             }
 
@@ -629,15 +605,13 @@ const console = new Logger('ScriptEditor');
                 <div class="script-file-menu-item" data-action="open">
                     <span class="material-symbols-outlined">folder_open</span>
                     <span>Open...</span>
-                    <span class="script-file-menu-shortcut">${cmdKey}O</span>
                 </div>
             `;
         } else {
             html += `
-                <div class="script-file-menu-item disabled" title="Open files from the Files view">
+                <div class="script-file-menu-item disabled" title="Open files requires plugin support">
                     <span class="material-symbols-outlined">folder_open</span>
                     <span>Open...</span>
-                    <span class="script-file-menu-shortcut">${cmdKey}O</span>
                 </div>
             `;
         }
@@ -998,34 +972,7 @@ const console = new Logger('ScriptEditor');
             return;
         }
 
-        // Switch to files view
-        const filesView = document.getElementById('view-files');
-        if (filesView) {
-            filesView.click();
-        }
-
-        // Get directory path
-        const dirPath = currentFilePath.substring(
-            0,
-            currentFilePath.lastIndexOf('/')
-        );
-
-        // Switch to disk plugin if needed
-        const currentPlugin = (window as any).fileBrowser?.getCurrentPlugin?.();
-        if (currentPlugin?.getId() !== 'disk') {
-            await (window as any).switchContext?.('disk');
-        }
-
-        // Navigate to the directory and highlight the file
-        if ((window as any).navigateToPath) {
-            await (window as any).navigateToPath(dirPath);
-            // Select the file
-            setTimeout(() => {
-                if ((window as any).selectFile) {
-                    (window as any).selectFile(currentFilePath);
-                }
-            }, 100);
-        }
+        await (window as any).locatePathInFileDialog?.('disk', currentFilePath);
     }
 
     /**

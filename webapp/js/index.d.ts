@@ -116,6 +116,21 @@ declare global {
         // From ai-assistant.js
         aiAssistant: AIAssistant;
 
+        // From file-browser.ts
+        showFontFileDialog:
+            | ((options?: {
+                  mode?: 'open' | 'save-as';
+                  pluginId?: string;
+                  path?: string;
+                  highlightPath?: string;
+                  suggestedName?: string;
+              }) => Promise<void>)
+            | undefined;
+        closeFontFileDialog: (() => void) | undefined;
+        locatePathInFileDialog:
+            | ((pluginId: string, fullPath: string) => Promise<void>)
+            | undefined;
+
         // From auth-manager.ts
         authManager: {
             websiteURL: string;
@@ -194,6 +209,9 @@ declare global {
         // From cache-manager.js
         cacheManager: CacheManager;
         cacheStats: () => Record<string, unknown>;
+
+        // From save-button.ts
+        saveButton: SaveButton;
 
         // From python-utils.js
         cleanPythonTraceback: (
@@ -281,8 +299,6 @@ declare global {
             highlightFolder?: string
         ) => Promise<void>;
         navigateToParent: () => Promise<void>;
-        navigateToCurrentFont: () => Promise<void>;
-        updateHomeButtonVisibility: () => void;
         selectFile: (filePath: string) => void;
         initFileBrowser: () => Promise<void>;
         waitForFileBrowserReady: (timeoutMs?: number) => Promise<void>;
@@ -402,6 +418,7 @@ declare global {
             editor_opentype_features_not_in_subset: Record<string, boolean>;
             editor_variation_location: import('./locations').UserspaceLocation;
             editor_active_canvas_plugins: string[];
+            syncUrlNow: () => void;
             [key: string]: any;
         };
 

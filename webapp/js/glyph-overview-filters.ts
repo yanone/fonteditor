@@ -1373,35 +1373,10 @@ export class GlyphOverviewFilterManager {
     }
 
     /**
-     * Locate a user filter file in the Files view
+     * Locate a user filter file in the font file dialog
      */
     private async locateFilterInFiles(filePath: string): Promise<void> {
-        // Switch to files view
-        const filesView = document.getElementById('view-files');
-        if (filesView) {
-            filesView.click();
-        }
-
-        // Get directory path
-        const dirPath = filePath.substring(0, filePath.lastIndexOf('/'));
-        const fileName = filePath.substring(filePath.lastIndexOf('/') + 1);
-
-        // Switch to disk plugin if needed
-        const currentPlugin = (window as any).fileBrowser?.getCurrentPlugin?.();
-        if (currentPlugin?.getId() !== 'disk') {
-            await (window as any).switchContext?.('disk');
-        }
-
-        // Navigate to the directory and highlight the file
-        if ((window as any).navigateToPath) {
-            await (window as any).navigateToPath(dirPath);
-            // Select the file
-            setTimeout(() => {
-                if ((window as any).selectFile) {
-                    (window as any).selectFile(filePath);
-                }
-            }, 100);
-        }
+        await (window as any).locatePathInFileDialog?.('disk', filePath);
     }
 
     /**
