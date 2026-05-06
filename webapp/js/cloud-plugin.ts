@@ -17,8 +17,9 @@ import {
     CloudConnectionStatus,
     normalizeCloudRoomWebSocketUrl
 } from './cloud-adapter';
+import { Path } from './babelfont-model';
 import { ChangeBridge } from './change-bridge';
-import { yDocToJson } from './change-bridge-ydoc';
+import { sanitizeBabelfontArrays, yDocToJson } from './change-bridge-ydoc';
 import { Logger } from './logger';
 
 const console = new Logger('CloudPlugin');
@@ -32,6 +33,43 @@ function getCloudRequestHeaders(
         headers.Authorization = `Bearer ${sessionToken}`;
     }
     return headers;
+}
+
+function normalizeCloudExportForFontOpen(fontJson: Record<string, unknown>) {
+    let fixCount = sanitizeBabelfontArrays(fontJson);
+
+    const glyphs = Array.isArray(fontJson.glyphs) ? fontJson.glyphs : [];
+    for (const glyph of glyphs) {
+        const layers = Array.isArray((glyph as { layers?: unknown[] }).layers)
+            ? (glyph as { layers: unknown[] }).layers
+            : [];
+        for (const layer of layers) {
+            const shapes = Array.isArray(
+                (layer as { shapes?: unknown[] }).shapes
+            )
+                ? (layer as { shapes: unknown[] }).shapes
+                : [];
+            for (const shape of shapes) {
+                if (!shape || typeof shape !== 'object') {
+                    continue;
+                }
+
+                const pathShape = shape as {
+                    nodes?: unknown;
+                    closed?: boolean;
+                };
+                if (Array.isArray(pathShape.nodes)) {
+                    pathShape.nodes = Path.nodesToString(pathShape.nodes);
+                    if (pathShape.closed === undefined) {
+                        pathShape.closed = false;
+                    }
+                    fixCount++;
+                }
+            }
+        }
+    }
+
+    return fixCount;
 }
 
 export interface CloudAsset {
@@ -410,6 +448,14 @@ export class CloudPlugin extends FilesystemPlugin {
             this._disconnectCurrent();
             throw new Error(`Cloud asset ${assetId} has no font data`);
         }
+
+        const sanitizeFixCount = normalizeCloudExportForFontOpen(fontJson);
+        if (sanitizeFixCount > 0) {
+            console.warn(
+                `[${assetId}] sanitized ${sanitizeFixCount} cloud-exported babelfont fields before font open`
+            );
+        }
+
         const babelfontJson = JSON.stringify(fontJson);
         const bridgeState = tempBridge.getFullState();
 
