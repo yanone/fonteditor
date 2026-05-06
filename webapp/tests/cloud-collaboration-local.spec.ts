@@ -118,6 +118,20 @@ async function loadCloudTestFont(page: Page): Promise<void> {
     }, fontJson);
 }
 
+async function bootstrapCloudSession(
+    page: Page,
+    email = 'local-dev@counterpunch.test'
+): Promise<void> {
+    await page.evaluate(async (nextEmail) => {
+        await (window as any).cloudDebug.bootstrapLocalSession(nextEmail);
+    }, email);
+
+    await page.waitForFunction(
+        () => !!(window as any).authManager?.isAuthenticated?.(),
+        { timeout: 15000 }
+    );
+}
+
 async function waitForCloudConnected(page: Page): Promise<void> {
     await page.waitForFunction(
         () => (window as any).cloudDebug?.getStatus?.() === 'connected',
@@ -331,5 +345,64 @@ test.describe('Local cloud collaboration', () => {
         expect(afterLinked).toEqual(mutation.after);
 
         await context.close();
+    });
+
+    test('propagates a live glyph edit between two separate browser contexts', async ({
+        browser
+    }) => {
+        const email = `playwright-${Date.now()}@counterpunch.test`;
+        const sourceContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const targetContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const sourcePage = await sourceContext.newPage();
+        const targetPage = await targetContext.newPage();
+
+        await sourcePage.goto('/?test=true');
+        await waitForCanvasReady(sourcePage);
+        await bootstrapCloudSession(sourcePage, email);
+
+        await loadCloudTestFont(sourcePage);
+        await waitForFontLoaded(sourcePage);
+
+        const assetId = await sourcePage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Cross Context ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(sourcePage);
+
+        await targetPage.goto('/?test=true');
+        await waitForCanvasReady(targetPage);
+        await bootstrapCloudSession(targetPage, email);
+        await targetPage.evaluate(async (nextAssetId) => {
+            await (window as any).cloudPlugin.openAsset(nextAssetId);
+        }, assetId);
+
+        await waitForFontLoaded(targetPage);
+        await waitForCloudConnected(targetPage);
+
+        const beforeSource = await getPrimaryNodePosition(sourcePage);
+        const beforeTarget = await getPrimaryNodePosition(targetPage);
+        expect(beforeTarget).toEqual(beforeSource);
+
+        const mutation = await movePrimaryNode(sourcePage, 23, 11);
+        expect(mutation.after.x).toBe(mutation.before.x + 23);
+        expect(mutation.after.y).toBe(mutation.before.y + 11);
+
+        await waitForPrimaryNodePosition(targetPage, mutation.after);
+
+        const afterSource = await getPrimaryNodePosition(sourcePage);
+        const afterTarget = await getPrimaryNodePosition(targetPage);
+
+        expect(afterSource).toEqual(mutation.after);
+        expect(afterTarget).toEqual(mutation.after);
+
+        await sourceContext.close();
+        await targetContext.close();
     });
 });
