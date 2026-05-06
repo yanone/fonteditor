@@ -266,8 +266,7 @@ class AuthManager {
                 );
             }
 
-            const data =
-                (await response.json()) as LocalCloudBootstrapResponse;
+            const data = (await response.json()) as LocalCloudBootstrapResponse;
 
             const isLocalHost =
                 window.location.hostname === 'localhost' ||
