@@ -245,7 +245,7 @@ state.
 Important local auth rule:
 
 - cloud API calls from the editor must send `Authorization: Bearer
-  <editor_session>` explicitly; do not rely on cross-port localhost cookie
+<editor_session>` explicitly; do not rely on cross-port localhost cookie
   propagation alone.
 
 The local browser workflow that must stay green is:
