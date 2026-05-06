@@ -72,6 +72,58 @@ function normalizeCloudExportForFontOpen(fontJson: Record<string, unknown>) {
     return fixCount;
 }
 
+function getCloudFontJsonFromBridge(
+    bridge: Pick<ChangeBridge, 'fontMap'>
+): Record<string, unknown> | null {
+    const fontJson = yDocToJson(bridge.fontMap);
+    if (!fontJson || Object.keys(fontJson).length === 0) {
+        return null;
+    }
+
+    return fontJson;
+}
+
+/**
+ * Wait for the initial synced document to contain font data.
+ * Some cloud rooms connect before their persisted snapshot has been applied.
+ */
+async function waitForCloudFontJson(
+    bridge: Pick<ChangeBridge, 'fontMap' | 'yDoc'>,
+    timeoutMs = 8000
+): Promise<Record<string, unknown> | null> {
+    const immediateFontJson = getCloudFontJsonFromBridge(bridge);
+    if (immediateFontJson) {
+        return immediateFontJson;
+    }
+
+    return await new Promise((resolve) => {
+        let settled = false;
+
+        const finish = (fontJson: Record<string, unknown> | null) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            window.clearTimeout(timeoutId);
+            bridge.yDoc.off('update', onUpdate);
+            resolve(fontJson);
+        };
+
+        const onUpdate = () => {
+            const nextFontJson = getCloudFontJsonFromBridge(bridge);
+            if (nextFontJson) {
+                finish(nextFontJson);
+            }
+        };
+
+        const timeoutId = window.setTimeout(() => {
+            finish(getCloudFontJsonFromBridge(bridge));
+        }, timeoutMs);
+
+        bridge.yDoc.on('update', onUpdate);
+    });
+}
+
 export interface CloudAsset {
     id: string;
     name: string;
@@ -92,6 +144,10 @@ export class CloudPlugin extends FilesystemPlugin {
     private _cloudAdapter: CloudAdapter | null = null;
     private _activeAssetId: string | null = null;
     private _eligibility: CloudEligibility | null = null;
+    private _pendingOpenAsset: {
+        assetId: string;
+        promise: Promise<void>;
+    } | null = null;
     private _cloudSessionBootstrapEmail = 'local-dev@counterpunch.test';
 
     constructor(
@@ -386,6 +442,26 @@ export class CloudPlugin extends FilesystemPlugin {
      *     `fontModelReady`, then rebind the adapter to it.
      */
     async openAsset(assetId: string): Promise<void> {
+        if (this._pendingOpenAsset?.assetId === assetId) {
+            return this._pendingOpenAsset.promise;
+        }
+
+        const openPromise = this._openAssetInternal(assetId);
+        this._pendingOpenAsset = {
+            assetId,
+            promise: openPromise
+        };
+
+        try {
+            await openPromise;
+        } finally {
+            if (this._pendingOpenAsset?.promise === openPromise) {
+                this._pendingOpenAsset = null;
+            }
+        }
+    }
+
+    private async _openAssetInternal(assetId: string): Promise<void> {
         const user = await this._ensureCloudUser({
             allowLoginRedirect: true
         });
@@ -443,8 +519,8 @@ export class CloudPlugin extends FilesystemPlugin {
         await Promise.race([connectedPromise, timeout]);
 
         // Extract babelfont JSON from the synced Yjs document.
-        const fontJson = yDocToJson(tempBridge.fontMap);
-        if (!fontJson || Object.keys(fontJson).length === 0) {
+        const fontJson = await waitForCloudFontJson(tempBridge);
+        if (!fontJson) {
             this._disconnectCurrent();
             throw new Error(`Cloud asset ${assetId} has no font data`);
         }

@@ -144,4 +144,54 @@ describe('ensureStartupStateReady', () => {
         delete global.cancelAnimationFrame;
         delete window.glyphOverviewInstance;
     });
+
+    test('re-enables URL sync even when URL state parsing throws', async () => {
+        global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+        global.cancelAnimationFrame = (id) => clearTimeout(id);
+
+        const initStateSync = jest.fn();
+        const enableSync = jest.fn();
+
+        jest.doMock('../js/state-sync', () => ({
+            initStateSync,
+            enableSync
+        }));
+        jest.doMock('../js/url-state', () => ({
+            readUrlState: jest.fn(() => {
+                throw new Error('bad url state');
+            }),
+            decodeLocation: jest.fn(),
+            decodeFeatures: jest.fn()
+        }));
+
+        const { ensureStartupStateReady } = require('../js/state-restore');
+
+        window.stateManager = {
+            editor_file: '',
+            editor_text_buffer: '',
+            editor_cursor_position: 0,
+            editor_mode: 'text',
+            editor_variation_location: {},
+            editor_opentype_features_in_subset: {},
+            editor_opentype_features_not_in_subset: {}
+        };
+
+        await expect(
+            ensureStartupStateReady({
+                axesManager: null,
+                featuresManager: null,
+                textRunEditor: null,
+                outlineEditor: { active: false },
+                renderer: null,
+                autoSelectMatchingMaster: jest.fn(),
+                alignTextModeEscapeStateWithCurrentMaster: jest.fn()
+            })
+        ).rejects.toThrow('bad url state');
+
+        expect(initStateSync).toHaveBeenCalledTimes(1);
+        expect(enableSync).toHaveBeenCalledTimes(1);
+
+        delete global.requestAnimationFrame;
+        delete global.cancelAnimationFrame;
+    });
 });

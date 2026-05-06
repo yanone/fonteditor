@@ -8,6 +8,7 @@ jest.mock('../js/logger', () => ({
 
 const mockConnectDirect = jest.fn().mockResolvedValue();
 const mockRebindToCurrentBridge = jest.fn();
+const mockYDocToJson = jest.fn();
 
 jest.mock('../js/cloud-adapter', () => ({
     CloudAdapter: jest.fn().mockImplementation((options = {}) => ({
@@ -29,8 +30,26 @@ let mockLatestTempBridge = null;
 
 jest.mock('../js/change-bridge', () => ({
     ChangeBridge: jest.fn().mockImplementation(() => {
+        let updateHandler = null;
         mockLatestTempBridge = {
             fontMap: { __mock: true },
+            yDoc: {
+                on: jest.fn((eventName, handler) => {
+                    if (eventName === 'update') {
+                        updateHandler = handler;
+                    }
+                }),
+                off: jest.fn((eventName, handler) => {
+                    if (eventName === 'update' && updateHandler === handler) {
+                        updateHandler = null;
+                    }
+                }),
+                __emitUpdate: () => {
+                    if (updateHandler) {
+                        updateHandler();
+                    }
+                }
+            },
             getFullState: jest.fn(() => mockBridgeState)
         };
         return mockLatestTempBridge;
@@ -39,35 +58,37 @@ jest.mock('../js/change-bridge', () => ({
 
 jest.mock('../js/change-bridge-ydoc', () => ({
     ...jest.requireActual('../js/change-bridge-ydoc'),
-    yDocToJson: jest.fn(() => ({
-        glyphs: [
-            {
-                name: 'A',
-                layers: [
-                    {
-                        id: 'L0',
-                        width: 600,
-                        shapes: [
-                            {
-                                Path: {
-                                    nodes: [
-                                        { x: 0, y: 0, type: 'l' },
-                                        { x: 100, y: 0, type: 'l' }
-                                    ]
-                                }
-                            },
-                            {
-                                Component: {
-                                    reference: 'acutecomb'
-                                }
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
-    }))
+    yDocToJson: (...args) => mockYDocToJson(...args)
 }));
+
+const defaultCloudFontJson = {
+    glyphs: [
+        {
+            name: 'A',
+            layers: [
+                {
+                    id: 'L0',
+                    width: 600,
+                    shapes: [
+                        {
+                            Path: {
+                                nodes: [
+                                    { x: 0, y: 0, type: 'l' },
+                                    { x: 100, y: 0, type: 'l' }
+                                ]
+                            }
+                        },
+                        {
+                            Component: {
+                                reference: 'acutecomb'
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+};
 
 const { CloudPlugin } = require('../js/cloud-plugin');
 
@@ -85,6 +106,8 @@ describe('CloudPlugin.openAsset', () => {
     beforeEach(() => {
         mockConnectDirect.mockClear();
         mockRebindToCurrentBridge.mockClear();
+        mockYDocToJson.mockReset();
+        mockYDocToJson.mockReturnValue(defaultCloudFontJson);
         mockLatestTempBridge = null;
 
         originalAuthManager = window.authManager;
@@ -174,5 +197,71 @@ describe('CloudPlugin.openAsset', () => {
             'fontModelReady',
             expect.any(Function)
         );
+    });
+
+    test('waits for initial cloud font data before throwing no-font-data', async () => {
+        mockYDocToJson
+            .mockReturnValueOnce({})
+            .mockReturnValue(defaultCloudFontJson);
+
+        const openPromise = plugin.openAsset('asset-1');
+        for (let attempt = 0; attempt < 5 && !mockLatestTempBridge; attempt++) {
+            await Promise.resolve();
+        }
+
+        expect(mockLatestTempBridge).toBeTruthy();
+
+        for (
+            let attempt = 0;
+            attempt < 50 &&
+            mockLatestTempBridge.yDoc.on.mock.calls.length === 0;
+            attempt++
+        ) {
+            await Promise.resolve();
+        }
+
+        expect(mockLatestTempBridge.yDoc.on.mock.calls.length).toBeGreaterThan(
+            0
+        );
+
+        mockLatestTempBridge.yDoc.__emitUpdate();
+
+        await expect(openPromise).resolves.toBeUndefined();
+        expect(dispatchSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'fontLoaded' })
+        );
+    });
+
+    test('coalesces concurrent opens for the same asset', async () => {
+        mockYDocToJson
+            .mockReturnValueOnce({})
+            .mockReturnValue(defaultCloudFontJson);
+
+        const firstOpenPromise = plugin.openAsset('asset-1');
+        const secondOpenPromise = plugin.openAsset('asset-1');
+
+        for (let attempt = 0; attempt < 5 && !mockLatestTempBridge; attempt++) {
+            await Promise.resolve();
+        }
+
+        expect(mockLatestTempBridge).toBeTruthy();
+
+        for (
+            let attempt = 0;
+            attempt < 50 &&
+            mockLatestTempBridge.yDoc.on.mock.calls.length === 0;
+            attempt++
+        ) {
+            await Promise.resolve();
+        }
+
+        mockLatestTempBridge.yDoc.__emitUpdate();
+
+        await expect(
+            Promise.all([firstOpenPromise, secondOpenPromise])
+        ).resolves.toEqual([undefined, undefined]);
+
+        expect(plugin._fetchRoomToken).toHaveBeenCalledTimes(1);
+        expect(mockConnectDirect).toHaveBeenCalledTimes(1);
     });
 });

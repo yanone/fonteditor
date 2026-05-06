@@ -32,6 +32,7 @@ import {
 } from './perf-timeline';
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import { reloadLinkedEditorWindows } from './window-buttons';
+import { updateUrlState } from './url-state';
 
 const console = new Logger('FileBrowser');
 
@@ -652,10 +653,17 @@ function truncatePathMiddle(
  * Format: pluginId:///path/to/file
  */
 function createFileUri(pluginId: string, path: string): string {
-    return `${pluginId}:///${path.startsWith('/') ? path.slice(1) : path}`;
+    const directUriPattern = new RegExp(`^${pluginId}:\/\/\/?`);
+    const normalizedPath = directUriPattern.test(path)
+        ? path.replace(directUriPattern, '')
+        : path;
+
+    return `${pluginId}:///${normalizedPath.startsWith('/') ? normalizedPath.slice(1) : normalizedPath}`;
 }
 
 function syncEditorFileState(fileUri: string, eventType: string): void {
+    updateUrlState({ file: fileUri });
+
     if (!window.stateManager) {
         return;
     }
@@ -2743,12 +2751,6 @@ function selectFile(filePath: string) {
     console.log('[FileBrowser]', 'Selected file:', filePath);
 }
 
-// Click tracking for single vs double-click distinction
-let clickTimer: number | null = null;
-let clickPrevent = false;
-let pendingClickPath: string | null = null;
-const CLICK_DELAY = 250; // ms to wait for double-click
-
 function setupFileItemClickHandlers() {
     const fileTree = document.getElementById('file-tree');
     if (!fileTree) return;
@@ -2764,54 +2766,29 @@ function setupFileItemClickHandlers() {
             e.preventDefault();
             e.stopPropagation();
 
-            if (clickPrevent) {
-                return;
-            }
-
-            if (clickTimer && pendingClickPath === path) {
-                // Double-click detected
-                clearTimeout(clickTimer);
-                clickTimer = null;
-                pendingClickPath = null;
-                clickPrevent = true;
-
-                // Handle double-click
-                if (isFont) {
-                    console.log(
-                        '[FileBrowser]',
-                        'Double-click opening font:',
-                        path
-                    );
-                    selectFile(path);
-                    void openFont(path, undefined, {
-                        closeDialogOnSuccess: true
-                    });
-                } else if (isDir) {
-                    void navigateToPath(path);
-                }
-
-                setTimeout(() => {
-                    clickPrevent = false;
-                }, CLICK_DELAY);
+            if (isDir && !isFont) {
+                void navigateToPath(path);
             } else {
-                if (clickTimer) {
-                    clearTimeout(clickTimer);
-                    clickTimer = null;
-                }
+                selectFile(path);
+            }
+        });
 
-                // First click - wait for potential double-click
-                pendingClickPath = path;
-                clickTimer = window.setTimeout(() => {
-                    clickTimer = null;
-                    pendingClickPath = null;
+        element.addEventListener('dblclick', (e: Event) => {
+            e.preventDefault();
+            e.stopPropagation();
 
-                    // Handle single-click
-                    if (isDir && !isFont) {
-                        void navigateToPath(path);
-                    } else {
-                        selectFile(path);
-                    }
-                }, CLICK_DELAY);
+            if (isFont) {
+                console.log(
+                    '[FileBrowser]',
+                    'Double-click opening font:',
+                    path
+                );
+                selectFile(path);
+                void openFont(path, undefined, {
+                    closeDialogOnSuccess: true
+                });
+            } else if (isDir) {
+                void navigateToPath(path);
             }
         });
     });

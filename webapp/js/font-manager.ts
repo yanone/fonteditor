@@ -4166,6 +4166,26 @@ window.addEventListener('fontLoaded', async (event: Event) => {
                 canvasReady,
                 startupFinalizeStarted
             });
+
+            if (window.glyphCanvas && !startupFinalizeStarted) {
+                void ensureStartupStateReady(window.glyphCanvas)
+                    .catch((error) => {
+                        console.warn(
+                            '[FontManager]',
+                            'Startup state restore timed out waiting for canvas; enabling sync anyway:',
+                            error
+                        );
+                    })
+                    .finally(() => {
+                        releaseStartupGates(
+                            openSessionId,
+                            'startup-ready-timeout',
+                            true
+                        );
+                    });
+                return;
+            }
+
             releaseStartupGates(openSessionId, 'startup-ready-timeout', true);
         }, 8000);
 

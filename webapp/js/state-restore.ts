@@ -29,17 +29,20 @@ export async function ensureStartupStateReady(
     }
 
     startupStateReadyPromise = (async () => {
-        if (!(glyphCanvas as any).hasInitializedStateSync) {
-            (glyphCanvas as any).hasInitializedStateSync = true;
-            initStateSync(glyphCanvas);
+        try {
+            if (!(glyphCanvas as any).hasInitializedStateSync) {
+                (glyphCanvas as any).hasInitializedStateSync = true;
+                initStateSync(glyphCanvas);
+            }
+
+            await restoreStateFromUrl(glyphCanvas);
+            await waitForNextAnimationFrame();
+            await waitForNextAnimationFrame();
+
+            startupStateReady = true;
+        } finally {
+            enableSync();
         }
-
-        await restoreStateFromUrl(glyphCanvas);
-        enableSync();
-        await waitForNextAnimationFrame();
-        await waitForNextAnimationFrame();
-
-        startupStateReady = true;
     })();
 
     try {
