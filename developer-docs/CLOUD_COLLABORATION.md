@@ -22,28 +22,31 @@ What exists today:
 - Eligibility gating and admin overrides.
 - D1-backed asset and folder CRUD.
 - ACL-backed room-token issuance.
-- Cloudflare room runtime built around a Durable Object.
+- Live Cloudflare room runtime built around one Durable Object per asset.
+- Local end-to-end collaboration workflow validated against the real local
+  stack.
 - Large serialized asset state currently chunked across SQLite blobs.
 
 This state is functional enough to prove the product path, but it is not the
-target architecture.
+finished architecture.
 
 ---
 
-## New Direction
+## Active Direction
 
 The project is moving to:
 
 - Cloudflare Pages + D1 + R2 as control plane and blob storage.
-- Ysweet on external VMs as the hot room runtime.
+- Cloudflare Durable Objects as the active hot room runtime.
 - R2 as the canonical store for bootstrap blobs, snapshots, glyph snapshots,
-  and rebases.
+  and rebases over time.
 - transport routing based on committed mutation footprint, not feature origin.
 
 In practice:
 
 - do not deepen the chunked SQLite blob path;
-- do not design new persistence features around the Durable Object runtime;
+- do not rewrite the runtime away from Durable Objects before telemetry justifies
+  it;
 - do not special-case Python for routing decisions.
 
 ---
@@ -52,7 +55,6 @@ In practice:
 
 These components are legacy and should be treated as migration surfaces:
 
-- one Cloudflare DO per asset as the long-term room owner;
 - chunked SQLite blob storage for large serialized font state;
 - assumptions that every meaningful mutation should be delivered as a single
   ordinary live room delta.
@@ -65,7 +67,7 @@ Legacy does not mean immediately deleted. It means:
 
 ---
 
-## Target Runtime Split
+## Runtime Split
 
 ### Cloudflare
 
@@ -75,21 +77,11 @@ Owns:
 - asset CRUD;
 - ACLs and membership;
 - room-token issuance;
+- live room runtime through Durable Objects;
 - D1 metadata;
 - history index rows;
 - R2 object storage;
 - admin controls and migration bookkeeping.
-
-### External VM / Ysweet
-
-Owns:
-
-- hot room state;
-- presence;
-- live fan-out;
-- room versioning;
-- short hot log;
-- memory telemetry.
 
 ### External Executor
 
@@ -98,6 +90,8 @@ Owns:
 - heavy full-font materialization;
 - large mutation processing when ordinary live routing is unsafe;
 - staged commit or rebase output.
+
+External execution is optional. It is not the default live room runtime.
 
 ---
 
@@ -146,12 +140,12 @@ Do not build a separate transport regime for undo.
 - Store the canonical R2 reference in metadata.
 - Stop reading the old chunked representation after migration.
 
-### 2. Stand up the external room runtime
+### 2. Stabilize the live DO runtime
 
-- Provision Ysweet on external VMs.
-- Add room-directory metadata in D1.
-- Return Ysweet room endpoints from the control plane.
-- Move the editor connection path to the new endpoint.
+- Add room open, reconnect, and persistence telemetry.
+- Stop using undocumented memory-limit claims as architecture facts.
+- Define operational guidance for suspiciously large rooms based on measured
+  behavior.
 
 ### 3. Add mutation classification
 
@@ -169,30 +163,32 @@ Do not build a separate transport regime for undo.
 
 ## Actionable Checklist
 
+- [x] Cloud filesystem plugin in the editor.
+- [x] Eligibility gating and admin overrides.
+- [x] D1-backed asset and folder CRUD.
+- [x] ACL-backed room-token issuance.
+- [x] Live Durable Object room runtime.
+- [x] Local collaboration smoke workflow.
 - [ ] Freeze new work on the legacy chunked-SQLite path.
 - [ ] Define canonical R2 key layout for bootstrap blobs and snapshots.
 - [ ] Implement one-shot asset migration from chunked SQLite to canonical R2.
 - [ ] Record migration completion per asset in metadata.
-- [ ] Provision the first Ysweet VM pool.
-- [ ] Add room-directory metadata and room placement records in D1.
-- [ ] Return Ysweet room endpoints from room-token / asset-open flows.
-- [ ] Switch one real asset end-to-end to the new path.
+- [ ] Add basic room open, reconnect, and persistence telemetry.
 - [ ] Define mutation classification thresholds.
 - [ ] Implement `live-delta`, `staged-commit`, and `rebase` routing.
-- [ ] Add basic room RSS and open-time telemetry.
-- [ ] Keep room packing conservative until real numbers are stable.
 
 ---
 
 ## Operational Guidance
 
-During the first Ysweet rollout:
+During the current Durable Object phase:
 
-- prefer memory-heavy VMs over tiny ones;
-- treat suspiciously large rooms as one-room-per-VM until measured otherwise;
-- do not pack by hope; pack by observed peak RSS and spike behavior;
 - measure open time, snapshot time, rebase time, and reconnect time from day
-  one.
+  one;
+- classify suspicious rooms by observed behavior, not by undocumented hard
+  memory numbers;
+- keep large canonical blobs out of the DO steady-state path once R2 bootstrap
+  is available.
 
 ---
 
@@ -200,10 +196,10 @@ During the first Ysweet rollout:
 
 Avoid these until the new baseline is stable:
 
-- more features that depend on the current DO blob layout;
+- more features that depend on the current chunked DO blob layout;
 - feature-specific routing logic for Python;
-- premature glyph-sharding of the room runtime before the Ysweet baseline is
-  operational;
+- premature runtime replacement before the current DO path is properly
+  instrumented;
 - long-term retention logic built on SQLite chunks.
 
 ---
@@ -213,7 +209,7 @@ Avoid these until the new baseline is stable:
 The migration is on track when:
 
 - a migrated asset opens from R2;
-- the editor connects to a Ysweet room endpoint;
+- the editor still connects through the DO-based room path cleanly;
 - two browsers converge on the migrated asset;
 - small edits remain live;
 - large edits can escalate to staged commit or rebase;
@@ -225,7 +221,7 @@ The migration is on track when:
 ## Local Development Workflow
 
 Local collaboration development now happens against the real local stack before
-any VM or Docker deployment work.
+any deployment work.
 
 Local components:
 
@@ -249,7 +245,7 @@ state.
 Important local auth rule:
 
 - cloud API calls from the editor must send `Authorization: Bearer
-<editor_session>` explicitly; do not rely on cross-port localhost cookie
+  <editor_session>` explicitly; do not rely on cross-port localhost cookie
   propagation alone.
 
 The local browser workflow that must stay green is:
