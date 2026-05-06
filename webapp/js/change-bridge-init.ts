@@ -1194,6 +1194,16 @@ function initializeBridge(detail: {
 
     const bridge = new ChangeBridge(window.windowRole?.instanceId);
     window.changeBridge = bridge;
+    const bootstrapState = (
+        window as Window & {
+            __pendingCloudBridgeBootstrapState?: Uint8Array;
+        }
+    ).__pendingCloudBridgeBootstrapState;
+    delete (
+        window as Window & {
+            __pendingCloudBridgeBootstrapState?: Uint8Array;
+        }
+    ).__pendingCloudBridgeBootstrapState;
 
     // Called after _syncJsonFromYDoc in undo/redo/remote.
     // Rebuilds the Font model from the already-patched babelfontData.
@@ -1272,6 +1282,14 @@ function initializeBridge(detail: {
                 ReturnType<typeof JSON.parse>
             >
         );
+    } else if (bootstrapState && bootstrapState.length > 0) {
+        bridge.setFontJson(
+            detail.babelfontData as Record<
+                string,
+                ReturnType<typeof JSON.parse>
+            >
+        );
+        bridge.applyFullState(bootstrapState);
     } else {
         // Primary window: populate Y.Doc from loaded font data.
         bridge.initFromJson(

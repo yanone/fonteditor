@@ -471,10 +471,32 @@ const _cloudPlugin = new CloudPlugin();
 window.cloudPlugin = _cloudPlugin;
 pluginRegistry.register(_cloudPlugin);
 
+/**
+ * Create a local dev cloud session and store it as the editor session cookie.
+ */
+async function bootstrapLocalCloudSession(
+    email = 'local-dev@counterpunch.test'
+) {
+    const user = await window.authManager.bootstrapLocalCloudSession(email);
+    const sessionToken = window.authManager.getSessionToken();
+
+    if (!user || !sessionToken) {
+        throw new Error('local cloud session bootstrap did not complete');
+    }
+
+    return {
+        sessionToken,
+        user: user as { id: string; email: string; name: string | null }
+    };
+}
+
 // Dev helper for Phase 0/1 testing in the browser console:
+//   window.cloudDebug.bootstrapLocalSession('dev@counterpunch.test')
 //   window.cloudDebug.connectToRoom('my-asset-id')
 //   window.cloudDebug.connectWithToken('my-asset-id', token, 'ws://localhost:8787/room/my-asset-id')
 window.cloudDebug = {
+    bootstrapLocalSession: (email?: string) =>
+        bootstrapLocalCloudSession(email),
     connectToRoom: (assetId: string) => _cloudPlugin.connectToRoom(assetId),
     connectWithToken: (assetId: string, token: string, roomUrl: string) =>
         _cloudPlugin.connectToRoomWithToken(assetId, token, roomUrl),

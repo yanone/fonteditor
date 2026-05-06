@@ -4,6 +4,8 @@
     "description": "Counterpunch Font Editor",
     "type": "module",
     "scripts": {
+        "dev:collab:local": "node scripts/dev-collab-local.mjs",
+        "test:collab:local": "node scripts/test-collab-local.mjs",
         "generate-api-docs": "node generate-api-docs.mjs",
         "generate-event-docs": "node generate-js-event-docs.mjs",
         "generate-docs": "npm run generate-api-docs && npm run generate-event-docs"

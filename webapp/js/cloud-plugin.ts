@@ -6,17 +6,33 @@
  */
 
 import { FilesystemPlugin } from './filesystem-plugins';
-import type { TitleBarMenuItem } from './filesystem-plugins';
+import type {
+    FileContextAction,
+    FileContextTarget,
+    TitleBarMenuItem
+} from './filesystem-plugins';
 import {
     CloudAdapter,
     CloudAdapterOptions,
-    CloudConnectionStatus
+    CloudConnectionStatus,
+    normalizeCloudRoomWebSocketUrl
 } from './cloud-adapter';
 import { ChangeBridge } from './change-bridge';
 import { yDocToJson } from './change-bridge-ydoc';
 import { Logger } from './logger';
 
 const console = new Logger('CloudPlugin');
+
+function getCloudRequestHeaders(
+    extraHeaders: Record<string, string> = {}
+): Record<string, string> {
+    const headers = { ...extraHeaders };
+    const sessionToken = window.authManager?.getSessionToken?.();
+    if (sessionToken) {
+        headers.Authorization = `Bearer ${sessionToken}`;
+    }
+    return headers;
+}
 
 export interface CloudAsset {
     id: string;
@@ -38,6 +54,7 @@ export class CloudPlugin extends FilesystemPlugin {
     private _cloudAdapter: CloudAdapter | null = null;
     private _activeAssetId: string | null = null;
     private _eligibility: CloudEligibility | null = null;
+    private _cloudSessionBootstrapEmail = 'local-dev@counterpunch.test';
 
     constructor(
         options: Omit<CloudAdapterOptions, 'assetId'> & {
@@ -84,6 +101,21 @@ export class CloudPlugin extends FilesystemPlugin {
         return false; // New assets are created via Save As, not New File
     }
 
+    supportsFileContextAction(
+        action: FileContextAction,
+        target: FileContextTarget
+    ): boolean {
+        switch (action) {
+            case 'download':
+            case 'rename':
+                return false;
+            case 'delete':
+                return !target.isDir;
+            default:
+                return super.supportsFileContextAction(action, target);
+        }
+    }
+
     /**
      * Cloud Save As is handled entirely by this plugin:
      * create the asset, seed the DO, connect Yjs — no writeFile needed.
@@ -122,6 +154,20 @@ export class CloudPlugin extends FilesystemPlugin {
         }
     }
 
+    async handleOpenPath(path: string): Promise<boolean> {
+        if (!path.startsWith('cloud://')) {
+            return false;
+        }
+
+        const assetId = path.slice('cloud://'.length).replace(/^\/+/, '');
+        if (!assetId) {
+            throw new Error('Missing cloud asset id');
+        }
+
+        await this.openAsset(assetId);
+        return true;
+    }
+
     requiresPermission(): boolean {
         return true;
     }
@@ -133,10 +179,9 @@ export class CloudPlugin extends FilesystemPlugin {
      * updateUI which shows the appropriate cloud-panel message.
      */
     async onActivate(): Promise<boolean> {
-        const authMgr = (window as any).authManager;
-        const user = authMgr
-            ? await authMgr.checkAuthStatus().catch(() => null)
-            : null;
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
         if (!user) return false;
 
         this._eligibility = null; // bust cache on every activation
@@ -242,10 +287,19 @@ export class CloudPlugin extends FilesystemPlugin {
      */
     async checkEligibility(): Promise<CloudEligibility | null> {
         if (this._eligibility) return this._eligibility;
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            return null;
+        }
         try {
             const resp = await fetch(
                 `${this._websiteBaseUrl}/api/cloud/eligibility`,
-                { credentials: 'include' }
+                {
+                    credentials: 'include',
+                    headers: getCloudRequestHeaders()
+                }
             );
             if (!resp.ok) return null;
             const data = (await resp.json()) as CloudEligibility;
@@ -262,8 +316,15 @@ export class CloudPlugin extends FilesystemPlugin {
      * List all cloud assets accessible to the current user.
      */
     async getAssets(): Promise<CloudAsset[]> {
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            return [];
+        }
         const resp = await fetch(`${this._websiteBaseUrl}/api/cloud/assets`, {
-            credentials: 'include'
+            credentials: 'include',
+            headers: getCloudRequestHeaders()
         });
         if (!resp.ok) {
             throw new Error(`Failed to list cloud assets: ${resp.status}`);
@@ -283,13 +344,24 @@ export class CloudPlugin extends FilesystemPlugin {
      *  3. Wait for the initial CRDT sync to complete.
      *  4. Extract babelfont JSON from the synced Yjs doc.
      *  5. Dispatch `fontLoaded` to trigger the normal font-loading pipeline.
-     *  6. After `fontModelReady`, the adapter rebinds to the real bridge.
+     *  6. Bootstrap the real bridge from the synced Yjs state after
+     *     `fontModelReady`, then rebind the adapter to it.
      */
     async openAsset(assetId: string): Promise<void> {
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            throw new Error('Authentication required');
+        }
+
         this._disconnectCurrent();
 
         const { token, roomUrl } = await this._fetchRoomToken(assetId);
-        const wsUrl = roomUrl.replace(/^http/, 'ws');
+        const wsUrl = normalizeCloudRoomWebSocketUrl(
+            roomUrl,
+            this._websiteBaseUrl
+        );
 
         // Temporary bridge receives the initial CRDT state from the room.
         const tempBridge = new ChangeBridge(`cloud-bootstrap-${assetId}`);
@@ -339,8 +411,31 @@ export class CloudPlugin extends FilesystemPlugin {
             throw new Error(`Cloud asset ${assetId} has no font data`);
         }
         const babelfontJson = JSON.stringify(fontJson);
+        const bridgeState = tempBridge.getFullState();
 
         this._activeAssetId = assetId;
+
+        (
+            window as Window & {
+                __pendingCloudBridgeBootstrapState?: Uint8Array;
+            }
+        ).__pendingCloudBridgeBootstrapState = bridgeState;
+
+        const bridgeReadyPromise = new Promise<void>((resolve, reject) => {
+            const timeoutId = window.setTimeout(() => {
+                window.removeEventListener('fontModelReady', onFontModelReady);
+                reject(new Error('cloud bridge bootstrap timed out'));
+            }, 30_000);
+
+            const onFontModelReady = () => {
+                window.clearTimeout(timeoutId);
+                window.removeEventListener('fontModelReady', onFontModelReady);
+                this._cloudAdapter?.rebindToCurrentBridge();
+                resolve();
+            };
+
+            window.addEventListener('fontModelReady', onFontModelReady);
+        });
 
         // Dispatch fontLoaded — triggers the normal pipeline.
         // After fontModelReady, the adapter's handler will rebind to the real bridge.
@@ -355,6 +450,8 @@ export class CloudPlugin extends FilesystemPlugin {
                 }
             })
         );
+
+        await bridgeReadyPromise;
     }
 
     // ── Saving a font to the cloud ───────────────────────────────
@@ -369,13 +466,22 @@ export class CloudPlugin extends FilesystemPlugin {
      *     The auto-sync protocol seeds the empty DO with the current font state.
      */
     async saveAs(name: string): Promise<string> {
+        const user = await this._ensureCloudUser({
+            allowLoginRedirect: true
+        });
+        if (!user) {
+            throw new Error('Authentication required');
+        }
+
         const bridge = window.changeBridge;
         if (!bridge) throw new Error('No active font to save');
 
         const resp = await fetch(`${this._websiteBaseUrl}/api/cloud/assets`, {
             method: 'POST',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getCloudRequestHeaders({
+                'Content-Type': 'application/json'
+            }),
             body: JSON.stringify({ name })
         });
 
@@ -390,7 +496,10 @@ export class CloudPlugin extends FilesystemPlugin {
         const assetId = asset.id;
 
         const { token, roomUrl } = await this._fetchRoomToken(assetId);
-        const wsUrl = roomUrl.replace(/^http/, 'ws');
+        const wsUrl = normalizeCloudRoomWebSocketUrl(
+            roomUrl,
+            this._websiteBaseUrl
+        );
 
         this._disconnectCurrent();
 
@@ -513,8 +622,12 @@ export class CloudPlugin extends FilesystemPlugin {
             }
         });
 
-        console.log(`Connecting directly to room: ${assetId} at ${roomUrl}`);
-        await this._cloudAdapter.connectDirect(bridge, token, roomUrl);
+        const wsUrl = normalizeCloudRoomWebSocketUrl(
+            roomUrl,
+            this._websiteBaseUrl
+        );
+        console.log(`Connecting directly to room: ${assetId} at ${wsUrl}`);
+        await this._cloudAdapter.connectDirect(bridge, token, wsUrl);
     }
 
     /** Disconnect from the current room. */
@@ -538,6 +651,33 @@ export class CloudPlugin extends FilesystemPlugin {
         this._activeAssetId = null;
     }
 
+    private async _ensureCloudUser(options?: {
+        allowLoginRedirect?: boolean;
+    }): Promise<Record<string, unknown> | null> {
+        const authMgr = window.authManager;
+        if (!authMgr) {
+            return null;
+        }
+
+        if (typeof authMgr.ensureCloudSession === 'function') {
+            return await authMgr.ensureCloudSession({
+                localEmail: this._cloudSessionBootstrapEmail,
+                allowLoginRedirect: options?.allowLoginRedirect
+            });
+        }
+
+        const user = await authMgr.checkAuthStatus().catch(() => null);
+        if (user) {
+            return user;
+        }
+
+        if (options?.allowLoginRedirect !== false) {
+            await authMgr.login();
+        }
+
+        return null;
+    }
+
     private async _fetchRoomToken(
         assetId: string
     ): Promise<{ token: string; roomUrl: string }> {
@@ -545,7 +685,9 @@ export class CloudPlugin extends FilesystemPlugin {
         const resp = await fetch(url, {
             method: 'POST',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' }
+            headers: getCloudRequestHeaders({
+                'Content-Type': 'application/json'
+            })
         });
         if (!resp.ok) {
             const body = await resp.text().catch(() => '');

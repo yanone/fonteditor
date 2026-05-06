@@ -16,6 +16,20 @@ export interface TitleBarMenuItem {
     icon?: string; // Optional Material icon name
 }
 
+export type FileContextAction =
+    | 'open'
+    | 'open-new-tab'
+    | 'open-in-script-editor'
+    | 'download'
+    | 'rename'
+    | 'delete';
+
+export interface FileContextTarget {
+    path: string;
+    name: string;
+    isDir: boolean;
+}
+
 /**
  * Abstract base class for filesystem plugins
  * Each plugin represents a different method of accessing files (OPFS, disk, cloud, etc.)
@@ -148,6 +162,26 @@ export abstract class FilesystemPlugin {
         return []; // Default: no menu items
     }
 
+    supportsFileContextAction(
+        action: FileContextAction,
+        target: FileContextTarget
+    ): boolean {
+        switch (action) {
+            case 'open':
+            case 'open-new-tab':
+                return !target.isDir;
+            case 'open-in-script-editor':
+                return !target.isDir && target.name.endsWith('.py');
+            case 'download':
+                return !target.isDir;
+            case 'rename':
+            case 'delete':
+                return true;
+            default:
+                return false;
+        }
+    }
+
     /**
      * Trigger a redraw of the title bar buttons for this plugin
      * Call this when plugin state changes and UI needs to update
@@ -198,6 +232,15 @@ export abstract class FilesystemPlugin {
      * the save-name field. Should return true on success.
      */
     async handleSaveAs(_name: string): Promise<boolean> {
+        return false;
+    }
+
+    /**
+     * Plugin-specific open handler for paths that cannot be read through the
+     * generic adapter.readFile pipeline.
+     * Return true when the plugin fully handled the open.
+     */
+    async handleOpenPath(_path: string): Promise<boolean> {
         return false;
     }
 

@@ -1,218 +1,264 @@
 # Cloud Collaboration — Developer Reference
 
-This document records implementation decisions and progress as each phase is
-completed. It is updated incrementally alongside code changes. The authoritative
-design is in `strategy/LIVE_COLLABORATION_v2.md`; this doc is the "what we built
-and why" companion.
+This document is the implementation companion to
+`strategy/LIVE_COLLABORATION_v2.md`.
+
+It records:
+
+- what exists today;
+- what is now considered legacy;
+- what the next implementation steps are;
+- what to avoid while the migration is in progress.
 
 ---
 
-## Architecture Snapshot
+## Current State
 
-```
-Browser editor ──► Pages (website)   control plane: D1, auth, ACL, CRUD
-        │
-        │  room token (JWT-like)
-        ▼
-   WebSocket ──────► Worker + Durable Object (cf-fonts-room)
-                      per-asset room: in-memory Y.Doc, DO SQLite hot log
-```
+Phase 1 from the original plan is complete.
 
-Two repos:
+What exists today:
 
-| Repo    | Path                                      | Responsibility                                     |
-| ------- | ----------------------------------------- | -------------------------------------------------- |
-| editor  | `/Users/yanone/Code/Counterpunch/editor`  | Client-side TypeScript, CloudPlugin, CloudAdapter  |
-| website | `/Users/yanone/Code/Counterpunch/website` | Cloudflare Pages, D1, room-token issuer, DO Worker |
+- Cloud filesystem plugin in the editor.
+- Eligibility gating and admin overrides.
+- D1-backed asset and folder CRUD.
+- ACL-backed room-token issuance.
+- Cloudflare room runtime built around a Durable Object.
+- Large serialized asset state currently chunked across SQLite blobs.
 
-Worker lives at `website/workers/fonts-room/`.
+This state is functional enough to prove the product path, but it is not the
+target architecture.
 
 ---
 
-## Phase 0 — Skeleton (✅ complete)
+## New Direction
 
-**Goal:** Prove two browsers can converge on a real font via DO WebSocket sync.
+The project is moving to:
 
-### What was built
+- Cloudflare Pages + D1 + R2 as control plane and blob storage.
+- Ysweet on external VMs as the hot room runtime.
+- R2 as the canonical store for bootstrap blobs, snapshots, glyph snapshots,
+  and rebases.
+- transport routing based on committed mutation footprint, not feature origin.
 
-**website repo (commit `cb87d50`):**
+In practice:
 
-- `workers/fonts-room/src/font-room-do.js` — Cloudflare Durable Object with
-  WebSocket Hibernation API (`ctx.acceptWebSocket`). Stores updates in DO SQLite
-  (`room_log` table). In-memory `Y.Doc` rebuilt from SQLite on hibernation wake.
-- `functions/api/cloud/assets/[id]/room-token.js` — Phase 0 stub: any
-  authenticated user receives `role:'editor'` for any asset ID. No D1 ACL check.
-
-**editor repo (commit `d1bc4960`):**
-
-- `webapp/js/cloud-adapter.ts` — WebSocket adapter implementing the Yjs
-  two-phase sync protocol (state-vector exchange + incremental updates).
-- `webapp/js/cloud-plugin.ts` — `FilesystemPlugin` wrapper exposing
-  `connectToRoomWithToken()` for dev testing.
-- `webapp/js/change-bridge.ts` — Added `applyYDocUpdateSilent(update)` to seed a
-  new bridge's Y.Doc without triggering local-edit listeners.
-
-### Key problem solved: Fustat size limit
-
-Fustat font state is ~3.5 MB. An earlier `MAX_SYNC_BYTES = 900_000` guard
-silently dropped the initial client state. CRDT left-sibling references were
-unresolvable on peers.
-
-**Solution:** Chunked sync protocol.
-
-- `SYNC_CHUNK_SIZE = 750_000` bytes per WebSocket frame.
-- Client splits large `sync-complete` into N `sync-chunk` + 1 final
-  `sync-complete` frames.
-- Server splits large `sync-response` into a header frame (`chunked:true,
-totalChunks`) followed by N `sync-chunk` frames with `direction:'response'`.
-- Client accumulates chunks in `_incomingResponseChunks` buffer and applies
-  once all arrive.
-
-### Key problem solved: bridge replacement race
-
-When `fontModelReady` fires (compilation-triggered model rebuild),
-`initializeBridge()` creates a new `ChangeBridge` with a fresh Y.Doc. Incremental
-remote updates fail because the new Y.Doc lacks CRDT history.
-
-**Solution:** `_subscribeFontModelReady()` in CloudAdapter copies the old
-bridge's full state into the new bridge via `applyYDocUpdateSilent` before
-re-binding the outbound update hook.
-
-### Wire protocol (Phase 0)
-
-All frames are JSON; binary Yjs data is base64-encoded.
-
-Client → Server:
-
-```
-auth           { type, token }
-sync-request   { type, stateVector: base64 }
-sync-chunk     { type, update: base64, chunkIndex, totalChunks }
-sync-complete  { type, update: base64 [, chunkIndex, totalChunks] }
-update         { type, update: base64, clientId, seq }
-```
-
-Server → Client:
-
-```
-auth-ok        { type, clientId }
-auth-error     { type, message }
-sync-response  { type, update?: base64, serverStateVector: base64 [, chunked, totalChunks] }
-sync-chunk     { type, update: base64, chunkIndex, totalChunks, direction:'response' }
-update         { type, update: base64, clientId, seq }
-ack            { type, seq, durable: bool }
-error          { type, message }
-```
-
-### Local dev setup
-
-```bash
-# 1. Start room worker
-cd website/workers/fonts-room
-npx wrangler dev --port 8787
-
-# 2. Start website Pages
-cd website
-npx wrangler pages dev --port 8788
-
-# 3. Start editor
-cd editor/webapp
-npm run dev
-```
-
-Test via browser console:
-
-```js
-window.cloudDebug.connectWithToken(
-    "asset-id",
-    token,
-    "ws://localhost:8787/room/asset-id",
-);
-```
+- do not deepen the chunked SQLite blob path;
+- do not design new persistence features around the Durable Object runtime;
+- do not special-case Python for routing decisions.
 
 ---
 
-## Phase 1 — Cloud filesystem plugin and asset CRUD (✅ complete)
+## Legacy Components
 
-**Goal:** Real asset management in D1, eligibility gating, cloud:// URIs,
-open/save-as UI in editor.
+These components are legacy and should be treated as migration surfaces:
 
-### What was built
+- one Cloudflare DO per asset as the long-term room owner;
+- chunked SQLite blob storage for large serialized font state;
+- assumptions that every meaningful mutation should be delivered as a single
+  ordinary live room delta.
 
-**D1 schema** (`website/migrations/cloud-schema-2026-XX-XX.sql`):
+Legacy does not mean immediately deleted. It means:
 
-Tables: `cloud_folders`, `font_assets`, `font_asset_members`,
-`font_asset_invitations`, `cloud_folder_entries`, `user_cloud_overrides`,
-`font_asset_versions`, `font_asset_events`.
-
-`user_cloud_overrides` — row with `revoked_at IS NULL` grants cloud hosting.
-`font_assets` — one row per cloud font asset; `owner_user_id` is the creator.
-`font_asset_members` — ACL table; `role ∈ {owner,editor,viewer}`.
-`cloud_folder_entries` — per-user filing (folder_id NULL = unfiled flat library).
-
-**Entitlements** (`website/utils/cloud-entitlements.js`):
-
-Three stub functions that will absorb subscription tier logic later:
-
-- `isCloudHostingEnabled(db, userId)` — checks `user_cloud_overrides`.
-- `getMaxFontsOwned(db, userId)` — returns `null` (unlimited).
-- `getSnapshotRetentionDays(db, userId)` — returns `null` (unlimited).
-
-**API endpoints** (website Pages Functions):
-
-| Endpoint                         | File                                       | Purpose                                   |
-| -------------------------------- | ------------------------------------------ | ----------------------------------------- |
-| `GET /api/cloud/eligibility`     | `functions/api/cloud/eligibility.js`       | Eligibility check before showing cloud UI |
-| `GET /api/cloud/assets`          | `functions/api/cloud/assets/index.js`      | List accessible assets (owned + shared)   |
-| `POST /api/cloud/assets`         | `functions/api/cloud/assets/index.js`      | Create asset (re-checks eligibility)      |
-| `GET /api/cloud/assets/:id`      | `functions/api/cloud/assets/[id]/index.js` | Asset details + room token                |
-| `DELETE /api/cloud/assets/:id`   | `functions/api/cloud/assets/[id]/index.js` | Owner-only delete                         |
-| `GET /api/cloud/folders`         | `functions/api/cloud/folders/index.js`     | List user's folders                       |
-| `POST /api/cloud/folders`        | `functions/api/cloud/folders/index.js`     | Create folder                             |
-| `POST /api/admin/cloud/override` | `functions/api/admin/cloud/override.js`    | Grant/revoke cloud access                 |
-
-**room-token ACL** — `functions/api/cloud/assets/[id]/room-token.js` now
-queries `font_asset_members` to find the caller's role. Returns 403 if the
-user has no row in that table for the requested asset.
-
-**Editor** (`editor/webapp/js/`):
-
-- `cloud-plugin.ts` — rewritten. On init calls `GET /api/cloud/eligibility`.
-  Hides itself if `cloudHostingEnabled:false`. Exposes `openAsset(assetId)`
-  which fetches a room token and connects `CloudAdapter`. `saveAs(fontJson)`
-  creates a new D1 asset and seeds the DO.
-- `cloud-adapter.ts` — `_fetchRoomToken()` now makes a real HTTP POST to
-  `POST /api/cloud/assets/:id/room-token`. `connectDirect()` kept for dev
-  testing.
-- `file-browser.ts` — `openFont('cloud://uuid')` path detected and routed to
-  `CloudPlugin.openAsset()`.
-- `index.d.ts` — added `cloudPlugin`, `cloudEligibility` globals.
-
-### cloud:// URI scheme
-
-Font assets opened from the cloud use `cloud://<assetId>` as the "path"
-passed to `openFont()`. The file-browser recognises the `cloud://` prefix and
-delegates to `CloudPlugin.openAsset(assetId)` instead of the normal filesystem
-read path.
-
-### Admin override flow
-
-Admin dashboard (website) → Cloud Hosting panel → `POST /api/admin/cloud/override`
-with `{ action:'grant'|'revoke', userQuery }`.
-
-### Constraints carried forward
-
-- No Stripe tier checks yet — all quota functions return `null` (unlimited).
-- `saveAs` seeds the DO by connecting `CloudAdapter`, sending the full
-  babelfont JSON serialized into the existing Yjs CRDT. The DO persists it in
-  its hot SQLite log.
-- No sharing UI yet (Phase 3). Shared fonts can be accessed if a member row
-  exists in D1 (manual admin insert).
-- No snapshot persistence yet (Phase 2). DO holds state only in memory + SQLite
-  hot log; restarts lose history until Phase 2.
+- compatibility may temporarily remain;
+- no new architecture should depend on it;
+- cleanup is part of the active plan.
 
 ---
 
-## Phases 2–5 (pending)
+## Target Runtime Split
 
-See `strategy/LIVE_COLLABORATION_v2.md` for planned implementation.
+### Cloudflare
+
+Owns:
+
+- auth;
+- asset CRUD;
+- ACLs and membership;
+- room-token issuance;
+- D1 metadata;
+- history index rows;
+- R2 object storage;
+- admin controls and migration bookkeeping.
+
+### External VM / Ysweet
+
+Owns:
+
+- hot room state;
+- presence;
+- live fan-out;
+- room versioning;
+- short hot log;
+- memory telemetry.
+
+### External Executor
+
+Owns:
+
+- heavy full-font materialization;
+- large mutation processing when ordinary live routing is unsafe;
+- staged commit or rebase output.
+
+---
+
+## Mutation Routing Rule
+
+All committed logical transactions are routed by footprint.
+
+The router should inspect:
+
+- encoded delta bytes;
+- glyph count touched;
+- layer count touched;
+- scope kind;
+- whether full-font materialization is required;
+- projected fan-out cost.
+
+Routing outcomes:
+
+1. `live-delta`
+2. `staged-commit`
+3. `rebase`
+
+Important: the cause of the change is not the routing key.
+
+Small Python changes stay small. Large non-Python changes still escalate.
+
+---
+
+## Undo Rule
+
+Personal undo remains local in the editor.
+
+When undo results in a committed forward change, that committed transaction is
+routed by footprint exactly like any other change.
+
+Do not build a separate transport regime for undo.
+
+---
+
+## Immediate Implementation Priorities
+
+### 1. Retire chunked SQLite blobs
+
+- Reassemble each asset's current chunked serialized state once.
+- Write a canonical bootstrap blob to R2.
+- Store the canonical R2 reference in metadata.
+- Stop reading the old chunked representation after migration.
+
+### 2. Stand up the external room runtime
+
+- Provision Ysweet on external VMs.
+- Add room-directory metadata in D1.
+- Return Ysweet room endpoints from the control plane.
+- Move the editor connection path to the new endpoint.
+
+### 3. Add mutation classification
+
+- Classify committed logical transactions.
+- Implement staged commit transport.
+- Implement rebase transport.
+
+### 4. Reconnect history and snapshots
+
+- Store snapshots and glyph snapshots in R2.
+- Keep `font_asset_versions` and `font_asset_events` in D1.
+- Preserve restore as a forward operation.
+
+---
+
+## Actionable Checklist
+
+- [ ] Freeze new work on the legacy chunked-SQLite path.
+- [ ] Define canonical R2 key layout for bootstrap blobs and snapshots.
+- [ ] Implement one-shot asset migration from chunked SQLite to canonical R2.
+- [ ] Record migration completion per asset in metadata.
+- [ ] Provision the first Ysweet VM pool.
+- [ ] Add room-directory metadata and room placement records in D1.
+- [ ] Return Ysweet room endpoints from room-token / asset-open flows.
+- [ ] Switch one real asset end-to-end to the new path.
+- [ ] Define mutation classification thresholds.
+- [ ] Implement `live-delta`, `staged-commit`, and `rebase` routing.
+- [ ] Add basic room RSS and open-time telemetry.
+- [ ] Keep room packing conservative until real numbers are stable.
+
+---
+
+## Operational Guidance
+
+During the first Ysweet rollout:
+
+- prefer memory-heavy VMs over tiny ones;
+- treat suspiciously large rooms as one-room-per-VM until measured otherwise;
+- do not pack by hope; pack by observed peak RSS and spike behavior;
+- measure open time, snapshot time, rebase time, and reconnect time from day
+  one.
+
+---
+
+## What Not To Build Next
+
+Avoid these until the new baseline is stable:
+
+- more features that depend on the current DO blob layout;
+- feature-specific routing logic for Python;
+- premature glyph-sharding of the room runtime before the Ysweet baseline is
+  operational;
+- long-term retention logic built on SQLite chunks.
+
+---
+
+## Success Criteria
+
+The migration is on track when:
+
+- a migrated asset opens from R2;
+- the editor connects to a Ysweet room endpoint;
+- two browsers converge on the migrated asset;
+- small edits remain live;
+- large edits can escalate to staged commit or rebase;
+- history metadata still lands in D1;
+- the old chunked SQLite bootstrap path is no longer on the critical path.
+
+---
+
+## Local Development Workflow
+
+Local collaboration development now happens against the real local stack before
+any VM or Docker deployment work.
+
+Local components:
+
+- editor on `https://localhost:8000`
+- website control plane on `http://localhost:8788`
+- room worker on `http://localhost:8787`
+
+Primary commands from the repo root:
+
+- `npm run dev:collab:local`
+- `npm run test:collab:local`
+
+The editor exposes a local auth bootstrap helper for development and tests:
+
+- `window.cloudDebug.bootstrapLocalSession('dev@counterpunch.test')`
+
+That helper creates a local session token, grants cloud eligibility in the
+local website database, stores `editor_session`, and refreshes the editor auth
+state.
+
+Important local auth rule:
+
+- cloud API calls from the editor must send `Authorization: Bearer
+<editor_session>` explicitly; do not rely on cross-port localhost cookie
+  propagation alone.
+
+The local browser workflow that must stay green is:
+
+1. bootstrap a local cloud session
+2. load a font in the editor
+3. save it to the local cloud asset path
+4. reopen the same asset in a second page
+5. perform a real glyph mutation in page A
+6. verify page B receives the remote Yjs apply and converges on the same model
+
+This workflow is covered by `webapp/tests/cloud-collaboration-local.spec.ts`.

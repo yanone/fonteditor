@@ -149,6 +149,18 @@ declare global {
                 email?: string;
                 [key: string]: unknown;
             } | null>;
+            isLocalWebsiteURL: () => boolean;
+            bootstrapLocalCloudSession: (email?: string) => Promise<{
+                email?: string;
+                [key: string]: unknown;
+            } | null>;
+            ensureCloudSession: (options?: {
+                localEmail?: string;
+                allowLoginRedirect?: boolean;
+            }) => Promise<{
+                email?: string;
+                [key: string]: unknown;
+            } | null>;
             getSessionToken: () => string | null;
             login: () => Promise<void>;
             logout: () => Promise<void>;
@@ -594,6 +606,14 @@ declare global {
         // From cloud-plugin.ts — dev helper for Phase 0/1 cloud testing
         cloudDebug:
             | {
+                  bootstrapLocalSession: (email?: string) => Promise<{
+                      sessionToken: string;
+                      user: {
+                          id: string;
+                          email: string;
+                          name: string | null;
+                      };
+                  }>;
                   connectToRoom: (assetId: string) => Promise<void>;
                   connectWithToken: (
                       assetId: string,

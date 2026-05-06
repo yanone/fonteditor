@@ -19,12 +19,27 @@ type AuthCredits = {
     [key: string]: unknown;
 };
 
+type LocalCloudBootstrapResponse = {
+    sessionToken: string;
+    user: AuthUser & {
+        id: string;
+        email: string;
+        name: string | null;
+    };
+};
+
+type EnsureCloudSessionOptions = {
+    localEmail?: string;
+    allowLoginRedirect?: boolean;
+};
+
 class AuthManager {
     websiteURL: string;
     user: AuthUser | null;
     subscription: AuthSubscription | null;
     credits: AuthCredits | null;
     sessionToken: string | null = null;
+    private localCloudBootstrapPromise: Promise<AuthUser | null> | null = null;
 
     constructor() {
         this.websiteURL = this.getWebsiteURL();
@@ -103,6 +118,10 @@ class AuthManager {
 
         // Default to production
         return 'https://counterpunch.space';
+    }
+
+    isLocalWebsiteURL(): boolean {
+        return this.websiteURL.startsWith('http://localhost:8788');
     }
 
     /**
@@ -217,6 +236,79 @@ class AuthManager {
         }
 
         return lastResponse as Response;
+    }
+
+    async bootstrapLocalCloudSession(
+        email = 'local-dev@counterpunch.test'
+    ): Promise<AuthUser | null> {
+        if (!this.isLocalWebsiteURL()) {
+            return this.checkAuthStatus();
+        }
+
+        if (this.localCloudBootstrapPromise) {
+            return this.localCloudBootstrapPromise;
+        }
+
+        this.localCloudBootstrapPromise = (async () => {
+            const response = await fetch(
+                `${this.websiteURL}/api/dev/local-cloud-session`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                }
+            );
+
+            if (!response.ok) {
+                const body = await response.text().catch(() => '');
+                throw new Error(
+                    `local cloud session bootstrap failed: ${response.status} ${body}`
+                );
+            }
+
+            const data =
+                (await response.json()) as LocalCloudBootstrapResponse;
+
+            const isLocalHost =
+                window.location.hostname === 'localhost' ||
+                window.location.hostname === '127.0.0.1';
+            const secureFlag =
+                window.location.protocol === 'https:' && !isLocalHost
+                    ? 'Secure; '
+                    : '';
+            document.cookie =
+                `editor_session=${data.sessionToken}; ${secureFlag}` +
+                'SameSite=Lax; Max-Age=2592000; Path=/';
+
+            this.sessionToken = data.sessionToken;
+
+            return await this.checkAuthStatus();
+        })();
+
+        try {
+            return await this.localCloudBootstrapPromise;
+        } finally {
+            this.localCloudBootstrapPromise = null;
+        }
+    }
+
+    async ensureCloudSession(
+        options: EnsureCloudSessionOptions = {}
+    ): Promise<AuthUser | null> {
+        const currentUser = await this.checkAuthStatus();
+        if (currentUser) {
+            return currentUser;
+        }
+
+        if (this.isLocalWebsiteURL()) {
+            return await this.bootstrapLocalCloudSession(options.localEmail);
+        }
+
+        if (options.allowLoginRedirect !== false) {
+            await this.login();
+        }
+
+        return null;
     }
 
     /**
@@ -348,6 +440,7 @@ class AuthManager {
         this.user = null;
         this.subscription = null;
         this.credits = null;
+        this.localCloudBootstrapPromise = null;
         this.onAuthStateChanged(false, null, null);
     }
 }

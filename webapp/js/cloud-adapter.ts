@@ -16,13 +16,15 @@
  *   { type: 'auth-error',    message: string }
  *   { type: 'sync-response', update?: string, serverStateVector: string [, chunked: true, totalChunks] }
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks, direction: 'response' }
- *   { type: 'update',        update: string, clientId: string, seq: number }
+ *   { type: 'update',        update: string, fullState?: string, clientId: string, seq: number }
  *   { type: 'ack',           seq: number, durable: boolean }
  *   { type: 'error',         message: string }
  *
  * The state-vector exchange (sync-request / sync-response / sync-complete)
  * follows the standard y-websocket two-phase sync protocol so that each side
  * only transmits what the other is missing, keeping initial payloads minimal.
+ * Live room updates currently send the bridge's authoritative full state to
+ * guarantee convergence after cloud-open bridge replacement.
  */
 
 import type { ChangeBridge } from './change-bridge';
@@ -33,9 +35,105 @@ const console = new Logger('CloudAdapter');
 
 /** Default WebSocket URL for the room worker (local dev). */
 const DEFAULT_ROOM_WORKER_URL = 'ws://localhost:8787';
+const DEFAULT_PRODUCTION_ROOM_HOST = 'collab.counterpunch.space';
 
 /** Default website base URL for the room-token endpoint (local dev). */
 const DEFAULT_WEBSITE_BASE_URL = 'http://localhost:8788';
+
+type CloudDeleteResponse = {
+    success?: boolean;
+    error?: string;
+};
+
+function getCloudRequestHeaders(
+    extraHeaders: Record<string, string> = {}
+): Record<string, string> {
+    const headers = { ...extraHeaders };
+    const sessionToken = window.authManager?.getSessionToken?.();
+    if (sessionToken) {
+        headers.Authorization = `Bearer ${sessionToken}`;
+    }
+    return headers;
+}
+
+export function normalizeCloudRoomWebSocketUrl(
+    roomUrl: string,
+    websiteBaseUrl: string
+): string {
+    const trimmedRoomUrl = roomUrl.trim();
+    if (!trimmedRoomUrl) {
+        throw new Error('room-token response returned an empty roomUrl');
+    }
+
+    let normalizedUrl: URL;
+
+    try {
+        if (/^wss?:\/\//i.test(trimmedRoomUrl)) {
+            normalizedUrl = new URL(trimmedRoomUrl);
+        } else if (/^https?:\/\//i.test(trimmedRoomUrl)) {
+            normalizedUrl = new URL(trimmedRoomUrl);
+        } else if (trimmedRoomUrl.startsWith('/')) {
+            normalizedUrl = new URL(trimmedRoomUrl, websiteBaseUrl);
+        } else {
+            normalizedUrl = new URL(`https://${trimmedRoomUrl}`);
+        }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Invalid room URL "${roomUrl}": ${message}`);
+    }
+
+    let websiteUrl: URL | null = null;
+    try {
+        websiteUrl = new URL(websiteBaseUrl);
+    } catch {
+        websiteUrl = null;
+    }
+
+    const isLocalHost = (hostname: string): boolean =>
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1';
+
+    if (
+        isLocalHost(normalizedUrl.hostname) &&
+        websiteUrl &&
+        !isLocalHost(websiteUrl.hostname)
+    ) {
+        normalizedUrl.hostname = DEFAULT_PRODUCTION_ROOM_HOST;
+        normalizedUrl.protocol =
+            websiteUrl.protocol === 'http:' ? 'ws:' : 'wss:';
+    }
+
+    if (normalizedUrl.protocol === 'http:') {
+        normalizedUrl.protocol = 'ws:';
+    } else if (normalizedUrl.protocol === 'https:') {
+        normalizedUrl.protocol = 'wss:';
+    }
+
+    if (!/^wss?:$/i.test(normalizedUrl.protocol)) {
+        throw new Error(
+            `Invalid room URL protocol for "${roomUrl}": ${normalizedUrl.protocol}`
+        );
+    }
+
+    return normalizedUrl.toString();
+}
+
+async function parseRequiredJsonResponse<T>(
+    response: Response,
+    errorPrefix: string
+): Promise<T> {
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().includes('application/json')) {
+        const body = await response.text().catch(() => '');
+        const bodyPreview = body.trim().slice(0, 160);
+        throw new Error(
+            `${errorPrefix}: expected JSON response but received ${contentType || 'unknown content type'}${bodyPreview ? ` (${bodyPreview})` : ''}`
+        );
+    }
+
+    return (await response.json()) as T;
+}
 
 /**
  * Maximum bytes per WebSocket message (Cloudflare Workers limit: 1 MB).
@@ -185,25 +283,36 @@ export class CloudAdapter implements FileSystemAdapter {
     private _subscribeFontModelReady(): void {
         if (this._fontModelReadyHandler) return;
         this._fontModelReadyHandler = () => {
-            const newBridge = window.changeBridge ?? null;
-            if (!newBridge || newBridge === this._bridge) return;
-            // Bridge was replaced by initializeBridge() — re-seed the new
-            // bridge's Y.Doc with the accumulated CRDT state from the old
-            // bridge so that future incremental updates from remote peers can
-            // be applied (their left-sibling references will be resolvable).
-            const oldState = this._bridge?.encodeBridgeState();
-            if (oldState && oldState.length > 0) {
-                newBridge.applyYDocUpdateSilent(oldState);
-            }
-            // Re-bind outbound listener to the new bridge.
-            this._localUpdateUnsubscribe?.();
-            this._localUpdateUnsubscribe = null;
-            this._bridge = newBridge;
-            if (this._hasSynced) {
-                this._registerOutboundHook();
-            }
+            this.rebindToCurrentBridge();
         };
         window.addEventListener('fontModelReady', this._fontModelReadyHandler);
+    }
+
+    /**
+     * Rebind the adapter to the current global ChangeBridge after font load.
+     * Returns true when a new bridge was adopted.
+     */
+    rebindToCurrentBridge(): boolean {
+        const newBridge = window.changeBridge ?? null;
+        if (!newBridge || newBridge === this._bridge) {
+            return false;
+        }
+
+        // Bridge was replaced by initializeBridge() — re-seed the new bridge's
+        // Y.Doc with the accumulated CRDT state from the old bridge so future
+        // incremental updates from remote peers can resolve correctly.
+        const oldState = this._bridge?.encodeBridgeState();
+        if (oldState && oldState.length > 0) {
+            newBridge.applyYDocUpdateSilent(oldState);
+        }
+
+        this._localUpdateUnsubscribe?.();
+        this._localUpdateUnsubscribe = null;
+        this._bridge = newBridge;
+        if (this._hasSynced) {
+            this._registerOutboundHook();
+        }
+        return true;
     }
 
     private _unsubscribeFontModelReady(): void {
@@ -222,7 +331,10 @@ export class CloudAdapter implements FileSystemAdapter {
         if (this._destroyed) return;
         try {
             const { token, roomUrl } = await this._fetchRoomToken();
-            await this._openWebSocket(token, roomUrl.replace(/^http/, 'ws'));
+            await this._openWebSocket(
+                token,
+                normalizeCloudRoomWebSocketUrl(roomUrl, this._websiteBaseUrl)
+            );
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             console.error('CloudAdapter: connection failed:', msg);
@@ -234,8 +346,14 @@ export class CloudAdapter implements FileSystemAdapter {
     private async _openWebSocket(token: string, wsUrl: string): Promise<void> {
         if (this._destroyed) return;
         try {
-            console.log(`Connecting to room ${this._assetId} at ${wsUrl}`);
-            const ws = new WebSocket(wsUrl);
+            const normalizedWsUrl = normalizeCloudRoomWebSocketUrl(
+                wsUrl,
+                this._websiteBaseUrl
+            );
+            console.log(
+                `Connecting to room ${this._assetId} at ${normalizedWsUrl}`
+            );
+            const ws = new WebSocket(normalizedWsUrl);
             this._ws = ws;
             ws.binaryType = 'arraybuffer';
 
@@ -253,7 +371,10 @@ export class CloudAdapter implements FileSystemAdapter {
             ws.onerror = () => {
                 if (this._ws !== ws) return;
                 console.warn('CloudAdapter: WebSocket error');
-                this._setStatus('error', 'WebSocket error');
+                this._setStatus(
+                    'error',
+                    `WebSocket error (${normalizedWsUrl})`
+                );
             };
 
             ws.onclose = (event: CloseEvent) => {
@@ -381,7 +502,9 @@ export class CloudAdapter implements FileSystemAdapter {
             }
 
             case 'update':
-                if (typeof msg.update === 'string') {
+                if (typeof msg.fullState === 'string' && msg.fullState.length) {
+                    this._applyServerState(base64ToU8(msg.fullState));
+                } else if (typeof msg.update === 'string') {
                     this._applyRemoteUpdate(base64ToU8(msg.update));
                 }
                 break;
@@ -496,10 +619,11 @@ export class CloudAdapter implements FileSystemAdapter {
         const sendUpdate = (update: Uint8Array): void => {
             if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
             const seq = ++this._seq;
+            const fullState = this._bridge?.getFullState() ?? update;
             this._ws.send(
                 JSON.stringify({
                     type: 'update',
-                    update: u8ToBase64(update),
+                    update: u8ToBase64(fullState),
                     clientId: this._clientId ?? '',
                     seq
                 })
@@ -522,7 +646,9 @@ export class CloudAdapter implements FileSystemAdapter {
         const resp = await fetch(url, {
             method: 'POST',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' }
+            headers: getCloudRequestHeaders({
+                'Content-Type': 'application/json'
+            })
         });
 
         if (!resp.ok) {
@@ -532,10 +658,10 @@ export class CloudAdapter implements FileSystemAdapter {
             );
         }
 
-        const data = (await resp.json()) as {
+        const data = await parseRequiredJsonResponse<{
             token: string;
             roomUrl: string;
-        };
+        }>(resp, 'room-token request failed');
         if (!data.token || !data.roomUrl) {
             throw new Error('room-token response missing token or roomUrl');
         }
@@ -572,7 +698,10 @@ export class CloudAdapter implements FileSystemAdapter {
         try {
             const resp = await fetch(
                 `${this._websiteBaseUrl}/api/cloud/assets`,
-                { credentials: 'include' }
+                {
+                    credentials: 'include',
+                    headers: getCloudRequestHeaders()
+                }
             );
             if (!resp.ok) {
                 return {};
@@ -616,8 +745,48 @@ export class CloudAdapter implements FileSystemAdapter {
         throw new Error('CloudAdapter.createFolder not implemented in Phase 0');
     }
 
-    async deleteItem(_path: string, _isDir: boolean): Promise<void> {
-        throw new Error('CloudAdapter.deleteItem not implemented in Phase 0');
+    async deleteItem(path: string, isDir: boolean): Promise<void> {
+        if (isDir) {
+            throw new Error('Cloud folders are not supported');
+        }
+
+        const assetId = path.replace(/^cloud:\/\//, '').trim();
+        if (!assetId) {
+            throw new Error('Missing cloud asset id');
+        }
+
+        const resp = await fetch(
+            `${this._websiteBaseUrl}/api/cloud/assets/${encodeURIComponent(assetId)}`,
+            {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: getCloudRequestHeaders()
+            }
+        );
+
+        if (!resp.ok) {
+            const body = await resp.text().catch(() => '');
+            throw new Error(
+                `Failed to delete cloud asset: ${resp.status} ${body}`
+            );
+        }
+
+        if (resp.status !== 204) {
+            const data = await parseRequiredJsonResponse<CloudDeleteResponse>(
+                resp,
+                'Failed to delete cloud asset'
+            );
+            if (data.success !== true) {
+                throw new Error(
+                    data.error ||
+                        'Cloud delete response did not confirm success'
+                );
+            }
+        }
+
+        if (this._assetId === assetId) {
+            this.disconnect();
+        }
     }
 
     async renameItem(

@@ -13,7 +13,9 @@ import {
     pluginRegistry,
     FilesystemPlugin,
     DiskPlugin,
-    TitleBarMenuItem
+    TitleBarMenuItem,
+    type FileContextAction,
+    type FileContextTarget
 } from './filesystem-plugins';
 import {
     getOrCreateBackdrop,
@@ -151,6 +153,23 @@ function isSelectedPathOpenableFont(): boolean {
     return selectedItem?.dataset.isFont === 'true';
 }
 
+function getSelectedDialogTarget(): FileContextTarget | null {
+    if (!selectedDialogPath) {
+        return null;
+    }
+
+    const selectedItem = getVisibleFileItem(selectedDialogPath);
+    if (!selectedItem) {
+        return null;
+    }
+
+    return {
+        path: selectedDialogPath,
+        name: selectedItem.dataset.name || '',
+        isDir: selectedItem.dataset.isDir === 'true'
+    };
+}
+
 function updateFileSelectionUi(): void {
     document.querySelectorAll('.file-item.selected').forEach((item) => {
         item.classList.remove('selected');
@@ -173,6 +192,9 @@ function updateFileDialogFooter(): void {
     ) as HTMLInputElement | null;
     const confirmButton = document.getElementById(
         'file-dialog-confirm-btn'
+    ) as HTMLButtonElement | null;
+    const deleteButton = document.getElementById(
+        'file-dialog-delete-btn'
     ) as HTMLButtonElement | null;
 
     if (title) {
@@ -210,6 +232,20 @@ function updateFileDialogFooter(): void {
             activeFileDialogMode === 'open'
                 ? !isSelectedPathOpenableFont()
                 : !saveNameInput?.value.trim();
+    }
+
+    if (deleteButton) {
+        const target = getSelectedDialogTarget();
+        const canDelete =
+            activeFileDialogMode === 'open' &&
+            !!target &&
+            fileSystemCache.currentPlugin.supportsFileContextAction(
+                'delete',
+                target
+            );
+        deleteButton.style.display =
+            activeFileDialogMode === 'open' ? '' : 'none';
+        deleteButton.disabled = !canDelete;
     }
 }
 
@@ -794,16 +830,22 @@ function createFileContextMenuHtml(
     name: string,
     isDir: boolean
 ): string {
+    const target: FileContextTarget = { path, name, isDir };
+    const supportsAction = (action: FileContextAction): boolean =>
+        fileSystemCache.currentPlugin.supportsFileContextAction(action, target);
     const items: string[] = [];
 
     // Open (for supported font formats)
-    if (isSupportedFontFormat(name, isDir)) {
+    if (isSupportedFontFormat(name, isDir) && supportsAction('open')) {
         items.push(`
             <div class="plugin-menu-item" data-action="open">
                 <span class="material-symbols-outlined">folder_open</span>
                 <span>Open</span>
             </div>
         `);
+    }
+
+    if (isSupportedFontFormat(name, isDir) && supportsAction('open-new-tab')) {
         items.push(`
             <div class="plugin-menu-item" data-action="open-new-tab">
                 <span class="material-symbols-outlined">open_in_new</span>
@@ -813,7 +855,7 @@ function createFileContextMenuHtml(
     }
 
     // Open in Script Editor (for Python files)
-    if (!isDir && name.endsWith('.py')) {
+    if (supportsAction('open-in-script-editor')) {
         items.push(`
             <div class="plugin-menu-item" data-action="open-in-script-editor">
                 <span class="material-symbols-outlined">code</span>
@@ -823,7 +865,7 @@ function createFileContextMenuHtml(
     }
 
     // Download (for files only)
-    if (!isDir) {
+    if (supportsAction('download')) {
         items.push(`
             <div class="plugin-menu-item" data-action="download">
                 <span class="material-symbols-outlined">download</span>
@@ -833,20 +875,24 @@ function createFileContextMenuHtml(
     }
 
     // Rename (for both files and folders)
-    items.push(`
-        <div class="plugin-menu-item" data-action="rename">
-            <span class="material-symbols-outlined">edit</span>
-            <span>Rename</span>
-        </div>
-    `);
+    if (supportsAction('rename')) {
+        items.push(`
+            <div class="plugin-menu-item" data-action="rename">
+                <span class="material-symbols-outlined">edit</span>
+                <span>Rename</span>
+            </div>
+        `);
+    }
 
     // Delete (for both files and folders)
-    items.push(`
-        <div class="plugin-menu-item" data-action="delete">
-            <span class="material-symbols-outlined">delete</span>
-            <span>Delete</span>
-        </div>
-    `);
+    if (supportsAction('delete')) {
+        items.push(`
+            <div class="plugin-menu-item" data-action="delete">
+                <span class="material-symbols-outlined">delete</span>
+                <span>Delete</span>
+            </div>
+        `);
+    }
 
     return `<div class="plugin-menu">${items.join('')}</div>`;
 }
@@ -1331,14 +1377,19 @@ async function openFont(
             timelineSpanEnd(pythonReadySpan);
         }
 
-        // Cloud URI — delegate to CloudPlugin and return early.
-        if (path.startsWith('cloud://')) {
-            const assetId = path.slice('cloud://'.length).replace(/^\/+/, '');
-            const cloudPlugin = (window as any).cloudPlugin;
-            if (!cloudPlugin) {
-                throw new Error('cloudPlugin is not available');
+        const sourcePlugin =
+            options.sourcePluginOverride || fileSystemCache.currentPlugin;
+        if (await sourcePlugin.handleOpenPath(path)) {
+            const pluginId = sourcePlugin.getId();
+            const normalizedPath =
+                pluginId === 'cloud' && path.startsWith('cloud://')
+                    ? path.slice('cloud://'.length)
+                    : path;
+            const fileUri = createFileUri(pluginId, normalizedPath);
+            syncEditorFileState(fileUri, 'file_opened');
+            if (options.closeDialogOnSuccess) {
+                closeFontFileDialog();
             }
-            await cloudPlugin.openAsset(assetId);
             timelineSpanEnd(openSpan);
             return;
         }
@@ -1346,9 +1397,6 @@ async function openFont(
         const startTime = performance.now();
         console.log('[FileBrowser]', `Opening font: ${path}`);
         const isReplacingOpenFont = !!window.fontManager?.currentFont;
-
-        const sourcePlugin =
-            options.sourcePluginOverride || fileSystemCache.currentPlugin;
         const sourceAdapter = sourcePlugin.getAdapter() as any;
 
         const directoryHandleForSource: FileSystemDirectoryHandle | undefined =
@@ -1651,6 +1699,21 @@ async function confirmFileDialogPrimaryAction(): Promise<void> {
     await openFont(selectedDialogPath, fileHandle, {
         closeDialogOnSuccess: true
     });
+}
+
+async function deleteSelectedDialogItem(): Promise<void> {
+    const target = getSelectedDialogTarget();
+    if (!target) {
+        updateFileDialogFooter();
+        return;
+    }
+
+    await deleteItem(target.path, target.name, target.isDir);
+    if (selectedDialogPath === target.path) {
+        selectedDialogPath = null;
+        updateFileSelectionUi();
+        updateFileDialogFooter();
+    }
 }
 
 async function locatePathInFileDialog(
@@ -2067,6 +2130,20 @@ async function downloadFile(filePath: string, fileName: string) {
 }
 
 async function deleteItem(itemPath: string, itemName: string, isDir: boolean) {
+    const target: FileContextTarget = {
+        path: itemPath,
+        name: itemName,
+        isDir
+    };
+    if (
+        !fileSystemCache.currentPlugin.supportsFileContextAction(
+            'delete',
+            target
+        )
+    ) {
+        return;
+    }
+
     const confirmMsg = isDir
         ? `Delete folder "${itemName}" and all its contents?`
         : `Delete file "${itemName}"?`;
@@ -2084,6 +2161,20 @@ async function deleteItem(itemPath: string, itemName: string, isDir: boolean) {
 }
 
 async function renameItem(itemPath: string, itemName: string, isDir: boolean) {
+    const target: FileContextTarget = {
+        path: itemPath,
+        name: itemName,
+        isDir
+    };
+    if (
+        !fileSystemCache.currentPlugin.supportsFileContextAction(
+            'rename',
+            target
+        )
+    ) {
+        return;
+    }
+
     // Find the file item element
     const fileItem = document.querySelector(
         `.file-item[data-path="${itemPath}"]`
@@ -2655,6 +2746,7 @@ function selectFile(filePath: string) {
 // Click tracking for single vs double-click distinction
 let clickTimer: number | null = null;
 let clickPrevent = false;
+let pendingClickPath: string | null = null;
 const CLICK_DELAY = 250; // ms to wait for double-click
 
 function setupFileItemClickHandlers() {
@@ -2676,10 +2768,11 @@ function setupFileItemClickHandlers() {
                 return;
             }
 
-            if (clickTimer) {
+            if (clickTimer && pendingClickPath === path) {
                 // Double-click detected
                 clearTimeout(clickTimer);
                 clickTimer = null;
+                pendingClickPath = null;
                 clickPrevent = true;
 
                 // Handle double-click
@@ -2701,9 +2794,16 @@ function setupFileItemClickHandlers() {
                     clickPrevent = false;
                 }, CLICK_DELAY);
             } else {
+                if (clickTimer) {
+                    clearTimeout(clickTimer);
+                    clickTimer = null;
+                }
+
                 // First click - wait for potential double-click
+                pendingClickPath = path;
                 clickTimer = window.setTimeout(() => {
                     clickTimer = null;
+                    pendingClickPath = null;
 
                     // Handle single-click
                     if (isDir && !isFont) {
@@ -2897,11 +2997,12 @@ function initFileDialogModal(): void {
     const closeBtn = document.getElementById('font-file-dialog-close-btn');
     const cancelBtn = document.getElementById('file-dialog-cancel-btn');
     const confirmBtn = document.getElementById('file-dialog-confirm-btn');
+    const deleteBtn = document.getElementById('file-dialog-delete-btn');
     const saveNameInput = document.getElementById(
         'file-dialog-save-name'
     ) as HTMLInputElement | null;
 
-    if (!dialog || !closeBtn || !cancelBtn || !confirmBtn) {
+    if (!dialog || !closeBtn || !cancelBtn || !confirmBtn || !deleteBtn) {
         return;
     }
 
@@ -2909,6 +3010,9 @@ function initFileDialogModal(): void {
     cancelBtn.addEventListener('click', closeFontFileDialog);
     confirmBtn.addEventListener('click', () => {
         void confirmFileDialogPrimaryAction();
+    });
+    deleteBtn.addEventListener('click', () => {
+        void deleteSelectedDialogItem();
     });
 
     dialog.addEventListener('click', (event: Event) => {
@@ -3281,20 +3385,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Switch to the specified plugin
                 await switchContext(pluginId);
 
-                // Cloud assets are identified by assetId, not a filesystem path.
-                // Route directly to openAsset instead of the generic file flow.
                 if (pluginId === 'cloud') {
-                    const assetId = fontPath.replace(/^\/+/, '');
-                    const cloudPlugin = (window as any).cloudPlugin;
-                    if (!cloudPlugin) {
-                        alert('Error: cloudPlugin is not available');
-                        console.error(
-                            '[FileBrowser]',
-                            'cloudPlugin not found for URL param'
-                        );
-                        return;
-                    }
-                    await cloudPlugin.openAsset(assetId);
+                    await openFont(`cloud://${fontPath.replace(/^\/+/, '')}`);
                     return;
                 }
 
