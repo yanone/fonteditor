@@ -30,14 +30,15 @@
 import type { ChangeBridge } from './change-bridge';
 import type { FileSystemAdapter, FileInfo } from './file-system-adapter';
 import { Logger } from './logger';
+import { resolveWebsiteURL } from './website-url';
 
 const console = new Logger('CloudAdapter');
 
 /** Default WebSocket URL for the room worker (local dev). */
 const DEFAULT_ROOM_WORKER_URL = 'ws://localhost:8787';
 
-/** Default website base URL for the room-token endpoint (local dev). */
-const DEFAULT_WEBSITE_BASE_URL = 'http://localhost:8788';
+/** Default website base URL for the room-token endpoint. */
+const DEFAULT_WEBSITE_BASE_URL = resolveWebsiteURL();
 
 type CloudDeleteResponse = {
     success?: boolean;

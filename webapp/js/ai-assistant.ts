@@ -2,6 +2,8 @@
 // Sends prompts to Anthropic Claude with Python API docs
 // Executes generated Python code with error handling and retry
 
+import { resolveWebsiteURL } from './website-url';
+
 /**
  * A fixed-height code block that shows the latest 7 lines.
  * Content grows upward from the bottom; earlier lines scroll out of view.
@@ -270,20 +272,7 @@ class AIAssistant {
     }
 
     getWebsiteURL() {
-        // Detect environment and return appropriate website URL
-        const hostname = window.location.hostname;
-
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            return 'http://localhost:8788'; // Local development
-        }
-
-        // Production font editor URL
-        if (hostname === 'editor.counterpunch.space') {
-            return 'https://counterpunch.space';
-        }
-
-        // Default to production website
-        return 'https://counterpunch.space';
+        return resolveWebsiteURL();
     }
 
     async checkAuthenticationStatus() {

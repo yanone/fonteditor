@@ -11,6 +11,7 @@ import {
     decodeFeatures
 } from './url-state';
 import { mapStackTrace } from './stack-mapper';
+import { resolveWebsiteURL } from './website-url';
 
 const console = new Logger('StateManager');
 
@@ -62,20 +63,7 @@ const SYNC_DEBOUNCE_MS = 100; // Debounce URL updates
 const ERROR_REPORT_ENDPOINT = '/api/errors/report';
 
 function getWebsiteURL(): string {
-    const hostname = window.location.hostname;
-
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        return 'http://localhost:8788';
-    }
-
-    if (
-        hostname === 'editor.counterpunch.space' ||
-        hostname === 'preview.editor.counterpunch.space'
-    ) {
-        return 'https://counterpunch.space';
-    }
-
-    return 'https://counterpunch.space';
+    return resolveWebsiteURL();
 }
 
 function getSessionTokenFromCookie(): string | null {

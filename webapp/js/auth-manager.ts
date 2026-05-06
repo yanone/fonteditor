@@ -3,6 +3,8 @@
  * Handles cross-domain authentication with fonteditorwebsite
  */
 
+import { resolveWebsiteURL } from './website-url';
+
 type AuthUser = {
     email?: string;
     [key: string]: unknown;
@@ -101,23 +103,7 @@ class AuthManager {
     }
 
     getWebsiteURL(): string {
-        // Detect environment and return appropriate website URL
-        const hostname = window.location.hostname;
-
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            return 'http://localhost:8788'; // Local development
-        }
-
-        // Production/preview font editor URLs
-        if (
-            hostname === 'editor.counterpunch.space' ||
-            hostname === 'preview.editor.counterpunch.space'
-        ) {
-            return 'https://counterpunch.space';
-        }
-
-        // Default to production
-        return 'https://counterpunch.space';
+        return resolveWebsiteURL();
     }
 
     isLocalWebsiteURL(): boolean {

@@ -21,6 +21,7 @@ import { Path } from './babelfont-model';
 import { ChangeBridge } from './change-bridge';
 import { sanitizeBabelfontArrays, yDocToJson } from './change-bridge-ydoc';
 import { Logger } from './logger';
+import { resolveWebsiteURL } from './website-url';
 
 const console = new Logger('CloudPlugin');
 
@@ -164,7 +165,7 @@ export class CloudPlugin extends FilesystemPlugin {
     }
 
     private get _websiteBaseUrl(): string {
-        return window.authManager?.websiteURL ?? 'http://localhost:8788';
+        return window.authManager?.websiteURL || resolveWebsiteURL();
     }
 
     getId(): string {

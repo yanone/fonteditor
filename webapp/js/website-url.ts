@@ -1,0 +1,19 @@
+export function resolveWebsiteURL(hostname?: string): string {
+    const effectiveHostname = hostname ?? window.location.hostname;
+
+    if (
+        effectiveHostname === 'localhost' ||
+        effectiveHostname === '127.0.0.1'
+    ) {
+        return 'http://localhost:8788';
+    }
+
+    if (
+        effectiveHostname === 'editor.counterpunch.space' ||
+        effectiveHostname === 'preview.editor.counterpunch.space'
+    ) {
+        return 'https://counterpunch.space';
+    }
+
+    return 'https://counterpunch.space';
+}
