@@ -35,7 +35,6 @@ const console = new Logger('CloudAdapter');
 
 /** Default WebSocket URL for the room worker (local dev). */
 const DEFAULT_ROOM_WORKER_URL = 'ws://localhost:8787';
-const DEFAULT_PRODUCTION_ROOM_HOST = 'collab.counterpunch.space';
 
 /** Default website base URL for the room-token endpoint (local dev). */
 const DEFAULT_WEBSITE_BASE_URL = 'http://localhost:8788';
@@ -80,28 +79,6 @@ export function normalizeCloudRoomWebSocketUrl(
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Invalid room URL "${roomUrl}": ${message}`);
-    }
-
-    let websiteUrl: URL | null = null;
-    try {
-        websiteUrl = new URL(websiteBaseUrl);
-    } catch {
-        websiteUrl = null;
-    }
-
-    const isLocalHost = (hostname: string): boolean =>
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname === '::1';
-
-    if (
-        isLocalHost(normalizedUrl.hostname) &&
-        websiteUrl &&
-        !isLocalHost(websiteUrl.hostname)
-    ) {
-        normalizedUrl.hostname = DEFAULT_PRODUCTION_ROOM_HOST;
-        normalizedUrl.protocol =
-            websiteUrl.protocol === 'http:' ? 'ws:' : 'wss:';
     }
 
     if (normalizedUrl.protocol === 'http:') {
