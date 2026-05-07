@@ -16,15 +16,18 @@ Production collaboration depends on three deployables:
 
 Before smoke testing collaboration, verify all of the following:
 
-1. The editor builds successfully from `editor/webapp` with `npm run build`.
-2. The website builds successfully from `website` with `npm run build`.
-3. The `fonts-room` worker bundles successfully from
+1. R2 is enabled on the Cloudflare account. The `fonts-room` worker cannot be
+   deployed until the account has R2 access enabled in the Cloudflare
+   dashboard.
+2. The editor builds successfully from `editor/webapp` with `npm run build`.
+3. The website builds successfully from `website` with `npm run build`.
+4. The `fonts-room` worker bundles successfully from
    `website/workers/fonts-room` with `npx wrangler deploy --dry-run`.
-4. The website Pages project has a production `ROOM_WORKER_URL` variable set to
+5. The website Pages project has a production `ROOM_WORKER_URL` variable set to
    the public origin of the deployed `fonts-room` worker.
-5. The `fonts-room` worker is deployed with its `FONT_ROOM` Durable Object
+6. The `fonts-room` worker is deployed with its `FONT_ROOM` Durable Object
    binding and `ROOM_STATE_BUCKET` R2 binding.
-6. The website Pages project still has its expected D1 and KV bindings.
+7. The website Pages project still has its expected D1 and KV bindings.
 
 ## Production Smoke Test
 
