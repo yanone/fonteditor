@@ -917,6 +917,163 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
+    test('syncCurrentExactLayerDataFromModel preserves working-copy geometry when the exact model snapshot omits it', () => {
+        const currentLayerData = {
+            id: 'layer-1',
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, type: 'l' },
+                        { x: 100, y: 0, type: 'l' }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [{ name: 'top', x: 50, y: 700 }],
+            guides: [],
+            format_specific: { test: true }
+        };
+        const getCurrentLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentLayerDataFromStack')
+            .mockReturnValue(currentLayerData);
+        const getCurrentLayerModelSpy = jest
+            .spyOn(canvas.outlineEditor, 'getCurrentLayerModel')
+            .mockReturnValue({
+                toJSON: jest.fn(() => ({
+                    id: 'layer-1'
+                }))
+            });
+
+        try {
+            canvas.outlineEditor.syncCurrentExactLayerDataFromModel();
+
+            expect(currentLayerData.width).toBe(520);
+            expect(currentLayerData.shapes).toEqual([
+                {
+                    nodes: [
+                        { x: 0, y: 0, type: 'l' },
+                        { x: 100, y: 0, type: 'l' }
+                    ],
+                    closed: false
+                }
+            ]);
+            expect(currentLayerData.anchors).toEqual([
+                { name: 'top', x: 50, y: 700 }
+            ]);
+            expect(currentLayerData.format_specific).toEqual({ test: true });
+        } finally {
+            getCurrentLayerDataSpy.mockRestore();
+            getCurrentLayerModelSpy.mockRestore();
+        }
+    });
+
+    test('applyExactSelectedLayerData preserves existing exact-layer geometry when the incoming exact snapshot omits it', () => {
+        canvas.outlineEditor.layerData = {
+            id: 'layer-1',
+            width: 520,
+            shapes: [
+                {
+                    nodes: [
+                        { x: 0, y: 0, type: 'l' },
+                        { x: 100, y: 0, type: 'l' }
+                    ],
+                    closed: false
+                }
+            ],
+            anchors: [{ name: 'top', x: 50, y: 700 }],
+            guides: [],
+            format_specific: { test: true },
+            isInterpolated: false
+        };
+        const isEditingComponentSpy = jest
+            .spyOn(canvas.outlineEditor, 'isEditingComponent')
+            .mockReturnValue(false);
+
+        try {
+            canvas.outlineEditor.applyExactSelectedLayerData(
+                { id: 'layer-1' },
+                null
+            );
+
+            expect(canvas.outlineEditor.layerData.width).toBe(520);
+            expect(canvas.outlineEditor.layerData.shapes).toEqual([
+                {
+                    nodes: [
+                        { x: 0, y: 0, type: 'l' },
+                        { x: 100, y: 0, type: 'l' }
+                    ],
+                    closed: false
+                }
+            ]);
+            expect(canvas.outlineEditor.layerData.anchors).toEqual([
+                { name: 'top', x: 50, y: 700 }
+            ]);
+            expect(canvas.outlineEditor.layerData.format_specific).toEqual({
+                test: true
+            });
+        } finally {
+            isEditingComponentSpy.mockRestore();
+        }
+    });
+
+    test('serializeLayerDataAsInterpolationPayload preserves omitted nested component layer fields', () => {
+        const serialized =
+            canvas.outlineEditor.serializeLayerDataAsInterpolationPayload({
+                width: 520,
+                shapes: [
+                    {
+                        reference: 'acutecomb',
+                        layerData: {
+                            format_specific: { nested: true }
+                        }
+                    }
+                ]
+            });
+
+        expect(serialized.shapes[0].layerData.width).toBeUndefined();
+        expect(serialized.shapes[0].layerData.shapes).toBeUndefined();
+        expect(serialized.shapes[0].layerData.anchors).toBeUndefined();
+        expect(serialized.shapes[0].layerData.format_specific).toBeUndefined();
+    });
+
+    test('preserveMissingLayerFields strips synthesized nested component layer empties', () => {
+        const preserved = canvas.outlineEditor.preserveMissingLayerFields(
+            {
+                width: 520,
+                shapes: [
+                    {
+                        reference: 'acutecomb',
+                        layerData: {
+                            width: 0,
+                            shapes: [],
+                            anchors: [],
+                            format_specific: { nested: true }
+                        }
+                    }
+                ]
+            },
+            {
+                width: 520,
+                shapes: [
+                    {
+                        reference: 'acutecomb',
+                        layerData: {
+                            format_specific: { nested: true }
+                        }
+                    }
+                ]
+            }
+        );
+
+        expect(preserved.shapes[0].layerData.width).toBeUndefined();
+        expect(preserved.shapes[0].layerData.shapes).toBeUndefined();
+        expect(preserved.shapes[0].layerData.anchors).toBeUndefined();
+        expect(preserved.shapes[0].layerData.format_specific).toEqual({
+            nested: true
+        });
+    });
+
     test('point drag with left metrics key keeps cumulative x delta across compensated straight-left moves', () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;

@@ -269,10 +269,43 @@ describe('FontManager saveLayerData', () => {
         const savedLayer = fontManager.currentFont.babelfontData.glyphs
             .find((entry) => entry.name === 'a')
             .layers.find((entry) => entry.id === layer.id);
+        const modelLayer = fontManager.currentFont.fontModel
+            .findGlyph('a')
+            .findLayerById(layer.id);
 
         expect(savedLayer.width).toBe(originalWidth + 25);
         expect(savedLayer.shapes).toEqual(originalShapes);
         expect(savedLayer.anchors).toEqual(originalAnchors);
+        expect(modelLayer.toJSON().shapes).toEqual(originalShapes);
+        expect(modelLayer.toJSON().anchors).toEqual(originalAnchors);
+    });
+
+    test('serializeLayerForStorage does not synthesize empty shapes for skeletal layers', () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        glyph.layers[glyph.layers.indexOf(layer)] = {
+            id: layer.id,
+            width: 0,
+            master: cloneJson(layer.master)
+        };
+
+        const serialized = fontManager.serializeLayerForStorage(
+            'a',
+            layer.id,
+            {
+                id: layer.id,
+                width: 640,
+                master: cloneJson(layer.master)
+            },
+            undefined
+        );
+
+        expect(serialized.width).toBe(640);
+        expect(serialized.shapes).toBeUndefined();
     });
 
     test('keeps live auto-compile for interactive keyboard outline saves', async () => {

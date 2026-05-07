@@ -6126,16 +6126,73 @@ export class OutlineEditor {
             return false;
         }
 
-        for (const key of Object.keys(currentLayerData)) {
-            if (!(key in layerData)) {
-                delete (currentLayerData as Record<string, any>)[key];
-            }
-        }
-
         Object.assign(currentLayerData, layerData);
         currentLayerData.isInterpolated = false;
         parseComponentNodes(currentLayerData.shapes || []);
         return true;
+    }
+
+    private preserveMissingLayerFields(
+        normalizedLayerData: any,
+        sourceLayerData: any
+    ): any {
+        if (
+            !normalizedLayerData ||
+            typeof normalizedLayerData !== 'object' ||
+            Array.isArray(normalizedLayerData) ||
+            !sourceLayerData ||
+            typeof sourceLayerData !== 'object' ||
+            Array.isArray(sourceLayerData)
+        ) {
+            return normalizedLayerData;
+        }
+
+        const preservedLayerData = { ...normalizedLayerData };
+        for (const key of [
+            'width',
+            'shapes',
+            'anchors',
+            'guides',
+            'format_specific',
+            'name'
+        ]) {
+            if (!(key in sourceLayerData)) {
+                delete preservedLayerData[key];
+            }
+        }
+
+        if (
+            Array.isArray(preservedLayerData.shapes) &&
+            Array.isArray(sourceLayerData.shapes)
+        ) {
+            preservedLayerData.shapes = preservedLayerData.shapes.map(
+                (shape: any, index: number) => {
+                    const sourceShape = sourceLayerData.shapes[index];
+                    if (
+                        !shape ||
+                        typeof shape !== 'object' ||
+                        Array.isArray(shape) ||
+                        !sourceShape ||
+                        typeof sourceShape !== 'object' ||
+                        Array.isArray(sourceShape) ||
+                        !('layerData' in shape) ||
+                        !('layerData' in sourceShape)
+                    ) {
+                        return shape;
+                    }
+
+                    return {
+                        ...shape,
+                        layerData: this.preserveMissingLayerFields(
+                            shape.layerData,
+                            sourceShape.layerData
+                        )
+                    };
+                }
+            );
+        }
+
+        return preservedLayerData;
     }
 
     private mergeSelectedLayerComponentLayerData(
@@ -6249,12 +6306,16 @@ export class OutlineEditor {
             exactLayerData,
             false
         );
+        const preservedExactNormalized = this.preserveMissingLayerFields(
+            exactNormalized,
+            exactLayerData
+        );
         const interpolatedNormalized = LayerDataNormalizer.normalize(
             interpolatedResult,
             true
         );
 
-        if (this.isEditingComponent() && exactNormalized) {
+        if (this.isEditingComponent() && preservedExactNormalized) {
             const rootLayerData = interpolatedNormalized
                 ? this.cloneLayerData(interpolatedNormalized)
                 : this.layerData
@@ -6268,8 +6329,9 @@ export class OutlineEditor {
                 );
 
                 const currentLayerData = this.getCurrentLayerDataFromStack();
-                const exactCurrentLayerData =
-                    this.cloneLayerData(exactNormalized);
+                const exactCurrentLayerData = this.cloneLayerData(
+                    preservedExactNormalized
+                );
 
                 if (
                     exactCurrentLayerData.shapes &&
@@ -6294,17 +6356,34 @@ export class OutlineEditor {
             }
         }
 
-        if (exactNormalized?.shapes && interpolatedNormalized?.shapes?.length) {
-            exactNormalized.shapes = this.mergeSelectedLayerShapes(
-                exactNormalized.shapes,
-                interpolatedNormalized.shapes,
+        const exactLayerBase = interpolatedNormalized
+            ? this.cloneLayerData(interpolatedNormalized)
+            : this.layerData
+              ? this.cloneLayerData(this.layerData)
+              : null;
+        const mergedExactNormalized = preservedExactNormalized
+            ? {
+                  ...(exactLayerBase || {}),
+                  ...this.cloneLayerData(preservedExactNormalized),
+                  isInterpolated: false
+              }
+            : exactNormalized;
+
+        if (
+            mergedExactNormalized?.shapes &&
+            (interpolatedNormalized?.shapes?.length ||
+                exactLayerBase?.shapes?.length)
+        ) {
+            mergedExactNormalized.shapes = this.mergeSelectedLayerShapes(
+                mergedExactNormalized.shapes,
+                interpolatedNormalized?.shapes || exactLayerBase?.shapes || [],
                 preferExactComponentTransforms
             );
         }
 
         this.assignLayerData(
-            exactNormalized,
-            interpolatedResult ?? exactNormalized
+            mergedExactNormalized,
+            interpolatedResult ?? mergedExactNormalized
         );
     }
 
@@ -6423,93 +6502,111 @@ export class OutlineEditor {
         }
 
         const serializedLayerData: any = {
-            width: layerData.width ?? 0,
-            shapes: this.flattenNestedShapes(layerData.shapes).map((shape) => {
-                if (!shape || typeof shape !== 'object') {
-                    return shape;
-                }
+            ...('width' in layerData ? { width: layerData.width ?? 0 } : {}),
+            ...('shapes' in layerData
+                ? {
+                      shapes: this.flattenNestedShapes(layerData.shapes).map(
+                          (shape) => {
+                              if (!shape || typeof shape !== 'object') {
+                                  return shape;
+                              }
 
-                if ('nodes' in shape) {
-                    const serializedPath: Record<string, any> = {
-                        nodes: Array.isArray(shape.nodes)
-                            ? LayerDataNormalizer.serializeNodes(shape.nodes)
-                            : shape.nodes
-                    };
+                              if ('nodes' in shape) {
+                                  const serializedPath: Record<string, any> = {
+                                      nodes: Array.isArray(shape.nodes)
+                                          ? LayerDataNormalizer.serializeNodes(
+                                                shape.nodes
+                                            )
+                                          : shape.nodes
+                                  };
 
-                    if (shape.closed !== undefined) {
-                        serializedPath.closed = shape.closed;
-                    }
+                                  if (shape.closed !== undefined) {
+                                      serializedPath.closed = shape.closed;
+                                  }
 
-                    if (
-                        shape.format_specific &&
-                        Object.keys(shape.format_specific).length
-                    ) {
-                        serializedPath.format_specific = shape.format_specific;
-                    }
+                                  if (
+                                      shape.format_specific &&
+                                      Object.keys(shape.format_specific).length
+                                  ) {
+                                      serializedPath.format_specific =
+                                          shape.format_specific;
+                                  }
 
-                    return serializedPath;
-                }
+                                  return serializedPath;
+                              }
 
-                if ('reference' in shape) {
-                    const originalTransform = shape.transform;
-                    const affineTransform = Array.isArray(originalTransform)
-                        ? originalTransform
-                        : originalTransform
-                          ? DecomposedAffineTransform.toAffine(
-                                originalTransform
-                            )
-                          : [1, 0, 0, 1, 0, 0];
+                              if ('reference' in shape) {
+                                  const originalTransform = shape.transform;
+                                  const affineTransform = Array.isArray(
+                                      originalTransform
+                                  )
+                                      ? originalTransform
+                                      : originalTransform
+                                        ? DecomposedAffineTransform.toAffine(
+                                              originalTransform
+                                          )
+                                        : [1, 0, 0, 1, 0, 0];
 
-                    const serializedComponent: Record<string, any> = {
-                        reference: shape.reference
-                    };
+                                  const serializedComponent: Record<
+                                      string,
+                                      any
+                                  > = {
+                                      reference: shape.reference
+                                  };
 
-                    if (
-                        shape.format_specific &&
-                        Object.keys(shape.format_specific).length
-                    ) {
-                        serializedComponent.format_specific =
-                            shape.format_specific;
-                    }
+                                  if (
+                                      shape.format_specific &&
+                                      Object.keys(shape.format_specific).length
+                                  ) {
+                                      serializedComponent.format_specific =
+                                          shape.format_specific;
+                                  }
 
-                    const isIdentityTransform =
-                        affineTransform[0] === 1 &&
-                        affineTransform[1] === 0 &&
-                        affineTransform[2] === 0 &&
-                        affineTransform[3] === 1 &&
-                        affineTransform[4] === 0 &&
-                        affineTransform[5] === 0;
-                    if (!isIdentityTransform) {
-                        serializedComponent.transform = originalTransform;
-                    }
+                                  const isIdentityTransform =
+                                      affineTransform[0] === 1 &&
+                                      affineTransform[1] === 0 &&
+                                      affineTransform[2] === 0 &&
+                                      affineTransform[3] === 1 &&
+                                      affineTransform[4] === 0 &&
+                                      affineTransform[5] === 0;
+                                  if (!isIdentityTransform) {
+                                      serializedComponent.transform =
+                                          originalTransform;
+                                  }
 
-                    if (shape.location && Object.keys(shape.location).length) {
-                        serializedComponent.location = shape.location;
-                    }
+                                  if (
+                                      shape.location &&
+                                      Object.keys(shape.location).length
+                                  ) {
+                                      serializedComponent.location =
+                                          shape.location;
+                                  }
 
-                    if (shape.layerData) {
-                        serializedComponent.layerData =
-                            this.serializeLayerDataAsInterpolationPayload(
-                                shape.layerData
-                            );
-                    }
+                                  if (shape.layerData) {
+                                      serializedComponent.layerData =
+                                          this.serializeLayerDataAsInterpolationPayload(
+                                              shape.layerData
+                                          );
+                                  }
 
-                    return serializedComponent;
-                }
+                                  return serializedComponent;
+                              }
 
-                return shape;
-            })
+                              return shape;
+                          }
+                      )
+                  }
+                : {})
         };
 
-        const serializedAnchors = (layerData.anchors || []).map(
-            (anchor: any) => ({
-                name: anchor.name,
-                x: anchor.x,
-                y: anchor.y
-            })
-        );
-        if (serializedAnchors.length) {
-            serializedLayerData.anchors = serializedAnchors;
+        if ('anchors' in layerData) {
+            serializedLayerData.anchors = (layerData.anchors || []).map(
+                (anchor: any) => ({
+                    name: anchor.name,
+                    x: anchor.x,
+                    y: anchor.y
+                })
+            );
         }
 
         delete serializedLayerData._verticalMetrics;
@@ -6702,8 +6799,12 @@ export class OutlineEditor {
 
         const serializedLayerData =
             this.serializeLayerDataAsInterpolationPayload(exactLayerData);
+        const preservedSerializedLayerData = this.preserveMissingLayerFields(
+            serializedLayerData,
+            rawLayerData
+        );
         if (this.shouldPreferExactSelectedLayerComponentTransforms(layer)) {
-            serializedLayerData.__preferExactComponentTransforms = true;
+            preservedSerializedLayerData.__preferExactComponentTransforms = true;
         }
 
         const verticalMetrics = this.getVerticalMetricsForLayer(
@@ -6711,7 +6812,7 @@ export class OutlineEditor {
             fontModel
         );
         if (verticalMetrics) {
-            serializedLayerData._verticalMetrics = verticalMetrics;
+            preservedSerializedLayerData._verticalMetrics = verticalMetrics;
         }
 
         const interpolationLocation = this.getUserspaceLocationForLayer(
@@ -6719,10 +6820,11 @@ export class OutlineEditor {
             glyphName
         );
         if (interpolationLocation) {
-            serializedLayerData._interpolationLocation = interpolationLocation;
+            preservedSerializedLayerData._interpolationLocation =
+                interpolationLocation;
         }
 
-        return serializedLayerData;
+        return preservedSerializedLayerData;
     }
 
     private updateCurrentGlyphNameFromStack(glyphName: string): void {
@@ -14682,9 +14784,10 @@ export class OutlineEditor {
             return;
         }
 
-        const exactNormalized = LayerDataNormalizer.normalize(
-            currentLayerModel.toJSON(),
-            false
+        const rawLayerData = currentLayerModel.toJSON();
+        const exactNormalized = this.preserveMissingLayerFields(
+            LayerDataNormalizer.normalize(rawLayerData, false),
+            rawLayerData
         );
 
         if (!exactNormalized) {
@@ -14702,12 +14805,6 @@ export class OutlineEditor {
                 currentLayerData.shapes,
                 preferExactComponentTransforms
             );
-        }
-
-        for (const key of Object.keys(currentLayerData)) {
-            if (!(key in exactNormalized)) {
-                delete (currentLayerData as Record<string, any>)[key];
-            }
         }
 
         Object.assign(currentLayerData, exactNormalized);

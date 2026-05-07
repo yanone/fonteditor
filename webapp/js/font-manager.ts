@@ -1334,14 +1334,66 @@ class FontManager {
             return null;
         }
 
-        const rawLayerData = modelLayer.toJSON() as Babelfont.Layer &
-            Record<string, unknown>;
-        for (const key of Object.keys(rawLayerData)) {
-            if (!(key in layerData)) {
-                delete rawLayerData[key];
-            }
+        if (typeof modelLayer.syncFromEditorLayerData === 'function') {
+            withSuppressedModelRecording(() => {
+                modelLayer.syncFromEditorLayerData({
+                    width: layerData.width,
+                    ...(layerData.height !== undefined
+                        ? { height: layerData.height }
+                        : {}),
+                    ...(layerData.vertWidth !== undefined
+                        ? { vertWidth: layerData.vertWidth }
+                        : {}),
+                    ...(layerData.shapes !== undefined
+                        ? { shapes: layerData.shapes }
+                        : {}),
+                    ...(layerData.anchors !== undefined
+                        ? { anchors: layerData.anchors }
+                        : {}),
+                    ...(layerData.guides !== undefined
+                        ? { guides: layerData.guides }
+                        : {}),
+                    ...(layerData.format_specific !== undefined
+                        ? { format_specific: layerData.format_specific }
+                        : {})
+                });
+            });
+
+            const syncedLayerData = modelLayer.toJSON() as Babelfont.Layer &
+                Record<string, unknown>;
+            Object.assign(syncedLayerData, {
+                ...(layerData.name !== undefined
+                    ? { name: layerData.name }
+                    : {}),
+                ...(layerData.location !== undefined
+                    ? { location: layerData.location }
+                    : {}),
+                ...(layerData.color !== undefined
+                    ? { color: layerData.color }
+                    : {}),
+                ...(layerData.background_layer_id !== undefined
+                    ? {
+                          background_layer_id: layerData.background_layer_id
+                      }
+                    : {}),
+                ...(layerData.layer_index !== undefined
+                    ? { layer_index: layerData.layer_index }
+                    : {}),
+                ...(layerData.is_background !== undefined
+                    ? { is_background: layerData.is_background }
+                    : {}),
+                ...(layerData.master !== undefined
+                    ? { master: layerData.master }
+                    : {}),
+                id: layerId
+            });
+
+            modelLayer.invalidateContentCaches();
+            return syncedLayerData;
         }
 
+        const rawLayerData = modelLayer.toJSON() as Babelfont.Layer &
+            Record<string, unknown>;
         Object.assign(rawLayerData, layerData);
 
         modelLayer.invalidateContentCaches();
@@ -2939,6 +2991,7 @@ class FontManager {
         const originalLayer = this.getGlyph(glyphName)?.layers?.find(
             (entry: any) => entry.id === layerId
         );
+        const existingLayer = originalLayer;
         if (!originalLayer && !layerData) {
             return null;
         }
@@ -2946,6 +2999,10 @@ class FontManager {
         const cleanShapes = Array.isArray(layerData.shapes)
             ? layerData.shapes.map(cleanShapeForSaving)
             : originalLayer?.shapes;
+        const storedShapes =
+            options?.preserveExistingShapes && originalLayer?.shapes
+                ? originalLayer.shapes
+                : cleanShapes;
 
         const cleanAnchors = Array.isArray(layerData.anchors)
             ? layerData.anchors.map((anchor) => ({
@@ -2983,10 +3040,7 @@ class FontManager {
             ...(layerName !== undefined && { name: layerName }),
             id: layerId,
             master: originalLayer?.master ?? layerData.master,
-            shapes:
-                options?.preserveExistingShapes && originalLayer?.shapes
-                    ? originalLayer.shapes
-                    : cleanShapes || [],
+            ...(Array.isArray(storedShapes) && { shapes: storedShapes }),
             ...(cleanAnchors && { anchors: cleanAnchors }),
             ...(cleanGuides && { guides: cleanGuides }),
             ...((layerData.color ?? originalLayer?.color) && {
