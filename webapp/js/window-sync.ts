@@ -93,8 +93,7 @@ export class WindowSync {
             // Wire bridge's local updates to broadcast. The broadcast itself is
             // microtask-batched so a single user transaction that emits several
             // Yjs updates produces one channel message and one receiver refresh.
-            bridge.onLocalUpdate((update) => {
-                const changeLogEntries = bridge.getNewChangeLogEntries();
+            bridge.onLocalUpdate((update, changeLogEntries) => {
                 this._queueOutboundBroadcast(update, changeLogEntries);
             });
         }

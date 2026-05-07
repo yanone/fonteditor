@@ -304,7 +304,9 @@ class OpenedFont {
      */
     markDirty(changeSource?: string): void {
         this.needsRecompile = true;
-        this.hasUnsavedChanges = true;
+        if (!this.isCloudBacked()) {
+            this.hasUnsavedChanges = true;
+        }
         this.changeVersion++;
         this.compileRequestVersion++;
         window.fullCompileManager?.checkAndSchedule?.();
@@ -318,6 +320,10 @@ class OpenedFont {
     requestRecompileWithoutDataChange(): void {
         this.needsRecompile = true;
         this.compileRequestVersion++;
+    }
+
+    isCloudBacked(): boolean {
+        return this.sourcePlugin?.getId?.() === 'cloud';
     }
 
     /**
@@ -571,6 +577,10 @@ class FontManager {
         this.workerCacheUpdatePromise = null;
         this.forceFullEditingCacheRefresh = false;
         this.workerLayerFingerprintCache = new Map();
+
+        window.addEventListener('cloudConnectionStatusChanged', () => {
+            void this.updateDirtyIndicator();
+        });
     }
     init() {
         this.fontDisplay = document.getElementById('current-font-display');
@@ -603,7 +613,7 @@ class FontManager {
         const roleSuffix = window.windowRole?.getTitleSuffix() ?? '(Main)';
         const dirtyPrefix =
             window.windowRole?.isMainWindow() &&
-            this.currentFont?.hasUnsavedChanges
+            this.shouldShowDirtyState(this.currentFont)
                 ? '● '
                 : '';
 
@@ -628,6 +638,41 @@ class FontManager {
         }
         window.currentFontModel = null;
         return null;
+    }
+
+    private normalizeCloudAssetId(font: OpenedFont | null): string | null {
+        if (!font?.isCloudBacked()) {
+            return null;
+        }
+
+        return font.path.replace(/^cloud:\/\//, '').replace(/^\/+/, '') || null;
+    }
+
+    shouldShowDirtyState(font: OpenedFont | null): boolean {
+        if (!font) {
+            return false;
+        }
+
+        if (!font.isCloudBacked()) {
+            return font.hasUnsavedChanges;
+        }
+
+        const assetId = this.normalizeCloudAssetId(font);
+        if (!assetId) {
+            return false;
+        }
+
+        return !!window.cloudPlugin?.hasConnectionProblem?.(assetId);
+    }
+
+    hasAnyDirtyState(): boolean {
+        for (const openedFont of this.openedFonts.values()) {
+            if (this.shouldShowDirtyState(openedFont)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     updateFontDisplay() {
@@ -673,11 +718,20 @@ class FontManager {
     }
 
     async updateDirtyIndicator() {
-        // Update visual indicator
-        if (
+        const shouldShowIndicator =
             window.windowRole?.isMainWindow() &&
-            this.currentFont?.hasUnsavedChanges
-        ) {
+            this.shouldShowDirtyState(this.currentFont);
+
+        if (this.currentFont?.isCloudBacked()) {
+            this.dirtyIndicator!.title = shouldShowIndicator
+                ? 'Cloud connection dropped; local edits may not be persisted yet'
+                : 'Cloud room is connected and persisted';
+        } else {
+            this.dirtyIndicator!.title = 'File has unsaved changes';
+        }
+
+        // Update visual indicator
+        if (shouldShowIndicator) {
             this.dirtyIndicator!.classList.add('visible');
         } else {
             this.dirtyIndicator!.classList.remove('visible');

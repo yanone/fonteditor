@@ -150,6 +150,11 @@ export class CloudPlugin extends FilesystemPlugin {
         promise: Promise<void>;
     } | null = null;
     private _cloudSessionBootstrapEmail = 'local-dev@counterpunch.test';
+    private _connectionStatusByAssetId = new Map<
+        string,
+        CloudConnectionStatus
+    >();
+    private _connectedAssetIds = new Set<string>();
 
     constructor(
         options: Omit<CloudAdapterOptions, 'assetId'> & {
@@ -166,6 +171,45 @@ export class CloudPlugin extends FilesystemPlugin {
 
     private get _websiteBaseUrl(): string {
         return window.authManager?.websiteURL || resolveWebsiteURL();
+    }
+
+    getAssetConnectionStatus(assetId: string): CloudConnectionStatus {
+        return this._connectionStatusByAssetId.get(assetId) ?? 'disconnected';
+    }
+
+    hasConnectionProblem(assetId: string): boolean {
+        const status = this.getAssetConnectionStatus(assetId);
+        if (status === 'error') {
+            return true;
+        }
+
+        if (
+            status === 'connecting' ||
+            status === 'authenticating' ||
+            status === 'syncing' ||
+            status === 'disconnected'
+        ) {
+            return this._connectedAssetIds.has(assetId);
+        }
+
+        return false;
+    }
+
+    private _updateConnectionStatus(
+        assetId: string,
+        status: CloudConnectionStatus,
+        detail?: string
+    ): void {
+        this._connectionStatusByAssetId.set(assetId, status);
+        if (status === 'connected') {
+            this._connectedAssetIds.add(assetId);
+        }
+
+        window.dispatchEvent(
+            new CustomEvent('cloudConnectionStatusChanged', {
+                detail: { assetId, status, detail }
+            })
+        );
     }
 
     getId(): string {
@@ -498,11 +542,7 @@ export class CloudPlugin extends FilesystemPlugin {
                 console.log(
                     `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
                 );
-                window.dispatchEvent(
-                    new CustomEvent('cloudConnectionStatusChanged', {
-                        detail: { assetId, status, detail }
-                    })
-                );
+                this._updateConnectionStatus(assetId, status, detail);
                 if (status === 'connected') resolveConnected();
                 if (status === 'error')
                     rejectConnected(
@@ -647,11 +687,7 @@ export class CloudPlugin extends FilesystemPlugin {
                 console.log(
                     `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
                 );
-                window.dispatchEvent(
-                    new CustomEvent('cloudConnectionStatusChanged', {
-                        detail: { assetId, status, detail }
-                    })
-                );
+                this._updateConnectionStatus(assetId, status, detail);
                 if (status === 'connected') resolveConnected();
                 if (status === 'error')
                     rejectConnected(
@@ -698,11 +734,7 @@ export class CloudPlugin extends FilesystemPlugin {
                 console.log(
                     `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
                 );
-                window.dispatchEvent(
-                    new CustomEvent('cloudConnectionStatusChanged', {
-                        detail: { assetId, status, detail }
-                    })
-                );
+                this._updateConnectionStatus(assetId, status, detail);
             }
         });
 
@@ -737,11 +769,7 @@ export class CloudPlugin extends FilesystemPlugin {
                 console.log(
                     `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
                 );
-                window.dispatchEvent(
-                    new CustomEvent('cloudConnectionStatusChanged', {
-                        detail: { assetId, status, detail }
-                    })
-                );
+                this._updateConnectionStatus(assetId, status, detail);
             }
         });
 
@@ -770,6 +798,9 @@ export class CloudPlugin extends FilesystemPlugin {
 
     private _disconnectCurrent(): void {
         this._cloudAdapter?.disconnect();
+        if (this._activeAssetId) {
+            this._updateConnectionStatus(this._activeAssetId, 'disconnected');
+        }
         this._cloudAdapter = null;
         this._activeAssetId = null;
     }

@@ -49,6 +49,8 @@ const console = new Logger('ChangeBridge');
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
+export type { ChangeLogEntry } from './change-log';
+
 export type RemoteLayerRepairSnapshot = {
     glyphName: string;
     layers: Array<{
@@ -56,6 +58,11 @@ export type RemoteLayerRepairSnapshot = {
         layerSnapshot: Record<string, unknown>;
     }>;
 };
+
+export type LocalUpdateListener = (
+    update: Uint8Array,
+    changeLogEntries: ChangeLogEntry[]
+) => void;
 
 type SyntheticChangeOperation = {
     op: ChangeOp;
@@ -275,8 +282,7 @@ export class ChangeBridge {
     private _onRemoteChange: ((entries: ChangeLogEntry[]) => void) | null =
         null;
     /** Callback when the Y.Doc is updated locally (for broadcasting) */
-    private _localUpdateListeners: Set<(update: Uint8Array) => void> =
-        new Set();
+    private _localUpdateListeners: Set<LocalUpdateListener> = new Set();
     /** Callback to trigger dirty marking on the font manager side */
     private _onDirty: (() => void) | null = null;
     /** Callback after _syncJsonFromYDoc (undo/redo/remote) for external resync */
@@ -499,7 +505,10 @@ export class ChangeBridge {
         };
         this.yDoc.on('update', (update: Uint8Array, origin: unknown) => {
             if (isLocalEditOrigin(origin) && !this._isApplyingRemote) {
-                for (const cb of this._localUpdateListeners) cb(update);
+                const changeLogEntries = this.getNewChangeLogEntries();
+                for (const cb of this._localUpdateListeners) {
+                    cb(update, changeLogEntries);
+                }
             }
         });
     }
@@ -539,12 +548,12 @@ export class ChangeBridge {
     }
 
     /** Register a callback for local Y.Doc updates (for broadcasting). */
-    onLocalUpdate(cb: (update: Uint8Array) => void): void {
+    onLocalUpdate(cb: LocalUpdateListener): void {
         this._localUpdateListeners.add(cb);
     }
 
     /** Unregister a callback previously passed to onLocalUpdate. */
-    offLocalUpdate(cb: (update: Uint8Array) => void): void {
+    offLocalUpdate(cb: LocalUpdateListener): void {
         this._localUpdateListeners.delete(cb);
     }
 
@@ -1297,8 +1306,9 @@ export class ChangeBridge {
                     this.yDoc,
                     preStateVector
                 );
+                const changeLogEntries = this.getNewChangeLogEntries();
                 for (const cb of this._localUpdateListeners)
-                    cb(incrementalUpdate);
+                    cb(incrementalUpdate, changeLogEntries);
             }
 
             this._onAfterSync?.();
@@ -1415,8 +1425,9 @@ export class ChangeBridge {
                     this.yDoc,
                     preStateVector
                 );
+                const changeLogEntries = this.getNewChangeLogEntries();
                 for (const cb of this._localUpdateListeners)
-                    cb(incrementalUpdate);
+                    cb(incrementalUpdate, changeLogEntries);
             }
 
             this._onAfterSync?.();

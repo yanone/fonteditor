@@ -139,28 +139,100 @@ async function waitForCloudConnected(page: Page): Promise<void> {
     );
 }
 
+async function waitForBridgeReady(page: Page): Promise<void> {
+    await page.waitForFunction(
+        () =>
+            !!(window as any).changeBridge &&
+            !!(window as any).currentFontModel &&
+            !!(window as any).fontManager?.currentFont,
+        { timeout: 20000 }
+    );
+    await page.waitForTimeout(500);
+}
+
+async function waitForWindowSyncReady(page: Page): Promise<void> {
+    await page.waitForFunction(() => !!(window as any).windowSync, {
+        timeout: 15000
+    });
+}
+
+async function waitForFullStateSync(page: Page): Promise<void> {
+    await page.waitForFunction(
+        () => {
+            const sync = (window as any).windowSync;
+            const bridge = (window as any).changeBridge;
+            if (!sync || !bridge) return false;
+            const glyphsMap = bridge.fontMap?.get('glyphs');
+            if (!glyphsMap) return false;
+            let glyphCount = 0;
+            glyphsMap.forEach(() => glyphCount++);
+            return glyphCount > 0;
+        },
+        { timeout: 20000 }
+    );
+    await page.waitForTimeout(500);
+}
+
+async function openLinkedWindow(page: Page, assetId?: string): Promise<Page> {
+    const context = page.context();
+    const [linkedPage] = await Promise.all([
+        context.waitForEvent('page'),
+        (async () => {
+            await page.locator('#toolbar-window-menu-btn').click();
+            await page
+                .locator('.tippy-box:visible .plugin-menu-item', {
+                    hasText: 'Open In New Window'
+                })
+                .click();
+        })()
+    ]);
+
+    await waitForCanvasReady(linkedPage);
+
+    if (assetId) {
+        await linkedPage.evaluate(async (nextAssetId) => {
+            await (window as any).cloudPlugin.openAsset(nextAssetId);
+        }, assetId);
+    }
+
+    await waitForFontLoaded(linkedPage);
+    await waitForFullStateSync(linkedPage);
+    await waitForBridgeReady(linkedPage);
+    await waitForWindowSyncReady(linkedPage);
+    await linkedPage.waitForFunction(
+        () => (window as any).windowSync?.peers?.size > 0,
+        { timeout: 30000 }
+    );
+
+    await page.waitForFunction(
+        () => (window as any).windowSync?.peers?.size > 0,
+        { timeout: 30000 }
+    );
+
+    return linkedPage;
+}
+
 async function waitForPrimaryNodePosition(
     page: Page,
     expected: { x: number; y: number }
 ): Promise<void> {
-    await page.waitForFunction(
-        ({ nextExpectedX, nextExpectedY }) => {
-            const glyph = (window as any).currentFontModel?.findGlyph?.('A');
-            const layer = glyph?.findLayerById?.('L0');
-            const path = layer?.paths?.[0];
-            const node = path?.nodes?.[0];
+    await expect
+        .poll(async () => await getPrimaryNodePosition(page), {
+            timeout: 15000
+        })
+        .toEqual(expected);
+}
 
-            return (
-                Number(node?.x ?? NaN) === nextExpectedX &&
-                Number(node?.y ?? NaN) === nextExpectedY
-            );
-        },
-        {
-            nextExpectedX: expected.x,
-            nextExpectedY: expected.y
-        },
-        { timeout: 15000 }
-    );
+async function fetchRoomStatus(page: Page, assetId: string) {
+    return page.evaluate(async (nextAssetId) => {
+        const response = await fetch(
+            `http://localhost:8787/room/${encodeURIComponent(nextAssetId)}/status`
+        );
+        if (!response.ok) {
+            throw new Error(`status request failed: ${response.status}`);
+        }
+        return await response.json();
+    }, assetId);
 }
 
 async function getPrimaryNodePosition(page: Page): Promise<{
@@ -336,6 +408,26 @@ test.describe('Local cloud collaboration', () => {
         expect(mutation.after.x).toBe(mutation.before.x + 17);
         expect(mutation.after.y).toBe(mutation.before.y + 9);
 
+        await expect
+            .poll(async () => {
+                const status = await fetchRoomStatus(mainPage, assetId);
+                return {
+                    totalUpdatesApplied: status.totalUpdatesApplied,
+                    roomVersion: status.roomVersion
+                };
+            })
+            .toMatchObject({
+                totalUpdatesApplied: expect.any(Number),
+                roomVersion: expect.any(Number)
+            });
+
+        const roomStatusAfterMutation = await fetchRoomStatus(
+            mainPage,
+            assetId
+        );
+        expect(roomStatusAfterMutation.totalUpdatesApplied).toBeGreaterThan(1);
+        expect(roomStatusAfterMutation.roomVersion).toBeGreaterThan(1);
+
         await waitForPrimaryNodePosition(linkedPage, mutation.after);
 
         const afterMain = await getPrimaryNodePosition(mainPage);
@@ -394,15 +486,156 @@ test.describe('Local cloud collaboration', () => {
         expect(mutation.after.x).toBe(mutation.before.x + 23);
         expect(mutation.after.y).toBe(mutation.before.y + 11);
 
+        await expect
+            .poll(async () => {
+                const status = await fetchRoomStatus(sourcePage, assetId);
+                return {
+                    totalUpdatesApplied: status.totalUpdatesApplied,
+                    roomVersion: status.roomVersion
+                };
+            })
+            .toMatchObject({
+                totalUpdatesApplied: expect.any(Number),
+                roomVersion: expect.any(Number)
+            });
+
+        const roomStatusAfterMutation = await fetchRoomStatus(
+            sourcePage,
+            assetId
+        );
+        expect(roomStatusAfterMutation.totalUpdatesApplied).toBeGreaterThan(1);
+        expect(roomStatusAfterMutation.roomVersion).toBeGreaterThan(1);
+
+        const propagationStart = Date.now();
         await waitForPrimaryNodePosition(targetPage, mutation.after);
+        const propagationLatencyMs = Date.now() - propagationStart;
 
         const afterSource = await getPrimaryNodePosition(sourcePage);
         const afterTarget = await getPrimaryNodePosition(targetPage);
 
         expect(afterSource).toEqual(mutation.after);
         expect(afterTarget).toEqual(mutation.after);
+        expect(propagationLatencyMs).toBeLessThan(5000);
+
+        const roomStatusBeforeFlush = await fetchRoomStatus(
+            sourcePage,
+            assetId
+        );
+        expect(roomStatusBeforeFlush.totalCheckpoints).toBe(0);
+        expect(roomStatusBeforeFlush.lastJournalUpdateBytes).toBeGreaterThan(0);
+        expect(roomStatusBeforeFlush.dirtyJournalRows).toBeGreaterThan(0);
+        expect(roomStatusBeforeFlush.checkpointAlarmAt).toBeTruthy();
+
+        await targetContext.close();
+
+        await sourcePage.evaluate(() => {
+            (window as any).cloudPlugin.disconnectFromRoom();
+        });
+
+        await expect
+            .poll(
+                async () => {
+                    const status = await fetchRoomStatus(sourcePage, assetId);
+                    return {
+                        totalCheckpoints: status.totalCheckpoints,
+                        dirtyJournalRows: status.dirtyJournalRows
+                    };
+                },
+                { timeout: 15000 }
+            )
+            .toEqual({ totalCheckpoints: 1, dirtyJournalRows: 0 });
 
         await sourceContext.close();
-        await targetContext.close();
+    });
+
+    test('supports linked-window sync and cloud sync simultaneously', async ({
+        browser
+    }) => {
+        const email = `playwright-mixed-${Date.now()}@counterpunch.test`;
+        const mainContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const remoteContext = await browser.newContext({
+            ignoreHTTPSErrors: true
+        });
+        const mainPage = await mainContext.newPage();
+        const remotePage = await remoteContext.newPage();
+
+        await mainPage.goto('/?test=true');
+        await waitForCanvasReady(mainPage);
+        await bootstrapCloudSession(mainPage, email);
+
+        await loadCloudTestFont(mainPage);
+        await waitForFontLoaded(mainPage);
+
+        const assetId = await mainPage.evaluate(async () => {
+            return await (window as any).cloudPlugin.saveAs(
+                `Playwright Mixed Topology ${Date.now()}`
+            );
+        });
+
+        expect(assetId).toBeTruthy();
+        await waitForCloudConnected(mainPage);
+
+        await mainPage.evaluate(async (nextAssetId) => {
+            await (window as any).cloudPlugin.openAsset(nextAssetId);
+        }, assetId);
+        await waitForFontLoaded(mainPage);
+        await waitForCloudConnected(mainPage);
+
+        const linkedPage = await openLinkedWindow(mainPage);
+        await waitForCloudConnected(linkedPage);
+
+        await remotePage.goto('/?test=true');
+        await waitForCanvasReady(remotePage);
+        await bootstrapCloudSession(remotePage, email);
+        await remotePage.evaluate(async (nextAssetId) => {
+            await (window as any).cloudPlugin.openAsset(nextAssetId);
+        }, assetId);
+        await waitForFontLoaded(remotePage);
+        await waitForCloudConnected(remotePage);
+
+        const initialMain = await getPrimaryNodePosition(mainPage);
+        const initialLinked = await getPrimaryNodePosition(linkedPage);
+        const initialRemote = await getPrimaryNodePosition(remotePage);
+
+        expect(initialLinked).toEqual(initialMain);
+        expect(initialRemote).toEqual(initialMain);
+
+        const mainMutation = await movePrimaryNode(mainPage, 13, 7);
+        expect(mainMutation.after.x).toBe(mainMutation.before.x + 13);
+        expect(mainMutation.after.y).toBe(mainMutation.before.y + 7);
+
+        await waitForPrimaryNodePosition(linkedPage, mainMutation.after);
+        await waitForPrimaryNodePosition(remotePage, mainMutation.after);
+
+        const linkedMutation = await movePrimaryNode(linkedPage, -9, 14);
+        expect(linkedMutation.after.x).toBe(linkedMutation.before.x - 9);
+        expect(linkedMutation.after.y).toBe(linkedMutation.before.y + 14);
+
+        await waitForPrimaryNodePosition(mainPage, linkedMutation.after);
+        await waitForPrimaryNodePosition(remotePage, linkedMutation.after);
+
+        const remoteMutation = await movePrimaryNode(remotePage, 6, -5);
+        expect(remoteMutation.after.x).toBe(remoteMutation.before.x + 6);
+        expect(remoteMutation.after.y).toBe(remoteMutation.before.y - 5);
+
+        await waitForPrimaryNodePosition(mainPage, remoteMutation.after);
+        await waitForPrimaryNodePosition(linkedPage, remoteMutation.after);
+
+        const roomStatus = await fetchRoomStatus(mainPage, assetId);
+        expect(roomStatus.totalUpdatesApplied).toBeGreaterThan(2);
+        expect(roomStatus.roomVersion).toBeGreaterThan(2);
+
+        const finalMain = await getPrimaryNodePosition(mainPage);
+        const finalLinked = await getPrimaryNodePosition(linkedPage);
+        const finalRemote = await getPrimaryNodePosition(remotePage);
+
+        expect(finalMain).toEqual(remoteMutation.after);
+        expect(finalLinked).toEqual(remoteMutation.after);
+        expect(finalRemote).toEqual(remoteMutation.after);
+
+        await remoteContext.close();
+        await mainContext.close();
     });
 });

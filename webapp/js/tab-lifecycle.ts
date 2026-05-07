@@ -242,12 +242,12 @@ class TabLifecycleManager {
                 return false;
             }
 
-            if (fontManager.currentFont?.hasUnsavedChanges) {
+            if (fontManager.shouldShowDirtyState(fontManager.currentFont)) {
                 return true;
             }
 
             for (const openedFont of fontManager.openedFonts.values()) {
-                if (openedFont?.hasUnsavedChanges) {
+                if (fontManager.shouldShowDirtyState(openedFont)) {
                     return true;
                 }
             }

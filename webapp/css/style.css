@@ -586,7 +586,8 @@ kbd + kbd {
     left: 8px;
     top: 50%;
     transform: translateY(-50%);
-    font-size: 16px;
+    font-size: 12px;
+    line-height: 1;
     color: var(--accent-red);
     opacity: 0;
     pointer-events: none;
@@ -600,7 +601,7 @@ kbd + kbd {
 
 .current-font-display {
     color: var(--button-text);
-    padding: 6px 12px 6px 28px;
+    padding: 6px 12px 6px 24px;
     font-family: var(--font-families-mono);
     font-size: 13px;
     display: flex;

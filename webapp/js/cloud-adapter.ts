@@ -9,25 +9,35 @@
  *   { type: 'sync-request',  stateVector: string }   ← base64(Y.encodeStateVector)
  *   { type: 'sync-complete', update: string [, chunkIndex, totalChunks] }   ← base64(diff for server, last or only chunk)
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks }       ← preceding chunk(s) for large diff
- *   { type: 'update',        update: string, clientId: string, seq: number }
+ *   { type: 'update',        update: string, clientId: string, seq: number,
+ *                            changeLogEntries?: ChangeLogEntry[],
+ *                            fullState?: string,
+ *                            layerRepairSnapshots?: RemoteLayerRepairSnapshot[] }
  *
  * Server → Client:
  *   { type: 'auth-ok',       clientId: string }
  *   { type: 'auth-error',    message: string }
  *   { type: 'sync-response', update?: string, serverStateVector: string [, chunked: true, totalChunks] }
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks, direction: 'response' }
- *   { type: 'update',        update: string, fullState?: string, clientId: string, seq: number }
+ *   { type: 'update',        update: string, fullState?: string, clientId: string, seq: number,
+ *                            changeLogEntries?: ChangeLogEntry[],
+ *                            layerRepairSnapshots?: RemoteLayerRepairSnapshot[] }
  *   { type: 'ack',           seq: number, durable: boolean }
  *   { type: 'error',         message: string }
  *
  * The state-vector exchange (sync-request / sync-response / sync-complete)
  * follows the standard y-websocket two-phase sync protocol so that each side
  * only transmits what the other is missing, keeping initial payloads minimal.
- * Live room updates currently send the bridge's authoritative full state to
- * guarantee convergence after cloud-open bridge replacement.
+ * Ordinary live room updates stay incremental; full-state transfer is reserved
+ * for bootstrap and explicit re-sync after reconnect.
  */
 
-import type { ChangeBridge } from './change-bridge';
+import * as Y from 'yjs';
+import type {
+    ChangeBridge,
+    ChangeLogEntry,
+    RemoteLayerRepairSnapshot
+} from './change-bridge';
 import type { FileSystemAdapter, FileInfo } from './file-system-adapter';
 import { Logger } from './logger';
 import { resolveWebsiteURL } from './website-url';
@@ -137,6 +147,13 @@ export type CloudAdapterOptions = {
     ) => void;
 };
 
+type CloudLiveUpdateMessage = {
+    update: Uint8Array;
+    changeLogEntries?: ChangeLogEntry[];
+    fullState?: Uint8Array;
+    layerRepairSnapshots?: RemoteLayerRepairSnapshot[];
+};
+
 // ── Binary ↔ base64 helpers ──────────────────────────────────────────────────
 
 function u8ToBase64(u8: Uint8Array): string {
@@ -183,6 +200,11 @@ export class CloudAdapter implements FileSystemAdapter {
     private _destroyed = false;
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private _hasSynced = false;
+    private _pendingOutboundUpdates: Uint8Array[] = [];
+    private _pendingOutboundChangeLogEntries: ChangeLogEntry[] = [];
+    private _outboundFlushScheduled = false;
+    private _pendingInboundUpdates: CloudLiveUpdateMessage[] = [];
+    private _inboundFlushScheduled = false;
     /** Accumulates incoming sync-response chunks from the server. */
     private _incomingResponseChunks: {
         chunks: (Uint8Array | undefined)[];
@@ -214,6 +236,8 @@ export class CloudAdapter implements FileSystemAdapter {
             console.warn('CloudAdapter: already destroyed');
             return;
         }
+        this._hasSynced = false;
+        this._incomingResponseChunks = null;
         this._bridge = bridge;
         this._subscribeFontModelReady();
         this._setStatus('connecting');
@@ -233,6 +257,8 @@ export class CloudAdapter implements FileSystemAdapter {
             console.warn('CloudAdapter: already destroyed');
             return;
         }
+        this._hasSynced = false;
+        this._incomingResponseChunks = null;
         this._bridge = bridge;
         this._subscribeFontModelReady();
         this._setStatus('connecting');
@@ -248,6 +274,11 @@ export class CloudAdapter implements FileSystemAdapter {
         this._ws?.close(1000, 'disconnect');
         this._ws = null;
         this._bridge = null;
+        this._pendingOutboundUpdates = [];
+        this._pendingOutboundChangeLogEntries = [];
+        this._outboundFlushScheduled = false;
+        this._pendingInboundUpdates = [];
+        this._inboundFlushScheduled = false;
         this._setStatus('disconnected');
     }
 
@@ -360,6 +391,16 @@ export class CloudAdapter implements FileSystemAdapter {
                 console.log(
                     `CloudAdapter: closed (${event.code}: ${event.reason})`
                 );
+                this._clientId = null;
+                this._hasSynced = false;
+                this._incomingResponseChunks = null;
+                this._pendingOutboundUpdates = [];
+                this._pendingOutboundChangeLogEntries = [];
+                this._outboundFlushScheduled = false;
+                this._pendingInboundUpdates = [];
+                this._inboundFlushScheduled = false;
+                this._localUpdateUnsubscribe?.();
+                this._localUpdateUnsubscribe = null;
                 if (event.code === 4001) {
                     this._setStatus('error', 'Authentication failed');
                     return;
@@ -480,10 +521,23 @@ export class CloudAdapter implements FileSystemAdapter {
             }
 
             case 'update':
-                if (typeof msg.fullState === 'string' && msg.fullState.length) {
-                    this._applyServerState(base64ToU8(msg.fullState));
-                } else if (typeof msg.update === 'string') {
-                    this._applyRemoteUpdate(base64ToU8(msg.update));
+                if (typeof msg.update === 'string') {
+                    this._queueInboundUpdate({
+                        update: base64ToU8(msg.update),
+                        changeLogEntries: Array.isArray(msg.changeLogEntries)
+                            ? (msg.changeLogEntries as ChangeLogEntry[])
+                            : undefined,
+                        fullState:
+                            typeof msg.fullState === 'string' &&
+                            msg.fullState.length
+                                ? base64ToU8(msg.fullState)
+                                : undefined,
+                        layerRepairSnapshots: Array.isArray(
+                            msg.layerRepairSnapshots
+                        )
+                            ? (msg.layerRepairSnapshots as RemoteLayerRepairSnapshot[])
+                            : undefined
+                    });
                 }
                 break;
 
@@ -519,10 +573,20 @@ export class CloudAdapter implements FileSystemAdapter {
     }
 
     /** Apply an incremental update broadcast from a peer. */
-    private _applyRemoteUpdate(update: Uint8Array): void {
+    private _applyRemoteUpdate(
+        update: Uint8Array,
+        remoteEntries?: Parameters<ChangeBridge['applyRemoteUpdate']>[1],
+        repairState?: Uint8Array,
+        repairSnapshots?: Parameters<ChangeBridge['applyRemoteUpdate']>[3]
+    ): void {
         if (!this._bridge || update.length === 0) return;
         try {
-            this._bridge.applyRemoteUpdate(update);
+            this._bridge.applyRemoteUpdate(
+                update,
+                remoteEntries,
+                repairState,
+                repairSnapshots
+            );
         } catch (err) {
             console.error('CloudAdapter: failed to apply remote update:', err);
         }
@@ -546,6 +610,17 @@ export class CloudAdapter implements FileSystemAdapter {
         try {
             const diff = this._bridge.encodeStateDiff(serverStateVector);
             if (diff.length === 0) return;
+            const changeLogEntries = this._bridge.getNewChangeLogEntries();
+            const needsFullStateRepair = changeLogEntries.some(
+                (entry) =>
+                    entry.undoScope === 'glyph' || entry.undoScope === 'font'
+            );
+            const fullState = needsFullStateRepair
+                ? this._bridge.getFullState()
+                : undefined;
+            const layerRepairSnapshots = changeLogEntries.length
+                ? this._bridge.getLayerRepairSnapshots(changeLogEntries)
+                : [];
 
             const totalChunks = Math.ceil(diff.length / SYNC_CHUNK_SIZE);
             console.log(
@@ -566,6 +641,18 @@ export class CloudAdapter implements FileSystemAdapter {
                 if (totalChunks > 1) {
                     frame.chunkIndex = i;
                     frame.totalChunks = totalChunks;
+                }
+                if (isLast) {
+                    frame.changeLogEntries = changeLogEntries.length
+                        ? changeLogEntries
+                        : undefined;
+                    frame.fullState =
+                        fullState && fullState.length > 0
+                            ? u8ToBase64(fullState)
+                            : undefined;
+                    frame.layerRepairSnapshots = layerRepairSnapshots.length
+                        ? layerRepairSnapshots
+                        : undefined;
                 }
                 this._ws.send(JSON.stringify(frame));
             }
@@ -594,24 +681,126 @@ export class CloudAdapter implements FileSystemAdapter {
     private _registerOutboundHook(): void {
         if (!this._bridge || this._localUpdateUnsubscribe) return;
 
-        const sendUpdate = (update: Uint8Array): void => {
-            if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
-            const seq = ++this._seq;
-            const fullState = this._bridge?.getFullState() ?? update;
-            this._ws.send(
-                JSON.stringify({
-                    type: 'update',
-                    update: u8ToBase64(fullState),
-                    clientId: this._clientId ?? '',
-                    seq
-                })
-            );
+        const sendUpdate = (
+            update: Uint8Array,
+            changeLogEntries: ChangeLogEntry[]
+        ): void => {
+            this._pendingOutboundUpdates.push(update);
+            if (changeLogEntries.length) {
+                this._pendingOutboundChangeLogEntries.push(...changeLogEntries);
+            }
+            if (this._outboundFlushScheduled) {
+                return;
+            }
+            this._outboundFlushScheduled = true;
+            queueMicrotask(() => this._flushPendingOutboundUpdates());
         };
 
         this._bridge.onLocalUpdate(sendUpdate);
         this._localUpdateUnsubscribe = () => {
             this._bridge?.offLocalUpdate(sendUpdate);
         };
+    }
+
+    private _flushPendingOutboundUpdates(): void {
+        if (!this._outboundFlushScheduled) {
+            return;
+        }
+        this._outboundFlushScheduled = false;
+
+        if (
+            !this._ws ||
+            this._ws.readyState !== WebSocket.OPEN ||
+            !this._bridge
+        ) {
+            this._pendingOutboundUpdates = [];
+            this._pendingOutboundChangeLogEntries = [];
+            return;
+        }
+
+        const updates = this._pendingOutboundUpdates;
+        const changeLogEntries = this._pendingOutboundChangeLogEntries;
+        this._pendingOutboundUpdates = [];
+        this._pendingOutboundChangeLogEntries = [];
+        if (!updates.length) {
+            return;
+        }
+
+        const update =
+            updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
+        const seq = ++this._seq;
+        const needsFullStateRepair = changeLogEntries.some(
+            (entry) => entry.undoScope === 'glyph' || entry.undoScope === 'font'
+        );
+        const fullState = needsFullStateRepair
+            ? this._bridge.getFullState()
+            : undefined;
+        const layerRepairSnapshots = changeLogEntries.length
+            ? this._bridge.getLayerRepairSnapshots(changeLogEntries)
+            : [];
+
+        this._ws.send(
+            JSON.stringify({
+                type: 'update',
+                update: u8ToBase64(update),
+                clientId: this._clientId ?? '',
+                seq,
+                changeLogEntries: changeLogEntries.length
+                    ? changeLogEntries
+                    : undefined,
+                fullState:
+                    fullState && fullState.length > 0
+                        ? u8ToBase64(fullState)
+                        : undefined,
+                layerRepairSnapshots: layerRepairSnapshots.length
+                    ? layerRepairSnapshots
+                    : undefined
+            })
+        );
+    }
+
+    private _queueInboundUpdate(msg: CloudLiveUpdateMessage): void {
+        this._pendingInboundUpdates.push(msg);
+        if (this._inboundFlushScheduled) {
+            return;
+        }
+        this._inboundFlushScheduled = true;
+        queueMicrotask(() => this._flushPendingInboundUpdates());
+    }
+
+    private _flushPendingInboundUpdates(): void {
+        if (!this._inboundFlushScheduled) {
+            return;
+        }
+        this._inboundFlushScheduled = false;
+        const messages = this._pendingInboundUpdates;
+        this._pendingInboundUpdates = [];
+        if (!messages.length) {
+            return;
+        }
+
+        const updates = messages.map((msg) => msg.update);
+        const mergedUpdate =
+            updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
+        const changeLogEntries = messages.flatMap(
+            (msg) => msg.changeLogEntries ?? []
+        );
+        const layerRepairSnapshots = messages.flatMap(
+            (msg) => msg.layerRepairSnapshots ?? []
+        );
+        let fullState: Uint8Array | undefined;
+        for (const msg of messages) {
+            if (msg.fullState) {
+                fullState = msg.fullState;
+            }
+        }
+
+        this._applyRemoteUpdate(
+            mergedUpdate,
+            changeLogEntries.length ? changeLogEntries : undefined,
+            fullState,
+            layerRepairSnapshots.length ? layerRepairSnapshots : undefined
+        );
     }
 
     // ── Room token fetch ──────────────────────────────────────────
