@@ -244,6 +244,37 @@ describe('FontManager saveLayerData', () => {
         expect(topAnchor?.x).toBe(333);
     });
 
+    test('preserves existing shapes and anchors when outline save payload omits them', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        const originalWidth = layer.width;
+        const originalShapes = cloneJson(layer.shapes);
+        const originalAnchors = cloneJson(layer.anchors);
+
+        await fontManager.saveLayerData(
+            'a',
+            layer.id,
+            {
+                id: layer.id,
+                width: originalWidth + 25,
+                master: cloneJson(layer.master)
+            },
+            'mouse-drag-outline'
+        );
+
+        const savedLayer = fontManager.currentFont.babelfontData.glyphs
+            .find((entry) => entry.name === 'a')
+            .layers.find((entry) => entry.id === layer.id);
+
+        expect(savedLayer.width).toBe(originalWidth + 25);
+        expect(savedLayer.shapes).toEqual(originalShapes);
+        expect(savedLayer.anchors).toEqual(originalAnchors);
+    });
+
     test('keeps live auto-compile for interactive keyboard outline saves', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'

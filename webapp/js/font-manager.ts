@@ -2943,24 +2943,32 @@ class FontManager {
             return null;
         }
 
-        const cleanAnchors = layerData.anchors?.map((anchor) => ({
-            name: anchor.name,
-            x: anchor.x,
-            y: anchor.y,
-            ...(anchor.format_specific && {
-                format_specific: anchor.format_specific
-            })
-        }));
+        const cleanShapes = Array.isArray(layerData.shapes)
+            ? layerData.shapes.map(cleanShapeForSaving)
+            : originalLayer?.shapes;
 
-        const cleanGuides = layerData.guides?.map((guide) => ({
-            pos: {
-                x: guide.pos.x,
-                y: guide.pos.y,
-                angle: guide.pos.angle
-            },
-            name: guide.name,
-            ...(guide.color && { color: guide.color })
-        }));
+        const cleanAnchors = Array.isArray(layerData.anchors)
+            ? layerData.anchors.map((anchor) => ({
+                  name: anchor.name,
+                  x: anchor.x,
+                  y: anchor.y,
+                  ...(anchor.format_specific && {
+                      format_specific: anchor.format_specific
+                  })
+              }))
+            : originalLayer?.anchors;
+
+        const cleanGuides = Array.isArray(layerData.guides)
+            ? layerData.guides.map((guide) => ({
+                  pos: {
+                      x: guide.pos.x,
+                      y: guide.pos.y,
+                      angle: guide.pos.angle
+                  },
+                  name: guide.name,
+                  ...(guide.color && { color: guide.color })
+              }))
+            : originalLayer?.guides;
 
         const layerName = layerData.name ?? originalLayer?.name;
 
@@ -2978,7 +2986,7 @@ class FontManager {
             shapes:
                 options?.preserveExistingShapes && originalLayer?.shapes
                     ? originalLayer.shapes
-                    : layerData.shapes?.map(cleanShapeForSaving) || [],
+                    : cleanShapes || [],
             ...(cleanAnchors && { anchors: cleanAnchors }),
             ...(cleanGuides && { guides: cleanGuides }),
             ...((layerData.color ?? originalLayer?.color) && {
