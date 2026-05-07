@@ -4058,6 +4058,48 @@ describe('syncGlyphFromJson', () => {
         );
     });
 
+    test('malformed scalar layer snapshot payload does not create an empty missing layer root', () => {
+        const { bridge } = createTestBridge('test-1');
+        const missingLayerPath = ['glyphs', 'A', 'layers', 'missing-layer'];
+
+        bridge._applyBufferedOperation({
+            op: 'set',
+            path: missingLayerPath,
+            oldValue: 'A',
+            newValue: 'Drag point',
+            applyMode: 'layer-snapshot'
+        });
+
+        expect(getYPath(bridge.fontMap, missingLayerPath)).toBeUndefined();
+    });
+
+    test('valid layer snapshot payload still materializes a missing layer root', () => {
+        const { bridge } = createTestBridge('test-1');
+        const missingLayerPath = ['glyphs', 'A', 'layers', 'missing-layer'];
+        const layerSnapshot = {
+            id: 'missing-layer',
+            width: 480,
+            master: {
+                type: 'AssociatedWithMaster',
+                master: 'layer-1'
+            },
+            shapes: [],
+            format_specific: { test: true }
+        };
+
+        bridge._applyBufferedOperation({
+            op: 'set',
+            path: missingLayerPath,
+            oldValue: null,
+            newValue: layerSnapshot,
+            applyMode: 'layer-snapshot'
+        });
+
+        expect(cloneValue(getYPath(bridge.fontMap, missingLayerPath))).toEqual(
+            layerSnapshot
+        );
+    });
+
     test('partial object layer snapshot payload does not clear omission-sensitive keys', () => {
         const { bridge } = createTestBridge('test-1');
         const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];

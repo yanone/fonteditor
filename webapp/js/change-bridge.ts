@@ -3804,13 +3804,13 @@ export class ChangeBridge {
             return;
         }
 
-        let layerMap = layersMap.get(layerId) as Y.Map<unknown> | undefined;
-        if (!(layerMap instanceof Y.Map)) {
-            layerMap = new Y.Map<unknown>();
-            layersMap.set(layerId, layerMap);
-        }
-
-        const existingYDocLayer = fromYType(layerMap);
+        const existingLayerValue = layersMap.get(layerId);
+        let layerMap =
+            existingLayerValue instanceof Y.Map
+                ? existingLayerValue
+                : undefined;
+        const existingYDocLayer =
+            layerMap instanceof Y.Map ? fromYType(layerMap) : undefined;
         const incomingLayerRecord = layerSnapshot as Record<string, unknown>;
         const existingLayerRecord =
             existingYDocLayer &&
@@ -3859,15 +3859,21 @@ export class ChangeBridge {
         }
 
         const normalizedLayerRecord = layerJson as Record<string, unknown>;
-        for (const [key, value] of Object.entries(normalizedLayerRecord)) {
-            layerMap.set(key, toYType(value));
-        }
         const nextLayerKeys = new Set(Object.keys(normalizedLayerRecord));
         if (nextLayerKeys.size === 0) {
             console.warn(
                 `[ChangeBridge] Refusing to clear ${glyphName}/${layerId} from an empty normalized layer snapshot.`
             );
             return;
+        }
+
+        if (!(layerMap instanceof Y.Map)) {
+            layerMap = new Y.Map<unknown>();
+            layersMap.set(layerId, layerMap);
+        }
+
+        for (const [key, value] of Object.entries(normalizedLayerRecord)) {
+            layerMap.set(key, toYType(value));
         }
         layerMap.forEach((_value: unknown, key: string) => {
             if (!nextLayerKeys.has(key)) {
