@@ -291,6 +291,8 @@ export class ChangeBridge {
     private _suppressRecording = false;
     /** Index into _changeLog marking the last entry broadcast to peers */
     private _lastBroadcastLogIndex = 0;
+    /** Index into _changeLog marking the last entry emitted to local-update listeners */
+    private _lastLocalUpdateLogIndex = 0;
     /** Subscribers for same-tab history UI updates */
     private _changeLogListeners = new Set<
         (entries: ChangeLogEntry[]) => void
@@ -505,7 +507,8 @@ export class ChangeBridge {
         };
         this.yDoc.on('update', (update: Uint8Array, origin: unknown) => {
             if (isLocalEditOrigin(origin) && !this._isApplyingRemote) {
-                const changeLogEntries = this.getNewChangeLogEntries();
+                const changeLogEntries =
+                    this._getNewChangeLogEntriesForLocalUpdate();
                 for (const cb of this._localUpdateListeners) {
                     cb(update, changeLogEntries);
                 }
@@ -1306,7 +1309,8 @@ export class ChangeBridge {
                     this.yDoc,
                     preStateVector
                 );
-                const changeLogEntries = this.getNewChangeLogEntries();
+                const changeLogEntries =
+                    this._getNewChangeLogEntriesForLocalUpdate();
                 for (const cb of this._localUpdateListeners)
                     cb(incrementalUpdate, changeLogEntries);
             }
@@ -1425,7 +1429,8 @@ export class ChangeBridge {
                     this.yDoc,
                     preStateVector
                 );
-                const changeLogEntries = this.getNewChangeLogEntries();
+                const changeLogEntries =
+                    this._getNewChangeLogEntriesForLocalUpdate();
                 for (const cb of this._localUpdateListeners)
                     cb(incrementalUpdate, changeLogEntries);
             }
@@ -1574,6 +1579,7 @@ export class ChangeBridge {
             if (remoteEntries && remoteEntries.length > 0) {
                 this._appendChangeLogEntries(remoteEntries);
                 this._lastBroadcastLogIndex = this._changeLog.length;
+                this._lastLocalUpdateLogIndex = this._changeLog.length;
             }
             this._onRemoteChange?.(remoteEntries ?? []);
         } finally {
@@ -1608,19 +1614,12 @@ export class ChangeBridge {
                 pathSegments[0] !== 'glyphs' ||
                 pathSegments[2] !== 'layers'
             ) {
+                continue;
             }
 
             const glyphName = pathSegments[1];
             const layerId = pathSegments[3];
             const propertyKey = pathSegments[4];
-            console.error(
-                '[DEBUG-ERR] passed checks, glyphName=',
-                glyphName,
-                'layerId=',
-                layerId,
-                'propertyKey=',
-                propertyKey
-            );
 
             const glyphRecord = glyphs.find(
                 (glyph) => glyph?.name === glyphName
@@ -1769,6 +1768,7 @@ export class ChangeBridge {
             normalizeChangeLogEntry(entry)
         );
         this._lastBroadcastLogIndex = this._changeLog.length;
+        this._lastLocalUpdateLogIndex = this._changeLog.length;
         this._notifyChangeLogListeners();
     }
 
@@ -1782,10 +1782,17 @@ export class ChangeBridge {
         return entries;
     }
 
+    private _getNewChangeLogEntriesForLocalUpdate(): ChangeLogEntry[] {
+        const entries = this._changeLog.slice(this._lastLocalUpdateLogIndex);
+        this._lastLocalUpdateLogIndex = this._changeLog.length;
+        return entries;
+    }
+
     /** Reset state (for tests). */
     reset(): void {
         this._changeLog = [];
         this._lastBroadcastLogIndex = 0;
+        this._lastLocalUpdateLogIndex = 0;
         this._txDepth = 0;
         this._txLabel = null;
         this._txId = null;
@@ -3693,6 +3700,7 @@ export class ChangeBridge {
         layerId: string,
         layerSnapshot: unknown,
         existingLayerSnapshot?: unknown,
+        preserveMissingKeys = true,
         isExistingFresh?: boolean
     ): unknown {
         if (
@@ -3718,10 +3726,12 @@ export class ChangeBridge {
             string,
             unknown
         >;
-        const mergedLayerRecord = {
-            ...existingLayerRecord,
-            ...incomingLayerRecord
-        };
+        const mergedLayerRecord = preserveMissingKeys
+            ? {
+                  ...existingLayerRecord,
+                  ...incomingLayerRecord
+              }
+            : { ...incomingLayerRecord };
 
         if (
             typeof mergedLayerRecord.id !== 'string' ||
@@ -3798,12 +3808,19 @@ export class ChangeBridge {
         const layerJson = this._normalizeLayerSnapshot(
             layerId,
             layerSnapshot,
-            existingYDocLayer
+            existingYDocLayer,
+            false
         ) as Record<string, unknown>;
 
         for (const [key, value] of Object.entries(layerJson)) {
             layerMap.set(key, toYType(value));
         }
+        const nextLayerKeys = new Set(Object.keys(layerJson));
+        layerMap.forEach((_value: unknown, key: string) => {
+            if (!nextLayerKeys.has(key)) {
+                layerMap?.delete(key);
+            }
+        });
     }
 
     private _targetFromHistoryItem(
