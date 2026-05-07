@@ -288,6 +288,91 @@ not remain the canonical long-term large-blob store.
 
 ---
 
+## Delta-Journal And Checkpoint Policy
+
+### Write path
+
+Every accepted edit is appended to a DO-local SQLite delta journal (the
+`room_log` table). The acknowledgement to the client is issued after the
+journal append completes — **not** after an R2 write. R2 writes never block
+the ack or broadcast path.
+
+The journal stores binary Yjs update deltas. Full document state is never
+recomputed per update on the hot path.
+
+### Checkpoint triggers
+
+A full-state checkpoint (snapshot written to R2) is triggered when **any** of
+the following conditions is met while the journal has un-checkpointed rows:
+
+| Condition                                            | Threshold             |
+| ---------------------------------------------------- | --------------------- |
+| Idle — no updates for N seconds                      | 30–60 s               |
+| Accumulated delta bytes                              | 2–8 MB                |
+| Accumulated delta row count                          | 500–2 000 rows        |
+| Safety interval — maximum time since last checkpoint | 10–30 min             |
+| Room drains — last client disconnects                | immediate             |
+| DO alarm fires                                       | periodic safety flush |
+
+Thresholds are intentionally expressed as ranges; the implementation should
+start at the conservative end (60 s idle, 8 MB, 2 000 rows, 30 min) and move
+inward as telemetry justifies it.
+
+### Checkpoint operation
+
+1. Call `Y.encodeStateAsUpdate(yDoc)` to capture the full current state.
+2. Write the resulting binary blob to R2 at the canonical key
+   (`font-assets/{assetId}/current.yjs`), **overwriting** the previous object
+   in place. No new R2 key is created; there is no accumulation of distinct
+   snapshot objects.
+3. Record the highest journal sequence number included in this checkpoint.
+4. Prune all `room_log` rows up to and including that sequence number.
+5. Optionally retain the previous R2 object version briefly (R2 versioning or
+   a shadow key) for a single-rollback safety window, then delete it.
+
+### Cold-start recovery
+
+On DO wake-up with no in-memory state:
+
+1. Fetch the canonical R2 snapshot (`current.yjs`) and apply it to an empty
+   Yjs document.
+2. Replay any `room_log` rows with sequence number above the last checkpoint
+   sequence.
+3. Proceed normally — the reconstructed document is now the live state.
+
+If the R2 snapshot is missing and journal rows are present, replay them from
+scratch. If both are absent, the room is empty (first open).
+
+### Snapshot retention
+
+Only one canonical R2 object exists per asset room at any given time
+(`current.yjs`). Named version snapshots (user-created checkpoints, session
+boundaries, pre-op snapshots) are separate keys and are not pruned by
+compaction.
+
+### No accumulating checkpoint objects
+
+The checkpoint rotation **must not** write to a new timestamped key on each
+cycle. Writing `current-{timestamp}.yjs` on every checkpoint would accumulate
+unbounded R2 objects. The canonical key is always overwritten in place.
+
+### R2 lifecycle rules
+
+- Named version keys (`versions/{id}.yjs`) are managed by explicit retention
+  policy attached to each version record in D1.
+- Temporary migration artifacts have a 7-day TTL enforced by an R2 lifecycle
+  rule.
+- The canonical `current.yjs` key has no TTL; it is deleted only when the
+  asset is deleted.
+
+### What is never stored in the journal
+
+- Full document state. Only incremental binary deltas go into `room_log`.
+- Metadata. `room_log` rows are pure binary payloads plus a sequence counter
+  and timestamp.
+
+---
+
 ## Snapshot And Recovery Model
 
 The semantic model remains the same:

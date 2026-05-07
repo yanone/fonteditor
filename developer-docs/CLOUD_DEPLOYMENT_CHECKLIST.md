@@ -9,7 +9,7 @@ Production collaboration depends on three deployables:
 
 1. the editor frontend
 2. the website Pages project
-3. the `website/workers/fonts-room` Worker that owns the Durable Object room
+3. the sibling `../collab/collab` Worker that owns the Durable Object room
    runtime
 
 ## Required Production State
@@ -22,7 +22,7 @@ Before smoke testing collaboration, verify all of the following:
 2. The editor builds successfully from `editor/webapp` with `npm run build`.
 3. The website builds successfully from `website` with `npm run build`.
 4. The `fonts-room` worker bundles successfully from
-   `website/workers/fonts-room` with `npx wrangler deploy --dry-run`.
+   `collab/collab` with `npx wrangler deploy --dry-run`.
 5. The website Pages project has a production `ROOM_WORKER_URL` variable set to
    the public origin of the deployed `fonts-room` worker.
 6. The `fonts-room` worker is deployed with its `FONT_ROOM` Durable Object

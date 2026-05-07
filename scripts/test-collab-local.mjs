@@ -11,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const websiteRoot = path.resolve(repoRoot, "../website");
-const roomWorkerRoot = path.resolve(websiteRoot, "workers/fonts-room");
+const roomWorkerRoot = path.resolve(repoRoot, "../collab/collab");
 const editorWebappRoot = path.resolve(repoRoot, "webapp");
 
 const children = [];
