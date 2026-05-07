@@ -199,6 +199,33 @@ describe('CloudPlugin.openAsset', () => {
         );
     });
 
+    test('repairs cloud-exported layers missing width before dispatching fontLoaded', async () => {
+        mockYDocToJson.mockReturnValue({
+            glyphs: [
+                {
+                    name: 'space',
+                    layers: [
+                        {
+                            id: 'space-layer',
+                            shapes: []
+                        }
+                    ]
+                }
+            ]
+        });
+
+        await plugin.openAsset('asset-1');
+
+        const fontLoadedEvent = dispatchSpy.mock.calls
+            .map(([event]) => event)
+            .find((event) => event.type === 'fontLoaded');
+
+        expect(fontLoadedEvent).toBeDefined();
+
+        const parsed = JSON.parse(fontLoadedEvent.detail.babelfontJson);
+        expect(parsed.glyphs[0].layers[0].width).toBe(0);
+    });
+
     test('waits for initial cloud font data before throwing no-font-data', async () => {
         mockYDocToJson
             .mockReturnValueOnce({})

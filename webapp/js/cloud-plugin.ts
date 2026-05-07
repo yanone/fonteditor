@@ -45,6 +45,18 @@ function normalizeCloudExportForFontOpen(fontJson: Record<string, unknown>) {
             ? (glyph as { layers: unknown[] }).layers
             : [];
         for (const layer of layers) {
+            const layerRecord =
+                layer && typeof layer === 'object' && !Array.isArray(layer)
+                    ? (layer as Record<string, unknown>)
+                    : null;
+            if (
+                layerRecord &&
+                (layerRecord.width === undefined || layerRecord.width === null)
+            ) {
+                layerRecord.width = 0;
+                fixCount++;
+            }
+
             const shapes = Array.isArray(
                 (layer as { shapes?: unknown[] }).shapes
             )
