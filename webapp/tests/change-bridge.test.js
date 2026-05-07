@@ -4040,6 +4040,42 @@ describe('syncGlyphFromJson', () => {
         ).toBe(700);
     });
 
+    test('malformed scalar layer snapshot payload does not clear an existing layer root', () => {
+        const { bridge } = createTestBridge('test-1');
+        const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
+        const originalLayer = cloneValue(getYPath(bridge.fontMap, layerPath));
+
+        bridge._applyBufferedOperation({
+            op: 'set',
+            path: layerPath,
+            oldValue: 'A',
+            newValue: 'Drag point',
+            applyMode: 'layer-snapshot'
+        });
+
+        expect(cloneValue(getYPath(bridge.fontMap, layerPath))).toEqual(
+            originalLayer
+        );
+    });
+
+    test('partial object layer snapshot payload does not clear omission-sensitive keys', () => {
+        const { bridge } = createTestBridge('test-1');
+        const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
+        const originalLayer = cloneValue(getYPath(bridge.fontMap, layerPath));
+
+        bridge._applyBufferedOperation({
+            op: 'set',
+            path: layerPath,
+            oldValue: { width: 600 },
+            newValue: { width: 600 },
+            applyMode: 'layer-snapshot'
+        });
+
+        expect(cloneValue(getYPath(bridge.fontMap, layerPath))).toEqual(
+            originalLayer
+        );
+    });
+
     test('layer-scoped undo replays correctly for dotted glyph and layer names', () => {
         const fontJson = makeMinimalFont();
         fontJson.glyphs[0].name = 'behDotless-ar.medi';

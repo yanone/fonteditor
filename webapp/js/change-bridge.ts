@@ -3793,8 +3793,14 @@ export class ChangeBridge {
             glyphMap.set('layers', layersMap);
         }
 
-        if (!layerSnapshot || typeof layerSnapshot !== 'object') {
-            layersMap.set(layerId, toYType(layerSnapshot));
+        if (
+            !layerSnapshot ||
+            typeof layerSnapshot !== 'object' ||
+            Array.isArray(layerSnapshot)
+        ) {
+            console.warn(
+                `[ChangeBridge] Ignoring malformed layer snapshot for ${glyphName}/${layerId}; expected object payload.`
+            );
             return;
         }
 
@@ -3805,17 +3811,64 @@ export class ChangeBridge {
         }
 
         const existingYDocLayer = fromYType(layerMap);
+        const incomingLayerRecord = layerSnapshot as Record<string, unknown>;
+        const existingLayerRecord =
+            existingYDocLayer &&
+            typeof existingYDocLayer === 'object' &&
+            !Array.isArray(existingYDocLayer)
+                ? (existingYDocLayer as Record<string, unknown>)
+                : null;
+        const omissionSensitiveKeys = ['shapes', 'anchors', 'guides'];
+
+        if (
+            existingLayerRecord &&
+            omissionSensitiveKeys.some(
+                (key) =>
+                    Object.prototype.hasOwnProperty.call(
+                        existingLayerRecord,
+                        key
+                    ) &&
+                    !Object.prototype.hasOwnProperty.call(
+                        incomingLayerRecord,
+                        key
+                    )
+            )
+        ) {
+            console.warn(
+                `[ChangeBridge] Ignoring partial layer snapshot for ${glyphName}/${layerId}; omission-sensitive keys must be explicit.`
+            );
+            return;
+        }
+
         const layerJson = this._normalizeLayerSnapshot(
             layerId,
             layerSnapshot,
             existingYDocLayer,
             false
-        ) as Record<string, unknown>;
+        );
 
-        for (const [key, value] of Object.entries(layerJson)) {
+        if (
+            !layerJson ||
+            typeof layerJson !== 'object' ||
+            Array.isArray(layerJson)
+        ) {
+            console.warn(
+                `[ChangeBridge] Ignoring malformed normalized layer snapshot for ${glyphName}/${layerId}.`
+            );
+            return;
+        }
+
+        const normalizedLayerRecord = layerJson as Record<string, unknown>;
+        for (const [key, value] of Object.entries(normalizedLayerRecord)) {
             layerMap.set(key, toYType(value));
         }
-        const nextLayerKeys = new Set(Object.keys(layerJson));
+        const nextLayerKeys = new Set(Object.keys(normalizedLayerRecord));
+        if (nextLayerKeys.size === 0) {
+            console.warn(
+                `[ChangeBridge] Refusing to clear ${glyphName}/${layerId} from an empty normalized layer snapshot.`
+            );
+            return;
+        }
         layerMap.forEach((_value: unknown, key: string) => {
             if (!nextLayerKeys.has(key)) {
                 layerMap?.delete(key);
