@@ -581,8 +581,15 @@ export class CloudPlugin extends FilesystemPlugin {
         (
             window as Window & {
                 __pendingCloudBridgeBootstrapState?: Uint8Array;
+                __skipCloudBridgeRebindMerge?: boolean;
             }
         ).__pendingCloudBridgeBootstrapState = bridgeState;
+        (
+            window as Window & {
+                __pendingCloudBridgeBootstrapState?: Uint8Array;
+                __skipCloudBridgeRebindMerge?: boolean;
+            }
+        ).__skipCloudBridgeRebindMerge = true;
 
         const bridgeReadyPromise = new Promise<void>((resolve, reject) => {
             const timeoutId = window.setTimeout(() => {

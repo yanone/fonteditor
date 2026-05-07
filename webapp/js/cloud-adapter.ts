@@ -307,11 +307,26 @@ export class CloudAdapter implements FileSystemAdapter {
             return false;
         }
 
+        const skipMerge = Boolean(
+            (
+                window as Window & {
+                    __skipCloudBridgeRebindMerge?: boolean;
+                }
+            ).__skipCloudBridgeRebindMerge
+        );
+        if (skipMerge) {
+            delete (
+                window as Window & {
+                    __skipCloudBridgeRebindMerge?: boolean;
+                }
+            ).__skipCloudBridgeRebindMerge;
+        }
+
         // Bridge was replaced by initializeBridge() — re-seed the new bridge's
         // Y.Doc with the accumulated CRDT state from the old bridge so future
         // incremental updates from remote peers can resolve correctly.
         const oldState = this._bridge?.encodeBridgeState();
-        if (oldState && oldState.length > 0) {
+        if (!skipMerge && oldState && oldState.length > 0) {
             newBridge.applyYDocUpdateSilent(oldState);
         }
 
