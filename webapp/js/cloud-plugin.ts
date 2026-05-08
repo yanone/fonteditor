@@ -69,9 +69,56 @@ function normalizeCloudExportForFontOpen(
                     typeof layerRecord.id === 'string' && layerRecord.id.length
                         ? layerRecord.id
                         : `layer #${layerIndex}`;
-                throw new Error(
-                    `Cloud font layer ${glyphName}/${layerId} has invalid width; refusing to ${operation} cloud font data.`
-                );
+
+                if (operation === 'open') {
+                    // Attempt recovery: look for a sibling layer that
+                    // has a valid width we can borrow.
+                    let recoveredWidth: number | undefined;
+                    if (glyphRecord) {
+                        const siblingLayers = Array.isArray(
+                            glyphRecord.layers
+                        )
+                            ? (glyphRecord.layers as Record<
+                                  string,
+                                  unknown
+                              >[])
+                            : [];
+                        for (const sibling of siblingLayers) {
+                            if (
+                                sibling &&
+                                typeof sibling.width === 'number' &&
+                                Number.isFinite(sibling.width) &&
+                                sibling.id !== layerId
+                            ) {
+                                recoveredWidth = sibling.width;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (typeof recoveredWidth === 'number') {
+                        console.warn(
+                            `[CloudPlugin] Recovering layer ${glyphName}/${layerId} width=${recoveredWidth} from sibling (was: ${String(layerRecord.width)})`
+                        );
+                        layerRecord.width = recoveredWidth;
+                        fixCount++;
+                    } else {
+                        // Last resort: set width to 0 so the font can
+                        // open. The user will need to manually correct
+                        // this glyph's width.
+                        console.error(
+                            `[CloudPlugin] Layer ${glyphName}/${layerId} has invalid width (${String(layerRecord.width)}), ` +
+                                `keys: ${Object.keys(layerRecord).join(',')}. ` +
+                                `Setting width=0 as fallback so the font can open.`
+                        );
+                        layerRecord.width = 0;
+                        fixCount++;
+                    }
+                } else {
+                    throw new Error(
+                        `Cloud font layer ${glyphName}/${layerId} has invalid width; refusing to save cloud font data.`
+                    );
+                }
             }
 
             const shapes = Array.isArray(

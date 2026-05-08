@@ -203,7 +203,7 @@ describe('CloudPlugin.openAsset', () => {
         );
     });
 
-    test('rejects cloud-exported layers missing width before dispatching fontLoaded', async () => {
+    test('recovers cloud-exported layers missing width and dispatches fontLoaded', async () => {
         mockYDocToJson.mockReturnValue({
             glyphs: [
                 {
@@ -218,11 +218,10 @@ describe('CloudPlugin.openAsset', () => {
             ]
         });
 
-        await expect(plugin.openAsset('asset-1')).rejects.toThrow(
-            'Cloud font layer space/space-layer has invalid width'
-        );
+        // The open should succeed with width recovered to 0 (fallback)
+        await expect(plugin.openAsset('asset-1')).resolves.toBeUndefined();
 
-        expect(dispatchSpy).not.toHaveBeenCalledWith(
+        expect(dispatchSpy).toHaveBeenCalledWith(
             expect.objectContaining({ type: 'fontLoaded' })
         );
     });

@@ -3527,6 +3527,33 @@ export class ChangeBridge {
         for (const [key, value] of Object.entries(normalizedLayerRecord)) {
             layerMap.set(key, toYType(value));
         }
+
+        // Safety net: after applying the normalized snapshot, ensure the
+        // layer Y.Map still carries its essential structural keys (width,
+        // master).  An incremental sync update that only touches shapes
+        // must never strip these fields from the Y.Doc, because the Yjs
+        // diff computed against pre-state-vector would then include their
+        // deletion, propagating data loss to every peer (including the DO
+        // durable storage).
+        if (!normalizedLayerRecord['width']) {
+            const existingWidth = existingLayerRecord?.width;
+            if (
+                typeof existingWidth === 'number' &&
+                Number.isFinite(existingWidth)
+            ) {
+                layerMap.set('width', existingWidth);
+            }
+        }
+        if (!normalizedLayerRecord['master']) {
+            const existingMaster = existingLayerRecord?.master;
+            if (
+                existingMaster &&
+                typeof existingMaster === 'object' &&
+                !Array.isArray(existingMaster)
+            ) {
+                layerMap.set('master', toYType(existingMaster));
+            }
+        }
     }
 
     private _targetFromHistoryItem(
