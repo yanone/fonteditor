@@ -75,13 +75,8 @@ function normalizeCloudExportForFontOpen(
                     // has a valid width we can borrow.
                     let recoveredWidth: number | undefined;
                     if (glyphRecord) {
-                        const siblingLayers = Array.isArray(
-                            glyphRecord.layers
-                        )
-                            ? (glyphRecord.layers as Record<
-                                  string,
-                                  unknown
-                              >[])
+                        const siblingLayers = Array.isArray(glyphRecord.layers)
+                            ? (glyphRecord.layers as Record<string, unknown>[])
                             : [];
                         for (const sibling of siblingLayers) {
                             if (
