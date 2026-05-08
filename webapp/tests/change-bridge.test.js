@@ -4100,6 +4100,94 @@ describe('syncGlyphFromJson', () => {
         );
     });
 
+    test('local commit repairs an empty touched layer root from current font JSON', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+        const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
+        const originalLayer = cloneValue(getYPath(bridge.fontMap, layerPath));
+        const layerRoot = getYPath(bridge.fontMap, layerPath);
+
+        expect(layerRoot).toBeInstanceOf(Y.Map);
+
+        bridge.yDoc.transact(() => {
+            layerRoot.forEach((_value, key) => {
+                layerRoot.delete(key);
+            });
+        }, 'external-corruption');
+
+        expect(cloneValue(getYPath(bridge.fontMap, layerPath))).toEqual({});
+
+        const fontLayer = fontJson.glyphs[0].layers.find(
+            (layer) => layer.id === 'layer-1'
+        );
+        fontLayer.width = 610;
+
+        bridge._queueOrCommitOperations([
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 610
+            }
+        ]);
+
+        expect(cloneValue(getYPath(bridge.fontMap, layerPath))).toEqual(
+            expect.objectContaining({
+                ...originalLayer,
+                width: 610
+            })
+        );
+    });
+
+    test('local commit repairs a partially corrupt touched layer root from current font JSON', () => {
+        const { bridge, fontJson } = createTestBridge('test-1');
+        const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
+        const originalLayer = cloneValue(getYPath(bridge.fontMap, layerPath));
+        const layerRoot = getYPath(bridge.fontMap, layerPath);
+
+        expect(layerRoot).toBeInstanceOf(Y.Map);
+
+        bridge.yDoc.transact(() => {
+            layerRoot.delete('name');
+            layerRoot.delete('location');
+            layerRoot.delete('format_specific');
+        }, 'external-corruption');
+
+        expect(cloneValue(getYPath(bridge.fontMap, layerPath))).toEqual(
+            expect.objectContaining({
+                id: 'layer-1',
+                width: 600,
+                master: expect.any(Object)
+            })
+        );
+        expect(
+            Object.prototype.hasOwnProperty.call(
+                cloneValue(getYPath(bridge.fontMap, layerPath)),
+                'name'
+            )
+        ).toBe(false);
+
+        const fontLayer = fontJson.glyphs[0].layers.find(
+            (layer) => layer.id === 'layer-1'
+        );
+        fontLayer.width = 620;
+
+        bridge._queueOrCommitOperations([
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 620
+            }
+        ]);
+
+        expect(cloneValue(getYPath(bridge.fontMap, layerPath))).toEqual(
+            expect.objectContaining({
+                ...originalLayer,
+                width: 620
+            })
+        );
+    });
+
     test('partial object layer snapshot payload does not clear omission-sensitive keys', () => {
         const { bridge } = createTestBridge('test-1');
         const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];

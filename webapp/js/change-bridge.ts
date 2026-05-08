@@ -2209,6 +2209,7 @@ export class ChangeBridge {
             for (const operation of effectiveOperations) {
                 this._applyBufferedOperation(operation);
             }
+            this._repairEmptyTouchedLayerRoots(effectiveOperations);
         }, scopeInfo.origin);
 
         this._finishBatchUndoManagers(scopeInfo);
@@ -2332,6 +2333,127 @@ export class ChangeBridge {
             const pathKey = JSON.stringify(applyPath);
             return !noOpPathKeys.has(pathKey);
         });
+    }
+
+    private _getLayerSnapshotFromFontJson(
+        glyphName: string,
+        layerId: string
+    ): Record<string, unknown> | null {
+        const glyphs = (this._fontJson as Unsafe)?.glyphs;
+        if (!Array.isArray(glyphs)) {
+            return null;
+        }
+
+        const glyph = glyphs.find(
+            (entry: unknown) =>
+                !!entry &&
+                typeof entry === 'object' &&
+                (entry as Record<string, unknown>).name === glyphName
+        ) as Record<string, unknown> | undefined;
+        if (!glyph) {
+            return null;
+        }
+
+        const layers = Array.isArray(glyph.layers)
+            ? (glyph.layers as Array<Record<string, unknown>>)
+            : [];
+        const layer = layers.find(
+            (entry) =>
+                !!entry && typeof entry === 'object' && entry.id === layerId
+        );
+        if (!layer) {
+            return null;
+        }
+
+        const normalizedLayer = this._normalizeLayerSnapshot(
+            layerId,
+            layer,
+            undefined,
+            false
+        );
+        if (
+            !normalizedLayer ||
+            typeof normalizedLayer !== 'object' ||
+            Array.isArray(normalizedLayer)
+        ) {
+            return null;
+        }
+
+        return normalizedLayer as Record<string, unknown>;
+    }
+
+    private _repairEmptyTouchedLayerRoots(
+        operations: BufferedChangeOperation[]
+    ): void {
+        const touchedLayers = normalizeWorkerReplayTargets(
+            operations
+                .map((operation) => {
+                    const applyPath = this._toYDocPath(
+                        operation.applyPath ?? operation.path
+                    );
+                    const glyphName = deriveGlyphName(applyPath);
+                    const layerId = deriveLayerId(applyPath);
+                    return glyphName && layerId ? { glyphName, layerId } : null;
+                })
+                .filter(
+                    (
+                        target
+                    ): target is { glyphName: string; layerId: string } =>
+                        !!target
+                )
+        );
+
+        for (const target of touchedLayers) {
+            const layerValue = getYPath(this.fontMap, [
+                'glyphs',
+                target.glyphName,
+                'layers',
+                target.layerId
+            ]);
+            if (!(layerValue instanceof Y.Map)) {
+                continue;
+            }
+
+            const layerSnapshot = this._getLayerSnapshotFromFontJson(
+                target.glyphName,
+                target.layerId
+            );
+            if (!layerSnapshot) {
+                continue;
+            }
+
+            const liveLayerSnapshot = fromYType(layerValue);
+            if (
+                !liveLayerSnapshot ||
+                typeof liveLayerSnapshot !== 'object' ||
+                Array.isArray(liveLayerSnapshot)
+            ) {
+                continue;
+            }
+
+            const liveLayerRecord = liveLayerSnapshot as Record<
+                string,
+                unknown
+            >;
+            const missingSnapshotKeys = Object.keys(layerSnapshot).filter(
+                (key) =>
+                    Object.prototype.hasOwnProperty.call(layerSnapshot, key) &&
+                    !Object.prototype.hasOwnProperty.call(liveLayerRecord, key)
+            );
+
+            if (missingSnapshotKeys.length === 0) {
+                continue;
+            }
+
+            console.warn(
+                `[ChangeBridge] Repairing invalid touched layer root for ${target.glyphName}/${target.layerId} from current font JSON.`
+            );
+            this._applyLayerSnapshot(
+                target.glyphName,
+                target.layerId,
+                layerSnapshot
+            );
+        }
     }
 
     private _applyBufferedOperation(operation: BufferedChangeOperation): void {
