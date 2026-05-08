@@ -3,6 +3,34 @@ const {
     normalizeCloudRoomWebSocketUrl
 } = require('../js/cloud-adapter.ts');
 
+describe('CloudAdapter room worker defaults', () => {
+    it('defaults to localhost in development', () => {
+        const originalIsDevelopment = window.isDevelopment;
+        window.isDevelopment = jest.fn(() => true);
+
+        try {
+            const adapter = new CloudAdapter({ assetId: 'asset-123' });
+            expect(adapter._roomWorkerBaseUrl).toBe('ws://localhost:8787');
+        } finally {
+            window.isDevelopment = originalIsDevelopment;
+        }
+    });
+
+    it('defaults to the production worker in production', () => {
+        const originalIsDevelopment = window.isDevelopment;
+        window.isDevelopment = jest.fn(() => false);
+
+        try {
+            const adapter = new CloudAdapter({ assetId: 'asset-123' });
+            expect(adapter._roomWorkerBaseUrl).toBe(
+                'https://fonts-room.fonteditor.workers.dev'
+            );
+        } finally {
+            window.isDevelopment = originalIsDevelopment;
+        }
+    });
+});
+
 describe('normalizeCloudRoomWebSocketUrl', () => {
     it('converts https room urls to wss', () => {
         expect(
@@ -33,6 +61,40 @@ describe('normalizeCloudRoomWebSocketUrl', () => {
 });
 
 describe('CloudAdapter outbound updates', () => {
+    it('connect uses the room-token response room url', async () => {
+        const originalFetch = global.fetch;
+        const openWebSocket = jest.fn().mockResolvedValue(undefined);
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            websiteBaseUrl: 'https://counterpunch.space'
+        });
+
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            headers: new Headers({
+                'content-type': 'application/json'
+            }),
+            json: async () => ({
+                token: 'room-token',
+                roomUrl:
+                    'https://fonts-room.fonteditor.workers.dev/room/asset-123'
+            }),
+            text: async () => ''
+        });
+        adapter._openWebSocket = openWebSocket;
+
+        try {
+            await adapter.connect({});
+
+            expect(openWebSocket).toHaveBeenCalledWith(
+                'room-token',
+                'wss://fonts-room.fonteditor.workers.dev/room/asset-123'
+            );
+        } finally {
+            global.fetch = originalFetch;
+        }
+    });
+
     it('sends incremental updates without re-encoding full state', async () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const localUpdate = new Uint8Array([1, 2, 3, 4]);

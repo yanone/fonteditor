@@ -33,12 +33,21 @@ import * as Y from 'yjs';
 import type { ChangeBridge, ChangeLogEntry } from './change-bridge';
 import type { FileSystemAdapter, FileInfo } from './file-system-adapter';
 import { Logger } from './logger';
+import { isProduction } from './settings';
 import { resolveWebsiteURL } from './website-url';
 
 const console = new Logger('CloudAdapter');
 
-/** Default WebSocket URL for the room worker (local dev). */
-const DEFAULT_ROOM_WORKER_URL = 'ws://localhost:8787';
+/** Default room-worker URLs for production and local development. */
+const DEFAULT_PRODUCTION_ROOM_WORKER_URL =
+    'https://fonts-room.fonteditor.workers.dev';
+const DEFAULT_LOCAL_ROOM_WORKER_URL = 'ws://localhost:8787';
+
+function getDefaultRoomWorkerUrl(): string {
+    return isProduction()
+        ? DEFAULT_PRODUCTION_ROOM_WORKER_URL
+        : DEFAULT_LOCAL_ROOM_WORKER_URL;
+}
 
 /** Default website base URL for the room-token endpoint. */
 const DEFAULT_WEBSITE_BASE_URL = resolveWebsiteURL();
@@ -209,7 +218,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._websiteBaseUrl =
             options.websiteBaseUrl ?? DEFAULT_WEBSITE_BASE_URL;
         this._roomWorkerBaseUrl =
-            options.roomWorkerBaseUrl ?? DEFAULT_ROOM_WORKER_URL;
+            options.roomWorkerBaseUrl ?? getDefaultRoomWorkerUrl();
         this._onConnectionStatus = options.onConnectionStatus ?? null;
     }
 
