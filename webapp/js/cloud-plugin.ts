@@ -36,7 +36,10 @@ function getCloudRequestHeaders(
     return headers;
 }
 
-function normalizeCloudExportForFontOpen(fontJson: Record<string, unknown>) {
+function normalizeCloudExportForFontOpen(
+    fontJson: Record<string, unknown>,
+    operation: 'open' | 'save' = 'open'
+) {
     let fixCount = sanitizeBabelfontArrays(fontJson);
 
     const glyphs = Array.isArray(fontJson.glyphs) ? fontJson.glyphs : [];
@@ -67,7 +70,7 @@ function normalizeCloudExportForFontOpen(fontJson: Record<string, unknown>) {
                         ? layerRecord.id
                         : `layer #${layerIndex}`;
                 throw new Error(
-                    `Cloud font layer ${glyphName}/${layerId} has invalid width; refusing to open cloud font data.`
+                    `Cloud font layer ${glyphName}/${layerId} has invalid width; refusing to ${operation} cloud font data.`
                 );
             }
 
@@ -108,6 +111,16 @@ function getCloudFontJsonFromBridge(
     }
 
     return fontJson;
+}
+
+function assertCloudBridgeStateCanBeSaved(
+    bridge: Pick<ChangeBridge, 'fontMap'>
+): void {
+    const fontJson = getCloudFontJsonFromBridge(bridge);
+    if (!fontJson) {
+        throw new Error('No active font data to save to cloud');
+    }
+    normalizeCloudExportForFontOpen(fontJson, 'save');
 }
 
 /**
@@ -677,6 +690,8 @@ export class CloudPlugin extends FilesystemPlugin {
 
         const bridge = window.changeBridge;
         if (!bridge) throw new Error('No active font to save');
+
+        assertCloudBridgeStateCanBeSaved(bridge);
 
         const resp = await fetch(`${this._websiteBaseUrl}/api/cloud/assets`, {
             method: 'POST',

@@ -100,6 +100,7 @@ describe('CloudPlugin.openAsset', () => {
     let originalClearTimeout;
     let originalAddEventListener;
     let originalRemoveEventListener;
+    let originalFetch;
     let dispatchSpy;
     let eventListeners;
 
@@ -116,6 +117,7 @@ describe('CloudPlugin.openAsset', () => {
         originalClearTimeout = window.clearTimeout;
         originalAddEventListener = window.addEventListener;
         originalRemoveEventListener = window.removeEventListener;
+        originalFetch = global.fetch;
 
         window.authManager = {
             websiteURL: 'http://localhost:8788',
@@ -125,6 +127,7 @@ describe('CloudPlugin.openAsset', () => {
         };
 
         window.changeBridge = undefined;
+        global.fetch = jest.fn();
         eventListeners = new Map();
 
         window.setTimeout = jest.fn(() => 1);
@@ -163,6 +166,7 @@ describe('CloudPlugin.openAsset', () => {
         window.clearTimeout = originalClearTimeout;
         window.addEventListener = originalAddEventListener;
         window.removeEventListener = originalRemoveEventListener;
+        global.fetch = originalFetch;
         delete window.__pendingCloudBridgeBootstrapState;
     });
 
@@ -287,5 +291,31 @@ describe('CloudPlugin.openAsset', () => {
 
         expect(plugin._fetchRoomToken).toHaveBeenCalledTimes(1);
         expect(mockConnectDirect).toHaveBeenCalledTimes(1);
+    });
+
+    test('rejects saveAs before creating an asset when current bridge has a layer missing width', async () => {
+        window.changeBridge = {
+            fontMap: { __mock: true }
+        };
+        mockYDocToJson.mockReturnValue({
+            glyphs: [
+                {
+                    name: 'o',
+                    layers: [
+                        {
+                            id: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1',
+                            shapes: []
+                        }
+                    ]
+                }
+            ]
+        });
+
+        await expect(plugin.saveAs('Corrupt Save')).rejects.toThrow(
+            'Cloud font layer o/3114FB65-9464-41A5-B67E-A8F9F43C0EF1 has invalid width; refusing to save cloud font data.'
+        );
+
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(mockConnectDirect).not.toHaveBeenCalled();
     });
 });

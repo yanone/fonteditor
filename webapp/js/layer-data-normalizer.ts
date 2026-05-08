@@ -49,7 +49,7 @@ export class LayerDataNormalizer {
 
         // Both Python and Rust now return identical structure with nested component layerData
         const normalized = {
-            width: layerData.width || 0,
+            width: layerData.width,
             shapes: this.normalizeShapes(
                 layerData.shapes || [],
                 isInterpolated

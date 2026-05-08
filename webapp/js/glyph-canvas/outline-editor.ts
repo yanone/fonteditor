@@ -6502,7 +6502,7 @@ export class OutlineEditor {
         }
 
         const serializedLayerData: any = {
-            ...('width' in layerData ? { width: layerData.width ?? 0 } : {}),
+            ...('width' in layerData ? { width: layerData.width } : {}),
             ...('shapes' in layerData
                 ? {
                       shapes: this.flattenNestedShapes(layerData.shapes).map(
@@ -7043,8 +7043,15 @@ export class OutlineEditor {
         guides?: any[];
         format_specific?: Record<string, any>;
     } {
+        const width = Number(layerData?.width);
+        if (!Number.isFinite(width)) {
+            throw new Error(
+                '[OutlineEditor] Stored layer data has invalid width; refusing to materialize malformed layer data.'
+            );
+        }
+
         return {
-            width: Number(layerData?.width || 0),
+            width,
             ...(layerData?.height !== undefined
                 ? { height: Number(layerData.height) }
                 : {}),
@@ -17310,6 +17317,7 @@ export class OutlineEditor {
             console.log('Layer data saved successfully');
         } catch (error) {
             console.error('Error saving layer data to Python:', error);
+            throw error;
         }
     }
 
