@@ -199,7 +199,7 @@ describe('CloudPlugin.openAsset', () => {
         );
     });
 
-    test('repairs cloud-exported layers missing width before dispatching fontLoaded', async () => {
+    test('rejects cloud-exported layers missing width before dispatching fontLoaded', async () => {
         mockYDocToJson.mockReturnValue({
             glyphs: [
                 {
@@ -214,16 +214,13 @@ describe('CloudPlugin.openAsset', () => {
             ]
         });
 
-        await plugin.openAsset('asset-1');
+        await expect(plugin.openAsset('asset-1')).rejects.toThrow(
+            'Cloud font layer space/space-layer has invalid width'
+        );
 
-        const fontLoadedEvent = dispatchSpy.mock.calls
-            .map(([event]) => event)
-            .find((event) => event.type === 'fontLoaded');
-
-        expect(fontLoadedEvent).toBeDefined();
-
-        const parsed = JSON.parse(fontLoadedEvent.detail.babelfontJson);
-        expect(parsed.glyphs[0].layers[0].width).toBe(0);
+        expect(dispatchSpy).not.toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'fontLoaded' })
+        );
     });
 
     test('waits for initial cloud font data before throwing no-font-data', async () => {

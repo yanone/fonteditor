@@ -40,21 +40,35 @@ function normalizeCloudExportForFontOpen(fontJson: Record<string, unknown>) {
     let fixCount = sanitizeBabelfontArrays(fontJson);
 
     const glyphs = Array.isArray(fontJson.glyphs) ? fontJson.glyphs : [];
-    for (const glyph of glyphs) {
-        const layers = Array.isArray((glyph as { layers?: unknown[] }).layers)
-            ? (glyph as { layers: unknown[] }).layers
+    for (const [glyphIndex, glyph] of glyphs.entries()) {
+        const glyphRecord =
+            glyph && typeof glyph === 'object' && !Array.isArray(glyph)
+                ? (glyph as Record<string, unknown>)
+                : null;
+        const glyphName =
+            typeof glyphRecord?.name === 'string' && glyphRecord.name.length
+                ? glyphRecord.name
+                : `glyph #${glyphIndex}`;
+        const layers = Array.isArray(glyphRecord?.layers)
+            ? (glyphRecord.layers as unknown[])
             : [];
-        for (const layer of layers) {
+        for (const [layerIndex, layer] of layers.entries()) {
             const layerRecord =
                 layer && typeof layer === 'object' && !Array.isArray(layer)
                     ? (layer as Record<string, unknown>)
                     : null;
             if (
                 layerRecord &&
-                (layerRecord.width === undefined || layerRecord.width === null)
+                (typeof layerRecord.width !== 'number' ||
+                    !Number.isFinite(layerRecord.width))
             ) {
-                layerRecord.width = 0;
-                fixCount++;
+                const layerId =
+                    typeof layerRecord.id === 'string' && layerRecord.id.length
+                        ? layerRecord.id
+                        : `layer #${layerIndex}`;
+                throw new Error(
+                    `Cloud font layer ${glyphName}/${layerId} has invalid width; refusing to open cloud font data.`
+                );
             }
 
             const shapes = Array.isArray(
@@ -578,7 +592,13 @@ export class CloudPlugin extends FilesystemPlugin {
             throw new Error(`Cloud asset ${assetId} has no font data`);
         }
 
-        const sanitizeFixCount = normalizeCloudExportForFontOpen(fontJson);
+        let sanitizeFixCount: number;
+        try {
+            sanitizeFixCount = normalizeCloudExportForFontOpen(fontJson);
+        } catch (error) {
+            this._disconnectCurrent();
+            throw error;
+        }
         if (sanitizeFixCount > 0) {
             console.warn(
                 `[${assetId}] sanitized ${sanitizeFixCount} cloud-exported babelfont fields before font open`

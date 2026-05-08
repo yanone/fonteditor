@@ -112,3 +112,58 @@ describe('CloudAdapter outbound updates', () => {
         expect(sentFrames[0].update).toBe(Buffer.from(diff).toString('base64'));
     });
 });
+
+describe('CloudAdapter durability failures', () => {
+    it('marks the connection errored and closes on undurable ack', () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const close = jest.fn();
+        adapter._ws = {
+            readyState: 1,
+            close
+        };
+
+        adapter._handleMessage(
+            JSON.stringify({ type: 'ack', seq: 4, durable: false })
+        );
+
+        expect(statuses).toContainEqual({
+            status: 'error',
+            detail: 'Cloud update seq 4 was not durable'
+        });
+        expect(close).toHaveBeenCalledWith(4000, 'undurable-update');
+    });
+
+    it('marks the connection errored and closes on undurable sync-complete error', () => {
+        const statuses = [];
+        const adapter = new CloudAdapter({
+            assetId: 'asset-123',
+            onConnectionStatus: (status, detail) => {
+                statuses.push({ status, detail });
+            }
+        });
+        const close = jest.fn();
+        adapter._ws = {
+            readyState: 1,
+            close
+        };
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'error',
+                message: 'Sync update not durable'
+            })
+        );
+
+        expect(statuses).toContainEqual({
+            status: 'error',
+            detail: 'Sync update not durable'
+        });
+        expect(close).toHaveBeenCalledWith(4000, 'server-error');
+    });
+});

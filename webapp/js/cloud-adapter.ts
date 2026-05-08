@@ -121,6 +121,7 @@ async function parseRequiredJsonResponse<T>(
  * We target 750 KB per chunk to leave headroom for JSON framing.
  */
 const SYNC_CHUNK_SIZE = 750_000;
+const CLIENT_RECONNECT_CLOSE_CODE = 4000;
 
 export type CloudConnectionStatus =
     | 'disconnected'
@@ -538,13 +539,34 @@ export class CloudAdapter implements FileSystemAdapter {
                 break;
 
             case 'ack':
+                if (msg.durable === false) {
+                    const detail = `Cloud update seq ${String(msg.seq ?? '?')} was not durable`;
+                    console.warn(`CloudAdapter: ${detail}`);
+                    this._setStatus('error', detail);
+                    this._ws?.close(
+                        CLIENT_RECONNECT_CLOSE_CODE,
+                        'undurable-update'
+                    );
+                }
                 break;
 
-            case 'error':
-                console.warn(
-                    `CloudAdapter: server error: ${String(msg.message ?? '')}`
-                );
+            case 'error': {
+                const detail = String(msg.message ?? 'server error');
+                console.warn(`CloudAdapter: server error: ${detail}`);
+                if (
+                    detail === 'Sync update not durable' ||
+                    detail === 'Invalid Yjs update' ||
+                    detail === 'Room state failed to load' ||
+                    detail === 'Room id unavailable'
+                ) {
+                    this._setStatus('error', detail);
+                    this._ws?.close(
+                        CLIENT_RECONNECT_CLOSE_CODE,
+                        'server-error'
+                    );
+                }
                 break;
+            }
 
             default:
                 console.warn(
