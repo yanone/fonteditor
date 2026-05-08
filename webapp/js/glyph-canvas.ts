@@ -1500,7 +1500,9 @@ class GlyphCanvas {
     }
 
     onMouseUp(e: MouseEvent): void {
-        this.outlineEditor.onMouseUp(e);
+        void this.outlineEditor.onMouseUp(e).catch((error) => {
+            console.error('Outline mouseup failed:', error);
+        });
         this.isDraggingCanvas = false;
         this.measurementTool.handleMouseUp();
 

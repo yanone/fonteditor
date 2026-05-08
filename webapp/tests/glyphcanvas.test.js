@@ -475,7 +475,32 @@ describe('GlyphCanvas onMouseUp', () => {
         expect(canvas.isDraggingCanvas).toBe(false);
     });
 
-    test('sidebearing drag uses side-specific undo metadata', () => {
+    test('logs rejected outline mouseup promises from the canvas wrapper', async () => {
+        const error = new Error('invalid width');
+        const onMouseUpSpy = jest
+            .spyOn(canvas.outlineEditor, 'onMouseUp')
+            .mockReturnValue(Promise.reject(error));
+        const consoleErrorSpy = jest
+            .spyOn(console, 'error')
+            .mockImplementation(() => {});
+
+        try {
+            canvas.onMouseUp({ clientX: 10, clientY: 20 });
+            await Promise.resolve();
+
+            expect(onMouseUpSpy).toHaveBeenCalled();
+            expect(consoleErrorSpy).toHaveBeenCalledWith(
+                '[GlyphCanvas]',
+                'Outline mouseup failed:',
+                error
+            );
+        } finally {
+            onMouseUpSpy.mockRestore();
+            consoleErrorSpy.mockRestore();
+        }
+    });
+
+    test('sidebearing drag uses side-specific undo metadata', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
         const originalFlushPendingDebugEditingFontSaveAfterDrag =
@@ -524,7 +549,7 @@ describe('GlyphCanvas onMouseUp', () => {
             canvas.outlineEditor._dragType = 'sidebearing';
             canvas.outlineEditor._hasMoved = true;
 
-            canvas.outlineEditor.onMouseUp({ clientX: 10, clientY: 20 });
+            await canvas.outlineEditor.onMouseUp({ clientX: 10, clientY: 20 });
 
             expect(syncSpy).not.toHaveBeenCalled();
         } finally {
@@ -535,7 +560,7 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
-    test('sidebearing mouseup recomputes complete cascade before YDoc target collection', () => {
+    test('sidebearing mouseup recomputes complete cascade before YDoc target collection', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
         const originalFlushPendingDebugEditingFontSaveAfterDrag =
@@ -612,7 +637,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 'l'
             ]);
 
-            canvas.outlineEditor.onMouseUp({ clientX: 10, clientY: 20 });
+            await canvas.outlineEditor.onMouseUp({ clientX: 10, clientY: 20 });
 
             expect(applyMetricsSpy).toHaveBeenCalledWith(true, {
                 rebuildAutomaticComposites: true
@@ -646,7 +671,7 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
-    test('point drag that returns to original position does not sync to YDoc', () => {
+    test('point drag that returns to original position does not sync to YDoc', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
         const originalFlushPendingDebugEditingFontSaveAfterDrag =
@@ -731,7 +756,7 @@ describe('GlyphCanvas onMouseUp', () => {
                 ctrlKey: false
             });
 
-            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+            await canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
 
             expect(window.changeBridge.beginTransaction).toHaveBeenCalledWith(
                 'Drag point'
@@ -792,7 +817,7 @@ describe('GlyphCanvas onMouseUp', () => {
         expect(canvas.outlineEditor.isDraggingPoint).toBe(false);
     });
 
-    test('point drag with metrics-key side change still syncs even if point description matches', () => {
+    test('point drag with metrics-key side change still syncs even if point description matches', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
         const originalFlushPendingDebugEditingFontSaveAfterDrag =
@@ -827,7 +852,7 @@ describe('GlyphCanvas onMouseUp', () => {
             canvas.outlineEditor._preDragDesc = "node '(105, 282)'";
             canvas.outlineEditor._metricsKeyEditedSide = 'left';
 
-            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+            await canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
 
             expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
             expect(syncSpy).toHaveBeenCalledWith(
@@ -849,7 +874,144 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
-    test('point drag with left metrics key syncs when recorded x delta changed', () => {
+    test('point drag mouseup waits for final layer save before YDoc sync', async () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const syncSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+        const buildNodeDescSpy = jest
+            .spyOn(canvas.outlineEditor, '_buildNodeDesc')
+            .mockReturnValue('(105, 282)');
+        let resolveSave;
+        const savePromise = new Promise((resolve) => {
+            resolveSave = resolve;
+        });
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockReturnValue(savePromise);
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.isDraggingPoint = true;
+            canvas.outlineEditor._dragType = 'point';
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor._preDragDesc = "node '(105, 282)'";
+
+            const mouseUpPromise = canvas.outlineEditor.onMouseUp({
+                clientX: 13,
+                clientY: 23
+            });
+
+            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
+            expect(syncSpy).not.toHaveBeenCalled();
+
+            resolveSave();
+            await mouseUpPromise;
+
+            expect(syncSpy).toHaveBeenCalledWith(
+                'Drag point',
+                "node '(105, 282)'",
+                '(105, 282)',
+                null,
+                undefined,
+                undefined
+            );
+            expect(window.changeBridge.endTransaction).toHaveBeenCalled();
+        } finally {
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            syncSpy.mockRestore();
+            buildNodeDescSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
+    test('point drag mouseup rejection skips YDoc sync and resets drag bookkeeping', async () => {
+        const originalWindowChangeBridge = window.changeBridge;
+        const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
+        const originalFlushPendingDebugEditingFontSaveAfterDrag =
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag;
+        const originalSyncRustCacheAndRefreshCanvas =
+            window.syncRustCacheAndRefreshCanvas;
+        const syncSpy = jest
+            .spyOn(canvas.outlineEditor, '_syncCurrentGlyphToYDoc')
+            .mockImplementation(() => {});
+        const saveError = new Error('invalid width');
+        const saveLayerDataSpy = jest
+            .spyOn(canvas.outlineEditor, 'saveLayerData')
+            .mockRejectedValue(saveError);
+
+        try {
+            window.changeBridge = {
+                beginTransaction: jest.fn(),
+                endTransaction: jest.fn(),
+                syncGlyphFromJson: jest.fn()
+            };
+            fontManager.updateWorkerFontCache = jest.fn();
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag = jest.fn();
+
+            canvas.outlineEditor.active = true;
+            canvas.outlineEditor.currentGlyphName = 'A';
+            canvas.outlineEditor.selectedLayerId = 'layer-1';
+            canvas.outlineEditor.glyphStack = 'A@layer-1';
+            canvas.outlineEditor.isDraggingPoint = true;
+            canvas.outlineEditor._dragType = 'point';
+            canvas.outlineEditor._hasMoved = true;
+            canvas.outlineEditor._preDragDesc = "node '(105, 282)'";
+            canvas.outlineEditor._pointDragDeltaX = -12;
+            canvas.outlineEditor._sidebearingAffectedGlyphNames = new Set([
+                'A'
+            ]);
+            canvas.outlineEditor.pendingRemoteRefreshAfterDrag = true;
+            window.syncRustCacheAndRefreshCanvas = jest.fn();
+
+            await expect(
+                canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 })
+            ).rejects.toBe(saveError);
+
+            expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
+            expect(syncSpy).not.toHaveBeenCalled();
+            expect(window.changeBridge.endTransaction).toHaveBeenCalled();
+            expect(canvas.outlineEditor._hasMoved).toBe(false);
+            expect(canvas.outlineEditor._preDragDesc).toBe(null);
+            expect(canvas.outlineEditor._dragType).toBe(null);
+            expect(canvas.outlineEditor._pointDragDeltaX).toBe(0);
+            expect(
+                canvas.outlineEditor._sidebearingAffectedGlyphNames.size
+            ).toBe(0);
+            expect(canvas.outlineEditor.pendingRemoteRefreshAfterDrag).toBe(
+                false
+            );
+            expect(window.syncRustCacheAndRefreshCanvas).toHaveBeenCalled();
+        } finally {
+            window.syncRustCacheAndRefreshCanvas =
+                originalSyncRustCacheAndRefreshCanvas;
+            window.changeBridge = originalWindowChangeBridge;
+            fontManager.updateWorkerFontCache = originalUpdateWorkerFontCache;
+            fontManager.flushPendingDebugEditingFontSaveAfterDrag =
+                originalFlushPendingDebugEditingFontSaveAfterDrag;
+            syncSpy.mockRestore();
+            saveLayerDataSpy.mockRestore();
+        }
+    });
+
+    test('point drag with left metrics key syncs when recorded x delta changed', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
         const originalFlushPendingDebugEditingFontSaveAfterDrag =
@@ -894,7 +1056,7 @@ describe('GlyphCanvas onMouseUp', () => {
             canvas.outlineEditor._metricsKeyEditedSide = null;
             canvas.outlineEditor._pointDragDeltaX = -18;
 
-            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+            await canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
 
             expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
             expect(syncSpy).toHaveBeenCalledWith(
@@ -1074,7 +1236,7 @@ describe('GlyphCanvas onMouseUp', () => {
         });
     });
 
-    test('point drag with left metrics key keeps cumulative x delta across compensated straight-left moves', () => {
+    test('point drag with left metrics key keeps cumulative x delta across compensated straight-left moves', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
         const originalFlushPendingDebugEditingFontSaveAfterDrag =
@@ -1184,7 +1346,7 @@ describe('GlyphCanvas onMouseUp', () => {
 
             expect(canvas.outlineEditor._pointDragDeltaX).toBeLessThan(-0.01);
 
-            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+            await canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
 
             expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
             expect(syncSpy).toHaveBeenCalledWith(
@@ -1371,7 +1533,7 @@ describe('GlyphCanvas onMouseUp', () => {
             expect(requestRecompileWithoutDataChange).toHaveBeenCalledTimes(1);
 
             canvas.outlineEditor._hasMoved = true;
-            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+            await canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
 
             expect(applyMetricsKeysSpy).toHaveBeenCalledTimes(2);
             expect(saveLayerDataSpy).toHaveBeenCalledTimes(1);
@@ -1401,7 +1563,7 @@ describe('GlyphCanvas onMouseUp', () => {
         }
     });
 
-    test('point drag keeps the last non-null interaction side for undo metadata when the final frame clears _metricsKeyEditedSide', () => {
+    test('point drag keeps the last non-null interaction side for undo metadata when the final frame clears _metricsKeyEditedSide', async () => {
         const originalWindowChangeBridge = window.changeBridge;
         const originalUpdateWorkerFontCache = fontManager.updateWorkerFontCache;
         const originalFlushPendingDebugEditingFontSaveAfterDrag =
@@ -1438,7 +1600,7 @@ describe('GlyphCanvas onMouseUp', () => {
             canvas.outlineEditor._metricsKeyInteractionSide = 'right';
             canvas.outlineEditor._pointDragDeltaX = 0;
 
-            canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
+            await canvas.outlineEditor.onMouseUp({ clientX: 13, clientY: 23 });
 
             expect(saveLayerDataSpy).toHaveBeenCalledWith('mouse-drag-outline');
             expect(syncSpy).toHaveBeenCalledWith(
@@ -1506,7 +1668,7 @@ describe('OutlineEditor marquee selection', () => {
         canvas.destroy();
     });
 
-    test('clicking empty canvas clears selection of all object types', () => {
+    test('clicking empty canvas clears selection of all object types', async () => {
         canvas.outlineEditor.selectedPoints = [
             { contourIndex: 0, nodeIndex: 0 }
         ];
@@ -1532,7 +1694,7 @@ describe('OutlineEditor marquee selection', () => {
             metaKey: false,
             ctrlKey: false
         });
-        canvas.outlineEditor.onMouseUp({ clientX: 0, clientY: 0 });
+        await canvas.outlineEditor.onMouseUp({ clientX: 0, clientY: 0 });
 
         expect(canvas.outlineEditor.selectedPoints).toEqual([]);
         expect(canvas.outlineEditor.selectedAnchors).toEqual([]);
@@ -5886,7 +6048,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
         ]);
     });
 
-    test('cmd-dragging a smooth point slides it along the curve across linked layers as one glyph history item', () => {
+    test('cmd-dragging a smooth point slides it along the curve across linked layers as one glyph history item', async () => {
         const font = Font.fromData({
             upm: 1000,
             version: [1, 0],
@@ -6107,7 +6269,7 @@ describe('GlyphCanvas deleteSelectedNodes', () => {
                 metaKey: true,
                 ctrlKey: false
             });
-            canvas.outlineEditor.onMouseUp({ clientX: 30, clientY: 40 });
+            await canvas.outlineEditor.onMouseUp({ clientX: 30, clientY: 40 });
 
             expect(linkedLayersSpy).toHaveBeenCalled();
             expect(bridge.beginTransaction).toHaveBeenCalledWith('Split path');

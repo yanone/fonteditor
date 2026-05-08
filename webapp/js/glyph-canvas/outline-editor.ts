@@ -3887,7 +3887,16 @@ export class OutlineEditor {
                 return;
             }
 
-            this.flushPendingDragMetricsUpdate('mouse-drag-outline');
+            const flushResult =
+                this.flushPendingDragMetricsUpdate('mouse-drag-outline');
+            if (flushResult && typeof flushResult.catch === 'function') {
+                void flushResult.catch((error) => {
+                    console.error(
+                        '[OutlineEditor] Error flushing drag metrics update:',
+                        error
+                    );
+                });
+            }
         }, delay);
     }
 
@@ -3895,7 +3904,7 @@ export class OutlineEditor {
         changeSource: string,
         forceMetricsRecompute: boolean = false,
         persistLayerData: boolean = false
-    ): void {
+    ): Promise<void> | void {
         this._pendingDragMetricsUpdate = false;
         this._lastDragSaveTime = performance.now();
 
@@ -3926,8 +3935,7 @@ export class OutlineEditor {
         }
 
         if (persistLayerData) {
-            this.saveLayerData(changeSource);
-            return;
+            return this.saveLayerData(changeSource);
         }
 
         if (metricsUpdate) {
@@ -11282,7 +11290,7 @@ export class OutlineEditor {
         }
     }
 
-    onMouseUp(e: MouseEvent): void {
+    async onMouseUp(e: MouseEvent): Promise<void> {
         if (this.isMarqueeSelecting) {
             if (!this.marqueeToggleMode && !this.hasMarqueeDragged()) {
                 this.clearAllSelections();
@@ -11308,6 +11316,14 @@ export class OutlineEditor {
         const wasSnappedToClose = this.isSnappedToCloseOpenPath;
         const snappedEndpointTarget = this._snappedOpenPathEndpointTarget;
         const dragConnectionSourcePoint = this._dragConnectionSourcePoint;
+        let dragTransactionEnded = false;
+        const endDragTransaction = () => {
+            if (dragTransactionEnded) {
+                return;
+            }
+            window.changeBridge?.endTransaction();
+            dragTransactionEnded = true;
+        };
 
         this.isDraggingPoint = false;
         this.isSlidingSmoothPointAlongCurve = false;
@@ -11381,282 +11397,309 @@ export class OutlineEditor {
 
         // Update worker font cache after dragging ends
         if (wasDragging) {
-            // Flush the final saveLayerData that throttling may have skipped
-            if (this._hasMoved && dragType !== 'guide') {
-                const dragChangeSource =
-                    dragType === 'anchor'
-                        ? 'mouse-drag-anchor'
-                        : dragType === 'transform' &&
-                            selectionResizeSnapshot &&
-                            !selectionResizeSnapshot.includesGeometry &&
-                            selectionResizeSnapshot.includesAnchors
-                          ? 'mouse-drag-anchor'
-                          : 'mouse-drag-outline';
-                if (
-                    dragType === 'point' ||
-                    dragType === 'component' ||
-                    (dragType === 'transform' &&
-                        selectionResizeSnapshot?.includesGeometry)
-                ) {
-                    this.cancelPendingDragMetricsUpdate();
-                    this.flushPendingDragMetricsUpdate(
-                        dragChangeSource,
-                        true,
-                        true
-                    );
-                } else {
-                    this._lastDragSaveTime = performance.now();
-                    this.saveLayerData(dragChangeSource);
-                }
-            }
-
-            // Final property panel update
-            this.glyphCanvas.updatePropertyPanel();
-
-            // Only sync to Y.Doc if there was actual movement — avoids spurious undo entries
-            // from simple clicks on anchors/points/components that didn't move anything.
-            if (this._hasMoved) {
-                // Build post-drag description (layerData already mutated — use coords-only)
-                let postDragDesc: string | undefined;
-                if (dragType === 'anchor') {
-                    postDragDesc = this._buildAnchorDesc(true);
-                } else if (dragType === 'point') {
-                    postDragDesc = this._buildNodeDesc(true);
-                } else if (dragType === 'component') {
-                    postDragDesc = this._buildComponentDesc(true);
-                } else if (dragType === 'guide') {
-                    postDragDesc = this._buildGuideDesc(true);
-                } else if (dragType === 'transform') {
-                    postDragDesc =
-                        this.buildSelectionResizeDescription(
-                            this.getSelectionTransformBounds()
-                        ) ?? undefined;
-                } else if (dragType === 'contrast-axis') {
-                    postDragDesc =
-                        this.buildContrastAxisDescription() ?? undefined;
-                } else if (dragType === 'sidebearing') {
-                    const side = this.selectedSidebearingHandle?.side;
-                    const sidebearingValue = side
-                        ? this.getCurrentDirectSidebearing(side)
-                        : null;
-                    postDragDesc =
-                        side && sidebearingValue !== null
-                            ? formatSidebearingHistoryValue(
-                                  side,
-                                  sidebearingValue
-                              )
-                            : undefined;
-                }
-                if (dragType === 'sidebearing') {
-                    const completeMetricsUpdate =
-                        this.applyMetricsKeysToCurrentEditedLayer(true, {
-                            rebuildAutomaticComposites: true
-                        });
-                    const parsed = this.parseGlyphStack();
-                    const glyphName =
-                        completeMetricsUpdate?.glyphName ||
-                        (parsed.length > 0
-                            ? parsed[parsed.length - 1].glyphName
-                            : this.glyphCanvas.getCurrentGlyphName());
-                    this._sidebearingAffectedGlyphNames =
-                        completeMetricsUpdate?.affectedGlyphNames ||
-                        new Set([glyphName].filter(Boolean) as string[]);
-                }
-                const normalizeDragDesc = (
-                    value: string | null | undefined
-                ): string | null => {
-                    if (!value) {
-                        return null;
+            try {
+                // Flush the final saveLayerData that throttling may have skipped
+                if (this._hasMoved && dragType !== 'guide') {
+                    const dragChangeSource =
+                        dragType === 'anchor'
+                            ? 'mouse-drag-anchor'
+                            : dragType === 'transform' &&
+                                selectionResizeSnapshot &&
+                                !selectionResizeSnapshot.includesGeometry &&
+                                selectionResizeSnapshot.includesAnchors
+                              ? 'mouse-drag-anchor'
+                              : 'mouse-drag-outline';
+                    if (
+                        dragType === 'point' ||
+                        dragType === 'component' ||
+                        (dragType === 'transform' &&
+                            selectionResizeSnapshot?.includesGeometry)
+                    ) {
+                        this.cancelPendingDragMetricsUpdate();
+                        const flushResult = this.flushPendingDragMetricsUpdate(
+                            dragChangeSource,
+                            true,
+                            true
+                        );
+                        if (
+                            flushResult &&
+                            typeof flushResult.then === 'function'
+                        ) {
+                            await flushResult;
+                        }
+                    } else {
+                        this._lastDragSaveTime = performance.now();
+                        const saveResult = this.saveLayerData(dragChangeSource);
+                        if (
+                            saveResult &&
+                            typeof saveResult.then === 'function'
+                        ) {
+                            await saveResult;
+                        }
                     }
-                    const colonIndex = value.indexOf(': ');
-                    if (colonIndex >= 0) {
-                        return value.slice(colonIndex + 2);
+                }
+
+                // Final property panel update
+                this.glyphCanvas.updatePropertyPanel();
+
+                // Only sync to Y.Doc if there was actual movement — avoids spurious undo entries
+                // from simple clicks on anchors/points/components that didn't move anything.
+                if (this._hasMoved) {
+                    // Build post-drag description (layerData already mutated — use coords-only)
+                    let postDragDesc: string | undefined;
+                    if (dragType === 'anchor') {
+                        postDragDesc = this._buildAnchorDesc(true);
+                    } else if (dragType === 'point') {
+                        postDragDesc = this._buildNodeDesc(true);
+                    } else if (dragType === 'component') {
+                        postDragDesc = this._buildComponentDesc(true);
+                    } else if (dragType === 'guide') {
+                        postDragDesc = this._buildGuideDesc(true);
+                    } else if (dragType === 'transform') {
+                        postDragDesc =
+                            this.buildSelectionResizeDescription(
+                                this.getSelectionTransformBounds()
+                            ) ?? undefined;
+                    } else if (dragType === 'contrast-axis') {
+                        postDragDesc =
+                            this.buildContrastAxisDescription() ?? undefined;
+                    } else if (dragType === 'sidebearing') {
+                        const side = this.selectedSidebearingHandle?.side;
+                        const sidebearingValue = side
+                            ? this.getCurrentDirectSidebearing(side)
+                            : null;
+                        postDragDesc =
+                            side && sidebearingValue !== null
+                                ? formatSidebearingHistoryValue(
+                                      side,
+                                      sidebearingValue
+                                  )
+                                : undefined;
                     }
-                    return value;
-                };
-                const isNoOpDragByDescription =
-                    normalizeDragDesc(preDragDesc) !== null &&
-                    normalizeDragDesc(preDragDesc) ===
-                        normalizeDragDesc(postDragDesc);
-                const hasLeftMetricsKeyPointDragDelta =
-                    dragType === 'point' &&
-                    Math.abs(this._pointDragDeltaX) > 0.01 &&
-                    this.hasActiveMetricsKey('left');
-                const hasLeftMetricsKeyComponentDragDelta =
-                    dragType === 'component' &&
-                    Math.abs(this._componentDragDeltaX) > 0.01 &&
-                    this.hasActiveMetricsKey('left');
-                const hasMetricsKeySideChange =
-                    this._metricsKeyEditedSide !== null ||
-                    hasLeftMetricsKeyPointDragDelta ||
-                    hasLeftMetricsKeyComponentDragDelta;
-                const label =
-                    dragType === 'anchor'
-                        ? 'Drag anchor'
-                        : dragType === 'slide-point'
-                          ? 'Move point along curve'
-                          : dragType === 'point'
-                            ? 'Drag point'
-                            : dragType === 'component'
-                              ? 'Drag component'
-                              : dragType === 'transform'
-                                ? 'Scale selection'
-                                : dragType === 'contrast-axis'
-                                  ? 'Set contrast axis'
-                                  : dragType === 'guide'
-                                    ? 'Drag guide'
-                                    : dragType === 'sidebearing' &&
-                                        this.selectedSidebearingHandle
-                                      ? getSidebearingTransactionLabel(
-                                            this.selectedSidebearingHandle.side
-                                        )
-                                      : 'Drag';
-                if (isNoOpDragByDescription && !hasMetricsKeySideChange) {
-                    // A drag moved during interaction but returned to the same
-                    // effective value (e.g. point dragged out and back). Skip
-                    // Yjs/history sync to avoid no-op history entries.
-                } else if (dragType === 'slide-point') {
+                    if (dragType === 'sidebearing') {
+                        const completeMetricsUpdate =
+                            this.applyMetricsKeysToCurrentEditedLayer(true, {
+                                rebuildAutomaticComposites: true
+                            });
+                        const parsed = this.parseGlyphStack();
+                        const glyphName =
+                            completeMetricsUpdate?.glyphName ||
+                            (parsed.length > 0
+                                ? parsed[parsed.length - 1].glyphName
+                                : this.glyphCanvas.getCurrentGlyphName());
+                        this._sidebearingAffectedGlyphNames =
+                            completeMetricsUpdate?.affectedGlyphNames ||
+                            new Set([glyphName].filter(Boolean) as string[]);
+                    }
+                    const normalizeDragDesc = (
+                        value: string | null | undefined
+                    ): string | null => {
+                        if (!value) {
+                            return null;
+                        }
+                        const colonIndex = value.indexOf(': ');
+                        if (colonIndex >= 0) {
+                            return value.slice(colonIndex + 2);
+                        }
+                        return value;
+                    };
+                    const isNoOpDragByDescription =
+                        normalizeDragDesc(preDragDesc) !== null &&
+                        normalizeDragDesc(preDragDesc) ===
+                            normalizeDragDesc(postDragDesc);
+                    const hasLeftMetricsKeyPointDragDelta =
+                        dragType === 'point' &&
+                        Math.abs(this._pointDragDeltaX) > 0.01 &&
+                        this.hasActiveMetricsKey('left');
+                    const hasLeftMetricsKeyComponentDragDelta =
+                        dragType === 'component' &&
+                        Math.abs(this._componentDragDeltaX) > 0.01 &&
+                        this.hasActiveMetricsKey('left');
+                    const hasMetricsKeySideChange =
+                        this._metricsKeyEditedSide !== null ||
+                        hasLeftMetricsKeyPointDragDelta ||
+                        hasLeftMetricsKeyComponentDragDelta;
+                    const label =
+                        dragType === 'anchor'
+                            ? 'Drag anchor'
+                            : dragType === 'slide-point'
+                              ? 'Move point along curve'
+                              : dragType === 'point'
+                                ? 'Drag point'
+                                : dragType === 'component'
+                                  ? 'Drag component'
+                                  : dragType === 'transform'
+                                    ? 'Scale selection'
+                                    : dragType === 'contrast-axis'
+                                      ? 'Set contrast axis'
+                                      : dragType === 'guide'
+                                        ? 'Drag guide'
+                                        : dragType === 'sidebearing' &&
+                                            this.selectedSidebearingHandle
+                                          ? getSidebearingTransactionLabel(
+                                                this.selectedSidebearingHandle
+                                                    .side
+                                            )
+                                          : 'Drag';
+                    if (isNoOpDragByDescription && !hasMetricsKeySideChange) {
+                        // A drag moved during interaction but returned to the same
+                        // effective value (e.g. point dragged out and back). Skip
+                        // Yjs/history sync to avoid no-op history entries.
+                    } else if (dragType === 'slide-point') {
+                        const currentGlyphModel = this.getCurrentGlyphModel();
+                        if (window.changeBridge && currentGlyphModel?.name) {
+                            window.changeBridge.syncGlyphFromJson(
+                                currentGlyphModel.name,
+                                label
+                            );
+                        }
+                    } else if (
+                        !(
+                            dragType === 'guide' &&
+                            draggedGuideScope === 'master'
+                        )
+                    ) {
+                        // Encode the metrics-key edited side into newValue so
+                        // inferSidebearingSideFromHistoryItem can detect it on undo.
+                        const metricsKeySide =
+                            this._metricsKeyEditedSide ||
+                            this._metricsKeyInteractionSide ||
+                            (hasLeftMetricsKeyPointDragDelta ||
+                            hasLeftMetricsKeyComponentDragDelta
+                                ? 'left'
+                                : null);
+                        this._metricsKeyEditedSide = null;
+                        this._metricsKeyInteractionSide = null;
+                        this._pointDragDeltaX = 0;
+                        this._componentDragDeltaX = 0;
+                        const encodedPostDesc =
+                            metricsKeySide && postDragDesc !== undefined
+                                ? `${
+                                      metricsKeySide === 'left'
+                                          ? 'LEFT'
+                                          : 'RIGHT'
+                                  } ${postDragDesc}`
+                                : postDragDesc;
+                        if (dragType === 'anchor') {
+                            this._anchorAffectedGlyphNames =
+                                this.rebuildAutomaticCompositesForCurrentEditedGlyph();
+                        }
+                        const anchorChangedLayerTargets =
+                            dragType === 'anchor'
+                                ? this.collectMatchingLayerWorkerReplayTargets(
+                                      this._anchorAffectedGlyphNames,
+                                      this.getCurrentLayerId()
+                                  )
+                                : undefined;
+                        const sidebearingChangedLayerTargets =
+                            dragType === 'sidebearing'
+                                ? this.collectMatchingLayerWorkerReplayTargets(
+                                      this._sidebearingAffectedGlyphNames,
+                                      this.getCurrentLayerId()
+                                  )
+                                : undefined;
+                        this._syncCurrentGlyphToYDoc(
+                            label,
+                            preDragDesc ?? undefined,
+                            encodedPostDesc,
+                            metricsKeySide,
+                            anchorChangedLayerTargets ??
+                                sidebearingChangedLayerTargets,
+                            anchorChangedLayerTargets ??
+                                sidebearingChangedLayerTargets
+                        );
+                    }
+                }
+
+                endDragTransaction();
+                if (dragType === 'slide-point') {
+                    const currentFont = fontManager.currentFont;
                     const currentGlyphModel = this.getCurrentGlyphModel();
-                    if (window.changeBridge && currentGlyphModel?.name) {
-                        window.changeBridge.syncGlyphFromJson(
-                            currentGlyphModel.name,
-                            label
+                    if (currentFont) {
+                        currentFont.markDirty('keyboard-outline');
+                        this.prepareStructuralOutlineCompile();
+                        void fontManager.updateDirtyIndicator();
+                        window.setTimeout(() => {
+                            if (fontManager.currentFont !== currentFont) {
+                                return;
+                            }
+
+                            try {
+                                currentFont.syncJsonFromModel();
+                            } catch (error) {
+                                console.error(
+                                    '[OutlineEditor] Error syncing font JSON after smooth point slide:',
+                                    error
+                                );
+                                return;
+                            }
+
+                            void fontManager.updateWorkerFontCache();
+                            this.wakeStructuralOutlineCompile();
+                        }, 0);
+                    } else if (currentGlyphModel?.name) {
+                        window.dispatchEvent(
+                            new CustomEvent('glyphChanged', {
+                                detail: {
+                                    glyphName: currentGlyphModel.name,
+                                    layerId: this.getCurrentLayerId()
+                                }
+                            })
                         );
                     }
                 } else if (
-                    !(dragType === 'guide' && draggedGuideScope === 'master')
+                    dragType !== 'guide' &&
+                    dragType !== 'contrast-axis'
                 ) {
-                    // Encode the metrics-key edited side into newValue so
-                    // inferSidebearingSideFromHistoryItem can detect it on undo.
-                    const metricsKeySide =
-                        this._metricsKeyEditedSide ||
-                        this._metricsKeyInteractionSide ||
-                        (hasLeftMetricsKeyPointDragDelta ||
-                        hasLeftMetricsKeyComponentDragDelta
-                            ? 'left'
-                            : null);
-                    this._metricsKeyEditedSide = null;
-                    this._metricsKeyInteractionSide = null;
-                    this._pointDragDeltaX = 0;
-                    this._componentDragDeltaX = 0;
-                    const encodedPostDesc =
-                        metricsKeySide && postDragDesc !== undefined
-                            ? `${
-                                  metricsKeySide === 'left' ? 'LEFT' : 'RIGHT'
-                              } ${postDragDesc}`
-                            : postDragDesc;
-                    if (dragType === 'anchor') {
+                    const handledAnchorDependentRefresh =
+                        dragType === 'anchor' ||
+                        (dragType === 'transform' &&
+                            selectionResizeSnapshot?.includesAnchors);
+                    if (dragType === 'sidebearing') {
+                        this.syncDependentGlyphsAfterSidebearingEdit(
+                            this.getCurrentGlyphModel()?.name,
+                            this._sidebearingAffectedGlyphNames
+                        );
+                    } else if (handledAnchorDependentRefresh) {
                         this._anchorAffectedGlyphNames =
                             this.rebuildAutomaticCompositesForCurrentEditedGlyph();
-                    }
-                    const anchorChangedLayerTargets =
-                        dragType === 'anchor'
-                            ? this.collectMatchingLayerWorkerReplayTargets(
-                                  this._anchorAffectedGlyphNames,
-                                  this.getCurrentLayerId()
-                              )
-                            : undefined;
-                    const sidebearingChangedLayerTargets =
-                        dragType === 'sidebearing'
-                            ? this.collectMatchingLayerWorkerReplayTargets(
-                                  this._sidebearingAffectedGlyphNames,
-                                  this.getCurrentLayerId()
-                              )
-                            : undefined;
-                    this._syncCurrentGlyphToYDoc(
-                        label,
-                        preDragDesc ?? undefined,
-                        encodedPostDesc,
-                        metricsKeySide,
-                        anchorChangedLayerTargets ??
-                            sidebearingChangedLayerTargets,
-                        anchorChangedLayerTargets ??
-                            sidebearingChangedLayerTargets
-                    );
-                }
-            }
-
-            window.changeBridge?.endTransaction();
-            if (dragType === 'slide-point') {
-                const currentFont = fontManager.currentFont;
-                const currentGlyphModel = this.getCurrentGlyphModel();
-                if (currentFont) {
-                    currentFont.markDirty('keyboard-outline');
-                    this.prepareStructuralOutlineCompile();
-                    void fontManager.updateDirtyIndicator();
-                    window.setTimeout(() => {
-                        if (fontManager.currentFont !== currentFont) {
-                            return;
-                        }
-
-                        try {
-                            currentFont.syncJsonFromModel();
-                        } catch (error) {
+                        void this.syncDependentGlyphsAfterAnchorEdit(
+                            this.getCurrentGlyphModel()?.name,
+                            this._anchorAffectedGlyphNames
+                        ).catch((error) => {
                             console.error(
-                                '[OutlineEditor] Error syncing font JSON after smooth point slide:',
+                                '[OutlineEditor] Error refreshing anchor-dependent glyphs after mouseup:',
                                 error
                             );
-                            return;
-                        }
+                        });
+                    }
+                    if (!handledAnchorDependentRefresh) {
+                        fontManager.updateWorkerFontCache();
+                    }
+                    fontManager.flushPendingDebugEditingFontSaveAfterDrag();
+                }
+            } catch (error) {
+                endDragTransaction();
+                throw error;
+            } finally {
+                this._pointDragDeltaX = 0;
+                this._componentDragDeltaX = 0;
+                this._sidebearingAffectedGlyphNames = new Set();
+                this._anchorAffectedGlyphNames = new Set();
+                this.resetLiveAnchorRefreshState();
+                this._hasMoved = false;
+                this._preDragDesc = null;
+                this._dragType = null;
+                this._metricsKeyInteractionSide = null;
+                this.hoveredResizeHandle = null;
+                this.hoveredContrastAxisHandle = null;
 
-                        void fontManager.updateWorkerFontCache();
-                        this.wakeStructuralOutlineCompile();
-                    }, 0);
-                } else if (currentGlyphModel?.name) {
-                    window.dispatchEvent(
-                        new CustomEvent('glyphChanged', {
-                            detail: {
-                                glyphName: currentGlyphModel.name,
-                                layerId: this.getCurrentLayerId()
-                            }
-                        })
-                    );
+                // A remote change was deferred during the drag to avoid resetting
+                // layerData mid-drag. Now that the drag is complete, run the refresh.
+                if (this.pendingRemoteRefreshAfterDrag) {
+                    this.pendingRemoteRefreshAfterDrag = false;
+                    void window.syncRustCacheAndRefreshCanvas?.();
                 }
-            } else if (dragType !== 'guide' && dragType !== 'contrast-axis') {
-                const handledAnchorDependentRefresh =
-                    dragType === 'anchor' ||
-                    (dragType === 'transform' &&
-                        selectionResizeSnapshot?.includesAnchors);
-                if (dragType === 'sidebearing') {
-                    this.syncDependentGlyphsAfterSidebearingEdit(
-                        this.getCurrentGlyphModel()?.name,
-                        this._sidebearingAffectedGlyphNames
-                    );
-                } else if (handledAnchorDependentRefresh) {
-                    this._anchorAffectedGlyphNames =
-                        this.rebuildAutomaticCompositesForCurrentEditedGlyph();
-                    void this.syncDependentGlyphsAfterAnchorEdit(
-                        this.getCurrentGlyphModel()?.name,
-                        this._anchorAffectedGlyphNames
-                    ).catch((error) => {
-                        console.error(
-                            '[OutlineEditor] Error refreshing anchor-dependent glyphs after mouseup:',
-                            error
-                        );
-                    });
-                }
-                if (!handledAnchorDependentRefresh) {
-                    fontManager.updateWorkerFontCache();
-                }
-                fontManager.flushPendingDebugEditingFontSaveAfterDrag();
-            }
-            this._pointDragDeltaX = 0;
-            this._componentDragDeltaX = 0;
-            this._sidebearingAffectedGlyphNames = new Set();
-            this._anchorAffectedGlyphNames = new Set();
-            this.resetLiveAnchorRefreshState();
-            this._hasMoved = false;
-            this._preDragDesc = null;
-            this._dragType = null;
-            this._metricsKeyInteractionSide = null;
-            this.hoveredResizeHandle = null;
-            this.hoveredContrastAxisHandle = null;
-
-            // A remote change was deferred during the drag to avoid resetting
-            // layerData mid-drag. Now that the drag is complete, run the refresh.
-            if (this.pendingRemoteRefreshAfterDrag) {
-                this.pendingRemoteRefreshAfterDrag = false;
-                void window.syncRustCacheAndRefreshCanvas?.();
             }
         }
     }
