@@ -3397,12 +3397,22 @@ export class ChangeBridge {
             typeof mergedLayerRecord.width !== 'number' ||
             !Number.isFinite(mergedLayerRecord.width)
         ) {
+            const incomingHasWidth = Object.prototype.hasOwnProperty.call(
+                incomingLayerRecord,
+                'width'
+            );
             const existingWidth = existingLayerRecord.width;
-            mergedLayerRecord.width =
+            if (
+                !incomingHasWidth &&
                 typeof existingWidth === 'number' &&
                 Number.isFinite(existingWidth)
-                    ? existingWidth
-                    : 0;
+            ) {
+                mergedLayerRecord.width = existingWidth;
+            } else {
+                throw new Error(
+                    `[ChangeBridge] Layer ${layerId} has invalid width; refusing to normalize malformed layer snapshot.`
+                );
+            }
         }
 
         for (const [key, value] of Object.entries(mergedLayerRecord)) {

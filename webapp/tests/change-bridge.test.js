@@ -4049,6 +4049,66 @@ describe('syncGlyphFromJson', () => {
         );
     });
 
+    test('partial layer snapshot without width preserves an existing valid width', () => {
+        const { bridge } = createTestBridge('test-1');
+        const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
+
+        bridge._applyBufferedOperation({
+            op: 'set',
+            path: layerPath,
+            oldValue: { anchors: [] },
+            newValue: { anchors: [{ name: 'top', x: 100, y: 700 }] },
+            applyMode: 'layer-snapshot'
+        });
+
+        expect(
+            getYPath(bridge.fontMap, [
+                'glyphs',
+                'A',
+                'layers',
+                'layer-1',
+                'width'
+            ])
+        ).toBe(600);
+    });
+
+    test('layer snapshot with no valid width source fails instead of synthesizing zero', () => {
+        const { bridge } = createTestBridge('test-1');
+        const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
+        deleteYPath(bridge.fontMap, [...layerPath, 'width']);
+
+        expect(() =>
+            bridge._applyBufferedOperation({
+                op: 'set',
+                path: layerPath,
+                oldValue: { anchors: [] },
+                newValue: { anchors: [{ name: 'top', x: 100, y: 700 }] },
+                applyMode: 'layer-snapshot'
+            })
+        ).toThrow(/invalid width/);
+
+        expect(
+            getYPath(bridge.fontMap, [...layerPath, 'width'])
+        ).toBeUndefined();
+    });
+
+    test('layer snapshot with explicit invalid width fails even when an existing width is valid', () => {
+        const { bridge } = createTestBridge('test-1');
+        const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
+
+        expect(() =>
+            bridge._applyBufferedOperation({
+                op: 'set',
+                path: layerPath,
+                oldValue: { width: 600 },
+                newValue: { width: null, anchors: [] },
+                applyMode: 'layer-snapshot'
+            })
+        ).toThrow(/invalid width/);
+
+        expect(getYPath(bridge.fontMap, [...layerPath, 'width'])).toBe(600);
+    });
+
     test('partial layer snapshot does not materialize a missing layer root', () => {
         const { bridge } = createTestBridge('test-1');
         const missingLayerPath = ['glyphs', 'A', 'layers', 'missing-layer'];

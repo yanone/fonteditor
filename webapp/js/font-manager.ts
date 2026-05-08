@@ -100,6 +100,69 @@ export type BoundaryCrossingStats = {
  */
 const EMPTY_FINGERPRINT_MAP: Map<string, string> = new Map();
 
+class FontDataIntegrityError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'FontDataIntegrityError';
+    }
+}
+
+type SerializableLayerRecord = {
+    id?: string;
+    width?: number | null;
+};
+
+type SerializableGlyphRecord = {
+    name?: string;
+    layers?: SerializableLayerRecord[];
+};
+
+type SerializableFontRecord = {
+    glyphs?: SerializableGlyphRecord[];
+};
+
+function assertFiniteLayerWidth(
+    width: number | null | undefined,
+    context: {
+        glyphName?: string | null;
+        layerId?: string | null;
+        operation: string;
+    }
+): asserts width is number {
+    if (typeof width === 'number' && Number.isFinite(width)) {
+        return;
+    }
+
+    const glyphName = context.glyphName || '[unknown glyph]';
+    const layerId = context.layerId || '[unknown layer]';
+    throw new FontDataIntegrityError(
+        `Layer ${glyphName}/${layerId} has invalid width during ${context.operation}; refusing to serialize malformed layer data.`
+    );
+}
+
+function assertBabelfontLayerWidths(
+    data: SerializableFontRecord,
+    operation: string
+): void {
+    if (!Array.isArray(data?.glyphs)) {
+        return;
+    }
+
+    for (const glyph of data.glyphs) {
+        if (!Array.isArray(glyph?.layers)) {
+            continue;
+        }
+
+        for (const layer of glyph.layers) {
+            assertFiniteLayerWidth(layer?.width, {
+                glyphName: glyph?.name,
+                layerId: layer?.id,
+                operation
+            });
+        }
+    }
+}
+
 type ReloadCurrentFontOptions = {
     preserveUiState?: boolean;
 };
@@ -238,6 +301,11 @@ class OpenedFont {
             }
         }
 
+        assertBabelfontLayerWidths(
+            this.babelfontData,
+            'OpenedFont.constructor'
+        );
+
         this.fontModel = Font.fromData(this.babelfontData); // Create object model
         withSuppressedModelRecording(() => {
             this.fontModel.recomputeMetricsKeys();
@@ -340,6 +408,7 @@ class OpenedFont {
         // Sanitize array fields that Y.Doc undo/redo roundtrips may have
         // corrupted into objects with numeric keys (e.g. shapes → {"0":…})
         sanitizeBabelfontArrays(this.babelfontData);
+        assertBabelfontLayerWidths(this.babelfontData, 'syncJsonFromModel');
 
         // Process all layers to prepare for serialization
         for (const glyph of this.babelfontData.glyphs || []) {
@@ -407,12 +476,6 @@ class OpenedFont {
 
                     // Note: normalizer wrapper properties (nodes, isInterpolated) are filtered
                     // out during JSON.stringify by the replacer function in toJSONString()
-                }
-
-                // Ensure layer has required `width` field
-                // (Y.Doc roundtrip can lose it; Rust serde requires it)
-                if (layer.width === undefined || layer.width === null) {
-                    layer.width = 0;
                 }
             }
         }
@@ -1510,6 +1573,12 @@ class FontManager {
             return layerData;
         }
 
+        assertFiniteLayerWidth(layerData.width, {
+            layerId:
+                typeof layerData.id === 'string' ? layerData.id : undefined,
+            operation: 'normalizeLayerForRust'
+        });
+
         const shapes = Array.isArray(layerData.shapes)
             ? layerData.shapes.map((shape: any) =>
                   this.normalizeShapeForRust(shape)
@@ -2574,6 +2643,11 @@ class FontManager {
                 });
             }
 
+            assertBabelfontLayerWidths(
+                data,
+                'validateAndFixBabelfontJsonForRust'
+            );
+
             const fixValue = (val: any, path: string = ''): void => {
                 if (!val || typeof val !== 'object') return;
 
@@ -2680,18 +2754,6 @@ class FontManager {
                     fixCount++;
                 }
 
-                // Fix layers missing required `width` field
-                // (Y.Doc roundtrip can lose it; Rust serde requires it)
-                if (
-                    'shapes' in val &&
-                    !('reference' in val) &&
-                    !('nodes' in val) &&
-                    (val.width === undefined || val.width === null)
-                ) {
-                    val.width = 0;
-                    fixCount++;
-                }
-
                 // Fix known array fields that became objects (Y.Doc roundtrip)
                 for (const field of arrayFields) {
                     if (
@@ -2718,6 +2780,10 @@ class FontManager {
 
             if (data && typeof data === 'object') {
                 fixValue(data);
+                assertBabelfontLayerWidths(
+                    data,
+                    'validateAndFixBabelfontJsonForRust'
+                );
 
                 // Post-fix scan: detect shapes that still don't match
                 // Rust's untagged enum (Path or Component)
@@ -2812,6 +2878,9 @@ class FontManager {
                 );
             }
         } catch (e) {
+            if (e instanceof FontDataIntegrityError) {
+                throw e;
+            }
             console.warn(
                 '[FontManager] Failed to validate/fix babelfontJson:',
                 e
@@ -2995,6 +3064,12 @@ class FontManager {
         if (!originalLayer && !layerData) {
             return null;
         }
+
+        assertFiniteLayerWidth(layerData.width, {
+            glyphName,
+            layerId,
+            operation: 'serializeLayerForStorage'
+        });
 
         const cleanShapes = Array.isArray(layerData.shapes)
             ? layerData.shapes.map(cleanShapeForSaving)

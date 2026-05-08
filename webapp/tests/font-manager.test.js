@@ -308,6 +308,35 @@ describe('FontManager saveLayerData', () => {
         expect(serialized.shapes).toBeUndefined();
     });
 
+    test('saveLayerData rejects missing layer widths before mutating stored data', async () => {
+        const glyph = fontManager.currentFont.babelfontData.glyphs.find(
+            (entry) => entry.name === 'a'
+        );
+        const layer = glyph.layers.find(
+            (entry) => entry.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'
+        );
+        const originalLayer = cloneJson(layer);
+        const editedLayer = cloneJson(layer);
+        delete editedLayer.width;
+
+        await expect(
+            fontManager.saveLayerData(
+                'a',
+                layer.id,
+                editedLayer,
+                'mouse-drag-outline'
+            )
+        ).rejects.toThrow(/invalid width/);
+
+        const storedLayer = fontManager.currentFont.babelfontData.glyphs
+            .find((entry) => entry.name === 'a')
+            .layers.find((entry) => entry.id === layer.id);
+
+        expect(storedLayer).toEqual(originalLayer);
+        expect(fontManager.currentFont.markDirty).not.toHaveBeenCalled();
+        expect(sendMessageSpy).not.toHaveBeenCalled();
+    });
+
     test('keeps live auto-compile for interactive keyboard outline saves', async () => {
         const glyph = fontManager.currentFont.babelfontData.glyphs.find(
             (entry) => entry.name === 'a'
@@ -869,6 +898,18 @@ describe('FontManager editing subset inclusion', () => {
             type: 'DefaultForMaster',
             master: 'master-1'
         });
+    });
+
+    test('validateAndFixBabelfontJsonForRust rejects missing layer widths instead of synthesizing zero', () => {
+        const fontData = cloneJson(fontManager.currentFont.babelfontData);
+        delete fontData.glyphs[0].layers[0].width;
+
+        expect(() =>
+            fontManager['validateAndFixBabelfontJsonForRust'](
+                JSON.stringify(fontData),
+                true
+            )
+        ).toThrow(/invalid width/);
     });
 
     test('compileEditingFont adds the active edited glyph to the subset', async () => {
