@@ -69,6 +69,26 @@ function normalizeCloudExportForFontOpen(
                     typeof layerRecord.id === 'string' && layerRecord.id.length
                         ? layerRecord.id
                         : `layer #${layerIndex}`;
+                console.error(
+                    `[CloudPlugin] Layer ${glyphName}/${layerId} width invalid:`,
+                    {
+                        width: layerRecord.width,
+                        widthType: typeof layerRecord.width,
+                        layerKeys: Object.keys(layerRecord),
+                        shapes: Array.isArray(layerRecord.shapes)
+                            ? layerRecord.shapes.map((s: any) =>
+                                  Object.keys(s || {})
+                              )
+                            : 'no shapes',
+                        firstShape:
+                            Array.isArray(layerRecord.shapes) &&
+                            layerRecord.shapes.length > 0
+                                ? JSON.stringify(
+                                      layerRecord.shapes[0]
+                                  ).substring(0, 500)
+                                : 'none'
+                    }
+                );
                 throw new Error(
                     `Cloud font layer ${glyphName}/${layerId} has invalid width; refusing to ${operation} cloud font data.`
                 );
