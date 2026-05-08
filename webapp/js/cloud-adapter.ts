@@ -10,18 +10,15 @@
  *   { type: 'sync-complete', update: string [, chunkIndex, totalChunks] }   ← base64(diff for server, last or only chunk)
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks }       ← preceding chunk(s) for large diff
  *   { type: 'update',        update: string, clientId: string, seq: number,
- *                            changeLogEntries?: ChangeLogEntry[],
- *                            fullState?: string,
- *                            layerRepairSnapshots?: RemoteLayerRepairSnapshot[] }
+ *                            changeLogEntries?: ChangeLogEntry[] }
  *
  * Server → Client:
  *   { type: 'auth-ok',       clientId: string }
  *   { type: 'auth-error',    message: string }
  *   { type: 'sync-response', update?: string, serverStateVector: string [, chunked: true, totalChunks] }
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks, direction: 'response' }
- *   { type: 'update',        update: string, fullState?: string, clientId: string, seq: number,
- *                            changeLogEntries?: ChangeLogEntry[],
- *                            layerRepairSnapshots?: RemoteLayerRepairSnapshot[] }
+ *   { type: 'update',        update: string, clientId: string, seq: number,
+ *                            changeLogEntries?: ChangeLogEntry[] }
  *   { type: 'ack',           seq: number, durable: boolean }
  *   { type: 'error',         message: string }
  *
@@ -33,11 +30,7 @@
  */
 
 import * as Y from 'yjs';
-import type {
-    ChangeBridge,
-    ChangeLogEntry,
-    RemoteLayerRepairSnapshot
-} from './change-bridge';
+import type { ChangeBridge, ChangeLogEntry } from './change-bridge';
 import type { FileSystemAdapter, FileInfo } from './file-system-adapter';
 import { Logger } from './logger';
 import { resolveWebsiteURL } from './website-url';
@@ -150,8 +143,6 @@ export type CloudAdapterOptions = {
 type CloudLiveUpdateMessage = {
     update: Uint8Array;
     changeLogEntries?: ChangeLogEntry[];
-    fullState?: Uint8Array;
-    layerRepairSnapshots?: RemoteLayerRepairSnapshot[];
 };
 
 // ── Binary ↔ base64 helpers ──────────────────────────────────────────────────
@@ -541,16 +532,6 @@ export class CloudAdapter implements FileSystemAdapter {
                         update: base64ToU8(msg.update),
                         changeLogEntries: Array.isArray(msg.changeLogEntries)
                             ? (msg.changeLogEntries as ChangeLogEntry[])
-                            : undefined,
-                        fullState:
-                            typeof msg.fullState === 'string' &&
-                            msg.fullState.length
-                                ? base64ToU8(msg.fullState)
-                                : undefined,
-                        layerRepairSnapshots: Array.isArray(
-                            msg.layerRepairSnapshots
-                        )
-                            ? (msg.layerRepairSnapshots as RemoteLayerRepairSnapshot[])
                             : undefined
                     });
                 }
@@ -590,18 +571,11 @@ export class CloudAdapter implements FileSystemAdapter {
     /** Apply an incremental update broadcast from a peer. */
     private _applyRemoteUpdate(
         update: Uint8Array,
-        remoteEntries?: Parameters<ChangeBridge['applyRemoteUpdate']>[1],
-        repairState?: Uint8Array,
-        repairSnapshots?: Parameters<ChangeBridge['applyRemoteUpdate']>[3]
+        remoteEntries?: Parameters<ChangeBridge['applyRemoteUpdate']>[1]
     ): void {
         if (!this._bridge || update.length === 0) return;
         try {
-            this._bridge.applyRemoteUpdate(
-                update,
-                remoteEntries,
-                repairState,
-                repairSnapshots
-            );
+            this._bridge.applyRemoteUpdate(update, remoteEntries);
         } catch (err) {
             console.error('CloudAdapter: failed to apply remote update:', err);
         }
@@ -626,16 +600,6 @@ export class CloudAdapter implements FileSystemAdapter {
             const diff = this._bridge.encodeStateDiff(serverStateVector);
             if (diff.length === 0) return;
             const changeLogEntries = this._bridge.getNewChangeLogEntries();
-            const needsFullStateRepair = changeLogEntries.some(
-                (entry) =>
-                    entry.undoScope === 'glyph' || entry.undoScope === 'font'
-            );
-            const fullState = needsFullStateRepair
-                ? this._bridge.getFullState()
-                : undefined;
-            const layerRepairSnapshots = changeLogEntries.length
-                ? this._bridge.getLayerRepairSnapshots(changeLogEntries)
-                : [];
 
             const totalChunks = Math.ceil(diff.length / SYNC_CHUNK_SIZE);
             console.log(
@@ -660,13 +624,6 @@ export class CloudAdapter implements FileSystemAdapter {
                 if (isLast) {
                     frame.changeLogEntries = changeLogEntries.length
                         ? changeLogEntries
-                        : undefined;
-                    frame.fullState =
-                        fullState && fullState.length > 0
-                            ? u8ToBase64(fullState)
-                            : undefined;
-                    frame.layerRepairSnapshots = layerRepairSnapshots.length
-                        ? layerRepairSnapshots
                         : undefined;
                 }
                 this._ws.send(JSON.stringify(frame));
@@ -744,15 +701,6 @@ export class CloudAdapter implements FileSystemAdapter {
         const update =
             updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
         const seq = ++this._seq;
-        const needsFullStateRepair = changeLogEntries.some(
-            (entry) => entry.undoScope === 'glyph' || entry.undoScope === 'font'
-        );
-        const fullState = needsFullStateRepair
-            ? this._bridge.getFullState()
-            : undefined;
-        const layerRepairSnapshots = changeLogEntries.length
-            ? this._bridge.getLayerRepairSnapshots(changeLogEntries)
-            : [];
 
         this._ws.send(
             JSON.stringify({
@@ -762,13 +710,6 @@ export class CloudAdapter implements FileSystemAdapter {
                 seq,
                 changeLogEntries: changeLogEntries.length
                     ? changeLogEntries
-                    : undefined,
-                fullState:
-                    fullState && fullState.length > 0
-                        ? u8ToBase64(fullState)
-                        : undefined,
-                layerRepairSnapshots: layerRepairSnapshots.length
-                    ? layerRepairSnapshots
                     : undefined
             })
         );
@@ -800,21 +741,10 @@ export class CloudAdapter implements FileSystemAdapter {
         const changeLogEntries = messages.flatMap(
             (msg) => msg.changeLogEntries ?? []
         );
-        const layerRepairSnapshots = messages.flatMap(
-            (msg) => msg.layerRepairSnapshots ?? []
-        );
-        let fullState: Uint8Array | undefined;
-        for (const msg of messages) {
-            if (msg.fullState) {
-                fullState = msg.fullState;
-            }
-        }
 
         this._applyRemoteUpdate(
             mergedUpdate,
-            changeLogEntries.length ? changeLogEntries : undefined,
-            fullState,
-            layerRepairSnapshots.length ? layerRepairSnapshots : undefined
+            changeLogEntries.length ? changeLogEntries : undefined
         );
     }
 

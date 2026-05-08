@@ -45,25 +45,12 @@ describe('CloudAdapter outbound updates', () => {
                 path: 'glyphs.A.layers.L0'
             }
         ];
-        const layerRepairSnapshots = [
-            {
-                glyphName: 'A',
-                layers: [
-                    {
-                        layerId: 'L0',
-                        layerSnapshot: { id: 'L0' }
-                    }
-                ]
-            }
-        ];
-
         adapter._bridge = {
             onLocalUpdate: (handler) => {
                 localUpdateHandler = handler;
             },
             offLocalUpdate: jest.fn(),
-            getFullState,
-            getLayerRepairSnapshots: jest.fn(() => layerRepairSnapshots)
+            getFullState
         };
         adapter._ws = {
             readyState: 1,
@@ -81,15 +68,16 @@ describe('CloudAdapter outbound updates', () => {
             type: 'update',
             clientId: 'client-1',
             seq: 1,
-            changeLogEntries,
-            layerRepairSnapshots
+            changeLogEntries
         });
+        expect(sentFrames[0].fullState).toBeUndefined();
+        expect(sentFrames[0].layerRepairSnapshots).toBeUndefined();
         expect(sentFrames[0].update).toBe(
             Buffer.from(localUpdate).toString('base64')
         );
     });
 
-    it('carries metadata on sync-complete for structural repair state', () => {
+    it('sends sync-complete metadata without repair side-band state', () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const diff = new Uint8Array([5, 6, 7]);
         const sentFrames = [];
@@ -100,23 +88,11 @@ describe('CloudAdapter outbound updates', () => {
             }
         ];
         const fullState = new Uint8Array([8, 9, 10]);
-        const layerRepairSnapshots = [
-            {
-                glyphName: 'A',
-                layers: [
-                    {
-                        layerId: 'L0',
-                        layerSnapshot: { id: 'L0', shapes: [] }
-                    }
-                ]
-            }
-        ];
 
         adapter._bridge = {
             encodeStateDiff: jest.fn(() => diff),
             getNewChangeLogEntries: jest.fn(() => changeLogEntries),
-            getFullState: jest.fn(() => fullState),
-            getLayerRepairSnapshots: jest.fn(() => layerRepairSnapshots)
+            getFullState: jest.fn(() => fullState)
         };
         adapter._ws = {
             readyState: 1,
@@ -125,13 +101,14 @@ describe('CloudAdapter outbound updates', () => {
 
         adapter._sendSyncComplete(new Uint8Array([1, 2, 3]));
 
+        expect(adapter._bridge.getFullState).not.toHaveBeenCalled();
         expect(sentFrames).toHaveLength(1);
         expect(sentFrames[0]).toMatchObject({
             type: 'sync-complete',
-            changeLogEntries,
-            fullState: Buffer.from(fullState).toString('base64'),
-            layerRepairSnapshots
+            changeLogEntries
         });
+        expect(sentFrames[0].fullState).toBeUndefined();
+        expect(sentFrames[0].layerRepairSnapshots).toBeUndefined();
         expect(sentFrames[0].update).toBe(Buffer.from(diff).toString('base64'));
     });
 });

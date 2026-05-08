@@ -84,18 +84,20 @@ edits.
 - Broadcast payloads SHOULD use structured-cloned `Uint8Array` data instead of
   `Array.from()` number arrays. Receivers may accept the older number-array
   shape for compatibility.
-- When peer windows are known and a `yjs-update` carries change-log entries,
-  the sender may include compact `layerRepairSnapshots` for touched glyphs.
-  This preserves the previous malformed/stale layer-root repair guarantee
-  without encoding and transmitting the full Y.Doc state on every edit.
+- Live `yjs-update` payloads MUST carry only the Yjs delta plus the associated
+  `changeLogEntries` replay metadata. They MUST NOT include `fullState`, layer
+  repair snapshots, or any other side-band repair state. Partial layer snapshots
+  must be rejected or applied non-destructively at the producer boundary; the
+  collaboration transport must not repair malformed transactions after the
+  fact.
 - New peers still bootstrap correctly via the `full-state-request` /
   `full-state-response` round-trip in `_handleMessage`. They do not depend on
   the bundled `fullState` from `yjs-update` for first-time bootstrap.
 - Tests in `tests/change-bridge.test.js` (`no peers: yjs-update broadcast omits
-fullState...`, `with a peer: yjs-update broadcast omits fullState...`, and
-  `same-tick local updates are batched...`) lock the budget. The same suite also
-  locks compact repair payload behavior and layer-scoped undo after inbound
-  batching.
+fullState...`, `with a peer: yjs-update broadcast omits fullState...`,
+  `same-tick local updates are batched...`, and the partial layer snapshot
+  producer-invariant tests) lock the budget and the no-repair live-update
+  contract. The same suite also locks layer-scoped undo after inbound batching.
 
 ## Edit-Type Matrix
 

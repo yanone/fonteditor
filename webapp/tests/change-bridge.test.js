@@ -3419,9 +3419,9 @@ describe('WindowSync', () => {
         expect(fromWin1[fromWin1.length - 1].fullState).toBeUndefined();
         expect(getFullStateSpy).not.toHaveBeenCalled();
         expect(fromWin1[fromWin1.length - 1].update).toBeInstanceOf(Uint8Array);
-        expect(fromWin1[fromWin1.length - 1].layerRepairSnapshots).toEqual([
-            expect.objectContaining({ glyphName: 'A' })
-        ]);
+        expect(
+            fromWin1[fromWin1.length - 1].layerRepairSnapshots
+        ).toBeUndefined();
 
         getFullStateSpy.mockRestore();
         eavesdropper.close();
@@ -3455,78 +3455,6 @@ describe('WindowSync', () => {
         eavesdropper.close();
         sync.destroy();
         bridge.destroy();
-    });
-
-    test('compact layer repair payload repairs malformed remote layer roots through WindowSync', () => {
-        const senderFontJson = makeThreeMasterThreeLayerFont();
-        const receiverFontJson = cloneValue(senderFontJson);
-        const senderBridge = new ChangeBridge('win-repair-sender');
-        const receiverBridge = new ChangeBridge('win-repair-receiver');
-        senderBridge.initFromJson(senderFontJson);
-        receiverBridge.setFontJson(receiverFontJson);
-        receiverBridge.applyFullState(senderBridge.getFullState());
-        const receiverSync = new WindowSync(
-            receiverBridge,
-            'font-channel-compact-repair'
-        );
-
-        senderFontJson.glyphs[0].layers[0].anchors[0].x = 321;
-        senderBridge.syncGlyphFromJson(
-            'A',
-            'Drag anchor',
-            undefined,
-            undefined,
-            'master-extrathin'
-        );
-        const remoteEntries = senderBridge.getNewChangeLogEntries();
-
-        const corruptDoc = new Y.Doc();
-        const corruptFontMap = corruptDoc.getMap('font');
-        jsonToYDoc(senderFontJson, corruptFontMap);
-        setYPath(
-            corruptFontMap,
-            ['glyphs', 'A', 'layers', 'master-extrathin'],
-            'Drag anchor'
-        );
-
-        const senderChannel = new BroadcastChannel(
-            'font-channel-compact-repair'
-        );
-        senderChannel.postMessage({
-            type: 'yjs-update',
-            update: Y.encodeStateAsUpdate(corruptDoc),
-            windowId: 'win-repair-sender',
-            changeLogEntries: remoteEntries,
-            layerRepairSnapshots:
-                senderBridge.getLayerRepairSnapshots(remoteEntries)
-        });
-        flushTimers();
-
-        expect(
-            getYPath(receiverBridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'master-extrathin',
-                'id'
-            ])
-        ).toBe('master-extrathin');
-        expect(
-            getYPath(receiverBridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'master-extrathin',
-                'anchors',
-                0,
-                'x'
-            ])
-        ).toBe(321);
-
-        senderChannel.close();
-        receiverSync.destroy();
-        senderBridge.destroy();
-        receiverBridge.destroy();
     });
 
     test('batched inbound same-turn updates keep receiver layer undo scoped', () => {
@@ -4100,85 +4028,18 @@ describe('syncGlyphFromJson', () => {
         );
     });
 
-    test('local commit repairs an empty touched layer root from current font JSON', () => {
-        const { bridge, fontJson } = createTestBridge('test-1');
+    test('partial layer snapshot updates do not delete omitted layer fields', () => {
+        const { bridge } = createTestBridge('test-1');
         const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
         const originalLayer = cloneValue(getYPath(bridge.fontMap, layerPath));
-        const layerRoot = getYPath(bridge.fontMap, layerPath);
 
-        expect(layerRoot).toBeInstanceOf(Y.Map);
-
-        bridge.yDoc.transact(() => {
-            layerRoot.forEach((_value, key) => {
-                layerRoot.delete(key);
-            });
-        }, 'external-corruption');
-
-        expect(cloneValue(getYPath(bridge.fontMap, layerPath))).toEqual({});
-
-        const fontLayer = fontJson.glyphs[0].layers.find(
-            (layer) => layer.id === 'layer-1'
-        );
-        fontLayer.width = 610;
-
-        bridge._queueOrCommitOperations([
-            {
-                op: 'set',
-                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
-                oldValue: 600,
-                newValue: 610
-            }
-        ]);
-
-        expect(cloneValue(getYPath(bridge.fontMap, layerPath))).toEqual(
-            expect.objectContaining({
-                ...originalLayer,
-                width: 610
-            })
-        );
-    });
-
-    test('local commit repairs a partially corrupt touched layer root from current font JSON', () => {
-        const { bridge, fontJson } = createTestBridge('test-1');
-        const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
-        const originalLayer = cloneValue(getYPath(bridge.fontMap, layerPath));
-        const layerRoot = getYPath(bridge.fontMap, layerPath);
-
-        expect(layerRoot).toBeInstanceOf(Y.Map);
-
-        bridge.yDoc.transact(() => {
-            layerRoot.delete('name');
-            layerRoot.delete('location');
-            layerRoot.delete('format_specific');
-        }, 'external-corruption');
-
-        expect(cloneValue(getYPath(bridge.fontMap, layerPath))).toEqual(
-            expect.objectContaining({
-                id: 'layer-1',
-                width: 600,
-                master: expect.any(Object)
-            })
-        );
-        expect(
-            Object.prototype.hasOwnProperty.call(
-                cloneValue(getYPath(bridge.fontMap, layerPath)),
-                'name'
-            )
-        ).toBe(false);
-
-        const fontLayer = fontJson.glyphs[0].layers.find(
-            (layer) => layer.id === 'layer-1'
-        );
-        fontLayer.width = 620;
-
-        bridge._queueOrCommitOperations([
-            {
-                op: 'set',
-                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
-                oldValue: 600,
-                newValue: 620
-            }
-        ]);
+        bridge._applyBufferedOperation({
+            op: 'set',
+            path: layerPath,
+            oldValue: { width: 600 },
+            newValue: { width: 620 },
+            applyMode: 'layer-snapshot'
+        });
 
         expect(cloneValue(getYPath(bridge.fontMap, layerPath))).toEqual(
             expect.objectContaining({
@@ -4186,6 +4047,21 @@ describe('syncGlyphFromJson', () => {
                 width: 620
             })
         );
+    });
+
+    test('partial layer snapshot does not materialize a missing layer root', () => {
+        const { bridge } = createTestBridge('test-1');
+        const missingLayerPath = ['glyphs', 'A', 'layers', 'missing-layer'];
+
+        bridge._applyBufferedOperation({
+            op: 'set',
+            path: missingLayerPath,
+            oldValue: null,
+            newValue: { width: 620 },
+            applyMode: 'layer-snapshot'
+        });
+
+        expect(getYPath(bridge.fontMap, missingLayerPath)).toBeUndefined();
     });
 
     test('partial object layer snapshot payload does not clear omission-sensitive keys', () => {
@@ -5737,71 +5613,6 @@ describe('syncGlyphFromJson', () => {
         receiverBridge.destroy();
     });
 
-    test('applyRemoteUpdate repairs a malformed remote layer root from the full-state payload', () => {
-        const senderFontJson = makeThreeMasterThreeLayerFont();
-        const receiverFontJson = cloneValue(senderFontJson);
-        const senderBridge = new ChangeBridge('sender-repair');
-        const receiverBridge = new ChangeBridge('receiver-repair');
-
-        senderBridge.initFromJson(senderFontJson);
-        receiverBridge.setFontJson(receiverFontJson);
-        receiverBridge.applyFullState(senderBridge.getFullState());
-
-        senderFontJson.glyphs[0].layers[0].anchors[0].x = 123;
-        senderBridge.syncGlyphFromJson(
-            'A',
-            'Drag anchor',
-            undefined,
-            undefined,
-            'master-extrathin'
-        );
-        const remoteEntries = senderBridge.getNewChangeLogEntries();
-
-        const corruptDoc = new Y.Doc();
-        const corruptFontMap = corruptDoc.getMap('font');
-        jsonToYDoc(senderFontJson, corruptFontMap);
-        setYPath(
-            corruptFontMap,
-            ['glyphs', 'A', 'layers', 'master-extrathin'],
-            'Drag anchor'
-        );
-
-        receiverBridge.applyRemoteUpdate(
-            Y.encodeStateAsUpdate(corruptDoc),
-            remoteEntries,
-            senderBridge.getFullState()
-        );
-
-        expect(
-            getYPath(receiverBridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'master-extrathin',
-                'id'
-            ])
-        ).toBe('master-extrathin');
-        expect(
-            getYPath(receiverBridge.fontMap, [
-                'glyphs',
-                'A',
-                'layers',
-                'master-extrathin',
-                'anchors',
-                0,
-                'x'
-            ])
-        ).toBe(123);
-        expect(receiverFontJson.glyphs[0].layers).toHaveLength(3);
-        expect(receiverFontJson.glyphs[0].layers[0].id).toBe(
-            'master-extrathin'
-        );
-        expect(receiverFontJson.glyphs[0].layers[0].anchors[0].x).toBe(123);
-
-        senderBridge.destroy();
-        receiverBridge.destroy();
-    });
-
     test('full-state sync canonicalizes linked raw layer snapshots by dropping undefined and transient fields', () => {
         const senderFontJson = makeThreeMasterThreeLayerFont();
         const receiverFontJson = cloneValue(senderFontJson);
@@ -6354,51 +6165,6 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         eavesdropper.close();
         sync.destroy();
         bridge.destroy();
-    });
-
-    test('_repairTouchedLayersFromSnapshots returns repaired scopes', () => {
-        const fontJson = makeMinimalFont();
-        const bridge = new ChangeBridge('win-repair-scopes');
-        bridge.initFromJson(fontJson);
-
-        // Create a snapshot that differs from the current Y.Doc state
-        const snapshot = {
-            glyphName: 'A',
-            layers: [
-                {
-                    layerId: 'layer-1',
-                    layerSnapshot: {
-                        id: 'layer-1',
-                        width: 999,
-                        shapes: [],
-                        anchors: [],
-                        guides: []
-                    }
-                }
-            ]
-        };
-
-        const remoteEntries = [
-            {
-                path: 'glyphs.A.layers.layer-1',
-                op: 'set',
-                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
-            }
-        ];
-
-        // Run repair — the snapshot differs from Y.Doc content,
-        // so repair should return the repaired scopes.
-        const repairedScopes = bridge._repairTouchedLayersFromSnapshots(
-            [snapshot],
-            remoteEntries
-        );
-
-        // When repair is needed, scopes should be returned
-        expect(Array.isArray(repairedScopes)).toBe(true);
-        if (repairedScopes.length > 0) {
-            expect(repairedScopes[0]).toHaveProperty('glyphName');
-            expect(repairedScopes[0]).toHaveProperty('layerId');
-        }
     });
 
     test('undo/redo incremental update is valid for peer apply', () => {

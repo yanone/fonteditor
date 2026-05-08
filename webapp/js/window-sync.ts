@@ -6,7 +6,7 @@
  * the full Y.Doc state; existing windows respond.
  */
 
-import type { ChangeBridge, RemoteLayerRepairSnapshot } from './change-bridge';
+import type { ChangeBridge } from './change-bridge';
 import type { ChangeLogEntry } from './change-log';
 import { Logger } from './logger';
 import * as Y from 'yjs';
@@ -22,8 +22,6 @@ interface YjsUpdateMsg {
     update: BinaryPayload;
     windowId: string;
     changeLogEntries?: ChangeLogEntry[];
-    fullState?: BinaryPayload;
-    layerRepairSnapshots?: RemoteLayerRepairSnapshot[];
 }
 
 interface FullStateRequestMsg {
@@ -188,35 +186,18 @@ export class WindowSync {
         const startTime = performance.now?.() ?? Date.now();
         const update =
             updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
-        const needsFullStateRepair = changeLogEntries.some(
-            (entry) => entry.undoScope === 'glyph' || entry.undoScope === 'font'
-        );
-        const fullState =
-            needsFullStateRepair && this._peers.size > 0
-                ? this._bridge.getFullState()
-                : undefined;
-        const layerRepairSnapshots =
-            this._peers.size > 0 && changeLogEntries.length
-                ? this._bridge.getLayerRepairSnapshots(changeLogEntries)
-                : [];
         this._send({
             type: 'yjs-update',
             update,
             windowId: this._bridge.windowId,
             changeLogEntries: changeLogEntries.length
                 ? changeLogEntries
-                : undefined,
-            fullState,
-            layerRepairSnapshots: layerRepairSnapshots.length
-                ? layerRepairSnapshots
                 : undefined
         });
         this._logTiming('outbound-yjs-update', {
             updateCount: updates.length,
             changeLogEntryCount: changeLogEntries.length,
             updateBytes: update.byteLength,
-            hasFullState: !!fullState,
-            repairGlyphCount: layerRepairSnapshots.length,
             peerCount: this._peers.size,
             durationMs: this._elapsed(startTime)
         });
@@ -249,27 +230,14 @@ export class WindowSync {
         const changeLogEntries = messages.flatMap(
             (msg) => msg.changeLogEntries ?? []
         );
-        const layerRepairSnapshots = messages.flatMap(
-            (msg) => msg.layerRepairSnapshots ?? []
-        );
-        let fullState: Uint8Array | undefined;
-        for (const msg of messages) {
-            if (msg.fullState) {
-                fullState = toUint8Array(msg.fullState);
-            }
-        }
         this._bridge.applyRemoteUpdate(
             update,
-            changeLogEntries.length ? changeLogEntries : undefined,
-            fullState,
-            layerRepairSnapshots.length ? layerRepairSnapshots : undefined
+            changeLogEntries.length ? changeLogEntries : undefined
         );
         this._logTiming('inbound-yjs-update', {
             messageCount: messages.length,
             changeLogEntryCount: changeLogEntries.length,
             updateBytes: update.byteLength,
-            hasFullState: !!fullState,
-            repairGlyphCount: layerRepairSnapshots.length,
             durationMs: this._elapsed(startTime)
         });
     }
