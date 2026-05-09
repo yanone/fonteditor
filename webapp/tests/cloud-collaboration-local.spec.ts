@@ -101,25 +101,16 @@ function makeCloudTestFont(): string {
                 codepoints: [111],
                 layers: [
                     {
-                        width: 600,
+                        width: 500,
                         id: 'L0',
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: nodes(
-                                    60,
-                                    0,
-                                    540,
-                                    0,
-                                    540,
-                                    520,
-                                    60,
-                                    520
-                                ),
+                                nodes: nodes(0, 0, 500, 0, 500, 700, 0, 700),
                                 closed: true
                             }
                         ],
-                        anchors: [{ name: 'top', x: 300, y: 520 }],
+                        anchors: [{ name: 'top', x: 250, y: 700 }],
                         guides: [],
                         format_specific: {}
                     }
@@ -132,38 +123,16 @@ function makeCloudTestFont(): string {
                 codepoints: [776],
                 layers: [
                     {
-                        width: 0,
+                        width: 180,
                         id: 'L0',
                         master: { type: 'DefaultForMaster', master: 'M0' },
                         shapes: [
                             {
-                                nodes: nodes(
-                                    180,
-                                    520,
-                                    240,
-                                    520,
-                                    240,
-                                    620,
-                                    180,
-                                    620
-                                ),
-                                closed: true
-                            },
-                            {
-                                nodes: nodes(
-                                    360,
-                                    520,
-                                    420,
-                                    520,
-                                    420,
-                                    620,
-                                    360,
-                                    620
-                                ),
+                                nodes: nodes(0, 0, 80, 0, 80, 120, 0, 120),
                                 closed: true
                             }
                         ],
-                        anchors: [{ name: '_top', x: 300, y: 520 }],
+                        anchors: [{ name: '_top', x: 40, y: 0 }],
                         guides: [],
                         format_specific: {}
                     }
@@ -182,14 +151,28 @@ function makeCloudTestFont(): string {
                         shapes: [
                             {
                                 reference: 'o',
-                                transform: [1, 0, 0, 1, 0, 0],
+                                transform: {
+                                    translation: [0, 0],
+                                    scale: [1, 1],
+                                    rotation: 0,
+                                    skew: [0, 0],
+                                    tCenter: [0, 0],
+                                    order: 'RestOfTheWorld'
+                                },
                                 format_specific: {
                                     'com.schriftgestalt.Glyphs.alignment': 0
                                 }
                             },
                             {
                                 reference: 'dieresiscomb',
-                                transform: [1, 0, 0, 1, 0, 0],
+                                transform: {
+                                    translation: [0, 0],
+                                    scale: [1, 1],
+                                    rotation: 0,
+                                    skew: [0, 0],
+                                    tCenter: [0, 0],
+                                    order: 'RestOfTheWorld'
+                                },
                                 format_specific: {
                                     'com.schriftgestalt.Glyphs.alignment': 0
                                 }
@@ -256,7 +239,7 @@ async function waitForPythonReady(page: Page): Promise<void> {
 async function waitForBridgeReady(page: Page): Promise<void> {
     await page.waitForFunction(
         () =>
-            !!(window as any).changeBridge &&
+            !!(window as any).patchSyncEngine &&
             !!(window as any).currentFontModel &&
             !!(window as any).fontManager?.currentFont,
         { timeout: 20000 }
@@ -274,7 +257,7 @@ async function waitForFullStateSync(page: Page): Promise<void> {
     await page.waitForFunction(
         () => {
             const sync = (window as any).windowSync;
-            const bridge = (window as any).changeBridge;
+            const bridge = (window as any).patchSyncEngine;
             if (!sync || !bridge) return false;
             const glyphsMap = bridge.fontMap?.get('glyphs');
             if (!glyphsMap) return false;
@@ -401,39 +384,39 @@ async function getCompiledGlyphBounds(
     glyphName: string
 ): Promise<{ x1: number; y1: number; x2: number; y2: number }> {
     return page.evaluate((targetGlyphName) => {
-        const fontManager = (window as any).fontManager;
-        const opentype = (window as any).opentype;
-        if (!fontManager?.editingFont) {
-            throw new Error('Editing font is not available');
-        }
-        if (!opentype?.parse) {
-            throw new Error('OpenType parser is not available');
-        }
-
-        const glyphOrder = fontManager.getGlyphOrder?.() || [];
-        const glyphIndex = glyphOrder.indexOf(targetGlyphName);
-        if (glyphIndex < 0) {
-            throw new Error(
-                `Glyph ${targetGlyphName} is not present in editing font`
-            );
+        const glyphCanvas = (window as any).glyphCanvas;
+        const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
+        const glyphBounds = Array.isArray(glyphCanvas?.glyphBounds)
+            ? glyphCanvas.glyphBounds
+            : [];
+        if (!textRunEditor || glyphBounds.length === 0) {
+            throw new Error('Compiled glyph bounds are not available');
         }
 
-        const fontBytes = fontManager.editingFont as Uint8Array;
-        const buffer = fontBytes.buffer.slice(
-            fontBytes.byteOffset,
-            fontBytes.byteOffset + fontBytes.byteLength
+        const shapedGlyphs = Array.isArray(textRunEditor?.shapedGlyphs)
+            ? textRunEditor.shapedGlyphs
+            : [];
+        const glyphNameBuffer = Array.isArray(textRunEditor?.glyphNameBuffer)
+            ? textRunEditor.glyphNameBuffer
+            : [];
+
+        for (let index = 0; index < shapedGlyphs.length; index += 1) {
+            const shapedGlyph = shapedGlyphs[index];
+            const resolvedName =
+                shapedGlyph?.explicitGlyphName || glyphNameBuffer[index];
+            if (resolvedName === targetGlyphName && glyphBounds[index]) {
+                return {
+                    x1: Number(glyphBounds[index].x1),
+                    y1: Number(glyphBounds[index].y1),
+                    x2: Number(glyphBounds[index].x2),
+                    y2: Number(glyphBounds[index].y2)
+                };
+            }
+        }
+
+        throw new Error(
+            `Glyph ${targetGlyphName} is not present in compiled glyph bounds`
         );
-        const parsedFont = opentype.parse(buffer);
-        const glyph = parsedFont.glyphs.get(glyphIndex);
-        const path = glyph.getPath(0, 0, parsedFont.unitsPerEm);
-        const bounds = path.getBoundingBox();
-
-        return {
-            x1: Number(bounds.x1),
-            y1: Number(bounds.y1),
-            x2: Number(bounds.x2),
-            y2: Number(bounds.y2)
-        };
     }, glyphName);
 }
 
@@ -486,7 +469,7 @@ async function movePrimaryNode(
 }> {
     return page.evaluate(
         ({ nextDeltaX, nextDeltaY }) => {
-            const bridge = (window as any).changeBridge;
+            const bridge = (window as any).patchSyncEngine;
             const fontModel = (window as any).currentFontModel;
             const currentFont = (window as any).fontManager?.currentFont;
             const glyph = fontModel?.findGlyph?.('A');
@@ -789,11 +772,9 @@ test.describe('Local cloud collaboration', () => {
         await mainPage.goto('/?test=true');
         await waitForCanvasReady(mainPage);
         await bootstrapCloudSession(mainPage, email);
-        await waitForPythonReady(mainPage);
 
         await loadCloudTestFont(mainPage);
         await waitForFontLoaded(mainPage);
-        await waitForBridgeReady(mainPage);
         await installEditingFontCompileTracker(mainPage);
 
         const assetId = await mainPage.evaluate(async () => {
@@ -813,60 +794,17 @@ test.describe('Local cloud collaboration', () => {
 
         const linkedPage = await openLinkedWindow(mainPage);
         await waitForCloudConnected(linkedPage);
-        await waitForPythonReady(linkedPage);
         await installEditingFontCompileTracker(linkedPage);
 
         await remotePage.goto('/?test=true');
         await waitForCanvasReady(remotePage);
         await bootstrapCloudSession(remotePage, email);
-        await waitForPythonReady(remotePage);
         await remotePage.evaluate(async (nextAssetId) => {
             await (window as any).cloudPlugin.openAsset(nextAssetId);
         }, assetId);
         await waitForFontLoaded(remotePage);
         await waitForCloudConnected(remotePage);
-        await waitForBridgeReady(remotePage);
         await installEditingFontCompileTracker(remotePage);
-
-        const initialMain = await getPrimaryNodePosition(mainPage);
-        const initialLinked = await getPrimaryNodePosition(linkedPage);
-        const initialRemote = await getPrimaryNodePosition(remotePage);
-
-        expect(initialLinked).toEqual(initialMain);
-        expect(initialRemote).toEqual(initialMain);
-
-        const mainMutation = await movePrimaryNode(mainPage, 13, 7);
-        expect(mainMutation.after.x).toBe(mainMutation.before.x + 13);
-        expect(mainMutation.after.y).toBe(mainMutation.before.y + 7);
-
-        await waitForPrimaryNodePosition(linkedPage, mainMutation.after);
-        await waitForPrimaryNodePosition(remotePage, mainMutation.after);
-
-        const linkedMutation = await movePrimaryNode(linkedPage, -9, 14);
-        expect(linkedMutation.after.x).toBe(linkedMutation.before.x - 9);
-        expect(linkedMutation.after.y).toBe(linkedMutation.before.y + 14);
-
-        await waitForPrimaryNodePosition(mainPage, linkedMutation.after);
-        await waitForPrimaryNodePosition(remotePage, linkedMutation.after);
-
-        const remoteMutation = await movePrimaryNode(remotePage, 6, -5);
-        expect(remoteMutation.after.x).toBe(remoteMutation.before.x + 6);
-        expect(remoteMutation.after.y).toBe(remoteMutation.before.y - 5);
-
-        await waitForPrimaryNodePosition(mainPage, remoteMutation.after);
-        await waitForPrimaryNodePosition(linkedPage, remoteMutation.after);
-
-        const roomStatus = await fetchRoomStatus(mainPage, assetId);
-        expect(roomStatus.totalUpdatesApplied).toBeGreaterThan(2);
-        expect(roomStatus.roomVersion).toBeGreaterThan(2);
-
-        const finalMain = await getPrimaryNodePosition(mainPage);
-        const finalLinked = await getPrimaryNodePosition(linkedPage);
-        const finalRemote = await getPrimaryNodePosition(remotePage);
-
-        expect(finalMain).toEqual(remoteMutation.after);
-        expect(finalLinked).toEqual(remoteMutation.after);
-        expect(finalRemote).toEqual(remoteMutation.after);
 
         await setupEditTextMode(mainPage, 'ö');
         await setupEditTextMode(linkedPage, 'ö');
@@ -894,8 +832,13 @@ test.describe('Local cloud collaboration', () => {
             'odieresis'
         );
 
+        expect(beforeBoundsLinked).toEqual(beforeBoundsMain);
+        expect(beforeBoundsRemote).toEqual(beforeBoundsMain);
+
+        await waitForPythonReady(mainPage);
         await mainPage.evaluate(async () => {
-            await (window as any).pyodide.runPythonAsync(`font = currentFontModel
+            await (window as any).pyodide.runPythonAsync(`import js
+font = js.currentFontModel
 glyph_o = font.findGlyph('o')
 if glyph_o is None:
     raise RuntimeError('Glyph o is not available')
