@@ -79,7 +79,7 @@ export type MutationBatchMetadata = {
 };
 
 export interface MutationBatchEnvelope {
-    schemaVersion: 1 | 2;
+    schemaVersion: 2;
     transactionId: string;
     localSequence: number;
     roomSequence: number | null;
@@ -91,8 +91,6 @@ export interface MutationBatchEnvelope {
     windowId: string | null;
     timestamp: number;
     validationFingerprint: string | null;
-    forwardPatches?: JsonPatchOperation[];
-    inversePatches?: JsonPatchOperation[];
 }
 
 type Unsafe = ReturnType<typeof JSON.parse>;
@@ -101,11 +99,7 @@ type FontJsonSnapshot = Record<string, Unsafe> | null | undefined;
 
 type CreateMutationBatchEnvelopeInput = Omit<
     MutationBatchEnvelope,
-    | 'schemaVersion'
-    | 'roomSequence'
-    | 'validationFingerprint'
-    | 'forwardPatches'
-    | 'inversePatches'
+    'schemaVersion' | 'roomSequence' | 'validationFingerprint'
 > & {
     roomSequence?: number | null;
     validationFingerprint?: string | null;
@@ -153,7 +147,7 @@ export function isMutationBatchEnvelope(
     }
 
     const candidate = value as Partial<MutationBatchEnvelope>;
-    if (candidate.schemaVersion !== 1 && candidate.schemaVersion !== 2) {
+    if (candidate.schemaVersion !== 2) {
         return false;
     }
 
@@ -165,14 +159,7 @@ export function isMutationBatchEnvelope(
         return false;
     }
 
-    if (
-        !Array.isArray(candidate.patches) &&
-        !(
-            candidate.schemaVersion === 1 &&
-            Array.isArray(candidate.forwardPatches) &&
-            Array.isArray(candidate.inversePatches)
-        )
-    ) {
+    if (!Array.isArray(candidate.patches)) {
         return false;
     }
 
@@ -416,8 +403,7 @@ export function createMutationBatchEnvelopesFromChangeLogEntries(
 
 function fromJsonPointerPath(
     pointerPath: string,
-    fontJson?: FontJsonSnapshot,
-    fallbackValue?: unknown
+    fontJson?: FontJsonSnapshot
 ): string {
     if (!pointerPath || pointerPath === '/') {
         return '';
@@ -455,85 +441,12 @@ function fromJsonPointerPath(
                     typeof layer.id === 'string'
                 ) {
                     segments[3] = layer.id;
-                } else if (
-                    Number.isFinite(layerIndex) &&
-                    fallbackValue &&
-                    typeof fallbackValue === 'object' &&
-                    typeof (fallbackValue as Record<string, unknown>).id ===
-                        'string'
-                ) {
-                    segments[3] = String(
-                        (fallbackValue as Record<string, unknown>).id
-                    );
                 }
             }
-        } else if (
-            Number.isFinite(glyphIndex) &&
-            fallbackValue &&
-            typeof fallbackValue === 'object' &&
-            typeof (fallbackValue as Record<string, unknown>).name === 'string'
-        ) {
-            segments[1] = String(
-                (fallbackValue as Record<string, unknown>).name
-            );
         }
     }
 
     return joinPathWithGlyphSeparator(segments);
-}
-
-function hasUnresolvedLegacyIdentity(path: string): boolean {
-    const segments = getPathSegments(path);
-    if (segments[0] !== 'glyphs') {
-        return false;
-    }
-
-    if (/^\d+$/.test(String(segments[1] ?? ''))) {
-        return true;
-    }
-
-    return segments[2] === 'layers' && /^\d+$/.test(String(segments[3] ?? ''));
-}
-
-function createNamedPatchPairFromLegacyJsonPatchPair(
-    forwardPatch: JsonPatchOperation,
-    inversePatch: JsonPatchOperation | undefined,
-    fontJson?: FontJsonSnapshot
-): MutationPatchPair | null {
-    const forwardIdentityValue =
-        forwardPatch.value === undefined
-            ? inversePatch?.value
-            : forwardPatch.value;
-    const forwardPath = fromJsonPointerPath(
-        forwardPatch.path,
-        fontJson,
-        forwardIdentityValue
-    );
-    if (!forwardPath || hasUnresolvedLegacyIdentity(forwardPath)) {
-        return null;
-    }
-
-    const inversePath = fromJsonPointerPath(
-        inversePatch?.path ?? forwardPatch.path,
-        fontJson,
-        inversePatch?.value
-    );
-
-    return {
-        forward: {
-            op: forwardPatch.op as NamedPatchOperation['op'],
-            path: forwardPath,
-            value: forwardPatch.value
-        },
-        inverse: {
-            op: (inversePatch?.op ?? 'remove') as NamedPatchOperation['op'],
-            path:
-                inversePath && !hasUnresolvedLegacyIdentity(inversePath)
-                    ? inversePath
-                    : forwardPath,
-            value: inversePatch?.value
-        }
-    };
 }
 
 export function createNamedPatchPairFromJsonPatchPair(
@@ -578,39 +491,10 @@ export function createChangeLogEntriesFromMutationBatchEnvelope(
     envelope: MutationBatchEnvelope,
     options: {
         windowRoleLabel: string;
-        fontJson?: FontJsonSnapshot;
     }
 ): ChangeLogEntry[] {
-    const patches =
-        envelope.schemaVersion === 2 && Array.isArray(envelope.patches)
-            ? envelope.patches
-            : Array.isArray(envelope.forwardPatches)
-              ? envelope.forwardPatches
-                    .filter(
-                        (patch) =>
-                            patch.op === 'add' ||
-                            patch.op === 'remove' ||
-                            patch.op === 'replace'
-                    )
-                    .map((forwardPatch, index, forwardPatchList) => {
-                        const inversePatches = Array.isArray(
-                            envelope.inversePatches
-                        )
-                            ? envelope.inversePatches
-                            : [];
-                        const inversePatch =
-                            inversePatches[forwardPatchList.length - 1 - index];
-                        return createNamedPatchPairFromLegacyJsonPatchPair(
-                            forwardPatch,
-                            inversePatch,
-                            options.fontJson
-                        );
-                    })
-                    .filter((patch): patch is MutationPatchPair => !!patch)
-              : [];
-
     return createSyntheticChangeOperationsFromPatchPairs(
-        patches,
+        envelope.patches,
         envelope.metadata.workerReplayTargets
     ).map((operation) =>
         createLogEntry({

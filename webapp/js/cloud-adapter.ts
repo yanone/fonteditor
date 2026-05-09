@@ -209,8 +209,7 @@ function importMutationBatchHistory(
     bridge.mergeImportedChangeLog(
         envelopes.flatMap((batch) =>
             createChangeLogEntriesFromMutationBatchEnvelope(batch, {
-                windowRoleLabel: window.windowRole?.getRoleLabel?.() ?? 'main',
-                fontJson: bridge.getFontJsonSnapshot?.() ?? null
+                windowRoleLabel: window.windowRole?.getRoleLabel?.() ?? 'main'
             })
         )
     );

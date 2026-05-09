@@ -149,8 +149,7 @@ describe('mutation-batch scaffold', () => {
         const roundTripped = createChangeLogEntriesFromMutationBatchEnvelope(
             envelope,
             {
-                windowRoleLabel: 'receiver-window',
-                fontJson: TEST_FONT_JSON
+                windowRoleLabel: 'receiver-window'
             }
         );
 
@@ -204,8 +203,7 @@ describe('mutation-batch scaffold', () => {
         const roundTripped = createChangeLogEntriesFromMutationBatchEnvelope(
             envelope,
             {
-                windowRoleLabel: 'receiver-window',
-                fontJson: TEST_FONT_JSON
+                windowRoleLabel: 'receiver-window'
             }
         );
 
@@ -228,156 +226,6 @@ describe('mutation-batch scaffold', () => {
                 path: 'glyphs.A.alt:layers.layer.regular.v1:width'
             })
         );
-    });
-
-    test('legacy schema-1 glyph adds recover glyph identity from patch values', () => {
-        const roundTripped = createChangeLogEntriesFromMutationBatchEnvelope(
-            {
-                schemaVersion: 1,
-                transactionId: 'legacy-add',
-                localSequence: 1,
-                roomSequence: null,
-                baseRevision: null,
-                patches: [],
-                metadata: {
-                    editType: 'python',
-                    changedGlyphNames: [],
-                    changedLayerIds: [],
-                    workerReplayTargets: []
-                },
-                source: 'legacy-test',
-                label: 'Add glyph',
-                windowId: 'sender-window',
-                timestamp: 123,
-                validationFingerprint: null,
-                forwardPatches: [
-                    {
-                        op: 'add',
-                        path: '/glyphs/2',
-                        value: { name: 'B', layers: [] }
-                    }
-                ],
-                inversePatches: [
-                    {
-                        op: 'remove',
-                        path: '/glyphs/2'
-                    }
-                ]
-            },
-            {
-                windowRoleLabel: 'receiver-window',
-                fontJson: TEST_FONT_JSON
-            }
-        );
-
-        expect(roundTripped).toHaveLength(1);
-        expect(roundTripped[0]).toEqual(
-            expect.objectContaining({
-                op: 'add',
-                path: 'glyphs.B'
-            })
-        );
-    });
-
-    test('legacy schema-1 glyph removals recover glyph identity from inverse patch values', () => {
-        const fontJson = {
-            glyphs: [
-                ...TEST_FONT_JSON.glyphs,
-                {
-                    name: 'B',
-                    layers: [{ id: 'layer-b', width: 500 }]
-                }
-            ]
-        };
-
-        const roundTripped = createChangeLogEntriesFromMutationBatchEnvelope(
-            {
-                schemaVersion: 1,
-                transactionId: 'legacy-remove',
-                localSequence: 1,
-                roomSequence: null,
-                baseRevision: null,
-                patches: [],
-                metadata: {
-                    editType: 'python',
-                    changedGlyphNames: [],
-                    changedLayerIds: [],
-                    workerReplayTargets: []
-                },
-                source: 'legacy-test',
-                label: 'Remove glyph',
-                windowId: 'sender-window',
-                timestamp: 123,
-                validationFingerprint: null,
-                forwardPatches: [
-                    {
-                        op: 'remove',
-                        path: '/glyphs/2'
-                    }
-                ],
-                inversePatches: [
-                    {
-                        op: 'add',
-                        path: '/glyphs/2',
-                        value: { name: 'B', layers: [] }
-                    }
-                ]
-            },
-            {
-                windowRoleLabel: 'receiver-window',
-                fontJson
-            }
-        );
-
-        expect(roundTripped).toHaveLength(1);
-        expect(roundTripped[0]).toEqual(
-            expect.objectContaining({
-                op: 'remove',
-                path: 'glyphs.B'
-            })
-        );
-    });
-
-    test('legacy schema-1 batches skip unresolved structural identities', () => {
-        const roundTripped = createChangeLogEntriesFromMutationBatchEnvelope(
-            {
-                schemaVersion: 1,
-                transactionId: 'legacy-unsafe',
-                localSequence: 1,
-                roomSequence: null,
-                baseRevision: null,
-                patches: [],
-                metadata: {
-                    editType: 'python',
-                    changedGlyphNames: [],
-                    changedLayerIds: [],
-                    workerReplayTargets: []
-                },
-                source: 'legacy-test',
-                label: 'Unsafe add',
-                windowId: 'sender-window',
-                timestamp: 123,
-                validationFingerprint: null,
-                forwardPatches: [
-                    {
-                        op: 'add',
-                        path: '/glyphs/2'
-                    }
-                ],
-                inversePatches: [
-                    {
-                        op: 'remove',
-                        path: '/glyphs/2'
-                    }
-                ]
-            },
-            {
-                windowRoleLabel: 'receiver-window',
-                fontJson: TEST_FONT_JSON
-            }
-        );
-
-        expect(roundTripped).toEqual([]);
     });
 
     test('splits change-log tails into one envelope per logical history item', () => {

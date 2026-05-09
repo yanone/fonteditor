@@ -238,7 +238,16 @@ Required properties of every collaboration patch pair:
 - Glyph and layer addressing must use glyph names and layer ids instead of numeric array indices.
 - Per-patch replay metadata may attach `workerReplayTargets` and edit-side metadata, but undo must not depend on recomputing the inverse later.
 
-Legacy persisted envelopes containing raw `forwardPatches` / `inversePatches` remain readable for compatibility, but all new envelopes must be emitted in the named forward/inverse pair format.
+Only the named forward/inverse pair envelope is supported for collaboration, linked-window sync, cloud durability, and history replay.
+
+### Required edit funnel
+
+All persisted font-data edits must flow through the patch system so change-log history, linked windows, cloud durability, undo/redo, and replay all see the same canonical mutation stream.
+
+There are only two approved exceptions:
+
+1. Live dragging may update the worker cache and trigger instant editing recompilation before the final patch-funnel commit lands. The drag interaction must still commit through the patch system when the gesture is finalized.
+2. Debounced feature-code editor recompilation may call `syncJsonFromModel()` and `recompileEditingFont()` directly so compile errors appear automatically while the user is typing. This exception is for diagnostic recompilation only; it does not make feature-code edits a collaboration/history transport format.
 
 ## Rendering Policy
 

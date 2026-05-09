@@ -1543,8 +1543,7 @@ export class PatchSyncEngine {
                 ? remoteEntries
                 : remoteMutationBatches?.flatMap((batch) =>
                       createChangeLogEntriesFromMutationBatchEnvelope(batch, {
-                          windowRoleLabel: this._getWindowRoleLabel(),
-                          fontJson: this._fontJson
+                          windowRoleLabel: this._getWindowRoleLabel()
                       })
                   );
             const remoteLayerScopes = this._getRemoteLayerSyncScopes(
