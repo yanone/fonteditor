@@ -39,12 +39,6 @@ interface CompilationOptions {
     produce_varc_table?: boolean;
 }
 
-type IncrementalLayerUpdate = {
-    glyphName: string;
-    layerId: string;
-    layerData: unknown;
-};
-
 type TimelineTraceContext = {
     process?: string;
     traceId?: string;
@@ -839,8 +833,6 @@ class FontCompilation {
         requestMeta?: {
             dragActive?: boolean;
             compileSource?: string;
-            dirtyLayerUpdates?: IncrementalLayerUpdate[];
-            forceStoreFontJson?: boolean;
             optionOverrides?: {
                 skip_features?: boolean;
                 skip_kerning?: boolean;
@@ -887,32 +879,12 @@ class FontCompilation {
             ).sort();
             const subsetKey = normalizedSubsetGlyphs.join('\u001f');
 
-            // During incremental layer updates (drag/keyboard) or text-input
-            // recompilations, skip transferring the full font JSON to the worker.
-            // - drag/keyboard: worker uses update_cached_layer() with dirty layer updates
-            // - text-input: font data hasn't changed, only the subset changed;
-            //   worker reuses its cached font with the new subset
-            const normalizedDirtyLayerUpdates = Array.isArray(
-                requestMeta?.dirtyLayerUpdates
-            )
-                ? requestMeta.dirtyLayerUpdates.filter(
-                      (update): update is IncrementalLayerUpdate =>
-                          !!update &&
-                          typeof update.glyphName === 'string' &&
-                          update.glyphName.length > 0 &&
-                          typeof update.layerId === 'string' &&
-                          update.layerId.length > 0 &&
-                          update.layerData !== undefined
-                  )
-                : [];
-            const isIncrementalLayer =
-                requestMeta?.compileSource !== undefined &&
-                normalizedDirtyLayerUpdates.length > 0 &&
-                (requestMeta.compileSource.startsWith('mouse-drag') ||
-                    requestMeta.compileSource.startsWith('keyboard'));
-            const isTextInput = requestMeta?.compileSource === 'text-input';
+            // JSON patches are sent to Rust via applyJsonPatches before
+            // the compile request. The worker cache is already current.
+            // Only send the full babelfontJson if the worker cache is cold
+            // (first compile after font load).
             const jsonForWorker =
-                isIncrementalLayer || isTextInput
+                this.lastStoredFontJson === babelfontJson
                     ? '__incremental_layer__'
                     : babelfontJson;
 
@@ -923,17 +895,10 @@ class FontCompilation {
                 subsetKey,
                 subsetGlyphs: normalizedSubsetGlyphs,
                 fontRevisionKey,
-                dragActive: !!requestMeta?.dragActive,
-                compileSource: requestMeta?.compileSource,
-                dirtyLayerUpdates: normalizedDirtyLayerUpdates,
-                forceStoreFontJson: requestMeta?.forceStoreFontJson === true,
                 filename: 'editing-font.ttf'
             });
 
-            if (
-                requestMeta?.forceStoreFontJson === true &&
-                jsonForWorker !== '__incremental_layer__'
-            ) {
+            if (jsonForWorker !== '__incremental_layer__') {
                 this.lastStoredFontJson = babelfontJson;
             }
 

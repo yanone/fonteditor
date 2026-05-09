@@ -2,6 +2,21 @@
 /* eslint-disable */
 
 /**
+ * Apply RFC 6902 JSON Patch batch to the canonical font JSON cache.
+ *
+ * This is the exclusive mutation path for the Rust cache after bootstrap.
+ * The same patches are also applied to the subset JSON cache (best-effort;
+ * missing paths in the subset are silently ignored).
+ *
+ * # Arguments
+ * * `patches_json` - JSON string containing an array of RFC 6902 patch operations
+ *
+ * # Returns
+ * * `Result<(), JsValue>` - Success or error
+ */
+export function apply_patch_batch(patches_json: string): void;
+
+/**
  * Clear the cached font from memory
  */
 export function clear_font_cache(): void;
@@ -27,10 +42,7 @@ export function clear_font_cache(): void;
  * # Returns
  * * `Vec<u8>` - Compiled TTF font bytes
  */
-export function compile_babelfont(
-    babelfont_json: string,
-    options: any
-): Uint8Array;
+export function compile_babelfont(babelfont_json: string, options: any): Uint8Array;
 
 /**
  * Compile the cached font to TTF
@@ -49,9 +61,7 @@ export function compile_cached_font(options: any): Uint8Array;
 /**
  * Compile cached font using the last primed layout closure subset.
  */
-export function compile_cached_font_from_last_layout_closure(
-    options: any
-): Uint8Array;
+export function compile_cached_font_from_last_layout_closure(options: any): Uint8Array;
 
 /**
  * Legacy function for compatibility
@@ -123,10 +133,7 @@ export function get_font_features_with_tables(font_bytes: Uint8Array): string;
  * # Returns
  * * `String` - The glyph name, or ".notdef" if not found
  */
-export function get_glyph_name(
-    font_bytes: Uint8Array,
-    glyph_id: number
-): string;
+export function get_glyph_name(font_bytes: Uint8Array, glyph_id: number): string;
 
 /**
  * Get glyph order (array of all glyph names) from compiled font bytes
@@ -152,11 +159,7 @@ export function get_glyph_order(font_bytes: Uint8Array): string[];
  * # Returns
  * * `String` - JSON array of glyph outline data: '[{"name": "A", "width": 600, "shapes": [...], "bounds": {...}}, ...]'
  */
-export function get_glyphs_outlines(
-    glyph_names_json: string,
-    location_json: string,
-    flatten_components: boolean
-): string;
+export function get_glyphs_outlines(glyph_names_json: string, location_json: string, flatten_components: boolean): string;
 
 /**
  * Compute layout closure for a set of glyphs
@@ -189,10 +192,7 @@ export function get_layout_closure(glyph_names_json: string): string;
  * Cache key format: `<font_revision>::<canonical_subset_key>`
  * where canonical subset key is sorted+deduplicated input glyph names.
  */
-export function get_layout_closure_cached(
-    font_revision: string,
-    glyph_names_json: string
-): string;
+export function get_layout_closure_cached(font_revision: string, glyph_names_json: string): string;
 
 /**
  * Get stylistic set names from compiled font bytes
@@ -228,11 +228,7 @@ export function init(): void;
  * # Returns
  * * `String` - JSON representation of the interpolated Layer
  */
-export function interpolate_glyph(
-    glyph_name: string,
-    location_json: string,
-    extrapolate: boolean
-): string;
+export function interpolate_glyph(glyph_name: string, location_json: string, extrapolate: boolean): string;
 
 /**
  * Open a font file from various formats
@@ -253,21 +249,15 @@ export function open_font_file(filename: string, contents: string): string;
  * Prime Rust layout-closure cache and mark it as the current closure subset.
  * Returns number of glyphs in the resolved closure subset.
  */
-export function prime_layout_closure_cache(
-    font_revision: string,
-    glyph_names_json: string
-): number;
+export function prime_layout_closure_cache(font_revision: string, glyph_names_json: string): number;
 
-export function run_fontspector(
-    font_bytes: Uint8Array,
-    profile: string
-): string;
+export function run_fontspector(font_bytes: Uint8Array, profile: string): string;
 
 /**
- * Store a font in memory from babelfont JSON
+ * Store a font in memory from babelfont JSON.
  *
- * This caches the deserialized font for fast access by interpolation
- * and other operations without re-parsing JSON every time.
+ * Populates both the canonical serde_json::Value cache and the
+ * babelfont::Font cache. Called during font open/bootstrap.
  *
  * # Arguments
  * * `babelfont_json` - JSON string in .babelfont format
@@ -277,148 +267,39 @@ export function run_fontspector(
  */
 export function store_font(babelfont_json: string): void;
 
-export function update_cached_layer(
-    glyph_name: string,
-    layer_id: string,
-    layer_json: string
-): void;
-
-/**
- * Apply a batch of layer updates in a single WASM call.
- *
- * The input is a JSON array of `{ glyphName, layerId, layerData }` entries,
- * where `layerData` is the parsed layer object (NOT a string).  Compared
- * to invoking `update_cached_layer` once per layer, this:
- *   * crosses the JS↔WASM boundary once instead of N times,
- *   * acquires each cache lock (`FONT_CACHE`, `PREPARED_SUBSET_FONT_CACHE`,
- *     `FILTERED_FONT_CACHE`) exactly once for the whole batch,
- *   * lets the caller skip a separate `JSON.stringify` per layer in the
- *     worker, since the entire batch is one JSON string.
- *
- * Behaviour for each individual entry matches `update_cached_layer`:
- * the parsed layer replaces an existing matching layer or is appended
- * to the glyph's layer list, and downstream caches are patched in place
- * when present.  All affected glyphs have their outline caches cleared.
- */
-export function update_cached_layers_batch(updates_json: string): void;
-
 /**
  * Get version information
  */
 export function version(): string;
 
-export type InitInput =
-    | RequestInfo
-    | URL
-    | Response
-    | BufferSource
-    | WebAssembly.Module;
+export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly apply_patch_batch: (a: number, b: number) => [number, number];
     readonly clear_font_cache: () => void;
-    readonly compile_babelfont: (
-        a: number,
-        b: number,
-        c: any
-    ) => [number, number, number, number];
+    readonly compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
     readonly compile_cached_font: (a: any) => [number, number, number, number];
-    readonly compile_cached_font_from_last_layout_closure: (
-        a: any
-    ) => [number, number, number, number];
-    readonly compile_glyphs: (
-        a: number,
-        b: number
-    ) => [number, number, number, number];
-    readonly get_glyphs_outlines: (
-        a: number,
-        b: number,
-        c: number,
-        d: number,
-        e: number
-    ) => [number, number, number, number];
-    readonly get_layout_closure: (
-        a: number,
-        b: number
-    ) => [number, number, number, number];
-    readonly get_layout_closure_cached: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number, number];
+    readonly compile_cached_font_from_last_layout_closure: (a: any) => [number, number, number, number];
+    readonly compile_glyphs: (a: number, b: number) => [number, number, number, number];
+    readonly get_glyphs_outlines: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+    readonly get_layout_closure: (a: number, b: number) => [number, number, number, number];
+    readonly get_layout_closure_cached: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly init: () => void;
-    readonly interpolate_glyph: (
-        a: number,
-        b: number,
-        c: number,
-        d: number,
-        e: number
-    ) => [number, number, number, number];
-    readonly open_font_file: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number, number];
-    readonly prime_layout_closure_cache: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number];
+    readonly interpolate_glyph: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+    readonly open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly prime_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly store_font: (a: number, b: number) => [number, number];
-    readonly update_cached_layer: (
-        a: number,
-        b: number,
-        c: number,
-        d: number,
-        e: number,
-        f: number
-    ) => [number, number];
-    readonly update_cached_layers_batch: (
-        a: number,
-        b: number
-    ) => [number, number];
     readonly version: () => [number, number];
-    readonly run_fontspector: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => [number, number, number, number];
-    readonly get_font_axes: (
-        a: number,
-        b: number
-    ) => [number, number, number, number];
-    readonly get_font_features: (
-        a: number,
-        b: number
-    ) => [number, number, number, number];
-    readonly get_font_features_with_tables: (
-        a: number,
-        b: number
-    ) => [number, number, number, number];
-    readonly get_glyph_name: (
-        a: number,
-        b: number,
-        c: number
-    ) => [number, number, number, number];
-    readonly get_glyph_order: (
-        a: number,
-        b: number
-    ) => [number, number, number, number];
-    readonly get_stylistic_set_names: (
-        a: number,
-        b: number
-    ) => [number, number, number, number];
+    readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
+    readonly get_font_features: (a: number, b: number) => [number, number, number, number];
+    readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];
+    readonly get_glyph_name: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly get_glyph_order: (a: number, b: number) => [number, number, number, number];
+    readonly get_stylistic_set_names: (a: number, b: number) => [number, number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
-    readonly __wbindgen_realloc: (
-        a: number,
-        b: number,
-        c: number,
-        d: number
-    ) => number;
+    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
@@ -438,9 +319,7 @@ export type SyncInitInput = BufferSource | WebAssembly.Module;
  *
  * @returns {InitOutput}
  */
-export function initSync(
-    module: { module: SyncInitInput } | SyncInitInput
-): InitOutput;
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
 
 /**
  * If `module_or_path` is {RequestInfo} or {URL}, makes a request and
@@ -450,9 +329,4 @@ export function initSync(
  *
  * @returns {Promise<InitOutput>}
  */
-export default function __wbg_init(
-    module_or_path?:
-        | { module_or_path: InitInput | Promise<InitInput> }
-        | InitInput
-        | Promise<InitInput>
-): Promise<InitOutput>;
+export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;

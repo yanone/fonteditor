@@ -278,6 +278,10 @@ export class PatchSyncEngine {
     /** Callback when a remote change arrives (for UI refresh) */
     private _onRemoteChange: ((entries: ChangeLogEntry[]) => void) | null =
         null;
+    /** Callback when remote JSON patches arrive (for Rust forwarding) */
+    private _onRemotePatches:
+        | ((envelopes: MutationBatchEnvelope[]) => void)
+        | null = null;
     /** Callback when the Y.Doc is updated locally (for broadcasting) */
     private _localUpdateListeners: Set<LocalUpdateListener> = new Set();
     /** Callback to trigger dirty marking on the font manager side */
@@ -563,6 +567,11 @@ export class PatchSyncEngine {
         this._onRemoteChange = cb;
     }
 
+    /** Register a callback for incoming remote JSON patches (for Rust forwarding). */
+    onRemotePatches(cb: (envelopes: MutationBatchEnvelope[]) => void): void {
+        this._onRemotePatches = cb;
+    }
+
     /** Register a callback for local Y.Doc updates (for broadcasting). */
     onLocalUpdate(cb: LocalUpdateListener): void {
         this._localUpdateListeners.add(cb);
@@ -599,6 +608,7 @@ export class PatchSyncEngine {
         this._fontJson = null;
         this._changeLog = [];
         this._onRemoteChange = null;
+        this._onRemotePatches = null;
         this._localUpdateListeners.clear();
         this._onDirty = null;
         this._onAfterSync = null;
@@ -1585,6 +1595,9 @@ export class PatchSyncEngine {
                 this._lastLocalUpdateLogIndex = this._changeLog.length;
             }
             this._onRemoteChange?.(effectiveRemoteEntries ?? []);
+            if (remoteMutationBatches?.length) {
+                this._onRemotePatches?.(remoteMutationBatches);
+            }
         } finally {
             this._isApplyingRemote = false;
         }

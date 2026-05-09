@@ -26,6 +26,7 @@ import {
     syncModelSidebearingEditToCanvas,
     inferSidebearingSideFromHistoryItem
 } from './sidebearing-utils';
+import type { MutationBatchEnvelope } from './mutation-batch';
 
 const console = new Logger('ChangeBridgeInit');
 let bridgeSyncQueue: Promise<void> = Promise.resolve();
@@ -1267,6 +1268,23 @@ function initializeBridge(detail: {
         }
     });
 
+    // Wire JSON patch forwarding to Rust: when the local Y.Doc produces
+    // a MutationBatchEnvelope with forwardPatches, send them to the
+    // Rust worker cache immediately so the compile has fresh data.
+    bridge.onLocalUpdate(
+        (_update: Uint8Array, mutationBatchEnvelope?: MutationBatchEnvelope | null) => {
+            if (
+                mutationBatchEnvelope?.forwardPatches?.length &&
+                window.fontManager?.applyJsonPatchesToRust
+            ) {
+                void window.fontManager.applyJsonPatchesToRust(
+                    mutationBatchEnvelope.forwardPatches,
+                    mutationBatchEnvelope.metadata
+                );
+            }
+        }
+    );
+
     // Callback for remote changes — trigger a canvas/overview refresh.
     // By the time this fires, onAfterSync has already re-synced
     // babelfontJson and rebuilt the model, so auto-compile will
@@ -1281,6 +1299,21 @@ function initializeBridge(detail: {
     //      instead of always falling back to the slowest full mode.
     bridge.onRemoteChange((entries: ChangeLogEntry[]) => {
         void handleRemoteChangeRefresh(entries);
+    });
+
+    // Forward incoming remote JSON patches to the local Rust cache.
+    bridge.onRemotePatches((envelopes: MutationBatchEnvelope[]) => {
+        for (const envelope of envelopes) {
+            if (
+                envelope.forwardPatches?.length &&
+                window.fontManager?.applyJsonPatchesToRust
+            ) {
+                void window.fontManager.applyJsonPatchesToRust(
+                    envelope.forwardPatches,
+                    envelope.metadata
+                );
+            }
+        }
     });
 
     // Derive BroadcastChannel name from font path (or a fallback)

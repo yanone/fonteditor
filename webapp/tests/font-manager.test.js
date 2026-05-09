@@ -921,14 +921,7 @@ describe('FontManager editing subset inclusion', () => {
         expect(compileEditingSpy).toHaveBeenCalledTimes(1);
         expect(compileEditingSpy.mock.calls[0][2]).toEqual(['a', 'n']);
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
-            compileSource: 'keyboard-outline',
-            dirtyLayerUpdates: [
-                {
-                    glyphName: 'n',
-                    layerId: 'layer-1',
-                    layerData: expect.any(Object)
-                }
-            ]
+            compileSource: 'keyboard-outline'
         });
     });
 
@@ -949,9 +942,6 @@ describe('FontManager editing subset inclusion', () => {
                 produce_varc_table: false
             }
         });
-        expect(
-            compileEditingSpy.mock.calls[0][3].dirtyLayerUpdates
-        ).toBeUndefined();
         expect(fontManager.forceFullEditingCacheRefresh).toBe(false);
     });
 
@@ -970,14 +960,7 @@ describe('FontManager editing subset inclusion', () => {
                 skip_features: true,
                 skip_kerning: true,
                 produce_varc_table: false
-            },
-            dirtyLayerUpdates: [
-                {
-                    glyphName: 'n',
-                    layerId: 'layer-1',
-                    layerData: expect.any(Object)
-                }
-            ]
+            }
         });
     });
 
@@ -994,14 +977,7 @@ describe('FontManager editing subset inclusion', () => {
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
         expect(compileEditingSpy).toHaveBeenCalledTimes(1);
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
-            compileSource: 'mouse-drag-outline',
-            dirtyLayerUpdates: [
-                {
-                    glyphName: 'n',
-                    layerId: 'layer-1',
-                    layerData: expect.any(Object)
-                }
-            ]
+            compileSource: 'mouse-drag-outline'
         });
     });
 
@@ -1018,14 +994,7 @@ describe('FontManager editing subset inclusion', () => {
                 skip_features: true,
                 skip_kerning: true,
                 produce_varc_table: false
-            },
-            dirtyLayerUpdates: [
-                {
-                    glyphName: 'n',
-                    layerId: 'layer-1',
-                    layerData: expect.any(Object)
-                }
-            ]
+            }
         });
     });
 
@@ -1042,14 +1011,7 @@ describe('FontManager editing subset inclusion', () => {
             dragActive: true,
             optionOverrides: {
                 produce_varc_table: false
-            },
-            dirtyLayerUpdates: [
-                {
-                    glyphName: 'n',
-                    layerId: 'layer-1',
-                    layerData: expect.any(Object)
-                }
-            ]
+            }
         });
         expect(
             compileEditingSpy.mock.calls[0][3].optionOverrides
@@ -1070,14 +1032,7 @@ describe('FontManager editing subset inclusion', () => {
             compileSource: 'keyboard-anchor',
             optionOverrides: {
                 produce_varc_table: false
-            },
-            dirtyLayerUpdates: [
-                {
-                    glyphName: 'n',
-                    layerId: 'layer-1',
-                    layerData: expect.any(Object)
-                }
-            ]
+            }
         });
         expect(
             compileEditingSpy.mock.calls[0][3].optionOverrides
@@ -1106,9 +1061,6 @@ describe('FontManager editing subset inclusion', () => {
         expect(
             compileEditingSpy.mock.calls[0][3].optionOverrides
         ).not.toHaveProperty('skip_features');
-        expect(
-            compileEditingSpy.mock.calls[0][3].dirtyLayerUpdates
-        ).toBeUndefined();
     });
 
     test('anchor undo-redo compiles keep kerning enabled in anchor-only mode', async () => {
@@ -1122,14 +1074,7 @@ describe('FontManager editing subset inclusion', () => {
             compileSource: 'keyboard-undo-redo',
             optionOverrides: {
                 produce_varc_table: false
-            },
-            dirtyLayerUpdates: [
-                {
-                    glyphName: 'n',
-                    layerId: 'layer-1',
-                    layerData: expect.any(Object)
-                }
-            ]
+            }
         });
         expect(
             compileEditingSpy.mock.calls[0][3].optionOverrides
@@ -1150,9 +1095,6 @@ describe('FontManager editing subset inclusion', () => {
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
             compileSource: 'debounced-post-interaction-full-compile'
         });
-        expect(
-            compileEditingSpy.mock.calls[0][3].dirtyLayerUpdates
-        ).toBeUndefined();
         expect(
             compileEditingSpy.mock.calls[0][3].optionOverrides
         ).toBeUndefined();

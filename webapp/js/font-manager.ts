@@ -1815,48 +1815,8 @@ class FontManager {
                 if (forceFullWorkerCompile) {
                     this.forceFullEditingCacheRefresh = false;
                 }
-                let dirtyLayerUpdates:
-                    | Array<{
-                          glyphName: string;
-                          layerId: string;
-                          layerData: unknown;
-                      }>
-                    | undefined;
                 const isInteractiveSource =
                     isMouseDragSource || isKeyboardSource;
-                const shouldSendIncrementalLayer =
-                    isInteractiveSource && !forceFullWorkerCompile;
-                if (
-                    shouldSendIncrementalLayer &&
-                    activeDirtyGlyphName &&
-                    activeDirtyLayerId
-                ) {
-                    const dirtyGlyph = this.currentFont.fontModel?.glyphs?.find(
-                        (glyph: any) => glyph?.name === activeDirtyGlyphName
-                    );
-                    if (dirtyGlyph) {
-                        const dirtyLayer = dirtyGlyph.layers?.find(
-                            (layer: any) => layer?.id === activeDirtyLayerId
-                        );
-                        if (dirtyLayer) {
-                            const rawDirtyLayer =
-                                typeof dirtyLayer.toJSON === 'function'
-                                    ? dirtyLayer.toJSON()
-                                    : dirtyLayer;
-                            dirtyLayerUpdates = [
-                                {
-                                    glyphName: activeDirtyGlyphName,
-                                    layerId: activeDirtyLayerId,
-                                    layerData:
-                                        this.normalizeLayerForRust(
-                                            rawDirtyLayer
-                                        )
-                                }
-                            ];
-                        }
-                    }
-                }
-
                 // Determine compilation mode based on edit type
                 const isInteractiveEdit =
                     isInteractiveSource &&
@@ -1876,8 +1836,6 @@ class FontManager {
                           produce_varc_table?: boolean;
                       }
                     | undefined;
-                const shouldForceStoreFontJson =
-                    fontCompilation.lastStoredFontJson === null;
                 if (
                     (isInteractiveEdit || isRemoteFastPathEdit) &&
                     editTypeAtRequest === 'outline'
@@ -1926,8 +1884,6 @@ class FontManager {
                     {
                         dragActive: dragActiveAtRequest,
                         compileSource: incrementalChangeSource || undefined,
-                        dirtyLayerUpdates,
-                        forceStoreFontJson: shouldForceStoreFontJson,
                         optionOverrides
                     }
                 );
@@ -3383,6 +3339,37 @@ class FontManager {
                     glyphName,
                     layerId
                 })),
+                error
+            );
+            return false;
+        }
+    }
+
+    async applyJsonPatchesToRust(
+        forwardPatches: Array<{ op: string; path: string; value?: unknown }>,
+        metadata?: {
+            changedGlyphNames?: string[];
+            changedLayerIds?: string[];
+        }
+    ): Promise<boolean> {
+        if (
+            !this.currentFont ||
+            !fontCompilation?.isInitialized ||
+            !Array.isArray(forwardPatches) ||
+            !forwardPatches.length
+        ) {
+            return false;
+        }
+
+        try {
+            await fontCompilation.sendMessage({
+                type: 'applyJsonPatches',
+                forwardPatches
+            });
+            return true;
+        } catch (error) {
+            console.warn(
+                '[FontManager] Failed to apply JSON patches to Rust cache:',
                 error
             );
             return false;

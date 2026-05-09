@@ -6,8 +6,7 @@ import init, {
     compile_babelfont,
     compile_cached_font_from_last_layout_closure,
     store_font,
-    update_cached_layer,
-    update_cached_layers_batch,
+    apply_patch_batch,
     prime_layout_closure_cache,
     interpolate_glyph,
     clear_font_cache,
@@ -35,10 +34,12 @@ let lastStoreFontAtMs = 0;
 let dragCompilesSinceStore = 0;
 const PERF_TRACE_CONTEXT_GLOBAL_KEY = '__cpPerfTraceContext';
 
-type IncrementalLayerUpdate = {
-    glyphName: string;
-    layerId: string;
-    layerData: unknown;
+type TimelineTraceContext = {
+    process?: string;
+    traceId?: string;
+    parentSpanId?: string;
+    requestId?: string;
+    fontRevisionKey?: string;
 };
 
 function payloadDebugPrefix(payload: string): string {
@@ -48,66 +49,6 @@ function payloadDebugPrefix(payload: string): string {
     ).join(' ');
     return `len=${payload.length} prefix="${snippet}" codes=${byteCodes}`;
 }
-
-function normalizeIncrementalLayerUpdates(
-    rawUpdates: unknown,
-    fallback?: {
-        glyphName?: unknown;
-        layerId?: unknown;
-        layerData?: unknown;
-    }
-): IncrementalLayerUpdate[] {
-    const updates = Array.isArray(rawUpdates)
-        ? rawUpdates
-        : fallback &&
-            typeof fallback.glyphName === 'string' &&
-            fallback.glyphName.length > 0 &&
-            typeof fallback.layerId === 'string' &&
-            fallback.layerId.length > 0 &&
-            fallback.layerData !== undefined
-          ? [fallback]
-          : [];
-
-    return updates.filter(
-        (update): update is IncrementalLayerUpdate =>
-            !!update &&
-            typeof update.glyphName === 'string' &&
-            update.glyphName.length > 0 &&
-            typeof update.layerId === 'string' &&
-            update.layerId.length > 0 &&
-            update.layerData !== undefined
-    );
-}
-
-function applyIncrementalLayerUpdates(updates: IncrementalLayerUpdate[]): void {
-    if (updates.length === 0) return;
-
-    // Single-update fast path keeps the original boundary for the very common
-    // case (one keyboard nudge or one drag tick on one layer).
-    if (updates.length === 1) {
-        const update = updates[0];
-        update_cached_layer(
-            update.glyphName,
-            update.layerId,
-            JSON.stringify(update.layerData)
-        );
-        return;
-    }
-
-    // Batch path: cross the JS↔WASM boundary once for the whole cascade.
-    // Acquiring each Rust cache lock once instead of N times is a real win
-    // for anchor edits with many auto-composite dependents and for sidebearing
-    // edits that fan out through metrics-key cascades.
-    update_cached_layers_batch(JSON.stringify(updates));
-}
-
-type TimelineTraceContext = {
-    process?: string;
-    traceId?: string;
-    parentSpanId?: string;
-    requestId?: string;
-    fontRevisionKey?: string;
-};
 
 type FontspectorCheckLevel = 'fail' | 'warn' | 'info';
 
@@ -1073,27 +1014,13 @@ self.onmessage = async (event) => {
                     subsetGlyphs,
                     subsetKey,
                     fontRevisionKey,
-                    dragActive,
-                    compileSource,
-                    dirtyLayerUpdates: rawDirtyLayerUpdates,
-                    dirtyGlyphName,
-                    dirtyLayerId,
-                    dirtyLayerData,
-                    forceStoreFontJson
+                    _dragActive,
+                    _compileSource,
+                    _forceStoreFontJson
                 } = data;
-                const dirtyLayerUpdates = normalizeIncrementalLayerUpdates(
-                    rawDirtyLayerUpdates,
-                    {
-                        glyphName: dirtyGlyphName,
-                        layerId: dirtyLayerId,
-                        layerData: dirtyLayerData
-                    }
-                );
 
                 const isIncrementalSentinel =
                     babelfontJson === '__incremental_layer__';
-                const isTextInputMode =
-                    String(compileSource || '') === 'text-input';
                 if (
                     !isIncrementalSentinel &&
                     (!babelfontJson || typeof babelfontJson !== 'string')
@@ -1112,107 +1039,15 @@ self.onmessage = async (event) => {
                 const ensureFontCachedSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.ensureFontCached'
                 );
-                const isDragActive = !!dragActive;
-                const isDragMode =
-                    isDragActive ||
-                    String(compileSource || '').startsWith('mouse-drag');
-                const isIncrementalLayerMode =
-                    isDragMode ||
-                    String(compileSource || '').startsWith('keyboard');
-
-                // For text-input mode, the font data hasn't changed — only
-                // the subset changed. Reuse the cached font directly without
-                // storing or patching anything.
-                if (
-                    isTextInputMode &&
-                    isIncrementalSentinel &&
-                    cachedBabelfontJson !== null
-                ) {
-                    timelineMark(
-                        'font.worker.compileEditingCached.ensureFontCached.textInputReused'
-                    );
-                } else {
-                    // For incremental layer updates (sentinel JSON), always
-                    // apply via update_cached_layer without comparing the
-                    // full JSON string.  For full JSON, only re-store when
-                    // the JSON content has actually changed, unless the main
-                    // thread explicitly invalidated the worker cache after
-                    // undo/redo or remote Yjs resync. A revision-key bump from
-                    // markDirty() (e.g. text-input deferred full compile) must
-                    // NOT trigger store_font when the underlying font data is
-                    // identical — store_font parses the full JSON and can take
-                    // ~600 ms on large fonts.
-                    const needsStore = isIncrementalSentinel
-                        ? true
-                        : forceStoreFontJson === true ||
-                          cachedBabelfontJson !== babelfontJson;
-
-                    // Always refresh cached font data for editing compiles.
-                    // This guarantees each compile reflects latest drag edits.
-                    if (needsStore) {
-                        const canApplyIncrementalLayerUpdate =
-                            isIncrementalLayerMode &&
-                            dirtyLayerUpdates.length > 0 &&
-                            (isIncrementalSentinel ||
-                                cachedBabelfontJson !== null);
-
-                        let storedViaFullFont = false;
-                        if (canApplyIncrementalLayerUpdate) {
-                            try {
-                                applyIncrementalLayerUpdates(dirtyLayerUpdates);
-                                timelineMark(
-                                    'font.worker.compileEditingCached.ensureFontCached.updatedLayers'
-                                );
-                            } catch (_incrementalError) {
-                                if (isIncrementalSentinel) {
-                                    throw new Error(
-                                        'Incremental layer updates failed and no full JSON available'
-                                    );
-                                }
-                                clear_font_cache();
-                                store_font(babelfontJson);
-                                storedViaFullFont = true;
-                                timelineMark(
-                                    'font.worker.compileEditingCached.ensureFontCached.fallbackStore'
-                                );
-                            }
-                        } else {
-                            if (isIncrementalSentinel) {
-                                throw new Error(
-                                    'Incremental sentinel received but cannot apply layer update'
-                                );
-                            }
-                            clear_font_cache();
-                            store_font(babelfontJson);
-                            storedViaFullFont = true;
-                        }
-
-                        if (!isIncrementalSentinel) {
-                            cachedBabelfontJson = babelfontJson;
-                            fontCacheEpoch += 1;
-                            cachedBaseSubsetKey = null;
-                            cachedClosureGlyphCount = null;
-                        }
-                        cachedFontRevisionKey = revisionKey;
-                        lastStoreFontAtMs = performance.now();
-                        dragCompilesSinceStore = 0;
-                        timelineMark(
-                            storedViaFullFont
-                                ? 'font.worker.compileEditingCached.ensureFontCached.stored'
-                                : 'font.worker.compileEditingCached.ensureFontCached.reusedWithLayerUpdate'
-                        );
-                    } else {
-                        if (!isDragMode) {
-                            dragCompilesSinceStore = 0;
-                        }
-                        // Keep the revision key current even when we skip
-                        // store_font (JSON unchanged, only markDirty fired).
-                        cachedFontRevisionKey = revisionKey;
-                        timelineMark(
-                            'font.worker.compileEditingCached.ensureFontCached.reused'
-                        );
+                // Font cache is primed by storeFontJson (bootstrap) and
+                // kept current by applyJsonPatches (incremental edits).
+                if (!isIncrementalSentinel) {
+                    if (cachedBabelfontJson !== babelfontJson) {
+                        store_font(babelfontJson);
+                        cachedBabelfontJson = babelfontJson;
+                        fontCacheEpoch += 1;
                     }
-                } // end: non-text-input path
+                }
                 timelineSpanEnd(ensureFontCachedSpanId);
 
                 const primeClosureSpanId = timelineSpanStart(
@@ -1221,8 +1056,8 @@ self.onmessage = async (event) => {
                 const needsPrimeClosure =
                     cachedBaseSubsetKey !== effectiveSubsetKey;
                 const isOutlineIncrementalCompile =
-                    String(compileSource || '').startsWith('mouse-drag') ||
-                    String(compileSource || '').startsWith('keyboard');
+                    String(_compileSource || '').startsWith('mouse-drag') ||
+                    String(_compileSource || '').startsWith('keyboard');
 
                 if (needsPrimeClosure && isOutlineIncrementalCompile) {
                     timelineMark(
@@ -1231,7 +1066,7 @@ self.onmessage = async (event) => {
                     console.warn(
                         '[FontWorker] Subset key changed during outline incremental compile',
                         {
-                            compileSource,
+                            _compileSource,
                             previousSubsetKey: cachedBaseSubsetKey,
                             incomingSubsetKey: effectiveSubsetKey,
                             hasSubsetGlyphs: !!baseSubsetGlyphs?.length
@@ -1277,9 +1112,9 @@ self.onmessage = async (event) => {
                 const compileCachedSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.compileCachedFont'
                 );
-                const dirtyGlyphNames = Array.from(
-                    new Set(dirtyLayerUpdates.map((update) => update.glyphName))
-                );
+                const dirtyGlyphNames = Array.isArray(data.dirtyGlyphs)
+                    ? data.dirtyGlyphs
+                    : [];
                 const optionsWithDirtyGlyphs = {
                     ...(options || {}),
                     dirty_glyphs: dirtyGlyphNames
@@ -1309,7 +1144,7 @@ self.onmessage = async (event) => {
                         time_taken: endTime - startTime,
                         fontRevisionKey: revisionKey,
                         closureGlyphCount: cachedClosureGlyphCount || 0,
-                        compileSource
+                        compileSource: _compileSource
                     },
                     compiledBytes
                 );
@@ -1502,49 +1337,44 @@ self.onmessage = async (event) => {
             return;
         }
 
-        if (
-            data.type === 'storeLayerUpdates' ||
-            data.type === 'storeLayerData'
-        ) {
-            const storeLayerSpanId = timelineSpanStart(
-                'font.worker.storeLayerUpdates'
+        if (data.type === 'applyJsonPatches') {
+            const applyPatchesSpanId = timelineSpanStart(
+                'font.worker.applyJsonPatches'
             );
-            const { id } = data;
-            const updates = normalizeIncrementalLayerUpdates(data.updates, {
-                glyphName: data.glyphName,
-                layerId: data.layerId,
-                layerData: data.layerData
-            });
+            const { forwardPatches } = data;
 
             try {
-                timelineMark('font.worker.storeLayerUpdates.started');
+                timelineMark('font.worker.applyJsonPatches.started');
 
                 if (!initialized) {
                     await initializeWasm();
                 }
 
-                if (!updates.length) {
-                    throw new Error('Missing updates for storeLayerUpdates');
+                if (!Array.isArray(forwardPatches) || !forwardPatches.length) {
+                    self.postMessage({
+                        type: 'applyJsonPatches',
+                        success: true,
+                        skipped: 'empty'
+                    });
+                    return;
                 }
 
-                applyIncrementalLayerUpdates(updates);
+                apply_patch_batch(JSON.stringify(forwardPatches));
 
                 self.postMessage({
-                    id,
-                    type: 'storeLayerUpdates',
+                    type: 'applyJsonPatches',
                     success: true
                 });
-                timelineMark('font.worker.storeLayerUpdates.success');
+                timelineMark('font.worker.applyJsonPatches.success');
             } catch (e: any) {
-                timelineMark('font.worker.storeLayerUpdates.failed');
+                timelineMark('font.worker.applyJsonPatches.failed');
                 self.postMessage({
-                    id,
-                    type: 'storeLayerUpdates',
+                    type: 'applyJsonPatches',
                     success: false,
                     error: e.toString()
                 });
             } finally {
-                timelineSpanEnd(storeLayerSpanId);
+                timelineSpanEnd(applyPatchesSpanId);
             }
 
             return;
