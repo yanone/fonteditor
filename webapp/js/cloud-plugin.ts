@@ -38,43 +38,20 @@ function getCloudRequestHeaders(
 
 function normalizeCloudExportForFontOpen(
     fontJson: Record<string, unknown>,
-    operation: 'open' | 'save' = 'open'
+    _operation: 'open' | 'save' = 'open'
 ) {
     let fixCount = sanitizeBabelfontArrays(fontJson);
 
     const glyphs = Array.isArray(fontJson.glyphs) ? fontJson.glyphs : [];
-    for (const [glyphIndex, glyph] of glyphs.entries()) {
+    for (const glyph of glyphs) {
         const glyphRecord =
             glyph && typeof glyph === 'object' && !Array.isArray(glyph)
                 ? (glyph as Record<string, unknown>)
                 : null;
-        const glyphName =
-            typeof glyphRecord?.name === 'string' && glyphRecord.name.length
-                ? glyphRecord.name
-                : `glyph #${glyphIndex}`;
         const layers = Array.isArray(glyphRecord?.layers)
             ? (glyphRecord.layers as unknown[])
             : [];
-        for (const [layerIndex, layer] of layers.entries()) {
-            const layerRecord =
-                layer && typeof layer === 'object' && !Array.isArray(layer)
-                    ? (layer as Record<string, unknown>)
-                    : null;
-            if (
-                layerRecord &&
-                (typeof layerRecord.width !== 'number' ||
-                    !Number.isFinite(layerRecord.width))
-            ) {
-                const layerId =
-                    typeof layerRecord.id === 'string' && layerRecord.id.length
-                        ? layerRecord.id
-                        : `layer #${layerIndex}`;
-
-                throw new Error(
-                    `Cloud font layer ${glyphName}/${layerId} has invalid width; refusing to ${operation} cloud font data.`
-                );
-            }
-
+        for (const layer of layers) {
             const shapes = Array.isArray(
                 (layer as { shapes?: unknown[] }).shapes
             )

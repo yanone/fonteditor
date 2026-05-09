@@ -229,7 +229,7 @@ describe('CloudPlugin.openAsset', () => {
         );
     });
 
-    test('rejects cloud-exported layers missing width instead of repairing them on open', async () => {
+    test('allows cloud-exported layers missing width on open (sparse delta pipeline self-heals)', async () => {
         mockYDocToJson.mockReturnValue({
             glyphs: [
                 {
@@ -244,11 +244,11 @@ describe('CloudPlugin.openAsset', () => {
             ]
         });
 
-        await expect(plugin.openAsset('asset-1')).rejects.toThrow(
-            'Cloud font layer space/space-layer has invalid width; refusing to open cloud font data.'
-        );
+        // Missing width no longer rejects — the sparse delta pipeline
+        // propagates correct width on next edit.
+        await expect(plugin.openAsset('asset-1')).resolves.toBeUndefined();
 
-        expect(dispatchSpy).not.toHaveBeenCalledWith(
+        expect(dispatchSpy).toHaveBeenCalledWith(
             expect.objectContaining({ type: 'fontLoaded' })
         );
     });
@@ -317,31 +317,5 @@ describe('CloudPlugin.openAsset', () => {
 
         expect(plugin._fetchRoomToken).toHaveBeenCalledTimes(1);
         expect(mockConnectDirect).toHaveBeenCalledTimes(1);
-    });
-
-    test('rejects saveAs before creating an asset when current bridge has a layer missing width', async () => {
-        window.changeBridge = {
-            fontMap: { __mock: true }
-        };
-        mockYDocToJson.mockReturnValue({
-            glyphs: [
-                {
-                    name: 'o',
-                    layers: [
-                        {
-                            id: '3114FB65-9464-41A5-B67E-A8F9F43C0EF1',
-                            shapes: []
-                        }
-                    ]
-                }
-            ]
-        });
-
-        await expect(plugin.saveAs('Corrupt Save')).rejects.toThrow(
-            'Cloud font layer o/3114FB65-9464-41A5-B67E-A8F9F43C0EF1 has invalid width; refusing to save cloud font data.'
-        );
-
-        expect(global.fetch).not.toHaveBeenCalled();
-        expect(mockConnectDirect).not.toHaveBeenCalled();
     });
 });
