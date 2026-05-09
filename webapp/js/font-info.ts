@@ -2839,6 +2839,64 @@ class FontInfoManager {
         }
     }
 
+    private getSelectedCodeHistoryTarget(): TransactionHistoryTarget | null {
+        if (!this.selectedItem) {
+            return null;
+        }
+
+        const font = window.currentFontModel;
+        if (!font?.features) {
+            return null;
+        }
+
+        const { type, key } = this.selectedItem;
+        if (type === 'prefix' && typeof key === 'string') {
+            return {
+                type: 'prefix',
+                key,
+                label: key
+            };
+        }
+
+        if (type === 'class' && typeof key === 'string') {
+            return {
+                type: 'class',
+                key,
+                label: key
+            };
+        }
+
+        if (type === 'feature' && typeof key === 'number') {
+            return this.getFeatureHistoryTarget(
+                font.features.features || [],
+                key
+            );
+        }
+
+        return null;
+    }
+
+    private getSelectedAutomaticFlagPath(): (string | number)[] | null {
+        if (!this.selectedItem) {
+            return null;
+        }
+
+        const { type, key } = this.selectedItem;
+        if (type === 'prefix' && typeof key === 'string') {
+            return ['features', 'prefixes', key, 'automatic'];
+        }
+
+        if (type === 'class' && typeof key === 'string') {
+            return ['features', 'classes', key, 'automatic'];
+        }
+
+        if (type === 'feature' && typeof key === 'number') {
+            return ['features', 'features', key, 1, 'automatic'];
+        }
+
+        return null;
+    }
+
     private onAutomaticCheckboxChanged() {
         const font = window.currentFontModel;
         if (!font || !font.features || !this.selectedItem) return;
@@ -2864,15 +2922,42 @@ class FontInfoManager {
         ) as HTMLInputElement;
 
         if (autoCheckbox) {
-            codeData.automatic = autoCheckbox.checked;
+            const nextAutomatic = autoCheckbox.checked;
+            const previousAutomatic = Boolean(codeData.automatic);
+            if (previousAutomatic === nextAutomatic) {
+                return;
+            }
+
+            const bridge = window.patchSyncEngine;
+            const path = this.getSelectedAutomaticFlagPath();
+            if (!bridge || !path) {
+                console.warn(
+                    '[FontInfo] Missing patch bridge while toggling automatic feature generation'
+                );
+                return;
+            }
+
+            const historyTarget = this.getSelectedCodeHistoryTarget();
+            bridge.beginTransaction(
+                'Toggle automatic generation',
+                historyTarget
+            );
+
+            try {
+                bridge.applySyntheticChangeSet('Toggle automatic generation', [
+                    {
+                        op: 'set',
+                        path,
+                        oldValue: previousAutomatic,
+                        newValue: nextAutomatic
+                    }
+                ]);
+            } finally {
+                bridge.endTransaction();
+            }
 
             // Update the indicator in the list
             this.loadAllLists();
-
-            // Mark font as dirty
-            if (window.fontManager?.currentFont) {
-                window.fontManager.currentFont.markDirty();
-            }
         }
     }
 

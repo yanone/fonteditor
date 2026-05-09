@@ -136,4 +136,55 @@ describe('FontInfo feature code compilation scheduling', () => {
 
         expect(context.recompileEditingFont).toHaveBeenCalledTimes(1);
     });
+
+    test('automatic checkbox changes go through the patch funnel', () => {
+        const fontInfoManager = loadFontInfoManager();
+        const codeData = { code: 'sub f i by fi;', automatic: false };
+        const beginTransaction = jest.fn();
+        const endTransaction = jest.fn();
+        const applySyntheticChangeSet = jest.fn((_label, operations) => {
+            codeData.automatic = operations[0].newValue;
+        });
+
+        window.currentFontModel = {
+            features: {
+                features: [['liga', codeData]]
+            }
+        };
+        window.patchSyncEngine = {
+            beginTransaction,
+            endTransaction,
+            applySyntheticChangeSet
+        };
+
+        document.body.innerHTML =
+            '<input type="checkbox" id="feature-automatic-checkbox" checked />';
+        fontInfoManager.loadAllLists = jest.fn();
+        fontInfoManager.selectedItem = { type: 'feature', key: 0 };
+
+        fontInfoManager.onAutomaticCheckboxChanged();
+
+        expect(beginTransaction).toHaveBeenCalledWith(
+            'Toggle automatic generation',
+            {
+                type: 'feature',
+                key: 'feature:liga:1',
+                label: 'liga'
+            }
+        );
+        expect(applySyntheticChangeSet).toHaveBeenCalledWith(
+            'Toggle automatic generation',
+            [
+                {
+                    op: 'set',
+                    path: ['features', 'features', 0, 1, 'automatic'],
+                    oldValue: false,
+                    newValue: true
+                }
+            ]
+        );
+        expect(endTransaction).toHaveBeenCalledTimes(1);
+        expect(codeData.automatic).toBe(true);
+        expect(fontInfoManager.loadAllLists).toHaveBeenCalledTimes(1);
+    });
 });
