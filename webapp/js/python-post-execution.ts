@@ -129,7 +129,9 @@ function recomputePythonCascadeDependents(
     }
 
     const recompute = () => {
-        if (typeof fontModel.rebuildAutomaticCompositesForGlyphs === 'function') {
+        if (
+            typeof fontModel.rebuildAutomaticCompositesForGlyphs === 'function'
+        ) {
             fontModel.rebuildAutomaticCompositesForGlyphs(changedGlyphNames);
         }
         if (typeof fontModel.recomputeMetricsKeys === 'function') {
@@ -462,9 +464,8 @@ function setupHooks() {
                             )
                         );
 
-                    const initialChangedTargets = deriveChangedLayerTargets(
-                        initialOperations
-                    );
+                    const initialChangedTargets =
+                        deriveChangedLayerTargets(initialOperations);
                     if (initialChangedTargets.length) {
                         recomputePythonCascadeDependents(initialChangedTargets);
                         currentFont.syncJsonFromModel();

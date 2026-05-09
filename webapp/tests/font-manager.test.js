@@ -1506,9 +1506,9 @@ describe('FontManager boundary-crossing budget', () => {
             firstLayer.id
         );
 
-        expect(fontManager.workerLayerFingerprintCache.get('stale::layer')).toBe(
-            'stale'
-        );
+        expect(
+            fontManager.workerLayerFingerprintCache.get('stale::layer')
+        ).toBe('stale');
         expect(
             fontManager.workerLayerFingerprintCache.has(
                 `${first.name}::${firstLayer.id}`

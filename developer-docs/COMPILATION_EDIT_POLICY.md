@@ -280,8 +280,7 @@ Linked windows share the same font model as the main window via Y.Doc sync. They
 1. Pass `workerReplayTargets` to `syncRustCacheAndRefreshCanvas` for incremental layer updates to the WASM worker cache (instead of a full JSON resync).
 2. Infer the original edit type (`anchor` / `outline`) so the linked window's editing compile uses the matching fast-path compilation mode (`anchor-only` / `outline-only`) instead of always falling back to the slowest `full` mode.
 
-Linked-window/cloud replay must rebuild change-log entries from the named forward/inverse patch pairs, not from raw worker JSON patches. The worker patch batch is a receiver-local cache refresh detail; it is not the cross-window source of truth.
-3. Set `lastChangeSource` to `remote-anchor` or `remote-outline` (or `remote-change` for unknown types) so `isIncrementalEditingCompile` recognizes the source and the compile uses the correct compilation mode.
+Linked-window/cloud replay must rebuild change-log entries from the named forward/inverse patch pairs, not from raw worker JSON patches. The worker patch batch is a receiver-local cache refresh detail; it is not the cross-window source of truth. 3. Set `lastChangeSource` to `remote-anchor` or `remote-outline` (or `remote-change` for unknown types) so `isIncrementalEditingCompile` recognizes the source and the compile uses the correct compilation mode.
 
 The receiver must refresh the worker cache before requesting its remote editing-font compile. Requesting a compile before the cache refresh completes can compile against stale Rust cache data and then immediately request a second compile. The linked-window remote path therefore schedules one editing compile after `syncRustCacheAndRefreshCanvas` has applied the replay targets or completed its fallback refresh.
 

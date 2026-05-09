@@ -194,7 +194,9 @@ function getNamedPatchOpForSet(oldValue: unknown): 'add' | 'replace' {
     return oldValue === undefined ? 'add' : 'replace';
 }
 
-function createNamedPatchPairFromEntry(entry: ChangeLogEntry): MutationPatchPair {
+function createNamedPatchPairFromEntry(
+    entry: ChangeLogEntry
+): MutationPatchPair {
     if (entry.op === 'add') {
         return {
             forward: {
@@ -471,7 +473,9 @@ function fromJsonPointerPath(
             typeof fallbackValue === 'object' &&
             typeof (fallbackValue as Record<string, unknown>).name === 'string'
         ) {
-            segments[1] = String((fallbackValue as Record<string, unknown>).name);
+            segments[1] = String(
+                (fallbackValue as Record<string, unknown>).name
+            );
         }
     }
 
@@ -497,7 +501,9 @@ function createNamedPatchPairFromLegacyJsonPatchPair(
     fontJson?: FontJsonSnapshot
 ): MutationPatchPair | null {
     const forwardIdentityValue =
-        forwardPatch.value === undefined ? inversePatch?.value : forwardPatch.value;
+        forwardPatch.value === undefined
+            ? inversePatch?.value
+            : forwardPatch.value;
     const forwardPath = fromJsonPointerPath(
         forwardPatch.path,
         fontJson,
@@ -545,7 +551,10 @@ export function createNamedPatchPairFromJsonPatchPair(
     return {
         forward: {
             op: forwardPatch.op as NamedPatchOperation['op'],
-            path: fromJsonPointerPath(forwardPatch.path, options.forwardSnapshot),
+            path: fromJsonPointerPath(
+                forwardPatch.path,
+                options.forwardSnapshot
+            ),
             value: forwardPatch.value
         },
         inverse: {
@@ -574,31 +583,31 @@ export function createChangeLogEntriesFromMutationBatchEnvelope(
 ): ChangeLogEntry[] {
     const patches =
         envelope.schemaVersion === 2 && Array.isArray(envelope.patches)
-        ? envelope.patches
-        : Array.isArray(envelope.forwardPatches)
-          ? envelope.forwardPatches
-                .filter(
-                    (patch) =>
-                        patch.op === 'add' ||
-                        patch.op === 'remove' ||
-                        patch.op === 'replace'
-                )
-                .map((forwardPatch, index, forwardPatchList) => {
-                    const inversePatches = Array.isArray(envelope.inversePatches)
-                        ? envelope.inversePatches
-                        : [];
-                    const inversePatch =
-                        inversePatches[
-                            forwardPatchList.length - 1 - index
-                        ];
-                    return createNamedPatchPairFromLegacyJsonPatchPair(
-                        forwardPatch,
-                        inversePatch,
-                        options.fontJson
-                    );
-                })
-                .filter((patch): patch is MutationPatchPair => !!patch)
-          : [];
+            ? envelope.patches
+            : Array.isArray(envelope.forwardPatches)
+              ? envelope.forwardPatches
+                    .filter(
+                        (patch) =>
+                            patch.op === 'add' ||
+                            patch.op === 'remove' ||
+                            patch.op === 'replace'
+                    )
+                    .map((forwardPatch, index, forwardPatchList) => {
+                        const inversePatches = Array.isArray(
+                            envelope.inversePatches
+                        )
+                            ? envelope.inversePatches
+                            : [];
+                        const inversePatch =
+                            inversePatches[forwardPatchList.length - 1 - index];
+                        return createNamedPatchPairFromLegacyJsonPatchPair(
+                            forwardPatch,
+                            inversePatch,
+                            options.fontJson
+                        );
+                    })
+                    .filter((patch): patch is MutationPatchPair => !!patch)
+              : [];
 
     return createSyntheticChangeOperationsFromPatchPairs(
         patches,
@@ -614,8 +623,7 @@ export function createChangeLogEntriesFromMutationBatchEnvelope(
                 envelope.metadata.historyItemId ??
                 `mutation-${envelope.transactionId}`,
             historyAction: envelope.metadata.historyAction ?? 'change',
-            targetHistoryItemId:
-                envelope.metadata.targetHistoryItemId ?? null,
+            targetHistoryItemId: envelope.metadata.targetHistoryItemId ?? null,
             transactionLabel: envelope.label,
             transactionId: Number.isFinite(Number(envelope.transactionId))
                 ? Number(envelope.transactionId)
