@@ -838,6 +838,7 @@ class FontCompilation {
                 skip_kerning?: boolean;
                 produce_varc_table?: boolean;
             };
+            usePatchedWorkerCache?: boolean;
         }
     ): Promise<{
         result: Uint8Array;
@@ -884,6 +885,7 @@ class FontCompilation {
             // Only send the full babelfontJson if the worker cache is cold
             // (first compile after font load).
             const jsonForWorker =
+                requestMeta?.usePatchedWorkerCache === true ||
                 this.lastStoredFontJson === babelfontJson
                     ? '__incremental_layer__'
                     : babelfontJson;
@@ -895,7 +897,10 @@ class FontCompilation {
                 subsetKey,
                 subsetGlyphs: normalizedSubsetGlyphs,
                 fontRevisionKey,
-                filename: 'editing-font.ttf'
+                filename: 'editing-font.ttf',
+                _dragActive: requestMeta?.dragActive === true,
+                _compileSource: requestMeta?.compileSource,
+                _forceStoreFontJson: false
             });
 
             if (jsonForWorker !== '__incremental_layer__') {

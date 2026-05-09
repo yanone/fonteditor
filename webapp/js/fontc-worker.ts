@@ -1041,6 +1041,9 @@ self.onmessage = async (event) => {
                 );
                 // Font cache is primed by storeFontJson (bootstrap) and
                 // kept current by applyJsonPatches (incremental edits).
+                // Patch batches bump fontCacheEpoch, so a patched font always
+                // re-primes its cached subset/layout closure on the next
+                // compile without relying on dirty-glyph patching.
                 if (!isIncrementalSentinel) {
                     if (cachedBabelfontJson !== babelfontJson) {
                         store_font(babelfontJson);
@@ -1112,17 +1115,8 @@ self.onmessage = async (event) => {
                 const compileCachedSpanId = timelineSpanStart(
                     'font.worker.compileEditingCached.compileCachedFont'
                 );
-                const dirtyGlyphNames = Array.isArray(data.dirtyGlyphs)
-                    ? data.dirtyGlyphs
-                    : [];
-                const optionsWithDirtyGlyphs = {
-                    ...(options || {}),
-                    dirty_glyphs: dirtyGlyphNames
-                };
                 const compiledBytes =
-                    compile_cached_font_from_last_layout_closure(
-                        optionsWithDirtyGlyphs
-                    );
+                    compile_cached_font_from_last_layout_closure(options || {});
                 timelineMark(
                     'font.worker.compileEditingCached.compileCachedFont.resultReady',
                     {
@@ -1341,7 +1335,7 @@ self.onmessage = async (event) => {
             const applyPatchesSpanId = timelineSpanStart(
                 'font.worker.applyJsonPatches'
             );
-            const { forwardPatches } = data;
+            const { id, forwardPatches, invalidateLayoutClosure } = data;
 
             try {
                 timelineMark('font.worker.applyJsonPatches.started');
@@ -1352,6 +1346,7 @@ self.onmessage = async (event) => {
 
                 if (!Array.isArray(forwardPatches) || !forwardPatches.length) {
                     self.postMessage({
+                        id,
                         type: 'applyJsonPatches',
                         success: true,
                         skipped: 'empty'
@@ -1360,8 +1355,15 @@ self.onmessage = async (event) => {
                 }
 
                 apply_patch_batch(JSON.stringify(forwardPatches));
+                cachedBabelfontJson = null;
+                if (invalidateLayoutClosure !== false) {
+                    cachedBaseSubsetKey = null;
+                    cachedClosureGlyphCount = null;
+                    fontCacheEpoch += 1;
+                }
 
                 self.postMessage({
+                    id,
                     type: 'applyJsonPatches',
                     success: true
                 });
@@ -1369,6 +1371,7 @@ self.onmessage = async (event) => {
             } catch (e: any) {
                 timelineMark('font.worker.applyJsonPatches.failed');
                 self.postMessage({
+                    id,
                     type: 'applyJsonPatches',
                     success: false,
                     error: e.toString()

@@ -209,7 +209,8 @@ function importMutationBatchHistory(
     bridge.mergeImportedChangeLog(
         envelopes.flatMap((batch) =>
             createChangeLogEntriesFromMutationBatchEnvelope(batch, {
-                windowRoleLabel: window.windowRole?.getRoleLabel?.() ?? 'main'
+                windowRoleLabel: window.windowRole?.getRoleLabel?.() ?? 'main',
+                fontJson: bridge.getFontJsonSnapshot?.() ?? null
             })
         )
     );
@@ -839,7 +840,7 @@ export class CloudAdapter implements FileSystemAdapter {
             updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
         const seq = ++this._seq;
         const broadcastEntryCount = mutationBatchEnvelopes.reduce(
-            (count, envelope) => count + envelope.forwardPatches.length,
+            (count, envelope) => count + (envelope.patches?.length ?? 0),
             0
         );
         const pendingEnvelopeKeys = mutationBatchEnvelopes.map((envelope) =>

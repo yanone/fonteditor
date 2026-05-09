@@ -1349,25 +1349,9 @@ function initializeBridge(detail: {
         }
     });
 
-    // Wire JSON patch forwarding to Rust: when the local Y.Doc produces
-    // a MutationBatchEnvelope with forwardPatches, send them to the
-    // Rust worker cache immediately so the compile has fresh data.
-    bridge.onLocalUpdate(
-        (
-            _update: Uint8Array,
-            mutationBatchEnvelope?: MutationBatchEnvelope | null
-        ) => {
-            if (
-                mutationBatchEnvelope?.forwardPatches?.length &&
-                window.fontManager?.applyJsonPatchesToRust
-            ) {
-                void window.fontManager.applyJsonPatchesToRust(
-                    mutationBatchEnvelope.forwardPatches,
-                    mutationBatchEnvelope.metadata
-                );
-            }
-        }
-    );
+    // Local and remote edits both refresh the worker cache from the local
+    // model state. The collaboration envelope now carries semantic operations
+    // and replay targets for history/compile metadata, not raw JSON patches.
 
     // Callback for remote changes — trigger a canvas/overview refresh.
     // By the time this fires, onAfterSync has already re-synced
@@ -1383,21 +1367,6 @@ function initializeBridge(detail: {
     //      instead of always falling back to the slowest full mode.
     bridge.onRemoteChange((entries: ChangeLogEntry[]) => {
         void handleRemoteChangeRefresh(entries);
-    });
-
-    // Forward incoming remote JSON patches to the local Rust cache.
-    bridge.onRemotePatches((envelopes: MutationBatchEnvelope[]) => {
-        for (const envelope of envelopes) {
-            if (
-                envelope.forwardPatches?.length &&
-                window.fontManager?.applyJsonPatchesToRust
-            ) {
-                void window.fontManager.applyJsonPatchesToRust(
-                    envelope.forwardPatches,
-                    envelope.metadata
-                );
-            }
-        }
     });
 
     // Derive BroadcastChannel name from font path (or a fallback)

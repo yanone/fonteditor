@@ -238,8 +238,7 @@ describe('CloudAdapter outbound updates', () => {
             expect.objectContaining({
                 transactionId: mutationBatchEnvelope.transactionId,
                 label: mutationBatchEnvelope.label,
-                forwardPatches: mutationBatchEnvelope.forwardPatches,
-                inversePatches: mutationBatchEnvelope.inversePatches
+                patches: mutationBatchEnvelope.patches
             })
         );
         expect(sentFrames[0].fullState).toBeUndefined();
@@ -386,11 +385,19 @@ describe('CloudAdapter outbound updates', () => {
             transactionId: '1',
             localSequence: 1,
             baseRevision: null,
-            forwardPatches: [
-                { op: 'replace', path: '/glyphs/A/name', value: 'A.alt' }
-            ],
-            inversePatches: [
-                { op: 'replace', path: '/glyphs/A/name', value: 'A' }
+            patches: [
+                {
+                    forward: {
+                        op: 'replace',
+                        path: 'glyphs.A:name',
+                        value: 'A.alt'
+                    },
+                    inverse: {
+                        op: 'replace',
+                        path: 'glyphs.A:name',
+                        value: 'A'
+                    }
+                }
             ],
             metadata: {
                 editType: 'font',
@@ -407,11 +414,19 @@ describe('CloudAdapter outbound updates', () => {
             transactionId: '1',
             localSequence: 2,
             baseRevision: null,
-            forwardPatches: [
-                { op: 'replace', path: '/glyphs/B/name', value: 'B.alt' }
-            ],
-            inversePatches: [
-                { op: 'replace', path: '/glyphs/B/name', value: 'B' }
+            patches: [
+                {
+                    forward: {
+                        op: 'replace',
+                        path: 'glyphs.B:name',
+                        value: 'B.alt'
+                    },
+                    inverse: {
+                        op: 'replace',
+                        path: 'glyphs.B:name',
+                        value: 'B'
+                    }
+                }
             ],
             metadata: {
                 editType: 'font',
@@ -493,8 +508,7 @@ describe('CloudAdapter outbound updates', () => {
             expect.objectContaining({
                 transactionId: expectedEnvelopes[0].transactionId,
                 label: expectedEnvelopes[0].label,
-                forwardPatches: expectedEnvelopes[0].forwardPatches,
-                inversePatches: expectedEnvelopes[0].inversePatches
+                patches: expectedEnvelopes[0].patches
             })
         );
         expect(sentFrames[0].fullState).toBeUndefined();

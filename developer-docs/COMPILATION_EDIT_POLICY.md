@@ -32,12 +32,14 @@ When these files disagree with this document, treat that as a bug and reconcile 
 3. Background full-font QC work must not start while an outline drag is active; the shared worker must remain available for editing compiles and outline fetches.
 4. Interactive keyboard edits must still compile live.
 5. Interactive enriched edits must still schedule a trailing debounced full compile after the interaction settles.
-6. Interactive drag and keyboard edits must continue using incremental layer updates into the worker rather than re-sending the full babelfont JSON.
+6. Interactive drag and keyboard edits must continue using incremental JSON patch batches into the worker rather than re-sending the full babelfont JSON.
 7. Editing compiles must continue using the subsetted `editing` target before fontc.
 8. Text input uses its own subset-only fast path and still schedules a deferred full compile after typing settles.
 9. Full compiles remain the correctness fallback after interactive editing or when an edit type does not have a specialized fast path.
 10. Linked windows must not run full-font compilation or Fontspector; only the main window may schedule and execute them. The `full-font-compile-manager` checks `windowRole.isMainWindow()` at every scheduling entry point and suppresses the monitor loop for linked windows.
-11. Every interactive commit MUST cross the JS ↔ Rust/worker boundary through `submitLayerUpdatesToWorkerCache` (one batched `storeLayerUpdates` worker message per commit, regardless of the number of changed layers). Full-font `storeFontJson` crossings MUST stay at zero outside of font open, external reload, and explicit force-full sync (`forceFullWorkerCacheUpdate`). The receiver path (`syncRustCacheAndRefreshCanvas`) and undo/redo path use `refreshWorkerCacheForReplayTargets` for the same single-batch crossing; the receiver fallback `submitLayerToWorkerCache` (singular) routes through the same batched API so its boundary-crossing counters and fingerprint-cache updates are uniform. The fingerprint baseline used to skip unchanged layers is the in-memory `workerLayerFingerprintCache`; it is updated incrementally on every successful submit and cleared on every full-font crossing (`recordFullFontCrossing`), so the cache stays consistent with whatever Rust currently holds without ever re-deriving fingerprints by parsing `babelfontJson` on the hot path.
+11. Every interactive commit MUST cross the JS ↔ Rust/worker boundary through `submitLayerUpdatesToWorkerCache` (one batched `applyJsonPatches` worker message per commit, regardless of the number of changed layers). Full-font `storeFontJson` crossings MUST stay at zero outside of font open, external reload, and explicit force-full sync (`forceFullWorkerCacheUpdate`). The receiver path (`syncRustCacheAndRefreshCanvas`) and undo/redo path use `refreshWorkerCacheForReplayTargets` for the same single-batch crossing; the receiver fallback `submitLayerToWorkerCache` (singular) routes through the same batched API so its boundary-crossing counters and fingerprint-cache updates are uniform. The fingerprint baseline used to skip unchanged layers is the in-memory `workerLayerFingerprintCache`; it is updated incrementally on every successful submit and cleared on every full-font crossing (`recordFullFontCrossing`), so the cache stays consistent with whatever Rust currently holds without ever re-deriving fingerprints by parsing `babelfontJson` on the hot path.
+12. Collaboration and history transport MUST use named forward/inverse patch pairs, not raw numeric JSON Pointer batches. The source window derives those pairs from the same concrete document diff that would produce RFC 6902 JSON patches, then rewrites glyph/layer array segments to stable glyph-name/layer-id addresses before sending them to linked windows or cloud history.
+13. Python edits MUST follow the same rule: derive forward/inverse JSON patch pairs from normalized before/after font snapshots, translate them to named patch pairs, then feed the bridge/history pipeline from those translated pairs. Python must not bypass the shared collaboration funnel with ad hoc full-font sync alone.
 
 ## Boundary-Crossing Budget
 
@@ -213,11 +215,30 @@ All three triggers must use the same commit path: write the current Ace buffer i
 The fast path depends on these rules staying true:
 
 1. Drag and keyboard layer edits use the incremental sentinel JSON path in `font-compilation.ts` rather than sending the full babelfont JSON to the worker.
-2. `fontc-worker.ts` patches the cached font via `update_cached_layer()` whenever dirty glyph, layer ID, and layer data are available. Batches of more than one dirty layer (anchor cascades, sidebearing-key cascades, multi-glyph automatic-composite refresh, undo/redo replay) MUST go through `update_cached_layers_batch()` so the JS↔WASM boundary is crossed once and each Rust cache lock (`FONT_CACHE`, `PREPARED_SUBSET_FONT_CACHE`, `FILTERED_FONT_CACHE`) is acquired once for the whole batch. The single-update fast path keeps using `update_cached_layer()` directly.
-3. The editing subset key is reused when unchanged so layout closure does not get rebuilt unnecessarily.
-4. Full `store_font()` calls are fallbacks for invalidation or missing cache state, not the steady-state path for interactive editing.
+2. `fontc-worker.ts` patches the cached font via `applyJsonPatches`. Generic raw JSON patch batches must invalidate the cached subset/layout-closure epoch so the next cached compile re-primes from patched font data.
+3. Incremental layer-replacement patch batches for outline, anchor, and sidebearing edits explicitly opt out of layout-closure invalidation because they replace already-known visible layers in place and must stay on the interactive patched-cache fast path.
+4. The editing subset key is reused when unchanged and the worker font-cache epoch is unchanged so layout closure does not get rebuilt unnecessarily.
+5. Full `store_font()` calls are fallbacks for invalidation or missing cache state, not the steady-state path for interactive editing.
 
 Any change that increases full JSON transfers during interactive editing is a regression unless explicitly documented and approved.
+
+## Collaboration Patch Policy
+
+There are two distinct mutation formats in the system, and they serve different boundaries:
+
+1. Rust worker boundary: official RFC 6902 JSON Patch batches against the concrete cached babelfont JSON held by Rust/WASM.
+2. Collaboration/history boundary: named forward/inverse patch pairs whose paths use stable semantic identity for glyphs and layers.
+
+The collaboration/history format exists because linked windows, cloud durability, and undo metadata must survive document version changes that make raw numeric array indices unstable. The named patch pair therefore remains the canonical transport format between JS peers, even though the pair is derived from a concrete JSON Patch diff.
+
+Required properties of every collaboration patch pair:
+
+- It carries both `forward` and `inverse` operations explicitly.
+- Each operation uses JSON-Patch-style verbs (`add`, `remove`, `replace`).
+- Glyph and layer addressing must use glyph names and layer ids instead of numeric array indices.
+- Per-patch replay metadata may attach `workerReplayTargets` and edit-side metadata, but undo must not depend on recomputing the inverse later.
+
+Legacy persisted envelopes containing raw `forwardPatches` / `inversePatches` remain readable for compatibility, but all new envelopes must be emitted in the named forward/inverse pair format.
 
 ## Rendering Policy
 
@@ -258,6 +279,8 @@ Linked windows share the same font model as the main window via Y.Doc sync. They
 
 1. Pass `workerReplayTargets` to `syncRustCacheAndRefreshCanvas` for incremental layer updates to the WASM worker cache (instead of a full JSON resync).
 2. Infer the original edit type (`anchor` / `outline`) so the linked window's editing compile uses the matching fast-path compilation mode (`anchor-only` / `outline-only`) instead of always falling back to the slowest `full` mode.
+
+Linked-window/cloud replay must rebuild change-log entries from the named forward/inverse patch pairs, not from raw worker JSON patches. The worker patch batch is a receiver-local cache refresh detail; it is not the cross-window source of truth.
 3. Set `lastChangeSource` to `remote-anchor` or `remote-outline` (or `remote-change` for unknown types) so `isIncrementalEditingCompile` recognizes the source and the compile uses the correct compilation mode.
 
 The receiver must refresh the worker cache before requesting its remote editing-font compile. Requesting a compile before the cache refresh completes can compile against stale Rust cache data and then immediately request a second compile. The linked-window remote path therefore schedules one editing compile after `syncRustCacheAndRefreshCanvas` has applied the replay targets or completed its fallback refresh.

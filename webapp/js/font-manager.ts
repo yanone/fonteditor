@@ -73,8 +73,8 @@ type ExplicitLayerCacheInput = LayerCacheUpdate;
  *
  * These are the numbers the Counterpunch compilation policy locks down:
  * during interactive editing every commit MUST flow through the batched
- * layer-update path (`submitLayerUpdatesToWorkerCache` → `storeLayerUpdates`
- * worker message → `update_cached_layers_batch` Rust call). Full-font
+ * JSON-patch path (`submitLayerUpdatesToWorkerCache` → `applyJsonPatches`
+ * worker message). Full-font
  * crossings (`storeFontJson`) MUST stay at zero outside of font open,
  * external reload, and explicit force-full sync. Tests assert the
  * deltas of these counters per edit/cascade/undo/remote operation.
@@ -105,6 +105,35 @@ class FontDataIntegrityError extends Error {
         super(message);
         this.name = 'FontDataIntegrityError';
     }
+}
+
+function buildLayerReplacePatch(
+    fontData: SerializableFontRecord,
+    glyphName: string,
+    layerId: string,
+    layerData: Babelfont.Layer
+): { op: 'replace'; path: string; value: Babelfont.Layer } {
+    const glyphIndex = Array.isArray(fontData?.glyphs)
+        ? fontData.glyphs.findIndex((glyph) => glyph?.name === glyphName)
+        : -1;
+    const layerIndex =
+        glyphIndex >= 0 && Array.isArray(fontData.glyphs?.[glyphIndex]?.layers)
+            ? fontData.glyphs[glyphIndex].layers!.findIndex(
+                  (layer) => layer?.id === layerId
+              )
+            : -1;
+
+    if (glyphIndex < 0 || layerIndex < 0) {
+        throw new Error(
+            `Unable to resolve official JSON patch path for ${glyphName}/${layerId}`
+        );
+    }
+
+    return {
+        op: 'replace',
+        path: `/glyphs/${glyphIndex}/layers/${layerIndex}`,
+        value: layerData
+    };
 }
 
 type SerializableLayerRecord = {
@@ -1884,7 +1913,11 @@ class FontManager {
                     {
                         dragActive: dragActiveAtRequest,
                         compileSource: incrementalChangeSource || undefined,
-                        optionOverrides
+                        optionOverrides,
+                        usePatchedWorkerCache:
+                            isIncrementalEditingCompile &&
+                            wasJsonStale &&
+                            !forceFullWorkerCompile
                     }
                 );
 
@@ -3312,12 +3345,16 @@ class FontManager {
             });
 
             await fontCompilation.sendMessage({
-                type: 'storeLayerUpdates',
-                updates: normalizedUpdates.map((u) => ({
-                    glyphName: u.glyphName,
-                    layerId: u.layerId,
-                    layerData: u.normalized
-                }))
+                type: 'applyJsonPatches',
+                invalidateLayoutClosure: false,
+                forwardPatches: normalizedUpdates.map((u) =>
+                    buildLayerReplacePatch(
+                        this.currentFont!.babelfontData,
+                        u.glyphName,
+                        u.layerId,
+                        u.normalized
+                    )
+                )
             });
 
             // Update fingerprint baseline cache + boundary-crossing stats.
@@ -3331,10 +3368,11 @@ class FontManager {
                 );
                 this._boundaryCrossingStats.transmittedGlyphs.add(u.glyphName);
             }
+            fontCompilation.lastStoredFontJson = null;
             return true;
         } catch (error) {
             console.warn(
-                '[FontManager] Failed to submit layer batch to worker cache:',
+                '[FontManager] Failed to submit JSON patch batch to worker cache:',
                 updates.map(({ glyphName, layerId }) => ({
                     glyphName,
                     layerId
@@ -3364,8 +3402,11 @@ class FontManager {
         try {
             await fontCompilation.sendMessage({
                 type: 'applyJsonPatches',
+                invalidateLayoutClosure: true,
                 forwardPatches
             });
+            this.workerLayerFingerprintCache.clear();
+            fontCompilation.lastStoredFontJson = null;
             return true;
         } catch (error) {
             console.warn(
@@ -3699,9 +3740,39 @@ class FontManager {
             this.scheduleFullCompileDebounce();
         }
 
+        let keyboardCacheUpdatePromise: Promise<boolean> | null = null;
+        if (changeSource.startsWith('keyboard')) {
+            const refreshPromise = this.submitLayerUpdatesToWorkerCache([
+                {
+                    glyphName,
+                    layerId,
+                    layerData: layerDataCopy
+                }
+            ]);
+            this.workerCacheUpdatePromise = refreshPromise.then(
+                () => undefined
+            );
+            keyboardCacheUpdatePromise = refreshPromise;
+        }
+
         this.currentFont!.markDirty(changeSource);
         window.autoCompileManager.checkAndSchedule();
         await this.updateDirtyIndicator();
+
+        if (keyboardCacheUpdatePromise) {
+            try {
+                await keyboardCacheUpdatePromise;
+            } catch (error) {
+                console.error(
+                    '[FontManager] Error updating worker cache from keyboard edit:',
+                    error
+                );
+            } finally {
+                if (this.workerCacheUpdatePromise) {
+                    this.workerCacheUpdatePromise = null;
+                }
+            }
+        }
 
         // Update worker's font cache so glyph overview renders correctly
         // Skip during dragging to prevent clearing caches repeatedly - will update on drag end
@@ -3766,16 +3837,13 @@ class FontManager {
                                 : currentLayer;
                         const layerDataCopy =
                             this.normalizeLayerForRust(rawLayerData);
-                        await fontCompilation.sendMessage({
-                            type: 'storeLayerUpdates',
-                            updates: [
-                                {
-                                    glyphName: currentGlyphName,
-                                    layerId: currentLayerId,
-                                    layerData: layerDataCopy
-                                }
-                            ]
-                        });
+                        await this.submitLayerUpdatesToWorkerCache([
+                            {
+                                glyphName: currentGlyphName,
+                                layerId: currentLayerId,
+                                layerData: layerDataCopy
+                            }
+                        ]);
                         updatedViaIncrementalLayer = true;
 
                         if (this.pendingBabelfontJsonSyncAfterDrag) {

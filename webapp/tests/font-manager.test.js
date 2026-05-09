@@ -358,6 +358,11 @@ describe('FontManager saveLayerData', () => {
         expect(
             window.autoCompileManager.checkAndSchedule
         ).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyJsonPatches'
+            })
+        );
     });
 
     test('keeps live auto-compile for interactive keyboard anchor saves', async () => {
@@ -381,6 +386,11 @@ describe('FontManager saveLayerData', () => {
         expect(
             window.autoCompileManager.checkAndSchedule
         ).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyJsonPatches'
+            })
+        );
     });
 
     test('keeps immediate auto-compile for generic keyboard saves', async () => {
@@ -402,6 +412,11 @@ describe('FontManager saveLayerData', () => {
         expect(
             window.autoCompileManager.checkAndSchedule
         ).toHaveBeenCalledTimes(1);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyJsonPatches'
+            })
+        );
     });
 
     test('keeps immediate editing auto-compile for guide drag saves', async () => {
@@ -491,17 +506,26 @@ describe('FontManager saveLayerData', () => {
         }
 
         expect(syncSpy).not.toHaveBeenCalled();
+        const glyphIndex = currentFont.babelfontData.glyphs.findIndex(
+            (entry) => entry.name === 'a'
+        );
+        const resolvedLayerIndex = currentFont.babelfontData.glyphs[
+            glyphIndex
+        ].layers.findIndex((entry) => entry.id === layerId);
         expect(sendMessageSpy).toHaveBeenCalledTimes(1);
-        expect(sendMessageSpy).toHaveBeenCalledWith({
-            type: 'storeLayerUpdates',
-            updates: [
-                {
-                    glyphName: 'a',
-                    layerId,
-                    layerData: expect.any(Object)
-                }
-            ]
-        });
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyJsonPatches',
+                invalidateLayoutClosure: false,
+                forwardPatches: [
+                    expect.objectContaining({
+                        op: 'replace',
+                        path: `/glyphs/${glyphIndex}/layers/${resolvedLayerIndex}`,
+                        value: expect.any(Object)
+                    })
+                ]
+            })
+        );
         expect(fontCompilation.lastStoredFontJson).toBeNull();
         expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
         expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
@@ -542,18 +566,27 @@ describe('FontManager saveLayerData', () => {
         }
 
         expect(toJSONSpy).not.toHaveBeenCalled();
-        expect(sendMessageSpy).toHaveBeenCalledWith({
-            type: 'storeLayerUpdates',
-            updates: [
-                {
-                    glyphName: 'a',
-                    layerId,
-                    layerData: expect.objectContaining({
-                        width: explicitLayer.width
+        const glyphIndex = currentFont.babelfontData.glyphs.findIndex(
+            (entry) => entry.name === 'a'
+        );
+        const resolvedLayerIndex = currentFont.babelfontData.glyphs[
+            glyphIndex
+        ].layers.findIndex((entry) => entry.id === layerId);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyJsonPatches',
+                invalidateLayoutClosure: false,
+                forwardPatches: [
+                    expect.objectContaining({
+                        op: 'replace',
+                        path: `/glyphs/${glyphIndex}/layers/${resolvedLayerIndex}`,
+                        value: expect.objectContaining({
+                            width: explicitLayer.width
+                        })
                     })
-                }
-            ]
-        });
+                ]
+            })
+        );
         expect(
             currentFont.babelfontData.glyphs
                 .find((entry) => entry.name === 'a')
@@ -587,27 +620,36 @@ describe('FontManager saveLayerData', () => {
 
         await fontManager.refreshGlyphsAfterModelBatch(['a'], layerId);
 
-        expect(sendMessageSpy).toHaveBeenCalledWith({
-            type: 'storeLayerUpdates',
-            updates: [
-                {
-                    glyphName: 'a',
-                    layerId,
-                    layerData: expect.objectContaining({
-                        shapes: [
-                            {
-                                nodes: '0 0 l 100 0 l',
-                                closed: false
-                            },
-                            {
-                                nodes: '0 0 l 50 50 l',
-                                closed: false
-                            }
-                        ]
+        const glyphIndex = currentFont.babelfontData.glyphs.findIndex(
+            (entry) => entry.name === 'a'
+        );
+        const resolvedLayerIndex = currentFont.babelfontData.glyphs[
+            glyphIndex
+        ].layers.findIndex((entry) => entry.id === layerId);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyJsonPatches',
+                invalidateLayoutClosure: false,
+                forwardPatches: [
+                    expect.objectContaining({
+                        op: 'replace',
+                        path: `/glyphs/${glyphIndex}/layers/${resolvedLayerIndex}`,
+                        value: expect.objectContaining({
+                            shapes: [
+                                {
+                                    nodes: '0 0 l 100 0 l',
+                                    closed: false
+                                },
+                                {
+                                    nodes: '0 0 l 50 50 l',
+                                    closed: false
+                                }
+                            ]
+                        })
                     })
-                }
-            ]
-        });
+                ]
+            })
+        );
     });
 
     test('refreshGlyphsAfterModelBatch incrementally patches multiple changed glyph layers', async () => {
@@ -638,26 +680,41 @@ describe('FontManager saveLayerData', () => {
         }
 
         expect(syncSpy).not.toHaveBeenCalled();
+        const firstGlyphIndex = currentFont.babelfontData.glyphs.findIndex(
+            (entry) => entry.name === firstGlyph.name
+        );
+        const secondGlyphIndex = currentFont.babelfontData.glyphs.findIndex(
+            (entry) => entry.name === secondGlyph.name
+        );
+        const firstLayerIndex = currentFont.babelfontData.glyphs[
+            firstGlyphIndex
+        ].layers.findIndex((entry) => entry.id === firstLayer.id);
+        const secondLayerIndex = currentFont.babelfontData.glyphs[
+            secondGlyphIndex
+        ].layers.findIndex((entry) => entry.id === secondLayer.id);
         expect(sendMessageSpy).toHaveBeenCalledTimes(1);
-        expect(sendMessageSpy).toHaveBeenCalledWith({
-            type: 'storeLayerUpdates',
-            updates: [
-                {
-                    glyphName: firstGlyph.name,
-                    layerId: firstLayer.id,
-                    layerData: expect.objectContaining({
-                        width: firstLayer.width
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyJsonPatches',
+                invalidateLayoutClosure: false,
+                forwardPatches: [
+                    expect.objectContaining({
+                        op: 'replace',
+                        path: `/glyphs/${firstGlyphIndex}/layers/${firstLayerIndex}`,
+                        value: expect.objectContaining({
+                            width: firstLayer.width
+                        })
+                    }),
+                    expect.objectContaining({
+                        op: 'replace',
+                        path: `/glyphs/${secondGlyphIndex}/layers/${secondLayerIndex}`,
+                        value: expect.objectContaining({
+                            width: secondLayer.width
+                        })
                     })
-                },
-                {
-                    glyphName: secondGlyph.name,
-                    layerId: secondLayer.id,
-                    layerData: expect.objectContaining({
-                        width: secondLayer.width
-                    })
-                }
-            ]
-        });
+                ]
+            })
+        );
         expect(fontCompilation.lastStoredFontJson).toBeNull();
         expect(
             fontManager.currentFont.babelfontData.glyphs
@@ -736,16 +793,25 @@ describe('FontManager saveLayerData', () => {
         }
 
         expect(sendMessageSpy).toHaveBeenCalledTimes(1);
-        expect(sendMessageSpy).toHaveBeenCalledWith({
-            type: 'storeLayerUpdates',
-            updates: [
-                {
-                    glyphName: 'a',
-                    layerId,
-                    layerData: expect.any(Object)
-                }
-            ]
-        });
+        const glyphIndex = currentFont.babelfontData.glyphs.findIndex(
+            (entry) => entry.name === 'a'
+        );
+        const resolvedLayerIndex = currentFont.babelfontData.glyphs[
+            glyphIndex
+        ].layers.findIndex((entry) => entry.id === layerId);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyJsonPatches',
+                invalidateLayoutClosure: false,
+                forwardPatches: [
+                    expect.objectContaining({
+                        op: 'replace',
+                        path: `/glyphs/${glyphIndex}/layers/${resolvedLayerIndex}`,
+                        value: expect.any(Object)
+                    })
+                ]
+            })
+        );
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(false);
     });
 });
@@ -977,7 +1043,8 @@ describe('FontManager editing subset inclusion', () => {
         expect(fontManager.pendingBabelfontJsonSyncAfterDrag).toBe(true);
         expect(compileEditingSpy).toHaveBeenCalledTimes(1);
         expect(compileEditingSpy.mock.calls[0][3]).toMatchObject({
-            compileSource: 'mouse-drag-outline'
+            compileSource: 'mouse-drag-outline',
+            usePatchedWorkerCache: true
         });
     });
 
@@ -1249,7 +1316,7 @@ describe('FontManager loadFont', () => {
 describe('FontManager boundary-crossing budget', () => {
     // Lock down the JS <-> Rust/worker traffic per the compilation policy:
     //   - every interactive edit must funnel through the batched
-    //     `storeLayerUpdates` worker message (1 batch per commit, no matter
+    //     `applyJsonPatches` worker message (1 batch per commit, no matter
     //     how many layers are in the batch),
     //   - no full-font `storeFontJson` crossings during interactive edits,
     //   - no progressive growth in per-edit work after many edits.
@@ -1354,11 +1421,11 @@ describe('FontManager boundary-crossing budget', () => {
         expect(stats.glyphsTransmitted).toBe(1);
         expect(stats.fullFontCrossings).toBe(0);
 
-        // Exactly one storeLayerUpdates message reached the worker, no storeFontJson.
+        // Exactly one applyJsonPatches message reached the worker, no storeFontJson.
         const messageTypes = sendMessageSpy.mock.calls.map(
             (args) => args[0]?.type
         );
-        expect(messageTypes).toEqual(['storeLayerUpdates']);
+        expect(messageTypes).toEqual(['applyJsonPatches']);
     });
 
     test('multi-glyph cascade batches all layers into a single boundary crossing', async () => {
@@ -1402,7 +1469,10 @@ describe('FontManager boundary-crossing budget', () => {
         const messageTypes = sendMessageSpy.mock.calls.map(
             (args) => args[0]?.type
         );
-        expect(messageTypes).toEqual(['storeLayerUpdates']);
+        expect(messageTypes).toEqual(['applyJsonPatches']);
+        expect(sendMessageSpy.mock.calls[0][0]).toMatchObject({
+            invalidateLayoutClosure: false
+        });
     });
 
     test('submitLayerToWorkerCache routes the singular receiver-fallback path through the batched API', async () => {
@@ -1419,6 +1489,58 @@ describe('FontManager boundary-crossing budget', () => {
         expect(
             fontManager.workerLayerFingerprintCache.has(`a::${layerId}`)
         ).toBe(true);
+    });
+
+    test('multi-layer JSON patch batches preserve unrelated worker fingerprints while updating transmitted layers', async () => {
+        const currentFont = fontManager.currentFont;
+        const [first, second] = currentFont.fontModel.glyphs;
+        const firstLayer = first.layers[0];
+        const secondLayer = second.layers[0];
+
+        firstLayer.width += 9;
+        secondLayer.width += 13;
+        fontManager.workerLayerFingerprintCache.set('stale::layer', 'stale');
+
+        await fontManager.refreshGlyphsAfterModelBatch(
+            [first.name, second.name],
+            firstLayer.id
+        );
+
+        expect(fontManager.workerLayerFingerprintCache.get('stale::layer')).toBe(
+            'stale'
+        );
+        expect(
+            fontManager.workerLayerFingerprintCache.has(
+                `${first.name}::${firstLayer.id}`
+            )
+        ).toBe(true);
+        expect(
+            fontManager.workerLayerFingerprintCache.has(
+                `${second.name}::${secondLayer.id}`
+            )
+        ).toBe(true);
+    });
+
+    test('applyJsonPatchesToRust clears the fingerprint baseline because raw patch forwarding has no exact layer snapshot cache', async () => {
+        fontManager.workerLayerFingerprintCache.set('a::layer-1', 'cached');
+        fontCompilation.lastStoredFontJson = 'cached-json';
+
+        await fontManager.applyJsonPatchesToRust([
+            {
+                op: 'replace',
+                path: '/glyphs/a/layers/layer-1',
+                value: { id: 'layer-1', width: 123 }
+            }
+        ]);
+
+        expect(fontManager.workerLayerFingerprintCache.size).toBe(0);
+        expect(fontCompilation.lastStoredFontJson).toBeNull();
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyJsonPatches',
+                invalidateLayoutClosure: true
+            })
+        );
     });
 
     test('recordFullFontCrossing clears the layer fingerprint cache', () => {

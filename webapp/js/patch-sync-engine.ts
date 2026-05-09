@@ -533,6 +533,10 @@ export class PatchSyncEngine {
         }
     }
 
+    getFontJsonSnapshot(): Record<string, Unsafe> | null {
+        return this._fontJson;
+    }
+
     // ── Lifecycle ────────────────────────────────────────────────
 
     /**
@@ -1539,7 +1543,8 @@ export class PatchSyncEngine {
                 ? remoteEntries
                 : remoteMutationBatches?.flatMap((batch) =>
                       createChangeLogEntriesFromMutationBatchEnvelope(batch, {
-                          windowRoleLabel: this._getWindowRoleLabel()
+                          windowRoleLabel: this._getWindowRoleLabel(),
+                          fontJson: this._fontJson
                       })
                   );
             const remoteLayerScopes = this._getRemoteLayerSyncScopes(
