@@ -3602,7 +3602,7 @@ export class OutlineEditor {
             }
         };
 
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         if (bridge?.runWithoutRecording) {
             bridge.runWithoutRecording(recompute);
         } else {
@@ -4218,7 +4218,7 @@ export class OutlineEditor {
             }
         };
 
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         const wrappedRebuild = () =>
             withSuppressedModelRecording(() =>
                 withSuppressedMetricsKeyRecompute(() => {
@@ -4666,7 +4666,7 @@ export class OutlineEditor {
             layerId?: string | null;
         } = {}
     ): void {
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         if (!bridge || !currentGlyphName) {
             return;
         }
@@ -7237,7 +7237,7 @@ export class OutlineEditor {
 
         // Sync the complete layer data to the Y.Doc so undo can restore
         // all fields. The model setters ran inside withSuppressedModelRecording.
-        const createBridge = window.changeBridge;
+        const createBridge = window.patchSyncEngine;
         if (createBridge) {
             createBridge.syncGlyphFromJson(
                 glyphName,
@@ -7296,7 +7296,7 @@ export class OutlineEditor {
             currentFont.syncJsonFromModel();
         }
 
-        const deleteBridge = window.changeBridge;
+        const deleteBridge = window.patchSyncEngine;
         if (deleteBridge) {
             deleteBridge.syncGlyphFromJson(glyphName, 'Delete layer sync');
         }
@@ -7363,7 +7363,7 @@ export class OutlineEditor {
         const originalLayerPayload = this.sanitizeLayerDataForStoredLayer(
             layer.toJSON()
         );
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
 
         bridge?.beginTransaction('Reinterpolate layer');
 
@@ -8379,7 +8379,7 @@ export class OutlineEditor {
             this._hasMoved = false;
             this._dragType = 'guide';
             this._preDragDesc = this._buildGuideDesc();
-            window.changeBridge?.beginTransaction('Drag guide');
+            window.patchSyncEngine?.beginTransaction('Drag guide');
             this.glyphCanvas.lastMouseX = e.clientX;
             this.glyphCanvas.lastMouseY = e.clientY;
             this.lastGlyphX = null;
@@ -8417,7 +8417,7 @@ export class OutlineEditor {
                           this.hoveredSidebearingHandle.side,
                           startingSidebearing
                       );
-            window.changeBridge?.beginTransaction(
+            window.patchSyncEngine?.beginTransaction(
                 getSidebearingTransactionLabel(
                     this.hoveredSidebearingHandle.side
                 )
@@ -8474,7 +8474,7 @@ export class OutlineEditor {
                 this._dragType = 'component';
                 this._preDragDesc = this._buildComponentDesc();
                 this._componentDragDeltaX = 0;
-                window.changeBridge?.beginTransaction('Drag component');
+                window.patchSyncEngine?.beginTransaction('Drag component');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null;
@@ -8522,7 +8522,7 @@ export class OutlineEditor {
                 this._dragType = 'anchor';
                 this.resetLiveAnchorRefreshState();
                 this._preDragDesc = this._buildAnchorDesc();
-                window.changeBridge?.beginTransaction('Drag anchor');
+                window.patchSyncEngine?.beginTransaction('Drag anchor');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null; // Reset for delta calculation
@@ -8559,7 +8559,7 @@ export class OutlineEditor {
                 this._metricsKeyInteractionSide = null;
                 this._dragType = 'slide-point';
                 this._preDragDesc = this._buildNodeDesc();
-                window.changeBridge?.beginTransaction('Move point along curve');
+                window.patchSyncEngine?.beginTransaction('Move point along curve');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null;
@@ -8630,7 +8630,7 @@ export class OutlineEditor {
                     !this._dragStartEndpointsCoincident;
                 this._preDragDesc = this._buildNodeDesc();
                 this._pointDragDeltaX = 0;
-                window.changeBridge?.beginTransaction('Drag point');
+                window.patchSyncEngine?.beginTransaction('Drag point');
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null; // Reset for delta calculation
@@ -10225,7 +10225,7 @@ export class OutlineEditor {
         this._hasMoved = false;
         this._dragType = 'contrast-axis';
         this._preDragDesc = this.buildContrastAxisDescription();
-        window.changeBridge?.beginTransaction('Set contrast axis');
+        window.patchSyncEngine?.beginTransaction('Set contrast axis');
         this.glyphCanvas.lastMouseX = e.clientX;
         this.glyphCanvas.lastMouseY = e.clientY;
         this.glyphCanvas.render();
@@ -10357,7 +10357,7 @@ export class OutlineEditor {
         this._preDragDesc = this.buildSelectionResizeDescription(bounds);
         this.selectedSidebearingHandle = null;
         this.selectedGuideHandle = null;
-        window.changeBridge?.beginTransaction('Scale selection');
+        window.patchSyncEngine?.beginTransaction('Scale selection');
         this.glyphCanvas.lastMouseX = e.clientX;
         this.glyphCanvas.lastMouseY = e.clientY;
         this.lastGlyphX = null;
@@ -11321,7 +11321,7 @@ export class OutlineEditor {
             if (dragTransactionEnded) {
                 return;
             }
-            window.changeBridge?.endTransaction();
+            window.patchSyncEngine?.endTransaction();
             dragTransactionEnded = true;
         };
 
@@ -11547,8 +11547,8 @@ export class OutlineEditor {
                         // Yjs/history sync to avoid no-op history entries.
                     } else if (dragType === 'slide-point') {
                         const currentGlyphModel = this.getCurrentGlyphModel();
-                        if (window.changeBridge && currentGlyphModel?.name) {
-                            window.changeBridge.syncGlyphFromJson(
+                        if (window.patchSyncEngine && currentGlyphModel?.name) {
+                            window.patchSyncEngine.syncGlyphFromJson(
                                 currentGlyphModel.name,
                                 label
                             );
@@ -12621,7 +12621,7 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         let insertedNodeIndex: number | null = null;
 
         const roundPathNodesToGrid = (
@@ -13364,7 +13364,7 @@ export class OutlineEditor {
             return false;
         }
 
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         if (bridge && currentGlyphModel.name) {
             bridge.beginTransaction(label);
             try {
@@ -14164,7 +14164,7 @@ export class OutlineEditor {
         currentGlyphModel: any,
         selectedPoint: Point
     ): void {
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         if (bridge && currentGlyphModel.name) {
             bridge.beginTransaction(label);
             try {
@@ -14691,7 +14691,7 @@ export class OutlineEditor {
         const currentGlyphModel = this.getCurrentGlyphModel();
         const currentFont = fontManager.currentFont;
         const layerId = this.getCurrentLayerId();
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         const bboxCenterAnchorScreen =
             this.getBoundingBoxCenterScreenPosition();
         const affectedGlyphNames = this.recomputeMetricsKeysForGlyph(
@@ -14994,7 +14994,7 @@ export class OutlineEditor {
         // Wrap keyboard edit in a transaction so model changes from
         // saveLayerData and auto-composite cascade are committed as
         // a single Yjs transaction with one broadcast.
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         const hasTransaction = typeof bridge?.beginTransaction === 'function';
         if (hasTransaction) {
             bridge.beginTransaction('Move anchor');
@@ -15270,7 +15270,7 @@ export class OutlineEditor {
         // Wrap keyboard edit in a transaction so model changes from
         // saveLayerData and metrics-key cascade recomputation are
         // committed as a single Yjs transaction with one broadcast.
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         const hasTransaction = typeof bridge?.beginTransaction === 'function';
         if (hasTransaction) {
             bridge.beginTransaction('Set sidebearing');
@@ -15325,7 +15325,7 @@ export class OutlineEditor {
         // Wrap keyboard edit in a transaction so model changes from
         // saveLayerData and metrics-key cascade are committed as a
         // single Yjs transaction with one broadcast.
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         const hasTransaction = typeof bridge?.beginTransaction === 'function';
         if (hasTransaction) {
             bridge.beginTransaction('Move sidebearing');
@@ -15741,7 +15741,7 @@ export class OutlineEditor {
         }
 
         const linkedLayers = currentLayerModel._getLinkedLayers?.() || [];
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         const fullContourIndices = new Set<number>();
 
         // Sort indices in descending order for each path (to maintain validity during deletion)
@@ -17138,7 +17138,7 @@ export class OutlineEditor {
         workerReplayTargets?: Array<{ glyphName: string; layerId: string }>,
         changedLayerTargets?: Array<{ glyphName: string; layerId: string }>
     ): void {
-        if (!window.changeBridge) return;
+        if (!window.patchSyncEngine) return;
         const parsed = this.parseGlyphStack();
         const activeLayerId = this.getCurrentLayerId() ?? this.selectedLayerId;
         const editedGlyphName =
@@ -17152,9 +17152,9 @@ export class OutlineEditor {
 
         if (
             changedLayerTargets?.length &&
-            typeof window.changeBridge.syncLayersFromJson === 'function'
+            typeof window.patchSyncEngine.syncLayersFromJson === 'function'
         ) {
-            window.changeBridge.syncLayersFromJson(
+            window.patchSyncEngine.syncLayersFromJson(
                 changedLayerTargets,
                 label,
                 oldValue,
@@ -17165,7 +17165,7 @@ export class OutlineEditor {
             return;
         }
 
-        window.changeBridge.syncGlyphFromJson(
+        window.patchSyncEngine.syncGlyphFromJson(
             editedGlyphName,
             label,
             oldValue,

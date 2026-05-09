@@ -5,7 +5,7 @@
 
 import { Logger } from './logger';
 import { attachTopRowSidebarInterpolation } from './top-row-sidebar-interpolation';
-import type { TransactionHistoryTarget } from './change-bridge';
+import type { TransactionHistoryTarget } from './patch-sync-engine';
 import type { Babelfont } from './babelfont';
 import {
     getFeatureDescription,
@@ -2947,7 +2947,7 @@ class FontInfoManager {
             return;
         }
 
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         bridge?.beginTransaction('Reorder features', historyTarget);
 
         let movedFeature;

@@ -1245,7 +1245,7 @@ class FontManager {
 
         this.updateWindowTitle();
 
-        // Notify ChangeBridge that the font model is ready
+        // Notify the patch sync engine bootstrap pipeline that the font model is ready
         window.dispatchEvent(
             new CustomEvent('fontModelReady', {
                 detail: {

@@ -10,7 +10,7 @@ import ResizableViews from './resizer';
 import SaveButton from './save-button';
 import { Font } from './babelfont-model';
 import type { StateManager, EditorState } from './state-manager';
-import type { ChangeBridge } from './change-bridge';
+import type { PatchSyncEngine } from './patch-sync-engine';
 import type { WindowSync } from './window-sync';
 import type { WindowRoleManager } from './window-role';
 import type { AutomationWindowMetadata } from './automation-runtime';
@@ -25,7 +25,7 @@ declare global {
     // should be declared here.
     interface Window {
         // Undo/redo & collaboration
-        changeBridge: ChangeBridge | undefined;
+        patchSyncEngine: PatchSyncEngine | undefined;
         windowSync: WindowSync | undefined;
         windowRole: WindowRoleManager | undefined;
         syncRustCacheAndRefreshCanvas:

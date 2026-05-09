@@ -1615,7 +1615,7 @@
             event.stopPropagation();
             event.stopImmediatePropagation();
 
-            const bridge = window.changeBridge;
+            const bridge = window.patchSyncEngine;
             if (!bridge) return;
 
             const oe = window.glyphCanvas?.outlineEditor;

@@ -28,8 +28,8 @@ jest.mock('../js/cloud-adapter', () => ({
 const mockBridgeState = new Uint8Array([1, 2, 3]);
 let mockLatestTempBridge = null;
 
-jest.mock('../js/change-bridge', () => ({
-    ChangeBridge: jest.fn().mockImplementation(() => {
+jest.mock('../js/patch-sync-engine', () => ({
+    PatchSyncEngine: jest.fn().mockImplementation(() => {
         let updateHandler = null;
         mockLatestTempBridge = {
             fontMap: { __mock: true },
@@ -50,10 +50,33 @@ jest.mock('../js/change-bridge', () => ({
                     }
                 }
             },
-            getFullState: jest.fn(() => mockBridgeState)
+            getFullState: jest.fn(() => mockBridgeState),
+            getChangeLog: jest.fn(() => [
+                {
+                    id: 1,
+                    timestamp: 1,
+                    windowId: 'bootstrap',
+                    windowRoleLabel: 'main',
+                    historyItemId: 'history-1',
+                    historyAction: 'change',
+                    targetHistoryItemId: null,
+                    transactionLabel: 'Bootstrap',
+                    transactionId: 1,
+                    op: 'set',
+                    undoScope: 'font',
+                    path: 'font',
+                    oldValue: null,
+                    newValue: 'bootstrap',
+                    historyTargetType: null,
+                    historyTargetKey: null,
+                    historyTargetLabel: null,
+                    workerReplayTargets: []
+                }
+            ])
         };
         return mockLatestTempBridge;
-    })
+    }),
+    ChangeBridge: jest.fn().mockImplementation(() => mockLatestTempBridge)
 }));
 
 jest.mock('../js/change-bridge-ydoc', () => ({
@@ -197,13 +220,16 @@ describe('CloudPlugin.openAsset', () => {
             }
         });
         expect(window.__pendingCloudBridgeBootstrapState).toBe(mockBridgeState);
+        expect(window.__pendingCloudBridgeBootstrapChangeLog).toEqual(
+            mockLatestTempBridge.getChangeLog()
+        );
         expect(window.addEventListener).toHaveBeenCalledWith(
             'fontModelReady',
             expect.any(Function)
         );
     });
 
-    test('recovers cloud-exported layers missing width and dispatches fontLoaded', async () => {
+    test('rejects cloud-exported layers missing width instead of repairing them on open', async () => {
         mockYDocToJson.mockReturnValue({
             glyphs: [
                 {
@@ -218,10 +244,11 @@ describe('CloudPlugin.openAsset', () => {
             ]
         });
 
-        // The open should succeed with width recovered to 0 (fallback)
-        await expect(plugin.openAsset('asset-1')).resolves.toBeUndefined();
+        await expect(plugin.openAsset('asset-1')).rejects.toThrow(
+            'Cloud font layer space/space-layer has invalid width; refusing to open cloud font data.'
+        );
 
-        expect(dispatchSpy).toHaveBeenCalledWith(
+        expect(dispatchSpy).not.toHaveBeenCalledWith(
             expect.objectContaining({ type: 'fontLoaded' })
         );
     });

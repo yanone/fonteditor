@@ -2,7 +2,7 @@
  * window-buttons.ts — Toolbar buttons for undo/redo and "Open in New Window".
  *
  * Wired up after DOM is ready. The undo/redo buttons reflect state from
- * the ChangeBridge; the "new window" button opens the same font URL
+ * the patch sync engine; the "new window" button opens the same font URL
  * as a linked editor window.
  */
 
@@ -314,7 +314,7 @@ themeObserver.observe(document.documentElement, {
 });
 
 async function triggerUndoRedo(direction: 'undo' | 'redo'): Promise<void> {
-    const bridge = window.changeBridge;
+    const bridge = window.patchSyncEngine;
     if (!bridge) {
         return;
     }

@@ -3838,7 +3838,7 @@ class GlyphCanvas {
 
         let changed = false;
         const affectedGlyphNames = new Set<string>();
-        window.changeBridge?.beginTransaction('Set component transform');
+        window.patchSyncEngine?.beginTransaction('Set component transform');
         try {
             for (const component of selectedComponents) {
                 if (
@@ -3862,7 +3862,7 @@ class GlyphCanvas {
                 }
             }
         } finally {
-            window.changeBridge?.endTransaction();
+            window.patchSyncEngine?.endTransaction();
         }
 
         if (!changed) {
@@ -3906,7 +3906,7 @@ class GlyphCanvas {
 
         let changed = false;
         const affectedGlyphNames = new Set<string>([glyph.name]);
-        window.changeBridge?.beginTransaction(
+        window.patchSyncEngine?.beginTransaction(
             'Set component automatic alignment'
         );
         try {
@@ -3932,7 +3932,7 @@ class GlyphCanvas {
                 affectedGlyphNames.add(affectedGlyphName);
             }
         } finally {
-            window.changeBridge?.endTransaction();
+            window.patchSyncEngine?.endTransaction();
         }
 
         if (!changed) {
@@ -3975,7 +3975,7 @@ class GlyphCanvas {
         }
 
         const affectedGlyphNames = new Set<string>([glyphName]);
-        window.changeBridge?.beginTransaction('Set component anchor override');
+        window.patchSyncEngine?.beginTransaction('Set component anchor override');
         try {
             component.anchor = nextAnchor;
             for (const affectedGlyphName of fontManager.currentFont?.fontModel?.recomputeMetricsKeys(
@@ -3984,7 +3984,7 @@ class GlyphCanvas {
                 affectedGlyphNames.add(affectedGlyphName);
             }
         } finally {
-            window.changeBridge?.endTransaction();
+            window.patchSyncEngine?.endTransaction();
         }
 
         await this.finalizeComponentPropertyPanelMutation(

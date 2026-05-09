@@ -249,14 +249,14 @@ function setupHooks() {
 
                 const beforeFontDataJson =
                     window.pythonExecutionHistoryContext?.beforeFontDataJson;
-                if (beforeFontDataJson && window.changeBridge) {
+                if (beforeFontDataJson && window.patchSyncEngine) {
                     const operations = diffFontData(
                         JSON.parse(beforeFontDataJson),
                         JSON.parse(window.fontManager.currentFont.babelfontJson)
                     );
-                    window.changeBridge.setRecordingSuppressed(false);
+                    window.patchSyncEngine.setRecordingSuppressed(false);
                     if (operations.length) {
-                        window.changeBridge.applySyntheticChangeSet(
+                        window.patchSyncEngine.applySyntheticChangeSet(
                             window.pythonExecutionHistoryContext?.label ??
                                 'Python script',
                             operations
@@ -279,9 +279,9 @@ function setupHooks() {
                 }
             }
         } finally {
-            window.changeBridge?.setRecordingSuppressed(false);
-            if (window.changeBridge?.inTransaction) {
-                window.changeBridge.endTransaction();
+            window.patchSyncEngine?.setRecordingSuppressed(false);
+            if (window.patchSyncEngine?.inTransaction) {
+                window.patchSyncEngine.endTransaction();
             }
             window.pythonExecutionHistoryContext = null;
         }

@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { ChangeBridge } = require('../js/change-bridge');
+const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 const {
     Font,
     Path,

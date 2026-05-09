@@ -1,5 +1,5 @@
 /**
- * ChangeBridge — Central change processor.
+ * PatchSyncEngine — Central patch-driven sync processor.
  *
  * Every mutation to the babelfont model goes through this class.
  * It keeps a Yjs Y.Doc in sync with the JSON, manages per-glyph
@@ -43,9 +43,14 @@ import {
     resetLogCounter
 } from './change-log';
 import { Logger } from './logger';
+import {
+    createChangeLogEntriesFromMutationBatchEnvelope,
+    createMutationBatchEnvelopeFromChangeLogEntries,
+    type MutationBatchEnvelope
+} from './mutation-batch';
 import { windowRole } from './window-role';
 
-const console = new Logger('ChangeBridge');
+const console = new Logger('PatchSyncEngine');
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -53,7 +58,7 @@ export type { ChangeLogEntry } from './change-log';
 
 export type LocalUpdateListener = (
     update: Uint8Array,
-    changeLogEntries: ChangeLogEntry[]
+    mutationBatchEnvelope?: MutationBatchEnvelope | null
 ) => void;
 
 type SyntheticChangeOperation = {
@@ -227,10 +232,10 @@ function getLayerFingerprintFromJson(layerJson: Unsafe): string | null {
 }
 
 /**
- * Central change processor that keeps Yjs Y.Doc in sync with the
+ * Central patch processor that keeps Yjs Y.Doc in sync with the
  * babelfont JSON object model.
  */
-export class ChangeBridge {
+export class PatchSyncEngine {
     /** The Yjs document */
     readonly yDoc: Y.Doc;
     /** Root font map inside Y.Doc */
@@ -285,6 +290,8 @@ export class ChangeBridge {
     private _lastBroadcastLogIndex = 0;
     /** Index into _changeLog marking the last entry emitted to local-update listeners */
     private _lastLocalUpdateLogIndex = 0;
+    /** Monotonic local sequence for emitted mutation envelopes */
+    private _nextMutationBatchSequence = 1;
     /** Subscribers for same-tab history UI updates */
     private _changeLogListeners = new Set<
         (entries: ChangeLogEntry[]) => void
@@ -499,13 +506,27 @@ export class ChangeBridge {
         };
         this.yDoc.on('update', (update: Uint8Array, origin: unknown) => {
             if (isLocalEditOrigin(origin) && !this._isApplyingRemote) {
-                const changeLogEntries =
-                    this._getNewChangeLogEntriesForLocalUpdate();
-                for (const cb of this._localUpdateListeners) {
-                    cb(update, changeLogEntries);
-                }
+                this._emitLocalUpdate(
+                    update,
+                    this._getNewChangeLogEntriesForLocalUpdate()
+                );
             }
         });
+    }
+
+    private _emitLocalUpdate(
+        update: Uint8Array,
+        changeLogEntries: ChangeLogEntry[]
+    ): void {
+        const mutationBatchEnvelope =
+            createMutationBatchEnvelopeFromChangeLogEntries(changeLogEntries, {
+                localSequence: this._nextMutationBatchSequence++,
+                source: 'change-bridge',
+                windowId: this.windowId
+            });
+        for (const cb of this._localUpdateListeners) {
+            cb(update, mutationBatchEnvelope);
+        }
     }
 
     // ── Lifecycle ────────────────────────────────────────────────
@@ -1301,10 +1322,10 @@ export class ChangeBridge {
                     this.yDoc,
                     preStateVector
                 );
-                const changeLogEntries =
-                    this._getNewChangeLogEntriesForLocalUpdate();
-                for (const cb of this._localUpdateListeners)
-                    cb(incrementalUpdate, changeLogEntries);
+                this._emitLocalUpdate(
+                    incrementalUpdate,
+                    this._getNewChangeLogEntriesForLocalUpdate()
+                );
             }
 
             this._onAfterSync?.();
@@ -1421,10 +1442,10 @@ export class ChangeBridge {
                     this.yDoc,
                     preStateVector
                 );
-                const changeLogEntries =
-                    this._getNewChangeLogEntriesForLocalUpdate();
-                for (const cb of this._localUpdateListeners)
-                    cb(incrementalUpdate, changeLogEntries);
+                this._emitLocalUpdate(
+                    incrementalUpdate,
+                    this._getNewChangeLogEntriesForLocalUpdate()
+                );
             }
 
             this._onAfterSync?.();
@@ -1510,16 +1531,25 @@ export class ChangeBridge {
      */
     applyRemoteUpdate(
         update: Uint8Array,
-        remoteEntries?: ChangeLogEntry[]
+        remoteEntries?: ChangeLogEntry[],
+        remoteMutationBatches?: MutationBatchEnvelope[]
     ): void {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
-            const remoteLayerScopes =
-                this._getRemoteLayerSyncScopes(remoteEntries);
-            if (remoteEntries?.length) {
+            const effectiveRemoteEntries = remoteEntries?.length
+                ? remoteEntries
+                : remoteMutationBatches?.flatMap((batch) =>
+                      createChangeLogEntriesFromMutationBatchEnvelope(batch, {
+                          windowRoleLabel: this._getWindowRoleLabel()
+                      })
+                  );
+            const remoteLayerScopes = this._getRemoteLayerSyncScopes(
+                effectiveRemoteEntries
+            );
+            if (effectiveRemoteEntries?.length) {
                 const glyphNames = new Set(
-                    remoteEntries
+                    effectiveRemoteEntries
                         .map((entry) =>
                             this._deriveGlyphNameFromPath(entry.path)
                         )
@@ -1528,7 +1558,7 @@ export class ChangeBridge {
                 for (const glyphName of glyphNames) {
                     this.getGlyphUndoManager(glyphName);
                 }
-                for (const entry of remoteEntries) {
+                for (const entry of effectiveRemoteEntries) {
                     const glyphName = this._deriveGlyphNameFromPath(entry.path);
                     const layerId = this._deriveLayerIdFromPath(entry.path);
                     if (glyphName && layerId) {
@@ -1541,18 +1571,20 @@ export class ChangeBridge {
             Y.applyUpdate(
                 this.yDoc,
                 update,
-                this._getRemoteUpdateOrigin(remoteEntries)
+                this._getRemoteUpdateOrigin(effectiveRemoteEntries)
             );
             this._syncJsonFromYDoc(remoteLayerScopes);
-            this._applyExplicitLayerPropertyRemovalsToFontJson(remoteEntries);
+            this._applyExplicitLayerPropertyRemovalsToFontJson(
+                effectiveRemoteEntries
+            );
             this._onAfterSync?.();
             this._onDirty?.();
-            if (remoteEntries && remoteEntries.length > 0) {
-                this._appendChangeLogEntries(remoteEntries);
+            if (effectiveRemoteEntries && effectiveRemoteEntries.length > 0) {
+                this._appendChangeLogEntries(effectiveRemoteEntries);
                 this._lastBroadcastLogIndex = this._changeLog.length;
                 this._lastLocalUpdateLogIndex = this._changeLog.length;
             }
-            this._onRemoteChange?.(remoteEntries ?? []);
+            this._onRemoteChange?.(effectiveRemoteEntries ?? []);
         } finally {
             this._isApplyingRemote = false;
         }
@@ -1692,6 +1724,40 @@ export class ChangeBridge {
     }
 
     /**
+     * Replace the imported baseline while preserving unsent local entries.
+     * Used by cloud bootstrap so reconnects do not discard offline edits.
+     */
+    mergeImportedChangeLog(entries: ChangeLogEntry[]): void {
+        const importedEntries = entries.map((entry) =>
+            normalizeChangeLogEntry(entry)
+        );
+        const pendingBroadcastEntries = this._changeLog
+            .slice(this._lastBroadcastLogIndex)
+            .map((entry) => normalizeChangeLogEntry(entry));
+        const mergedEntries = [...importedEntries, ...pendingBroadcastEntries];
+        const seenEntryKeys = new Set<string>();
+
+        this._changeLog = mergedEntries.filter((entry) => {
+            const entryKey = [
+                entry.windowId,
+                String(entry.transactionId),
+                String(entry.timestamp),
+                entry.historyAction,
+                entry.op,
+                entry.path
+            ].join(':');
+            if (seenEntryKeys.has(entryKey)) {
+                return false;
+            }
+            seenEntryKeys.add(entryKey);
+            return true;
+        });
+        this._lastBroadcastLogIndex = importedEntries.length;
+        this._lastLocalUpdateLogIndex = this._changeLog.length;
+        this._notifyChangeLogListeners();
+    }
+
+    /**
      * Get change log entries added since the last call.
      * Used by WindowSync to piggyback entries on yjs-update messages.
      */
@@ -1699,6 +1765,17 @@ export class ChangeBridge {
         const entries = this._changeLog.slice(this._lastBroadcastLogIndex);
         this._lastBroadcastLogIndex = this._changeLog.length;
         return entries;
+    }
+
+    advanceBroadcastLogCursor(entryCount: number): void {
+        if (!Number.isFinite(entryCount) || entryCount <= 0) {
+            return;
+        }
+
+        this._lastBroadcastLogIndex = Math.min(
+            this._changeLog.length,
+            this._lastBroadcastLogIndex + Math.floor(entryCount)
+        );
     }
 
     private _getNewChangeLogEntriesForLocalUpdate(): ChangeLogEntry[] {
@@ -1889,14 +1966,14 @@ export class ChangeBridge {
             const layerRecord = patchedLayer as Record<string, unknown>;
             if (!('width' in layerRecord)) {
                 console.warn(
-                    `[ChangeBridge] _syncJsonFromYDoc: layer ${scopeHint.layerId} missing "width" after fromYType. Keys: ${Object.keys(layerRecord).join(',')}`
+                    `[PatchSyncEngine] _syncJsonFromYDoc: layer ${scopeHint.layerId} missing "width" after fromYType. Keys: ${Object.keys(layerRecord).join(',')}`
                 );
                 const yKeys: string[] = [];
                 layerMap.forEach((_v: unknown, k: string) => {
                     yKeys.push(k);
                 });
                 console.warn(
-                    `[ChangeBridge] Y.Map keys for layer: ${yKeys.join(',')}`
+                    `[PatchSyncEngine] Y.Map keys for layer: ${yKeys.join(',')}`
                 );
             }
         }
@@ -2135,7 +2212,7 @@ export class ChangeBridge {
 
         if (effectiveOperations.length === 1) {
             console.log(
-                `[ChangeBridge] Change recorded: ${joinPathWithGlyphSeparator(effectiveOperations[0].path)}`
+                `[PatchSyncEngine] Change recorded: ${joinPathWithGlyphSeparator(effectiveOperations[0].path)}`
             );
         }
     }
@@ -3410,7 +3487,7 @@ export class ChangeBridge {
                 mergedLayerRecord.width = existingWidth;
             } else {
                 throw new Error(
-                    `[ChangeBridge] Layer ${layerId} has invalid width; refusing to normalize malformed layer snapshot.`
+                    `[PatchSyncEngine] Layer ${layerId} has invalid width; refusing to normalize malformed layer snapshot.`
                 );
             }
         }
@@ -3456,7 +3533,7 @@ export class ChangeBridge {
             Array.isArray(layerSnapshot)
         ) {
             console.warn(
-                `[ChangeBridge] Ignoring malformed layer snapshot for ${glyphName}/${layerId}; expected object payload.`
+                `[PatchSyncEngine] Ignoring malformed layer snapshot for ${glyphName}/${layerId}; expected object payload.`
             );
             return;
         }
@@ -3489,7 +3566,7 @@ export class ChangeBridge {
             Array.isArray(layerJson)
         ) {
             console.warn(
-                `[ChangeBridge] Ignoring malformed normalized layer snapshot for ${glyphName}/${layerId}.`
+                `[PatchSyncEngine] Ignoring malformed normalized layer snapshot for ${glyphName}/${layerId}.`
             );
             return;
         }
@@ -3498,7 +3575,7 @@ export class ChangeBridge {
         const nextLayerKeys = new Set(Object.keys(normalizedLayerRecord));
         if (nextLayerKeys.size === 0) {
             console.warn(
-                `[ChangeBridge] Refusing to clear ${glyphName}/${layerId} from an empty normalized layer snapshot.`
+                `[PatchSyncEngine] Refusing to clear ${glyphName}/${layerId} from an empty normalized layer snapshot.`
             );
             return;
         }
@@ -3513,7 +3590,7 @@ export class ChangeBridge {
                 !Array.isArray(incomingLayerRecord.master);
             if (!hasWidth || !hasMaster) {
                 console.warn(
-                    `[ChangeBridge] Ignoring incomplete layer snapshot for missing ${glyphName}/${layerId}; cannot create layer root from partial payload.`
+                    `[PatchSyncEngine] Ignoring incomplete layer snapshot for missing ${glyphName}/${layerId}; cannot create layer root from partial payload.`
                 );
                 return;
             }

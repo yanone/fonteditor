@@ -141,7 +141,7 @@ class HistoryViewController {
     }
 
     private connectToBridge(): void {
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         this.unsubscribeBridge?.();
         this.unsubscribeBridge = null;
 
@@ -312,7 +312,7 @@ class HistoryViewController {
     }
 
     private getSourceItems(): HistoryStackItem[] {
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         if (!bridge) {
             return [];
         }
@@ -487,7 +487,7 @@ class HistoryViewController {
             return;
         }
 
-        if (!window.changeBridge) {
+        if (!window.patchSyncEngine) {
             this.statusEl.textContent = 'Waiting for font data';
             return;
         }
@@ -521,7 +521,7 @@ class HistoryViewController {
 
         this.destroyMetadataTooltips();
 
-        if (!window.changeBridge) {
+        if (!window.patchSyncEngine) {
             this.listEl.innerHTML =
                 '<div class="history-empty-state">Waiting for font data...</div>';
             return;

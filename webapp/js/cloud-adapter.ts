@@ -1,5 +1,5 @@
 /**
- * CloudAdapter — WebSocket-based adapter that syncs a local ChangeBridge
+ * CloudAdapter — WebSocket-based adapter that syncs a local PatchSyncEngine
  * with a remote FontRoomDO Durable Object.
  *
  * Sync protocol (all frames are JSON, binary data as base64 strings):
@@ -10,15 +10,16 @@
  *   { type: 'sync-complete', update: string [, chunkIndex, totalChunks] }   ← base64(diff for server, last or only chunk)
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks }       ← preceding chunk(s) for large diff
  *   { type: 'update',        update: string, clientId: string, seq: number,
- *                            changeLogEntries?: ChangeLogEntry[] }
+ *                            mutationBatchEnvelopes?: MutationBatchEnvelope[] }
  *
  * Server → Client:
  *   { type: 'auth-ok',       clientId: string }
  *   { type: 'auth-error',    message: string }
- *   { type: 'sync-response', update?: string, serverStateVector: string [, chunked: true, totalChunks] }
+ *   { type: 'sync-response', update?: string, serverStateVector: string,
+ *                            mutationBatchHistory?: MutationBatchEnvelope[] [, chunked: true, totalChunks] }
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks, direction: 'response' }
  *   { type: 'update',        update: string, clientId: string, seq: number,
- *                            changeLogEntries?: ChangeLogEntry[] }
+ *                            mutationBatchEnvelopes?: MutationBatchEnvelope[] }
  *   { type: 'ack',           seq: number, durable: boolean }
  *   { type: 'error',         message: string }
  *
@@ -30,9 +31,15 @@
  */
 
 import * as Y from 'yjs';
-import type { ChangeBridge, ChangeLogEntry } from './change-bridge';
+import type { PatchSyncEngine } from './patch-sync-engine';
 import type { FileSystemAdapter, FileInfo } from './file-system-adapter';
 import { Logger } from './logger';
+import {
+    createChangeLogEntriesFromMutationBatchEnvelope,
+    createMutationBatchEnvelopesFromChangeLogEntries,
+    createMutationBatchEnvelopeFromChangeLogEntries,
+    type MutationBatchEnvelope
+} from './mutation-batch';
 import { isProduction } from './settings';
 import { resolveWebsiteURL } from './website-url';
 
@@ -152,8 +159,61 @@ export type CloudAdapterOptions = {
 
 type CloudLiveUpdateMessage = {
     update: Uint8Array;
-    changeLogEntries?: ChangeLogEntry[];
+    mutationBatchEnvelopes?: MutationBatchEnvelope[];
 };
+
+function dedupeMutationBatchEnvelopes(
+    envelopes: MutationBatchEnvelope[]
+): MutationBatchEnvelope[] {
+    const seenEnvelopeKeys = new Set<string>();
+    const deduped: MutationBatchEnvelope[] = [];
+
+    for (const envelope of envelopes) {
+        const envelopeKey = [
+            envelope.windowId ?? '',
+            String(envelope.transactionId),
+            String(envelope.timestamp)
+        ].join(':');
+        if (seenEnvelopeKeys.has(envelopeKey)) {
+            continue;
+        }
+        seenEnvelopeKeys.add(envelopeKey);
+        deduped.push(envelope);
+    }
+
+    return deduped;
+}
+
+function getMutationBatchEnvelopeKey(envelope: MutationBatchEnvelope): string {
+    return [
+        envelope.windowId ?? '',
+        String(envelope.transactionId),
+        String(envelope.timestamp)
+    ].join(':');
+}
+
+function importMutationBatchHistory(
+    bridge: PatchSyncEngine,
+    mutationBatchHistory?: MutationBatchEnvelope[],
+    pendingMutationBatchEnvelopes: MutationBatchEnvelope[] = []
+): void {
+    const envelopes = dedupeMutationBatchEnvelopes([
+        ...(mutationBatchHistory ?? []),
+        ...pendingMutationBatchEnvelopes
+    ]);
+
+    if (!envelopes.length) {
+        return;
+    }
+
+    bridge.mergeImportedChangeLog(
+        envelopes.flatMap((batch) =>
+            createChangeLogEntriesFromMutationBatchEnvelope(batch, {
+                windowRoleLabel: window.windowRole?.getRoleLabel?.() ?? 'main'
+            })
+        )
+    );
+}
 
 // ── Binary ↔ base64 helpers ──────────────────────────────────────────────────
 
@@ -177,7 +237,7 @@ function base64ToU8(b64: string): Uint8Array {
 // ── CloudAdapter ─────────────────────────────────────────────────────────────
 
 /**
- * CloudAdapter connects a local ChangeBridge to a remote FontRoomDO.
+ * CloudAdapter connects a local PatchSyncEngine to a remote FontRoomDO.
  *
  * Implements the FileSystemAdapter interface so it can be wrapped in a
  * FilesystemPlugin. File I/O methods are stubs for Phase 0.
@@ -190,7 +250,7 @@ export class CloudAdapter implements FileSystemAdapter {
         | ((status: CloudConnectionStatus, detail?: string) => void)
         | null;
 
-    private _bridge: ChangeBridge | null = null;
+    private _bridge: PatchSyncEngine | null = null;
     private _ws: WebSocket | null = null;
     private _clientId: string | null = null;
     private _seq = 0;
@@ -202,8 +262,12 @@ export class CloudAdapter implements FileSystemAdapter {
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private _hasSynced = false;
     private _pendingOutboundUpdates: Uint8Array[] = [];
-    private _pendingOutboundChangeLogEntries: ChangeLogEntry[] = [];
+    private _pendingOutboundMutationBatchEnvelopes: MutationBatchEnvelope[] =
+        [];
     private _outboundFlushScheduled = false;
+    private _outboundBroadcastEntryCounts = new Map<number, number>();
+    private _outboundPendingEnvelopeKeys = new Map<number, string[]>();
+    private _pendingDurabilityEnvelopes: MutationBatchEnvelope[] = [];
     private _pendingInboundUpdates: CloudLiveUpdateMessage[] = [];
     private _inboundFlushScheduled = false;
     /** Accumulates incoming sync-response chunks from the server. */
@@ -232,7 +296,7 @@ export class CloudAdapter implements FileSystemAdapter {
 
     // ── Public API ───────────────────────────────────────────────
 
-    async connect(bridge: ChangeBridge): Promise<void> {
+    async connect(bridge: PatchSyncEngine): Promise<void> {
         if (this._destroyed) {
             console.warn('CloudAdapter: already destroyed');
             return;
@@ -250,7 +314,7 @@ export class CloudAdapter implements FileSystemAdapter {
      * website auth endpoint. Used for Phase 0 testing via `window.cloudDebug`.
      */
     async connectDirect(
-        bridge: ChangeBridge,
+        bridge: PatchSyncEngine,
         token: string,
         roomUrl: string
     ): Promise<void> {
@@ -276,7 +340,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._ws = null;
         this._bridge = null;
         this._pendingOutboundUpdates = [];
-        this._pendingOutboundChangeLogEntries = [];
+        this._pendingOutboundMutationBatchEnvelopes = [];
         this._outboundFlushScheduled = false;
         this._pendingInboundUpdates = [];
         this._inboundFlushScheduled = false;
@@ -287,7 +351,7 @@ export class CloudAdapter implements FileSystemAdapter {
 
     /**
      * Subscribe to `fontModelReady` so the adapter stays bound to the current
-     * bridge even if `initializeBridge()` replaces `window.changeBridge` (e.g.
+     * bridge even if `initializeBridge()` replaces `window.patchSyncEngine` (e.g.
      * after a compilation-triggered model rebuild).
      */
     private _subscribeFontModelReady(): void {
@@ -299,11 +363,11 @@ export class CloudAdapter implements FileSystemAdapter {
     }
 
     /**
-     * Rebind the adapter to the current global ChangeBridge after font load.
+     * Rebind the adapter to the current global PatchSyncEngine after font load.
      * Returns true when a new bridge was adopted.
      */
     rebindToCurrentBridge(): boolean {
-        const newBridge = window.changeBridge ?? null;
+        const newBridge = window.patchSyncEngine ?? null;
         if (!newBridge || newBridge === this._bridge) {
             return false;
         }
@@ -411,7 +475,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._hasSynced = false;
                 this._incomingResponseChunks = null;
                 this._pendingOutboundUpdates = [];
-                this._pendingOutboundChangeLogEntries = [];
+                this._pendingOutboundMutationBatchEnvelopes = [];
                 this._outboundFlushScheduled = false;
                 this._pendingInboundUpdates = [];
                 this._inboundFlushScheduled = false;
@@ -477,6 +541,21 @@ export class CloudAdapter implements FileSystemAdapter {
                     typeof msg.serverStateVector === 'string'
                         ? base64ToU8(msg.serverStateVector as string)
                         : new Uint8Array(0);
+                const mutationBatchHistory = Array.isArray(
+                    msg.mutationBatchHistory
+                )
+                    ? (msg.mutationBatchHistory as MutationBatchEnvelope[])
+                    : undefined;
+                this._reconcileDurableMutationBatchHistory(
+                    mutationBatchHistory ?? []
+                );
+                if (this._bridge) {
+                    importMutationBatchHistory(
+                        this._bridge,
+                        mutationBatchHistory,
+                        this._pendingDurabilityEnvelopes
+                    );
+                }
 
                 if (msg.chunked) {
                     // Server state is large — arriving in subsequent sync-chunk
@@ -540,8 +619,10 @@ export class CloudAdapter implements FileSystemAdapter {
                 if (typeof msg.update === 'string') {
                     this._queueInboundUpdate({
                         update: base64ToU8(msg.update),
-                        changeLogEntries: Array.isArray(msg.changeLogEntries)
-                            ? (msg.changeLogEntries as ChangeLogEntry[])
+                        mutationBatchEnvelopes: Array.isArray(
+                            msg.mutationBatchEnvelopes
+                        )
+                            ? (msg.mutationBatchEnvelopes as MutationBatchEnvelope[])
                             : undefined
                     });
                 }
@@ -556,6 +637,8 @@ export class CloudAdapter implements FileSystemAdapter {
                         CLIENT_RECONNECT_CLOSE_CODE,
                         'undurable-update'
                     );
+                } else if (typeof msg.seq === 'number') {
+                    this._recordDurableAck(msg.seq);
                 }
                 break;
 
@@ -602,11 +685,15 @@ export class CloudAdapter implements FileSystemAdapter {
     /** Apply an incremental update broadcast from a peer. */
     private _applyRemoteUpdate(
         update: Uint8Array,
-        remoteEntries?: Parameters<ChangeBridge['applyRemoteUpdate']>[1]
+        remoteMutationBatches?: MutationBatchEnvelope[]
     ): void {
         if (!this._bridge || update.length === 0) return;
         try {
-            this._bridge.applyRemoteUpdate(update, remoteEntries);
+            this._bridge.applyRemoteUpdate(
+                update,
+                undefined,
+                remoteMutationBatches
+            );
         } catch (err) {
             console.error('CloudAdapter: failed to apply remote update:', err);
         }
@@ -630,7 +717,19 @@ export class CloudAdapter implements FileSystemAdapter {
         try {
             const diff = this._bridge.encodeStateDiff(serverStateVector);
             if (diff.length === 0) return;
-            const changeLogEntries = this._bridge.getNewChangeLogEntries();
+            const mutationBatchEnvelopes =
+                createMutationBatchEnvelopesFromChangeLogEntries(
+                    this._bridge.getNewChangeLogEntries(),
+                    {
+                        startingLocalSequence: this._seq + 1,
+                        source: 'cloud-adapter.sync-complete',
+                        windowId: this._bridge.windowId
+                    }
+                );
+            this._enqueuePendingDurabilityEnvelopes(mutationBatchEnvelopes);
+            const pendingMutationBatchEnvelopes = dedupeMutationBatchEnvelopes(
+                this._pendingDurabilityEnvelopes
+            );
 
             const totalChunks = Math.ceil(diff.length / SYNC_CHUNK_SIZE);
             console.log(
@@ -653,9 +752,10 @@ export class CloudAdapter implements FileSystemAdapter {
                     frame.totalChunks = totalChunks;
                 }
                 if (isLast) {
-                    frame.changeLogEntries = changeLogEntries.length
-                        ? changeLogEntries
-                        : undefined;
+                    frame.mutationBatchEnvelopes =
+                        pendingMutationBatchEnvelopes.length
+                            ? pendingMutationBatchEnvelopes
+                            : undefined;
                 }
                 this._ws.send(JSON.stringify(frame));
             }
@@ -686,11 +786,16 @@ export class CloudAdapter implements FileSystemAdapter {
 
         const sendUpdate = (
             update: Uint8Array,
-            changeLogEntries: ChangeLogEntry[]
+            mutationBatchEnvelope?: MutationBatchEnvelope | null
         ): void => {
             this._pendingOutboundUpdates.push(update);
-            if (changeLogEntries.length) {
-                this._pendingOutboundChangeLogEntries.push(...changeLogEntries);
+            if (mutationBatchEnvelope) {
+                this._enqueuePendingDurabilityEnvelopes([
+                    mutationBatchEnvelope
+                ]);
+                this._pendingOutboundMutationBatchEnvelopes.push(
+                    mutationBatchEnvelope
+                );
             }
             if (this._outboundFlushScheduled) {
                 return;
@@ -717,14 +822,15 @@ export class CloudAdapter implements FileSystemAdapter {
             !this._bridge
         ) {
             this._pendingOutboundUpdates = [];
-            this._pendingOutboundChangeLogEntries = [];
+            this._pendingOutboundMutationBatchEnvelopes = [];
             return;
         }
 
         const updates = this._pendingOutboundUpdates;
-        const changeLogEntries = this._pendingOutboundChangeLogEntries;
+        const mutationBatchEnvelopes =
+            this._pendingOutboundMutationBatchEnvelopes;
         this._pendingOutboundUpdates = [];
-        this._pendingOutboundChangeLogEntries = [];
+        this._pendingOutboundMutationBatchEnvelopes = [];
         if (!updates.length) {
             return;
         }
@@ -732,6 +838,20 @@ export class CloudAdapter implements FileSystemAdapter {
         const update =
             updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
         const seq = ++this._seq;
+        const broadcastEntryCount = mutationBatchEnvelopes.reduce(
+            (count, envelope) => count + envelope.forwardPatches.length,
+            0
+        );
+        const pendingEnvelopeKeys = mutationBatchEnvelopes.map((envelope) =>
+            getMutationBatchEnvelopeKey(envelope)
+        );
+
+        if (broadcastEntryCount > 0) {
+            this._outboundBroadcastEntryCounts.set(seq, broadcastEntryCount);
+        }
+        if (pendingEnvelopeKeys.length) {
+            this._outboundPendingEnvelopeKeys.set(seq, pendingEnvelopeKeys);
+        }
 
         this._ws.send(
             JSON.stringify({
@@ -739,11 +859,70 @@ export class CloudAdapter implements FileSystemAdapter {
                 update: u8ToBase64(update),
                 clientId: this._clientId ?? '',
                 seq,
-                changeLogEntries: changeLogEntries.length
-                    ? changeLogEntries
+                mutationBatchEnvelopes: mutationBatchEnvelopes.length
+                    ? mutationBatchEnvelopes
                     : undefined
             })
         );
+    }
+
+    private _recordDurableAck(seq: number): void {
+        const broadcastEntryCount =
+            this._outboundBroadcastEntryCounts.get(seq) ?? 0;
+        this._outboundBroadcastEntryCounts.delete(seq);
+        const pendingEnvelopeKeys =
+            this._outboundPendingEnvelopeKeys.get(seq) ?? [];
+        this._outboundPendingEnvelopeKeys.delete(seq);
+
+        if (pendingEnvelopeKeys.length) {
+            const durableEnvelopeKeys = new Set(pendingEnvelopeKeys);
+            this._pendingDurabilityEnvelopes =
+                this._pendingDurabilityEnvelopes.filter(
+                    (envelope) =>
+                        !durableEnvelopeKeys.has(
+                            getMutationBatchEnvelopeKey(envelope)
+                        )
+                );
+        }
+
+        this._bridge?.advanceBroadcastLogCursor(broadcastEntryCount);
+    }
+
+    private _enqueuePendingDurabilityEnvelopes(
+        envelopes: MutationBatchEnvelope[]
+    ): void {
+        if (!envelopes.length) {
+            return;
+        }
+
+        this._pendingDurabilityEnvelopes = dedupeMutationBatchEnvelopes([
+            ...this._pendingDurabilityEnvelopes,
+            ...envelopes
+        ]);
+    }
+
+    private _reconcileDurableMutationBatchHistory(
+        mutationBatchHistory: MutationBatchEnvelope[]
+    ): void {
+        if (
+            !mutationBatchHistory.length ||
+            !this._pendingDurabilityEnvelopes.length
+        ) {
+            return;
+        }
+
+        const durableTransactions = new Set(
+            mutationBatchHistory.map((envelope) =>
+                getMutationBatchEnvelopeKey(envelope)
+            )
+        );
+        this._pendingDurabilityEnvelopes =
+            this._pendingDurabilityEnvelopes.filter(
+                (envelope) =>
+                    !durableTransactions.has(
+                        getMutationBatchEnvelopeKey(envelope)
+                    )
+            );
     }
 
     private _queueInboundUpdate(msg: CloudLiveUpdateMessage): void {
@@ -769,13 +948,13 @@ export class CloudAdapter implements FileSystemAdapter {
         const updates = messages.map((msg) => msg.update);
         const mergedUpdate =
             updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
-        const changeLogEntries = messages.flatMap(
-            (msg) => msg.changeLogEntries ?? []
+        const mutationBatchEnvelopes = messages.flatMap(
+            (msg) => msg.mutationBatchEnvelopes ?? []
         );
 
         this._applyRemoteUpdate(
             mergedUpdate,
-            changeLogEntries.length ? changeLogEntries : undefined
+            mutationBatchEnvelopes.length ? mutationBatchEnvelopes : undefined
         );
     }
 

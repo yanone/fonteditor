@@ -1,8 +1,8 @@
 /**
- * change-bridge-init.ts — Initialize ChangeBridge and WindowSync when a font loads.
+ * change-bridge-init.ts — Initialize PatchSyncEngine and WindowSync when a font loads.
  *
  * Listens for the 'fontModelReady' CustomEvent and wires up:
- *  1. A ChangeBridge backed by the font's babelfontData JSON
+ *  1. A PatchSyncEngine backed by the font's babelfontData JSON
  *  2. A WindowSync for cross-window collaboration
  *  3. Undo/redo dirty marking + babelfontJson resync callbacks
  *
@@ -10,7 +10,7 @@
  * instead requests a full-state transfer from an existing peer window.
  */
 
-import { ChangeBridge } from './change-bridge';
+import { PatchSyncEngine } from './patch-sync-engine';
 import { Font } from './babelfont-model';
 import { WindowSync } from './window-sync';
 import { fontCompilation } from './font-compilation';
@@ -522,7 +522,7 @@ function historyItemChangeEntriesAreLayerReplayable(
 }
 
 function recomputeMetricsKeysAfterUndoRedo(
-    bridge: ChangeBridge,
+    bridge: PatchSyncEngine,
     historyItem: HistoryStackItem | null,
     glyphNames: Array<string | null | undefined>,
     layerId?: string | null
@@ -1017,7 +1017,7 @@ export function runBridgeUndoRedo(
     historyTargetKey?: string | null
 ): Promise<void> {
     return enqueueBridgeSync(async () => {
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         if (!bridge) {
             return;
         }
@@ -1169,16 +1169,16 @@ function isSyncWindow(): boolean {
 }
 
 /**
- * Tear down any existing ChangeBridge / WindowSync before loading a new font.
+ * Tear down any existing PatchSyncEngine / WindowSync before loading a new font.
  */
 function destroyExisting(): void {
     if (window.windowSync) {
         window.windowSync.destroy();
         window.windowSync = undefined;
     }
-    if (window.changeBridge) {
-        window.changeBridge.destroy();
-        window.changeBridge = undefined;
+    if (window.patchSyncEngine) {
+        window.patchSyncEngine.destroy();
+        window.patchSyncEngine = undefined;
     }
 }
 
@@ -1192,18 +1192,32 @@ function initializeBridge(detail: {
 
     destroyExisting();
 
-    const bridge = new ChangeBridge(window.windowRole?.instanceId);
-    window.changeBridge = bridge;
+    const bridge = new PatchSyncEngine(window.windowRole?.instanceId);
+    window.patchSyncEngine = bridge;
     const bootstrapState = (
         window as Window & {
             __pendingCloudBridgeBootstrapState?: Uint8Array;
+            __pendingCloudBridgeBootstrapChangeLog?: ChangeLogEntry[];
+        }
+    ).__pendingCloudBridgeBootstrapState;
+    const bootstrapChangeLog = (
+        window as Window & {
+            __pendingCloudBridgeBootstrapState?: Uint8Array;
+            __pendingCloudBridgeBootstrapChangeLog?: ChangeLogEntry[];
+        }
+    ).__pendingCloudBridgeBootstrapChangeLog;
+    delete (
+        window as Window & {
+            __pendingCloudBridgeBootstrapState?: Uint8Array;
+            __pendingCloudBridgeBootstrapChangeLog?: ChangeLogEntry[];
         }
     ).__pendingCloudBridgeBootstrapState;
     delete (
         window as Window & {
             __pendingCloudBridgeBootstrapState?: Uint8Array;
+            __pendingCloudBridgeBootstrapChangeLog?: ChangeLogEntry[];
         }
-    ).__pendingCloudBridgeBootstrapState;
+    ).__pendingCloudBridgeBootstrapChangeLog;
 
     // Called after _syncJsonFromYDoc in undo/redo/remote.
     // Rebuilds the Font model from the already-patched babelfontData.
@@ -1239,7 +1253,7 @@ function initializeBridge(detail: {
         window.dispatchEvent(new CustomEvent('fontModelSync'));
     });
 
-    // Wire dirty marking: when ChangeBridge records a change, also mark
+    // Wire dirty marking: when PatchSyncEngine records a change, also mark
     // the font as needing recompilation via fontManager.
     bridge.onDirty(() => {
         const fontManager = window.fontManager;
@@ -1290,6 +1304,9 @@ function initializeBridge(detail: {
             >
         );
         bridge.applyFullState(bootstrapState);
+        if (bootstrapChangeLog?.length) {
+            bridge.importChangeLog(bootstrapChangeLog);
+        }
     } else {
         // Primary window: populate Y.Doc from loaded font data.
         bridge.initFromJson(
@@ -1319,7 +1336,7 @@ function initializeBridge(detail: {
         url.searchParams.delete('sync');
         window.history.replaceState(null, '', url.toString());
     } else {
-        console.log('Main window — ChangeBridge initialised');
+        console.log('Main window — PatchSyncEngine initialised');
     }
 }
 
@@ -1335,7 +1352,7 @@ window.addEventListener('fontModelReady', (event: Event) => {
 // Fallback bootstrap: if a font is already loaded before this module
 // subscribed to fontModelReady, initialize the bridge from currentFont.
 queueMicrotask(() => {
-    if (window.changeBridge && window.windowSync) {
+    if (window.patchSyncEngine && window.windowSync) {
         return;
     }
     const currentFont = window.fontManager?.currentFont;
@@ -1346,7 +1363,7 @@ queueMicrotask(() => {
         path: currentFont.path || 'unsaved',
         babelfontData: currentFont.babelfontData as Record<string, unknown>
     });
-    console.log('Recovered ChangeBridge from currentFont fallback');
+    console.log('Recovered PatchSyncEngine from currentFont fallback');
 });
 
 let didAnnounceWindowClose = false;

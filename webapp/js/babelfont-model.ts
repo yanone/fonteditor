@@ -28,7 +28,7 @@ import { designspaceToUserspace } from './locations';
 import type { DesignspaceLocation, UserspaceLocation } from './locations';
 import { Bezier } from 'bezier-js';
 import { Logger } from './logger';
-import type { ChangeBridge } from './change-bridge';
+import type { PatchSyncEngine } from './patch-sync-engine';
 import {
     getSidebearingTransactionLabel,
     type SidebearingSide
@@ -2647,8 +2647,8 @@ function markFontDirty(): void {
 }
 
 /**
- * Record a property change in the ChangeBridge and mark the font dirty.
- * If no ChangeBridge is available, falls back to just marking dirty.
+ * Record a property change in the PatchSyncEngine and mark the font dirty.
+ * If no PatchSyncEngine is available, falls back to just marking dirty.
  */
 function recordAndMarkDirty(
     modelObj: ModelBase,
@@ -2662,7 +2662,7 @@ function recordAndMarkDirty(
 
     markInterpolationFontDirty(findFontForModelObject(modelObj));
 
-    const bridge = getChangeBridge();
+    const bridge = getPatchSyncEngine();
     if (bridge) {
         const path = modelObj.getPath();
         bridge.recordChange(path, prop, oldVal, newVal);
@@ -2684,7 +2684,7 @@ function recordPathChangeAndMarkDirty(
 
     markInterpolationFontDirty(getCurrentWindowFontModel());
 
-    const bridge = getChangeBridge();
+    const bridge = getPatchSyncEngine();
     if (bridge && path.length > 0) {
         bridge.recordChange(
             path.slice(0, -1),
@@ -2709,7 +2709,7 @@ function recordAddAndMarkDirty(
 
     markInterpolationFontDirty(getCurrentWindowFontModel());
 
-    const bridge = getChangeBridge();
+    const bridge = getPatchSyncEngine();
     if (bridge) {
         bridge.recordAdd(path, cloneForHistory(value));
         maybeRecomputeMetricsKeysForPath(path);
@@ -2729,7 +2729,7 @@ function recordRemoveAndMarkDirty(
 
     markInterpolationFontDirty(getCurrentWindowFontModel());
 
-    const bridge = getChangeBridge();
+    const bridge = getPatchSyncEngine();
     if (bridge) {
         bridge.recordRemove(path, cloneForHistory(oldValue));
         maybeRecomputeMetricsKeysForPath(path);
@@ -2812,7 +2812,7 @@ function maybeRecomputeMetricsKeysForPath(path: (string | number)[]): void {
 }
 
 function withBridgeTransaction<T>(label: string, fn: () => T): T {
-    const bridge = getChangeBridge();
+    const bridge = getPatchSyncEngine();
     if (!bridge) {
         return fn();
     }
@@ -2960,7 +2960,7 @@ function setFormatSpecificKey(
         const oldValue = cloneForHistory(data.format_specific[key]);
         delete data.format_specific[key];
 
-        const bridge = getChangeBridge();
+        const bridge = getPatchSyncEngine();
         if (bridge) {
             bridge.recordRemove(
                 [...modelObj.getPath(), 'format_specific', key],
@@ -3495,7 +3495,7 @@ function getPreciseLiveMutableValue<T>(
                 const propPath = currentPath.concat(String(key));
                 const oldValue = cloneForHistory(Reflect.get(target, key));
                 const success = Reflect.deleteProperty(target, key);
-                const bridge = getChangeBridge();
+                const bridge = getPatchSyncEngine();
                 if (bridge) {
                     bridge.recordRemove(propPath, oldValue);
                 }
@@ -3575,7 +3575,7 @@ function syncNormalizedModelValue(
     prop: string,
     value: unknown
 ): void {
-    const bridge = getChangeBridge();
+    const bridge = getPatchSyncEngine();
     if (!bridge) {
         return;
     }
@@ -3590,11 +3590,11 @@ function syncNormalizedModelValue(
 }
 
 /**
- * Get the global ChangeBridge instance, if available.
+ * Get the global PatchSyncEngine instance, if available.
  */
-function getChangeBridge(): ChangeBridge | null {
+function getPatchSyncEngine(): PatchSyncEngine | null {
     if (typeof window !== 'undefined') {
-        return (window as Unsafe).changeBridge ?? null;
+        return (window as Unsafe).patchSyncEngine ?? null;
     }
     return null;
 }
@@ -6959,7 +6959,7 @@ export class Layer extends ArrayElementBase {
             const recompute = () =>
                 this.getFont()?.recomputeMetricsKeys(affectedGlyphNames) ||
                 new Set<string>();
-            const bridge = getChangeBridge();
+            const bridge = getPatchSyncEngine();
             const dependentGlyphNames =
                 suppressDerivedHistory && bridge?.runWithoutRecording
                     ? bridge.runWithoutRecording(recompute)

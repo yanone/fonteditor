@@ -2,13 +2,14 @@
  * WindowSync — BroadcastChannel management for cross-window font syncing.
  *
  * Each editor window creates a WindowSync, which bridges the local
- * ChangeBridge ↔ BroadcastChannel. When a new window opens it requests
+ * PatchSyncEngine ↔ BroadcastChannel. When a new window opens it requests
  * the full Y.Doc state; existing windows respond.
  */
 
-import type { ChangeBridge } from './change-bridge';
+import type { PatchSyncEngine } from './patch-sync-engine';
 import type { ChangeLogEntry } from './change-log';
 import { Logger } from './logger';
+import type { MutationBatchEnvelope } from './mutation-batch';
 import * as Y from 'yjs';
 
 const console = new Logger('WindowSync');
@@ -21,7 +22,7 @@ interface YjsUpdateMsg {
     type: 'yjs-update';
     update: BinaryPayload;
     windowId: string;
-    changeLogEntries?: ChangeLogEntry[];
+    mutationBatchEnvelopes?: MutationBatchEnvelope[];
 }
 
 interface FullStateRequestMsg {
@@ -58,13 +59,14 @@ type SyncMessage =
 export class WindowSync {
     private static _timingLoggingEnabled = false;
     private _channel: BroadcastChannel | null = null;
-    private _bridge: ChangeBridge;
+    private _bridge: PatchSyncEngine;
     private _peers = new Set<string>();
     private _awaitingFullState = false;
     private _hasAppliedFullState = false;
     private _mainWindowClosingListeners = new Set<() => void>();
     private _pendingOutboundUpdates: Uint8Array[] = [];
-    private _pendingOutboundChangeLogEntries: ChangeLogEntry[] = [];
+    private _pendingOutboundMutationBatchEnvelopes: MutationBatchEnvelope[] =
+        [];
     private _outboundFlushScheduled = false;
     private _pendingYjsMessages: YjsUpdateMsg[] = [];
     private _inboundFlushScheduled = false;
@@ -79,7 +81,7 @@ export class WindowSync {
         console.log('Timing logging disabled');
     }
 
-    constructor(bridge: ChangeBridge, channelName: string) {
+    constructor(bridge: PatchSyncEngine, channelName: string) {
         this._bridge = bridge;
 
         if (typeof BroadcastChannel !== 'undefined') {
@@ -91,8 +93,8 @@ export class WindowSync {
             // Wire bridge's local updates to broadcast. The broadcast itself is
             // microtask-batched so a single user transaction that emits several
             // Yjs updates produces one channel message and one receiver refresh.
-            bridge.onLocalUpdate((update, changeLogEntries) => {
-                this._queueOutboundBroadcast(update, changeLogEntries);
+            bridge.onLocalUpdate((_update, mutationBatchEnvelope) => {
+                this._queueOutboundBroadcast(_update, mutationBatchEnvelope);
             });
         }
     }
@@ -157,11 +159,13 @@ export class WindowSync {
 
     private _queueOutboundBroadcast(
         update: Uint8Array,
-        changeLogEntries?: ChangeLogEntry[]
+        mutationBatchEnvelope?: MutationBatchEnvelope | null
     ): void {
         this._pendingOutboundUpdates.push(update);
-        if (changeLogEntries?.length) {
-            this._pendingOutboundChangeLogEntries.push(...changeLogEntries);
+        if (mutationBatchEnvelope) {
+            this._pendingOutboundMutationBatchEnvelopes.push(
+                mutationBatchEnvelope
+            );
         }
         if (this._outboundFlushScheduled) {
             return;
@@ -176,9 +180,10 @@ export class WindowSync {
         }
         this._outboundFlushScheduled = false;
         const updates = this._pendingOutboundUpdates;
-        const changeLogEntries = this._pendingOutboundChangeLogEntries;
+        const mutationBatchEnvelopes =
+            this._pendingOutboundMutationBatchEnvelopes;
         this._pendingOutboundUpdates = [];
-        this._pendingOutboundChangeLogEntries = [];
+        this._pendingOutboundMutationBatchEnvelopes = [];
         if (!updates.length) {
             return;
         }
@@ -190,13 +195,13 @@ export class WindowSync {
             type: 'yjs-update',
             update,
             windowId: this._bridge.windowId,
-            changeLogEntries: changeLogEntries.length
-                ? changeLogEntries
+            mutationBatchEnvelopes: mutationBatchEnvelopes.length
+                ? mutationBatchEnvelopes
                 : undefined
         });
         this._logTiming('outbound-yjs-update', {
             updateCount: updates.length,
-            changeLogEntryCount: changeLogEntries.length,
+            mutationBatchEnvelopeCount: mutationBatchEnvelopes.length,
             updateBytes: update.byteLength,
             peerCount: this._peers.size,
             durationMs: this._elapsed(startTime)
@@ -227,16 +232,17 @@ export class WindowSync {
         const updates = messages.map((msg) => toUint8Array(msg.update));
         const update =
             updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
-        const changeLogEntries = messages.flatMap(
-            (msg) => msg.changeLogEntries ?? []
+        const mutationBatchEnvelopes = messages.flatMap(
+            (msg) => msg.mutationBatchEnvelopes ?? []
         );
         this._bridge.applyRemoteUpdate(
             update,
-            changeLogEntries.length ? changeLogEntries : undefined
+            undefined,
+            mutationBatchEnvelopes.length ? mutationBatchEnvelopes : undefined
         );
         this._logTiming('inbound-yjs-update', {
             messageCount: messages.length,
-            changeLogEntryCount: changeLogEntries.length,
+            mutationBatchEnvelopeCount: mutationBatchEnvelopes.length,
             updateBytes: update.byteLength,
             durationMs: this._elapsed(startTime)
         });

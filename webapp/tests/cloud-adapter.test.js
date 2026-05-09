@@ -2,6 +2,12 @@ const {
     CloudAdapter,
     normalizeCloudRoomWebSocketUrl
 } = require('../js/cloud-adapter.ts');
+const { createLogEntry } = require('../js/change-log');
+const {
+    createMutationBatchEnvelopesFromChangeLogEntries,
+    createMutationBatchEnvelopeFromChangeLogEntries,
+    createMutationBatchEnvelope
+} = require('../js/mutation-batch.ts');
 
 describe('CloudAdapter room worker defaults', () => {
     it('defaults to localhost in development', () => {
@@ -95,6 +101,88 @@ describe('CloudAdapter outbound updates', () => {
         }
     });
 
+    it('imports persisted mutation history from sync-response bootstrap', () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const historyEntry = createLogEntry({
+            timestamp: 1,
+            windowId: 'client-1',
+            windowRoleLabel: 'main',
+            transactionLabel: 'Bootstrap',
+            transactionId: 1,
+            op: 'set',
+            undoScope: 'glyph',
+            path: 'glyphs.A:name',
+            oldValue: 'A',
+            newValue: 'A.alt',
+            workerReplayTargets: []
+        });
+        const mutationBatchHistory = [
+            createMutationBatchEnvelopeFromChangeLogEntries([historyEntry], {
+                localSequence: 1,
+                source: 'cloud-adapter.test',
+                windowId: 'client-1'
+            })
+        ];
+        const pendingEntry = createLogEntry({
+            timestamp: 2,
+            windowId: 'client-1',
+            windowRoleLabel: 'main',
+            transactionLabel: 'Pending Local',
+            transactionId: 2,
+            op: 'set',
+            undoScope: 'glyph',
+            path: 'glyphs.B:name',
+            oldValue: 'B',
+            newValue: 'B.alt',
+            workerReplayTargets: []
+        });
+        adapter._pendingDurabilityEnvelopes = [
+            createMutationBatchEnvelopeFromChangeLogEntries([pendingEntry], {
+                localSequence: 2,
+                source: 'cloud-adapter.test',
+                windowId: 'client-1'
+            })
+        ];
+        const bridge = {
+            mergeImportedChangeLog: jest.fn(),
+            applyFullState: jest.fn(),
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+
+        adapter._bridge = bridge;
+        adapter._registerOutboundHook = jest.fn();
+        adapter._sendSyncComplete = jest.fn();
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'sync-response',
+                update: Buffer.from([1, 2, 3]).toString('base64'),
+                serverStateVector: Buffer.from([4, 5, 6]).toString('base64'),
+                mutationBatchHistory
+            })
+        );
+
+        expect(bridge.mergeImportedChangeLog).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    path: 'glyphs.A:name',
+                    transactionLabel: 'Bootstrap'
+                }),
+                expect.objectContaining({
+                    path: 'glyphs.B:name',
+                    transactionLabel: 'Pending Local'
+                })
+            ])
+        );
+        expect(bridge.applyFullState).toHaveBeenCalledWith(
+            new Uint8Array([1, 2, 3])
+        );
+        expect(adapter._sendSyncComplete).toHaveBeenCalledWith(
+            new Uint8Array([4, 5, 6])
+        );
+    });
+
     it('sends incremental updates without re-encoding full state', async () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const localUpdate = new Uint8Array([1, 2, 3, 4]);
@@ -102,16 +190,32 @@ describe('CloudAdapter outbound updates', () => {
         let localUpdateHandler = null;
         const getFullState = jest.fn(() => new Uint8Array([9, 9, 9]));
         const changeLogEntries = [
-            {
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                transactionLabel: 'Drag',
+                transactionId: 1,
+                op: 'set',
                 undoScope: 'layer',
-                path: 'glyphs.A.layers.L0'
-            }
+                path: 'glyphs.A:layers.L0.width',
+                oldValue: 600,
+                newValue: 700,
+                workerReplayTargets: []
+            })
         ];
+        const mutationBatchEnvelope =
+            createMutationBatchEnvelopeFromChangeLogEntries(changeLogEntries, {
+                localSequence: 1,
+                source: 'cloud-adapter.test',
+                windowId: 'client-1'
+            });
         adapter._bridge = {
             onLocalUpdate: (handler) => {
                 localUpdateHandler = handler;
             },
             offLocalUpdate: jest.fn(),
+            advanceBroadcastLogCursor: jest.fn(),
             getFullState
         };
         adapter._ws = {
@@ -121,17 +225,23 @@ describe('CloudAdapter outbound updates', () => {
         adapter._clientId = 'client-1';
 
         adapter._registerOutboundHook();
-        localUpdateHandler(localUpdate, changeLogEntries);
+        localUpdateHandler(localUpdate, mutationBatchEnvelope);
         await Promise.resolve();
 
         expect(getFullState).not.toHaveBeenCalled();
         expect(sentFrames).toHaveLength(1);
-        expect(sentFrames[0]).toMatchObject({
-            type: 'update',
-            clientId: 'client-1',
-            seq: 1,
-            changeLogEntries
-        });
+        expect(sentFrames[0].type).toBe('update');
+        expect(sentFrames[0].clientId).toBe('client-1');
+        expect(sentFrames[0].seq).toBe(1);
+        expect(sentFrames[0].mutationBatchEnvelopes).toHaveLength(1);
+        expect(sentFrames[0].mutationBatchEnvelopes[0]).toEqual(
+            expect.objectContaining({
+                transactionId: mutationBatchEnvelope.transactionId,
+                label: mutationBatchEnvelope.label,
+                forwardPatches: mutationBatchEnvelope.forwardPatches,
+                inversePatches: mutationBatchEnvelope.inversePatches
+            })
+        );
         expect(sentFrames[0].fullState).toBeUndefined();
         expect(sentFrames[0].layerRepairSnapshots).toBeUndefined();
         expect(sentFrames[0].update).toBe(
@@ -139,15 +249,221 @@ describe('CloudAdapter outbound updates', () => {
         );
     });
 
+    it('advances the broadcast cursor when an incremental update is durably acked', async () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const localUpdate = new Uint8Array([1, 2, 3, 4]);
+        let localUpdateHandler = null;
+        const advanceBroadcastLogCursor = jest.fn();
+        const changeLogEntries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                transactionLabel: 'Drag',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.A:layers.L0:width',
+                oldValue: 600,
+                newValue: 700,
+                workerReplayTargets: []
+            })
+        ];
+        const mutationBatchEnvelope =
+            createMutationBatchEnvelopeFromChangeLogEntries(changeLogEntries, {
+                localSequence: 1,
+                source: 'cloud-adapter.test',
+                windowId: 'client-1'
+            });
+
+        adapter._bridge = {
+            onLocalUpdate: (handler) => {
+                localUpdateHandler = handler;
+            },
+            offLocalUpdate: jest.fn(),
+            advanceBroadcastLogCursor,
+            getFullState: jest.fn()
+        };
+        adapter._ws = {
+            readyState: 1,
+            send: jest.fn()
+        };
+        adapter._clientId = 'client-1';
+
+        adapter._registerOutboundHook();
+        localUpdateHandler(localUpdate, mutationBatchEnvelope);
+        await Promise.resolve();
+
+        adapter._handleMessage(JSON.stringify({ type: 'ack', seq: 1 }));
+
+        expect(advanceBroadcastLogCursor).toHaveBeenCalledWith(1);
+        expect(adapter._pendingDurabilityEnvelopes).toEqual([]);
+    });
+
+    it('preserves and retries an unacked live update across reconnect bootstrap', async () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const sentFrames = [];
+        let localUpdateHandler = null;
+        const localUpdate = new Uint8Array([1, 2, 3, 4]);
+        const changeLogEntries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                transactionLabel: 'Live edit',
+                transactionId: 3,
+                op: 'set',
+                undoScope: 'glyph',
+                path: 'glyphs.C:name',
+                oldValue: 'C',
+                newValue: 'C.alt',
+                workerReplayTargets: []
+            })
+        ];
+        const mutationBatchEnvelope =
+            createMutationBatchEnvelopeFromChangeLogEntries(changeLogEntries, {
+                localSequence: 3,
+                source: 'cloud-adapter.test',
+                windowId: 'client-1'
+            });
+        const bridge = {
+            mergeImportedChangeLog: jest.fn(),
+            applyFullState: jest.fn(),
+            onLocalUpdate: (handler) => {
+                localUpdateHandler = handler;
+            },
+            offLocalUpdate: jest.fn(),
+            encodeStateDiff: jest.fn(() => new Uint8Array([9, 9, 9])),
+            getNewChangeLogEntries: jest.fn(() => []),
+            advanceBroadcastLogCursor: jest.fn(),
+            windowId: 'client-1'
+        };
+
+        adapter._bridge = bridge;
+        adapter._ws = {
+            readyState: 1,
+            send: (payload) => sentFrames.push(JSON.parse(payload))
+        };
+        adapter._clientId = 'client-1';
+
+        adapter._registerOutboundHook();
+        localUpdateHandler(localUpdate, mutationBatchEnvelope);
+        await Promise.resolve();
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'sync-response',
+                update: Buffer.from([5, 6, 7]).toString('base64'),
+                serverStateVector: Buffer.from([8, 9, 10]).toString('base64'),
+                mutationBatchHistory: []
+            })
+        );
+
+        expect(bridge.mergeImportedChangeLog).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    path: 'glyphs.C:name',
+                    transactionLabel: 'Live edit'
+                })
+            ])
+        );
+        expect(sentFrames[sentFrames.length - 1]).toEqual(
+            expect.objectContaining({
+                type: 'sync-complete',
+                mutationBatchEnvelopes: [
+                    expect.objectContaining({
+                        transactionId: mutationBatchEnvelope.transactionId,
+                        label: 'Live edit'
+                    })
+                ]
+            })
+        );
+    });
+
+    it('retires only the matching pending envelope identity during bootstrap reconciliation', () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const durableEnvelope = createMutationBatchEnvelope({
+            transactionId: '1',
+            localSequence: 1,
+            baseRevision: null,
+            forwardPatches: [
+                { op: 'replace', path: '/glyphs/A/name', value: 'A.alt' }
+            ],
+            inversePatches: [
+                { op: 'replace', path: '/glyphs/A/name', value: 'A' }
+            ],
+            metadata: {
+                editType: 'font',
+                changedGlyphNames: ['A'],
+                changedLayerIds: [],
+                workerReplayTargets: []
+            },
+            source: 'cloud-adapter.test',
+            label: 'Older durable envelope',
+            windowId: 'client-1',
+            timestamp: 100
+        });
+        const pendingEnvelope = createMutationBatchEnvelope({
+            transactionId: '1',
+            localSequence: 2,
+            baseRevision: null,
+            forwardPatches: [
+                { op: 'replace', path: '/glyphs/B/name', value: 'B.alt' }
+            ],
+            inversePatches: [
+                { op: 'replace', path: '/glyphs/B/name', value: 'B' }
+            ],
+            metadata: {
+                editType: 'font',
+                changedGlyphNames: ['B'],
+                changedLayerIds: [],
+                workerReplayTargets: []
+            },
+            source: 'cloud-adapter.test',
+            label: 'Pending envelope',
+            windowId: 'client-1',
+            timestamp: 200
+        });
+        adapter._pendingDurabilityEnvelopes = [pendingEnvelope];
+        adapter._bridge = {
+            mergeImportedChangeLog: jest.fn(),
+            applyFullState: jest.fn(),
+            onLocalUpdate: jest.fn(),
+            offLocalUpdate: jest.fn()
+        };
+        adapter._registerOutboundHook = jest.fn();
+        adapter._sendSyncComplete = jest.fn();
+
+        adapter._handleMessage(
+            JSON.stringify({
+                type: 'sync-response',
+                update: Buffer.from([1, 2, 3]).toString('base64'),
+                serverStateVector: Buffer.from([4, 5, 6]).toString('base64'),
+                mutationBatchHistory: [durableEnvelope]
+            })
+        );
+
+        expect(adapter._pendingDurabilityEnvelopes).toEqual([pendingEnvelope]);
+    });
+
     it('sends sync-complete metadata without repair side-band state', () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
         const diff = new Uint8Array([5, 6, 7]);
         const sentFrames = [];
         const changeLogEntries = [
-            {
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                transactionLabel: 'Rename',
+                transactionId: 1,
+                op: 'set',
                 undoScope: 'glyph',
-                path: 'glyphs.A'
-            }
+                path: 'glyphs.A:name',
+                oldValue: 'A',
+                newValue: 'A.alt',
+                workerReplayTargets: []
+            })
         ];
         const fullState = new Uint8Array([8, 9, 10]);
 
@@ -165,13 +481,91 @@ describe('CloudAdapter outbound updates', () => {
 
         expect(adapter._bridge.getFullState).not.toHaveBeenCalled();
         expect(sentFrames).toHaveLength(1);
-        expect(sentFrames[0]).toMatchObject({
-            type: 'sync-complete',
-            changeLogEntries
-        });
+        const expectedEnvelopes =
+            createMutationBatchEnvelopesFromChangeLogEntries(changeLogEntries, {
+                startingLocalSequence: 1,
+                source: 'cloud-adapter.sync-complete',
+                windowId: undefined
+            });
+        expect(sentFrames[0].type).toBe('sync-complete');
+        expect(sentFrames[0].mutationBatchEnvelopes).toHaveLength(1);
+        expect(sentFrames[0].mutationBatchEnvelopes[0]).toEqual(
+            expect.objectContaining({
+                transactionId: expectedEnvelopes[0].transactionId,
+                label: expectedEnvelopes[0].label,
+                forwardPatches: expectedEnvelopes[0].forwardPatches,
+                inversePatches: expectedEnvelopes[0].inversePatches
+            })
+        );
         expect(sentFrames[0].fullState).toBeUndefined();
         expect(sentFrames[0].layerRepairSnapshots).toBeUndefined();
         expect(sentFrames[0].update).toBe(Buffer.from(diff).toString('base64'));
+    });
+
+    it('splits sync-complete metadata by logical history item', () => {
+        const adapter = new CloudAdapter({ assetId: 'asset-123' });
+        const sentFrames = [];
+        const changeLogEntries = [
+            createLogEntry({
+                timestamp: 1,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-1',
+                transactionLabel: 'Resize',
+                transactionId: 1,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.A:layers.layer-1.width',
+                oldValue: 600,
+                newValue: 700,
+                workerReplayTargets: []
+            }),
+            createLogEntry({
+                timestamp: 2,
+                windowId: 'client-1',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-2',
+                historyAction: 'undo',
+                targetHistoryItemId: 'history-1',
+                transactionLabel: 'Undo',
+                transactionId: 2,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.A:layers.layer-1.width',
+                oldValue: 700,
+                newValue: 600,
+                workerReplayTargets: []
+            })
+        ];
+
+        adapter._bridge = {
+            encodeStateDiff: jest.fn(() => new Uint8Array([5, 6, 7])),
+            getNewChangeLogEntries: jest.fn(() => changeLogEntries),
+            windowId: 'client-1'
+        };
+        adapter._ws = {
+            readyState: 1,
+            send: (payload) => sentFrames.push(JSON.parse(payload))
+        };
+
+        adapter._sendSyncComplete(new Uint8Array([1, 2, 3]));
+
+        expect(sentFrames).toHaveLength(1);
+        expect(sentFrames[0].mutationBatchEnvelopes).toHaveLength(2);
+        expect(sentFrames[0].mutationBatchEnvelopes[0]).toEqual(
+            expect.objectContaining({
+                label: 'Resize'
+            })
+        );
+        expect(sentFrames[0].mutationBatchEnvelopes[1]).toEqual(
+            expect.objectContaining({
+                label: 'Undo',
+                metadata: expect.objectContaining({
+                    historyAction: 'undo',
+                    targetHistoryItemId: 'history-1'
+                })
+            })
+        );
     });
 });
 

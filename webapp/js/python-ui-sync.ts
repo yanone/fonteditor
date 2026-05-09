@@ -45,8 +45,8 @@ function beforePythonExecution(code?: string) {
         label: 'Python script',
         startedAt: Date.now()
     };
-    window.changeBridge?.beginTransaction('Python script');
-    window.changeBridge?.setRecordingSuppressed(true);
+    window.patchSyncEngine?.beginTransaction('Python script');
+    window.patchSyncEngine?.setRecordingSuppressed(true);
 }
 
 /**

@@ -8,7 +8,7 @@
  */
 
 const Y = require('yjs');
-const { ChangeBridge } = require('../js/change-bridge');
+const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 const { WindowSync } = require('../js/window-sync');
 const {
     jsonToYDoc,
@@ -3370,6 +3370,7 @@ describe('WindowSync', () => {
         const yjsUpdates = captured.filter((m) => m.type === 'yjs-update');
         expect(yjsUpdates).toHaveLength(1);
         expect(yjsUpdates[0].fullState).toBeUndefined();
+        expect(yjsUpdates[0].mutationBatchEnvelopes).toHaveLength(1);
         expect(getFullStateSpy).not.toHaveBeenCalled();
 
         getFullStateSpy.mockRestore();
@@ -3420,6 +3421,9 @@ describe('WindowSync', () => {
         expect(getFullStateSpy).not.toHaveBeenCalled();
         expect(fromWin1[fromWin1.length - 1].update).toBeInstanceOf(Uint8Array);
         expect(
+            fromWin1[fromWin1.length - 1].mutationBatchEnvelopes
+        ).toHaveLength(1);
+        expect(
             fromWin1[fromWin1.length - 1].layerRepairSnapshots
         ).toBeUndefined();
 
@@ -3449,7 +3453,7 @@ describe('WindowSync', () => {
 
         const yjsUpdates = captured.filter((m) => m.type === 'yjs-update');
         expect(yjsUpdates).toHaveLength(1);
-        expect(yjsUpdates[0].changeLogEntries).toHaveLength(2);
+        expect(yjsUpdates[0].mutationBatchEnvelopes).toHaveLength(2);
         expect(yjsUpdates[0].update).toBeInstanceOf(Uint8Array);
 
         eavesdropper.close();
@@ -3570,6 +3574,7 @@ describe('WindowSync', () => {
         expect(yjsUpdates.length).toBeGreaterThan(0);
         for (const m of yjsUpdates) {
             expect(m.fullState).toBeUndefined();
+            expect(m.mutationBatchEnvelopes?.length ?? 0).toBeGreaterThan(0);
         }
         expect(getFullStateSpy).not.toHaveBeenCalled();
 
@@ -6214,8 +6219,8 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         flushTimers();
 
         // There should be at most 1 yjs-update from the undo itself
-        const undoUpdates = captured.filter((m) =>
-            m.changeLogEntries?.some((e) => e.historyAction === 'undo')
+        const undoUpdates = captured.filter(
+            (m) => (m.mutationBatchEnvelopes?.length ?? 0) > 0
         );
         // History-replay uses HISTORY_REPLAY_ORIGIN which the
         // constructor listener broadcasts. We must not also send a

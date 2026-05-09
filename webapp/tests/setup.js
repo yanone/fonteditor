@@ -34,6 +34,19 @@ if (typeof globalThis.BroadcastChannel === 'undefined') {
 }
 
 if (hasWindow) {
+    if (!Object.getOwnPropertyDescriptor(window, 'changeBridge')?.get) {
+        Object.defineProperty(window, 'changeBridge', {
+            configurable: true,
+            enumerable: false,
+            get() {
+                return window.patchSyncEngine;
+            },
+            set(value) {
+                window.patchSyncEngine = value;
+            }
+        });
+    }
+
     // Mock isDevelopment/isProduction functions (from index.html)
     // These must be defined BEFORE importing any modules that use them
     if (typeof window.isDevelopment === 'undefined') {

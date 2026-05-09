@@ -18,7 +18,7 @@ import {
     normalizeCloudRoomWebSocketUrl
 } from './cloud-adapter';
 import { Path } from './babelfont-model';
-import { ChangeBridge } from './change-bridge';
+import { PatchSyncEngine } from './patch-sync-engine';
 import { sanitizeBabelfontArrays, yDocToJson } from './change-bridge-ydoc';
 import { Logger } from './logger';
 import { resolveWebsiteURL } from './website-url';
@@ -70,50 +70,9 @@ function normalizeCloudExportForFontOpen(
                         ? layerRecord.id
                         : `layer #${layerIndex}`;
 
-                if (operation === 'open') {
-                    // Attempt recovery: look for a sibling layer that
-                    // has a valid width we can borrow.
-                    let recoveredWidth: number | undefined;
-                    if (glyphRecord) {
-                        const siblingLayers = Array.isArray(glyphRecord.layers)
-                            ? (glyphRecord.layers as Record<string, unknown>[])
-                            : [];
-                        for (const sibling of siblingLayers) {
-                            if (
-                                sibling &&
-                                typeof sibling.width === 'number' &&
-                                Number.isFinite(sibling.width) &&
-                                sibling.id !== layerId
-                            ) {
-                                recoveredWidth = sibling.width;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (typeof recoveredWidth === 'number') {
-                        console.warn(
-                            `[CloudPlugin] Recovering layer ${glyphName}/${layerId} width=${recoveredWidth} from sibling (was: ${String(layerRecord.width)})`
-                        );
-                        layerRecord.width = recoveredWidth;
-                        fixCount++;
-                    } else {
-                        // Last resort: set width to 0 so the font can
-                        // open. The user will need to manually correct
-                        // this glyph's width.
-                        console.error(
-                            `[CloudPlugin] Layer ${glyphName}/${layerId} has invalid width (${String(layerRecord.width)}), ` +
-                                `keys: ${Object.keys(layerRecord).join(',')}. ` +
-                                `Setting width=0 as fallback so the font can open.`
-                        );
-                        layerRecord.width = 0;
-                        fixCount++;
-                    }
-                } else {
-                    throw new Error(
-                        `Cloud font layer ${glyphName}/${layerId} has invalid width; refusing to save cloud font data.`
-                    );
-                }
+                throw new Error(
+                    `Cloud font layer ${glyphName}/${layerId} has invalid width; refusing to ${operation} cloud font data.`
+                );
             }
 
             const shapes = Array.isArray(
@@ -145,7 +104,7 @@ function normalizeCloudExportForFontOpen(
 }
 
 function getCloudFontJsonFromBridge(
-    bridge: Pick<ChangeBridge, 'fontMap'>
+    bridge: Pick<PatchSyncEngine, 'fontMap'>
 ): Record<string, unknown> | null {
     const fontJson = yDocToJson(bridge.fontMap);
     if (!fontJson || Object.keys(fontJson).length === 0) {
@@ -156,7 +115,7 @@ function getCloudFontJsonFromBridge(
 }
 
 function assertCloudBridgeStateCanBeSaved(
-    bridge: Pick<ChangeBridge, 'fontMap'>
+    bridge: Pick<PatchSyncEngine, 'fontMap'>
 ): void {
     const fontJson = getCloudFontJsonFromBridge(bridge);
     if (!fontJson) {
@@ -170,7 +129,7 @@ function assertCloudBridgeStateCanBeSaved(
  * Some cloud rooms connect before their persisted snapshot has been applied.
  */
 async function waitForCloudFontJson(
-    bridge: Pick<ChangeBridge, 'fontMap' | 'yDoc'>,
+    bridge: Pick<PatchSyncEngine, 'fontMap' | 'yDoc'>,
     timeoutMs = 8000
 ): Promise<Record<string, unknown> | null> {
     const immediateFontJson = getCloudFontJsonFromBridge(bridge);
@@ -560,7 +519,7 @@ export class CloudPlugin extends FilesystemPlugin {
      *
      * Flow:
      *  1. Fetch room token from the website.
-     *  2. Connect a temporary ChangeBridge to the room WebSocket.
+     *  2. Connect a temporary PatchSyncEngine to the room WebSocket.
      *  3. Wait for the initial CRDT sync to complete.
      *  4. Extract babelfont JSON from the synced Yjs doc.
      *  5. Dispatch `fontLoaded` to trigger the normal font-loading pipeline.
@@ -604,7 +563,7 @@ export class CloudPlugin extends FilesystemPlugin {
         );
 
         // Temporary bridge receives the initial CRDT state from the room.
-        const tempBridge = new ChangeBridge(`cloud-bootstrap-${assetId}`);
+        const tempBridge = new PatchSyncEngine(`cloud-bootstrap-${assetId}`);
 
         let resolveConnected!: () => void;
         let rejectConnected!: (err: Error) => void;
@@ -662,18 +621,34 @@ export class CloudPlugin extends FilesystemPlugin {
 
         const babelfontJson = JSON.stringify(fontJson);
         const bridgeState = tempBridge.getFullState();
+        const bootstrapChangeLog = tempBridge.getChangeLog();
 
         this._activeAssetId = assetId;
 
         (
             window as Window & {
                 __pendingCloudBridgeBootstrapState?: Uint8Array;
+                __pendingCloudBridgeBootstrapChangeLog?: ReturnType<
+                    PatchSyncEngine['getChangeLog']
+                >;
                 __skipCloudBridgeRebindMerge?: boolean;
             }
         ).__pendingCloudBridgeBootstrapState = bridgeState;
         (
             window as Window & {
                 __pendingCloudBridgeBootstrapState?: Uint8Array;
+                __pendingCloudBridgeBootstrapChangeLog?: ReturnType<
+                    PatchSyncEngine['getChangeLog']
+                >;
+                __skipCloudBridgeRebindMerge?: boolean;
+            }
+        ).__pendingCloudBridgeBootstrapChangeLog = bootstrapChangeLog;
+        (
+            window as Window & {
+                __pendingCloudBridgeBootstrapState?: Uint8Array;
+                __pendingCloudBridgeBootstrapChangeLog?: ReturnType<
+                    PatchSyncEngine['getChangeLog']
+                >;
                 __skipCloudBridgeRebindMerge?: boolean;
             }
         ).__skipCloudBridgeRebindMerge = true;
@@ -730,7 +705,7 @@ export class CloudPlugin extends FilesystemPlugin {
             throw new Error('Authentication required');
         }
 
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         if (!bridge) throw new Error('No active font to save');
 
         assertCloudBridgeStateCanBeSaved(bridge);
@@ -809,12 +784,12 @@ export class CloudPlugin extends FilesystemPlugin {
 
     /**
      * Connect to a cloud room for the currently open font.
-     * Requires a font to already be loaded (window.changeBridge must exist).
+     * Requires a font to already be loaded (window.patchSyncEngine must exist).
      */
     async connectToRoom(assetId: string): Promise<void> {
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         if (!bridge) {
-            console.error('No changeBridge available — load a font first');
+            console.error('No patchSyncEngine available — load a font first');
             return;
         }
 
@@ -847,9 +822,9 @@ export class CloudPlugin extends FilesystemPlugin {
         token: string,
         roomUrl: string
     ): Promise<void> {
-        const bridge = window.changeBridge;
+        const bridge = window.patchSyncEngine;
         if (!bridge) {
-            console.error('No changeBridge available — load a font first');
+            console.error('No patchSyncEngine available — load a font first');
             return;
         }
 

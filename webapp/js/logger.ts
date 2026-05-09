@@ -26,7 +26,7 @@ export const FACILITY_REGISTRY: Record<string, boolean> = {
     BabelfontModel: false,
     Bootstrap: false,
     CanvasPluginManager: false,
-    ChangeBridge: false,
+    PatchSyncEngine: false,
     CloudAdapter: true,
     CloudPlugin: true,
     ChangeBridgeInit: false,
