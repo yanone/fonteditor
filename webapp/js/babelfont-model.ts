@@ -7321,6 +7321,10 @@ export class Layer extends ArrayElementBase {
         );
     }
 
+    findAnchor(anchorName: string): Anchor | undefined {
+        return this.anchors?.find((anchor) => anchor.name === anchorName);
+    }
+
     get color(): Babelfont.Color | undefined {
         return this.data.color;
     }

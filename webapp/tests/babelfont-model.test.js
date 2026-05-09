@@ -517,6 +517,21 @@ describe('Babelfont Object Model', () => {
             font.removeGlyph('FilteredEmptyGlyph');
         });
 
+        test('findAnchor returns the matching anchor by name', () => {
+            const glyph = font.addGlyph('AnchorLookupGlyph', 'Base');
+            const testLayer = glyph.addLayer(500);
+            testLayer.addAnchor(250, 700, 'top');
+            testLayer.addAnchor(250, 0, 'bottom');
+            const foundAnchor = testLayer.findAnchor('top');
+
+            expect(foundAnchor?.name).toBe('top');
+            expect(foundAnchor?.x).toBe(250);
+            expect(foundAnchor?.y).toBe(700);
+            expect(testLayer.findAnchor('missing')).toBeUndefined();
+
+            font.removeGlyph('AnchorLookupGlyph');
+        });
+
         test('removeShape should accept a path object from layer.paths', () => {
             const pathLayer = font.findGlyph('A').layers[0];
             const initialShapeCount = pathLayer.shapes.length;

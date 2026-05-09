@@ -94,6 +94,113 @@ function makeCloudTestFont(): string {
                     }
                 ],
                 exported: true
+            },
+            {
+                name: 'o',
+                category: 'Base',
+                codepoints: [111],
+                layers: [
+                    {
+                        width: 600,
+                        id: 'L0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: nodes(
+                                    60,
+                                    0,
+                                    540,
+                                    0,
+                                    540,
+                                    520,
+                                    60,
+                                    520
+                                ),
+                                closed: true
+                            }
+                        ],
+                        anchors: [{ name: 'top', x: 300, y: 520 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            },
+            {
+                name: 'dieresiscomb',
+                category: 'Mark',
+                codepoints: [776],
+                layers: [
+                    {
+                        width: 0,
+                        id: 'L0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                nodes: nodes(
+                                    180,
+                                    520,
+                                    240,
+                                    520,
+                                    240,
+                                    620,
+                                    180,
+                                    620
+                                ),
+                                closed: true
+                            },
+                            {
+                                nodes: nodes(
+                                    360,
+                                    520,
+                                    420,
+                                    520,
+                                    420,
+                                    620,
+                                    360,
+                                    620
+                                ),
+                                closed: true
+                            }
+                        ],
+                        anchors: [{ name: '_top', x: 300, y: 520 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
+            },
+            {
+                name: 'odieresis',
+                category: 'Base',
+                codepoints: [246],
+                layers: [
+                    {
+                        width: 600,
+                        id: 'L0',
+                        master: { type: 'DefaultForMaster', master: 'M0' },
+                        shapes: [
+                            {
+                                reference: 'o',
+                                transform: [1, 0, 0, 1, 0, 0],
+                                format_specific: {
+                                    'com.schriftgestalt.Glyphs.alignment': 0
+                                }
+                            },
+                            {
+                                reference: 'dieresiscomb',
+                                transform: [1, 0, 0, 1, 0, 0],
+                                format_specific: {
+                                    'com.schriftgestalt.Glyphs.alignment': 0
+                                }
+                            }
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                exported: true
             }
         ],
         date: new Date().toISOString(),
@@ -135,6 +242,13 @@ async function bootstrapCloudSession(
 async function waitForCloudConnected(page: Page): Promise<void> {
     await page.waitForFunction(
         () => (window as any).cloudDebug?.getStatus?.() === 'connected',
+        { timeout: 30000 }
+    );
+}
+
+async function waitForPythonReady(page: Page): Promise<void> {
+    await page.waitForFunction(
+        () => typeof (window as any).pyodide?.runPythonAsync === 'function',
         { timeout: 30000 }
     );
 }
@@ -210,6 +324,117 @@ async function openLinkedWindow(page: Page, assetId?: string): Promise<Page> {
     );
 
     return linkedPage;
+}
+
+async function setupEditTextMode(
+    page: Page,
+    textBuffer: string = 'ö'
+): Promise<void> {
+    await page.evaluate(async (nextTextBuffer) => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        glyphCanvas.textRunEditor.setTextBuffer(nextTextBuffer);
+        await glyphCanvas.textRunEditor.selectGlyphByIndex(0, true);
+    }, textBuffer);
+    await page.waitForTimeout(500);
+}
+
+async function waitForEditingCompile(page: Page): Promise<void> {
+    await page.waitForFunction(
+        () => {
+            const fontManager = (window as any).fontManager;
+            if (!fontManager?.currentFont) {
+                return false;
+            }
+
+            return (
+                !fontManager.currentFont.needsRecompile ||
+                fontManager.editingFont !== null
+            );
+        },
+        { timeout: 20000 }
+    );
+    await page.waitForTimeout(300);
+}
+
+async function installEditingFontCompileTracker(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const testWindow = window as any;
+        if (testWindow.__editingFontCompileTrackerInstalled) {
+            return;
+        }
+
+        testWindow.__editingFontCompiledCount = 0;
+        testWindow.__lastEditingFontCompiledRevision = -1;
+        window.addEventListener('editingFontCompiled', (event) => {
+            testWindow.__editingFontCompiledCount += 1;
+            testWindow.__lastEditingFontCompiledRevision = Number(
+                (event as CustomEvent)?.detail?.revision ?? -1
+            );
+        });
+        testWindow.__editingFontCompileTrackerInstalled = true;
+    });
+}
+
+async function getEditingFontCompileTracker(page: Page): Promise<{
+    count: number;
+    revision: number;
+}> {
+    return page.evaluate(() => ({
+        count: (window as any).__editingFontCompiledCount ?? 0,
+        revision: (window as any).__lastEditingFontCompiledRevision ?? -1
+    }));
+}
+
+async function waitForEditingFontCompileEvent(
+    page: Page,
+    previousCount: number
+): Promise<void> {
+    await page.waitForFunction(
+        (count) => ((window as any).__editingFontCompiledCount ?? 0) > count,
+        previousCount,
+        { timeout: 30000 }
+    );
+}
+
+async function getCompiledGlyphBounds(
+    page: Page,
+    glyphName: string
+): Promise<{ x1: number; y1: number; x2: number; y2: number }> {
+    return page.evaluate((targetGlyphName) => {
+        const fontManager = (window as any).fontManager;
+        const opentype = (window as any).opentype;
+        if (!fontManager?.editingFont) {
+            throw new Error('Editing font is not available');
+        }
+        if (!opentype?.parse) {
+            throw new Error('OpenType parser is not available');
+        }
+
+        const glyphOrder = fontManager.getGlyphOrder?.() || [];
+        const glyphIndex = glyphOrder.indexOf(targetGlyphName);
+        if (glyphIndex < 0) {
+            throw new Error(
+                `Glyph ${targetGlyphName} is not present in editing font`
+            );
+        }
+
+        const fontBytes = fontManager.editingFont as Uint8Array;
+        const buffer = fontBytes.buffer.slice(
+            fontBytes.byteOffset,
+            fontBytes.byteOffset + fontBytes.byteLength
+        );
+        const parsedFont = opentype.parse(buffer);
+        const glyph = parsedFont.glyphs.get(glyphIndex);
+        const path = glyph.getPath(0, 0, parsedFont.unitsPerEm);
+        const bounds = path.getBoundingBox();
+
+        return {
+            x1: Number(bounds.x1),
+            y1: Number(bounds.y1),
+            x2: Number(bounds.x2),
+            y2: Number(bounds.y2)
+        };
+    }, glyphName);
 }
 
 async function waitForPrimaryNodePosition(
@@ -564,9 +789,12 @@ test.describe('Local cloud collaboration', () => {
         await mainPage.goto('/?test=true');
         await waitForCanvasReady(mainPage);
         await bootstrapCloudSession(mainPage, email);
+        await waitForPythonReady(mainPage);
 
         await loadCloudTestFont(mainPage);
         await waitForFontLoaded(mainPage);
+        await waitForBridgeReady(mainPage);
+        await installEditingFontCompileTracker(mainPage);
 
         const assetId = await mainPage.evaluate(async () => {
             return await (window as any).cloudPlugin.saveAs(
@@ -585,15 +813,20 @@ test.describe('Local cloud collaboration', () => {
 
         const linkedPage = await openLinkedWindow(mainPage);
         await waitForCloudConnected(linkedPage);
+        await waitForPythonReady(linkedPage);
+        await installEditingFontCompileTracker(linkedPage);
 
         await remotePage.goto('/?test=true');
         await waitForCanvasReady(remotePage);
         await bootstrapCloudSession(remotePage, email);
+        await waitForPythonReady(remotePage);
         await remotePage.evaluate(async (nextAssetId) => {
             await (window as any).cloudPlugin.openAsset(nextAssetId);
         }, assetId);
         await waitForFontLoaded(remotePage);
         await waitForCloudConnected(remotePage);
+        await waitForBridgeReady(remotePage);
+        await installEditingFontCompileTracker(remotePage);
 
         const initialMain = await getPrimaryNodePosition(mainPage);
         const initialLinked = await getPrimaryNodePosition(linkedPage);
@@ -634,6 +867,79 @@ test.describe('Local cloud collaboration', () => {
         expect(finalMain).toEqual(remoteMutation.after);
         expect(finalLinked).toEqual(remoteMutation.after);
         expect(finalRemote).toEqual(remoteMutation.after);
+
+        await setupEditTextMode(mainPage, 'ö');
+        await setupEditTextMode(linkedPage, 'ö');
+        await setupEditTextMode(remotePage, 'ö');
+        await waitForEditingCompile(mainPage);
+        await waitForEditingCompile(linkedPage);
+        await waitForEditingCompile(remotePage);
+
+        const beforeAnchorCompileMain =
+            await getEditingFontCompileTracker(mainPage);
+        const beforeAnchorCompileLinked =
+            await getEditingFontCompileTracker(linkedPage);
+        const beforeAnchorCompileRemote =
+            await getEditingFontCompileTracker(remotePage);
+        const beforeBoundsMain = await getCompiledGlyphBounds(
+            mainPage,
+            'odieresis'
+        );
+        const beforeBoundsLinked = await getCompiledGlyphBounds(
+            linkedPage,
+            'odieresis'
+        );
+        const beforeBoundsRemote = await getCompiledGlyphBounds(
+            remotePage,
+            'odieresis'
+        );
+
+        await mainPage.evaluate(async () => {
+            await (window as any).pyodide.runPythonAsync(`font = currentFontModel
+glyph_o = font.findGlyph('o')
+if glyph_o is None:
+    raise RuntimeError('Glyph o is not available')
+layer = glyph_o.findLayerById('L0')
+if layer is None:
+    raise RuntimeError('Layer L0 is not available on glyph o')
+top_anchor = layer.findAnchor('top')
+if top_anchor is None:
+    raise RuntimeError('Top anchor is not available on glyph o')
+top_anchor.y += 100`);
+        });
+
+        await waitForEditingFontCompileEvent(
+            mainPage,
+            beforeAnchorCompileMain.count
+        );
+        await waitForEditingFontCompileEvent(
+            linkedPage,
+            beforeAnchorCompileLinked.count
+        );
+        await waitForEditingFontCompileEvent(
+            remotePage,
+            beforeAnchorCompileRemote.count
+        );
+        await waitForEditingCompile(mainPage);
+        await waitForEditingCompile(linkedPage);
+        await waitForEditingCompile(remotePage);
+
+        const afterBoundsMain = await getCompiledGlyphBounds(
+            mainPage,
+            'odieresis'
+        );
+        const afterBoundsLinked = await getCompiledGlyphBounds(
+            linkedPage,
+            'odieresis'
+        );
+        const afterBoundsRemote = await getCompiledGlyphBounds(
+            remotePage,
+            'odieresis'
+        );
+
+        expect(afterBoundsMain.y2 - beforeBoundsMain.y2).toBe(100);
+        expect(afterBoundsLinked.y2 - beforeBoundsLinked.y2).toBe(100);
+        expect(afterBoundsRemote.y2 - beforeBoundsRemote.y2).toBe(100);
 
         await remoteContext.close();
         await mainContext.close();
