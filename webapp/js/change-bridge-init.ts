@@ -11,12 +11,15 @@
  */
 
 import { PatchSyncEngine } from './patch-sync-engine';
+import { fromYType } from './change-bridge-ydoc';
 import { Font } from './babelfont-model';
 import { WindowSync } from './window-sync';
 import { fontCompilation } from './font-compilation';
 import { Logger } from './logger';
 import {
     deriveGlyphNamesFromPaths,
+    deriveGlyphName,
+    deriveLayerId,
     normalizeWorkerReplayTargets,
     type ChangeLogEntry,
     type HistoryStackItem,
@@ -26,14 +29,525 @@ import {
     syncModelSidebearingEditToCanvas,
     inferSidebearingSideFromHistoryItem
 } from './sidebearing-utils';
-import type { MutationBatchEnvelope } from './mutation-batch';
+import { type MutationBatchEnvelope } from './mutation-batch';
+import type { TransactionBufferedOperation } from './patch-sync-engine';
 
 const console = new Logger('ChangeBridgeInit');
 let bridgeSyncQueue: Promise<void> = Promise.resolve();
 
+type Unsafe = ReturnType<typeof JSON.parse>;
+
 function enqueueBridgeSync(task: () => Promise<void>): Promise<void> {
     bridgeSyncQueue = bridgeSyncQueue.then(task, task);
     return bridgeSyncQueue;
+}
+
+function cloneBridgeValue<T>(value: T): T {
+    if (value === undefined) {
+        return value;
+    }
+
+    return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isAnchorPath(path: (string | number)[]): boolean {
+    return (
+        path.length >= 5 &&
+        path[0] === 'glyphs' &&
+        path[2] === 'layers' &&
+        path[4] === 'anchors'
+    );
+}
+
+function isWidthPath(path: (string | number)[]): boolean {
+    return (
+        path.length === 5 &&
+        path[0] === 'glyphs' &&
+        path[2] === 'layers' &&
+        path[4] === 'width'
+    );
+}
+
+function layerSnapshotTouchesCascade(snapshot: unknown): boolean {
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+        return false;
+    }
+
+    const layerSnapshot = snapshot as Record<string, unknown>;
+    return 'width' in layerSnapshot || 'anchors' in layerSnapshot;
+}
+
+function collectGlyphSnapshotCascadeTargets(
+    operation: TransactionBufferedOperation
+): WorkerReplayTarget[] {
+    const glyphName = deriveGlyphName(operation.applyPath ?? operation.path);
+    if (!glyphName) {
+        return [];
+    }
+
+    const beforeLayers = Array.isArray(
+        (operation.applyOldValue as Unsafe)?.layers
+    )
+        ? ((operation.applyOldValue as Unsafe)?.layers as Unsafe[]) || []
+        : [];
+    const afterLayers = Array.isArray(
+        (operation.applyNewValue as Unsafe)?.layers
+    )
+        ? ((operation.applyNewValue as Unsafe)?.layers as Unsafe[]) || []
+        : [];
+    const beforeLayerMap = new Map(
+        beforeLayers
+            .filter((layer) => typeof layer?.id === 'string')
+            .map((layer) => [String(layer.id), layer] as const)
+    );
+    const afterLayerMap = new Map(
+        afterLayers
+            .filter((layer) => typeof layer?.id === 'string')
+            .map((layer) => [String(layer.id), layer] as const)
+    );
+    const layerIds = new Set<string>([
+        ...beforeLayerMap.keys(),
+        ...afterLayerMap.keys()
+    ]);
+
+    const targets: WorkerReplayTarget[] = [];
+    for (const layerId of layerIds) {
+        const beforeLayer = beforeLayerMap.get(layerId);
+        const afterLayer = afterLayerMap.get(layerId);
+        if (
+            layerSnapshotTouchesCascade(beforeLayer) ||
+            layerSnapshotTouchesCascade(afterLayer)
+        ) {
+            targets.push({ glyphName, layerId });
+        }
+    }
+
+    return targets;
+}
+
+function collectCascadeTriggerSourceTargets(
+    operations: TransactionBufferedOperation[]
+): WorkerReplayTarget[] {
+    const targets: WorkerReplayTarget[] = [];
+
+    for (const operation of operations) {
+        const applyPath = operation.applyPath ?? operation.path;
+        if (isWidthPath(applyPath) || isAnchorPath(applyPath)) {
+            const glyphName = deriveGlyphName(applyPath);
+            const layerId = deriveLayerId(applyPath);
+            if (glyphName && layerId) {
+                targets.push({ glyphName, layerId });
+            }
+            continue;
+        }
+
+        if (
+            operation.applyMode === 'layer-snapshot' &&
+            applyPath.length === 4 &&
+            applyPath[0] === 'glyphs' &&
+            applyPath[2] === 'layers' &&
+            (layerSnapshotTouchesCascade(operation.applyOldValue) ||
+                layerSnapshotTouchesCascade(operation.applyNewValue))
+        ) {
+            targets.push({
+                glyphName: String(applyPath[1]),
+                layerId: String(applyPath[3])
+            });
+            continue;
+        }
+
+        if (
+            operation.applyMode === 'glyph-snapshot' &&
+            applyPath.length === 2 &&
+            applyPath[0] === 'glyphs'
+        ) {
+            targets.push(...collectGlyphSnapshotCascadeTargets(operation));
+        }
+    }
+
+    return normalizeWorkerReplayTargets(targets);
+}
+
+function collectLayerTargetsForAffectedGlyphNames(
+    affectedGlyphNames: Iterable<string>,
+    sourceTargets: WorkerReplayTarget[]
+): WorkerReplayTarget[] {
+    const fontModel =
+        window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
+    if (!fontModel) {
+        return [];
+    }
+
+    const targets: WorkerReplayTarget[] = [];
+    for (const sourceTarget of sourceTargets) {
+        const sourceLayer = fontModel
+            .findGlyph(sourceTarget.glyphName)
+            ?.findLayerById(sourceTarget.layerId);
+        if (!sourceLayer) {
+            continue;
+        }
+
+        for (const glyphName of affectedGlyphNames) {
+            if (!glyphName) {
+                continue;
+            }
+
+            const glyph = fontModel.findGlyph(glyphName);
+            const matchedLayer =
+                glyph?.findLayerById(sourceTarget.layerId) ??
+                sourceLayer.getMatchingLayerOnGlyph?.(glyphName);
+            if (matchedLayer?.id) {
+                targets.push({ glyphName, layerId: matchedLayer.id });
+            }
+        }
+    }
+
+    return normalizeWorkerReplayTargets(targets);
+}
+
+function recomputeCascadeAffectedGlyphNames(
+    bridge: PatchSyncEngine,
+    sourceTargets: WorkerReplayTarget[]
+): Set<string> {
+    const fontModel =
+        window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
+    if (!fontModel) {
+        return new Set();
+    }
+
+    const seedGlyphNames = new Set(
+        sourceTargets
+            .map((target) => target.glyphName)
+            .filter((glyphName): glyphName is string => !!glyphName)
+    );
+    if (seedGlyphNames.size === 0) {
+        return new Set();
+    }
+
+    const preferredSourceTarget = sourceTargets[0] ?? null;
+    const recompute = () => {
+        const affectedGlyphNames = new Set<string>();
+        if (
+            typeof fontModel.rebuildAutomaticCompositesForGlyphs === 'function'
+        ) {
+            for (const glyphName of fontModel.rebuildAutomaticCompositesForGlyphs(
+                seedGlyphNames,
+                preferredSourceTarget
+                    ? {
+                          preferredLayerId: preferredSourceTarget.layerId,
+                          preferredSourceGlyphName:
+                              preferredSourceTarget.glyphName
+                      }
+                    : undefined
+            )) {
+                affectedGlyphNames.add(glyphName);
+            }
+        }
+
+        if (typeof fontModel.recomputeMetricsKeys === 'function') {
+            for (const glyphName of fontModel.recomputeMetricsKeys(
+                seedGlyphNames
+            )) {
+                affectedGlyphNames.add(glyphName);
+            }
+        }
+
+        return affectedGlyphNames;
+    };
+
+    if (typeof bridge.runWithoutRecording === 'function') {
+        return bridge.runWithoutRecording(recompute);
+    }
+
+    return recompute();
+}
+
+function applyDirectLayerOperationToSnapshot(
+    snapshot: Record<string, unknown>,
+    operation: TransactionBufferedOperation,
+    glyphName: string,
+    layerId: string
+): Record<string, unknown> {
+    const applyPath = operation.applyPath ?? operation.path;
+    if (
+        deriveGlyphName(applyPath) !== glyphName ||
+        deriveLayerId(applyPath) !== layerId
+    ) {
+        return snapshot;
+    }
+
+    if (
+        operation.applyMode === 'layer-snapshot' &&
+        operation.applyNewValue &&
+        typeof operation.applyNewValue === 'object' &&
+        !Array.isArray(operation.applyNewValue)
+    ) {
+        const nextSnapshot = { ...snapshot };
+        for (const [key, value] of Object.entries(
+            operation.applyNewValue as Record<string, unknown>
+        )) {
+            if (value === null) {
+                delete nextSnapshot[key];
+                continue;
+            }
+            nextSnapshot[key] = cloneBridgeValue(value);
+        }
+        return nextSnapshot;
+    }
+
+    if (
+        operation.applyMode === 'glyph-snapshot' &&
+        operation.applyNewValue &&
+        typeof operation.applyNewValue === 'object' &&
+        !Array.isArray(operation.applyNewValue)
+    ) {
+        const glyphLayers = Array.isArray(
+            (operation.applyNewValue as Unsafe).layers
+        )
+            ? ((operation.applyNewValue as Unsafe).layers as Unsafe[])
+            : [];
+        const nextLayerSnapshot = glyphLayers.find(
+            (layer) => layer?.id === layerId
+        );
+        return nextLayerSnapshot && typeof nextLayerSnapshot === 'object'
+            ? cloneBridgeValue(nextLayerSnapshot)
+            : snapshot;
+    }
+
+    if (
+        applyPath.length < 5 ||
+        applyPath[0] !== 'glyphs' ||
+        applyPath[2] !== 'layers'
+    ) {
+        return snapshot;
+    }
+
+    const propertyPath = applyPath.slice(4);
+    const nextSnapshot = cloneBridgeValue(snapshot);
+
+    const applyPathOperation = (
+        rootValue: unknown,
+        path: (string | number)[],
+        op: 'set' | 'remove',
+        value: unknown
+    ): void => {
+        if (!path.length || !rootValue || typeof rootValue !== 'object') {
+            return;
+        }
+
+        let cursor = rootValue as Record<string, unknown> | unknown[];
+        for (let index = 0; index < path.length - 1; index++) {
+            const segment = path[index];
+            const nextSegment = path[index + 1];
+
+            if (Array.isArray(cursor)) {
+                const numericIndex = Number(segment);
+                if (!Number.isInteger(numericIndex) || numericIndex < 0) {
+                    return;
+                }
+                if (
+                    cursor[numericIndex] === undefined ||
+                    cursor[numericIndex] === null ||
+                    typeof cursor[numericIndex] !== 'object'
+                ) {
+                    cursor[numericIndex] =
+                        typeof nextSegment === 'number' ? [] : {};
+                }
+                cursor = cursor[numericIndex] as
+                    | Record<string, unknown>
+                    | unknown[];
+                continue;
+            }
+
+            const objectKey = String(segment);
+            const currentValue = (cursor as Record<string, unknown>)[objectKey];
+            if (
+                currentValue === undefined ||
+                currentValue === null ||
+                typeof currentValue !== 'object'
+            ) {
+                (cursor as Record<string, unknown>)[objectKey] =
+                    typeof nextSegment === 'number' ? [] : {};
+            }
+            cursor = (cursor as Record<string, unknown>)[objectKey] as
+                | Record<string, unknown>
+                | unknown[];
+        }
+
+        const terminalSegment = path[path.length - 1];
+        if (Array.isArray(cursor)) {
+            const numericIndex = Number(terminalSegment);
+            if (!Number.isInteger(numericIndex) || numericIndex < 0) {
+                return;
+            }
+            if (op === 'remove') {
+                cursor.splice(numericIndex, 1);
+                return;
+            }
+            cursor[numericIndex] = cloneBridgeValue(value);
+            return;
+        }
+
+        const objectKey = String(terminalSegment);
+        if (op === 'remove') {
+            delete (cursor as Record<string, unknown>)[objectKey];
+            return;
+        }
+        (cursor as Record<string, unknown>)[objectKey] =
+            cloneBridgeValue(value);
+    };
+
+    applyPathOperation(
+        nextSnapshot,
+        propertyPath,
+        operation.op === 'remove' ? 'remove' : 'set',
+        operation.applyNewValue === undefined
+            ? operation.newValue
+            : operation.applyNewValue
+    );
+
+    return nextSnapshot;
+}
+
+function buildPostDirectLayerSnapshot(
+    yLayerJson: Record<string, unknown>,
+    operations: TransactionBufferedOperation[],
+    glyphName: string,
+    layerId: string
+): Record<string, unknown> {
+    return operations.reduce(
+        (snapshot, operation) =>
+            applyDirectLayerOperationToSnapshot(
+                snapshot,
+                operation,
+                glyphName,
+                layerId
+            ),
+        cloneBridgeValue(yLayerJson)
+    );
+}
+
+function buildCascadeLayerOperations(
+    bridge: PatchSyncEngine,
+    layerTargets: WorkerReplayTarget[],
+    directOperations: TransactionBufferedOperation[]
+): TransactionBufferedOperation[] {
+    const fontJson = bridge.getFontJsonSnapshot();
+    const glyphs = Array.isArray((fontJson as Unsafe)?.glyphs)
+        ? ((fontJson as Unsafe).glyphs as Unsafe[])
+        : [];
+    const glyphsMap = bridge.fontMap.get('glyphs') as
+        | { get?: (key: string) => unknown }
+        | undefined;
+    if (!glyphsMap || !layerTargets.length) {
+        return [];
+    }
+
+    const operations: TransactionBufferedOperation[] = [];
+    for (const { glyphName, layerId } of layerTargets) {
+        const glyphJson = glyphs.find((glyph) => glyph?.name === glyphName);
+        const layerJson = Array.isArray(glyphJson?.layers)
+            ? (glyphJson.layers as Unsafe[]).find(
+                  (layer) => layer?.id === layerId
+              )
+            : null;
+        if (!layerJson) {
+            continue;
+        }
+
+        const glyphMap = glyphsMap.get?.(glyphName) as
+            | { get?: (key: string) => unknown }
+            | undefined;
+        const yGlyphMap = glyphMap as
+            | { get?: (key: string) => unknown }
+            | undefined;
+        const yLayersMap = yGlyphMap?.get?.('layers') as
+            | { get?: (key: string) => unknown }
+            | undefined;
+        const yLayerMap = yLayersMap?.get?.(layerId);
+        if (!yLayerMap) {
+            continue;
+        }
+
+        const yLayerJson = fromYType(yLayerMap as never) as Record<
+            string,
+            unknown
+        >;
+        const baseLayerSnapshot = buildPostDirectLayerSnapshot(
+            yLayerJson,
+            directOperations,
+            glyphName,
+            layerId
+        );
+        const delta: Record<string, unknown> = { id: layerId };
+        let hasChanges = false;
+
+        for (const [key, value] of Object.entries(layerJson)) {
+            if (
+                JSON.stringify(value) ===
+                JSON.stringify(baseLayerSnapshot?.[key])
+            ) {
+                continue;
+            }
+
+            delta[key] = cloneBridgeValue(value);
+            hasChanges = true;
+        }
+
+        for (const key of Object.keys(baseLayerSnapshot || {})) {
+            if (key === 'id' || key in (layerJson as Record<string, unknown>)) {
+                continue;
+            }
+
+            delta[key] = null;
+            hasChanges = true;
+        }
+
+        if (!hasChanges) {
+            continue;
+        }
+
+        operations.push({
+            op: 'set',
+            path: ['glyphs', glyphName, 'layers', layerId],
+            oldValue: cloneBridgeValue(baseLayerSnapshot),
+            newValue: cloneBridgeValue(delta),
+            applyPath: ['glyphs', glyphName, 'layers', layerId],
+            applyNewValue: cloneBridgeValue(delta),
+            applyMode: 'layer-snapshot',
+            workerReplayTargets: [{ glyphName, layerId }]
+        });
+    }
+
+    return operations;
+}
+
+export function buildCascadingRecompositionOperations(
+    bridge: PatchSyncEngine,
+    operations: TransactionBufferedOperation[]
+): TransactionBufferedOperation[] {
+    const sourceTargets = collectCascadeTriggerSourceTargets(operations);
+    if (!sourceTargets.length) {
+        return [];
+    }
+
+    const affectedGlyphNames = recomputeCascadeAffectedGlyphNames(
+        bridge,
+        sourceTargets
+    );
+    if (!affectedGlyphNames.size) {
+        return [];
+    }
+
+    const cascadeTargets = collectLayerTargetsForAffectedGlyphNames(
+        affectedGlyphNames,
+        sourceTargets
+    );
+    if (!cascadeTargets.length) {
+        return [];
+    }
+
+    return buildCascadeLayerOperations(bridge, cascadeTargets, operations);
 }
 
 /**
@@ -1275,6 +1789,9 @@ function initializeBridge(detail: {
     destroyExisting();
 
     const bridge = new PatchSyncEngine(window.windowRole?.instanceId);
+    bridge.setTransactionFinalizer((operations) =>
+        buildCascadingRecompositionOperations(bridge, operations)
+    );
     window.patchSyncEngine = bridge;
     const bootstrapState = (
         window as Window & {

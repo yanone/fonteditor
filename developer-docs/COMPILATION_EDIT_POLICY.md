@@ -244,6 +244,17 @@ Only the named forward/inverse pair envelope is supported for collaboration, lin
 
 All persisted font-data edits must flow through the patch system so change-log history, linked windows, cloud durability, undo/redo, and replay all see the same canonical mutation stream.
 
+For all non-exception persisted edits, the bridge finalizes transactions in this order:
+
+1. Apply the direct edit to the in-memory JSON/model.
+2. Derive the direct mutation operations that describe that user edit.
+3. Before the transaction is committed, inspect those direct operations for cascade triggers.
+4. If the direct operations touched layer width or anchors, rebuild downstream automatic composites and metrics-key dependents inside the same open transaction.
+5. Derive a second operation set for the cascade-only layer changes.
+6. Commit one combined operation list, and derive the explicit forward/inverse collaboration patch pairs from that combined set.
+
+Node-only outline edits must not trigger downstream recomposition by themselves. Downstream recomposition is keyed to anchor changes and width-affecting edits.
+
 There are only two approved exceptions:
 
 1. Live dragging may update the worker cache and trigger instant editing recompilation before the final patch-funnel commit lands. The drag interaction must still commit through the patch system when the gesture is finalized.

@@ -2666,10 +2666,8 @@ function recordAndMarkDirty(
     if (bridge) {
         const path = modelObj.getPath();
         bridge.recordChange(path, prop, oldVal, newVal);
-        maybeRecomputeMetricsKeysForModelObject(modelObj, prop);
         return;
     }
-    maybeRecomputeMetricsKeysForModelObject(modelObj, prop);
     markFontDirty();
 }
 
@@ -2692,10 +2690,8 @@ function recordPathChangeAndMarkDirty(
             oldVal,
             newVal
         );
-        maybeRecomputeMetricsKeysForPath(path);
         return;
     }
-    maybeRecomputeMetricsKeysForPath(path);
     markFontDirty();
 }
 
@@ -2712,10 +2708,8 @@ function recordAddAndMarkDirty(
     const bridge = getPatchSyncEngine();
     if (bridge) {
         bridge.recordAdd(path, cloneForHistory(value));
-        maybeRecomputeMetricsKeysForPath(path);
         return;
     }
-    maybeRecomputeMetricsKeysForPath(path);
     markFontDirty();
 }
 
@@ -2732,83 +2726,9 @@ function recordRemoveAndMarkDirty(
     const bridge = getPatchSyncEngine();
     if (bridge) {
         bridge.recordRemove(path, cloneForHistory(oldValue));
-        maybeRecomputeMetricsKeysForPath(path);
         return;
     }
-    maybeRecomputeMetricsKeysForPath(path);
     markFontDirty();
-}
-
-function shouldRecomputeMetricsKeysForPath(path: (string | number)[]): boolean {
-    return path.includes('shapes');
-}
-
-function recomputeMetricsKeysForGlyph(
-    font: Font | null,
-    glyphName: string | null
-): void {
-    if (!font || !glyphName) {
-        return;
-    }
-
-    font.recomputeMetricsKeys(new Set([glyphName]));
-}
-
-function maybeRecomputeMetricsKeysForModelObject(
-    modelObj: ModelBase,
-    prop: string
-): void {
-    if (suppressMetricsKeyRecomputeDepth > 0) {
-        return;
-    }
-
-    const path = [...modelObj.getPath(), prop];
-    if (!shouldRecomputeMetricsKeysForPath(path)) {
-        return;
-    }
-
-    let current: unknown = modelObj;
-    while (current) {
-        if (current instanceof Layer) {
-            const glyph = current.parent() as Glyph | null;
-            const font = glyph?.parent() as Font | null;
-            recomputeMetricsKeysForGlyph(font, glyph?.name || null);
-            return;
-        }
-
-        if (!(current instanceof ModelBase)) {
-            return;
-        }
-
-        current = current.parent();
-    }
-}
-
-function maybeRecomputeMetricsKeysForPath(path: (string | number)[]): void {
-    if (suppressMetricsKeyRecomputeDepth > 0) {
-        return;
-    }
-
-    if (!shouldRecomputeMetricsKeysForPath(path)) {
-        return;
-    }
-
-    const glyphIndex = path.indexOf('glyphs');
-    if (glyphIndex === -1 || glyphIndex + 1 >= path.length) {
-        return;
-    }
-
-    const glyphName = path[glyphIndex + 1];
-    if (typeof glyphName !== 'string') {
-        return;
-    }
-
-    if (typeof window === 'undefined') {
-        return;
-    }
-
-    const font = (window as Unsafe).currentFontModel as Font | undefined;
-    recomputeMetricsKeysForGlyph(font || null, glyphName);
 }
 
 function withBridgeTransaction<T>(label: string, fn: () => T): T {

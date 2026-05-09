@@ -1,8 +1,10 @@
 const {
     handleRemoteChangeRefresh,
-    syncRustCacheAndRefreshCanvas
+    syncRustCacheAndRefreshCanvas,
+    buildCascadingRecompositionOperations
 } = require('../js/change-bridge-init');
 const { fontCompilation } = require('../js/font-compilation');
+const { PatchSyncEngine: ChangeBridge } = require('../js/patch-sync-engine');
 
 describe('handleRemoteChangeRefresh', () => {
     test('requests remote compile only after cache refresh resolves', async () => {
@@ -239,6 +241,351 @@ describe('handleRemoteChangeRefresh', () => {
 
             expect(glyphCanvas.viewportManager.panX).toBe(beforePanX);
         });
+    });
+});
+
+describe('buildCascadingRecompositionOperations', () => {
+    const originalFontManager = window.fontManager;
+    const originalCurrentFontModel = window.currentFontModel;
+
+    afterEach(() => {
+        window.fontManager = originalFontManager;
+        window.currentFontModel = originalCurrentFontModel;
+    });
+
+    function makeBridgeFont() {
+        return {
+            glyphs: [
+                {
+                    name: 'A',
+                    layers: [
+                        {
+                            id: 'layer-1',
+                            width: 600,
+                            anchors: [{ name: 'top', x: 100, y: 700 }],
+                            shapes: []
+                        }
+                    ]
+                },
+                {
+                    name: 'B',
+                    layers: [
+                        {
+                            id: 'layer-2',
+                            width: 650,
+                            anchors: [],
+                            shapes: []
+                        }
+                    ]
+                }
+            ]
+        };
+    }
+
+    test('creates derived layer operations for width-triggered cascade changes', () => {
+        const fontJson = makeBridgeFont();
+        const bridge = new ChangeBridge('cascade-test');
+        bridge.initFromJson(fontJson);
+
+        fontJson.glyphs[0].layers[0].width = 700;
+
+        const sourceLayer = {
+            id: 'layer-1',
+            getMatchingLayerOnGlyph: jest.fn((glyphName) =>
+                glyphName === 'B' ? { id: 'layer-2' } : null
+            )
+        };
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    findGlyph: jest.fn((glyphName) => {
+                        if (glyphName === 'A') {
+                            return {
+                                findLayerById: jest.fn((layerId) =>
+                                    layerId === 'layer-1' ? sourceLayer : null
+                                )
+                            };
+                        }
+
+                        if (glyphName === 'B') {
+                            return {
+                                findLayerById: jest.fn((layerId) =>
+                                    layerId === 'layer-2'
+                                        ? { id: 'layer-2' }
+                                        : null
+                                )
+                            };
+                        }
+
+                        return null;
+                    }),
+                    rebuildAutomaticCompositesForGlyphs: jest.fn(() => {
+                        fontJson.glyphs[1].layers[0].width = 710;
+                        return new Set(['B']);
+                    }),
+                    recomputeMetricsKeys: jest.fn(() => new Set())
+                }
+            }
+        };
+
+        const operations = buildCascadingRecompositionOperations(bridge, [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 700
+            }
+        ]);
+
+        expect(operations).toEqual([
+            expect.objectContaining({
+                op: 'set',
+                path: ['glyphs', 'B', 'layers', 'layer-2'],
+                oldValue: expect.objectContaining({ width: 650 }),
+                newValue: expect.objectContaining({
+                    id: 'layer-2',
+                    width: 710
+                }),
+                applyMode: 'layer-snapshot',
+                workerReplayTargets: [
+                    {
+                        glyphName: 'B',
+                        layerId: 'layer-2'
+                    }
+                ]
+            })
+        ]);
+    });
+
+    test('emits null tombstones when cascade recomposition removes layer fields', () => {
+        const fontJson = makeBridgeFont();
+        fontJson.glyphs[1].layers[0].format_specific = { legacy: true };
+        const bridge = new ChangeBridge('cascade-test');
+        bridge.initFromJson(fontJson);
+
+        fontJson.glyphs[0].layers[0].width = 700;
+
+        const sourceLayer = {
+            id: 'layer-1',
+            getMatchingLayerOnGlyph: jest.fn((glyphName) =>
+                glyphName === 'B' ? { id: 'layer-2' } : null
+            )
+        };
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    findGlyph: jest.fn((glyphName) => {
+                        if (glyphName === 'A') {
+                            return {
+                                findLayerById: jest.fn((layerId) =>
+                                    layerId === 'layer-1' ? sourceLayer : null
+                                )
+                            };
+                        }
+
+                        if (glyphName === 'B') {
+                            return {
+                                findLayerById: jest.fn((layerId) =>
+                                    layerId === 'layer-2'
+                                        ? { id: 'layer-2' }
+                                        : null
+                                )
+                            };
+                        }
+
+                        return null;
+                    }),
+                    rebuildAutomaticCompositesForGlyphs: jest.fn(() => {
+                        delete fontJson.glyphs[1].layers[0].format_specific;
+                        return new Set(['B']);
+                    }),
+                    recomputeMetricsKeys: jest.fn(() => new Set())
+                }
+            }
+        };
+
+        const operations = buildCascadingRecompositionOperations(bridge, [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 700
+            }
+        ]);
+
+        expect(operations[0].newValue).toEqual(
+            expect.objectContaining({
+                id: 'layer-2',
+                format_specific: null
+            })
+        );
+        expect(operations[0].oldValue).toEqual(
+            expect.objectContaining({
+                format_specific: { legacy: true }
+            })
+        );
+    });
+
+    test('captures additional source-layer recomposition beyond the direct edit', () => {
+        const fontJson = makeBridgeFont();
+        const bridge = new ChangeBridge('cascade-test');
+        bridge.initFromJson(fontJson);
+
+        fontJson.glyphs[0].layers[0].width = 700;
+
+        const sourceLayer = {
+            id: 'layer-1',
+            getMatchingLayerOnGlyph: jest.fn(() => null)
+        };
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    findGlyph: jest.fn((glyphName) => {
+                        if (glyphName === 'A') {
+                            return {
+                                findLayerById: jest.fn((layerId) =>
+                                    layerId === 'layer-1' ? sourceLayer : null
+                                )
+                            };
+                        }
+
+                        return null;
+                    }),
+                    rebuildAutomaticCompositesForGlyphs: jest.fn(
+                        () => new Set()
+                    ),
+                    recomputeMetricsKeys: jest.fn(() => {
+                        fontJson.glyphs[0].layers[0].anchors = [];
+                        return new Set(['A']);
+                    })
+                }
+            }
+        };
+
+        const operations = buildCascadingRecompositionOperations(bridge, [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 700
+            }
+        ]);
+
+        expect(operations).toEqual([
+            expect.objectContaining({
+                path: ['glyphs', 'A', 'layers', 'layer-1'],
+                oldValue: expect.objectContaining({
+                    width: 700,
+                    anchors: [{ name: 'top', x: 100, y: 700 }]
+                }),
+                newValue: expect.objectContaining({
+                    id: 'layer-1',
+                    anchors: []
+                })
+            })
+        ]);
+    });
+
+    test('uses array semantics for direct anchor removals when computing source-layer cascade deltas', () => {
+        const fontJson = makeBridgeFont();
+        fontJson.glyphs[0].layers[0].anchors.push({
+            name: 'bottom',
+            x: 100,
+            y: 0
+        });
+        const bridge = new ChangeBridge('cascade-test');
+        bridge.initFromJson(fontJson);
+
+        fontJson.glyphs[0].layers[0].anchors = [];
+
+        const sourceLayer = {
+            id: 'layer-1',
+            getMatchingLayerOnGlyph: jest.fn(() => null)
+        };
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    findGlyph: jest.fn((glyphName) => {
+                        if (glyphName === 'A') {
+                            return {
+                                findLayerById: jest.fn((layerId) =>
+                                    layerId === 'layer-1' ? sourceLayer : null
+                                )
+                            };
+                        }
+
+                        return null;
+                    }),
+                    rebuildAutomaticCompositesForGlyphs: jest.fn(
+                        () => new Set()
+                    ),
+                    recomputeMetricsKeys: jest.fn(() => new Set(['A']))
+                }
+            }
+        };
+
+        const operations = buildCascadingRecompositionOperations(bridge, [
+            {
+                op: 'remove',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'anchors', 0],
+                oldValue: { name: 'top', x: 100, y: 700 },
+                newValue: undefined
+            }
+        ]);
+
+        expect(operations).toEqual([
+            expect.objectContaining({
+                path: ['glyphs', 'A', 'layers', 'layer-1'],
+                oldValue: expect.objectContaining({
+                    anchors: [{ name: 'bottom', x: 100, y: 0 }]
+                }),
+                newValue: expect.objectContaining({
+                    id: 'layer-1',
+                    anchors: []
+                })
+            })
+        ]);
+    });
+
+    test('ignores node-only edits that do not touch width or anchors', () => {
+        const fontJson = makeBridgeFont();
+        const bridge = new ChangeBridge('cascade-test');
+        bridge.initFromJson(fontJson);
+
+        window.fontManager = {
+            currentFont: {
+                fontModel: {
+                    rebuildAutomaticCompositesForGlyphs: jest.fn(),
+                    recomputeMetricsKeys: jest.fn()
+                }
+            }
+        };
+
+        const operations = buildCascadingRecompositionOperations(bridge, [
+            {
+                op: 'set',
+                path: [
+                    'glyphs',
+                    'A',
+                    'layers',
+                    'layer-1',
+                    'shapes',
+                    0,
+                    'nodes'
+                ],
+                oldValue: [{ x: 0, y: 0 }],
+                newValue: [{ x: 10, y: 0 }]
+            }
+        ]);
+
+        expect(operations).toEqual([]);
+        expect(
+            window.fontManager.currentFont.fontModel
+                .rebuildAutomaticCompositesForGlyphs
+        ).not.toHaveBeenCalled();
+        expect(
+            window.fontManager.currentFont.fontModel.recomputeMetricsKeys
+        ).not.toHaveBeenCalled();
     });
 });
 

@@ -14,6 +14,7 @@ import {
     type JsonPatchOperation,
     type MutationPatchPair
 } from './mutation-batch';
+import type { TransactionCommitResult } from './patch-sync-engine';
 
 const console = new Logger('PythonPostExecution');
 
@@ -104,47 +105,6 @@ function normalizeWorkerReplayTargets(
         });
     }
     return Array.from(dedupedTargets.values());
-}
-
-function recomputePythonCascadeDependents(
-    sourceTargets: WorkerReplayTarget[]
-): void {
-    if (!sourceTargets.length) {
-        return;
-    }
-
-    const currentFont = window.fontManager?.currentFont;
-    const fontModel = currentFont?.fontModel;
-    if (!fontModel) {
-        return;
-    }
-
-    const changedGlyphNames = new Set(
-        sourceTargets
-            .map((target) => target.glyphName)
-            .filter((glyphName): glyphName is string => !!glyphName)
-    );
-    if (!changedGlyphNames.size) {
-        return;
-    }
-
-    const recompute = () => {
-        if (
-            typeof fontModel.rebuildAutomaticCompositesForGlyphs === 'function'
-        ) {
-            fontModel.rebuildAutomaticCompositesForGlyphs(changedGlyphNames);
-        }
-        if (typeof fontModel.recomputeMetricsKeys === 'function') {
-            fontModel.recomputeMetricsKeys(changedGlyphNames);
-        }
-    };
-
-    if (typeof window.patchSyncEngine?.runWithoutRecording === 'function') {
-        window.patchSyncEngine.runWithoutRecording(recompute);
-        return;
-    }
-
-    recompute();
 }
 
 function diffFontDataToJsonPatchPairs(
@@ -327,7 +287,7 @@ function createNamedPatchPairsFromJsonSnapshots(
 }
 
 async function syncRustAndRecompileEditingFont(
-    operations: SyntheticChangeOperation[],
+    commitResult: TransactionCommitResult | null,
     changedTargets: WorkerReplayTarget[]
 ): Promise<void> {
     if (postExecutionSyncInProgress) {
@@ -347,9 +307,11 @@ async function syncRustAndRecompileEditingFont(
             }
 
             const layerScopedOnly =
-                operations.length > 0 &&
-                operations.every((operation) =>
-                    isLayerScopedOperation(operation)
+                !!commitResult?.changeLogEntries.length &&
+                commitResult.changeLogEntries.every(
+                    (entry) =>
+                        normalizeWorkerReplayTargets(entry.workerReplayTargets)
+                            .length > 0
                 );
 
             if (fontCompilation?.isInitialized) {
@@ -444,7 +406,7 @@ function setupHooks() {
                         beforeSnapshot,
                         firstAfterSnapshot
                     );
-                    const initialOperations =
+                    const directOperations =
                         createSyntheticChangeOperationsFromPatchPairs(
                             initialPatchPairs.map((patchPair) =>
                                 createNamedPatchPairFromJsonPatchPair(
@@ -463,70 +425,30 @@ function setupHooks() {
                                 )
                             )
                         );
-
-                    const initialChangedTargets =
-                        deriveChangedLayerTargets(initialOperations);
-                    if (initialChangedTargets.length) {
-                        recomputePythonCascadeDependents(initialChangedTargets);
-                        currentFont.syncJsonFromModel();
-                    }
-
-                    const afterSnapshot = JSON.parse(
-                        currentFont.babelfontJson
-                    ) as Record<string, unknown>;
-                    const provisionalPatchPairs = diffFontDataToJsonPatchPairs(
-                        beforeSnapshot,
-                        afterSnapshot
-                    );
-                    const provisionalOperations =
-                        createSyntheticChangeOperationsFromPatchPairs(
-                            provisionalPatchPairs.map((patchPair) =>
-                                createNamedPatchPairFromJsonPatchPair(
-                                    patchPair.forward,
-                                    patchPair.inverse,
-                                    {
-                                        forwardSnapshot:
-                                            patchPair.forward.op === 'remove'
-                                                ? beforeSnapshot
-                                                : afterSnapshot,
-                                        inverseSnapshot:
-                                            patchPair.inverse.op === 'remove'
-                                                ? afterSnapshot
-                                                : beforeSnapshot
-                                    }
-                                )
-                            )
-                        );
-                    const changedTargets = normalizeWorkerReplayTargets(
-                        deriveChangedLayerTargets(provisionalOperations)
-                    );
-                    const namedPatchPairs =
-                        createNamedPatchPairsFromJsonSnapshots(
-                            beforeSnapshot,
-                            afterSnapshot,
-                            changedTargets
-                        );
-                    const operations =
-                        createSyntheticChangeOperationsFromPatchPairs(
-                            namedPatchPairs,
-                            changedTargets
-                        );
+                    let commitResult: TransactionCommitResult | null = null;
 
                     window.patchSyncEngine.setRecordingSuppressed(false);
-                    if (operations.length) {
+                    if (directOperations.length) {
                         window.patchSyncEngine.applySyntheticChangeSet(
                             window.pythonExecutionHistoryContext?.label ??
                                 'Python script',
-                            operations
+                            directOperations
                         );
-
-                        await syncRustAndRecompileEditingFont(
-                            operations,
-                            changedTargets
-                        );
-                    } else {
-                        await syncRustAndRecompileEditingFont([], []);
                     }
+
+                    commitResult = window.patchSyncEngine.endTransaction();
+                    currentFont.syncJsonFromModel();
+
+                    const changedTargets = normalizeWorkerReplayTargets(
+                        commitResult?.workerReplayTargets?.length
+                            ? commitResult.workerReplayTargets
+                            : deriveChangedLayerTargets(directOperations)
+                    );
+
+                    await syncRustAndRecompileEditingFont(
+                        commitResult,
+                        changedTargets
+                    );
 
                     // Refresh canvas to pick up changes if in edit mode
                     // After syncJsonFromModel, nodes arrays have been converted to strings,
@@ -537,7 +459,7 @@ function setupHooks() {
                         window.glyphCanvas.render();
                     }
                 } else {
-                    await syncRustAndRecompileEditingFont([], []);
+                    await syncRustAndRecompileEditingFont(null, []);
                 }
             }
         } finally {

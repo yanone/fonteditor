@@ -2106,6 +2106,75 @@ describe('ChangeBridge', () => {
         ]);
     });
 
+    test('transaction finalizer appends derived operations before mutation packaging', () => {
+        const { bridge } = createTestBridge('test-1');
+        const finalizer = jest.fn(() => [
+            {
+                op: 'set',
+                path: ['glyphs', 'B', 'layers', 'layer-2', 'width'],
+                oldValue: 650,
+                newValue: 690,
+                workerReplayTargets: [
+                    {
+                        glyphName: 'B',
+                        layerId: 'layer-2'
+                    }
+                ]
+            }
+        ]);
+        const localUpdates = [];
+        bridge.setTransactionFinalizer(finalizer);
+        bridge.onLocalUpdate((_update, envelope) => {
+            localUpdates.push(envelope);
+        });
+
+        bridge.beginTransaction('Python script');
+        bridge.applySyntheticChangeSet('Python script', [
+            {
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 700
+            }
+        ]);
+        const commitResult = bridge.endTransaction();
+
+        expect(finalizer).toHaveBeenCalledTimes(1);
+        expect(commitResult.workerReplayTargets).toEqual([
+            {
+                glyphName: 'A',
+                layerId: 'layer-1'
+            },
+            {
+                glyphName: 'B',
+                layerId: 'layer-2'
+            }
+        ]);
+
+        const log = bridge.getChangeLog();
+        expect(log.map((entry) => entry.path)).toEqual([
+            'glyphs.A:layers.layer-1:width',
+            'glyphs.B:layers.layer-2:width'
+        ]);
+
+        expect(localUpdates).toHaveLength(1);
+        expect(localUpdates[0].patches).toHaveLength(2);
+        expect(localUpdates[0].patches[1]).toEqual(
+            expect.objectContaining({
+                forward: {
+                    op: 'replace',
+                    path: 'glyphs.B:layers.layer-2:width',
+                    value: 690
+                },
+                inverse: {
+                    op: 'replace',
+                    path: 'glyphs.B:layers.layer-2:width',
+                    value: 650
+                }
+            })
+        );
+    });
+
     test('change log is suppressed during initFromJson', () => {
         const { bridge } = createTestBridge('test-1');
         // initFromJson should not produce log entries

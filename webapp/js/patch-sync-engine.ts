@@ -70,14 +70,31 @@ type SyntheticChangeOperation = {
     workerReplayTargets?: WorkerReplayTarget[];
 };
 
-type BatchApplyMode = 'default' | 'glyph-snapshot' | 'layer-snapshot';
+export type BatchApplyMode = 'default' | 'glyph-snapshot' | 'layer-snapshot';
 
-type BufferedChangeOperation = SyntheticChangeOperation & {
+export type TransactionBufferedOperation = SyntheticChangeOperation & {
     applyPath?: (string | number)[];
     applyOldValue?: unknown;
     applyNewValue?: unknown;
     applyMode?: BatchApplyMode;
 };
+
+export type TransactionCommitResult = {
+    changeLogEntries: ChangeLogEntry[];
+    workerReplayTargets: WorkerReplayTarget[];
+    changedGlyphNames: string[];
+    changedLayerIds: string[];
+};
+
+type TransactionFinalizer = (
+    operations: TransactionBufferedOperation[],
+    context: {
+        label: string | null;
+        transactionId: number | null;
+        historyItemId: string | null;
+        historyTarget: TransactionHistoryTarget | null;
+    }
+) => TransactionBufferedOperation[] | null | undefined;
 
 /**
  * Origin token used by Yjs transactions that represent same-user edits.
@@ -270,7 +287,7 @@ export class PatchSyncEngine {
     /** Optional explicit history target for the current transaction */
     private _txHistoryTarget: TransactionHistoryTarget | null = null;
     /** Buffered operations for the current outermost transaction */
-    private _txBufferedOperations: BufferedChangeOperation[] = [];
+    private _txBufferedOperations: TransactionBufferedOperation[] = [];
     /** Flag: currently applying remote update (suppress outbound broadcast) */
     private _isApplyingRemote = false;
     /** Flag: suppress Y.Doc sync (during initFromJson) */
@@ -300,6 +317,8 @@ export class PatchSyncEngine {
     private _changeLogListeners = new Set<
         (entries: ChangeLogEntry[]) => void
     >();
+    /** Optional callback that can append derived operations before commit */
+    private _transactionFinalizer: TransactionFinalizer | null = null;
 
     /**
      * Fast deep equality that is deterministic about object key order
@@ -596,6 +615,10 @@ export class PatchSyncEngine {
         this._onAfterSync = cb;
     }
 
+    setTransactionFinalizer(cb: TransactionFinalizer | null): void {
+        this._transactionFinalizer = cb;
+    }
+
     /** Clean up resources. */
     destroy(): void {
         for (const entry of this._layerUndoManagers.values()) {
@@ -617,6 +640,7 @@ export class PatchSyncEngine {
         this._onDirty = null;
         this._onAfterSync = null;
         this._changeLogListeners.clear();
+        this._transactionFinalizer = null;
     }
 
     onChangeLogUpdate(cb: (entries: ChangeLogEntry[]) => void): () => void {
@@ -741,12 +765,13 @@ export class PatchSyncEngine {
     /**
      * End the current batch transaction.
      */
-    endTransaction(): void {
-        if (this._txDepth <= 0) return;
+    endTransaction(): TransactionCommitResult | null {
+        if (this._txDepth <= 0) return null;
         this._txDepth--;
+        let commitResult: TransactionCommitResult | null = null;
         if (this._txDepth === 0) {
             if (this._txBufferedOperations.length) {
-                this._commitOperations(
+                commitResult = this._commitOperations(
                     this._txBufferedOperations,
                     this._txLabel,
                     this._txId,
@@ -760,6 +785,7 @@ export class PatchSyncEngine {
             this._txHistoryItemId = null;
             this._txHistoryTarget = null;
         }
+        return commitResult;
     }
 
     /** Whether a transaction is currently open. */
@@ -2067,43 +2093,38 @@ export class PatchSyncEngine {
     }
 
     private _queueOrCommitOperations(
-        operations: BufferedChangeOperation[],
+        operations: TransactionBufferedOperation[],
         label?: string | null
-    ): void {
+    ): TransactionCommitResult | null {
         const normalizedOperations = operations
             .filter((operation) => operation.path.length > 0)
             .map((operation) => this._normalizeBufferedOperation(operation));
         if (!normalizedOperations.length) {
-            return;
+            return null;
         }
 
         if (this._txDepth > 0) {
             // Clone values before buffering — the model may mutate while the
             // transaction is still open.
             this._txBufferedOperations.push(
-                ...normalizedOperations.map((op) => ({
-                    ...op,
-                    oldValue: cloneHistoryValue(op.oldValue),
-                    newValue: cloneHistoryValue(op.newValue),
-                    applyOldValue:
-                        op.applyOldValue === undefined
-                            ? undefined
-                            : cloneHistoryValue(op.applyOldValue),
-                    applyNewValue:
-                        op.applyNewValue === undefined
-                            ? undefined
-                            : cloneHistoryValue(op.applyNewValue)
-                }))
+                ...normalizedOperations.map((op) =>
+                    this._cloneBufferedOperation(op)
+                )
             );
-            return;
+            return null;
         }
 
-        this._commitOperations(normalizedOperations, label ?? null, null, null);
+        return this._commitOperations(
+            normalizedOperations,
+            label ?? null,
+            null,
+            null
+        );
     }
 
     private _normalizeBufferedOperation(
-        operation: BufferedChangeOperation
-    ): BufferedChangeOperation {
+        operation: TransactionBufferedOperation
+    ): TransactionBufferedOperation {
         return {
             op: operation.op,
             path: [...operation.path],
@@ -2122,18 +2143,67 @@ export class PatchSyncEngine {
         };
     }
 
+    private _cloneBufferedOperation(
+        operation: TransactionBufferedOperation
+    ): TransactionBufferedOperation {
+        return {
+            ...operation,
+            path: [...operation.path],
+            oldValue: cloneHistoryValue(operation.oldValue),
+            newValue: cloneHistoryValue(operation.newValue),
+            workerReplayTargets: normalizeWorkerReplayTargets(
+                operation.workerReplayTargets
+            ),
+            applyPath: operation.applyPath
+                ? [...operation.applyPath]
+                : undefined,
+            applyOldValue:
+                operation.applyOldValue === undefined
+                    ? undefined
+                    : cloneHistoryValue(operation.applyOldValue),
+            applyNewValue:
+                operation.applyNewValue === undefined
+                    ? undefined
+                    : cloneHistoryValue(operation.applyNewValue),
+            applyMode: operation.applyMode ?? 'default'
+        };
+    }
+
     private _commitOperations(
-        operations: BufferedChangeOperation[],
+        operations: TransactionBufferedOperation[],
         label: string | null,
         transactionId: number | null,
         historyItemId?: string | null,
         historyTarget?: TransactionHistoryTarget | null
-    ): void {
+    ): TransactionCommitResult | null {
         const normalizedOperations = operations.filter(
             (operation) => operation.path.length > 0
         );
         if (!normalizedOperations.length) {
-            return;
+            return null;
+        }
+
+        let finalizedOperations = normalizedOperations;
+        if (this._transactionFinalizer) {
+            const derivedOperations = this._transactionFinalizer(
+                normalizedOperations.map((operation) =>
+                    this._cloneBufferedOperation(operation)
+                ),
+                {
+                    label,
+                    transactionId,
+                    historyItemId: historyItemId ?? this._txHistoryItemId,
+                    historyTarget: historyTarget ?? this._txHistoryTarget
+                }
+            );
+            if (derivedOperations?.length) {
+                finalizedOperations = [
+                    ...normalizedOperations,
+                    ...derivedOperations.map((operation) =>
+                        this._normalizeBufferedOperation(operation)
+                    )
+                ];
+            }
         }
 
         // Snapshot-mode operations carry a full layer/glyph object and are
@@ -2141,13 +2211,13 @@ export class PatchSyncEngine {
         // property changes (e.g. feature code edits) may be no-ops and still
         // need the reduction to filter them out.
         const effectiveOperations =
-            normalizedOperations.length === 1 &&
-            (normalizedOperations[0].applyMode === 'layer-snapshot' ||
-                normalizedOperations[0].applyMode === 'glyph-snapshot')
-                ? normalizedOperations
-                : this._reduceToNetChangingOperations(normalizedOperations);
+            finalizedOperations.length === 1 &&
+            (finalizedOperations[0].applyMode === 'layer-snapshot' ||
+                finalizedOperations[0].applyMode === 'glyph-snapshot')
+                ? finalizedOperations
+                : this._reduceToNetChangingOperations(finalizedOperations);
         if (!effectiveOperations.length) {
-            return;
+            return null;
         }
 
         const scopeInfo = this._deriveBufferedScope(effectiveOperations);
@@ -2220,10 +2290,35 @@ export class PatchSyncEngine {
                 `[PatchSyncEngine] Change recorded: ${joinPathWithGlyphSeparator(effectiveOperations[0].path)}`
             );
         }
+
+        return {
+            changeLogEntries,
+            workerReplayTargets: normalizeWorkerReplayTargets(
+                changeLogEntries.flatMap((entry) => entry.workerReplayTargets)
+            ),
+            changedGlyphNames: [
+                ...new Set(
+                    changeLogEntries
+                        .map((entry) => deriveGlyphNameFromPath(entry.path))
+                        .filter((glyphName): glyphName is string =>
+                            Boolean(glyphName)
+                        )
+                )
+            ],
+            changedLayerIds: [
+                ...new Set(
+                    changeLogEntries
+                        .map((entry) => deriveLayerIdFromPath(entry.path))
+                        .filter((layerId): layerId is string =>
+                            Boolean(layerId)
+                        )
+                )
+            ]
+        };
     }
 
     private _deriveWorkerReplayTargets(
-        operation: BufferedChangeOperation
+        operation: TransactionBufferedOperation
     ): WorkerReplayTarget[] {
         const explicitTargets = normalizeWorkerReplayTargets(
             operation.workerReplayTargets
@@ -2276,8 +2371,8 @@ export class PatchSyncEngine {
     }
 
     private _reduceToNetChangingOperations(
-        operations: BufferedChangeOperation[]
-    ): BufferedChangeOperation[] {
+        operations: TransactionBufferedOperation[]
+    ): TransactionBufferedOperation[] {
         const byApplyPath = new Map<
             string,
             {
@@ -2335,7 +2430,9 @@ export class PatchSyncEngine {
         });
     }
 
-    private _applyBufferedOperation(operation: BufferedChangeOperation): void {
+    private _applyBufferedOperation(
+        operation: TransactionBufferedOperation
+    ): void {
         const applyPath = this._toYDocPath(
             operation.applyPath ?? operation.path
         );
@@ -2376,7 +2473,7 @@ export class PatchSyncEngine {
         setYPath(this.fontMap, applyPath, applyValue);
     }
 
-    private _deriveBufferedScope(operations: BufferedChangeOperation[]): {
+    private _deriveBufferedScope(operations: TransactionBufferedOperation[]): {
         scope: UndoScope;
         origin: string;
         glyphName: string | null;
