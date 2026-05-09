@@ -4077,11 +4077,12 @@ describe('syncGlyphFromJson', () => {
         ).toBe(600);
     });
 
-    test('layer snapshot with no valid width source fails instead of synthesizing zero', () => {
+    test('sparse layer delta without width leaves existing width alone (no throw)', () => {
         const { bridge } = createTestBridge('test-1');
         const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
         deleteYPath(bridge.fontMap, [...layerPath, 'width']);
 
+        // Sparse delta: only anchors changed, width absent means "don't touch."
         expect(() =>
             bridge._applyBufferedOperation({
                 op: 'set',
@@ -4090,17 +4091,20 @@ describe('syncGlyphFromJson', () => {
                 newValue: { anchors: [{ name: 'top', x: 100, y: 700 }] },
                 applyMode: 'layer-snapshot'
             })
-        ).toThrow(/invalid width/);
+        ).not.toThrow();
 
+        // Width is still absent — the Y.Doc was already corrupted.
         expect(
             getYPath(bridge.fontMap, [...layerPath, 'width'])
         ).toBeUndefined();
     });
 
-    test('layer snapshot with explicit invalid width fails even when an existing width is valid', () => {
+    test('sparse layer delta with null width preserves existing valid width', () => {
         const { bridge } = createTestBridge('test-1');
         const layerPath = ['glyphs', 'A', 'layers', 'layer-1'];
 
+        // Delta with width=null is invalid — the receiver silently
+        // drops the invalid width and preserves the existing valid width.
         expect(() =>
             bridge._applyBufferedOperation({
                 op: 'set',
@@ -4109,7 +4113,7 @@ describe('syncGlyphFromJson', () => {
                 newValue: { width: null, anchors: [] },
                 applyMode: 'layer-snapshot'
             })
-        ).toThrow(/invalid width/);
+        ).not.toThrow();
 
         expect(getYPath(bridge.fontMap, [...layerPath, 'width'])).toBe(600);
     });
@@ -6125,6 +6129,7 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
         const sync = new WindowSync(bridge, 'font-channel-undo-inc');
 
         // Make a layer-scoped change so we have something to undo
+        fontJson.glyphs[0].layers[0].width = 700;
         bridge.syncGlyphFromJson('A', 'Drag', undefined, undefined, 'layer-1');
         flushTimers();
 

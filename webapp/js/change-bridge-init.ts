@@ -640,6 +640,87 @@ function collectUndoRedoWorkerReplayTargets(
     return normalizeWorkerReplayTargets(derivedTargets);
 }
 
+/**
+ * Derive cascading recomposition targets from the directly edited layers.
+ *
+ * For each (glyphName, layerId) source pair, discovers glyphs that depend
+ * on it as a component reference, then finds the matching layer (same master)
+ * on each dependent glyph. Returns all targets that need recomposition.
+ *
+ * The derivation works generically for any edit source — GUI glyph edits
+ * (outline, anchor, sidebearing), Python scripts, or undo/redo.
+ */
+export function collectCascadeRecomposeTargets(
+    sourceTargets: WorkerReplayTarget[],
+    sourceGlyphName?: string | null,
+    sourceLayerId?: string | null
+): WorkerReplayTarget[] {
+    const fontModel =
+        window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
+    if (!fontModel || !sourceTargets.length) {
+        return [];
+    }
+
+    const sourceLayer = sourceGlyphName
+        ? fontModel
+              .findGlyph(sourceGlyphName)
+              ?.findLayerById(sourceLayerId ?? '')
+        : null;
+
+    // Union: directly edited layers + dependent component glyphs
+    const allGlyphNames = new Set<string>();
+    for (const target of sourceTargets) {
+        allGlyphNames.add(target.glyphName);
+    }
+
+    // BFS: find glyphs that use source glyphs as components
+    if (typeof fontModel.findGlyphsUsingComponent === 'function') {
+        const queue = [...allGlyphNames];
+        while (queue.length) {
+            const glyphName = queue.shift()!;
+            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
+                glyphName
+            )) {
+                if (!allGlyphNames.has(dependentGlyphName)) {
+                    allGlyphNames.add(dependentGlyphName);
+                    queue.push(dependentGlyphName);
+                }
+            }
+        }
+    }
+
+    // For each affected glyph, find the matching layer (same master)
+    const recomposeTargets: WorkerReplayTarget[] = [];
+    for (const glyphName of allGlyphNames) {
+        // Skip glyphs already in source targets (already handled directly)
+        const alreadySource = sourceTargets.some(
+            (t) => t.glyphName === glyphName
+        );
+        if (alreadySource) continue;
+
+        const glyph = fontModel.findGlyph(glyphName);
+        if (!glyph) continue;
+
+        // Try to find the matching layer by looking at source layer's master
+        let matchedLayer = null;
+        if (
+            sourceLayer?.id &&
+            typeof sourceLayer.getMatchingLayerOnGlyph === 'function'
+        ) {
+            matchedLayer = sourceLayer.getMatchingLayerOnGlyph(glyphName);
+        }
+
+        if (matchedLayer?.id) {
+            recomposeTargets.push({
+                glyphName,
+                layerId: matchedLayer.id
+            });
+        }
+    }
+
+    return normalizeWorkerReplayTargets(recomposeTargets);
+}
+
 function collectUndoRedoOverviewGlyphNames(
     historyItem: HistoryStackItem | null,
     glyphNames: Array<string | null | undefined>
@@ -1272,7 +1353,10 @@ function initializeBridge(detail: {
     // a MutationBatchEnvelope with forwardPatches, send them to the
     // Rust worker cache immediately so the compile has fresh data.
     bridge.onLocalUpdate(
-        (_update: Uint8Array, mutationBatchEnvelope?: MutationBatchEnvelope | null) => {
+        (
+            _update: Uint8Array,
+            mutationBatchEnvelope?: MutationBatchEnvelope | null
+        ) => {
             if (
                 mutationBatchEnvelope?.forwardPatches?.length &&
                 window.fontManager?.applyJsonPatchesToRust

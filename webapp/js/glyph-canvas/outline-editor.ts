@@ -11604,8 +11604,6 @@ export class OutlineEditor {
                             encodedPostDesc,
                             metricsKeySide,
                             anchorChangedLayerTargets ??
-                                sidebearingChangedLayerTargets,
-                            anchorChangedLayerTargets ??
                                 sidebearingChangedLayerTargets
                         );
                     }
@@ -15291,7 +15289,6 @@ export class OutlineEditor {
                 formatSidebearingHistoryValue(side, currentSidebearing),
                 formatSidebearingHistoryValue(side, targetValue),
                 side,
-                sidebearingChangedLayerTargets,
                 sidebearingChangedLayerTargets
             );
         } finally {
@@ -16409,7 +16406,6 @@ export class OutlineEditor {
                     preMoveDesc,
                     postMoveDesc,
                     visualAnchorSide,
-                    anchorReplayTargets ?? sidebearingReplayTargets,
                     anchorReplayTargets ?? sidebearingReplayTargets
                 );
                 return;
@@ -17127,16 +17123,17 @@ export class OutlineEditor {
      * Sync the current glyph's data from babelfontData into the Y.Doc.
      * Called after direct JSON mutations (drag, keyboard edits) that
      * bypass the babelfont-model setters.
-     * @param oldValue - Optional pre-change description for the undo log.
-     * @param newValue - Optional post-change description for the undo log.
+     *
+     * @param workerReplayTargets - Direct targets for the undo fast path.
+     *   Cascade recompose targets are derived automatically by the caller
+     *   via collectCascadeRecomposeTargets() and included here.
      */
     private _syncCurrentGlyphToYDoc(
         label: string,
         oldValue?: string,
         newValue?: string,
         visualAnchorSide?: SidebearingSide | null,
-        workerReplayTargets?: Array<{ glyphName: string; layerId: string }>,
-        changedLayerTargets?: Array<{ glyphName: string; layerId: string }>
+        workerReplayTargets?: Array<{ glyphName: string; layerId: string }>
     ): void {
         if (!window.patchSyncEngine) return;
         const parsed = this.parseGlyphStack();
@@ -17150,17 +17147,28 @@ export class OutlineEditor {
             return;
         }
 
+        // Build the full set of targets: directly edited layer + cascade targets.
+        const directTarget = activeLayerId
+            ? [{ glyphName: editedGlyphName, layerId: activeLayerId }]
+            : [];
+        const allTargets = normalizeWorkerReplayTargets([
+            ...directTarget,
+            ...(workerReplayTargets ?? [])
+        ]);
+
         if (
-            changedLayerTargets?.length &&
+            allTargets.length &&
             typeof window.patchSyncEngine.syncLayersFromJson === 'function'
         ) {
             window.patchSyncEngine.syncLayersFromJson(
-                changedLayerTargets,
+                allTargets,
                 label,
                 oldValue,
                 newValue,
                 visualAnchorSide,
-                workerReplayTargets
+                workerReplayTargets?.length
+                    ? workerReplayTargets
+                    : undefined
             );
             return;
         }
@@ -17172,7 +17180,7 @@ export class OutlineEditor {
             newValue,
             activeLayerId,
             visualAnchorSide,
-            workerReplayTargets
+            undefined
         );
     }
 

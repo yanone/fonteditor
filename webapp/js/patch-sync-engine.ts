@@ -862,7 +862,6 @@ export class PatchSyncEngine {
             layerSnapshot: unknown;
         }> = [];
 
-        let isFirstTarget = true;
         for (const { glyphName, layerId } of uniqueTargets) {
             const glyphJson = glyphs.find(
                 (g: Record<string, unknown>) => g.name === glyphName
@@ -900,39 +899,23 @@ export class PatchSyncEngine {
                 continue;
             }
 
-            // For the primary edited layer (first target), we know it changed.
-            // Skip the expensive _isDeepEqual defensive check, but keep
-            // fromYType so _normalizeLayerSnapshot can merge with existing
-            // Yjs data (preserving fields not present in layerJson).
-            if (isFirstTarget) {
-                isFirstTarget = false;
-                const yLayerJson = fromYType(yLayerMap);
-                const layerSnapshot = this._normalizeLayerSnapshot(
-                    layerId,
-                    layerJson,
-                    yLayerJson,
-                    true
-                );
-                targets.push({
-                    glyphName,
-                    layerId,
-                    previousLayerSnapshot: cloneHistoryValue(yLayerJson),
-                    layerSnapshot
-                });
-                continue;
+            // Build a sparse delta: diff _fontJson layer against current
+            // Y.Doc state. Only changed fields are included.
+            const yLayerJson = fromYType(yLayerMap);
+            const delta: Record<string, unknown> = { id: layerId };
+            let hasChanges = false;
+
+            for (const [key, value] of Object.entries(layerJson)) {
+                const oldValue = (
+                    yLayerJson as Record<string, unknown> | null
+                )?.[key];
+                if (this._isDeepEqual(value, oldValue)) continue;
+
+                delta[key] = value;
+                hasChanges = true;
             }
 
-            // For cascade / downstream layers, do the full defensive check
-            // because recomposition may or may not have touched them.
-            const yLayerJson = fromYType(yLayerMap);
-            const layerSnapshot = this._normalizeLayerSnapshot(
-                layerId,
-                layerJson,
-                yLayerJson,
-                true
-            );
-
-            if (this._isDeepEqual(yLayerJson, layerSnapshot)) {
+            if (!hasChanges) {
                 continue;
             }
 
@@ -940,7 +923,7 @@ export class PatchSyncEngine {
                 glyphName,
                 layerId,
                 previousLayerSnapshot: cloneHistoryValue(yLayerJson),
-                layerSnapshot
+                layerSnapshot: delta
             });
         }
 
@@ -952,11 +935,6 @@ export class PatchSyncEngine {
             targets.map((target) => ({
                 op: 'set' as ChangeOp,
                 path: ['glyphs', target.glyphName, 'layers', target.layerId],
-                // Multi-target layer batches can resolve to glyph/font-scoped
-                // undo, which replays history entries directly instead of
-                // relying on a single-layer UndoManager diff. Store concrete
-                // layer snapshots here so undo/redo can restore the primary
-                // edited layer, not just its human-readable label.
                 oldValue: cloneHistoryValue(target.previousLayerSnapshot),
                 newValue: cloneHistoryValue(target.layerSnapshot),
                 visualAnchorSide,
@@ -1190,18 +1168,28 @@ export class PatchSyncEngine {
         );
         if (!layerJson) return false;
 
-        // Reconstruct the current Yjs layer for merging (needed so that
-        // fields not present in layerJson are preserved). Skip the expensive
-        // _isDeepEqual check — the primary edited layer is known to have
-        // changed. Pass isExistingFresh=true so _normalizeLayerSnapshot
-        // does not re-clone the fresh fromYType output.
+        // Build a sparse delta: only include keys where _fontJson differs
+        // from the pre-edit Y.Doc state. This avoids transmitting unchanged
+        // fields and prevents receiver-side key stripping.
         const yLayerJson = fromYType(yLayerMap);
-        const layerSnapshot = this._normalizeLayerSnapshot(
-            layerId,
-            layerJson,
-            yLayerJson,
-            true
-        );
+        const delta: Record<string, unknown> = { id: layerId };
+        const oldValues: Record<string, unknown> = {};
+
+        for (const [key, value] of Object.entries(layerJson)) {
+            const oldValue = (yLayerJson as Record<string, unknown> | null)?.[
+                key
+            ];
+            if (this._isDeepEqual(value, oldValue)) continue;
+
+            delta[key] = value;
+            if (oldValue !== undefined) {
+                oldValues[key] = oldValue;
+            }
+        }
+
+        if (Object.keys(delta).length <= 1) {
+            return false;
+        }
 
         this._queueOrCommitOperations(
             [
@@ -1213,8 +1201,8 @@ export class PatchSyncEngine {
                     visualAnchorSide,
                     workerReplayTargets,
                     applyPath: ['glyphs', glyphName, 'layers', layerId],
-                    applyOldValue: yLayerJson,
-                    applyNewValue: layerSnapshot,
+                    applyOldValue: oldValues,
+                    applyNewValue: delta,
                     applyMode: 'layer-snapshot'
                 }
             ],
@@ -2373,7 +2361,7 @@ export class PatchSyncEngine {
             applyPath[0] === 'glyphs' &&
             applyPath[2] === 'layers'
         ) {
-            this._applyLayerSnapshot(
+            this._applyLayerDelta(
                 String(applyPath[1]),
                 String(applyPath[3]),
                 applyValue
@@ -2809,7 +2797,7 @@ export class PatchSyncEngine {
                     typeof path[3] === 'string' &&
                     replayValue !== undefined
                 ) {
-                    this._applyLayerSnapshot(path[1], path[3], replayValue);
+                    this._applyLayerDelta(path[1], path[3], replayValue);
                     continue;
                 }
                 if (direction === 'undo') {
@@ -3519,10 +3507,23 @@ export class PatchSyncEngine {
         return mergedLayerRecord;
     }
 
-    private _applyLayerSnapshot(
+    /**
+     * Apply a sparse layer delta to the Y.Doc.
+     *
+     * The delta contains ONLY the fields that changed.  Fields absent
+     * from the delta are left untouched in the Y.Doc — this is the
+     * fundamental contract that prevents key loss during cross-window
+     * and cloud sync.
+     *
+     * Scalar/object fields in the delta replace the existing value.
+     * Array fields (shapes, anchors, guides) in the delta replace the
+     * entire array.  Fields with value `null` are deleted from the
+     * Y.Map.
+     */
+    private _applyLayerDelta(
         glyphName: string,
         layerId: string,
-        layerSnapshot: unknown
+        delta: unknown
     ): void {
         const glyphsMap = this.fontMap.get('glyphs');
         if (!(glyphsMap instanceof Y.Map)) {
@@ -3540,14 +3541,18 @@ export class PatchSyncEngine {
             glyphMap.set('layers', layersMap);
         }
 
-        if (
-            !layerSnapshot ||
-            typeof layerSnapshot !== 'object' ||
-            Array.isArray(layerSnapshot)
-        ) {
+        if (!delta || typeof delta !== 'object' || Array.isArray(delta)) {
             console.warn(
-                `[PatchSyncEngine] Ignoring malformed layer snapshot for ${glyphName}/${layerId}; expected object payload.`
+                `[PatchSyncEngine] Ignoring malformed layer delta for ${glyphName}/${layerId}; expected object payload.`
             );
+            return;
+        }
+
+        const deltaRecord = delta as Record<string, unknown>;
+
+        // Empty delta → nothing to apply.
+        const deltaKeys = Object.keys(deltaRecord);
+        if (deltaKeys.length === 0) {
             return;
         }
 
@@ -3556,92 +3561,82 @@ export class PatchSyncEngine {
             existingLayerValue instanceof Y.Map
                 ? existingLayerValue
                 : undefined;
-        const existingYDocLayer =
-            layerMap instanceof Y.Map ? fromYType(layerMap) : undefined;
-        const incomingLayerRecord = layerSnapshot as Record<string, unknown>;
-        const existingLayerRecord =
-            existingYDocLayer &&
-            typeof existingYDocLayer === 'object' &&
-            !Array.isArray(existingYDocLayer)
-                ? (existingYDocLayer as Record<string, unknown>)
-                : null;
 
-        const layerJson = this._normalizeLayerSnapshot(
-            layerId,
-            layerSnapshot,
-            existingYDocLayer,
-            false
-        );
-
-        if (
-            !layerJson ||
-            typeof layerJson !== 'object' ||
-            Array.isArray(layerJson)
-        ) {
-            console.warn(
-                `[PatchSyncEngine] Ignoring malformed normalized layer snapshot for ${glyphName}/${layerId}.`
-            );
-            return;
-        }
-
-        const normalizedLayerRecord = layerJson as Record<string, unknown>;
-        const nextLayerKeys = new Set(Object.keys(normalizedLayerRecord));
-        if (nextLayerKeys.size === 0) {
-            console.warn(
-                `[PatchSyncEngine] Refusing to clear ${glyphName}/${layerId} from an empty normalized layer snapshot.`
-            );
-            return;
-        }
-
+        // Creating a new layer from a sparse delta requires width and master.
         if (!(layerMap instanceof Y.Map)) {
             const hasWidth =
-                typeof incomingLayerRecord.width === 'number' &&
-                Number.isFinite(incomingLayerRecord.width);
+                typeof deltaRecord.width === 'number' &&
+                Number.isFinite(deltaRecord.width);
             const hasMaster =
-                !!incomingLayerRecord.master &&
-                typeof incomingLayerRecord.master === 'object' &&
-                !Array.isArray(incomingLayerRecord.master);
+                !!deltaRecord.master &&
+                typeof deltaRecord.master === 'object' &&
+                !Array.isArray(deltaRecord.master);
             if (!hasWidth || !hasMaster) {
                 console.warn(
-                    `[PatchSyncEngine] Ignoring incomplete layer snapshot for missing ${glyphName}/${layerId}; cannot create layer root from partial payload.`
+                    `[PatchSyncEngine] Ignoring sparse layer delta for missing ${glyphName}/${layerId}; cannot create layer root from sparse payload.`
                 );
                 return;
             }
-        }
-
-        if (!(layerMap instanceof Y.Map)) {
             layerMap = new Y.Map<unknown>();
             layersMap.set(layerId, layerMap);
         }
 
-        for (const [key, value] of Object.entries(normalizedLayerRecord)) {
-            layerMap.set(key, toYType(value));
+        // Read existing Y.Doc state for master normalization context.
+        const existingYDocRecord = fromYType(layerMap) as Record<
+            string,
+            unknown
+        > | null;
+
+        // Clone the delta — _normalizeLayerMasterSnapshot mutates it.
+        const workingRecord = cloneHistoryValue(deltaRecord) as Record<
+            string,
+            unknown
+        >;
+
+        // Normalize master if it changed.
+        if ('master' in workingRecord) {
+            this._normalizeLayerMasterSnapshot(
+                layerId,
+                workingRecord,
+                existingYDocRecord ?? {}
+            );
         }
 
-        // Safety net: after applying the normalized snapshot, ensure the
-        // layer Y.Map still carries its essential structural keys (width,
-        // master).  An incremental sync update that only touches shapes
-        // must never strip these fields from the Y.Doc, because the Yjs
-        // diff computed against pre-state-vector would then include their
-        // deletion, propagating data loss to every peer (including the DO
-        // durable storage).
-        if (!normalizedLayerRecord['width']) {
-            const existingWidth = existingLayerRecord?.width;
+        // Validate width if it's in the delta.
+        if ('width' in workingRecord) {
             if (
-                typeof existingWidth === 'number' &&
-                Number.isFinite(existingWidth)
+                typeof workingRecord.width !== 'number' ||
+                !Number.isFinite(workingRecord.width)
             ) {
-                layerMap.set('width', existingWidth);
+                console.warn(
+                    `[PatchSyncEngine] Layer delta for ${glyphName}/${layerId} has invalid width; refusing to apply width.`
+                );
+                delete workingRecord.width;
             }
         }
-        if (!normalizedLayerRecord['master']) {
-            const existingMaster = existingLayerRecord?.master;
-            if (
-                existingMaster &&
-                typeof existingMaster === 'object' &&
-                !Array.isArray(existingMaster)
-            ) {
-                layerMap.set('master', toYType(existingMaster));
+
+        // Validate master if it's in the delta.
+        if ('master' in workingRecord && !workingRecord.master) {
+            console.warn(
+                `[PatchSyncEngine] Layer delta for ${glyphName}/${layerId} has invalid master; refusing to apply master.`
+            );
+            delete workingRecord.master;
+        }
+
+        // Strip isInterpolated if set to false in the delta.
+        if (workingRecord.isInterpolated === false) {
+            workingRecord.isInterpolated = null;
+        }
+
+        // Sanitize any array fields in the delta.
+        sanitizeBabelfontArrays(workingRecord as Unsafe);
+
+        // Apply each delta key to the Y.Map.
+        for (const [key, value] of Object.entries(workingRecord)) {
+            if (value === null || value === undefined) {
+                layerMap.delete(key);
+            } else {
+                layerMap.set(key, toYType(value));
             }
         }
     }

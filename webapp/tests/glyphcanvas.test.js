@@ -653,7 +653,6 @@ describe('GlyphCanvas onMouseUp', () => {
                 'RSB: 10',
                 'RIGHT RIGHT 20',
                 'right',
-                targets,
                 targets
             );
         } finally {
@@ -860,7 +859,6 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
-                undefined,
                 undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -927,7 +925,6 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 '(105, 282)',
                 null,
-                undefined,
                 undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -1064,7 +1061,6 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
-                undefined,
                 undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -1354,7 +1350,6 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(105, 282)'",
                 'LEFT (105, 282)',
                 'left',
-                undefined,
                 undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -1608,7 +1603,6 @@ describe('GlyphCanvas onMouseUp', () => {
                 "node '(205, 182)'",
                 'RIGHT (205, 182)',
                 'right',
-                undefined,
                 undefined
             );
             expect(window.changeBridge.endTransaction).toHaveBeenCalled();
@@ -2626,7 +2620,6 @@ describe('GlyphCanvas property panel metrics edits', () => {
                 'RIGHT',
                 undefined,
                 'right',
-                targets,
                 targets
             );
         } finally {

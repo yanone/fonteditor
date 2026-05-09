@@ -7,6 +7,8 @@
 
 import { Logger } from './logger';
 import { fontCompilation } from './font-compilation';
+import { collectCascadeRecomposeTargets } from './change-bridge-init';
+import type { WorkerReplayTarget } from './change-log';
 
 const console = new Logger('PythonPostExecution');
 
@@ -18,6 +20,7 @@ type SyntheticChangeOperation = {
     path: (string | number)[];
     oldValue: unknown;
     newValue: unknown;
+    workerReplayTargets?: WorkerReplayTarget[];
 };
 
 function cloneJsonValue<T>(value: T): T {
@@ -33,6 +36,28 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function valuesDiffer(a: unknown, b: unknown): boolean {
     return JSON.stringify(a) !== JSON.stringify(b);
+}
+
+/**
+ * Extract (glyphName, layerId) pairs from a list of operations' paths.
+ * Paths look like ["glyphs","A","layers","layer-1","width"].
+ */
+function deriveChangedLayerTargets(
+    operations: SyntheticChangeOperation[]
+): WorkerReplayTarget[] {
+    const targets = new Map<string, WorkerReplayTarget>();
+    for (const op of operations) {
+        if (op.path.length < 4) continue;
+        if (op.path[0] !== 'glyphs' || op.path[2] !== 'layers') continue;
+        const glyphName = String(op.path[1]);
+        const layerId = String(op.path[3]);
+        if (!glyphName || !layerId) continue;
+        const key = `${glyphName}::${layerId}`;
+        if (!targets.has(key)) {
+            targets.set(key, { glyphName, layerId });
+        }
+    }
+    return Array.from(targets.values());
 }
 
 function diffFontData(
@@ -256,6 +281,22 @@ function setupHooks() {
                     );
                     window.patchSyncEngine.setRecordingSuppressed(false);
                     if (operations.length) {
+                        // Derive cascading recompose targets from changed layers
+                        const changedTargets =
+                            deriveChangedLayerTargets(operations);
+                        if (changedTargets.length) {
+                            const cascadeTargets =
+                                collectCascadeRecomposeTargets(
+                                    changedTargets,
+                                    changedTargets[0]?.glyphName,
+                                    changedTargets[0]?.layerId
+                                );
+                            if (cascadeTargets.length) {
+                                operations[0].workerReplayTargets =
+                                    cascadeTargets;
+                            }
+                        }
+
                         window.patchSyncEngine.applySyntheticChangeSet(
                             window.pythonExecutionHistoryContext?.label ??
                                 'Python script',
