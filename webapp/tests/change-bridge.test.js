@@ -3069,8 +3069,10 @@ describe('Model collection mutator change recording', () => {
         const font = Font.fromData(fontJson);
         const path = font.findGlyph('A').layers[0].shapes[0].asPath();
 
+        // initFromJson converts compact string nodes to object arrays in Y.Doc
+        // so that per-node path edits can traverse the structure immediately.
         expect(
-            typeof normalizeYValue(
+            normalizeYValue(
                 getYPath(bridge.fontMap, [
                     'glyphs',
                     'A',
@@ -3081,7 +3083,11 @@ describe('Model collection mutator change recording', () => {
                     'nodes'
                 ])
             )
-        ).toBe('string');
+        ).toEqual([
+            { x: 100, y: 0, nodetype: 'Line' },
+            { x: 300, y: 700, nodetype: 'Line' },
+            { x: 500, y: 0, nodetype: 'Line' }
+        ]);
 
         const nodes = path.nodes;
 

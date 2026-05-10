@@ -3025,7 +3025,7 @@ export class PatchSyncEngine {
                         continue;
                     }
                     if (entry.op === 'remove' || entry.op === 'set') {
-                        setYPath(this.fontMap, path, entry.oldValue);
+                        setYPath(this.fontMap, path, replayValue);
                     }
                     continue;
                 }
@@ -3034,7 +3034,7 @@ export class PatchSyncEngine {
                     deleteYPath(this.fontMap, path);
                     continue;
                 }
-                setYPath(this.fontMap, path, entry.newValue);
+                setYPath(this.fontMap, path, replayValue);
             }
         }, HISTORY_REPLAY_ORIGIN);
     }

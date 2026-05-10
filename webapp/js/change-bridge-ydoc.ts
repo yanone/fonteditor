@@ -7,7 +7,7 @@
  */
 
 import * as Y from 'yjs';
-import { serializeGlyphNodes } from './glyph-path-geometry';
+import { parseGlyphNodes } from './glyph-path-geometry';
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -67,14 +67,16 @@ function normalizeValueForYDocWrite(value: unknown): unknown {
 
     const record = value as Record<string, unknown>;
 
+    // Convert compact node strings to object arrays so Y.Doc always stores
+    // nodes as Y.Array of Y.Map (traversable by path for per-node edits).
     if (
-        Array.isArray(record.nodes) &&
-        !('reference' in record) &&
-        !('Component' in record)
+        'nodes' in record &&
+        typeof record.nodes === 'string' &&
+        !('reference' in record)
     ) {
         return {
             ...record,
-            nodes: serializeGlyphNodes(record.nodes as never)
+            nodes: parseGlyphNodes(record.nodes as string)
         };
     }
 
@@ -523,6 +525,20 @@ export function sanitizeBabelfontArrays(data: Unsafe): number {
                 delete record[key];
             }
             Object.assign(record, payload);
+            fixCount++;
+        }
+
+        // Deserialize compact node strings back to node object arrays.
+        // Nodes are stored as Y.Array of Y.Map (objects) in Y.Doc, but any
+        // Y.Doc state produced before that convention (e.g. from an older
+        // serialization path that wrote compact strings) will come back as a
+        // primitive string. Convert those back so callers always see arrays.
+        if (
+            'nodes' in record &&
+            typeof record.nodes === 'string' &&
+            !('reference' in record)
+        ) {
+            record.nodes = parseGlyphNodes(record.nodes as string);
             fixCount++;
         }
 

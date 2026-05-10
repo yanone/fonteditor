@@ -3548,21 +3548,7 @@ function syncNormalizedModelValue(
     });
 }
 
-function normalizeBridgeRecordedValue(prop: string, value: unknown): unknown {
-    if (
-        prop === 'nodes' &&
-        Array.isArray(value) &&
-        value.every(
-            (entry) =>
-                entry &&
-                typeof entry === 'object' &&
-                'x' in entry &&
-                'y' in entry
-        )
-    ) {
-        return serializeGlyphNodes(value as Babelfont.Node[]);
-    }
-
+function normalizeBridgeRecordedValue(_prop: string, value: unknown): unknown {
     return value;
 }
 
@@ -3853,7 +3839,12 @@ export class Path extends ArrayElementBase<PathData, Layer | Shape> {
         if (normalizedNodes) {
             this.data.nodes = normalizedNodes;
             this._nodeWrappers = null;
-            syncNormalizedModelValue(this, 'nodes', normalizedNodes);
+            // NOTE: Do NOT call syncNormalizedModelValue here. This is a purely local
+            // format normalization (string → array). Writing back to Y.Doc would:
+            //   1. Replace the existing Y.Array with a string primitive, breaking
+            //      subsequent per-node property writes that traverse into Y.Doc by path.
+            //   2. Emit a spurious local update that propagates to peers, causing
+            //      feedback loops in linked windows.
         }
 
         if (!Array.isArray(this.data.nodes)) {

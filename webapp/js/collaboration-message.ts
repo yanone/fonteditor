@@ -55,6 +55,8 @@ export type CollaborationChangeDescriptor = {
     path: string;
     op: ChangeOp;
     workerReplayTargets?: WorkerReplayTarget[];
+    replayOldValue?: unknown;
+    replayNewValue?: unknown;
 };
 
 export type CollaborationMessageMetadata = {
@@ -231,6 +233,8 @@ export function createCollaborationMessageEnvelopeFromChangeLogEntries(
         changes: entries.map((entry) => ({
             path: entry.path,
             op: entry.op,
+            replayOldValue: entry.replayOldValue,
+            replayNewValue: entry.replayNewValue,
             workerReplayTargets: normalizeWorkerReplayTargets(
                 entry.workerReplayTargets
             )
@@ -335,6 +339,8 @@ export function createChangeLogEntriesFromCollaborationMessageEnvelope(
             path: change.path,
             oldValue: undefined,
             newValue: undefined,
+            replayOldValue: change.replayOldValue,
+            replayNewValue: change.replayNewValue,
             workerReplayTargets: normalizeWorkerReplayTargets(
                 change.workerReplayTargets?.length
                     ? change.workerReplayTargets
