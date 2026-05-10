@@ -2159,19 +2159,11 @@ describe('ChangeBridge', () => {
         ]);
 
         expect(localUpdates).toHaveLength(1);
-        expect(localUpdates[0].patches).toHaveLength(2);
-        expect(localUpdates[0].patches[1]).toEqual(
+        expect(localUpdates[0].changes).toHaveLength(2);
+        expect(localUpdates[0].changes[1]).toEqual(
             expect.objectContaining({
-                forward: {
-                    op: 'replace',
-                    path: 'glyphs.B:layers.layer-2:width',
-                    value: 690
-                },
-                inverse: {
-                    op: 'replace',
-                    path: 'glyphs.B:layers.layer-2:width',
-                    value: 650
-                }
+                op: 'set',
+                path: 'glyphs.B:layers.layer-2:width'
             })
         );
     });
@@ -3440,7 +3432,8 @@ describe('WindowSync', () => {
         const yjsUpdates = captured.filter((m) => m.type === 'yjs-update');
         expect(yjsUpdates).toHaveLength(1);
         expect(yjsUpdates[0].fullState).toBeUndefined();
-        expect(yjsUpdates[0].mutationBatchEnvelopes).toHaveLength(1);
+        expect(yjsUpdates[0].updates).toHaveLength(1);
+        expect(yjsUpdates[0].updates[0].collaborationMessage).toBeDefined();
         expect(getFullStateSpy).not.toHaveBeenCalled();
 
         getFullStateSpy.mockRestore();
@@ -3489,10 +3482,13 @@ describe('WindowSync', () => {
         expect(fromWin1.length).toBeGreaterThan(0);
         expect(fromWin1[fromWin1.length - 1].fullState).toBeUndefined();
         expect(getFullStateSpy).not.toHaveBeenCalled();
-        expect(fromWin1[fromWin1.length - 1].update).toBeInstanceOf(Uint8Array);
+        expect(fromWin1[fromWin1.length - 1].updates[0].update).toBeInstanceOf(
+            Uint8Array
+        );
+        expect(fromWin1[fromWin1.length - 1].updates).toHaveLength(1);
         expect(
-            fromWin1[fromWin1.length - 1].mutationBatchEnvelopes
-        ).toHaveLength(1);
+            fromWin1[fromWin1.length - 1].updates[0].collaborationMessage
+        ).toBeDefined();
         expect(
             fromWin1[fromWin1.length - 1].layerRepairSnapshots
         ).toBeUndefined();
@@ -3523,8 +3519,9 @@ describe('WindowSync', () => {
 
         const yjsUpdates = captured.filter((m) => m.type === 'yjs-update');
         expect(yjsUpdates).toHaveLength(1);
-        expect(yjsUpdates[0].mutationBatchEnvelopes).toHaveLength(2);
-        expect(yjsUpdates[0].update).toBeInstanceOf(Uint8Array);
+        expect(yjsUpdates[0].updates).toHaveLength(2);
+        expect(yjsUpdates[0].updates[0].update).toBeInstanceOf(Uint8Array);
+        expect(yjsUpdates[0].updates[1].update).toBeInstanceOf(Uint8Array);
 
         eavesdropper.close();
         sync.destroy();
@@ -3644,7 +3641,7 @@ describe('WindowSync', () => {
         expect(yjsUpdates.length).toBeGreaterThan(0);
         for (const m of yjsUpdates) {
             expect(m.fullState).toBeUndefined();
-            expect(m.mutationBatchEnvelopes?.length ?? 0).toBeGreaterThan(0);
+            expect(m.updates?.length ?? 0).toBeGreaterThan(0);
         }
         expect(getFullStateSpy).not.toHaveBeenCalled();
 
@@ -5408,14 +5405,14 @@ describe('syncGlyphFromJson', () => {
             'receiver-sequential-no-repair'
         );
         let lastUpdate = null;
-        let lastMutationBatchEnvelope = null;
+        let lastCollaborationMessage = null;
 
         senderBridge.initFromJson(senderFontJson);
         receiverBridge.setFontJson(receiverFontJson);
         receiverBridge.applyFullState(senderBridge.getFullState());
-        senderBridge.onLocalUpdate((update, mutationBatchEnvelope) => {
+        senderBridge.onLocalUpdate((update, collaborationMessage) => {
             lastUpdate = update;
-            lastMutationBatchEnvelope = mutationBatchEnvelope;
+            lastCollaborationMessage = collaborationMessage;
         });
 
         const receiverLayerPath = ['glyphs', 'A', 'layers', 'layer-1'];
@@ -5434,7 +5431,7 @@ describe('syncGlyphFromJson', () => {
             receiverBridge.applyRemoteUpdate(
                 lastUpdate,
                 undefined,
-                lastMutationBatchEnvelope ? [lastMutationBatchEnvelope] : []
+                lastCollaborationMessage ? [lastCollaborationMessage] : []
             );
 
             expect(
@@ -6376,7 +6373,9 @@ describe('ChangeBridge _syncJsonFromYDoc scope-aware undo regression', () => {
 
         // There should be at most 1 yjs-update from the undo itself
         const undoUpdates = captured.filter(
-            (m) => (m.mutationBatchEnvelopes?.length ?? 0) > 0
+            (m) =>
+                (m.updates?.filter((packet) => !!packet.collaborationMessage)
+                    .length ?? 0) > 0
         );
         // History-replay uses HISTORY_REPLAY_ORIGIN which the
         // constructor listener broadcasts. We must not also send a

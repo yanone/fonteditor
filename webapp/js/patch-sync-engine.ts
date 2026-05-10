@@ -35,6 +35,7 @@ import {
     deriveGlyphNamesFromPaths,
     deriveLayerIdFromPath,
     deriveLayerIdsFromPaths,
+    deriveObjectInfoFromPath,
     getPathSegments,
     joinPathWithGlyphSeparator,
     normalizeWorkerReplayTargets,
@@ -44,11 +45,13 @@ import {
 } from './change-log';
 import { Logger } from './logger';
 import {
-    createChangeLogEntriesFromMutationBatchEnvelope,
-    createSyntheticChangeOperationsFromPatchPairs,
-    createMutationBatchEnvelopeFromChangeLogEntries,
-    type MutationBatchEnvelope
-} from './mutation-batch';
+    collaborationMessageKey,
+    createChangeLogEntriesFromCollaborationMessageEnvelope,
+    createCollaborationMessageEnvelopeFromChangeLogEntries,
+    deriveForwardChangesFromSnapshots,
+    type CollaborationMessageEnvelope,
+    type DerivedForwardChange
+} from './collaboration-message';
 import { windowRole } from './window-role';
 
 const console = new Logger('PatchSyncEngine');
@@ -59,8 +62,30 @@ export type { ChangeLogEntry } from './change-log';
 
 export type LocalUpdateListener = (
     update: Uint8Array,
-    mutationBatchEnvelope?: MutationBatchEnvelope | null
+    collaborationMessage?: CollaborationMessageEnvelope | null
 ) => void;
+
+export type CollaborationLogItem = {
+    id: string;
+    direction: 'local' | 'remote';
+    timestamp: number;
+    summary: string;
+    label: string | null;
+    source: string;
+    windowId: string | null;
+    windowRoleLabel: string;
+    historyItemId: string;
+    historyAction: 'change' | 'undo' | 'redo';
+    targetHistoryItemId: string | null;
+    undoScope: UndoScope;
+    updateByteLength: number;
+    updateBase64Preview: string;
+    changedGlyphNames: string[];
+    changedLayerIds: string[];
+    workerReplayTargets: WorkerReplayTarget[];
+    changes: CollaborationMessageEnvelope['changes'];
+    derivedForwardChanges: DerivedForwardChange[];
+};
 
 type SyntheticChangeOperation = {
     op: ChangeOp;
@@ -296,10 +321,8 @@ export class PatchSyncEngine {
     /** Callback when a remote change arrives (for UI refresh) */
     private _onRemoteChange: ((entries: ChangeLogEntry[]) => void) | null =
         null;
-    /** Callback when remote JSON patches arrive (for Rust forwarding) */
-    private _onRemotePatches:
-        | ((envelopes: MutationBatchEnvelope[]) => void)
-        | null = null;
+    /** Flat log of local and remote collaboration messages */
+    private _collaborationLog: CollaborationLogItem[] = [];
     /** Callback when the Y.Doc is updated locally (for broadcasting) */
     private _localUpdateListeners: Set<LocalUpdateListener> = new Set();
     /** Callback to trigger dirty marking on the font manager side */
@@ -312,11 +335,15 @@ export class PatchSyncEngine {
     private _lastBroadcastLogIndex = 0;
     /** Index into _changeLog marking the last entry emitted to local-update listeners */
     private _lastLocalUpdateLogIndex = 0;
-    /** Monotonic local sequence for emitted mutation envelopes */
-    private _nextMutationBatchSequence = 1;
+    /** Monotonic local sequence for emitted collaboration messages */
+    private _nextCollaborationMessageSequence = 1;
     /** Subscribers for same-tab history UI updates */
     private _changeLogListeners = new Set<
         (entries: ChangeLogEntry[]) => void
+    >();
+    /** Subscribers for the flat collaboration message inspector */
+    private _collaborationLogListeners = new Set<
+        (items: CollaborationLogItem[]) => void
     >();
     /** Optional callback that can append derived operations before commit */
     private _transactionFinalizer: TransactionFinalizer | null = null;
@@ -542,14 +569,29 @@ export class PatchSyncEngine {
         update: Uint8Array,
         changeLogEntries: ChangeLogEntry[]
     ): void {
-        const mutationBatchEnvelope =
-            createMutationBatchEnvelopeFromChangeLogEntries(changeLogEntries, {
-                localSequence: this._nextMutationBatchSequence++,
-                source: 'change-bridge',
-                windowId: this.windowId
-            });
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                changeLogEntries,
+                {
+                    localSequence: this._nextCollaborationMessageSequence++,
+                    source: 'change-bridge',
+                    windowId: this.windowId
+                }
+            );
+        if (collaborationMessage) {
+            this._appendCollaborationLogItems([
+                this._createCollaborationLogItem(
+                    collaborationMessage,
+                    update,
+                    'local',
+                    this._deriveForwardChangesFromChangeLogEntries(
+                        changeLogEntries
+                    )
+                )
+            ]);
+        }
         for (const cb of this._localUpdateListeners) {
-            cb(update, mutationBatchEnvelope);
+            cb(update, collaborationMessage);
         }
     }
 
@@ -591,9 +633,14 @@ export class PatchSyncEngine {
         this._onRemoteChange = cb;
     }
 
-    /** Register a callback for incoming remote JSON patches (for Rust forwarding). */
-    onRemotePatches(cb: (envelopes: MutationBatchEnvelope[]) => void): void {
-        this._onRemotePatches = cb;
+    onCollaborationLogUpdate(
+        cb: (items: CollaborationLogItem[]) => void
+    ): () => void {
+        this._collaborationLogListeners.add(cb);
+        cb(this.getCollaborationLog());
+        return () => {
+            this._collaborationLogListeners.delete(cb);
+        };
     }
 
     /** Register a callback for local Y.Doc updates (for broadcasting). */
@@ -635,12 +682,13 @@ export class PatchSyncEngine {
         this.yDoc.destroy();
         this._fontJson = null;
         this._changeLog = [];
+        this._collaborationLog = [];
         this._onRemoteChange = null;
-        this._onRemotePatches = null;
         this._localUpdateListeners.clear();
         this._onDirty = null;
         this._onAfterSync = null;
         this._changeLogListeners.clear();
+        this._collaborationLogListeners.clear();
         this._transactionFinalizer = null;
     }
 
@@ -1561,17 +1609,21 @@ export class PatchSyncEngine {
     applyRemoteUpdate(
         update: Uint8Array,
         remoteEntries?: ChangeLogEntry[],
-        remoteMutationBatches?: MutationBatchEnvelope[]
+        remoteCollaborationMessages?: CollaborationMessageEnvelope[]
     ): void {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
+            const beforeFontJson = cloneHistoryValue(this._fontJson);
             const effectiveRemoteEntries = remoteEntries?.length
                 ? remoteEntries
-                : remoteMutationBatches?.flatMap((batch) =>
-                      createChangeLogEntriesFromMutationBatchEnvelope(batch, {
-                          windowRoleLabel: this._getWindowRoleLabel()
-                      })
+                : remoteCollaborationMessages?.flatMap((message) =>
+                      createChangeLogEntriesFromCollaborationMessageEnvelope(
+                          message,
+                          {
+                              windowRoleLabel: this._getWindowRoleLabel()
+                          }
+                      )
                   );
             const remoteLayerScopes = this._getRemoteLayerSyncScopes(
                 effectiveRemoteEntries
@@ -1602,7 +1654,6 @@ export class PatchSyncEngine {
                 update,
                 this._getRemoteUpdateOrigin(effectiveRemoteEntries)
             );
-            this._applyRemoteForwardPatches(remoteMutationBatches);
             this._syncJsonFromYDoc(remoteLayerScopes);
             this._applyExplicitLayerPropertyRemovalsToFontJson(
                 effectiveRemoteEntries
@@ -1614,92 +1665,27 @@ export class PatchSyncEngine {
                 this._lastBroadcastLogIndex = this._changeLog.length;
                 this._lastLocalUpdateLogIndex = this._changeLog.length;
             }
-            this._onRemoteChange?.(effectiveRemoteEntries ?? []);
-            if (remoteMutationBatches?.length) {
-                this._onRemotePatches?.(remoteMutationBatches);
+            if (remoteCollaborationMessages?.length) {
+                const afterFontJson = cloneHistoryValue(this._fontJson);
+                this._appendCollaborationLogItems(
+                    remoteCollaborationMessages.map((message) =>
+                        this._createCollaborationLogItem(
+                            message,
+                            update,
+                            'remote',
+                            deriveForwardChangesFromSnapshots(
+                                message,
+                                beforeFontJson,
+                                afterFontJson
+                            )
+                        )
+                    )
+                );
             }
+            this._onRemoteChange?.(effectiveRemoteEntries ?? []);
         } finally {
             this._isApplyingRemote = false;
         }
-    }
-
-    private _applyRemoteForwardPatches(
-        remoteMutationBatches?: MutationBatchEnvelope[]
-    ): void {
-        if (!remoteMutationBatches?.length) {
-            return;
-        }
-
-        const operations = remoteMutationBatches.flatMap((batch) =>
-            batch.metadata.historyAction === 'change'
-                ? createSyntheticChangeOperationsFromPatchPairs(
-                      batch.patches,
-                      batch.metadata.workerReplayTargets
-                  )
-                : []
-        );
-
-        if (!operations.length) {
-            return;
-        }
-
-        this.yDoc.transact(() => {
-            for (const operation of operations) {
-                const applyPath = this._toYDocPath(operation.path);
-                const currentValue = getYPath(this.fontMap, applyPath);
-                const currentJsonValue =
-                    currentValue instanceof Y.Map ||
-                    currentValue instanceof Y.Array
-                        ? fromYType(currentValue)
-                        : currentValue;
-
-                if (operation.op === 'remove') {
-                    if (currentValue === undefined) {
-                        continue;
-                    }
-                    deleteYPath(this.fontMap, applyPath);
-                    continue;
-                }
-
-                if (this._isDeepEqual(currentJsonValue, operation.newValue)) {
-                    continue;
-                }
-
-                if (
-                    operation.op === 'set' &&
-                    this._isGlyphRootPath(applyPath) &&
-                    operation.newValue &&
-                    typeof operation.newValue === 'object'
-                ) {
-                    this._applyGlyphSnapshot(
-                        String(applyPath[1]),
-                        operation.newValue
-                    );
-                    continue;
-                }
-
-                if (
-                    operation.op === 'set' &&
-                    applyPath.length === 4 &&
-                    applyPath[0] === 'glyphs' &&
-                    applyPath[2] === 'layers' &&
-                    typeof applyPath[1] === 'string' &&
-                    typeof applyPath[3] === 'string' &&
-                    operation.newValue &&
-                    typeof operation.newValue === 'object' &&
-                    !Array.isArray(operation.newValue)
-                ) {
-                    this._applyLayerDelta(
-                        applyPath[1],
-                        applyPath[3],
-                        operation.newValue
-                    );
-                    continue;
-                }
-
-                setYPath(this.fontMap, applyPath, operation.newValue);
-            }
-        }, SYSTEM_REMOTE_ORIGIN);
     }
 
     private _applyExplicitLayerPropertyRemovalsToFontJson(
@@ -1816,6 +1802,10 @@ export class PatchSyncEngine {
         return this._changeLog;
     }
 
+    getCollaborationLog(): CollaborationLogItem[] {
+        return this._collaborationLog;
+    }
+
     getChangeLogForGlyph(glyphName?: string | null): ChangeLogEntry[] {
         if (!glyphName) {
             return this._changeLog;
@@ -1833,6 +1823,11 @@ export class PatchSyncEngine {
         this._lastBroadcastLogIndex = this._changeLog.length;
         this._lastLocalUpdateLogIndex = this._changeLog.length;
         this._notifyChangeLogListeners();
+    }
+
+    importCollaborationMessages(messages: CollaborationLogItem[]): void {
+        this._collaborationLog = [...messages];
+        this._notifyCollaborationLogListeners();
     }
 
     /**
@@ -1869,6 +1864,17 @@ export class PatchSyncEngine {
         this._notifyChangeLogListeners();
     }
 
+    mergeImportedCollaborationMessages(messages: CollaborationLogItem[]): void {
+        const existing = new Map<string, CollaborationLogItem>();
+        for (const item of [...messages, ...this._collaborationLog]) {
+            existing.set(item.id, item);
+        }
+        this._collaborationLog = [...existing.values()].sort(
+            (left, right) => left.timestamp - right.timestamp
+        );
+        this._notifyCollaborationLogListeners();
+    }
+
     /**
      * Get change log entries added since the last call.
      * Used by WindowSync to piggyback entries on yjs-update messages.
@@ -1899,6 +1905,7 @@ export class PatchSyncEngine {
     /** Reset state (for tests). */
     reset(): void {
         this._changeLog = [];
+        this._collaborationLog = [];
         this._lastBroadcastLogIndex = 0;
         this._lastLocalUpdateLogIndex = 0;
         this._txDepth = 0;
@@ -1909,6 +1916,7 @@ export class PatchSyncEngine {
         this._txBufferedOperations = [];
         this._nextTxId = 1;
         this._nextHistoryItemId = 1;
+        this._nextCollaborationMessageSequence = 1;
         resetLogCounter();
         for (const entry of this._layerUndoManagers.values()) {
             entry.manager.destroy();
@@ -1921,6 +1929,7 @@ export class PatchSyncEngine {
         this._fontUndoManager?.destroy();
         this._fontUndoManager = null;
         this._notifyChangeLogListeners();
+        this._notifyCollaborationLogListeners();
     }
 
     // ── Internal ─────────────────────────────────────────────────
@@ -3960,6 +3969,89 @@ export class PatchSyncEngine {
             ...entries.map((entry) => normalizeChangeLogEntry(entry))
         );
         this._notifyChangeLogListeners();
+    }
+
+    private _deriveForwardChangesFromChangeLogEntries(
+        entries: ChangeLogEntry[]
+    ): DerivedForwardChange[] {
+        return entries.map((entry) => ({
+            path: entry.path,
+            op: entry.op,
+            oldValue: cloneHistoryValue(entry.oldValue),
+            newValue: cloneHistoryValue(entry.newValue),
+            objectType: deriveObjectInfoFromPath(entry.path).objectType
+        }));
+    }
+
+    private _createCollaborationLogItem(
+        message: CollaborationMessageEnvelope,
+        update: Uint8Array,
+        direction: 'local' | 'remote',
+        derivedForwardChanges: DerivedForwardChange[]
+    ): CollaborationLogItem {
+        return {
+            id: collaborationMessageKey(message),
+            direction,
+            timestamp: message.timestamp,
+            summary: message.summary,
+            label: message.label,
+            source: message.source,
+            windowId: message.windowId,
+            windowRoleLabel:
+                message.metadata.sourceWindowRoleLabel ??
+                this._getWindowRoleLabel(),
+            historyItemId: message.metadata.historyItemId,
+            historyAction: message.metadata.historyAction,
+            targetHistoryItemId: message.metadata.targetHistoryItemId ?? null,
+            undoScope: message.metadata.undoScope,
+            updateByteLength: update.byteLength,
+            updateBase64Preview: this._toUpdateBase64Preview(update),
+            changedGlyphNames: [...message.metadata.changedGlyphNames],
+            changedLayerIds: [...message.metadata.changedLayerIds],
+            workerReplayTargets: normalizeWorkerReplayTargets(
+                message.metadata.workerReplayTargets
+            ),
+            changes: message.changes.map((change) => ({
+                ...change,
+                workerReplayTargets: change.workerReplayTargets
+                    ? [...change.workerReplayTargets]
+                    : undefined
+            })),
+            derivedForwardChanges
+        };
+    }
+
+    private _appendCollaborationLogItems(items: CollaborationLogItem[]): void {
+        if (!items.length) {
+            return;
+        }
+
+        const itemsById = new Map<string, CollaborationLogItem>();
+        for (const item of [...this._collaborationLog, ...items]) {
+            itemsById.set(item.id, item);
+        }
+
+        this._collaborationLog = [...itemsById.values()].sort(
+            (left, right) => left.timestamp - right.timestamp
+        );
+        this._notifyCollaborationLogListeners();
+    }
+
+    private _notifyCollaborationLogListeners(): void {
+        const items = this.getCollaborationLog();
+        for (const listener of this._collaborationLogListeners) {
+            listener(items);
+        }
+    }
+
+    private _toUpdateBase64Preview(update: Uint8Array): string {
+        let binary = '';
+        const previewLength = Math.min(update.length, 96);
+        for (let index = 0; index < previewLength; index++) {
+            binary += String.fromCharCode(update[index]);
+        }
+        const base64 = btoa(binary);
+        return update.length > previewLength ? `${base64}...` : base64;
     }
 
     private _notifyChangeLogListeners(): void {

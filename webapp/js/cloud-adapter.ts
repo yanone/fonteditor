@@ -10,16 +10,16 @@
  *   { type: 'sync-complete', update: string [, chunkIndex, totalChunks] }   ← base64(diff for server, last or only chunk)
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks }       ← preceding chunk(s) for large diff
  *   { type: 'update',        update: string, clientId: string, seq: number,
- *                            mutationBatchEnvelopes?: MutationBatchEnvelope[] }
+ *                            collaborationMessages?: CollaborationMessageEnvelope[] }
  *
  * Server → Client:
  *   { type: 'auth-ok',       clientId: string }
  *   { type: 'auth-error',    message: string }
  *   { type: 'sync-response', update?: string, serverStateVector: string,
- *                            mutationBatchHistory?: MutationBatchEnvelope[] [, chunked: true, totalChunks] }
+ *                            collaborationMessageHistory?: CollaborationMessageEnvelope[] [, chunked: true, totalChunks] }
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks, direction: 'response' }
  *   { type: 'update',        update: string, clientId: string, seq: number,
- *                            mutationBatchEnvelopes?: MutationBatchEnvelope[] }
+ *                            collaborationMessages?: CollaborationMessageEnvelope[] }
  *   { type: 'ack',           seq: number, durable: boolean }
  *   { type: 'error',         message: string }
  *
@@ -35,11 +35,11 @@ import type { PatchSyncEngine } from './patch-sync-engine';
 import type { FileSystemAdapter, FileInfo } from './file-system-adapter';
 import { Logger } from './logger';
 import {
-    createChangeLogEntriesFromMutationBatchEnvelope,
-    createMutationBatchEnvelopesFromChangeLogEntries,
-    createMutationBatchEnvelopeFromChangeLogEntries,
-    type MutationBatchEnvelope
-} from './mutation-batch';
+    collaborationMessageKey,
+    createChangeLogEntriesFromCollaborationMessageEnvelope,
+    createCollaborationMessageEnvelopesFromChangeLogEntries,
+    type CollaborationMessageEnvelope
+} from './collaboration-message';
 import { isProduction } from './settings';
 import { resolveWebsiteURL } from './website-url';
 
@@ -159,21 +159,17 @@ export type CloudAdapterOptions = {
 
 type CloudLiveUpdateMessage = {
     update: Uint8Array;
-    mutationBatchEnvelopes?: MutationBatchEnvelope[];
+    collaborationMessages?: CollaborationMessageEnvelope[];
 };
 
-function dedupeMutationBatchEnvelopes(
-    envelopes: MutationBatchEnvelope[]
-): MutationBatchEnvelope[] {
+function dedupeCollaborationMessages(
+    envelopes: CollaborationMessageEnvelope[]
+): CollaborationMessageEnvelope[] {
     const seenEnvelopeKeys = new Set<string>();
-    const deduped: MutationBatchEnvelope[] = [];
+    const deduped: CollaborationMessageEnvelope[] = [];
 
     for (const envelope of envelopes) {
-        const envelopeKey = [
-            envelope.windowId ?? '',
-            String(envelope.transactionId),
-            String(envelope.timestamp)
-        ].join(':');
+        const envelopeKey = collaborationMessageKey(envelope);
         if (seenEnvelopeKeys.has(envelopeKey)) {
             continue;
         }
@@ -184,22 +180,14 @@ function dedupeMutationBatchEnvelopes(
     return deduped;
 }
 
-function getMutationBatchEnvelopeKey(envelope: MutationBatchEnvelope): string {
-    return [
-        envelope.windowId ?? '',
-        String(envelope.transactionId),
-        String(envelope.timestamp)
-    ].join(':');
-}
-
-function importMutationBatchHistory(
+function importCollaborationMessageHistory(
     bridge: PatchSyncEngine,
-    mutationBatchHistory?: MutationBatchEnvelope[],
-    pendingMutationBatchEnvelopes: MutationBatchEnvelope[] = []
+    collaborationMessageHistory?: CollaborationMessageEnvelope[],
+    pendingCollaborationMessages: CollaborationMessageEnvelope[] = []
 ): void {
-    const envelopes = dedupeMutationBatchEnvelopes([
-        ...(mutationBatchHistory ?? []),
-        ...pendingMutationBatchEnvelopes
+    const envelopes = dedupeCollaborationMessages([
+        ...(collaborationMessageHistory ?? []),
+        ...pendingCollaborationMessages
     ]);
 
     if (!envelopes.length) {
@@ -207,11 +195,37 @@ function importMutationBatchHistory(
     }
 
     bridge.mergeImportedChangeLog(
-        envelopes.flatMap((batch) =>
-            createChangeLogEntriesFromMutationBatchEnvelope(batch, {
+        envelopes.flatMap((message) =>
+            createChangeLogEntriesFromCollaborationMessageEnvelope(message, {
                 windowRoleLabel: window.windowRole?.getRoleLabel?.() ?? 'main'
             })
         )
+    );
+    bridge.mergeImportedCollaborationMessages(
+        envelopes.map((message) => ({
+            id: collaborationMessageKey(message),
+            direction: 'remote',
+            timestamp: message.timestamp,
+            summary: message.summary,
+            label: message.label,
+            source: message.source,
+            windowId: message.windowId,
+            windowRoleLabel:
+                message.metadata.sourceWindowRoleLabel ??
+                window.windowRole?.getRoleLabel?.() ??
+                'main',
+            historyItemId: message.metadata.historyItemId,
+            historyAction: message.metadata.historyAction,
+            targetHistoryItemId: message.metadata.targetHistoryItemId ?? null,
+            undoScope: message.metadata.undoScope,
+            updateByteLength: 0,
+            updateBase64Preview: '',
+            changedGlyphNames: [...message.metadata.changedGlyphNames],
+            changedLayerIds: [...message.metadata.changedLayerIds],
+            workerReplayTargets: [...message.metadata.workerReplayTargets],
+            changes: message.changes,
+            derivedForwardChanges: []
+        }))
     );
 }
 
@@ -262,12 +276,12 @@ export class CloudAdapter implements FileSystemAdapter {
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private _hasSynced = false;
     private _pendingOutboundUpdates: Uint8Array[] = [];
-    private _pendingOutboundMutationBatchEnvelopes: MutationBatchEnvelope[] =
+    private _pendingOutboundCollaborationMessages: CollaborationMessageEnvelope[] =
         [];
     private _outboundFlushScheduled = false;
     private _outboundBroadcastEntryCounts = new Map<number, number>();
-    private _outboundPendingEnvelopeKeys = new Map<number, string[]>();
-    private _pendingDurabilityEnvelopes: MutationBatchEnvelope[] = [];
+    private _outboundPendingMessageKeys = new Map<number, string[]>();
+    private _pendingDurabilityMessages: CollaborationMessageEnvelope[] = [];
     private _pendingInboundUpdates: CloudLiveUpdateMessage[] = [];
     private _inboundFlushScheduled = false;
     /** Accumulates incoming sync-response chunks from the server. */
@@ -340,7 +354,7 @@ export class CloudAdapter implements FileSystemAdapter {
         this._ws = null;
         this._bridge = null;
         this._pendingOutboundUpdates = [];
-        this._pendingOutboundMutationBatchEnvelopes = [];
+        this._pendingOutboundCollaborationMessages = [];
         this._outboundFlushScheduled = false;
         this._pendingInboundUpdates = [];
         this._inboundFlushScheduled = false;
@@ -475,7 +489,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._hasSynced = false;
                 this._incomingResponseChunks = null;
                 this._pendingOutboundUpdates = [];
-                this._pendingOutboundMutationBatchEnvelopes = [];
+                this._pendingOutboundCollaborationMessages = [];
                 this._outboundFlushScheduled = false;
                 this._pendingInboundUpdates = [];
                 this._inboundFlushScheduled = false;
@@ -541,19 +555,19 @@ export class CloudAdapter implements FileSystemAdapter {
                     typeof msg.serverStateVector === 'string'
                         ? base64ToU8(msg.serverStateVector as string)
                         : new Uint8Array(0);
-                const mutationBatchHistory = Array.isArray(
-                    msg.mutationBatchHistory
+                const collaborationMessageHistory = Array.isArray(
+                    msg.collaborationMessageHistory
                 )
-                    ? (msg.mutationBatchHistory as MutationBatchEnvelope[])
+                    ? (msg.collaborationMessageHistory as CollaborationMessageEnvelope[])
                     : undefined;
-                this._reconcileDurableMutationBatchHistory(
-                    mutationBatchHistory ?? []
+                this._reconcileDurableCollaborationMessageHistory(
+                    collaborationMessageHistory ?? []
                 );
                 if (this._bridge) {
-                    importMutationBatchHistory(
+                    importCollaborationMessageHistory(
                         this._bridge,
-                        mutationBatchHistory,
-                        this._pendingDurabilityEnvelopes
+                        collaborationMessageHistory,
+                        this._pendingDurabilityMessages
                     );
                 }
 
@@ -619,10 +633,10 @@ export class CloudAdapter implements FileSystemAdapter {
                 if (typeof msg.update === 'string') {
                     this._queueInboundUpdate({
                         update: base64ToU8(msg.update),
-                        mutationBatchEnvelopes: Array.isArray(
-                            msg.mutationBatchEnvelopes
+                        collaborationMessages: Array.isArray(
+                            msg.collaborationMessages
                         )
-                            ? (msg.mutationBatchEnvelopes as MutationBatchEnvelope[])
+                            ? (msg.collaborationMessages as CollaborationMessageEnvelope[])
                             : undefined
                     });
                 }
@@ -685,14 +699,14 @@ export class CloudAdapter implements FileSystemAdapter {
     /** Apply an incremental update broadcast from a peer. */
     private _applyRemoteUpdate(
         update: Uint8Array,
-        remoteMutationBatches?: MutationBatchEnvelope[]
+        remoteCollaborationMessages?: CollaborationMessageEnvelope[]
     ): void {
         if (!this._bridge || update.length === 0) return;
         try {
             this._bridge.applyRemoteUpdate(
                 update,
                 undefined,
-                remoteMutationBatches
+                remoteCollaborationMessages
             );
         } catch (err) {
             console.error('CloudAdapter: failed to apply remote update:', err);
@@ -717,8 +731,8 @@ export class CloudAdapter implements FileSystemAdapter {
         try {
             const diff = this._bridge.encodeStateDiff(serverStateVector);
             if (diff.length === 0) return;
-            const mutationBatchEnvelopes =
-                createMutationBatchEnvelopesFromChangeLogEntries(
+            const collaborationMessages =
+                createCollaborationMessageEnvelopesFromChangeLogEntries(
                     this._bridge.getNewChangeLogEntries(),
                     {
                         startingLocalSequence: this._seq + 1,
@@ -726,9 +740,9 @@ export class CloudAdapter implements FileSystemAdapter {
                         windowId: this._bridge.windowId
                     }
                 );
-            this._enqueuePendingDurabilityEnvelopes(mutationBatchEnvelopes);
-            const pendingMutationBatchEnvelopes = dedupeMutationBatchEnvelopes(
-                this._pendingDurabilityEnvelopes
+            this._enqueuePendingDurabilityMessages(collaborationMessages);
+            const pendingCollaborationMessages = dedupeCollaborationMessages(
+                this._pendingDurabilityMessages
             );
 
             const totalChunks = Math.ceil(diff.length / SYNC_CHUNK_SIZE);
@@ -752,9 +766,9 @@ export class CloudAdapter implements FileSystemAdapter {
                     frame.totalChunks = totalChunks;
                 }
                 if (isLast) {
-                    frame.mutationBatchEnvelopes =
-                        pendingMutationBatchEnvelopes.length
-                            ? pendingMutationBatchEnvelopes
+                    frame.collaborationMessages =
+                        pendingCollaborationMessages.length
+                            ? pendingCollaborationMessages
                             : undefined;
                 }
                 this._ws.send(JSON.stringify(frame));
@@ -786,15 +800,13 @@ export class CloudAdapter implements FileSystemAdapter {
 
         const sendUpdate = (
             update: Uint8Array,
-            mutationBatchEnvelope?: MutationBatchEnvelope | null
+            collaborationMessage?: CollaborationMessageEnvelope | null
         ): void => {
             this._pendingOutboundUpdates.push(update);
-            if (mutationBatchEnvelope) {
-                this._enqueuePendingDurabilityEnvelopes([
-                    mutationBatchEnvelope
-                ]);
-                this._pendingOutboundMutationBatchEnvelopes.push(
-                    mutationBatchEnvelope
+            if (collaborationMessage) {
+                this._enqueuePendingDurabilityMessages([collaborationMessage]);
+                this._pendingOutboundCollaborationMessages.push(
+                    collaborationMessage
                 );
             }
             if (this._outboundFlushScheduled) {
@@ -822,15 +834,15 @@ export class CloudAdapter implements FileSystemAdapter {
             !this._bridge
         ) {
             this._pendingOutboundUpdates = [];
-            this._pendingOutboundMutationBatchEnvelopes = [];
+            this._pendingOutboundCollaborationMessages = [];
             return;
         }
 
         const updates = this._pendingOutboundUpdates;
-        const mutationBatchEnvelopes =
-            this._pendingOutboundMutationBatchEnvelopes;
+        const collaborationMessages =
+            this._pendingOutboundCollaborationMessages;
         this._pendingOutboundUpdates = [];
-        this._pendingOutboundMutationBatchEnvelopes = [];
+        this._pendingOutboundCollaborationMessages = [];
         if (!updates.length) {
             return;
         }
@@ -838,19 +850,19 @@ export class CloudAdapter implements FileSystemAdapter {
         const update =
             updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
         const seq = ++this._seq;
-        const broadcastEntryCount = mutationBatchEnvelopes.reduce(
-            (count, envelope) => count + (envelope.patches?.length ?? 0),
+        const broadcastEntryCount = collaborationMessages.reduce(
+            (count, message) => count + message.changes.length,
             0
         );
-        const pendingEnvelopeKeys = mutationBatchEnvelopes.map((envelope) =>
-            getMutationBatchEnvelopeKey(envelope)
+        const pendingMessageKeys = collaborationMessages.map((message) =>
+            collaborationMessageKey(message)
         );
 
         if (broadcastEntryCount > 0) {
             this._outboundBroadcastEntryCounts.set(seq, broadcastEntryCount);
         }
-        if (pendingEnvelopeKeys.length) {
-            this._outboundPendingEnvelopeKeys.set(seq, pendingEnvelopeKeys);
+        if (pendingMessageKeys.length) {
+            this._outboundPendingMessageKeys.set(seq, pendingMessageKeys);
         }
 
         this._ws.send(
@@ -859,8 +871,8 @@ export class CloudAdapter implements FileSystemAdapter {
                 update: u8ToBase64(update),
                 clientId: this._clientId ?? '',
                 seq,
-                mutationBatchEnvelopes: mutationBatchEnvelopes.length
-                    ? mutationBatchEnvelopes
+                collaborationMessages: collaborationMessages.length
+                    ? collaborationMessages
                     : undefined
             })
         );
@@ -870,17 +882,17 @@ export class CloudAdapter implements FileSystemAdapter {
         const broadcastEntryCount =
             this._outboundBroadcastEntryCounts.get(seq) ?? 0;
         this._outboundBroadcastEntryCounts.delete(seq);
-        const pendingEnvelopeKeys =
-            this._outboundPendingEnvelopeKeys.get(seq) ?? [];
-        this._outboundPendingEnvelopeKeys.delete(seq);
+        const pendingMessageKeys =
+            this._outboundPendingMessageKeys.get(seq) ?? [];
+        this._outboundPendingMessageKeys.delete(seq);
 
-        if (pendingEnvelopeKeys.length) {
-            const durableEnvelopeKeys = new Set(pendingEnvelopeKeys);
-            this._pendingDurabilityEnvelopes =
-                this._pendingDurabilityEnvelopes.filter(
-                    (envelope) =>
-                        !durableEnvelopeKeys.has(
-                            getMutationBatchEnvelopeKey(envelope)
+        if (pendingMessageKeys.length) {
+            const durableMessageKeys = new Set(pendingMessageKeys);
+            this._pendingDurabilityMessages =
+                this._pendingDurabilityMessages.filter(
+                    (message) =>
+                        !durableMessageKeys.has(
+                            collaborationMessageKey(message)
                         )
                 );
         }
@@ -888,40 +900,38 @@ export class CloudAdapter implements FileSystemAdapter {
         this._bridge?.advanceBroadcastLogCursor(broadcastEntryCount);
     }
 
-    private _enqueuePendingDurabilityEnvelopes(
-        envelopes: MutationBatchEnvelope[]
+    private _enqueuePendingDurabilityMessages(
+        envelopes: CollaborationMessageEnvelope[]
     ): void {
         if (!envelopes.length) {
             return;
         }
 
-        this._pendingDurabilityEnvelopes = dedupeMutationBatchEnvelopes([
-            ...this._pendingDurabilityEnvelopes,
+        this._pendingDurabilityMessages = dedupeCollaborationMessages([
+            ...this._pendingDurabilityMessages,
             ...envelopes
         ]);
     }
 
-    private _reconcileDurableMutationBatchHistory(
-        mutationBatchHistory: MutationBatchEnvelope[]
+    private _reconcileDurableCollaborationMessageHistory(
+        collaborationMessageHistory: CollaborationMessageEnvelope[]
     ): void {
         if (
-            !mutationBatchHistory.length ||
-            !this._pendingDurabilityEnvelopes.length
+            !collaborationMessageHistory.length ||
+            !this._pendingDurabilityMessages.length
         ) {
             return;
         }
 
         const durableTransactions = new Set(
-            mutationBatchHistory.map((envelope) =>
-                getMutationBatchEnvelopeKey(envelope)
+            collaborationMessageHistory.map((message) =>
+                collaborationMessageKey(message)
             )
         );
-        this._pendingDurabilityEnvelopes =
-            this._pendingDurabilityEnvelopes.filter(
-                (envelope) =>
-                    !durableTransactions.has(
-                        getMutationBatchEnvelopeKey(envelope)
-                    )
+        this._pendingDurabilityMessages =
+            this._pendingDurabilityMessages.filter(
+                (message) =>
+                    !durableTransactions.has(collaborationMessageKey(message))
             );
     }
 
@@ -948,13 +958,13 @@ export class CloudAdapter implements FileSystemAdapter {
         const updates = messages.map((msg) => msg.update);
         const mergedUpdate =
             updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
-        const mutationBatchEnvelopes = messages.flatMap(
-            (msg) => msg.mutationBatchEnvelopes ?? []
+        const collaborationMessages = messages.flatMap(
+            (msg) => msg.collaborationMessages ?? []
         );
 
         this._applyRemoteUpdate(
             mergedUpdate,
-            mutationBatchEnvelopes.length ? mutationBatchEnvelopes : undefined
+            collaborationMessages.length ? collaborationMessages : undefined
         );
     }
 

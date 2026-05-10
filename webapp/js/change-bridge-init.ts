@@ -29,7 +29,6 @@ import {
     syncModelSidebearingEditToCanvas,
     inferSidebearingSideFromHistoryItem
 } from './sidebearing-utils';
-import { type MutationBatchEnvelope } from './mutation-batch';
 import type { TransactionBufferedOperation } from './patch-sync-engine';
 
 const console = new Logger('ChangeBridgeInit');

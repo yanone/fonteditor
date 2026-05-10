@@ -1,78 +1,53 @@
 const {
-    createChangeLogEntriesFromMutationBatchEnvelope,
-    createMutationBatchEnvelopeFromChangeLogEntries,
-    createMutationBatchEnvelopesFromChangeLogEntries,
-    createMutationBatchEnvelope,
-    isMutationBatchEnvelope
-} = require('../js/mutation-batch.ts');
+    createChangeLogEntriesFromCollaborationMessageEnvelope,
+    createCollaborationMessageEnvelopeFromChangeLogEntries,
+    createCollaborationMessageEnvelopesFromChangeLogEntries,
+    createCollaborationMessageEnvelope,
+    isCollaborationMessageEnvelope,
+    createNamedChangePairFromEntry,
+    createNamedChangePairFromJsonPatchPair,
+    createSyntheticChangeOperationsFromNamedChangePairs
+} = require('../js/collaboration-message.ts');
 const { createLogEntry } = require('../js/change-log');
 
-const TEST_FONT_JSON = {
-    glyphs: [
-        {
-            name: 'A',
-            layers: [{ id: 'layer-1', width: 600 }]
-        },
-        {
-            name: 'A.alt',
-            layers: [{ id: 'layer.regular.v1', width: 600 }]
-        }
-    ]
-};
-
-describe('mutation-batch scaffold', () => {
-    test('createMutationBatchEnvelope normalizes optional top-level fields and clones arrays', () => {
+describe('collaboration-message scaffold', () => {
+    test('createCollaborationMessageEnvelope normalizes optional top-level fields and clones arrays', () => {
         const metadata = {
             editType: 'outline',
             changedGlyphNames: ['A'],
             changedLayerIds: ['L0'],
             workerReplayTargets: [{ glyphName: 'A', layerId: 'L0' }],
-            visualAnchorSide: 'left',
-            requiresTrailingFullCompile: true
+            historyItemId: 'history-1',
+            historyAction: 'change',
+            undoScope: 'layer'
         };
 
-        const envelope = createMutationBatchEnvelope({
+        const envelope = createCollaborationMessageEnvelope({
             transactionId: 'tx-1',
             localSequence: 7,
+            roomSequence: null,
             baseRevision: 'rev-1',
-            patches: [
+            changes: [
                 {
-                    forward: {
-                        op: 'replace',
-                        path: 'glyphs.A:name',
-                        value: 'A'
-                    },
-                    inverse: {
-                        op: 'replace',
-                        path: 'glyphs.A:name',
-                        value: 'A.alt'
-                    }
+                    op: 'set',
+                    path: 'glyphs.A:name'
                 }
             ],
             metadata,
             source: 'unit-test',
             label: 'Rename glyph',
+            summary: 'Rename glyph',
             windowId: 'window-1',
             timestamp: 1234
         });
 
-        expect(envelope.schemaVersion).toBe(2);
-        expect(envelope.roomSequence).toBeNull();
-        expect(envelope.validationFingerprint).toBeNull();
+        expect(envelope.schemaVersion).toBe(1);
         expect(envelope.metadata).not.toBe(metadata);
         expect(envelope.metadata.changedGlyphNames).toEqual(['A']);
-        expect(envelope.patches).toEqual([
+        expect(envelope.changes).toEqual([
             expect.objectContaining({
-                forward: expect.objectContaining({
-                    op: 'replace',
-                    path: 'glyphs.A:name',
-                    value: 'A'
-                }),
-                inverse: expect.objectContaining({
-                    op: 'replace',
-                    path: 'glyphs.A:name',
-                    value: 'A.alt'
-                })
+                op: 'set',
+                path: 'glyphs.A:name'
             })
         ]);
         expect(envelope.metadata.workerReplayTargets).toEqual([
@@ -84,38 +59,41 @@ describe('mutation-batch scaffold', () => {
         expect(envelope.metadata.changedGlyphNames).toEqual(['A']);
     });
 
-    test('isMutationBatchEnvelope accepts the scaffold shape and rejects malformed values', () => {
-        const validEnvelope = createMutationBatchEnvelope({
+    test('isCollaborationMessageEnvelope accepts the scaffold shape and rejects malformed values', () => {
+        const validEnvelope = createCollaborationMessageEnvelope({
             transactionId: 'tx-2',
             localSequence: 1,
             roomSequence: 3,
             baseRevision: null,
-            patches: [],
+            changes: [],
             metadata: {
-                editType: 'bootstrap',
+                editType: 'font',
                 changedGlyphNames: [],
                 changedLayerIds: [],
-                workerReplayTargets: []
+                workerReplayTargets: [],
+                historyItemId: 'history-1',
+                historyAction: 'change',
+                undoScope: 'font'
             },
             source: 'bootstrap',
             label: null,
+            summary: 'Bootstrap',
             windowId: null,
-            timestamp: Date.now(),
-            validationFingerprint: 'fp-1'
+            timestamp: Date.now()
         });
 
-        expect(isMutationBatchEnvelope(validEnvelope)).toBe(true);
+        expect(isCollaborationMessageEnvelope(validEnvelope)).toBe(true);
         expect(
-            isMutationBatchEnvelope({
-                schemaVersion: 2,
+            isCollaborationMessageEnvelope({
+                schemaVersion: 1,
                 transactionId: 'tx-bad'
             })
         ).toBe(false);
-        expect(isMutationBatchEnvelope(null)).toBe(false);
-        expect(isMutationBatchEnvelope([])).toBe(false);
+        expect(isCollaborationMessageEnvelope(null)).toBe(false);
+        expect(isCollaborationMessageEnvelope([])).toBe(false);
     });
 
-    test('round-tripping through an envelope preserves undo metadata and sender attribution', () => {
+    test('round-tripping through a collaboration message preserves undo metadata and sender attribution', () => {
         const entries = [
             createLogEntry({
                 timestamp: 123,
@@ -138,7 +116,7 @@ describe('mutation-batch scaffold', () => {
             })
         ];
 
-        const envelope = createMutationBatchEnvelopeFromChangeLogEntries(
+        const envelope = createCollaborationMessageEnvelopeFromChangeLogEntries(
             entries,
             {
                 localSequence: 1,
@@ -146,12 +124,10 @@ describe('mutation-batch scaffold', () => {
                 windowId: 'sender-window'
             }
         );
-        const roundTripped = createChangeLogEntriesFromMutationBatchEnvelope(
-            envelope,
-            {
+        const roundTripped =
+            createChangeLogEntriesFromCollaborationMessageEnvelope(envelope, {
                 windowRoleLabel: 'receiver-window'
-            }
-        );
+            });
 
         expect(roundTripped).toHaveLength(1);
         expect(roundTripped[0]).toEqual(
@@ -172,42 +148,41 @@ describe('mutation-batch scaffold', () => {
         );
     });
 
-    test('round-tripping preserves dotted glyph names and dotted layer ids', () => {
-        const entries = [
-            createLogEntry({
-                timestamp: 123,
-                windowId: 'sender-window',
-                windowRoleLabel: 'main',
-                historyItemId: 'history-dotted-1',
-                transactionLabel: 'Resize dotted glyph',
-                transactionId: 45,
-                op: 'set',
-                undoScope: 'layer',
-                path: 'glyphs.A.alt:layers.layer.regular.v1:width',
-                oldValue: 600,
-                newValue: 720,
-                workerReplayTargets: [
-                    { glyphName: 'A.alt', layerId: 'layer.regular.v1' }
-                ]
-            })
-        ];
-
-        const envelope = createMutationBatchEnvelopeFromChangeLogEntries(
-            entries,
+    test('createNamedChangePairFromJsonPatchPair maps dotted glyph names and layer ids', () => {
+        const pair = createNamedChangePairFromJsonPatchPair(
             {
-                localSequence: 1,
-                source: 'unit-test',
-                windowId: 'sender-window'
+                op: 'replace',
+                path: '/glyphs/1/layers/0/width',
+                value: 720
+            },
+            {
+                op: 'replace',
+                path: '/glyphs/1/layers/0/width',
+                value: 600
+            },
+            {
+                forwardSnapshot: {
+                    glyphs: [
+                        { name: 'A', layers: [{ id: 'layer-1', width: 600 }] },
+                        {
+                            name: 'A.alt',
+                            layers: [{ id: 'layer.regular.v1', width: 720 }]
+                        }
+                    ]
+                },
+                inverseSnapshot: {
+                    glyphs: [
+                        { name: 'A', layers: [{ id: 'layer-1', width: 600 }] },
+                        {
+                            name: 'A.alt',
+                            layers: [{ id: 'layer.regular.v1', width: 600 }]
+                        }
+                    ]
+                }
             }
         );
-        const roundTripped = createChangeLogEntriesFromMutationBatchEnvelope(
-            envelope,
-            {
-                windowRoleLabel: 'receiver-window'
-            }
-        );
 
-        expect(envelope.patches[0]).toEqual(
+        expect(pair).toEqual(
             expect.objectContaining({
                 forward: expect.objectContaining({
                     op: 'replace',
@@ -221,15 +196,10 @@ describe('mutation-batch scaffold', () => {
                 })
             })
         );
-        expect(roundTripped[0]).toEqual(
-            expect.objectContaining({
-                path: 'glyphs.A.alt:layers.layer.regular.v1:width'
-            })
-        );
     });
 
-    test('set envelopes prefer replay payloads for authoritative forward and inverse patches', () => {
-        const entries = [
+    test('createNamedChangePairFromEntry prefers replay payloads for authoritative introspection values', () => {
+        const pair = createNamedChangePairFromEntry(
             createLogEntry({
                 timestamp: 123,
                 windowId: 'sender-window',
@@ -252,18 +222,9 @@ describe('mutation-batch scaffold', () => {
                 },
                 workerReplayTargets: [{ glyphName: 'o', layerId: 'layer-1' }]
             })
-        ];
-
-        const envelope = createMutationBatchEnvelopeFromChangeLogEntries(
-            entries,
-            {
-                localSequence: 1,
-                source: 'unit-test',
-                windowId: 'sender-window'
-            }
         );
 
-        expect(envelope.patches[0]).toEqual(
+        expect(pair).toEqual(
             expect.objectContaining({
                 forward: expect.objectContaining({
                     op: 'replace',
@@ -285,7 +246,35 @@ describe('mutation-batch scaffold', () => {
         );
     });
 
-    test('splits change-log tails into one envelope per logical history item', () => {
+    test('createSyntheticChangeOperationsFromNamedChangePairs reconstructs change operations', () => {
+        const operations = createSyntheticChangeOperationsFromNamedChangePairs([
+            {
+                forward: {
+                    op: 'replace',
+                    path: 'glyphs.A:layers.layer-1:width',
+                    value: 700
+                },
+                inverse: {
+                    op: 'replace',
+                    path: 'glyphs.A:layers.layer-1:width',
+                    value: 600
+                },
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            }
+        ]);
+
+        expect(operations).toEqual([
+            expect.objectContaining({
+                op: 'set',
+                path: ['glyphs', 'A', 'layers', 'layer-1', 'width'],
+                oldValue: 600,
+                newValue: 700,
+                workerReplayTargets: [{ glyphName: 'A', layerId: 'layer-1' }]
+            })
+        ]);
+    });
+
+    test('splits change-log tails into one collaboration message per logical history item', () => {
         const entries = [
             createLogEntry({
                 timestamp: 1,
@@ -319,14 +308,12 @@ describe('mutation-batch scaffold', () => {
             })
         ];
 
-        const envelopes = createMutationBatchEnvelopesFromChangeLogEntries(
-            entries,
-            {
+        const envelopes =
+            createCollaborationMessageEnvelopesFromChangeLogEntries(entries, {
                 startingLocalSequence: 10,
                 source: 'unit-test',
                 windowId: 'sender-window'
-            }
-        );
+            });
 
         expect(envelopes).toHaveLength(2);
         expect(envelopes[0].metadata.historyItemId).toBe('history-1');

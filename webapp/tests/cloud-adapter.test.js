@@ -4,10 +4,10 @@ const {
 } = require('../js/cloud-adapter.ts');
 const { createLogEntry } = require('../js/change-log');
 const {
-    createMutationBatchEnvelopesFromChangeLogEntries,
-    createMutationBatchEnvelopeFromChangeLogEntries,
-    createMutationBatchEnvelope
-} = require('../js/mutation-batch.ts');
+    createCollaborationMessageEnvelopesFromChangeLogEntries,
+    createCollaborationMessageEnvelopeFromChangeLogEntries,
+    createCollaborationMessageEnvelope
+} = require('../js/collaboration-message.ts');
 
 describe('CloudAdapter room worker defaults', () => {
     it('defaults to localhost in development', () => {
@@ -116,12 +116,15 @@ describe('CloudAdapter outbound updates', () => {
             newValue: 'A.alt',
             workerReplayTargets: []
         });
-        const mutationBatchHistory = [
-            createMutationBatchEnvelopeFromChangeLogEntries([historyEntry], {
-                localSequence: 1,
-                source: 'cloud-adapter.test',
-                windowId: 'client-1'
-            })
+        const collaborationMessageHistory = [
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                [historyEntry],
+                {
+                    localSequence: 1,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            )
         ];
         const pendingEntry = createLogEntry({
             timestamp: 2,
@@ -136,15 +139,19 @@ describe('CloudAdapter outbound updates', () => {
             newValue: 'B.alt',
             workerReplayTargets: []
         });
-        adapter._pendingDurabilityEnvelopes = [
-            createMutationBatchEnvelopeFromChangeLogEntries([pendingEntry], {
-                localSequence: 2,
-                source: 'cloud-adapter.test',
-                windowId: 'client-1'
-            })
+        adapter._pendingDurabilityMessages = [
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                [pendingEntry],
+                {
+                    localSequence: 2,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            )
         ];
         const bridge = {
             mergeImportedChangeLog: jest.fn(),
+            mergeImportedCollaborationMessages: jest.fn(),
             applyFullState: jest.fn(),
             onLocalUpdate: jest.fn(),
             offLocalUpdate: jest.fn()
@@ -159,7 +166,7 @@ describe('CloudAdapter outbound updates', () => {
                 type: 'sync-response',
                 update: Buffer.from([1, 2, 3]).toString('base64'),
                 serverStateVector: Buffer.from([4, 5, 6]).toString('base64'),
-                mutationBatchHistory
+                collaborationMessageHistory
             })
         );
 
@@ -204,12 +211,15 @@ describe('CloudAdapter outbound updates', () => {
                 workerReplayTargets: []
             })
         ];
-        const mutationBatchEnvelope =
-            createMutationBatchEnvelopeFromChangeLogEntries(changeLogEntries, {
-                localSequence: 1,
-                source: 'cloud-adapter.test',
-                windowId: 'client-1'
-            });
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                changeLogEntries,
+                {
+                    localSequence: 1,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            );
         adapter._bridge = {
             onLocalUpdate: (handler) => {
                 localUpdateHandler = handler;
@@ -225,7 +235,7 @@ describe('CloudAdapter outbound updates', () => {
         adapter._clientId = 'client-1';
 
         adapter._registerOutboundHook();
-        localUpdateHandler(localUpdate, mutationBatchEnvelope);
+        localUpdateHandler(localUpdate, collaborationMessage);
         await Promise.resolve();
 
         expect(getFullState).not.toHaveBeenCalled();
@@ -233,12 +243,12 @@ describe('CloudAdapter outbound updates', () => {
         expect(sentFrames[0].type).toBe('update');
         expect(sentFrames[0].clientId).toBe('client-1');
         expect(sentFrames[0].seq).toBe(1);
-        expect(sentFrames[0].mutationBatchEnvelopes).toHaveLength(1);
-        expect(sentFrames[0].mutationBatchEnvelopes[0]).toEqual(
+        expect(sentFrames[0].collaborationMessages).toHaveLength(1);
+        expect(sentFrames[0].collaborationMessages[0]).toEqual(
             expect.objectContaining({
-                transactionId: mutationBatchEnvelope.transactionId,
-                label: mutationBatchEnvelope.label,
-                patches: mutationBatchEnvelope.patches
+                transactionId: collaborationMessage.transactionId,
+                label: collaborationMessage.label,
+                changes: collaborationMessage.changes
             })
         );
         expect(sentFrames[0].fullState).toBeUndefined();
@@ -268,12 +278,15 @@ describe('CloudAdapter outbound updates', () => {
                 workerReplayTargets: []
             })
         ];
-        const mutationBatchEnvelope =
-            createMutationBatchEnvelopeFromChangeLogEntries(changeLogEntries, {
-                localSequence: 1,
-                source: 'cloud-adapter.test',
-                windowId: 'client-1'
-            });
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                changeLogEntries,
+                {
+                    localSequence: 1,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            );
 
         adapter._bridge = {
             onLocalUpdate: (handler) => {
@@ -290,13 +303,13 @@ describe('CloudAdapter outbound updates', () => {
         adapter._clientId = 'client-1';
 
         adapter._registerOutboundHook();
-        localUpdateHandler(localUpdate, mutationBatchEnvelope);
+        localUpdateHandler(localUpdate, collaborationMessage);
         await Promise.resolve();
 
         adapter._handleMessage(JSON.stringify({ type: 'ack', seq: 1 }));
 
         expect(advanceBroadcastLogCursor).toHaveBeenCalledWith(1);
-        expect(adapter._pendingDurabilityEnvelopes).toEqual([]);
+        expect(adapter._pendingDurabilityMessages).toEqual([]);
     });
 
     it('preserves and retries an unacked live update across reconnect bootstrap', async () => {
@@ -319,14 +332,18 @@ describe('CloudAdapter outbound updates', () => {
                 workerReplayTargets: []
             })
         ];
-        const mutationBatchEnvelope =
-            createMutationBatchEnvelopeFromChangeLogEntries(changeLogEntries, {
-                localSequence: 3,
-                source: 'cloud-adapter.test',
-                windowId: 'client-1'
-            });
+        const collaborationMessage =
+            createCollaborationMessageEnvelopeFromChangeLogEntries(
+                changeLogEntries,
+                {
+                    localSequence: 3,
+                    source: 'cloud-adapter.test',
+                    windowId: 'client-1'
+                }
+            );
         const bridge = {
             mergeImportedChangeLog: jest.fn(),
+            mergeImportedCollaborationMessages: jest.fn(),
             applyFullState: jest.fn(),
             onLocalUpdate: (handler) => {
                 localUpdateHandler = handler;
@@ -346,7 +363,7 @@ describe('CloudAdapter outbound updates', () => {
         adapter._clientId = 'client-1';
 
         adapter._registerOutboundHook();
-        localUpdateHandler(localUpdate, mutationBatchEnvelope);
+        localUpdateHandler(localUpdate, collaborationMessage);
         await Promise.resolve();
 
         adapter._handleMessage(
@@ -354,7 +371,7 @@ describe('CloudAdapter outbound updates', () => {
                 type: 'sync-response',
                 update: Buffer.from([5, 6, 7]).toString('base64'),
                 serverStateVector: Buffer.from([8, 9, 10]).toString('base64'),
-                mutationBatchHistory: []
+                collaborationMessageHistory: []
             })
         );
 
@@ -369,9 +386,9 @@ describe('CloudAdapter outbound updates', () => {
         expect(sentFrames[sentFrames.length - 1]).toEqual(
             expect.objectContaining({
                 type: 'sync-complete',
-                mutationBatchEnvelopes: [
+                collaborationMessages: [
                     expect.objectContaining({
-                        transactionId: mutationBatchEnvelope.transactionId,
+                        transactionId: collaborationMessage.transactionId,
                         label: 'Live edit'
                     })
                 ]
@@ -381,67 +398,63 @@ describe('CloudAdapter outbound updates', () => {
 
     it('retires only the matching pending envelope identity during bootstrap reconciliation', () => {
         const adapter = new CloudAdapter({ assetId: 'asset-123' });
-        const durableEnvelope = createMutationBatchEnvelope({
+        const durableEnvelope = createCollaborationMessageEnvelope({
             transactionId: '1',
             localSequence: 1,
+            roomSequence: null,
             baseRevision: null,
-            patches: [
+            changes: [
                 {
-                    forward: {
-                        op: 'replace',
-                        path: 'glyphs.A:name',
-                        value: 'A.alt'
-                    },
-                    inverse: {
-                        op: 'replace',
-                        path: 'glyphs.A:name',
-                        value: 'A'
-                    }
+                    op: 'set',
+                    path: 'glyphs.A:name'
                 }
             ],
             metadata: {
                 editType: 'font',
                 changedGlyphNames: ['A'],
                 changedLayerIds: [],
-                workerReplayTargets: []
+                workerReplayTargets: [],
+                historyItemId: 'history-1',
+                historyAction: 'change',
+                undoScope: 'font'
             },
             source: 'cloud-adapter.test',
             label: 'Older durable envelope',
+            summary: 'Older durable envelope',
             windowId: 'client-1',
             timestamp: 100
         });
-        const pendingEnvelope = createMutationBatchEnvelope({
+        const pendingEnvelope = createCollaborationMessageEnvelope({
             transactionId: '1',
             localSequence: 2,
+            roomSequence: null,
             baseRevision: null,
-            patches: [
+            changes: [
                 {
-                    forward: {
-                        op: 'replace',
-                        path: 'glyphs.B:name',
-                        value: 'B.alt'
-                    },
-                    inverse: {
-                        op: 'replace',
-                        path: 'glyphs.B:name',
-                        value: 'B'
-                    }
+                    op: 'set',
+                    path: 'glyphs.B:name'
                 }
             ],
             metadata: {
                 editType: 'font',
                 changedGlyphNames: ['B'],
                 changedLayerIds: [],
-                workerReplayTargets: []
+                workerReplayTargets: [],
+                historyItemId: 'history-2',
+                historyAction: 'change',
+                undoScope: 'font'
             },
             source: 'cloud-adapter.test',
             label: 'Pending envelope',
+            summary: 'Pending envelope',
             windowId: 'client-1',
             timestamp: 200
         });
-        adapter._pendingDurabilityEnvelopes = [pendingEnvelope];
+        adapter._pendingDurabilityMessages = [pendingEnvelope];
         adapter._bridge = {
             mergeImportedChangeLog: jest.fn(),
+            mergeImportedCollaborationMessages: jest.fn(),
+            mergeImportedCollaborationMessages: jest.fn(),
             applyFullState: jest.fn(),
             onLocalUpdate: jest.fn(),
             offLocalUpdate: jest.fn()
@@ -454,11 +467,11 @@ describe('CloudAdapter outbound updates', () => {
                 type: 'sync-response',
                 update: Buffer.from([1, 2, 3]).toString('base64'),
                 serverStateVector: Buffer.from([4, 5, 6]).toString('base64'),
-                mutationBatchHistory: [durableEnvelope]
+                collaborationMessageHistory: [durableEnvelope]
             })
         );
 
-        expect(adapter._pendingDurabilityEnvelopes).toEqual([pendingEnvelope]);
+        expect(adapter._pendingDurabilityMessages).toEqual([pendingEnvelope]);
     });
 
     it('sends sync-complete metadata without repair side-band state', () => {
@@ -496,19 +509,22 @@ describe('CloudAdapter outbound updates', () => {
 
         expect(adapter._bridge.getFullState).not.toHaveBeenCalled();
         expect(sentFrames).toHaveLength(1);
-        const expectedEnvelopes =
-            createMutationBatchEnvelopesFromChangeLogEntries(changeLogEntries, {
-                startingLocalSequence: 1,
-                source: 'cloud-adapter.sync-complete',
-                windowId: undefined
-            });
+        const expectedMessages =
+            createCollaborationMessageEnvelopesFromChangeLogEntries(
+                changeLogEntries,
+                {
+                    startingLocalSequence: 1,
+                    source: 'cloud-adapter.sync-complete',
+                    windowId: undefined
+                }
+            );
         expect(sentFrames[0].type).toBe('sync-complete');
-        expect(sentFrames[0].mutationBatchEnvelopes).toHaveLength(1);
-        expect(sentFrames[0].mutationBatchEnvelopes[0]).toEqual(
+        expect(sentFrames[0].collaborationMessages).toHaveLength(1);
+        expect(sentFrames[0].collaborationMessages[0]).toEqual(
             expect.objectContaining({
-                transactionId: expectedEnvelopes[0].transactionId,
-                label: expectedEnvelopes[0].label,
-                patches: expectedEnvelopes[0].patches
+                transactionId: expectedMessages[0].transactionId,
+                label: expectedMessages[0].label,
+                changes: expectedMessages[0].changes
             })
         );
         expect(sentFrames[0].fullState).toBeUndefined();
@@ -565,13 +581,13 @@ describe('CloudAdapter outbound updates', () => {
         adapter._sendSyncComplete(new Uint8Array([1, 2, 3]));
 
         expect(sentFrames).toHaveLength(1);
-        expect(sentFrames[0].mutationBatchEnvelopes).toHaveLength(2);
-        expect(sentFrames[0].mutationBatchEnvelopes[0]).toEqual(
+        expect(sentFrames[0].collaborationMessages).toHaveLength(2);
+        expect(sentFrames[0].collaborationMessages[0]).toEqual(
             expect.objectContaining({
                 label: 'Resize'
             })
         );
-        expect(sentFrames[0].mutationBatchEnvelopes[1]).toEqual(
+        expect(sentFrames[0].collaborationMessages[1]).toEqual(
             expect.objectContaining({
                 label: 'Undo',
                 metadata: expect.objectContaining({

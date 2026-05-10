@@ -9,11 +9,11 @@ import { Logger } from './logger';
 import { fontCompilation } from './font-compilation';
 import type { WorkerReplayTarget } from './change-log';
 import {
-    createNamedPatchPairFromJsonPatchPair,
-    createSyntheticChangeOperationsFromPatchPairs,
+    createNamedChangePairFromJsonPatchPair,
+    createSyntheticChangeOperationsFromNamedChangePairs,
     type JsonPatchOperation,
-    type MutationPatchPair
-} from './mutation-batch';
+    type NamedChangePair
+} from './collaboration-message';
 import type { TransactionCommitResult } from './patch-sync-engine';
 
 const console = new Logger('PythonPostExecution');
@@ -253,14 +253,14 @@ function createNamedPatchPairsFromJsonSnapshots(
     beforeSnapshot: Record<string, unknown>,
     afterSnapshot: Record<string, unknown>,
     workerReplayTargets: WorkerReplayTarget[]
-): MutationPatchPair[] {
+): NamedChangePair[] {
     const jsonPatchPairs = diffFontDataToJsonPatchPairs(
         beforeSnapshot,
         afterSnapshot
     );
 
     return jsonPatchPairs.map((patchPair) =>
-        createNamedPatchPairFromJsonPatchPair(
+        createNamedChangePairFromJsonPatchPair(
             patchPair.forward,
             patchPair.inverse,
             {
@@ -407,9 +407,9 @@ function setupHooks() {
                         firstAfterSnapshot
                     );
                     const directOperations =
-                        createSyntheticChangeOperationsFromPatchPairs(
+                        createSyntheticChangeOperationsFromNamedChangePairs(
                             initialPatchPairs.map((patchPair) =>
-                                createNamedPatchPairFromJsonPatchPair(
+                                createNamedChangePairFromJsonPatchPair(
                                     patchPair.forward,
                                     patchPair.inverse,
                                     {

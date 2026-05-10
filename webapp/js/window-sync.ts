@@ -9,20 +9,24 @@
 import type { PatchSyncEngine } from './patch-sync-engine';
 import type { ChangeLogEntry } from './change-log';
 import { Logger } from './logger';
-import type { MutationBatchEnvelope } from './mutation-batch';
-import * as Y from 'yjs';
+import type { CollaborationLogItem } from './patch-sync-engine';
+import type { CollaborationMessageEnvelope } from './collaboration-message';
 
 const console = new Logger('WindowSync');
 
 type BinaryPayload = number[] | Uint8Array | ArrayBuffer;
 
+type YjsUpdatePacket = {
+    update: BinaryPayload;
+    collaborationMessage?: CollaborationMessageEnvelope;
+};
+
 // ── Protocol message types ──────────────────────────────────────────
 
 interface YjsUpdateMsg {
     type: 'yjs-update';
-    update: BinaryPayload;
+    updates: YjsUpdatePacket[];
     windowId: string;
-    mutationBatchEnvelopes?: MutationBatchEnvelope[];
 }
 
 interface FullStateRequestMsg {
@@ -34,6 +38,7 @@ interface FullStateResponseMsg {
     type: 'full-state-response';
     state: BinaryPayload;
     changeLog: ChangeLogEntry[];
+    collaborationLog: CollaborationLogItem[];
     windowId: string;
 }
 
@@ -64,9 +69,7 @@ export class WindowSync {
     private _awaitingFullState = false;
     private _hasAppliedFullState = false;
     private _mainWindowClosingListeners = new Set<() => void>();
-    private _pendingOutboundUpdates: Uint8Array[] = [];
-    private _pendingOutboundMutationBatchEnvelopes: MutationBatchEnvelope[] =
-        [];
+    private _pendingOutboundPackets: YjsUpdatePacket[] = [];
     private _outboundFlushScheduled = false;
     private _pendingYjsMessages: YjsUpdateMsg[] = [];
     private _inboundFlushScheduled = false;
@@ -93,8 +96,8 @@ export class WindowSync {
             // Wire bridge's local updates to broadcast. The broadcast itself is
             // microtask-batched so a single user transaction that emits several
             // Yjs updates produces one channel message and one receiver refresh.
-            bridge.onLocalUpdate((_update, mutationBatchEnvelope) => {
-                this._queueOutboundBroadcast(_update, mutationBatchEnvelope);
+            bridge.onLocalUpdate((_update, collaborationMessage) => {
+                this._queueOutboundBroadcast(_update, collaborationMessage);
             });
         }
     }
@@ -159,14 +162,12 @@ export class WindowSync {
 
     private _queueOutboundBroadcast(
         update: Uint8Array,
-        mutationBatchEnvelope?: MutationBatchEnvelope | null
+        collaborationMessage?: CollaborationMessageEnvelope | null
     ): void {
-        this._pendingOutboundUpdates.push(update);
-        if (mutationBatchEnvelope) {
-            this._pendingOutboundMutationBatchEnvelopes.push(
-                mutationBatchEnvelope
-            );
-        }
+        this._pendingOutboundPackets.push({
+            update,
+            ...(collaborationMessage ? { collaborationMessage } : undefined)
+        });
         if (this._outboundFlushScheduled) {
             return;
         }
@@ -179,30 +180,28 @@ export class WindowSync {
             return;
         }
         this._outboundFlushScheduled = false;
-        const updates = this._pendingOutboundUpdates;
-        const mutationBatchEnvelopes =
-            this._pendingOutboundMutationBatchEnvelopes;
-        this._pendingOutboundUpdates = [];
-        this._pendingOutboundMutationBatchEnvelopes = [];
-        if (!updates.length) {
+        const packets = this._pendingOutboundPackets;
+        this._pendingOutboundPackets = [];
+        if (!packets.length) {
             return;
         }
 
         const startTime = performance.now?.() ?? Date.now();
-        const update =
-            updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
         this._send({
             type: 'yjs-update',
-            update,
-            windowId: this._bridge.windowId,
-            mutationBatchEnvelopes: mutationBatchEnvelopes.length
-                ? mutationBatchEnvelopes
-                : undefined
+            updates: packets,
+            windowId: this._bridge.windowId
         });
         this._logTiming('outbound-yjs-update', {
-            updateCount: updates.length,
-            mutationBatchEnvelopeCount: mutationBatchEnvelopes.length,
-            updateBytes: update.byteLength,
+            updateCount: packets.length,
+            collaborationMessageCount: packets.filter(
+                (packet) => !!packet.collaborationMessage
+            ).length,
+            updateBytes: packets.reduce(
+                (total, packet) =>
+                    total + toUint8Array(packet.update).byteLength,
+                0
+            ),
             peerCount: this._peers.size,
             durationMs: this._elapsed(startTime)
         });
@@ -229,21 +228,28 @@ export class WindowSync {
         }
 
         const startTime = performance.now?.() ?? Date.now();
-        const updates = messages.map((msg) => toUint8Array(msg.update));
-        const update =
-            updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
-        const mutationBatchEnvelopes = messages.flatMap(
-            (msg) => msg.mutationBatchEnvelopes ?? []
-        );
-        this._bridge.applyRemoteUpdate(
-            update,
-            undefined,
-            mutationBatchEnvelopes.length ? mutationBatchEnvelopes : undefined
-        );
+        let updateBytes = 0;
+        let collaborationMessageCount = 0;
+        for (const msg of messages) {
+            for (const packet of msg.updates) {
+                const update = toUint8Array(packet.update);
+                updateBytes += update.byteLength;
+                if (packet.collaborationMessage) {
+                    collaborationMessageCount += 1;
+                }
+                this._bridge.applyRemoteUpdate(
+                    update,
+                    undefined,
+                    packet.collaborationMessage
+                        ? [packet.collaborationMessage]
+                        : undefined
+                );
+            }
+        }
         this._logTiming('inbound-yjs-update', {
             messageCount: messages.length,
-            mutationBatchEnvelopeCount: mutationBatchEnvelopes.length,
-            updateBytes: update.byteLength,
+            collaborationMessageCount,
+            updateBytes,
             durationMs: this._elapsed(startTime)
         });
     }
@@ -277,6 +283,7 @@ export class WindowSync {
                     type: 'full-state-response',
                     state,
                     changeLog: this._bridge.getChangeLog(),
+                    collaborationLog: this._bridge.getCollaborationLog(),
                     windowId: this._bridge.windowId
                 });
                 break;
@@ -293,6 +300,9 @@ export class WindowSync {
                 // onRemoteChange callback (fired by applyFullState)
                 // sees the complete log.
                 this._bridge.importChangeLog(msg.changeLog);
+                this._bridge.importCollaborationMessages(
+                    msg.collaborationLog ?? []
+                );
                 this._bridge.applyFullState(toUint8Array(msg.state));
                 break;
 
