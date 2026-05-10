@@ -1020,8 +1020,8 @@ export class PatchSyncEngine {
                     uniqueGlyphNames[0],
                     layerId,
                     label,
-                    oldValue,
-                    newValue,
+                    oldValue!,
+                    newValue!,
                     visualAnchorSide,
                     workerReplayTargets
                 )
@@ -1602,6 +1602,14 @@ export class PatchSyncEngine {
                 this._getRemoteUpdateOrigin(effectiveRemoteEntries)
             );
             this._syncJsonFromYDoc(remoteLayerScopes);
+            // Re-apply layer deltas from mutation batch envelopes to fix
+            // Yjs update corruption. Yjs updates that replace Y.Map keys
+            // with new Y.Map/Y.Array values (via map.set + toYType) can
+            // destroy those keys on remote windows. We recover by re-applying
+            // the delta data directly on the receiver's Y.Doc.
+            this._reapplyLayerDeltasFromChangeLogEntries(
+                effectiveRemoteEntries
+            );
             this._applyExplicitLayerPropertyRemovalsToFontJson(
                 effectiveRemoteEntries
             );
@@ -1619,6 +1627,65 @@ export class PatchSyncEngine {
         } finally {
             this._isApplyingRemote = false;
         }
+    }
+
+    private _reapplyLayerDeltasFromChangeLogEntries(
+        remoteEntries?: ChangeLogEntry[]
+    ): void {
+        if (!remoteEntries?.length) {
+            return;
+        }
+
+        this.yDoc.transact(() => {
+            for (const entry of remoteEntries) {
+                if (
+                    entry.op !== 'set' ||
+                    !entry.replayNewValue ||
+                    typeof entry.replayNewValue !== 'object' ||
+                    Array.isArray(entry.replayNewValue)
+                ) {
+                    continue;
+                }
+
+                const path = this._parseEntryPath(entry.path);
+                if (
+                    path.length !== 4 ||
+                    path[0] !== 'glyphs' ||
+                    path[2] !== 'layers'
+                ) {
+                    continue;
+                }
+
+                const glyphName = String(path[1]);
+                const layerId = String(path[3]);
+                this._applyLayerDelta(
+                    glyphName,
+                    layerId,
+                    entry.replayNewValue as Record<string, unknown>
+                );
+            }
+        }, SYSTEM_REMOTE_ORIGIN);
+
+        // Re-sync font JSON from the corrected Y.Doc
+        this._syncJsonFromYDoc(
+            normalizeWorkerReplayTargets(
+                remoteEntries
+                    .filter(
+                        (entry) =>
+                            entry.op === 'set' &&
+                            entry.replayNewValue &&
+                            typeof entry.replayNewValue === 'object'
+                    )
+                    .map((entry) => {
+                        const path = this._parseEntryPath(entry.path);
+                        return {
+                            glyphName: String(path[1]),
+                            layerId: String(path[3])
+                        };
+                    })
+                    .filter((target) => target.glyphName && target.layerId)
+            )
+        );
     }
 
     private _applyExplicitLayerPropertyRemovalsToFontJson(
