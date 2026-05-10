@@ -24,6 +24,14 @@ Every function must be accompanied by a human-readable description, which must a
 
 Wherever the `cmd` key is mentioned, on Windows and Linux the `ctrl` key is to be used instead.
 
+## Document Collaboration
+
+Yjs is the single source of truth for all edits. Reliable document convergence is the primary design goal.
+
+The Patch Engine must treat Yjs diffs as authoritative for normal edits, undo, and redo. Replay targets are allowed only as narrow metadata for efficient cache refresh and compilation. A short human-readable edit summary must also be attached, along with edit-source metadata such as mouse, keyboard, or Python, for display in the history view.
+
+Forward patches are generated only on the receiving side, on the fly, from the incoming binary Yjs diff for human introspection. They are shown in the history item's info popup, but they must never be used to replay, rebuild, or update font data. Yjs alone defines document state.
+
 ## Glyphs
 
 ### Layers
