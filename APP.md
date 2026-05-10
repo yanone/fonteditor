@@ -32,6 +32,10 @@ The Patch Engine must treat Yjs diffs as authoritative for normal edits, undo, a
 
 Forward patches are generated only on the receiving side, on the fly, from the incoming binary Yjs diff for human introspection. They are shown in the history item's info popup, but they must never be used to replay, rebuild, or update font data. Yjs alone defines document state.
 
+### Cloud sync vs. local window sync
+
+Only a font’s main window syncs with the DO room in the cloud. Local linked windows only talk to the main window which relays messages back and forth between the cloud and the local linked windows.
+
 ## Glyphs
 
 ### Layers
