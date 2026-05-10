@@ -3922,7 +3922,8 @@ export class OutlineEditor {
             (this.isDraggingPoint && !this.isSlidingSmoothPointAlongCurve)
         ) {
             metricsUpdate = this.applyMetricsKeysToCurrentEditedLayer(true, {
-                useVisibleDragScope: !forceMetricsRecompute
+                useVisibleDragScope: !forceMetricsRecompute,
+                rebuildAutomaticComposites: true
             });
 
             if (this._metricsKeyEditedSide !== null) {
@@ -4076,9 +4077,6 @@ export class OutlineEditor {
                 )
             )
         );
-        if (downstreamGlyphNames.length === 0) {
-            return;
-        }
 
         const currentFont = fontManager.currentFont;
         if (!currentFont) {
@@ -4090,12 +4088,16 @@ export class OutlineEditor {
         if (options?.liveVisibleOnly) {
             // Fire-and-forget: batch source + downstream layer updates
             // into a single worker cache sync + compilation run.
-            // The model is already updated synchronously; canvas renders
-            // from the model, so visual feedback is immediate.
+            // Always include the source glyph even when there are no downstream
+            // dependents — the source glyph itself needs to be recompiled so
+            // the live text run reflects the current drag state.
             const allGlyphNames = [
                 ...(glyphName ? [glyphName] : []),
                 ...downstreamGlyphNames
             ];
+            if (allGlyphNames.length === 0) {
+                return;
+            }
             fontManager
                 .refreshGlyphsAfterModelBatch(allGlyphNames, currentLayerId, {
                     dispatchGlyphChanged: false,
@@ -4107,7 +4109,7 @@ export class OutlineEditor {
                         : undefined)
                 })
                 .then(() => {
-                    currentFont.requestRecompileWithoutDataChange();
+                    currentFont.requestRecompileWithoutDataChange?.();
                     window.autoCompileManager?.checkAndSchedule?.();
                 });
             return;
@@ -4119,6 +4121,9 @@ export class OutlineEditor {
         // here caused a multi-second main-thread freeze when a sidebearing
         // edit cascaded to many dependent glyphs (history-view re-renders
         // synchronously per event).
+        if (downstreamGlyphNames.length === 0) {
+            return;
+        }
         fontManager
             .refreshGlyphsAfterModelBatch(
                 [...(glyphName ? [glyphName] : []), ...downstreamGlyphNames],
@@ -8559,7 +8564,9 @@ export class OutlineEditor {
                 this._metricsKeyInteractionSide = null;
                 this._dragType = 'slide-point';
                 this._preDragDesc = this._buildNodeDesc();
-                window.patchSyncEngine?.beginTransaction('Move point along curve');
+                window.patchSyncEngine?.beginTransaction(
+                    'Move point along curve'
+                );
                 this.glyphCanvas.lastMouseX = e.clientX;
                 this.glyphCanvas.lastMouseY = e.clientY;
                 this.lastGlyphX = null;
@@ -17166,9 +17173,7 @@ export class OutlineEditor {
                 oldValue,
                 newValue,
                 visualAnchorSide,
-                workerReplayTargets?.length
-                    ? workerReplayTargets
-                    : undefined
+                workerReplayTargets?.length ? workerReplayTargets : undefined
             );
             return;
         }

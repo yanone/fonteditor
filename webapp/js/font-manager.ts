@@ -2968,7 +2968,7 @@ class FontManager {
         if (!this.currentFont) {
             return null;
         }
-        let glyphs: Babelfont.Glyph[] = this.currentFont.babelfontData.glyphs;
+        let glyphs: Babelfont.Glyph[] = this.currentFont.babelfontData?.glyphs;
         if (!glyphs) {
             return null;
         }
@@ -3371,7 +3371,12 @@ class FontManager {
                 );
                 this._boundaryCrossingStats.transmittedGlyphs.add(u.glyphName);
             }
-            fontCompilation.lastStoredFontJson = null;
+            // Do NOT clear lastStoredFontJson here. The Rust state has been
+            // incrementally patched via applyJsonPatches, so the next compile
+            // can still use '__incremental_layer__' (the lastStoredFontJson ===
+            // babelfontJson comparison remains valid). Clearing it would force
+            // the compile to re-send stale full babelfontJson, overwriting the
+            // patch.
             return true;
         } catch (error) {
             console.warn(
@@ -3539,9 +3544,6 @@ class FontManager {
 
             const updatedIncrementally =
                 await this.submitLayerUpdatesToWorkerCache(updates);
-            if (updatedIncrementally) {
-                fontCompilation.lastStoredFontJson = null;
-            }
             return updatedIncrementally;
         })();
 
@@ -4045,10 +4047,6 @@ class FontManager {
                     await this.submitLayerUpdatesToWorkerCache(
                         pendingLayerUpdates
                     );
-
-                if (updatedIncrementally) {
-                    fontCompilation.lastStoredFontJson = null;
-                }
             } else if (pendingLayerUpdates) {
                 updatedIncrementally = true;
             }

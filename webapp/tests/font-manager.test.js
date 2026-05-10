@@ -526,7 +526,12 @@ describe('FontManager saveLayerData', () => {
                 ]
             })
         );
-        expect(fontCompilation.lastStoredFontJson).toBeNull();
+        // After an incremental applyJsonPatches, lastStoredFontJson must NOT
+        // be cleared — the next compile should still use '__incremental_layer__'
+        // (patched Rust state) rather than re-sending the full stale JSON.
+        expect(fontCompilation.lastStoredFontJson).toBe(
+            currentFont.babelfontJson
+        );
         expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
         expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
             glyphName: 'a',
