@@ -5478,6 +5478,67 @@ describe('syncGlyphFromJson', () => {
         receiverBridge.destroy();
     });
 
+    test('linked window applies a model-setter point move synced from serialized font JSON', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-model-setter');
+        const receiverBridge = new ChangeBridge('receiver-model-setter');
+        const senderFontModel = Font.fromData(senderFontJson);
+        let lastUpdate = null;
+        let lastCollaborationMessage = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update, collaborationMessage) => {
+            lastUpdate = update;
+            lastCollaborationMessage = collaborationMessage;
+        });
+        window.patchSyncEngine = senderBridge;
+
+        const senderNode = senderFontModel
+            .findGlyph('A')
+            .findLayerById('layer-1').paths[0].nodes[0];
+
+        senderBridge.runWithoutRecording(() => {
+            senderNode.x += 23;
+            senderNode.y += 11;
+        });
+
+        const serializedFontJson = JSON.parse(senderFontModel.toJSONString());
+        for (const key of Object.keys(senderFontJson)) {
+            if (!(key in serializedFontJson)) {
+                delete senderFontJson[key];
+            }
+        }
+        Object.assign(senderFontJson, serializedFontJson);
+
+        senderBridge.syncGlyphFromJson(
+            'A',
+            'Drag point',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+        receiverBridge.applyRemoteUpdate(
+            lastUpdate,
+            undefined,
+            lastCollaborationMessage ? [lastCollaborationMessage] : []
+        );
+
+        const receiverFontModel = Font.fromData(cloneValue(receiverFontJson));
+        const receiverNode = receiverFontModel
+            .findGlyph('A')
+            .findLayerById('layer-1').paths[0].nodes[0];
+
+        expect(receiverNode.x).toBe(senderNode.x);
+        expect(receiverNode.y).toBe(senderNode.y);
+
+        senderBridge.destroy();
+        receiverBridge.destroy();
+        window.patchSyncEngine = undefined;
+    });
+
     test('linked window preserves full layer data when remote glyph sync sends a partial layer fragment', () => {
         const font1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('primary');

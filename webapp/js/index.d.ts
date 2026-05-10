@@ -26,6 +26,7 @@ declare global {
     interface Window {
         // Undo/redo & collaboration
         patchSyncEngine: PatchSyncEngine | undefined;
+        changeBridge: PatchSyncEngine | undefined;
         windowSync: WindowSync | undefined;
         windowRole: WindowRoleManager | undefined;
         syncRustCacheAndRefreshCanvas:

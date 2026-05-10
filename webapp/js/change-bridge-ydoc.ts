@@ -7,6 +7,7 @@
  */
 
 import * as Y from 'yjs';
+import { serializeGlyphNodes } from './glyph-path-geometry';
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
@@ -59,6 +60,43 @@ function normalizeComponentTransformRecord(
     };
 }
 
+function normalizeValueForYDocWrite(value: unknown): unknown {
+    if (!isPlainObject(value)) {
+        return value;
+    }
+
+    const record = value as Record<string, unknown>;
+
+    if (
+        Array.isArray(record.nodes) &&
+        !('reference' in record) &&
+        !('Component' in record)
+    ) {
+        return {
+            ...record,
+            nodes: serializeGlyphNodes(record.nodes as never)
+        };
+    }
+
+    if ('reference' in record && 'transform' in record) {
+        const normalizedTransform = normalizeComponentTransformRecord(
+            record.transform
+        );
+        if (
+            !isPlainObject(record.transform) ||
+            JSON.stringify(record.transform) !==
+                JSON.stringify(normalizedTransform)
+        ) {
+            return {
+                ...record,
+                transform: normalizedTransform
+            };
+        }
+    }
+
+    return value;
+}
+
 // ── JSON → Y.Doc ────────────────────────────────────────────────────
 
 /**
@@ -73,8 +111,12 @@ export function toYType(value: unknown): unknown {
         return arr;
     }
     if (isPlainObject(value)) {
+        const normalizedValue = normalizeValueForYDocWrite(value) as Record<
+            string,
+            unknown
+        >;
         const map = new Y.Map();
-        for (const [k, v] of Object.entries(value)) {
+        for (const [k, v] of Object.entries(normalizedValue)) {
             map.set(k, toYType(v));
         }
         return map;

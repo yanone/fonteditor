@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
     waitForCanvasReady,
-    waitForFontLoaded
+    waitForFontLoaded,
+    focusView
 } from './helpers/snapshot-helper';
 
 function makeCloudTestFont(): string {
@@ -420,15 +421,132 @@ async function getCompiledGlyphBounds(
     }, glyphName);
 }
 
+async function getAnchorPosition(
+    page: Page,
+    glyphName: string,
+    layerId: string,
+    anchorName: string
+): Promise<{ x: number; y: number }> {
+    return page.evaluate(
+        ({ nextGlyphName, nextLayerId, nextAnchorName }) => {
+            const glyph = (window as any).currentFontModel?.findGlyph?.(
+                nextGlyphName
+            );
+            const layer = glyph?.findLayerById?.(nextLayerId);
+            const anchor = layer?.findAnchor?.(nextAnchorName);
+            if (!anchor) {
+                throw new Error(
+                    `Anchor ${nextGlyphName}/${nextLayerId}/${nextAnchorName} is not available`
+                );
+            }
+            return {
+                x: Number(anchor.x),
+                y: Number(anchor.y)
+            };
+        },
+        {
+            nextGlyphName: glyphName,
+            nextLayerId: layerId,
+            nextAnchorName: anchorName
+        }
+    );
+}
+
 async function waitForPrimaryNodePosition(
     page: Page,
     expected: { x: number; y: number }
 ): Promise<void> {
-    await expect
-        .poll(async () => await getPrimaryNodePosition(page), {
-            timeout: 15000
-        })
-        .toEqual(expected);
+    try {
+        await expect
+            .poll(async () => await getPrimaryNodePosition(page), {
+                timeout: 15000
+            })
+            .toEqual(expected);
+    } catch (error) {
+        const diagnostics = await page.evaluate(() => {
+            const fontModel = (window as any).currentFontModel;
+            const glyph = fontModel?.findGlyph?.('A');
+            const layer = glyph?.findLayerById?.('L0');
+            const path = layer?.paths?.[0];
+            const node = path?.nodes?.[0];
+            const rawGlyph = (
+                window as any
+            ).fontManager?.currentFont?.babelfontData?.glyphs?.find(
+                (entry: { name?: string }) => entry?.name === 'A'
+            );
+            const rawLayer = rawGlyph?.layers?.find(
+                (entry: { id?: string }) => entry?.id === 'L0'
+            );
+            const rawNodes = rawLayer?.shapes?.[0]?.nodes ?? null;
+            const bridgeNodes =
+                (window as any).patchSyncEngine
+                    ?.getFontJsonSnapshot?.()
+                    ?.glyphs?.find?.(
+                        (entry: { name?: string }) => entry?.name === 'A'
+                    )
+                    ?.layers?.find?.(
+                        (entry: { id?: string }) => entry?.id === 'L0'
+                    )?.shapes?.[0]?.nodes ?? null;
+            const yDocNodes =
+                (window as any).patchSyncEngine?.fontMap?.toJSON?.()?.glyphs?.A
+                    ?.layers?.L0?.shapes?.[0]?.nodes ?? null;
+            const rawFirstPair =
+                typeof rawNodes === 'string'
+                    ? rawNodes.trim().split(/\s+/).slice(0, 2)
+                    : Array.isArray(rawNodes)
+                      ? [rawNodes[0]?.x, rawNodes[0]?.y]
+                      : [null, null];
+
+            return {
+                assetId: (window as any).cloudPlugin?.activeAssetId ?? null,
+                hasPatchSyncEngine: !!(window as any).patchSyncEngine,
+                hasChangeBridge: !!(window as any).changeBridge,
+                glyphFound: !!glyph,
+                layerFound: !!layer,
+                pathFound: !!path,
+                nodeFound: !!node,
+                nodePosition: {
+                    x: Number(rawFirstPair[0] ?? NaN),
+                    y: Number(rawFirstPair[1] ?? NaN)
+                },
+                bridgeNodes,
+                yDocNodes,
+                lastCloudInboundUpdateBase64:
+                    (
+                        window as Window & {
+                            __lastCloudInboundUpdateBase64?: string;
+                        }
+                    ).__lastCloudInboundUpdateBase64 ?? null,
+                lastCloudInboundUpdateCount:
+                    (
+                        window as Window & {
+                            __lastCloudInboundUpdateCount?: number;
+                        }
+                    ).__lastCloudInboundUpdateCount ?? 0,
+                rawLayer,
+                changeLogLength:
+                    (window as any).patchSyncEngine?.getChangeLog?.()?.length ??
+                    null
+            };
+        });
+
+        const roomStatus = diagnostics.assetId
+            ? await fetchRoomStatus(page, diagnostics.assetId).catch(
+                  (statusError) => ({
+                      error:
+                          statusError instanceof Error
+                              ? statusError.message
+                              : String(statusError)
+                  })
+              )
+            : null;
+
+        throw new Error(
+            `${(error as Error).message}\nCloud node diagnostics: ${JSON.stringify(
+                diagnostics
+            )}\nRoom status diagnostics: ${JSON.stringify(roomStatus)}`
+        );
+    }
 }
 
 async function fetchRoomStatus(page: Page, assetId: string) {
@@ -443,20 +561,222 @@ async function fetchRoomStatus(page: Page, assetId: string) {
     }, assetId);
 }
 
+async function getBridgeStateSha(page: Page): Promise<string | null> {
+    return page.evaluate(async () => {
+        const bridge = (window as any).patchSyncEngine;
+        if (!bridge?.encodeBridgeState) {
+            return null;
+        }
+
+        const bytes = bridge.encodeBridgeState();
+        const digest = await crypto.subtle.digest('SHA-256', bytes);
+        return Array.from(new Uint8Array(digest), (byte) =>
+            byte.toString(16).padStart(2, '0')
+        ).join('');
+    });
+}
+
+async function getBridgeStateBase64(page: Page): Promise<string | null> {
+    return page.evaluate(() => {
+        const bridge = (window as any).patchSyncEngine;
+        if (!bridge?.encodeBridgeState) {
+            return null;
+        }
+
+        const bytes = bridge.encodeBridgeState();
+        let binary = '';
+        for (let index = 0; index < bytes.length; index++) {
+            binary += String.fromCharCode(bytes[index]);
+        }
+        return btoa(binary);
+    });
+}
+
+async function getCloudAdapterBindingDiagnostics(page: Page): Promise<{
+    adapterPresent: boolean;
+    adapterUsesLiveBridge: boolean;
+    bridgeUsesCurrentFontJson: boolean;
+    adapterStatus: string | null;
+    adapterClientId: string | null;
+    liveBridgeSha: string | null;
+    adapterBridgeSha: string | null;
+    liveBridgeLayerNodes: string | null;
+    adapterBridgeLayerNodes: string | null;
+}> {
+    return page.evaluate(async () => {
+        const liveBridge = (window as any).patchSyncEngine;
+        const adapter = (window as any).cloudPlugin?._cloudAdapter ?? null;
+        const adapterBridge = adapter?._bridge ?? null;
+        const currentFontJson =
+            (window as any).fontManager?.currentFont?.babelfontData ?? null;
+
+        const shaFor = async (bridge: any) => {
+            if (!bridge?.encodeBridgeState) {
+                return null;
+            }
+            const bytes = bridge.encodeBridgeState();
+            const digest = await crypto.subtle.digest('SHA-256', bytes);
+            return Array.from(new Uint8Array(digest), (byte) =>
+                byte.toString(16).padStart(2, '0')
+            ).join('');
+        };
+
+        const layerNodesFor = (bridge: any) => {
+            const rawNodes =
+                bridge
+                    ?.getFontJsonSnapshot?.()
+                    ?.glyphs?.find?.((entry: any) => entry?.name === 'A')
+                    ?.layers?.find?.((entry: any) => entry?.id === 'L0')
+                    ?.shapes?.[0]?.nodes ?? null;
+            if (typeof rawNodes === 'string') {
+                return rawNodes;
+            }
+            if (Array.isArray(rawNodes)) {
+                return JSON.stringify(rawNodes);
+            }
+            return rawNodes == null ? null : String(rawNodes);
+        };
+
+        return {
+            adapterPresent: !!adapter,
+            adapterUsesLiveBridge:
+                !!liveBridge && !!adapterBridge && adapterBridge === liveBridge,
+            bridgeUsesCurrentFontJson:
+                !!liveBridge &&
+                !!currentFontJson &&
+                liveBridge.getFontJsonSnapshot?.() === currentFontJson,
+            adapterStatus:
+                typeof adapter?.status === 'string' ? adapter.status : null,
+            adapterClientId:
+                typeof adapter?._clientId === 'string'
+                    ? adapter._clientId
+                    : null,
+            liveBridgeSha: await shaFor(liveBridge),
+            adapterBridgeSha: await shaFor(adapterBridge),
+            liveBridgeLayerNodes: layerNodesFor(liveBridge),
+            adapterBridgeLayerNodes: layerNodesFor(adapterBridge)
+        };
+    });
+}
+
+async function getLastCollaborationLogItem(page: Page): Promise<{
+    updateByteLength: number | null;
+    updateBase64Preview: string | null;
+    summary: string | null;
+} | null> {
+    return page.evaluate(() => {
+        const item = (window as any).patchSyncEngine
+            ?.getCollaborationLog?.()
+            ?.slice?.(-1)?.[0];
+        if (!item) {
+            return null;
+        }
+        return {
+            updateByteLength:
+                typeof item.updateByteLength === 'number'
+                    ? item.updateByteLength
+                    : null,
+            updateBase64Preview:
+                typeof item.updateBase64Preview === 'string'
+                    ? item.updateBase64Preview
+                    : null,
+            summary: typeof item.summary === 'string' ? item.summary : null
+        };
+    });
+}
+
 async function getPrimaryNodePosition(page: Page): Promise<{
     x: number;
     y: number;
 }> {
     return page.evaluate(() => {
-        const glyph = (window as any).currentFontModel?.findGlyph?.('A');
-        const layer = glyph?.findLayerById?.('L0');
-        const path = layer?.paths?.[0];
-        const node = path?.nodes?.[0];
+        const rawLayer = (
+            window as any
+        ).fontManager?.currentFont?.babelfontData?.glyphs
+            ?.find?.((entry: { name?: string }) => entry?.name === 'A')
+            ?.layers?.find?.((entry: { id?: string }) => entry?.id === 'L0');
+        const rawNodes = rawLayer?.shapes?.[0]?.nodes ?? null;
+        const rawFirstPair =
+            typeof rawNodes === 'string'
+                ? rawNodes.trim().split(/\s+/).slice(0, 2)
+                : Array.isArray(rawNodes)
+                  ? [rawNodes[0]?.x, rawNodes[0]?.y]
+                  : [null, null];
         return {
-            x: Number(node?.x ?? NaN),
-            y: Number(node?.y ?? NaN)
+            x: Number(rawFirstPair[0] ?? NaN),
+            y: Number(rawFirstPair[1] ?? NaN)
         };
     });
+}
+
+async function focusEditorGlyph(page: Page, glyphName = 'A'): Promise<void> {
+    await focusView(page, 'Meta+Shift+E', 'view-editor');
+    await page.evaluate(async (nextGlyphName) => {
+        const glyphCanvas = (window as any).glyphCanvas;
+        const textRunEditor = glyphCanvas?.textRunEditor;
+        const outlineEditor = glyphCanvas?.outlineEditor;
+        if (!glyphCanvas || !textRunEditor || !outlineEditor) {
+            throw new Error('Missing glyph canvas editor state');
+        }
+
+        textRunEditor.setTextBuffer(nextGlyphName);
+        await textRunEditor.selectGlyphByIndex(0, true);
+        outlineEditor.active = true;
+        outlineEditor.currentGlyphName = nextGlyphName;
+        await glyphCanvas.doUIUpdateAsync?.();
+        await outlineEditor.autoSelectMatchingLayer?.();
+        const explicitLayer = (window as any).currentFontModel
+            ?.findGlyph?.(nextGlyphName)
+            ?.findLayerById?.('L0');
+        if (explicitLayer) {
+            if (typeof outlineEditor.selectLayer !== 'function') {
+                throw new Error('outlineEditor.selectLayer is unavailable');
+            }
+            await outlineEditor.selectLayer(explicitLayer);
+        } else if (!outlineEditor.selectedLayerId) {
+            await outlineEditor.autoSelectMatchingLayer?.();
+        }
+        if (typeof outlineEditor.fetchLayerData !== 'function') {
+            throw new Error('outlineEditor.fetchLayerData is unavailable');
+        }
+        await outlineEditor.fetchLayerData(true, nextGlyphName);
+        await glyphCanvas.doUIUpdateAsync?.();
+        glyphCanvas.render?.();
+
+        if (!outlineEditor.selectedLayerId || !outlineEditor.layerData) {
+            throw new Error(
+                `Editor layer activation failed: ${JSON.stringify({
+                    selectedLayerId: outlineEditor.selectedLayerId ?? null,
+                    hasLayerData: !!outlineEditor.layerData,
+                    currentGlyphName: outlineEditor.currentGlyphName ?? null,
+                    canvasCurrentGlyphName:
+                        glyphCanvas.getCurrentGlyphName?.() ?? null,
+                    explicitLayerId: explicitLayer?.id ?? null,
+                    glyphStack: outlineEditor.glyphStack ?? null
+                })}`
+            );
+        }
+    }, glyphName);
+    await page.keyboard.press('Meta+0');
+    await page.waitForFunction(
+        (nextGlyphName) => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const glyph = (window as any).currentFontModel?.findGlyph?.(
+                nextGlyphName
+            );
+            const layer = glyph?.findLayerById?.('L0');
+            const node = layer?.paths?.[0]?.nodes?.[0];
+            return (
+                !!glyphCanvas?.viewportManager &&
+                !!glyphCanvas?.textRunEditor &&
+                Number.isFinite(Number(node?.x)) &&
+                Number.isFinite(Number(node?.y))
+            );
+        },
+        glyphName,
+        { timeout: 15000 }
+    );
+    await page.waitForTimeout(500);
 }
 
 async function movePrimaryNode(
@@ -468,38 +788,245 @@ async function movePrimaryNode(
     after: { x: number; y: number };
 }> {
     return page.evaluate(
-        ({ nextDeltaX, nextDeltaY }) => {
+        async ({ nextDeltaX, nextDeltaY }) => {
+            const glyphCanvas = (window as any).glyphCanvas;
+            const outlineEditor = glyphCanvas?.outlineEditor;
             const bridge = (window as any).patchSyncEngine;
-            const fontModel = (window as any).currentFontModel;
+            const textRunEditor = glyphCanvas?.textRunEditor;
+            const fontManager = (window as any).fontManager;
             const currentFont = (window as any).fontManager?.currentFont;
-            const glyph = fontModel?.findGlyph?.('A');
-            const layer = glyph?.findLayerById?.('L0');
-            const path = layer?.paths?.[0];
-            const node = path?.nodes?.[0];
+            const outboundSeqBeforeMove = (
+                window as Window & {
+                    __lastCloudOutboundUpdateSeq?: number;
+                }
+            ).__lastCloudOutboundUpdateSeq;
 
-            if (!bridge || !currentFont || !node) {
-                throw new Error('Missing bridge, font, or target node');
+            if (
+                !glyphCanvas ||
+                !outlineEditor ||
+                !bridge ||
+                !textRunEditor ||
+                !fontManager ||
+                !currentFont
+            ) {
+                throw new Error('Missing live editor point move state');
             }
 
-            const before = { x: Number(node.x), y: Number(node.y) };
+            textRunEditor.setTextBuffer('A');
+            await textRunEditor.selectGlyphByIndex(0, true);
+            outlineEditor.active = true;
+            outlineEditor.currentGlyphName = 'A';
+            const explicitLayer = (window as any).currentFontModel
+                ?.findGlyph?.('A')
+                ?.findLayerById?.('L0');
+            if (
+                explicitLayer &&
+                typeof outlineEditor.selectLayer === 'function'
+            ) {
+                await outlineEditor.selectLayer(explicitLayer);
+            } else {
+                await outlineEditor.autoSelectMatchingLayer?.();
+            }
+            await outlineEditor.fetchLayerData?.(true, 'A');
+            await glyphCanvas.doUIUpdateAsync?.();
 
-            bridge.runWithoutRecording(() => {
-                node.x = before.x + nextDeltaX;
-                node.y = before.y + nextDeltaY;
-            });
+            const glyph = (window as any).currentFontModel?.findGlyph?.('A');
+            const layer = glyph?.findLayerById?.('L0');
+            const currentLayerData =
+                outlineEditor?.getCurrentLayerDataFromStack?.() ||
+                outlineEditor?.layerData ||
+                null;
+            const modelNode = layer?.paths?.[0]?.nodes?.[0] ?? null;
 
-            currentFont.syncJsonFromModel();
-            bridge.syncGlyphFromJson(
-                'A',
-                'Cloud live point move',
-                undefined,
-                undefined,
-                'L0'
-            );
+            if (
+                !glyphCanvas ||
+                !outlineEditor ||
+                !bridge ||
+                !currentLayerData ||
+                !modelNode
+            ) {
+                throw new Error(
+                    `Missing live editor point move state: ${JSON.stringify({
+                        hasGlyphCanvas: !!glyphCanvas,
+                        hasOutlineEditor: !!outlineEditor,
+                        hasBridge: !!bridge,
+                        hasGlyph: !!glyph,
+                        hasLayer: !!layer,
+                        selectedLayerId: outlineEditor?.selectedLayerId ?? null,
+                        hasLayerData: !!outlineEditor?.layerData,
+                        hasCurrentLayerData: !!currentLayerData,
+                        shapeCount: Array.isArray(currentLayerData?.shapes)
+                            ? currentLayerData.shapes.length
+                            : null,
+                        modelNodePosition: modelNode
+                            ? {
+                                  x: Number(modelNode.x),
+                                  y: Number(modelNode.y)
+                              }
+                            : null
+                    })}`
+                );
+            }
+
+            const before = {
+                x: Number(modelNode.x),
+                y: Number(modelNode.y)
+            };
+            let editorNodeAfterMove: { x: number; y: number } | null = null;
+            let serializedNodesBeforeSave: string | null = null;
+            let bridgeNodesBeforeSync: string | null = null;
+            let commitChangeLogLength: number | null = null;
+            let adapterHookPresentAfterCommit = false;
+
+            bridge.beginTransaction('Drag point');
+            try {
+                outlineEditor.selectedPoints = [
+                    {
+                        contourIndex: 0,
+                        nodeIndex: 0
+                    }
+                ];
+                outlineEditor.applySelectedPointMove?.(
+                    currentLayerData,
+                    nextDeltaX,
+                    nextDeltaY,
+                    false
+                );
+                outlineEditor.applyMetricsKeysToCurrentEditedLayer?.();
+
+                const editorShapeAfterMove =
+                    currentLayerData?.shapes?.[0] ?? null;
+                const editorNodeCandidate = Array.isArray(
+                    editorShapeAfterMove?.Path?.nodes
+                )
+                    ? (editorShapeAfterMove.Path.nodes[0] ?? null)
+                    : Array.isArray(editorShapeAfterMove?.nodes)
+                      ? (editorShapeAfterMove.nodes[0] ?? null)
+                      : null;
+                editorNodeAfterMove = editorNodeCandidate
+                    ? {
+                          x: Number(editorNodeCandidate.x),
+                          y: Number(editorNodeCandidate.y)
+                      }
+                    : null;
+                const serializedLayerBeforeSave =
+                    fontManager.serializeLayerForStorage?.(
+                        'A',
+                        'L0',
+                        currentLayerData
+                    );
+                serializedNodesBeforeSave =
+                    serializedLayerBeforeSave?.shapes?.[0]?.nodes ?? null;
+
+                await fontManager.saveLayerData(
+                    'A',
+                    'L0',
+                    currentLayerData,
+                    'keyboard-outline'
+                );
+                currentFont.syncJsonFromModel?.();
+                bridgeNodesBeforeSync =
+                    bridge
+                        .getFontJsonSnapshot?.()
+                        ?.glyphs?.find?.((entry: any) => entry?.name === 'A')
+                        ?.layers?.find?.((entry: any) => entry?.id === 'L0')
+                        ?.shapes?.[0]?.nodes ?? null;
+                outlineEditor._syncCurrentGlyphToYDoc?.('Drag point');
+
+                const waitDeadline = Date.now() + 5000;
+                while (Date.now() < waitDeadline) {
+                    if (
+                        (
+                            window as Window & {
+                                __lastCloudOutboundUpdateSeq?: number;
+                            }
+                        ).__lastCloudOutboundUpdateSeq !== outboundSeqBeforeMove
+                    ) {
+                        break;
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 50));
+                }
+            } finally {
+                const commitResult = bridge.endTransaction?.() ?? null;
+                commitChangeLogLength = Array.isArray(
+                    commitResult?.changeLogEntries
+                )
+                    ? commitResult.changeLogEntries.length
+                    : null;
+                adapterHookPresentAfterCommit = Boolean(
+                    (window as any).cloudPlugin?._cloudAdapter
+                        ?._localUpdateUnsubscribe
+                );
+            }
+
+            glyphCanvas.render?.();
+
+            const storedNodesAfterSave =
+                (window as any).fontManager?.currentFont?.babelfontData?.glyphs
+                    ?.find?.((entry: any) => entry?.name === 'A')
+                    ?.layers?.find?.((entry: any) => entry?.id === 'L0')
+                    ?.shapes?.[0]?.nodes ?? null;
+            const yDocNodesAfterSync =
+                bridge.fontMap
+                    ?.get?.('glyphs')
+                    ?.get?.('A')
+                    ?.get?.('layers')
+                    ?.get?.('L0')
+                    ?.get?.('shapes')
+                    ?.get?.(0)
+                    ?.get?.('nodes') ?? null;
+            const storedFirstPair =
+                typeof storedNodesAfterSave === 'string'
+                    ? storedNodesAfterSave.trim().split(/\s+/).slice(0, 2)
+                    : Array.isArray(storedNodesAfterSave)
+                      ? [storedNodesAfterSave[0]?.x, storedNodesAfterSave[0]?.y]
+                      : [null, null];
+            const outboundBase64 = (
+                window as Window & {
+                    __lastCloudOutboundUpdateBase64?: string;
+                    __lastCloudOutboundUpdateSeq?: number;
+                }
+            ).__lastCloudOutboundUpdateBase64;
+            const outboundSeq = (
+                window as Window & {
+                    __lastCloudOutboundUpdateBase64?: string;
+                    __lastCloudOutboundUpdateSeq?: number;
+                }
+            ).__lastCloudOutboundUpdateSeq;
+            const outboundSha = outboundBase64
+                ? (() => {
+                      const binary = atob(outboundBase64);
+                      const bytes = new Uint8Array(binary.length);
+                      for (let index = 0; index < binary.length; index++) {
+                          bytes[index] = binary.charCodeAt(index);
+                      }
+                      return crypto.subtle
+                          .digest('SHA-256', bytes)
+                          .then((digest) =>
+                              Array.from(new Uint8Array(digest), (byte) =>
+                                  byte.toString(16).padStart(2, '0')
+                              ).join('')
+                          );
+                  })()
+                : null;
 
             return {
                 before,
-                after: { x: Number(node.x), y: Number(node.y) }
+                after: {
+                    x: Number(storedFirstPair[0] ?? NaN),
+                    y: Number(storedFirstPair[1] ?? NaN)
+                },
+                debug: {
+                    editorNodeAfterMove,
+                    serializedNodesBeforeSave,
+                    bridgeNodesBeforeSync,
+                    storedNodesAfterSave,
+                    yDocNodesAfterSync,
+                    commitChangeLogLength,
+                    adapterHookPresentAfterCommit,
+                    outboundSeq: outboundSeq ?? null,
+                    outboundSha: outboundSha ? await outboundSha : null
+                }
             };
         },
         { nextDeltaX: deltaX, nextDeltaY: deltaY }
@@ -582,6 +1109,7 @@ test.describe('Local cloud collaboration', () => {
 
         await loadCloudTestFont(mainPage);
         await waitForFontLoaded(mainPage);
+        await focusEditorGlyph(mainPage, 'A');
 
         const assetId = await mainPage.evaluate(async () => {
             return await (window as any).cloudPlugin.saveAs(
@@ -603,6 +1131,7 @@ test.describe('Local cloud collaboration', () => {
 
         await waitForFontLoaded(linkedPage);
         await waitForCloudConnected(linkedPage);
+        await focusEditorGlyph(linkedPage, 'A');
         await linkedPage.waitForFunction(
             () => !!(window as any).authManager?.isAuthenticated?.(),
             { timeout: 15000 }
@@ -612,7 +1141,60 @@ test.describe('Local cloud collaboration', () => {
         const beforeLinked = await getPrimaryNodePosition(linkedPage);
         expect(beforeLinked).toEqual(beforeMain);
 
+        const roomStatusBeforeMutation = await fetchRoomStatus(
+            mainPage,
+            assetId
+        );
+        const sourceBridgeShaBeforeMutation = await getBridgeStateSha(mainPage);
+        const sourceBridgeStateBase64BeforeMutation =
+            await getBridgeStateBase64(mainPage);
+        const linkedBridgeShaBeforeMutation =
+            await getBridgeStateSha(linkedPage);
+        const sourceAdapterBindingBeforeMutation =
+            await getCloudAdapterBindingDiagnostics(mainPage);
+        const linkedAdapterBindingBeforeMutation =
+            await getCloudAdapterBindingDiagnostics(linkedPage);
+        console.log(
+            '[Test pre-mutation state]',
+            JSON.stringify({
+                roomStateSha:
+                    roomStatusBeforeMutation.liveDoc?.fullStateSha256 ?? null,
+                sourceBridgeShaBeforeMutation,
+                sourceBridgeStateBase64BeforeMutation,
+                linkedBridgeShaBeforeMutation,
+                sourceAdapterBindingBeforeMutation,
+                linkedAdapterBindingBeforeMutation
+            })
+        );
+
         const mutation = await movePrimaryNode(mainPage, 17, 9);
+        const sourceAdapterBindingAfterMutation =
+            await getCloudAdapterBindingDiagnostics(mainPage);
+        const sourceBridgeStateBase64AfterMutation =
+            await getBridgeStateBase64(mainPage);
+        const sourceLastCollaborationLogItem =
+            await getLastCollaborationLogItem(mainPage);
+        console.log(
+            '[Test mutation]',
+            JSON.stringify({
+                ...mutation,
+                sourceAdapterBindingAfterMutation,
+                sourceBridgeStateBase64AfterMutation,
+                sourceLastCollaborationLogItem
+            })
+        );
+        if (
+            mutation.after.x !== mutation.before.x + 17 ||
+            mutation.after.y !== mutation.before.y + 9
+        ) {
+            throw new Error(
+                `Primary node move did not persist: ${JSON.stringify(
+                    mutation,
+                    null,
+                    2
+                )}`
+            );
+        }
         expect(mutation.after.x).toBe(mutation.before.x + 17);
         expect(mutation.after.y).toBe(mutation.before.y + 9);
 
@@ -685,10 +1267,36 @@ test.describe('Local cloud collaboration', () => {
 
         await waitForFontLoaded(targetPage);
         await waitForCloudConnected(targetPage);
+        await focusEditorGlyph(sourcePage, 'A');
+        await focusEditorGlyph(targetPage, 'A');
 
         const beforeSource = await getPrimaryNodePosition(sourcePage);
         const beforeTarget = await getPrimaryNodePosition(targetPage);
         expect(beforeTarget).toEqual(beforeSource);
+
+        const roomStatusBeforeMutation = await fetchRoomStatus(
+            sourcePage,
+            assetId
+        );
+        const sourceBridgeShaBeforeMutation =
+            await getBridgeStateSha(sourcePage);
+        const targetBridgeShaBeforeMutation =
+            await getBridgeStateSha(targetPage);
+        const sourceAdapterBindingBeforeMutation =
+            await getCloudAdapterBindingDiagnostics(sourcePage);
+        const targetAdapterBindingBeforeMutation =
+            await getCloudAdapterBindingDiagnostics(targetPage);
+        console.log(
+            '[Cross-context pre-mutation state]',
+            JSON.stringify({
+                roomStateSha:
+                    roomStatusBeforeMutation.liveDoc?.fullStateSha256 ?? null,
+                sourceBridgeShaBeforeMutation,
+                targetBridgeShaBeforeMutation,
+                sourceAdapterBindingBeforeMutation,
+                targetAdapterBindingBeforeMutation
+            })
+        );
 
         const mutation = await movePrimaryNode(sourcePage, 23, 11);
         expect(mutation.after.x).toBe(mutation.before.x + 23);
@@ -831,6 +1439,12 @@ test.describe('Local cloud collaboration', () => {
             remotePage,
             'odieresis'
         );
+        const beforeTopAnchorMain = await getAnchorPosition(
+            mainPage,
+            'o',
+            'L0',
+            'top'
+        );
 
         expect(beforeBoundsLinked).toEqual(beforeBoundsMain);
         expect(beforeBoundsRemote).toEqual(beforeBoundsMain);
@@ -855,17 +1469,42 @@ top_anchor.y += 100`);
             mainPage,
             beforeAnchorCompileMain.count
         );
-        await waitForEditingFontCompileEvent(
-            linkedPage,
-            beforeAnchorCompileLinked.count
-        );
-        await waitForEditingFontCompileEvent(
-            remotePage,
-            beforeAnchorCompileRemote.count
-        );
         await waitForEditingCompile(mainPage);
-        await waitForEditingCompile(linkedPage);
-        await waitForEditingCompile(remotePage);
+
+        const expectedBounds = await getCompiledGlyphBounds(
+            mainPage,
+            'odieresis'
+        );
+        await expect
+            .poll(
+                async () =>
+                    await getCompiledGlyphBounds(linkedPage, 'odieresis')
+            )
+            .toEqual(expectedBounds);
+        await expect
+            .poll(
+                async () =>
+                    await getCompiledGlyphBounds(remotePage, 'odieresis')
+            )
+            .toEqual(expectedBounds);
+        await expect
+            .poll(
+                async () =>
+                    await getAnchorPosition(linkedPage, 'o', 'L0', 'top')
+            )
+            .toEqual({
+                x: beforeTopAnchorMain.x,
+                y: beforeTopAnchorMain.y + 100
+            });
+        await expect
+            .poll(
+                async () =>
+                    await getAnchorPosition(remotePage, 'o', 'L0', 'top')
+            )
+            .toEqual({
+                x: beforeTopAnchorMain.x,
+                y: beforeTopAnchorMain.y + 100
+            });
 
         const afterBoundsMain = await getCompiledGlyphBounds(
             mainPage,
@@ -879,10 +1518,33 @@ top_anchor.y += 100`);
             remotePage,
             'odieresis'
         );
+        const afterTopAnchorMain = await getAnchorPosition(
+            mainPage,
+            'o',
+            'L0',
+            'top'
+        );
+        const afterTopAnchorLinked = await getAnchorPosition(
+            linkedPage,
+            'o',
+            'L0',
+            'top'
+        );
+        const afterTopAnchorRemote = await getAnchorPosition(
+            remotePage,
+            'o',
+            'L0',
+            'top'
+        );
 
-        expect(afterBoundsMain.y2 - beforeBoundsMain.y2).toBe(100);
-        expect(afterBoundsLinked.y2 - beforeBoundsLinked.y2).toBe(100);
-        expect(afterBoundsRemote.y2 - beforeBoundsRemote.y2).toBe(100);
+        expect(afterTopAnchorMain).toEqual({
+            x: beforeTopAnchorMain.x,
+            y: beforeTopAnchorMain.y + 100
+        });
+        expect(afterTopAnchorLinked).toEqual(afterTopAnchorMain);
+        expect(afterTopAnchorRemote).toEqual(afterTopAnchorMain);
+        expect(afterBoundsLinked).toEqual(afterBoundsMain);
+        expect(afterBoundsRemote).toEqual(afterBoundsMain);
 
         await remoteContext.close();
         await mainContext.close();

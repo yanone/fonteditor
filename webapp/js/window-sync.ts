@@ -21,17 +21,25 @@ type YjsUpdatePacket = {
     collaborationMessage?: CollaborationMessageEnvelope;
 };
 
+type CloudConnectionRelayState = {
+    assetId: string | null;
+    status: string;
+    detail?: string;
+};
+
 // ── Protocol message types ──────────────────────────────────────────
 
 interface YjsUpdateMsg {
     type: 'yjs-update';
     updates: YjsUpdatePacket[];
     windowId: string;
+    sessionId: string;
 }
 
 interface FullStateRequestMsg {
     type: 'full-state-request';
     windowId: string;
+    sessionId: string;
 }
 
 interface FullStateResponseMsg {
@@ -39,17 +47,28 @@ interface FullStateResponseMsg {
     state: BinaryPayload;
     changeLog: ChangeLogEntry[];
     collaborationLog: CollaborationLogItem[];
+    cloudRelayState?: CloudConnectionRelayState;
     windowId: string;
+    sessionId: string;
 }
 
 interface WindowClosingMsg {
     type: 'window-closing';
     windowId: string;
+    sessionId: string;
 }
 
 interface MainWindowClosingMsg {
     type: 'main-window-closing';
     windowId: string;
+    sessionId: string;
+}
+
+interface CloudConnectionStatusMsg {
+    type: 'cloud-connection-status';
+    state: CloudConnectionRelayState;
+    windowId: string;
+    sessionId: string;
 }
 
 type SyncMessage =
@@ -57,7 +76,8 @@ type SyncMessage =
     | FullStateRequestMsg
     | FullStateResponseMsg
     | WindowClosingMsg
-    | MainWindowClosingMsg;
+    | MainWindowClosingMsg
+    | CloudConnectionStatusMsg;
 
 // ── WindowSync class ────────────────────────────────────────────────
 
@@ -73,6 +93,7 @@ export class WindowSync {
     private _outboundFlushScheduled = false;
     private _pendingYjsMessages: YjsUpdateMsg[] = [];
     private _inboundFlushScheduled = false;
+    private _sessionId: string;
 
     static enableTimingLogging(): void {
         WindowSync._timingLoggingEnabled = true;
@@ -86,6 +107,7 @@ export class WindowSync {
 
     constructor(bridge: PatchSyncEngine, channelName: string) {
         this._bridge = bridge;
+        this._sessionId = window.windowRole?.sessionId ?? 'main';
 
         if (typeof BroadcastChannel !== 'undefined') {
             this._channel = new BroadcastChannel(channelName);
@@ -111,7 +133,8 @@ export class WindowSync {
         this._hasAppliedFullState = false;
         this._send({
             type: 'full-state-request',
-            windowId: this._bridge.windowId
+            windowId: this._bridge.windowId,
+            sessionId: this._sessionId
         });
     }
 
@@ -119,14 +142,37 @@ export class WindowSync {
     announceClose(): void {
         this._send({
             type: 'window-closing',
-            windowId: this._bridge.windowId
+            windowId: this._bridge.windowId,
+            sessionId: this._sessionId
         });
     }
 
     announceMainWindowClosing(): void {
         this._send({
             type: 'main-window-closing',
-            windowId: this._bridge.windowId
+            windowId: this._bridge.windowId,
+            sessionId: this._sessionId
+        });
+    }
+
+    broadcastCloudRelayUpdate(
+        update: Uint8Array,
+        collaborationMessage?: CollaborationMessageEnvelope | null
+    ): void {
+        this._sendYjsUpdate([
+            {
+                update,
+                ...(collaborationMessage ? { collaborationMessage } : undefined)
+            }
+        ]);
+    }
+
+    broadcastCloudConnectionStatus(state: CloudConnectionRelayState): void {
+        this._send({
+            type: 'cloud-connection-status',
+            state,
+            windowId: this._bridge.windowId,
+            sessionId: this._sessionId
         });
     }
 
@@ -187,11 +233,7 @@ export class WindowSync {
         }
 
         const startTime = performance.now?.() ?? Date.now();
-        this._send({
-            type: 'yjs-update',
-            updates: packets,
-            windowId: this._bridge.windowId
-        });
+        this._sendYjsUpdate(packets);
         this._logTiming('outbound-yjs-update', {
             updateCount: packets.length,
             collaborationMessageCount: packets.filter(
@@ -204,6 +246,15 @@ export class WindowSync {
             ),
             peerCount: this._peers.size,
             durationMs: this._elapsed(startTime)
+        });
+    }
+
+    private _sendYjsUpdate(packets: YjsUpdatePacket[]): void {
+        this._send({
+            type: 'yjs-update',
+            updates: packets,
+            windowId: this._bridge.windowId,
+            sessionId: this._sessionId
         });
     }
 
@@ -244,6 +295,12 @@ export class WindowSync {
                         ? [packet.collaborationMessage]
                         : undefined
                 );
+                if (window.windowRole?.isMainWindow()) {
+                    window.cloudPlugin?.relayPeerWindowUpdateToCloud?.(
+                        update,
+                        packet.collaborationMessage ?? null
+                    );
+                }
             }
         }
         this._logTiming('inbound-yjs-update', {
@@ -267,6 +324,10 @@ export class WindowSync {
     }
 
     private _handleMessage(msg: SyncMessage): void {
+        if (msg.sessionId !== this._sessionId) {
+            return;
+        }
+
         switch (msg.type) {
             case 'yjs-update':
                 if (msg.windowId === this._bridge.windowId) return;
@@ -284,7 +345,13 @@ export class WindowSync {
                     state,
                     changeLog: this._bridge.getChangeLog(),
                     collaborationLog: this._bridge.getCollaborationLog(),
-                    windowId: this._bridge.windowId
+                    cloudRelayState:
+                        window.windowRole?.isMainWindow() &&
+                        window.cloudPlugin?.getRelayConnectionState
+                            ? window.cloudPlugin.getRelayConnectionState()
+                            : undefined,
+                    windowId: this._bridge.windowId,
+                    sessionId: this._sessionId
                 });
                 break;
 
@@ -304,6 +371,11 @@ export class WindowSync {
                     msg.collaborationLog ?? []
                 );
                 this._bridge.applyFullState(toUint8Array(msg.state));
+                if (msg.cloudRelayState) {
+                    window.cloudPlugin?.applyRelayedConnectionState?.(
+                        msg.cloudRelayState
+                    );
+                }
                 break;
 
             case 'window-closing':
@@ -315,6 +387,11 @@ export class WindowSync {
                 for (const callback of this._mainWindowClosingListeners) {
                     callback();
                 }
+                break;
+
+            case 'cloud-connection-status':
+                if (msg.windowId === this._bridge.windowId) return;
+                window.cloudPlugin?.applyRelayedConnectionState?.(msg.state);
                 break;
         }
     }

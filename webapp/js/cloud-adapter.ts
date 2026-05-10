@@ -18,6 +18,7 @@
  *   { type: 'sync-response', update?: string, serverStateVector: string,
  *                            collaborationMessageHistory?: CollaborationMessageEnvelope[] [, chunked: true, totalChunks] }
  *   { type: 'sync-chunk',    update: string, chunkIndex, totalChunks, direction: 'response' }
+ *   { type: 'ack',           seq: -1, durable: boolean, phase: 'sync-complete' }
  *   { type: 'update',        update: string, clientId: string, seq: number,
  *                            collaborationMessages?: CollaborationMessageEnvelope[] }
  *   { type: 'ack',           seq: number, durable: boolean }
@@ -151,6 +152,7 @@ export type CloudAdapterOptions = {
     assetId: string;
     websiteBaseUrl?: string;
     roomWorkerBaseUrl?: string;
+    suppressSyncComplete?: boolean;
     onConnectionStatus?: (
         status: CloudConnectionStatus,
         detail?: string
@@ -160,6 +162,11 @@ export type CloudAdapterOptions = {
 type CloudLiveUpdateMessage = {
     update: Uint8Array;
     collaborationMessages?: CollaborationMessageEnvelope[];
+};
+
+type CloudOutboundUpdatePacket = {
+    update: Uint8Array;
+    collaborationMessage?: CollaborationMessageEnvelope;
 };
 
 function dedupeCollaborationMessages(
@@ -263,6 +270,7 @@ export class CloudAdapter implements FileSystemAdapter {
     private _onConnectionStatus:
         | ((status: CloudConnectionStatus, detail?: string) => void)
         | null;
+    private _suppressSyncComplete: boolean;
 
     private _bridge: PatchSyncEngine | null = null;
     private _ws: WebSocket | null = null;
@@ -275,15 +283,16 @@ export class CloudAdapter implements FileSystemAdapter {
     private _destroyed = false;
     private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private _hasSynced = false;
-    private _pendingOutboundUpdates: Uint8Array[] = [];
-    private _pendingOutboundCollaborationMessages: CollaborationMessageEnvelope[] =
-        [];
+    private _pendingOutboundPackets: CloudOutboundUpdatePacket[] = [];
     private _outboundFlushScheduled = false;
     private _outboundBroadcastEntryCounts = new Map<number, number>();
     private _outboundPendingMessageKeys = new Map<number, string[]>();
     private _pendingDurabilityMessages: CollaborationMessageEnvelope[] = [];
     private _pendingInboundUpdates: CloudLiveUpdateMessage[] = [];
     private _inboundFlushScheduled = false;
+    private _resyncRequestedAfterNoopUpdate = false;
+    private _initialServerStateApplied = false;
+    private _initialSyncDurable = false;
     /** Accumulates incoming sync-response chunks from the server. */
     private _incomingResponseChunks: {
         chunks: (Uint8Array | undefined)[];
@@ -297,6 +306,7 @@ export class CloudAdapter implements FileSystemAdapter {
             options.websiteBaseUrl ?? DEFAULT_WEBSITE_BASE_URL;
         this._roomWorkerBaseUrl =
             options.roomWorkerBaseUrl ?? getDefaultRoomWorkerUrl();
+        this._suppressSyncComplete = options.suppressSyncComplete ?? false;
         this._onConnectionStatus = options.onConnectionStatus ?? null;
     }
 
@@ -317,7 +327,10 @@ export class CloudAdapter implements FileSystemAdapter {
         }
         this._hasSynced = false;
         this._incomingResponseChunks = null;
+        this._initialServerStateApplied = false;
+        this._initialSyncDurable = false;
         this._bridge = bridge;
+        this._registerOutboundHook();
         this._subscribeFontModelReady();
         this._setStatus('connecting');
         await this._connectWebSocket();
@@ -338,7 +351,10 @@ export class CloudAdapter implements FileSystemAdapter {
         }
         this._hasSynced = false;
         this._incomingResponseChunks = null;
+        this._initialServerStateApplied = false;
+        this._initialSyncDurable = false;
         this._bridge = bridge;
+        this._registerOutboundHook();
         this._subscribeFontModelReady();
         this._setStatus('connecting');
         await this._openWebSocket(token, roomUrl);
@@ -353,12 +369,35 @@ export class CloudAdapter implements FileSystemAdapter {
         this._ws?.close(1000, 'disconnect');
         this._ws = null;
         this._bridge = null;
-        this._pendingOutboundUpdates = [];
-        this._pendingOutboundCollaborationMessages = [];
+        this._pendingOutboundPackets = [];
         this._outboundFlushScheduled = false;
         this._pendingInboundUpdates = [];
         this._inboundFlushScheduled = false;
+        this._initialServerStateApplied = false;
+        this._initialSyncDurable = false;
         this._setStatus('disconnected');
+    }
+
+    sendForwardedUpdate(
+        update: Uint8Array,
+        collaborationMessage?: CollaborationMessageEnvelope | null
+    ): void {
+        if (!update.length) {
+            return;
+        }
+
+        this._pendingOutboundPackets.push({
+            update,
+            ...(collaborationMessage ? { collaborationMessage } : undefined)
+        });
+        if (collaborationMessage) {
+            this._enqueuePendingDurabilityMessages([collaborationMessage]);
+        }
+        if (this._outboundFlushScheduled) {
+            return;
+        }
+        this._outboundFlushScheduled = true;
+        queueMicrotask(() => this._flushPendingOutboundUpdates());
     }
 
     // ── Bridge tracking ──────────────────────────────────────────
@@ -386,6 +425,11 @@ export class CloudAdapter implements FileSystemAdapter {
             return false;
         }
 
+        const currentFontJson = window.fontManager?.currentFont
+            ?.babelfontData as
+            | Record<string, ReturnType<typeof JSON.parse>>
+            | undefined;
+
         const skipMerge = Boolean(
             (
                 window as Window & {
@@ -412,6 +456,9 @@ export class CloudAdapter implements FileSystemAdapter {
         this._localUpdateUnsubscribe?.();
         this._localUpdateUnsubscribe = null;
         this._bridge = newBridge;
+        if (currentFontJson && typeof newBridge.setFontJson === 'function') {
+            newBridge.setFontJson(currentFontJson);
+        }
         if (this._hasSynced) {
             this._registerOutboundHook();
         }
@@ -488,8 +535,9 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._clientId = null;
                 this._hasSynced = false;
                 this._incomingResponseChunks = null;
-                this._pendingOutboundUpdates = [];
-                this._pendingOutboundCollaborationMessages = [];
+                this._initialServerStateApplied = false;
+                this._initialSyncDurable = false;
+                this._pendingOutboundPackets = [];
                 this._outboundFlushScheduled = false;
                 this._pendingInboundUpdates = [];
                 this._inboundFlushScheduled = false;
@@ -528,6 +576,8 @@ export class CloudAdapter implements FileSystemAdapter {
                 this._clientId = String(msg.clientId ?? '');
                 console.log(`CloudAdapter: authenticated as ${this._clientId}`);
                 this._setStatus('syncing');
+                this._initialServerStateApplied = false;
+                this._initialSyncDurable = false;
                 if (!this._hasSynced) {
                     // Phase 1 of Yjs two-phase sync: send our state vector so
                     // the server can compute exactly what we're missing.
@@ -551,6 +601,7 @@ export class CloudAdapter implements FileSystemAdapter {
                 break;
 
             case 'sync-response': {
+                this._resyncRequestedAfterNoopUpdate = false;
                 const serverSV =
                     typeof msg.serverStateVector === 'string'
                         ? base64ToU8(msg.serverStateVector as string)
@@ -584,7 +635,8 @@ export class CloudAdapter implements FileSystemAdapter {
                     };
                     this._hasSynced = true;
                     this._registerOutboundHook();
-                    this._sendSyncComplete(serverSV);
+                    this._initialSyncDurable =
+                        !this._sendSyncComplete(serverSV);
                 } else {
                     // Small response — apply inline.
                     if (
@@ -594,11 +646,14 @@ export class CloudAdapter implements FileSystemAdapter {
                         this._applyServerState(
                             base64ToU8(msg.update as string)
                         );
+                    } else {
+                        this._initialServerStateApplied = true;
                     }
                     this._hasSynced = true;
-                    this._setStatus('connected');
                     this._registerOutboundHook();
-                    this._sendSyncComplete(serverSV);
+                    this._initialSyncDurable =
+                        !this._sendSyncComplete(serverSV);
+                    this._maybeMarkInitialSyncConnected();
                 }
                 break;
             }
@@ -621,9 +676,7 @@ export class CloudAdapter implements FileSystemAdapter {
                         );
                         this._incomingResponseChunks = null;
                         this._applyServerState(combined);
-                        // All server response chunks received and applied:
-                        // now it is safe to signal 'connected'.
-                        this._setStatus('connected');
+                        this._maybeMarkInitialSyncConnected();
                     }
                 }
                 break;
@@ -643,6 +696,23 @@ export class CloudAdapter implements FileSystemAdapter {
                 break;
 
             case 'ack':
+                if (msg.seq === -1 && msg.phase === 'sync-complete') {
+                    if (msg.durable === false) {
+                        const detail = 'Initial cloud sync was not durable';
+                        console.warn(`CloudAdapter: ${detail}`);
+                        this._setStatus('error', detail);
+                        this._ws?.close(
+                            CLIENT_RECONNECT_CLOSE_CODE,
+                            'undurable-sync-complete'
+                        );
+                        return;
+                    }
+
+                    this._initialSyncDurable = true;
+                    this._maybeMarkInitialSyncConnected();
+                    return;
+                }
+
                 if (msg.durable === false) {
                     const detail = `Cloud update seq ${String(msg.seq ?? '?')} was not durable`;
                     console.warn(`CloudAdapter: ${detail}`);
@@ -685,14 +755,31 @@ export class CloudAdapter implements FileSystemAdapter {
 
     /** Apply a full-state snapshot received from the server. */
     private _applyServerState(update: Uint8Array): void {
-        if (!this._bridge || update.length === 0) return;
+        if (update.length === 0) {
+            this._resyncRequestedAfterNoopUpdate = false;
+            this._initialServerStateApplied = true;
+            return;
+        }
+        if (!this._bridge) return;
         try {
             this._bridge.applyFullState(update);
+            this._resyncRequestedAfterNoopUpdate = false;
+            this._initialServerStateApplied = true;
             console.log(
                 `CloudAdapter: applied server state (${update.length} bytes)`
             );
         } catch (err) {
             console.error('CloudAdapter: failed to apply server state:', err);
+        }
+    }
+
+    private _maybeMarkInitialSyncConnected(): void {
+        if (
+            this._hasSynced &&
+            this._initialServerStateApplied &&
+            this._initialSyncDurable
+        ) {
+            this._setStatus('connected');
         }
     }
 
@@ -703,14 +790,46 @@ export class CloudAdapter implements FileSystemAdapter {
     ): void {
         if (!this._bridge || update.length === 0) return;
         try {
+            const beforeState = this._bridge.encodeBridgeState();
             this._bridge.applyRemoteUpdate(
                 update,
                 undefined,
                 remoteCollaborationMessages
             );
+            const afterState = this._bridge.encodeBridgeState();
+            if (
+                beforeState.length === afterState.length &&
+                beforeState.every((value, index) => value === afterState[index])
+            ) {
+                this._requestServerResyncAfterNoopUpdate();
+            }
+            if (window.windowRole?.isMainWindow()) {
+                window.windowSync?.broadcastCloudRelayUpdate?.(
+                    update,
+                    remoteCollaborationMessages?.[0] ?? null
+                );
+            }
         } catch (err) {
             console.error('CloudAdapter: failed to apply remote update:', err);
         }
+    }
+
+    private _requestServerResyncAfterNoopUpdate(): void {
+        if (
+            this._resyncRequestedAfterNoopUpdate ||
+            !this._ws ||
+            this._ws.readyState !== WebSocket.OPEN
+        ) {
+            return;
+        }
+
+        this._resyncRequestedAfterNoopUpdate = true;
+        this._ws.send(
+            JSON.stringify({
+                type: 'sync-request',
+                stateVector: u8ToBase64(new Uint8Array(0))
+            })
+        );
     }
 
     /**
@@ -721,16 +840,19 @@ export class CloudAdapter implements FileSystemAdapter {
      * N-1 `sync-chunk` messages followed by a final `sync-complete` message
      * that carries the last chunk and signals the server to commit.
      */
-    private _sendSyncComplete(serverStateVector: Uint8Array): void {
+    private _sendSyncComplete(serverStateVector: Uint8Array): boolean {
         if (
             !this._bridge ||
             !this._ws ||
             this._ws.readyState !== WebSocket.OPEN
         )
-            return;
+            return false;
+        if (this._suppressSyncComplete) {
+            return false;
+        }
         try {
             const diff = this._bridge.encodeStateDiff(serverStateVector);
-            if (diff.length === 0) return;
+            if (diff.length === 0) return false;
             const collaborationMessages =
                 createCollaborationMessageEnvelopesFromChangeLogEntries(
                     this._bridge.getNewChangeLogEntries(),
@@ -773,8 +895,10 @@ export class CloudAdapter implements FileSystemAdapter {
                 }
                 this._ws.send(JSON.stringify(frame));
             }
+            return true;
         } catch (err) {
             console.warn('CloudAdapter: failed to send sync-complete:', err);
+            return false;
         }
     }
 
@@ -802,12 +926,12 @@ export class CloudAdapter implements FileSystemAdapter {
             update: Uint8Array,
             collaborationMessage?: CollaborationMessageEnvelope | null
         ): void => {
-            this._pendingOutboundUpdates.push(update);
+            this._pendingOutboundPackets.push({
+                update,
+                ...(collaborationMessage ? { collaborationMessage } : undefined)
+            });
             if (collaborationMessage) {
                 this._enqueuePendingDurabilityMessages([collaborationMessage]);
-                this._pendingOutboundCollaborationMessages.push(
-                    collaborationMessage
-                );
             }
             if (this._outboundFlushScheduled) {
                 return;
@@ -833,49 +957,65 @@ export class CloudAdapter implements FileSystemAdapter {
             this._ws.readyState !== WebSocket.OPEN ||
             !this._bridge
         ) {
-            this._pendingOutboundUpdates = [];
-            this._pendingOutboundCollaborationMessages = [];
+            this._pendingOutboundPackets = [];
             return;
         }
 
-        const updates = this._pendingOutboundUpdates;
-        const collaborationMessages =
-            this._pendingOutboundCollaborationMessages;
-        this._pendingOutboundUpdates = [];
-        this._pendingOutboundCollaborationMessages = [];
-        if (!updates.length) {
+        const packets = this._pendingOutboundPackets;
+        this._pendingOutboundPackets = [];
+        if (!packets.length) {
             return;
         }
 
-        const update =
-            updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
-        const seq = ++this._seq;
-        const broadcastEntryCount = collaborationMessages.reduce(
-            (count, message) => count + message.changes.length,
-            0
-        );
-        const pendingMessageKeys = collaborationMessages.map((message) =>
-            collaborationMessageKey(message)
-        );
+        for (const packet of packets) {
+            const seq = ++this._seq;
+            const updateBase64 = u8ToBase64(packet.update);
+            const collaborationMessages = packet.collaborationMessage
+                ? [packet.collaborationMessage]
+                : [];
+            const broadcastEntryCount = collaborationMessages.reduce(
+                (count, message) => count + message.changes.length,
+                0
+            );
+            const pendingMessageKeys = collaborationMessages.map((message) =>
+                collaborationMessageKey(message)
+            );
 
-        if (broadcastEntryCount > 0) {
-            this._outboundBroadcastEntryCounts.set(seq, broadcastEntryCount);
-        }
-        if (pendingMessageKeys.length) {
-            this._outboundPendingMessageKeys.set(seq, pendingMessageKeys);
-        }
+            if (broadcastEntryCount > 0) {
+                this._outboundBroadcastEntryCounts.set(
+                    seq,
+                    broadcastEntryCount
+                );
+            }
+            if (pendingMessageKeys.length) {
+                this._outboundPendingMessageKeys.set(seq, pendingMessageKeys);
+            }
 
-        this._ws.send(
-            JSON.stringify({
-                type: 'update',
-                update: u8ToBase64(update),
-                clientId: this._clientId ?? '',
-                seq,
-                collaborationMessages: collaborationMessages.length
-                    ? collaborationMessages
-                    : undefined
-            })
-        );
+            (
+                window as Window & {
+                    __lastCloudOutboundUpdateBase64?: string;
+                    __lastCloudOutboundUpdateSeq?: number;
+                }
+            ).__lastCloudOutboundUpdateBase64 = updateBase64;
+            (
+                window as Window & {
+                    __lastCloudOutboundUpdateBase64?: string;
+                    __lastCloudOutboundUpdateSeq?: number;
+                }
+            ).__lastCloudOutboundUpdateSeq = seq;
+
+            this._ws.send(
+                JSON.stringify({
+                    type: 'update',
+                    update: updateBase64,
+                    clientId: this._clientId ?? '',
+                    seq,
+                    collaborationMessages: collaborationMessages.length
+                        ? collaborationMessages
+                        : undefined
+                })
+            );
+        }
     }
 
     private _recordDurableAck(seq: number): void {
@@ -955,17 +1095,31 @@ export class CloudAdapter implements FileSystemAdapter {
             return;
         }
 
-        const updates = messages.map((msg) => msg.update);
-        const mergedUpdate =
-            updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
-        const collaborationMessages = messages.flatMap(
-            (msg) => msg.collaborationMessages ?? []
-        );
-
-        this._applyRemoteUpdate(
-            mergedUpdate,
-            collaborationMessages.length ? collaborationMessages : undefined
-        );
+        for (const message of messages) {
+            (
+                window as Window & {
+                    __lastCloudInboundUpdateBase64?: string;
+                    __lastCloudInboundUpdateCount?: number;
+                }
+            ).__lastCloudInboundUpdateBase64 = u8ToBase64(message.update);
+            (
+                window as Window & {
+                    __lastCloudInboundUpdateBase64?: string;
+                    __lastCloudInboundUpdateCount?: number;
+                }
+            ).__lastCloudInboundUpdateCount =
+                ((
+                    window as Window & {
+                        __lastCloudInboundUpdateCount?: number;
+                    }
+                ).__lastCloudInboundUpdateCount ?? 0) + 1;
+            this._applyRemoteUpdate(
+                message.update,
+                message.collaborationMessages?.length
+                    ? message.collaborationMessages
+                    : undefined
+            );
+        }
     }
 
     // ── Room token fetch ──────────────────────────────────────────

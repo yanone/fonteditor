@@ -33,12 +33,18 @@ import type { TransactionBufferedOperation } from './patch-sync-engine';
 
 const console = new Logger('ChangeBridgeInit');
 let bridgeSyncQueue: Promise<void> = Promise.resolve();
+let remoteChangeRefreshQueue: Promise<void> = Promise.resolve();
 
 type Unsafe = ReturnType<typeof JSON.parse>;
 
 function enqueueBridgeSync(task: () => Promise<void>): Promise<void> {
     bridgeSyncQueue = bridgeSyncQueue.then(task, task);
     return bridgeSyncQueue;
+}
+
+function enqueueRemoteChangeRefresh(task: () => Promise<void>): Promise<void> {
+    remoteChangeRefreshQueue = remoteChangeRefreshQueue.then(task, task);
+    return remoteChangeRefreshQueue;
 }
 
 function cloneBridgeValue<T>(value: T): T {
@@ -1403,8 +1409,27 @@ async function requestRemoteEditingFontCompile(
 
     fm.lastChangeSource = changeSource;
     fm.lastEditType = editType ?? null;
+    const targetRevision = fm.currentFont.compileRequestVersion + 1;
+    const canForceTrigger =
+        typeof window.autoCompileManager?.forceTrigger === 'function';
+    const waitPromise = canForceTrigger
+        ? waitForEditingFontCompileRevision(targetRevision)
+        : null;
+
     fm.currentFont.requestRecompileWithoutDataChange();
     window.autoCompileManager?.checkAndSchedule?.();
+
+    if (!waitPromise || !canForceTrigger) {
+        return;
+    }
+
+    try {
+        await window.autoCompileManager.forceTrigger();
+    } catch {
+        // Fall through to the revision wait; the compile loop may still complete.
+    }
+
+    await waitPromise;
 }
 
 /**
@@ -1774,6 +1799,7 @@ function destroyExisting(): void {
     if (window.patchSyncEngine) {
         window.patchSyncEngine.destroy();
         window.patchSyncEngine = undefined;
+        window.changeBridge = undefined;
     }
 }
 
@@ -1792,6 +1818,7 @@ function initializeBridge(detail: {
         buildCascadingRecompositionOperations(bridge, operations)
     );
     window.patchSyncEngine = bridge;
+    window.changeBridge = bridge;
     const bootstrapState = (
         window as Window & {
             __pendingCloudBridgeBootstrapState?: Uint8Array;
@@ -1882,7 +1909,9 @@ function initializeBridge(detail: {
     //      compile uses the matching fast path (anchor-only / outline-only)
     //      instead of always falling back to the slowest full mode.
     bridge.onRemoteChange((entries: ChangeLogEntry[]) => {
-        void handleRemoteChangeRefresh(entries);
+        void enqueueRemoteChangeRefresh(() =>
+            handleRemoteChangeRefresh(entries)
+        );
     });
 
     // Derive BroadcastChannel name from font path (or a fallback)

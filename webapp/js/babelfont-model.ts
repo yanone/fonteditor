@@ -2665,7 +2665,12 @@ function recordAndMarkDirty(
     const bridge = getPatchSyncEngine();
     if (bridge) {
         const path = modelObj.getPath();
-        bridge.recordChange(path, prop, oldVal, newVal);
+        bridge.recordChange(
+            path,
+            prop,
+            normalizeBridgeRecordedValue(prop, oldVal),
+            normalizeBridgeRecordedValue(prop, newVal)
+        );
         return;
     }
     markFontDirty();
@@ -2684,15 +2689,49 @@ function recordPathChangeAndMarkDirty(
 
     const bridge = getPatchSyncEngine();
     if (bridge && path.length > 0) {
+        const prop = String(path[path.length - 1]);
         bridge.recordChange(
             path.slice(0, -1),
-            String(path[path.length - 1]),
-            oldVal,
-            newVal
+            prop,
+            normalizeBridgeRecordedValue(prop, oldVal),
+            normalizeBridgeRecordedValue(prop, newVal)
         );
         return;
     }
     markFontDirty();
+}
+
+function recomputeMetricsKeysForModelLayer(
+    layer: Layer | null | undefined
+): void {
+    const bridge = getPatchSyncEngine() as any;
+
+    if (
+        !layer ||
+        suppressMetricsKeyRecomputeDepth > 0 ||
+        suppressModelRecordingDepth > 0 ||
+        bridge?._suppressRecording ||
+        bridge?._isSyncing
+    ) {
+        return;
+    }
+
+    const glyph = layer.parent();
+    const font =
+        glyph instanceof Glyph ? (glyph.parent() as Font | null) : null;
+    if (!font || !glyph?.name) {
+        return;
+    }
+
+    font.recomputeMetricsKeys(new Set([glyph.name]));
+}
+
+function recomputeMetricsKeysForSelectableObject(
+    modelObj: SelectableLayerObject | null | undefined
+): void {
+    recomputeMetricsKeysForModelLayer(
+        modelObj ? getLayerForSelectableObject(modelObj) : null
+    );
 }
 
 function recordAddAndMarkDirty(
@@ -3504,9 +3543,27 @@ function syncNormalizedModelValue(
         setYPath(
             bridge.fontMap,
             [...modelObj.getPath(), prop],
-            cloneForHistory(value)
+            cloneForHistory(normalizeBridgeRecordedValue(prop, value))
         );
     });
+}
+
+function normalizeBridgeRecordedValue(prop: string, value: unknown): unknown {
+    if (
+        prop === 'nodes' &&
+        Array.isArray(value) &&
+        value.every(
+            (entry) =>
+                entry &&
+                typeof entry === 'object' &&
+                'x' in entry &&
+                'y' in entry
+        )
+    ) {
+        return serializeGlyphNodes(value as Babelfont.Node[]);
+    }
+
+    return value;
 }
 
 /**
@@ -3722,6 +3779,7 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
         const old = this.data.x;
         this.data.x = value;
         recordAndMarkDirty(this, 'x', old, value);
+        recomputeMetricsKeysForSelectableObject(this);
     }
 
     get y(): number {
@@ -3732,6 +3790,7 @@ export class Node extends ArrayElementBase<Babelfont.Node, Path> {
         const old = this.data.y;
         this.data.y = value;
         recordAndMarkDirty(this, 'y', old, value);
+        recomputeMetricsKeysForSelectableObject(this);
     }
 
     get nodetype(): Babelfont.NodeType {
@@ -4702,6 +4761,7 @@ export class Component extends ArrayElementBase<ComponentData, Shape> {
             GLYPHS_COMPONENT_ANCHOR_KEY,
             trimmed ? trimmed : undefined
         );
+        getLayerForSelectableObject(this)?.invalidateLayoutCache();
     }
 
     isAutomaticAligned(): boolean {
@@ -4920,6 +4980,8 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
         const old = this.data.x;
         this.data.x = value;
         recordAndMarkDirty(this, 'x', old, value);
+        const layer = getLayerForSelectableObject(this);
+        layer?.invalidateLayoutCache();
     }
 
     get y(): number {
@@ -4930,6 +4992,8 @@ export class Anchor extends ArrayElementBase<AnchorData, Layer> {
         const old = this.data.y;
         this.data.y = value;
         recordAndMarkDirty(this, 'y', old, value);
+        const layer = getLayerForSelectableObject(this);
+        layer?.invalidateLayoutCache();
     }
 
     get name(): string | undefined {

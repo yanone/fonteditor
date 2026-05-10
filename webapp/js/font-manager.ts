@@ -509,6 +509,9 @@ class OpenedFont {
             }
         }
 
+        // The model wraps babelfontData directly. Replacing nested arrays here
+        // would detach cached Glyph/Layer/Anchor wrappers from the live tree and
+        // make later edits mutate stale data instead of the authoritative font.
         this.babelfontJson = this.fontModel.toJSONString();
 
         if (pathsConverted > 0 || wrappersFixed > 0) {

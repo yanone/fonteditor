@@ -10,13 +10,29 @@ import {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 async function waitForBridgeReady(page: Page): Promise<void> {
-    await page.waitForFunction(
-        () =>
-            !!(window as any).changeBridge &&
-            !!(window as any).currentFontModel &&
-            !!(window as any).fontManager?.currentFont,
-        { timeout: 20000 }
-    );
+    try {
+        await page.waitForFunction(
+            () =>
+                !!(window as any).changeBridge &&
+                !!(window as any).currentFontModel &&
+                !!(window as any).fontManager?.currentFont,
+            { timeout: 20000 }
+        );
+    } catch (error) {
+        const diagnostics = await page.evaluate(() => ({
+            hasPatchSyncEngine: !!(window as any).patchSyncEngine,
+            hasChangeBridge: !!(window as any).changeBridge,
+            hasCurrentFontModel: !!(window as any).currentFontModel,
+            hasCurrentFont: !!(window as any).fontManager?.currentFont,
+            currentPath: (window as any).fontManager?.currentFont?.path ?? null
+        }));
+
+        throw new Error(
+            `${(error as Error).message}\nBridge diagnostics: ${JSON.stringify(
+                diagnostics
+            )}`
+        );
+    }
     await page.waitForTimeout(500);
 }
 

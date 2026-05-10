@@ -101,6 +101,235 @@ function assertCloudBridgeStateCanBeSaved(
     normalizeCloudExportForFontOpen(fontJson, 'save');
 }
 
+function cloneCloudFontJson(
+    fontJson: Record<string, unknown>
+): Record<string, unknown> {
+    return JSON.parse(JSON.stringify(fontJson)) as Record<string, unknown>;
+}
+
+function parseCloudFontJsonString(
+    fontJson: string | null | undefined
+): Record<string, unknown> | null {
+    if (!fontJson) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(fontJson) as Record<string, unknown>;
+    } catch {
+        return null;
+    }
+}
+
+function getCloudFontJsonStructureSignature(
+    fontJson: Record<string, unknown> | null | undefined
+): string | null {
+    if (!fontJson || typeof fontJson !== 'object') {
+        return null;
+    }
+
+    const glyphs = Array.isArray(fontJson.glyphs)
+        ? (fontJson.glyphs as Array<Record<string, unknown>>)
+        : [];
+
+    return JSON.stringify(
+        glyphs
+            .map((glyph) => {
+                const layers = Array.isArray(glyph?.layers)
+                    ? (glyph.layers as Array<Record<string, unknown>>)
+                    : [];
+
+                return {
+                    name: String(glyph?.name || ''),
+                    layers: layers
+                        .map((layer) => ({
+                            id: String(layer?.id || ''),
+                            shapes: Array.isArray(layer?.shapes)
+                                ? layer.shapes.length
+                                : 0,
+                            anchors: Array.isArray(layer?.anchors)
+                                ? layer.anchors.length
+                                : 0,
+                            guides: Array.isArray(layer?.guides)
+                                ? layer.guides.length
+                                : 0
+                        }))
+                        .sort((left, right) => left.id.localeCompare(right.id))
+                };
+            })
+            .sort((left, right) => left.name.localeCompare(right.name))
+    );
+}
+
+function getCloudFontModelStructureSignature(
+    fontModel: unknown
+): string | null {
+    const glyphs = Array.isArray((fontModel as { glyphs?: unknown[] })?.glyphs)
+        ? ((fontModel as { glyphs: Array<Record<string, unknown>> })
+              .glyphs as Array<Record<string, unknown>>)
+        : [];
+
+    return JSON.stringify(
+        glyphs
+            .map((glyph) => {
+                const layers = Array.isArray(glyph?.layers)
+                    ? (glyph.layers as Array<Record<string, unknown>>)
+                    : [];
+
+                return {
+                    name: String(glyph?.name || ''),
+                    layers: layers
+                        .map((layer) => ({
+                            id: String(layer?.id || ''),
+                            shapes: Array.isArray(layer?.shapes)
+                                ? layer.shapes.length
+                                : (Array.isArray(layer?.paths)
+                                      ? layer.paths.length
+                                      : 0) +
+                                  (Array.isArray(layer?.components)
+                                      ? layer.components.length
+                                      : 0),
+                            anchors: Array.isArray(layer?.anchors)
+                                ? layer.anchors.length
+                                : 0,
+                            guides: Array.isArray(layer?.guides)
+                                ? layer.guides.length
+                                : 0
+                        }))
+                        .sort((left, right) => left.id.localeCompare(right.id))
+                };
+            })
+            .sort((left, right) => left.name.localeCompare(right.name))
+    );
+}
+
+function getCloudFontContentScore(
+    fontJson: Record<string, unknown> | null | undefined
+): number {
+    if (!fontJson || typeof fontJson !== 'object') {
+        return -1;
+    }
+
+    const glyphs = Array.isArray(fontJson.glyphs)
+        ? (fontJson.glyphs as Array<Record<string, unknown>>)
+        : [];
+    let score = glyphs.length * 1000;
+
+    for (const glyph of glyphs) {
+        const layers = Array.isArray(glyph?.layers)
+            ? (glyph.layers as Array<Record<string, unknown>>)
+            : [];
+        score += layers.length * 100;
+        for (const layer of layers) {
+            score += Array.isArray(layer?.shapes)
+                ? layer.shapes.length * 10
+                : 0;
+            score += Array.isArray(layer?.anchors) ? layer.anchors.length : 0;
+            score += Array.isArray(layer?.guides) ? layer.guides.length : 0;
+        }
+    }
+
+    return score;
+}
+
+async function waitForCloudSaveSeedFontJson(
+    timeoutMs = 15000
+): Promise<Record<string, unknown>> {
+    return await new Promise((resolve, reject) => {
+        const startedAt = Date.now();
+        let bestCandidate: Record<string, unknown> | null = null;
+        let bestCandidateScore = -1;
+
+        const poll = () => {
+            const currentFont = (window as any).fontManager?.currentFont;
+            const fontModel =
+                (window as any).currentFontModel || currentFont?.fontModel;
+            const startupReady = Boolean(
+                (window as any).glyphCanvas?.initialFontLoaded &&
+                (window as any).fontManager?.editingFont
+            );
+
+            if (currentFont && fontModel && startupReady) {
+                const preSyncFontJson = parseCloudFontJsonString(
+                    currentFont.babelfontJson
+                );
+                const preSyncScore = getCloudFontContentScore(preSyncFontJson);
+                if (preSyncFontJson && preSyncScore > bestCandidateScore) {
+                    bestCandidate = cloneCloudFontJson(preSyncFontJson);
+                    bestCandidateScore = preSyncScore;
+                }
+
+                currentFont.syncJsonFromModel?.();
+                const fontJson = currentFont.babelfontData as
+                    | Record<string, unknown>
+                    | undefined;
+                const syncedScore = getCloudFontContentScore(fontJson);
+                if (fontJson && syncedScore > bestCandidateScore) {
+                    bestCandidate = cloneCloudFontJson(fontJson);
+                    bestCandidateScore = syncedScore;
+                }
+                const modelSignature =
+                    getCloudFontModelStructureSignature(fontModel);
+                const fontJsonSignature =
+                    getCloudFontJsonStructureSignature(fontJson);
+
+                if (
+                    fontJson &&
+                    modelSignature &&
+                    fontJsonSignature &&
+                    modelSignature === fontJsonSignature
+                ) {
+                    resolve(cloneCloudFontJson(fontJson));
+                    return;
+                }
+            }
+
+            if (Date.now() - startedAt >= timeoutMs) {
+                if (bestCandidate) {
+                    resolve(bestCandidate);
+                    return;
+                }
+
+                reject(
+                    new Error(
+                        'Cloud font model did not settle into a savable JSON snapshot'
+                    )
+                );
+                return;
+            }
+
+            window.requestAnimationFrame(poll);
+        };
+
+        poll();
+    });
+}
+
+async function waitForCloudSaveBridge(
+    timeoutMs = 15000
+): Promise<PatchSyncEngine> {
+    return await new Promise((resolve, reject) => {
+        const startedAt = Date.now();
+
+        const poll = () => {
+            const bridge = window.patchSyncEngine;
+            if (bridge) {
+                resolve(bridge);
+                return;
+            }
+
+            if (Date.now() - startedAt >= timeoutMs) {
+                reject(new Error('Cloud bridge not ready for save'));
+                return;
+            }
+
+            window.requestAnimationFrame(poll);
+        };
+
+        poll();
+    });
+}
+
 /**
  * Wait for the initial synced document to contain font data.
  * Some cloud rooms connect before their persisted snapshot has been applied.
@@ -161,6 +390,9 @@ export interface CloudEligibility {
 export class CloudPlugin extends FilesystemPlugin {
     private _cloudAdapter: CloudAdapter | null = null;
     private _activeAssetId: string | null = null;
+    private _relayedAssetId: string | null = null;
+    private _relayedConnectionStatus: CloudConnectionStatus = 'disconnected';
+    private _relayedConnectionDetail: string | undefined;
     private _eligibility: CloudEligibility | null = null;
     private _pendingOpenAsset: {
         assetId: string;
@@ -222,11 +454,79 @@ export class CloudPlugin extends FilesystemPlugin {
             this._connectedAssetIds.add(assetId);
         }
 
+        if (window.windowRole?.isMainWindow()) {
+            window.windowSync?.broadcastCloudConnectionStatus?.({
+                assetId,
+                status,
+                ...(detail ? { detail } : {})
+            });
+        }
+
         window.dispatchEvent(
             new CustomEvent('cloudConnectionStatusChanged', {
                 detail: { assetId, status, detail }
             })
         );
+    }
+
+    getRelayConnectionState(): {
+        assetId: string | null;
+        status: CloudConnectionStatus;
+        detail?: string;
+    } {
+        return {
+            assetId: this._activeAssetId,
+            status: this.connectionStatus,
+            ...(this._cloudAdapter?.status === 'error' && this._activeAssetId
+                ? { detail: undefined }
+                : {})
+        };
+    }
+
+    applyRelayedConnectionState(state: {
+        assetId: string | null;
+        status: string;
+        detail?: string;
+    }): void {
+        if (window.windowRole?.isMainWindow()) {
+            return;
+        }
+
+        this._relayedAssetId = state.assetId;
+        this._relayedConnectionStatus = state.status as CloudConnectionStatus;
+        this._relayedConnectionDetail = state.detail;
+
+        if (state.assetId) {
+            this._connectionStatusByAssetId.set(
+                state.assetId,
+                this._relayedConnectionStatus
+            );
+        }
+
+        window.dispatchEvent(
+            new CustomEvent('cloudConnectionStatusChanged', {
+                detail: {
+                    assetId: state.assetId,
+                    status: this._relayedConnectionStatus,
+                    detail: state.detail
+                }
+            })
+        );
+    }
+
+    relayPeerWindowUpdateToCloud(
+        update: Uint8Array,
+        collaborationMessage: CloudAdapter['sendForwardedUpdate'] extends (
+            update: Uint8Array,
+            collaborationMessage?: infer T
+        ) => void
+            ? T
+            : never
+    ): void {
+        if (!window.windowRole?.isMainWindow()) {
+            return;
+        }
+        this._cloudAdapter?.sendForwardedUpdate(update, collaborationMessage);
     }
 
     getId(): string {
@@ -539,47 +839,65 @@ export class CloudPlugin extends FilesystemPlugin {
             this._websiteBaseUrl
         );
 
+        const connectAndWaitForSync = async (
+            bridgeToConnect: PatchSyncEngine,
+            nextToken: string,
+            nextWsUrl: string,
+            options?: {
+                suppressSyncComplete?: boolean;
+            }
+        ): Promise<CloudAdapter> => {
+            let resolveConnected!: () => void;
+            let rejectConnected!: (err: Error) => void;
+            const connectedPromise = new Promise<void>((res, rej) => {
+                resolveConnected = res;
+                rejectConnected = rej;
+            });
+
+            const adapter = new CloudAdapter({
+                assetId,
+                websiteBaseUrl: this._websiteBaseUrl,
+                suppressSyncComplete: options?.suppressSyncComplete,
+                onConnectionStatus: (
+                    status: CloudConnectionStatus,
+                    detail?: string
+                ) => {
+                    console.log(
+                        `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
+                    );
+                    this._updateConnectionStatus(assetId, status, detail);
+                    if (status === 'connected') resolveConnected();
+                    if (status === 'error') {
+                        rejectConnected(
+                            new Error(detail ?? 'cloud connection error')
+                        );
+                    }
+                }
+            });
+
+            await adapter.connectDirect(bridgeToConnect, nextToken, nextWsUrl);
+
+            const timeout = new Promise<never>((_, rej) =>
+                setTimeout(() => rej(new Error('cloud sync timed out')), 30_000)
+            );
+            await Promise.race([connectedPromise, timeout]);
+
+            return adapter;
+        };
+
         // Temporary bridge receives the initial CRDT state from the room.
         const tempBridge = new PatchSyncEngine(`cloud-bootstrap-${assetId}`);
-
-        let resolveConnected!: () => void;
-        let rejectConnected!: (err: Error) => void;
-        const connectedPromise = new Promise<void>((res, rej) => {
-            resolveConnected = res;
-            rejectConnected = rej;
-        });
-
-        this._cloudAdapter = new CloudAdapter({
-            assetId,
-            websiteBaseUrl: this._websiteBaseUrl,
-            onConnectionStatus: (
-                status: CloudConnectionStatus,
-                detail?: string
-            ) => {
-                console.log(
-                    `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
-                );
-                this._updateConnectionStatus(assetId, status, detail);
-                if (status === 'connected') resolveConnected();
-                if (status === 'error')
-                    rejectConnected(
-                        new Error(detail ?? 'cloud connection error')
-                    );
-            }
-        });
-
-        await this._cloudAdapter.connectDirect(tempBridge, token, wsUrl);
-
-        // Wait for initial sync (30 s timeout).
-        const timeout = new Promise<never>((_, rej) =>
-            setTimeout(() => rej(new Error('cloud sync timed out')), 30_000)
+        const bootstrapAdapter = await connectAndWaitForSync(
+            tempBridge,
+            token,
+            wsUrl,
+            { suppressSyncComplete: true }
         );
-        await Promise.race([connectedPromise, timeout]);
 
         // Extract babelfont JSON from the synced Yjs document.
         const fontJson = await waitForCloudFontJson(tempBridge);
         if (!fontJson) {
-            this._disconnectCurrent();
+            bootstrapAdapter.disconnect();
             throw new Error(`Cloud asset ${assetId} has no font data`);
         }
 
@@ -587,7 +905,7 @@ export class CloudPlugin extends FilesystemPlugin {
         try {
             sanitizeFixCount = normalizeCloudExportForFontOpen(fontJson);
         } catch (error) {
-            this._disconnectCurrent();
+            bootstrapAdapter.disconnect();
             throw error;
         }
         if (sanitizeFixCount > 0) {
@@ -599,6 +917,7 @@ export class CloudPlugin extends FilesystemPlugin {
         const babelfontJson = JSON.stringify(fontJson);
         const bridgeState = tempBridge.getFullState();
         const bootstrapChangeLog = tempBridge.getChangeLog();
+        bootstrapAdapter.disconnect();
 
         this._activeAssetId = assetId;
 
@@ -636,11 +955,36 @@ export class CloudPlugin extends FilesystemPlugin {
                 reject(new Error('cloud bridge bootstrap timed out'));
             }, 30_000);
 
-            const onFontModelReady = () => {
+            const onFontModelReady = async () => {
                 window.clearTimeout(timeoutId);
                 window.removeEventListener('fontModelReady', onFontModelReady);
-                this._cloudAdapter?.rebindToCurrentBridge();
-                resolve();
+
+                try {
+                    const liveBridge = window.patchSyncEngine;
+                    if (!liveBridge) {
+                        throw new Error(
+                            'cloud bridge bootstrap missing live bridge'
+                        );
+                    }
+                    const liveTokenResponse =
+                        await this._fetchRoomToken(assetId);
+                    const liveWsUrl = normalizeCloudRoomWebSocketUrl(
+                        liveTokenResponse.roomUrl,
+                        this._websiteBaseUrl
+                    );
+                    this._cloudAdapter = await connectAndWaitForSync(
+                        liveBridge,
+                        liveTokenResponse.token,
+                        liveWsUrl
+                    );
+                    resolve();
+                } catch (error) {
+                    reject(
+                        error instanceof Error
+                            ? error
+                            : new Error(String(error))
+                    );
+                }
             };
 
             window.addEventListener('fontModelReady', onFontModelReady);
@@ -682,10 +1026,10 @@ export class CloudPlugin extends FilesystemPlugin {
             throw new Error('Authentication required');
         }
 
-        const bridge = window.patchSyncEngine;
-        if (!bridge) throw new Error('No active font to save');
+        const seedFontJson = await waitForCloudSaveSeedFontJson();
+        normalizeCloudExportForFontOpen(seedFontJson, 'save');
 
-        assertCloudBridgeStateCanBeSaved(bridge);
+        await waitForCloudSaveBridge();
 
         const resp = await fetch(`${this._websiteBaseUrl}/api/cloud/assets`, {
             method: 'POST',
@@ -714,46 +1058,55 @@ export class CloudPlugin extends FilesystemPlugin {
 
         this._disconnectCurrent();
 
-        // Set up a promise that resolves when the initial sync with the DO is
-        // complete (status 'connected'). connectDirect() resolves as soon as
-        // the WebSocket object is created, before auth / sync finish — so we
-        // must wait for the status callback before returning to the caller.
-        let resolveConnected!: () => void;
-        let rejectConnected!: (err: Error) => void;
-        const connectedPromise = new Promise<void>((res, rej) => {
-            resolveConnected = res;
-            rejectConnected = rej;
-        });
+        const connectAndWaitForSync = async (
+            bridgeToConnect: PatchSyncEngine
+        ): Promise<CloudAdapter> => {
+            let resolveConnected!: () => void;
+            let rejectConnected!: (err: Error) => void;
+            const connectedPromise = new Promise<void>((res, rej) => {
+                resolveConnected = res;
+                rejectConnected = rej;
+            });
 
-        this._cloudAdapter = new CloudAdapter({
-            assetId,
-            websiteBaseUrl: this._websiteBaseUrl,
-            onConnectionStatus: (
-                status: CloudConnectionStatus,
-                detail?: string
-            ) => {
-                console.log(
-                    `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
-                );
-                this._updateConnectionStatus(assetId, status, detail);
-                if (status === 'connected') resolveConnected();
-                if (status === 'error')
-                    rejectConnected(
-                        new Error(detail ?? 'cloud connection error')
+            const adapter = new CloudAdapter({
+                assetId,
+                websiteBaseUrl: this._websiteBaseUrl,
+                onConnectionStatus: (
+                    status: CloudConnectionStatus,
+                    detail?: string
+                ) => {
+                    console.log(
+                        `[${assetId}] ${status}${detail ? ` (${detail})` : ''}`
                     );
-            }
-        });
+                    this._updateConnectionStatus(assetId, status, detail);
+                    if (status === 'connected') resolveConnected();
+                    if (status === 'error') {
+                        rejectConnected(
+                            new Error(detail ?? 'cloud connection error')
+                        );
+                    }
+                }
+            });
 
-        this._activeAssetId = assetId;
-        await this._cloudAdapter.connectDirect(bridge, token, wsUrl);
+            await adapter.connectDirect(bridgeToConnect, token, wsUrl);
 
-        // Wait until the two-phase Yjs sync is complete so the DO has received
-        // the full font state before we return (30 s safety timeout).
-        const timeout = new Promise<never>((_, rej) =>
-            setTimeout(() => rej(new Error('cloud save timed out')), 30_000)
+            const timeout = new Promise<never>((_, rej) =>
+                setTimeout(() => rej(new Error('cloud save timed out')), 30_000)
+            );
+            await Promise.race([connectedPromise, timeout]);
+
+            return adapter;
+        };
+
+        const seedBridge = new PatchSyncEngine(`cloud-save-seed-${assetId}`);
+        seedBridge.initFromJson(
+            seedFontJson as Record<string, ReturnType<typeof JSON.parse>>
         );
-        await Promise.race([connectedPromise, timeout]);
 
+        const seedAdapter = await connectAndWaitForSync(seedBridge);
+        seedAdapter.disconnect();
+
+        await this._openAssetInternal(assetId);
         return assetId;
     }
 
@@ -835,10 +1188,16 @@ export class CloudPlugin extends FilesystemPlugin {
     }
 
     get connectionStatus(): CloudConnectionStatus {
+        if (window.windowRole?.isLinkedWindow()) {
+            return this._relayedConnectionStatus;
+        }
         return this._cloudAdapter?.status ?? 'disconnected';
     }
 
     get activeAssetId(): string | null {
+        if (window.windowRole?.isLinkedWindow()) {
+            return this._relayedAssetId;
+        }
         return this._activeAssetId;
     }
 
@@ -851,6 +1210,11 @@ export class CloudPlugin extends FilesystemPlugin {
         }
         this._cloudAdapter = null;
         this._activeAssetId = null;
+        if (window.windowRole?.isLinkedWindow()) {
+            this._relayedAssetId = null;
+            this._relayedConnectionStatus = 'disconnected';
+            this._relayedConnectionDetail = undefined;
+        }
     }
 
     private async _ensureCloudUser(options?: {

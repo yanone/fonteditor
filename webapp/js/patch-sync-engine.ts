@@ -57,11 +57,12 @@ import { windowRole } from './window-role';
 const console = new Logger('PatchSyncEngine');
 
 type Unsafe = ReturnType<typeof JSON.parse>;
+type YjsUpdate = Uint8Array<ArrayBufferLike>;
 
 export type { ChangeLogEntry } from './change-log';
 
 export type LocalUpdateListener = (
-    update: Uint8Array,
+    update: YjsUpdate,
     collaborationMessage?: CollaborationMessageEnvelope | null
 ) => void;
 
@@ -312,6 +313,8 @@ export class PatchSyncEngine {
     private _txHistoryItemId: string | null = null;
     /** Optional explicit history target for the current transaction */
     private _txHistoryTarget: TransactionHistoryTarget | null = null;
+    /** Serialized Yjs state captured at the start of the outermost transaction. */
+    private _txStartFullState: YjsUpdate | null = null;
     /** Buffered operations for the current outermost transaction */
     private _txBufferedOperations: TransactionBufferedOperation[] = [];
     /** Flag: currently applying remote update (suppress outbound broadcast) */
@@ -347,6 +350,10 @@ export class PatchSyncEngine {
     >();
     /** Optional callback that can append derived operations before commit */
     private _transactionFinalizer: TransactionFinalizer | null = null;
+    /** Suppress raw yDoc.on('update') broadcasting while emitting canonical diffs manually. */
+    private _suppressAutomaticLocalUpdateEmission = false;
+    /** Last full serialized Yjs state that local forward diffs were derived from. */
+    private _lastBroadcastFullState: YjsUpdate = new Uint8Array(0);
 
     /**
      * Fast deep equality that is deterministic about object key order
@@ -536,7 +543,7 @@ export class PatchSyncEngine {
 
     constructor(windowId?: string) {
         this.windowId = windowId ?? windowRole.instanceId;
-        this.yDoc = new Y.Doc();
+        this.yDoc = new Y.Doc({ gc: false });
         this.fontMap = this.yDoc.getMap('font');
 
         // Listen for Y.Doc updates.
@@ -555,18 +562,33 @@ export class PatchSyncEngine {
             if (origin.startsWith(LAYER_EDIT_ORIGIN_PREFIX)) return true;
             return false;
         };
-        this.yDoc.on('update', (update: Uint8Array, origin: unknown) => {
-            if (isLocalEditOrigin(origin) && !this._isApplyingRemote) {
-                this._emitLocalUpdate(
-                    update,
-                    this._getNewChangeLogEntriesForLocalUpdate()
-                );
+        this.yDoc.on('update', (update: YjsUpdate, origin: unknown) => {
+            if (
+                isLocalEditOrigin(origin) &&
+                !this._isApplyingRemote &&
+                !this._suppressAutomaticLocalUpdateEmission
+            ) {
+                this._emitRawLocalUpdate(update);
             }
         });
     }
 
+    private _emitRawLocalUpdate(update: YjsUpdate): void {
+        if (!update.length) {
+            this._lastLocalUpdateLogIndex = this._changeLog.length;
+            this._lastBroadcastFullState = this.encodeBridgeState();
+            return;
+        }
+
+        this._emitLocalUpdate(
+            update,
+            this._getNewChangeLogEntriesForLocalUpdate()
+        );
+        this._lastBroadcastFullState = this.encodeBridgeState();
+    }
+
     private _emitLocalUpdate(
-        update: Uint8Array,
+        update: YjsUpdate,
         changeLogEntries: ChangeLogEntry[]
     ): void {
         const collaborationMessage =
@@ -595,6 +617,39 @@ export class PatchSyncEngine {
         }
     }
 
+    private _emitCanonicalLocalUpdateSince(previousFullState: YjsUpdate): void {
+        const currentFullState = this.encodeBridgeState();
+        const previousDoc = new Y.Doc({ gc: false });
+        const currentDoc = new Y.Doc({ gc: false });
+
+        if (previousFullState.length > 0) {
+            Y.applyUpdate(previousDoc, previousFullState);
+        }
+        if (currentFullState.length > 0) {
+            Y.applyUpdate(currentDoc, currentFullState);
+        }
+
+        const incrementalUpdate = Y.encodeStateAsUpdate(
+            currentDoc,
+            Y.encodeStateVector(previousDoc)
+        );
+        this._lastBroadcastFullState = currentFullState;
+
+        if (incrementalUpdate.length === 0) {
+            this._lastLocalUpdateLogIndex = this._changeLog.length;
+            return;
+        }
+
+        this._emitLocalUpdate(
+            incrementalUpdate,
+            this._getNewChangeLogEntriesForLocalUpdate()
+        );
+    }
+
+    private _emitCanonicalLocalUpdateFromBaseline(): void {
+        this._emitCanonicalLocalUpdateSince(this._lastBroadcastFullState);
+    }
+
     getFontJsonSnapshot(): Record<string, Unsafe> | null {
         return this._fontJson;
     }
@@ -617,6 +672,7 @@ export class PatchSyncEngine {
         }, USER_EDIT_ORIGIN);
         this._isSyncing = false;
         this._setupFontUndoManager();
+        this._lastBroadcastFullState = this.encodeBridgeState();
     }
 
     /**
@@ -690,6 +746,7 @@ export class PatchSyncEngine {
         this._changeLogListeners.clear();
         this._collaborationLogListeners.clear();
         this._transactionFinalizer = null;
+        this._lastBroadcastFullState = new Uint8Array(0);
     }
 
     onChangeLogUpdate(cb: (entries: ChangeLogEntry[]) => void): () => void {
@@ -808,6 +865,7 @@ export class PatchSyncEngine {
             this._txId = this._nextTxId++;
             this._txHistoryItemId = this._createHistoryItemId();
             this._txHistoryTarget = historyTarget ?? null;
+            this._txStartFullState = this.encodeBridgeState();
         }
     }
 
@@ -833,6 +891,7 @@ export class PatchSyncEngine {
             this._txId = null;
             this._txHistoryItemId = null;
             this._txHistoryTarget = null;
+            this._txStartFullState = null;
         }
         return commitResult;
     }
@@ -1369,16 +1428,6 @@ export class PatchSyncEngine {
             const isHistoryReplay =
                 !!targetItem && (scope === 'font' || shouldReplayHistoryItem);
 
-            // For history replay, _applyHistoryItem transacts with
-            // HISTORY_REPLAY_ORIGIN which the constructor's Y.Doc
-            // 'update' listener already broadcasts as an incremental
-            // update. For um.undo() (non-replay path), capture the
-            // pre-state vector so we can encode only the diff.
-            let preStateVector: Uint8Array | null = null;
-            if (!isHistoryReplay) {
-                preStateVector = Y.encodeStateVector(this.yDoc);
-            }
-
             if (isHistoryReplay) {
                 this._applyHistoryItem(targetItem, 'undo');
             } else {
@@ -1390,20 +1439,6 @@ export class PatchSyncEngine {
                     ? { glyphName: target.glyphName, layerId: target.layerId }
                     : null
             );
-
-            // Broadcast incremental update instead of encoding the
-            // full document state. The history-replay path is already
-            // handled by the constructor's Y.Doc 'update' listener.
-            if (preStateVector && scope !== 'font') {
-                const incrementalUpdate = Y.encodeStateAsUpdate(
-                    this.yDoc,
-                    preStateVector
-                );
-                this._emitLocalUpdate(
-                    incrementalUpdate,
-                    this._getNewChangeLogEntriesForLocalUpdate()
-                );
-            }
 
             this._onAfterSync?.();
             this._onDirty?.();
@@ -1489,16 +1524,6 @@ export class PatchSyncEngine {
             const isHistoryReplay =
                 !!targetItem && (scope === 'font' || shouldReplayHistoryItem);
 
-            // For history replay, _applyHistoryItem transacts with
-            // HISTORY_REPLAY_ORIGIN which the constructor's Y.Doc
-            // 'update' listener already broadcasts as an incremental
-            // update. For um.redo() (non-replay path), capture the
-            // pre-state vector so we can encode only the diff.
-            let preStateVector: Uint8Array | null = null;
-            if (!isHistoryReplay) {
-                preStateVector = Y.encodeStateVector(this.yDoc);
-            }
-
             if (isHistoryReplay) {
                 this._applyHistoryItem(targetItem, 'redo');
             } else {
@@ -1510,20 +1535,6 @@ export class PatchSyncEngine {
                     ? { glyphName: target.glyphName, layerId: target.layerId }
                     : null
             );
-
-            // Broadcast incremental update instead of encoding the
-            // full document state. The history-replay path is already
-            // handled by the constructor's Y.Doc 'update' listener.
-            if (preStateVector && scope !== 'font') {
-                const incrementalUpdate = Y.encodeStateAsUpdate(
-                    this.yDoc,
-                    preStateVector
-                );
-                this._emitLocalUpdate(
-                    incrementalUpdate,
-                    this._getNewChangeLogEntriesForLocalUpdate()
-                );
-            }
 
             this._onAfterSync?.();
             this._onDirty?.();
@@ -1625,9 +1636,6 @@ export class PatchSyncEngine {
                           }
                       )
                   );
-            const remoteLayerScopes = this._getRemoteLayerSyncScopes(
-                effectiveRemoteEntries
-            );
             if (effectiveRemoteEntries?.length) {
                 const glyphNames = new Set(
                     effectiveRemoteEntries
@@ -1654,7 +1662,11 @@ export class PatchSyncEngine {
                 update,
                 this._getRemoteUpdateOrigin(effectiveRemoteEntries)
             );
-            this._syncJsonFromYDoc(remoteLayerScopes);
+            // Remote receivers favor correctness over the layer-scoped fast
+            // path. Reconstruct the full font snapshot from the authoritative
+            // Y.Doc so linked windows and cloud peers do not retain malformed
+            // partial layer state after incremental updates.
+            this._syncJsonFromYDoc();
             this._applyExplicitLayerPropertyRemovalsToFontJson(
                 effectiveRemoteEntries
             );
@@ -1683,6 +1695,7 @@ export class PatchSyncEngine {
                 );
             }
             this._onRemoteChange?.(effectiveRemoteEntries ?? []);
+            this._lastBroadcastFullState = this.encodeBridgeState();
         } finally {
             this._isApplyingRemote = false;
         }
@@ -1740,7 +1753,7 @@ export class PatchSyncEngine {
     /**
      * Export the full Y.Doc state for bootstrapping a new window.
      */
-    getFullState(): Uint8Array {
+    getFullState(): YjsUpdate {
         return Y.encodeStateAsUpdate(this.yDoc);
     }
 
@@ -1749,7 +1762,7 @@ export class PatchSyncEngine {
      * The receiving window should NOT call initFromJson() before this —
      * independently initialised Y.Docs have conflicting CRDT state.
      */
-    applyFullState(state: Uint8Array): void {
+    applyFullState(state: YjsUpdate): void {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
@@ -1760,18 +1773,19 @@ export class PatchSyncEngine {
             this._setupFontUndoManager();
             this._onAfterSync?.();
             this._onRemoteChange?.([]);
+            this._lastBroadcastFullState = this.encodeBridgeState();
         } finally {
             this._isApplyingRemote = false;
         }
     }
 
     /** Encode the full Y.Doc state as a Yjs update binary. */
-    encodeBridgeState(): Uint8Array {
+    encodeBridgeState(): YjsUpdate {
         return Y.encodeStateAsUpdate(this.yDoc);
     }
 
     /** Encode the Y.Doc state vector (compact — one entry per known client). */
-    encodeBridgeStateVector(): Uint8Array {
+    encodeBridgeStateVector(): YjsUpdate {
         return Y.encodeStateVector(this.yDoc);
     }
 
@@ -1779,7 +1793,7 @@ export class PatchSyncEngine {
      * Encode the minimal update diff that a peer (described by peerStateVector)
      * is missing. Returns an empty update if we have nothing new to share.
      */
-    encodeStateDiff(peerStateVector: Uint8Array): Uint8Array {
+    encodeStateDiff(peerStateVector: YjsUpdate): YjsUpdate {
         return Y.encodeStateAsUpdate(this.yDoc, peerStateVector);
     }
 
@@ -1790,9 +1804,10 @@ export class PatchSyncEngine {
      * incremental updates from remote peers can be applied (their left-sibling
      * references will be resolvable).
      */
-    applyYDocUpdateSilent(update: Uint8Array): void {
+    applyYDocUpdateSilent(update: YjsUpdate): void {
         if (!update || update.length === 0) return;
         Y.applyUpdate(this.yDoc, update);
+        this._lastBroadcastFullState = this.encodeBridgeState();
     }
 
     // ── Change log ───────────────────────────────────────────────
@@ -2025,6 +2040,7 @@ export class PatchSyncEngine {
                 delete (this._fontJson as Unsafe)[key];
             }
         }
+        this._canonicalizeFullStateRawFontJson();
 
         this._emitLayerFingerprintChangedEvents(
             previousFingerprintSnapshot,
@@ -2366,11 +2382,23 @@ export class PatchSyncEngine {
 
         this._appendChangeLogEntries(changeLogEntries);
 
+        const localUpdateLogIndexBeforeCommit = this._lastLocalUpdateLogIndex;
+        const localUpdateFallbackBaseline =
+            this._txStartFullState ?? this._lastBroadcastFullState;
+
         this.yDoc.transact(() => {
             for (const operation of effectiveOperations) {
                 this._applyBufferedOperation(operation);
             }
         }, scopeInfo.origin);
+
+        if (
+            this._lastLocalUpdateLogIndex === localUpdateLogIndexBeforeCommit &&
+            !this._isApplyingRemote &&
+            !this._suppressAutomaticLocalUpdateEmission
+        ) {
+            this._emitCanonicalLocalUpdateSince(localUpdateFallbackBaseline);
+        }
 
         this._finishBatchUndoManagers(scopeInfo);
         this._onDirty?.();
@@ -3074,6 +3102,14 @@ export class PatchSyncEngine {
         targetArray: Y.Array<unknown>,
         nextValues: unknown[]
     ): void {
+        const currentValues = targetArray.toArray();
+        if (currentValues.length === nextValues.length) {
+            for (let index = 0; index < nextValues.length; index++) {
+                this._replaceYArrayEntry(targetArray, index, nextValues[index]);
+            }
+            return;
+        }
+
         if (targetArray.length > 0) {
             targetArray.delete(0, targetArray.length);
         }
@@ -3083,6 +3119,50 @@ export class PatchSyncEngine {
                 nextValues.map((value) => toYType(value))
             );
         }
+    }
+
+    private _replaceYArrayEntry(
+        targetArray: Y.Array<unknown>,
+        index: number,
+        nextValue: unknown
+    ): void {
+        const currentValue = targetArray.get(index);
+        const currentJsonValue =
+            currentValue instanceof Y.Map || currentValue instanceof Y.Array
+                ? fromYType(currentValue)
+                : currentValue;
+
+        if (this._isDeepEqual(currentJsonValue, nextValue)) {
+            return;
+        }
+
+        if (Array.isArray(nextValue)) {
+            if (currentValue instanceof Y.Array) {
+                this._replaceYArrayContents(currentValue, nextValue);
+            } else {
+                targetArray.delete(index, 1);
+                targetArray.insert(index, [toYType(nextValue)]);
+            }
+            return;
+        }
+
+        if (
+            nextValue &&
+            typeof nextValue === 'object' &&
+            !Array.isArray(nextValue)
+        ) {
+            const nextRecord = nextValue as Record<string, unknown>;
+            if (currentValue instanceof Y.Map) {
+                this._replaceYMapContents(currentValue, nextRecord);
+            } else {
+                targetArray.delete(index, 1);
+                targetArray.insert(index, [toYType(nextRecord)]);
+            }
+            return;
+        }
+
+        targetArray.delete(index, 1);
+        targetArray.insert(index, [nextValue]);
     }
 
     /**
