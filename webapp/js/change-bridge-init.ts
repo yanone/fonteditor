@@ -1409,27 +1409,28 @@ async function requestRemoteEditingFontCompile(
 
     fm.lastChangeSource = changeSource;
     fm.lastEditType = editType ?? null;
-    const targetRevision = fm.currentFont.compileRequestVersion + 1;
-    const canForceTrigger =
-        typeof window.autoCompileManager?.forceTrigger === 'function';
-    const waitPromise = canForceTrigger
-        ? waitForEditingFontCompileRevision(targetRevision)
-        : null;
 
     fm.currentFont.requestRecompileWithoutDataChange();
     window.autoCompileManager?.checkAndSchedule?.();
 
-    if (!waitPromise || !canForceTrigger) {
-        return;
+    // Fire-and-forget: do NOT await compile completion.
+    //
+    // Awaiting here serialises every remote update behind compile latency
+    // (100–500 ms each) inside the enqueueRemoteChangeRefresh serial queue.
+    // If five rapid edits land from a peer, each would be blocked until the
+    // previous compile finished — creating a multi-second pipeline stall.
+    //
+    // Instead we trigger the compile and return immediately. The autoCompile
+    // manager's own scheduling logic (checkAndSchedule / forceTrigger) will
+    // run the compile as soon as the thread is free, coalescing any queued
+    // compiles automatically.
+    if (typeof window.autoCompileManager?.forceTrigger === 'function') {
+        try {
+            window.autoCompileManager.forceTrigger();
+        } catch {
+            // Compile errors are reported through the normal error path.
+        }
     }
-
-    try {
-        await window.autoCompileManager.forceTrigger();
-    } catch {
-        // Fall through to the revision wait; the compile loop may still complete.
-    }
-
-    await waitPromise;
 }
 
 /**

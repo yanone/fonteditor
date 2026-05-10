@@ -312,8 +312,8 @@ export class PatchSyncEngine {
     private _txHistoryItemId: string | null = null;
     /** Optional explicit history target for the current transaction */
     private _txHistoryTarget: TransactionHistoryTarget | null = null;
-    /** Serialized Yjs state captured at the start of the outermost transaction. */
-    private _txStartFullState: YjsUpdate | null = null;
+    /** Compact state-vector captured at the start of the outermost transaction. */
+    private _txStartStateVector: Uint8Array | null = null;
     /** Buffered operations for the current outermost transaction */
     private _txBufferedOperations: TransactionBufferedOperation[] = [];
     /** Flag: currently applying remote update (suppress outbound broadcast) */
@@ -351,8 +351,13 @@ export class PatchSyncEngine {
     private _transactionFinalizer: TransactionFinalizer | null = null;
     /** Suppress raw yDoc.on('update') broadcasting while emitting canonical diffs manually. */
     private _suppressAutomaticLocalUpdateEmission = false;
-    /** Last full serialized Yjs state that local forward diffs were derived from. */
-    private _lastBroadcastFullState: YjsUpdate = new Uint8Array(0);
+    /**
+     * Compact Yjs state-vector (one clock entry per client, typically < 100 bytes)
+     * captured after each local or remote Y.Doc mutation. Used to compute the
+     * minimal incremental diff for outbound broadcasts without serialising the
+     * entire font document.
+     */
+    private _lastBroadcastStateVector: Uint8Array = new Uint8Array(0);
 
     /**
      * Fast deep equality that is deterministic about object key order
@@ -575,7 +580,7 @@ export class PatchSyncEngine {
     private _emitRawLocalUpdate(update: YjsUpdate): void {
         if (!update.length) {
             this._lastLocalUpdateLogIndex = this._changeLog.length;
-            this._lastBroadcastFullState = this.encodeBridgeState();
+            this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
             return;
         }
 
@@ -583,7 +588,7 @@ export class PatchSyncEngine {
             update,
             this._getNewChangeLogEntriesForLocalUpdate()
         );
-        this._lastBroadcastFullState = this.encodeBridgeState();
+        this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
     }
 
     private _emitLocalUpdate(
@@ -616,23 +621,17 @@ export class PatchSyncEngine {
         }
     }
 
-    private _emitCanonicalLocalUpdateSince(previousFullState: YjsUpdate): void {
-        const currentFullState = this.encodeBridgeState();
-        const previousDoc = new Y.Doc({ gc: false });
-        const currentDoc = new Y.Doc({ gc: false });
-
-        if (previousFullState.length > 0) {
-            Y.applyUpdate(previousDoc, previousFullState);
-        }
-        if (currentFullState.length > 0) {
-            Y.applyUpdate(currentDoc, currentFullState);
-        }
-
+    private _emitCanonicalLocalUpdateSince(
+        previousStateVector: Uint8Array
+    ): void {
+        // Compute only the operations added since previousStateVector — no need
+        // to allocate two temporary Y.Doc instances; the live yDoc IS the current
+        // state, so we just diff against the stored state vector.
         const incrementalUpdate = Y.encodeStateAsUpdate(
-            currentDoc,
-            Y.encodeStateVector(previousDoc)
+            this.yDoc,
+            previousStateVector
         );
-        this._lastBroadcastFullState = currentFullState;
+        this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
 
         if (incrementalUpdate.length === 0) {
             this._lastLocalUpdateLogIndex = this._changeLog.length;
@@ -646,7 +645,7 @@ export class PatchSyncEngine {
     }
 
     private _emitCanonicalLocalUpdateFromBaseline(): void {
-        this._emitCanonicalLocalUpdateSince(this._lastBroadcastFullState);
+        this._emitCanonicalLocalUpdateSince(this._lastBroadcastStateVector);
     }
 
     getFontJsonSnapshot(): Record<string, Unsafe> | null {
@@ -671,7 +670,7 @@ export class PatchSyncEngine {
         }, USER_EDIT_ORIGIN);
         this._isSyncing = false;
         this._setupFontUndoManager();
-        this._lastBroadcastFullState = this.encodeBridgeState();
+        this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
     }
 
     /**
@@ -745,7 +744,7 @@ export class PatchSyncEngine {
         this._changeLogListeners.clear();
         this._collaborationLogListeners.clear();
         this._transactionFinalizer = null;
-        this._lastBroadcastFullState = new Uint8Array(0);
+        this._lastBroadcastStateVector = new Uint8Array(0);
     }
 
     onChangeLogUpdate(cb: (entries: ChangeLogEntry[]) => void): () => void {
@@ -864,7 +863,10 @@ export class PatchSyncEngine {
             this._txId = this._nextTxId++;
             this._txHistoryItemId = this._createHistoryItemId();
             this._txHistoryTarget = historyTarget ?? null;
-            this._txStartFullState = this.encodeBridgeState();
+            // Capture a compact state-vector (< 100 bytes) rather than the
+            // full font serialization so the fallback canonical-diff path in
+            // _emitCanonicalLocalUpdateSince stays cheap.
+            this._txStartStateVector = Y.encodeStateVector(this.yDoc);
         }
     }
 
@@ -890,7 +892,7 @@ export class PatchSyncEngine {
             this._txId = null;
             this._txHistoryItemId = null;
             this._txHistoryTarget = null;
-            this._txStartFullState = null;
+            this._txStartStateVector = null;
         }
         return commitResult;
     }
@@ -1689,7 +1691,7 @@ export class PatchSyncEngine {
                 );
             }
             this._onRemoteChange?.(effectiveRemoteEntries ?? []);
-            this._lastBroadcastFullState = this.encodeBridgeState();
+            this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
         } finally {
             this._isApplyingRemote = false;
         }
@@ -1767,7 +1769,7 @@ export class PatchSyncEngine {
             this._setupFontUndoManager();
             this._onAfterSync?.();
             this._onRemoteChange?.([]);
-            this._lastBroadcastFullState = this.encodeBridgeState();
+            this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
         } finally {
             this._isApplyingRemote = false;
         }
@@ -1801,7 +1803,7 @@ export class PatchSyncEngine {
     applyYDocUpdateSilent(update: YjsUpdate): void {
         if (!update || update.length === 0) return;
         Y.applyUpdate(this.yDoc, update);
-        this._lastBroadcastFullState = this.encodeBridgeState();
+        this._lastBroadcastStateVector = Y.encodeStateVector(this.yDoc);
     }
 
     // ── Change log ───────────────────────────────────────────────
@@ -2378,7 +2380,7 @@ export class PatchSyncEngine {
 
         const localUpdateLogIndexBeforeCommit = this._lastLocalUpdateLogIndex;
         const localUpdateFallbackBaseline =
-            this._txStartFullState ?? this._lastBroadcastFullState;
+            this._txStartStateVector ?? this._lastBroadcastStateVector;
 
         this.yDoc.transact(() => {
             for (const operation of effectiveOperations) {
