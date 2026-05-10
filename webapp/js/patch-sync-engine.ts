@@ -48,7 +48,6 @@ import {
     collaborationMessageKey,
     createChangeLogEntriesFromCollaborationMessageEnvelope,
     createCollaborationMessageEnvelopeFromChangeLogEntries,
-    deriveForwardChangesFromSnapshots,
     type CollaborationMessageEnvelope,
     type DerivedForwardChange
 } from './collaboration-message';
@@ -1625,7 +1624,6 @@ export class PatchSyncEngine {
         this._isApplyingRemote = true;
         try {
             if (!this._fontJson) this._fontJson = {};
-            const beforeFontJson = cloneHistoryValue(this._fontJson);
             const effectiveRemoteEntries = remoteEntries?.length
                 ? remoteEntries
                 : remoteCollaborationMessages?.flatMap((message) =>
@@ -1636,6 +1634,9 @@ export class PatchSyncEngine {
                           }
                       )
                   );
+            const remoteLayerScopes = this._getRemoteLayerSyncScopes(
+                effectiveRemoteEntries
+            );
             if (effectiveRemoteEntries?.length) {
                 const glyphNames = new Set(
                     effectiveRemoteEntries
@@ -1662,11 +1663,7 @@ export class PatchSyncEngine {
                 update,
                 this._getRemoteUpdateOrigin(effectiveRemoteEntries)
             );
-            // Remote receivers favor correctness over the layer-scoped fast
-            // path. Reconstruct the full font snapshot from the authoritative
-            // Y.Doc so linked windows and cloud peers do not retain malformed
-            // partial layer state after incremental updates.
-            this._syncJsonFromYDoc();
+            this._syncJsonFromYDoc(remoteLayerScopes);
             this._applyExplicitLayerPropertyRemovalsToFontJson(
                 effectiveRemoteEntries
             );
@@ -1678,17 +1675,14 @@ export class PatchSyncEngine {
                 this._lastLocalUpdateLogIndex = this._changeLog.length;
             }
             if (remoteCollaborationMessages?.length) {
-                const afterFontJson = cloneHistoryValue(this._fontJson);
                 this._appendCollaborationLogItems(
                     remoteCollaborationMessages.map((message) =>
                         this._createCollaborationLogItem(
                             message,
                             update,
                             'remote',
-                            deriveForwardChangesFromSnapshots(
-                                message,
-                                beforeFontJson,
-                                afterFontJson
+                            this._deriveForwardChangesFromCollaborationMessage(
+                                message
                             )
                         )
                     )
@@ -4057,9 +4051,29 @@ export class PatchSyncEngine {
         return entries.map((entry) => ({
             path: entry.path,
             op: entry.op,
-            oldValue: cloneHistoryValue(entry.oldValue),
-            newValue: cloneHistoryValue(entry.newValue),
+            oldValue: cloneHistoryValue(
+                entry.replayOldValue === undefined
+                    ? entry.oldValue
+                    : entry.replayOldValue
+            ),
+            newValue: cloneHistoryValue(
+                entry.replayNewValue === undefined
+                    ? entry.newValue
+                    : entry.replayNewValue
+            ),
             objectType: deriveObjectInfoFromPath(entry.path).objectType
+        }));
+    }
+
+    private _deriveForwardChangesFromCollaborationMessage(
+        message: CollaborationMessageEnvelope
+    ): DerivedForwardChange[] {
+        return message.changes.map((change) => ({
+            path: change.path,
+            op: change.op,
+            oldValue: cloneHistoryValue(change.replayOldValue),
+            newValue: cloneHistoryValue(change.replayNewValue),
+            objectType: deriveObjectInfoFromPath(change.path).objectType
         }));
     }
 
@@ -4106,14 +4120,39 @@ export class PatchSyncEngine {
             return;
         }
 
-        const itemsById = new Map<string, CollaborationLogItem>();
-        for (const item of [...this._collaborationLog, ...items]) {
-            itemsById.set(item.id, item);
+        const existingIds = new Set(
+            this._collaborationLog.map((item) => item.id)
+        );
+        let didAddItem = false;
+        let lastTimestamp =
+            this._collaborationLog.length > 0
+                ? this._collaborationLog[this._collaborationLog.length - 1]
+                      .timestamp
+                : Number.NEGATIVE_INFINITY;
+        let requiresSort = false;
+
+        for (const item of items) {
+            if (existingIds.has(item.id)) {
+                continue;
+            }
+            if (item.timestamp < lastTimestamp) {
+                requiresSort = true;
+            }
+            this._collaborationLog.push(item);
+            existingIds.add(item.id);
+            lastTimestamp = item.timestamp;
+            didAddItem = true;
         }
 
-        this._collaborationLog = [...itemsById.values()].sort(
-            (left, right) => left.timestamp - right.timestamp
-        );
+        if (!didAddItem) {
+            return;
+        }
+
+        if (requiresSort) {
+            this._collaborationLog.sort(
+                (left, right) => left.timestamp - right.timestamp
+            );
+        }
         this._notifyCollaborationLogListeners();
     }
 

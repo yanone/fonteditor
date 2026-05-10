@@ -5545,6 +5545,92 @@ describe('syncGlyphFromJson', () => {
         window.patchSyncEngine = undefined;
     });
 
+    test('linked window remote layer sync keeps scoped Y.Doc patching', () => {
+        const senderFontJson = makeMinimalFont();
+        const receiverFontJson = cloneValue(senderFontJson);
+        const senderBridge = new ChangeBridge('sender-scoped-remote-sync');
+        const receiverBridge = new ChangeBridge('receiver-scoped-remote-sync');
+        let lastUpdate = null;
+        let lastCollaborationMessage = null;
+
+        senderBridge.initFromJson(senderFontJson);
+        receiverBridge.setFontJson(receiverFontJson);
+        receiverBridge.applyFullState(senderBridge.getFullState());
+        senderBridge.onLocalUpdate((update, collaborationMessage) => {
+            lastUpdate = update;
+            lastCollaborationMessage = collaborationMessage;
+        });
+
+        const syncSpy = jest.spyOn(receiverBridge, '_syncJsonFromYDoc');
+
+        senderFontJson.glyphs[0].layers[0].width = 723;
+        senderBridge.syncGlyphFromJson(
+            'A',
+            'Drag point',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+
+        receiverBridge.applyRemoteUpdate(
+            lastUpdate,
+            undefined,
+            lastCollaborationMessage ? [lastCollaborationMessage] : []
+        );
+
+        expect(syncSpy).toHaveBeenLastCalledWith([
+            { glyphName: 'A', layerId: 'layer-1' }
+        ]);
+
+        syncSpy.mockRestore();
+        senderBridge.destroy();
+        receiverBridge.destroy();
+    });
+
+    test('collaboration log forward changes use replay values for layer snapshots', () => {
+        const fontJson = makeMinimalFont();
+        const bridge = new ChangeBridge('local-collaboration-log');
+
+        bridge.initFromJson(fontJson);
+
+        fontJson.glyphs[0].layers[0].width = 712;
+        fontJson.glyphs[0].layers[0].anchors[0].x = 345;
+
+        bridge.syncGlyphFromJson(
+            'A',
+            'Drag point',
+            undefined,
+            undefined,
+            'layer-1'
+        );
+
+        const logItem = bridge.getCollaborationLog().at(-1);
+
+        expect(logItem).toBeTruthy();
+        expect(logItem.derivedForwardChanges).toEqual([
+            expect.objectContaining({
+                path: expect.stringContaining('glyphs.A'),
+                objectType: 'layer',
+                op: 'set',
+                oldValue: expect.objectContaining({
+                    width: 600,
+                    anchors: expect.arrayContaining([
+                        expect.objectContaining({ x: 300 })
+                    ])
+                }),
+                newValue: expect.objectContaining({
+                    id: 'layer-1',
+                    width: 712,
+                    anchors: expect.arrayContaining([
+                        expect.objectContaining({ x: 345 })
+                    ])
+                })
+            })
+        ]);
+
+        bridge.destroy();
+    });
+
     test('linked window preserves full layer data when remote glyph sync sends a partial layer fragment', () => {
         const font1 = makeMinimalFont();
         const bridge1 = new ChangeBridge('primary');
