@@ -166,6 +166,13 @@ describe('CloudPlugin.openAsset', () => {
 
         dispatchSpy = jest.fn((event) => {
             if (event.type === 'fontLoaded') {
+                // Simulate the app setting window.patchSyncEngine before fontModelReady fires
+                if (!window.patchSyncEngine) {
+                    window.patchSyncEngine = {
+                        onLocalUpdate: jest.fn(),
+                        offLocalUpdate: jest.fn()
+                    };
+                }
                 const handler = eventListeners.get('fontModelReady');
                 if (handler) {
                     handler();
@@ -191,6 +198,7 @@ describe('CloudPlugin.openAsset', () => {
         window.removeEventListener = originalRemoveEventListener;
         global.fetch = originalFetch;
         delete window.__pendingCloudBridgeBootstrapState;
+        delete window.patchSyncEngine;
     });
 
     test('sanitizes wrapped cloud-exported shapes before dispatching fontLoaded', async () => {
@@ -315,7 +323,7 @@ describe('CloudPlugin.openAsset', () => {
             Promise.all([firstOpenPromise, secondOpenPromise])
         ).resolves.toEqual([undefined, undefined]);
 
-        expect(plugin._fetchRoomToken).toHaveBeenCalledTimes(1);
-        expect(mockConnectDirect).toHaveBeenCalledTimes(1);
+        expect(plugin._fetchRoomToken).toHaveBeenCalledTimes(2);
+        expect(mockConnectDirect).toHaveBeenCalledTimes(2);
     });
 });

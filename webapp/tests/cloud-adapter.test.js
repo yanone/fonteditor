@@ -90,7 +90,10 @@ describe('CloudAdapter outbound updates', () => {
         adapter._openWebSocket = openWebSocket;
 
         try {
-            await adapter.connect({});
+            await adapter.connect({
+                onLocalUpdate: jest.fn(),
+                offLocalUpdate: jest.fn()
+            });
 
             expect(openWebSocket).toHaveBeenCalledWith(
                 'room-token',

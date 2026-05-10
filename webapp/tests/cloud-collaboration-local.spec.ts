@@ -966,7 +966,7 @@ async function movePrimaryNode(
                     ?.find?.((entry: any) => entry?.name === 'A')
                     ?.layers?.find?.((entry: any) => entry?.id === 'L0')
                     ?.shapes?.[0]?.nodes ?? null;
-            const yDocNodesAfterSync =
+            const yDocNodesRaw =
                 bridge.fontMap
                     ?.get?.('glyphs')
                     ?.get?.('A')
@@ -975,6 +975,11 @@ async function movePrimaryNode(
                     ?.get?.('shapes')
                     ?.get?.(0)
                     ?.get?.('nodes') ?? null;
+            const yDocNodesAfterSync =
+                yDocNodesRaw != null &&
+                typeof (yDocNodesRaw as any).toJSON === 'function'
+                    ? (yDocNodesRaw as any).toJSON()
+                    : yDocNodesRaw;
             const storedFirstPair =
                 typeof storedNodesAfterSave === 'string'
                     ? storedNodesAfterSave.trim().split(/\s+/).slice(0, 2)
