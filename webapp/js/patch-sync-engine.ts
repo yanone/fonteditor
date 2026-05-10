@@ -45,6 +45,7 @@ import {
 import { Logger } from './logger';
 import {
     createChangeLogEntriesFromMutationBatchEnvelope,
+    createSyntheticChangeOperationsFromPatchPairs,
     createMutationBatchEnvelopeFromChangeLogEntries,
     type MutationBatchEnvelope
 } from './mutation-batch';
@@ -1601,15 +1602,8 @@ export class PatchSyncEngine {
                 update,
                 this._getRemoteUpdateOrigin(effectiveRemoteEntries)
             );
+            this._applyRemoteForwardPatches(remoteMutationBatches);
             this._syncJsonFromYDoc(remoteLayerScopes);
-            // Re-apply layer deltas from mutation batch envelopes to fix
-            // Yjs update corruption. Yjs updates that replace Y.Map keys
-            // with new Y.Map/Y.Array values (via map.set + toYType) can
-            // destroy those keys on remote windows. We recover by re-applying
-            // the delta data directly on the receiver's Y.Doc.
-            this._reapplyLayerDeltasFromChangeLogEntries(
-                effectiveRemoteEntries
-            );
             this._applyExplicitLayerPropertyRemovalsToFontJson(
                 effectiveRemoteEntries
             );
@@ -1629,63 +1623,83 @@ export class PatchSyncEngine {
         }
     }
 
-    private _reapplyLayerDeltasFromChangeLogEntries(
-        remoteEntries?: ChangeLogEntry[]
+    private _applyRemoteForwardPatches(
+        remoteMutationBatches?: MutationBatchEnvelope[]
     ): void {
-        if (!remoteEntries?.length) {
+        if (!remoteMutationBatches?.length) {
+            return;
+        }
+
+        const operations = remoteMutationBatches.flatMap((batch) =>
+            batch.metadata.historyAction === 'change'
+                ? createSyntheticChangeOperationsFromPatchPairs(
+                      batch.patches,
+                      batch.metadata.workerReplayTargets
+                  )
+                : []
+        );
+
+        if (!operations.length) {
             return;
         }
 
         this.yDoc.transact(() => {
-            for (const entry of remoteEntries) {
-                if (
-                    entry.op !== 'set' ||
-                    !entry.replayNewValue ||
-                    typeof entry.replayNewValue !== 'object' ||
-                    Array.isArray(entry.replayNewValue)
-                ) {
+            for (const operation of operations) {
+                const applyPath = this._toYDocPath(operation.path);
+                const currentValue = getYPath(this.fontMap, applyPath);
+                const currentJsonValue =
+                    currentValue instanceof Y.Map ||
+                    currentValue instanceof Y.Array
+                        ? fromYType(currentValue)
+                        : currentValue;
+
+                if (operation.op === 'remove') {
+                    if (currentValue === undefined) {
+                        continue;
+                    }
+                    deleteYPath(this.fontMap, applyPath);
                     continue;
                 }
 
-                const path = this._parseEntryPath(entry.path);
-                if (
-                    path.length !== 4 ||
-                    path[0] !== 'glyphs' ||
-                    path[2] !== 'layers'
-                ) {
+                if (this._isDeepEqual(currentJsonValue, operation.newValue)) {
                     continue;
                 }
 
-                const glyphName = String(path[1]);
-                const layerId = String(path[3]);
-                this._applyLayerDelta(
-                    glyphName,
-                    layerId,
-                    entry.replayNewValue as Record<string, unknown>
-                );
+                if (
+                    operation.op === 'set' &&
+                    this._isGlyphRootPath(applyPath) &&
+                    operation.newValue &&
+                    typeof operation.newValue === 'object'
+                ) {
+                    this._applyGlyphSnapshot(
+                        String(applyPath[1]),
+                        operation.newValue
+                    );
+                    continue;
+                }
+
+                if (
+                    operation.op === 'set' &&
+                    applyPath.length === 4 &&
+                    applyPath[0] === 'glyphs' &&
+                    applyPath[2] === 'layers' &&
+                    typeof applyPath[1] === 'string' &&
+                    typeof applyPath[3] === 'string' &&
+                    operation.newValue &&
+                    typeof operation.newValue === 'object' &&
+                    !Array.isArray(operation.newValue)
+                ) {
+                    this._applyLayerDelta(
+                        applyPath[1],
+                        applyPath[3],
+                        operation.newValue
+                    );
+                    continue;
+                }
+
+                setYPath(this.fontMap, applyPath, operation.newValue);
             }
         }, SYSTEM_REMOTE_ORIGIN);
-
-        // Re-sync font JSON from the corrected Y.Doc
-        this._syncJsonFromYDoc(
-            normalizeWorkerReplayTargets(
-                remoteEntries
-                    .filter(
-                        (entry) =>
-                            entry.op === 'set' &&
-                            entry.replayNewValue &&
-                            typeof entry.replayNewValue === 'object'
-                    )
-                    .map((entry) => {
-                        const path = this._parseEntryPath(entry.path);
-                        return {
-                            glyphName: String(path[1]),
-                            layerId: String(path[3])
-                        };
-                    })
-                    .filter((target) => target.glyphName && target.layerId)
-            )
-        );
     }
 
     private _applyExplicitLayerPropertyRemovalsToFontJson(
@@ -3043,6 +3057,92 @@ export class PatchSyncEngine {
         return path.length === 2 && path[0] === 'glyphs' && !!path[1];
     }
 
+    /**
+     * Replace a Y.Array's contents without replacing the array object itself.
+     * This keeps the shared container identity stable across windows.
+     */
+    private _replaceYArrayContents(
+        targetArray: Y.Array<unknown>,
+        nextValues: unknown[]
+    ): void {
+        if (targetArray.length > 0) {
+            targetArray.delete(0, targetArray.length);
+        }
+        if (nextValues.length > 0) {
+            targetArray.insert(
+                0,
+                nextValues.map((value) => toYType(value))
+            );
+        }
+    }
+
+    /**
+     * Replace a Y.Map's entries in place, deleting keys absent from the
+     * incoming snapshot and recursively reusing nested shared containers.
+     */
+    private _replaceYMapContents(
+        targetMap: Y.Map<unknown>,
+        nextRecord: Record<string, unknown>
+    ): void {
+        const nextKeys = new Set(Object.keys(nextRecord));
+        targetMap.forEach((_value: unknown, key: string) => {
+            if (!nextKeys.has(key)) {
+                targetMap.delete(key);
+            }
+        });
+
+        for (const [key, value] of Object.entries(nextRecord)) {
+            this._replaceYMapEntry(targetMap, key, value);
+        }
+    }
+
+    /**
+     * Replace one Y.Map entry while preserving nested Y.Map/YArray objects
+     * when the incoming value has the same container shape.
+     */
+    private _replaceYMapEntry(
+        targetMap: Y.Map<unknown>,
+        key: string,
+        nextValue: unknown
+    ): void {
+        const currentValue = targetMap.get(key);
+        const currentJsonValue =
+            currentValue instanceof Y.Map || currentValue instanceof Y.Array
+                ? fromYType(currentValue)
+                : currentValue;
+
+        if (this._isDeepEqual(currentJsonValue, nextValue)) {
+            return;
+        }
+
+        if (Array.isArray(nextValue)) {
+            if (currentValue instanceof Y.Array) {
+                this._replaceYArrayContents(currentValue, nextValue);
+            } else {
+                targetMap.set(key, toYType(nextValue));
+            }
+            return;
+        }
+
+        if (
+            nextValue &&
+            typeof nextValue === 'object' &&
+            !Array.isArray(nextValue)
+        ) {
+            const nextRecord = nextValue as Record<string, unknown>;
+            if (currentValue instanceof Y.Map) {
+                this._replaceYMapContents(currentValue, nextRecord);
+            } else {
+                const nestedMap = new Y.Map<unknown>();
+                targetMap.set(key, nestedMap);
+                this._replaceYMapContents(nestedMap, nextRecord);
+            }
+            return;
+        }
+
+        targetMap.set(key, nextValue);
+    }
+
     private _applyGlyphSnapshot(
         glyphName: string,
         glyphSnapshot: unknown
@@ -3106,16 +3206,7 @@ export class PatchSyncEngine {
                         layerJson,
                         fromYType(layerMap)
                     ) as Record<string, unknown>;
-                    // Set all keys from the normalized snapshot.
-                    // Do NOT delete existing Y.Doc keys that are absent
-                    // from the snapshot — the normalization merge already
-                    // preserves them, and deleting keys propagates via Yjs
-                    // to remote windows, stripping their data.
-                    for (const [lk, lv] of Object.entries(
-                        normalizedLayerJson
-                    )) {
-                        layerMap.set(lk, toYType(lv));
-                    }
+                    this._replaceYMapContents(layerMap, normalizedLayerJson);
                 }
 
                 // Remove layers that are no longer in the snapshot
@@ -3127,7 +3218,7 @@ export class PatchSyncEngine {
                 continue;
             }
 
-            glyphMap.set(gk, toYType(gv));
+            this._replaceYMapEntry(glyphMap, gk, gv);
         }
 
         // Remove glyph-level keys no longer in the snapshot
@@ -3804,7 +3895,7 @@ export class PatchSyncEngine {
             if (value === null || value === undefined) {
                 layerMap.delete(key);
             } else {
-                layerMap.set(key, toYType(value));
+                this._replaceYMapEntry(layerMap, key, value);
             }
         }
     }

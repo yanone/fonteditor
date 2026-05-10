@@ -158,9 +158,9 @@ describe('mutation-batch scaffold', () => {
             expect.objectContaining({
                 windowId: 'sender-window',
                 windowRoleLabel: 'linked-2',
-                historyItemId: 'history-undo-1',
+                historyItemId: 'sender-window:history-undo-1',
                 historyAction: 'undo',
-                targetHistoryItemId: 'history-change-1',
+                targetHistoryItemId: 'sender-window:history-change-1',
                 transactionLabel: 'Undo',
                 transactionId: 44,
                 undoScope: 'glyph',
@@ -224,6 +224,63 @@ describe('mutation-batch scaffold', () => {
         expect(roundTripped[0]).toEqual(
             expect.objectContaining({
                 path: 'glyphs.A.alt:layers.layer.regular.v1:width'
+            })
+        );
+    });
+
+    test('set envelopes prefer replay payloads for authoritative forward and inverse patches', () => {
+        const entries = [
+            createLogEntry({
+                timestamp: 123,
+                windowId: 'sender-window',
+                windowRoleLabel: 'main',
+                historyItemId: 'history-layer-delta-1',
+                transactionLabel: 'Drag point',
+                transactionId: 77,
+                op: 'set',
+                undoScope: 'layer',
+                path: 'glyphs.o:layers.layer-1',
+                oldValue: 'o',
+                newValue: 'Drag point',
+                replayOldValue: {
+                    id: 'layer-1',
+                    shapes: [{ nodes: '100 100 l 400 100 l' }]
+                },
+                replayNewValue: {
+                    id: 'layer-1',
+                    shapes: [{ nodes: '110 100 l 400 100 l' }]
+                },
+                workerReplayTargets: [{ glyphName: 'o', layerId: 'layer-1' }]
+            })
+        ];
+
+        const envelope = createMutationBatchEnvelopeFromChangeLogEntries(
+            entries,
+            {
+                localSequence: 1,
+                source: 'unit-test',
+                windowId: 'sender-window'
+            }
+        );
+
+        expect(envelope.patches[0]).toEqual(
+            expect.objectContaining({
+                forward: expect.objectContaining({
+                    op: 'replace',
+                    path: 'glyphs.o:layers.layer-1',
+                    value: {
+                        id: 'layer-1',
+                        shapes: [{ nodes: '110 100 l 400 100 l' }]
+                    }
+                }),
+                inverse: expect.objectContaining({
+                    op: 'replace',
+                    path: 'glyphs.o:layers.layer-1',
+                    value: {
+                        id: 'layer-1',
+                        shapes: [{ nodes: '100 100 l 400 100 l' }]
+                    }
+                })
             })
         );
     });

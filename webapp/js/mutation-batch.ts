@@ -184,6 +184,15 @@ function getNamedPatchOpForSet(oldValue: unknown): 'add' | 'replace' {
 function createNamedPatchPairFromEntry(
     entry: ChangeLogEntry
 ): MutationPatchPair {
+    const forwardValue =
+        entry.replayNewValue === undefined
+            ? entry.newValue
+            : entry.replayNewValue;
+    const inverseValue =
+        entry.replayOldValue === undefined
+            ? entry.oldValue
+            : entry.replayOldValue;
+
     if (entry.op === 'add') {
         return {
             forward: {
@@ -226,14 +235,14 @@ function createNamedPatchPairFromEntry(
 
     return {
         forward: {
-            op: getNamedPatchOpForSet(entry.oldValue),
+            op: getNamedPatchOpForSet(inverseValue),
             path: entry.path,
-            value: entry.newValue
+            value: forwardValue
         },
         inverse: {
-            op: entry.oldValue === undefined ? 'remove' : 'replace',
+            op: inverseValue === undefined ? 'remove' : 'replace',
             path: entry.path,
-            value: entry.oldValue
+            value: inverseValue
         },
         replayOldValue: entry.replayOldValue,
         replayNewValue: entry.replayNewValue,
@@ -493,6 +502,14 @@ export function createChangeLogEntriesFromMutationBatchEnvelope(
         windowRoleLabel: string;
     }
 ): ChangeLogEntry[] {
+    const historyItemPrefix = envelope.windowId ?? 'remote';
+    const namespacedHistoryItemId = envelope.metadata.historyItemId
+        ? `${historyItemPrefix}:${envelope.metadata.historyItemId}`
+        : `mutation-${historyItemPrefix}-${envelope.transactionId}`;
+    const namespacedTargetHistoryItemId = envelope.metadata.targetHistoryItemId
+        ? `${historyItemPrefix}:${envelope.metadata.targetHistoryItemId}`
+        : null;
+
     return createSyntheticChangeOperationsFromPatchPairs(
         envelope.patches,
         envelope.metadata.workerReplayTargets
@@ -503,11 +520,9 @@ export function createChangeLogEntriesFromMutationBatchEnvelope(
             windowRoleLabel:
                 envelope.metadata.sourceWindowRoleLabel ??
                 options.windowRoleLabel,
-            historyItemId:
-                envelope.metadata.historyItemId ??
-                `mutation-${envelope.transactionId}`,
+            historyItemId: namespacedHistoryItemId,
             historyAction: envelope.metadata.historyAction ?? 'change',
-            targetHistoryItemId: envelope.metadata.targetHistoryItemId ?? null,
+            targetHistoryItemId: namespacedTargetHistoryItemId,
             transactionLabel: envelope.label,
             transactionId: Number.isFinite(Number(envelope.transactionId))
                 ? Number(envelope.transactionId)
