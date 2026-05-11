@@ -1645,6 +1645,7 @@ describe('Automatic component editing canonical behavior', () => {
         const refreshWorkerCacheForReplayTargetsSpy = jest
             .spyOn(fontManager, 'refreshWorkerCacheForReplayTargets')
             .mockResolvedValue(true);
+        const glyphChangedHandler = jest.fn();
         const forceFullWorkerCacheUpdateSpy = jest
             .spyOn(fontManager, 'forceFullWorkerCacheUpdate')
             .mockResolvedValue();
@@ -1653,6 +1654,7 @@ describe('Automatic component editing canonical behavior', () => {
             ...(autoCompileManager || {}),
             checkAndSchedule: jest.fn()
         };
+        window.addEventListener('glyphChanged', glyphChangedHandler);
 
         try {
             setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
@@ -1697,6 +1699,13 @@ describe('Automatic component editing canonical behavior', () => {
                 dispatchGlyphChanged: false,
                 skipFingerprintBaseline: true
             });
+            expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
+            expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
+                glyphName: 'A',
+                glyphNames: ['A', 'visibleComposite'],
+                layerId: 'A0',
+                forceImmediateRefresh: true
+            });
             expect(refreshWorkerCacheForReplayTargetsSpy).toHaveBeenCalledTimes(
                 1
             );
@@ -1717,6 +1726,7 @@ describe('Automatic component editing canonical behavior', () => {
             ).toHaveBeenCalledTimes(1);
             expect(forceFullWorkerCacheUpdateSpy).not.toHaveBeenCalled();
         } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
             window.autoCompileManager = autoCompileManager;
             refreshGlyphsAfterModelBatchSpy.mockRestore();
             refreshWorkerCacheForReplayTargetsSpy.mockRestore();
@@ -1792,11 +1802,13 @@ describe('Automatic component editing canonical behavior', () => {
         const refreshWorkerCacheForReplayTargetsSpy = jest
             .spyOn(fontManager, 'refreshWorkerCacheForReplayTargets')
             .mockResolvedValue(true);
+        const glyphChangedHandler = jest.fn();
         const autoCompileManager = window.autoCompileManager;
         window.autoCompileManager = {
             ...(autoCompileManager || {}),
             checkAndSchedule: jest.fn()
         };
+        window.addEventListener('glyphChanged', glyphChangedHandler);
 
         try {
             setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
@@ -1815,6 +1827,12 @@ describe('Automatic component editing canonical behavior', () => {
                 refreshWorkerCacheForReplayTargetsSpy.mock.calls[0][0]
             ).toEqual([{ glyphName: 'A', layerId: 'A0' }]);
             expect(refreshGlyphsAfterModelBatchSpy).not.toHaveBeenCalled();
+            expect(glyphChangedHandler).toHaveBeenCalledTimes(1);
+            expect(glyphChangedHandler.mock.calls[0][0].detail).toEqual({
+                glyphName: 'A',
+                layerId: 'A0',
+                forceImmediateRefresh: true
+            });
             expect(
                 currentFont.requestRecompileWithoutDataChange
             ).toHaveBeenCalledTimes(1);
@@ -1822,6 +1840,7 @@ describe('Automatic component editing canonical behavior', () => {
                 window.autoCompileManager.checkAndSchedule
             ).toHaveBeenCalledTimes(1);
         } finally {
+            window.removeEventListener('glyphChanged', glyphChangedHandler);
             window.autoCompileManager = autoCompileManager;
             refreshGlyphsAfterModelBatchSpy.mockRestore();
             refreshWorkerCacheForReplayTargetsSpy.mockRestore();

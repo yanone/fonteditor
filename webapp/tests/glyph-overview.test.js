@@ -130,6 +130,52 @@ describe('GlyphOverview glyphChanged refresh scheduling', () => {
         });
         expect(overview.renderTile).toHaveBeenCalledTimes(2);
     });
+
+    test('refreshes immediately when glyphChanged requests forceImmediateRefresh', async () => {
+        window.fontCompilation.sendMessage.mockClear();
+        overview.renderTile.mockClear();
+
+        window.dispatchEvent(
+            new CustomEvent('glyphChanged', {
+                detail: {
+                    glyphName: 'a',
+                    forceImmediateRefresh: true
+                }
+            })
+        );
+
+        jest.advanceTimersByTime(1);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(
+            window.fontCompilation.sendMessage.mock.calls.length
+        ).toBeGreaterThan(0);
+        expect(window.fontCompilation.sendMessage).toHaveBeenCalledWith({
+            type: 'getGlyphOutlines',
+            glyphNames: ['a'],
+            location: {},
+            flattenComponents: false
+        });
+        expect(overview.renderTile.mock.calls.length).toBeGreaterThan(0);
+
+        window.fontCompilation.sendMessage.mockClear();
+        overview.renderTile.mockClear();
+
+        window.dispatchEvent(
+            new CustomEvent('glyphChanged', {
+                detail: {
+                    glyphName: 'a'
+                }
+            })
+        );
+
+        jest.advanceTimersByTime(500);
+        await Promise.resolve();
+
+        expect(window.fontCompilation.sendMessage).not.toHaveBeenCalled();
+        expect(overview.renderTile).not.toHaveBeenCalled();
+    });
 });
 
 describe('GlyphOverview virtualized lines rendering', () => {

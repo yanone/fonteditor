@@ -4284,6 +4284,38 @@ export class OutlineEditor {
             return;
         }
 
+        const dispatchGlyphOverviewRefresh = (
+            forceImmediateRefresh: boolean = false
+        ): void => {
+            const glyphNames = Array.from(
+                new Set(
+                    [glyphName, ...downstreamGlyphNames].filter(
+                        (affectedGlyphName): affectedGlyphName is string =>
+                            typeof affectedGlyphName === 'string' &&
+                            affectedGlyphName.length > 0
+                    )
+                )
+            );
+            if (glyphNames.length === 0) {
+                return;
+            }
+
+            window.dispatchEvent(
+                new CustomEvent('glyphChanged', {
+                    detail: {
+                        glyphName: glyphNames[0],
+                        ...(glyphNames.length > 1 ? { glyphNames } : undefined),
+                        ...(currentLayerId
+                            ? { layerId: currentLayerId }
+                            : undefined),
+                        ...(forceImmediateRefresh
+                            ? { forceImmediateRefresh: true }
+                            : undefined)
+                    }
+                })
+            );
+        };
+
         const refreshSourceGlyphPromise =
             glyphName && currentLayerId
                 ? fontManager.refreshWorkerCacheForReplayTargets([
@@ -4310,6 +4342,8 @@ export class OutlineEditor {
                     }
                 );
             }
+
+            dispatchGlyphOverviewRefresh(true);
 
             currentFont.requestRecompileWithoutDataChange();
             window.autoCompileManager?.checkAndSchedule?.();

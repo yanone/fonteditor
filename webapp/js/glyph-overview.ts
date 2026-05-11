@@ -1484,6 +1484,7 @@ class GlyphOverview {
      */
     private async onGlyphChanged(event: Event): Promise<void> {
         const detail = (event as CustomEvent).detail;
+        const forceImmediateRefresh = detail?.forceImmediateRefresh === true;
         const glyphNames = Array.isArray(detail?.glyphNames)
             ? detail.glyphNames.filter(
                   (glyphName: unknown): glyphName is string =>
@@ -1497,6 +1498,7 @@ class GlyphOverview {
         }
 
         let queuedAnyGlyph = false;
+        const immediateGlyphNames = new Set<string>();
 
         for (const glyphName of glyphNames) {
             let targetTile: GlyphTile | undefined;
@@ -1512,11 +1514,21 @@ class GlyphOverview {
             }
 
             targetTile.cachedData = undefined;
-            this.pendingChangedGlyphNames.add(glyphName);
+            if (forceImmediateRefresh) {
+                immediateGlyphNames.add(glyphName);
+                this.pendingChangedGlyphNames.delete(glyphName);
+            } else {
+                this.pendingChangedGlyphNames.add(glyphName);
+            }
             queuedAnyGlyph = true;
         }
 
         if (!queuedAnyGlyph) {
+            return;
+        }
+
+        if (forceImmediateRefresh) {
+            void this.refreshChangedGlyphTiles(Array.from(immediateGlyphNames));
             return;
         }
 
@@ -1610,8 +1622,20 @@ class GlyphOverview {
             return;
         }
 
+        const glyphNames = Array.from(this.pendingChangedGlyphNames);
+        this.pendingChangedGlyphNames.clear();
+        await this.refreshChangedGlyphTiles(glyphNames);
+    }
+
+    private async refreshChangedGlyphTiles(
+        glyphNames: string[]
+    ): Promise<void> {
+        if (!glyphNames.length) {
+            return;
+        }
+
         const glyphNameToTile: Map<string, GlyphTile> = new Map();
-        for (const glyphName of this.pendingChangedGlyphNames) {
+        for (const glyphName of glyphNames) {
             for (const tile of this.tiles.values()) {
                 if (tile.glyphName === glyphName) {
                     glyphNameToTile.set(glyphName, tile);
@@ -1620,10 +1644,9 @@ class GlyphOverview {
             }
         }
 
-        const glyphNames = Array.from(glyphNameToTile.keys());
-        this.pendingChangedGlyphNames.clear();
+        const refreshGlyphNames = Array.from(glyphNameToTile.keys());
 
-        if (!glyphNames.length) {
+        if (!refreshGlyphNames.length) {
             return;
         }
 
@@ -1635,7 +1658,7 @@ class GlyphOverview {
 
             const response = await fontComp.sendMessage({
                 type: 'getGlyphOutlines',
-                glyphNames,
+                glyphNames: refreshGlyphNames,
                 location: this.currentLocation,
                 flattenComponents: false
             });
