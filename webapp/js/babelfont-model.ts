@@ -10067,7 +10067,7 @@ export class Font extends ModelBase {
 
             const candidateGlyphNames = new Set<string>([
                 nextGlyphName,
-                ...this.findGlyphsUsingComponent(nextGlyphName)
+                ...this.findDirectGlyphsUsingComponent(nextGlyphName)
             ]);
 
             for (const candidateGlyphName of candidateGlyphNames) {
@@ -10114,7 +10114,7 @@ export class Font extends ModelBase {
                 }
 
                 rebuiltGlyphNames.add(candidateGlyphName);
-                for (const dependentGlyphName of this.findGlyphsUsingComponent(
+                for (const dependentGlyphName of this.findDirectGlyphsUsingComponent(
                     candidateGlyphName
                 )) {
                     if (
@@ -10798,6 +10798,99 @@ export class Font extends ModelBase {
         return this._glyphNamesByLengthDesc;
     }
 
+    findDirectGlyphsUsingComponent(componentGlyphName: string): string[] {
+        const index = this._ensureReverseComponentIndex();
+        const set = index.get(componentGlyphName);
+        return set ? Array.from(set) : [];
+    }
+
+    collectComponentDependentGlyphs(
+        componentGlyphNames: Iterable<string>,
+        options?: {
+            includeSourceGlyphNames?: boolean;
+            retainGlyphNames?: Set<string>;
+        }
+    ): Set<string> {
+        const sourceGlyphNames = Array.from(componentGlyphNames).filter(
+            (glyphName): glyphName is string =>
+                typeof glyphName === 'string' && glyphName.length > 0
+        );
+        const dependentGlyphNames = new Set<string>();
+
+        if (options?.includeSourceGlyphNames) {
+            for (const glyphName of sourceGlyphNames) {
+                dependentGlyphNames.add(glyphName);
+            }
+        }
+
+        if (sourceGlyphNames.length === 0) {
+            return dependentGlyphNames;
+        }
+
+        const retainGlyphNames = options?.retainGlyphNames;
+        if (retainGlyphNames && retainGlyphNames.size > 0) {
+            const retainMemo = new Map<string, boolean>();
+            const visitingGlyphNames = new Set<string>();
+
+            const reachesRetainedGlyph = (glyphName: string): boolean => {
+                if (retainMemo.has(glyphName)) {
+                    return retainMemo.get(glyphName)!;
+                }
+                if (visitingGlyphNames.has(glyphName)) {
+                    return false;
+                }
+
+                visitingGlyphNames.add(glyphName);
+
+                let shouldRetain = retainGlyphNames.has(glyphName);
+                for (const dependentGlyphName of this.findDirectGlyphsUsingComponent(
+                    glyphName
+                )) {
+                    if (reachesRetainedGlyph(dependentGlyphName)) {
+                        dependentGlyphNames.add(dependentGlyphName);
+                        shouldRetain = true;
+                    }
+                }
+
+                visitingGlyphNames.delete(glyphName);
+                retainMemo.set(glyphName, shouldRetain);
+                return shouldRetain;
+            };
+
+            for (const glyphName of sourceGlyphNames) {
+                for (const dependentGlyphName of this.findDirectGlyphsUsingComponent(
+                    glyphName
+                )) {
+                    if (reachesRetainedGlyph(dependentGlyphName)) {
+                        dependentGlyphNames.add(dependentGlyphName);
+                    }
+                }
+            }
+
+            return dependentGlyphNames;
+        }
+
+        const queue = [...sourceGlyphNames];
+        const visitedGlyphNames = new Set<string>(sourceGlyphNames);
+
+        while (queue.length > 0) {
+            const glyphName = queue.shift() as string;
+            for (const dependentGlyphName of this.findDirectGlyphsUsingComponent(
+                glyphName
+            )) {
+                if (visitedGlyphNames.has(dependentGlyphName)) {
+                    continue;
+                }
+
+                visitedGlyphNames.add(dependentGlyphName);
+                dependentGlyphNames.add(dependentGlyphName);
+                queue.push(dependentGlyphName);
+            }
+        }
+
+        return dependentGlyphNames;
+    }
+
     /**
      * Invalidate automatic composition layout caches for all layers
      * of the specified glyphs. Call before recomputing compositions
@@ -10825,9 +10918,9 @@ export class Font extends ModelBase {
      * # Returns ["ö", "õ", "ø", ...] if they use "o" as a component
      */
     findGlyphsUsingComponent(componentGlyphName: string): string[] {
-        const index = this._ensureReverseComponentIndex();
-        const set = index.get(componentGlyphName);
-        return set ? Array.from(set) : [];
+        return Array.from(
+            this.collectComponentDependentGlyphs([componentGlyphName])
+        );
     }
 
     /**

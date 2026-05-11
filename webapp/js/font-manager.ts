@@ -1359,7 +1359,7 @@ class FontManager {
     getAutomaticCompositionDragScopeGlyphNames(
         sourceGlyphName: string,
         fontModel:
-            | Pick<Font, 'findGlyphsUsingComponent'>
+            | Pick<Font, 'collectComponentDependentGlyphs'>
             | null
             | undefined = this.currentFont?.fontModel
     ): Set<string> {
@@ -1370,50 +1370,10 @@ class FontManager {
 
         const visibleGlyphNames = new Set(this.getLiveVisibleGlyphNames());
         visibleGlyphNames.add(sourceGlyphName);
-        scopedGlyphNames.add(sourceGlyphName);
-
-        const visibilityMemo = new Map<string, boolean>();
-        const visitingGlyphNames = new Set<string>();
-
-        const reachesVisibleGlyph = (glyphName: string): boolean => {
-            if (visibilityMemo.has(glyphName)) {
-                return visibilityMemo.get(glyphName)!;
-            }
-            if (visitingGlyphNames.has(glyphName)) {
-                return false;
-            }
-
-            visitingGlyphNames.add(glyphName);
-
-            let hasVisibleDependent = false;
-            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
-                glyphName
-            )) {
-                if (
-                    typeof dependentGlyphName !== 'string' ||
-                    !dependentGlyphName.length
-                ) {
-                    continue;
-                }
-
-                const dependentIsVisible =
-                    visibleGlyphNames.has(dependentGlyphName);
-                const dependentReachesVisible =
-                    reachesVisibleGlyph(dependentGlyphName);
-
-                if (dependentIsVisible || dependentReachesVisible) {
-                    scopedGlyphNames.add(dependentGlyphName);
-                    hasVisibleDependent = true;
-                }
-            }
-
-            visitingGlyphNames.delete(glyphName);
-            visibilityMemo.set(glyphName, hasVisibleDependent);
-            return hasVisibleDependent;
-        };
-
-        reachesVisibleGlyph(sourceGlyphName);
-        return scopedGlyphNames;
+        return fontModel.collectComponentDependentGlyphs([sourceGlyphName], {
+            includeSourceGlyphNames: true,
+            retainGlyphNames: visibleGlyphNames
+        });
     }
 
     private syncSerializedLayerIntoObjectModel(
@@ -3907,8 +3867,8 @@ class FontManager {
                     // Find all glyphs that use the current glyph as a component
                     // This handles nested components like "o" inside "ö", "õ", "ø", etc.
                     const glyphsUsingComponent =
-                        window.currentFontModel?.findGlyphsUsingComponent(
-                            currentGlyphName
+                        window.currentFontModel?.collectComponentDependentGlyphs(
+                            [currentGlyphName]
                         );
                     if (glyphsUsingComponent) {
                         for (const glyphName of glyphsUsingComponent) {

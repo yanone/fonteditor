@@ -4245,31 +4245,20 @@ export class OutlineEditor {
             wrappedRebuild();
         }
 
-        if (typeof fontModel.findGlyphsUsingComponent === 'function') {
-            const dependencyQueue = Array.from(affectedGlyphNames);
-            while (dependencyQueue.length > 0) {
-                const changedGlyphName = dependencyQueue.shift();
-                if (!changedGlyphName) {
-                    continue;
-                }
+        if (typeof fontModel.collectComponentDependentGlyphs === 'function') {
+            const transitiveAffectedGlyphNames = allowedGlyphNames
+                ? fontModel.collectComponentDependentGlyphs(
+                      affectedGlyphNames,
+                      {
+                          retainGlyphNames: allowedGlyphNames
+                      }
+                  )
+                : fontModel.collectComponentDependentGlyphs(
+                      affectedGlyphNames
+                  );
 
-                for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
-                    changedGlyphName
-                )) {
-                    if (
-                        allowedGlyphNames &&
-                        !allowedGlyphNames.has(dependentGlyphName)
-                    ) {
-                        continue;
-                    }
-
-                    if (affectedGlyphNames.has(dependentGlyphName)) {
-                        continue;
-                    }
-
-                    affectedGlyphNames.add(dependentGlyphName);
-                    dependencyQueue.push(dependentGlyphName);
-                }
+            for (const affectedGlyphName of transitiveAffectedGlyphNames) {
+                affectedGlyphNames.add(affectedGlyphName);
             }
         }
 

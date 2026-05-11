@@ -1165,19 +1165,11 @@ export function collectCascadeRecomposeTargets(
         allGlyphNames.add(target.glyphName);
     }
 
-    // BFS: find glyphs that use source glyphs as components
-    if (typeof fontModel.findGlyphsUsingComponent === 'function') {
-        const queue = [...allGlyphNames];
-        while (queue.length) {
-            const glyphName = queue.shift()!;
-            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
-                glyphName
-            )) {
-                if (!allGlyphNames.has(dependentGlyphName)) {
-                    allGlyphNames.add(dependentGlyphName);
-                    queue.push(dependentGlyphName);
-                }
-            }
+    if (typeof fontModel.collectComponentDependentGlyphs === 'function') {
+        for (const dependentGlyphName of fontModel.collectComponentDependentGlyphs(
+            allGlyphNames
+        )) {
+            allGlyphNames.add(dependentGlyphName);
         }
     }
 
@@ -1236,13 +1228,11 @@ function collectUndoRedoOverviewGlyphNames(
 
     const fontModel =
         window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
-    if (fontModel?.findGlyphsUsingComponent) {
-        for (const glyphName of [...refreshGlyphNames]) {
-            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
-                glyphName
-            )) {
-                addGlyphName(dependentGlyphName);
-            }
+    if (fontModel?.collectComponentDependentGlyphs) {
+        for (const dependentGlyphName of fontModel.collectComponentDependentGlyphs(
+            refreshGlyphNames
+        )) {
+            addGlyphName(dependentGlyphName);
         }
     }
 
@@ -1552,13 +1542,11 @@ export async function handleRemoteChangeRefresh(
     // the source glyph's outline, anchors, or sidebearings are modified.
     const fontModel =
         window.fontManager?.currentFont?.fontModel ?? window.currentFontModel;
-    if (fontModel?.findGlyphsUsingComponent) {
-        for (const glyphName of [...changedGlyphNames]) {
-            for (const dependentGlyphName of fontModel.findGlyphsUsingComponent(
-                glyphName
-            )) {
-                changedGlyphNames.add(dependentGlyphName);
-            }
+    if (fontModel?.collectComponentDependentGlyphs) {
+        for (const dependentGlyphName of fontModel.collectComponentDependentGlyphs(
+            changedGlyphNames
+        )) {
+            changedGlyphNames.add(dependentGlyphName);
         }
     }
 

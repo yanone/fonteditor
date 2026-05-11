@@ -389,6 +389,211 @@ function makeVisibleAnchorCascadeFont() {
     });
 }
 
+function makeRecursiveDependencyFont() {
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [makeMaster()],
+        glyphs: [
+            {
+                name: 'source',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'SRC0',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(0, 0, 100, 100)],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'directDependent',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'DD0',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeComponent('source')],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'nestedDependent',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'ND0',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeComponent('directDependent')],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'unrelated',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'U0',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(0, 0, 80, 80)],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            }
+        ],
+        names: { family_name: { en: 'Recursive Dependency Canonical' } },
+        note: '',
+        date: '2026-05-11',
+        features: { classes: {}, prefixes: {}, features: [] },
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
+function makeNestedVisibleAnchorCascadeFont() {
+    return Font.fromData({
+        upm: 1000,
+        version: [1, 0],
+        axes: [],
+        instances: [],
+        masters: [makeMaster()],
+        glyphs: [
+            {
+                name: 'A',
+                category: 'Base',
+                exported: true,
+                layers: [
+                    {
+                        id: 'A0',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(0, 0, 500, 700)],
+                        anchors: [{ name: 'top', x: 250, y: 700 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'acutecomb',
+                category: 'Mark',
+                exported: true,
+                layers: [
+                    {
+                        id: 'AC0',
+                        width: 180,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeRectPath(0, 0, 80, 120)],
+                        anchors: [{ name: '_top', x: 40, y: 0 }],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'visibleComposite',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'VC0',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [
+                            makeComponent('A'),
+                            makeComponent('acutecomb')
+                        ],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            },
+            {
+                name: 'nestedVisibleComposite',
+                category: 'Letter',
+                exported: true,
+                layers: [
+                    {
+                        id: 'NVC0',
+                        width: 500,
+                        master: {
+                            type: 'DefaultForMaster',
+                            master: 'M0'
+                        },
+                        shapes: [makeComponent('visibleComposite')],
+                        anchors: [],
+                        guides: [],
+                        format_specific: {}
+                    }
+                ],
+                format_specific: {}
+            }
+        ],
+        names: { family_name: { en: 'Nested Visible Anchor Cascade' } },
+        note: '',
+        date: '2026-05-11',
+        features: { classes: {}, prefixes: {}, features: [] },
+        first_kern_groups: {},
+        second_kern_groups: {},
+        custom_ot_values: [],
+        variation_sequences: [],
+        format_specific: {}
+    });
+}
+
 function makeSingleOffsetAutomaticFont() {
     return Font.fromData({
         upm: 1000,
@@ -1598,6 +1803,43 @@ describe('Automatic component editing canonical behavior', () => {
             'A',
             'visibleComposite',
             'hiddenComposite'
+        ]);
+    });
+
+    test('findGlyphsUsingComponent returns the full recursive dependent closure', () => {
+        const font = makeRecursiveDependencyFont();
+
+        expect(font.findDirectGlyphsUsingComponent('source')).toEqual([
+            'directDependent'
+        ]);
+        expect(new Set(font.findGlyphsUsingComponent('source'))).toEqual(
+            new Set(['directDependent', 'nestedDependent'])
+        );
+    });
+
+    test('rebuild helper includes nested transitive dependents whose rendered outlines change', () => {
+        const dragFont = makeNestedVisibleAnchorCascadeFont();
+        const currentFont = {
+            fontModel: dragFont,
+            syncJsonFromModel: jest.fn(),
+            requestRecompileWithoutDataChange: jest.fn()
+        };
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue(currentFont);
+
+        setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
+        canvas.outlineEditor.layerData.shapes = [makeRectPath(0, 0, 520, 700)];
+
+        const affectedGlyphNames =
+            canvas.outlineEditor.rebuildAutomaticCompositesForCurrentEditedGlyph();
+
+        expect(Array.from(affectedGlyphNames)).toEqual([
+            'A',
+            'visibleComposite',
+            'nestedVisibleComposite'
         ]);
     });
 

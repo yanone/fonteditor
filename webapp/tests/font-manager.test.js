@@ -1247,8 +1247,61 @@ describe('FontManager editing subset inclusion', () => {
             fontManager.getAutomaticCompositionDragScopeGlyphNames(
                 'sourceGlyph',
                 {
-                    findGlyphsUsingComponent: jest.fn(
-                        (glyphName) => dependencyGraph[glyphName] || []
+                    collectComponentDependentGlyphs: jest.fn(
+                        (
+                            glyphNames,
+                            {
+                                includeSourceGlyphNames = false,
+                                retainGlyphNames
+                            } = {}
+                        ) => {
+                            const result = new Set();
+                            const sources = Array.from(glyphNames || []);
+
+                            if (includeSourceGlyphNames) {
+                                for (const glyphName of sources) {
+                                    result.add(glyphName);
+                                }
+                            }
+
+                            const memo = new Map();
+                            const visiting = new Set();
+                            const reachesRetainedGlyph = (glyphName) => {
+                                if (memo.has(glyphName)) {
+                                    return memo.get(glyphName);
+                                }
+                                if (visiting.has(glyphName)) {
+                                    return false;
+                                }
+
+                                visiting.add(glyphName);
+                                let shouldRetain =
+                                    retainGlyphNames?.has(glyphName) || false;
+                                for (const dependentGlyphName of dependencyGraph[
+                                    glyphName
+                                ] || []) {
+                                    if (reachesRetainedGlyph(dependentGlyphName)) {
+                                        result.add(dependentGlyphName);
+                                        shouldRetain = true;
+                                    }
+                                }
+                                visiting.delete(glyphName);
+                                memo.set(glyphName, shouldRetain);
+                                return shouldRetain;
+                            };
+
+                            for (const glyphName of sources) {
+                                for (const dependentGlyphName of dependencyGraph[
+                                    glyphName
+                                ] || []) {
+                                    if (reachesRetainedGlyph(dependentGlyphName)) {
+                                        result.add(dependentGlyphName);
+                                    }
+                                }
+                            }
+
+                            return result;
+                        }
                     )
                 }
             );
