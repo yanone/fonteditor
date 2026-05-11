@@ -1725,6 +1725,54 @@ describe('Automatic component editing canonical behavior', () => {
         }
     });
 
+    test('anchor drag reuses component source serialization across dependent composite rebuilds', () => {
+        const dragFont = makeVisibleAnchorCascadeFont();
+
+        currentFontSpy.mockRestore();
+        currentFontSpy = jest
+            .spyOn(fontManager, 'currentFont', 'get')
+            .mockReturnValue({ fontModel: dragFont });
+
+        setupCanvasForLayer(canvas, dragFont, 'A', 'A0');
+
+        const sourceLayer = dragFont.findGlyph('A').layers[0];
+        const layerPrototype = Object.getPrototypeOf(sourceLayer);
+        const originalToJSON = layerPrototype.toJSON;
+        const toJSONGlyphNames = [];
+        const layerToJSONSpy = jest
+            .spyOn(layerPrototype, 'toJSON')
+            .mockImplementation(function (...args) {
+                toJSONGlyphNames.push(this.parent()?.name || null);
+                return originalToJSON.apply(this, args);
+            });
+
+        try {
+            const topAnchor = canvas.outlineEditor.layerData.anchors.find(
+                (anchor) => anchor.name === 'top'
+            );
+            topAnchor.x = 320;
+
+            const affectedGlyphNames =
+                canvas.outlineEditor.rebuildAutomaticCompositesForCurrentEditedGlyph();
+
+            expect(Array.from(affectedGlyphNames)).toEqual([
+                'A',
+                'visibleComposite',
+                'hiddenComposite'
+            ]);
+            expect(
+                toJSONGlyphNames.filter((glyphName) => glyphName === 'A')
+            ).toHaveLength(1);
+            expect(
+                toJSONGlyphNames.filter(
+                    (glyphName) => glyphName === 'acutecomb'
+                )
+            ).toHaveLength(1);
+        } finally {
+            layerToJSONSpy.mockRestore();
+        }
+    });
+
     test('anchor drag still requests a live anchor-only recompile when no downstream composites are affected', async () => {
         const dragFont = makeVisibleAnchorCascadeFont();
         const currentFont = {

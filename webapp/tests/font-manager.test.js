@@ -1478,6 +1478,82 @@ describe('FontManager boundary-crossing budget', () => {
         });
     });
 
+    test('refreshWorkerCacheForReplayTargets preserves stored shapes for the active anchor layer', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
+        const serializeLayerForStorageSpy = jest.spyOn(
+            fontManager,
+            'serializeLayerForStorage'
+        );
+
+        window.glyphCanvas = {
+            ...(window.glyphCanvas || {}),
+            outlineEditor: {
+                ...(window.glyphCanvas?.outlineEditor || {}),
+                draggingSomething: true,
+                currentGlyphName: 'a',
+                selectedLayerId: layerId
+            }
+        };
+        fontManager.lastEditType = 'anchor';
+        fontManager.lastChangeSource = 'mouse-drag-anchor';
+
+        try {
+            await fontManager.refreshWorkerCacheForReplayTargets([
+                { glyphName: 'a', layerId }
+            ]);
+
+            expect(serializeLayerForStorageSpy).toHaveBeenCalledWith(
+                'a',
+                layerId,
+                expect.anything(),
+                { preserveExistingShapes: true }
+            );
+        } finally {
+            serializeLayerForStorageSpy.mockRestore();
+            fontManager.lastEditType = null;
+            fontManager.lastChangeSource = null;
+        }
+    });
+
+    test('refreshWorkerCacheForReplayTargets does not preserve shapes for non-active anchor targets', async () => {
+        const currentFont = fontManager.currentFont;
+        const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;
+        const serializeLayerForStorageSpy = jest.spyOn(
+            fontManager,
+            'serializeLayerForStorage'
+        );
+
+        window.glyphCanvas = {
+            ...(window.glyphCanvas || {}),
+            outlineEditor: {
+                ...(window.glyphCanvas?.outlineEditor || {}),
+                draggingSomething: false,
+                currentGlyphName: 'a',
+                selectedLayerId: 'different-layer'
+            }
+        };
+        fontManager.lastEditType = 'anchor';
+        fontManager.lastChangeSource = 'mouse-drag-anchor';
+
+        try {
+            await fontManager.refreshWorkerCacheForReplayTargets([
+                { glyphName: 'a', layerId }
+            ]);
+
+            expect(serializeLayerForStorageSpy).toHaveBeenCalledWith(
+                'a',
+                layerId,
+                expect.anything(),
+                undefined
+            );
+        } finally {
+            serializeLayerForStorageSpy.mockRestore();
+            fontManager.lastEditType = null;
+            fontManager.lastChangeSource = null;
+        }
+    });
+
     test('submitLayerToWorkerCache routes the singular receiver-fallback path through the batched API', async () => {
         const currentFont = fontManager.currentFont;
         const layerId = currentFont.fontModel.findGlyph('a').layers[0].id;

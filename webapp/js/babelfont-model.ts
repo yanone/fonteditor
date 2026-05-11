@@ -133,6 +133,20 @@ type AutomaticCompositionAnchorPoint = {
     y: number;
 };
 
+type AutomaticCompositionSourceAnchor = {
+    name: string;
+    x: number;
+    y: number;
+};
+
+type AutomaticCompositionSourceData = {
+    shapes: Unsafe[] | undefined;
+    width: number;
+    incomingAnchors: AutomaticCompositionSourceAnchor[];
+    outgoingAnchors: AutomaticCompositionSourceAnchor[];
+    chainedBaseEntryAnchor: AutomaticCompositionSourceAnchor | null;
+};
+
 type AutomaticCompositionPlacement = {
     translationX: number;
     translationY: number;
@@ -140,7 +154,7 @@ type AutomaticCompositionPlacement = {
 };
 
 type AutomaticCompositionAttachment = {
-    sourceAnchor: Anchor;
+    sourceAnchor: AutomaticCompositionSourceAnchor;
     targetAnchorName: string;
     targetAnchor: AutomaticCompositionAnchorPoint;
     kind: 'mark' | 'chained-base';
@@ -5404,6 +5418,10 @@ export class Layer extends ArrayElementBase {
         this._cachedLayout = undefined;
     }
 
+    getAutomaticCompositionSourceCacheKey(): object {
+        return this.data as object;
+    }
+
     /**
      * Bulk-sync mutable properties from the outline editor's working
      * copy into this layer's model data. Skips the expensive toJSON()
@@ -5977,12 +5995,10 @@ export class Layer extends ArrayElementBase {
 
     private resolveAutomaticComponentAttachment(
         component: Component,
-        componentLayer: Layer,
+        sourceData: AutomaticCompositionSourceData,
         availableAnchors: Map<string, AutomaticCompositionAnchorPoint>
     ): AutomaticCompositionAttachment | null {
-        const chainedBaseEntryAnchor = (componentLayer.anchors || []).find(
-            (anchor) => isChainedBaseEntryAnchor(anchor.name)
-        );
+        const chainedBaseEntryAnchor = sourceData.chainedBaseEntryAnchor;
         if (chainedBaseEntryAnchor) {
             const chainedBaseTargetAnchor = availableAnchors.get(
                 CHAINED_BASE_EXIT_ANCHOR
@@ -5997,11 +6013,7 @@ export class Layer extends ArrayElementBase {
             }
         }
 
-        const incomingAnchors = (componentLayer.anchors || []).filter(
-            (anchor) => isAutomaticAttachmentAnchor(anchor.name)
-        );
-
-        for (const incomingAnchor of incomingAnchors) {
+        for (const incomingAnchor of sourceData.incomingAnchors) {
             if (!incomingAnchor.name) {
                 continue;
             }
@@ -6035,12 +6047,62 @@ export class Layer extends ArrayElementBase {
         return null;
     }
 
-    private collectAutomaticComponentAnchors(
+    private getAutomaticCompositionSourceData(
         componentLayer: Layer,
+        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>
+    ): AutomaticCompositionSourceData {
+        const cacheKey = componentLayer.getAutomaticCompositionSourceCacheKey();
+        const cachedSourceData = sourceDataCache?.get(cacheKey);
+        if (cachedSourceData) {
+            return cachedSourceData;
+        }
+
+        const outgoingAnchors: AutomaticCompositionSourceAnchor[] = [];
+        const incomingAnchors: AutomaticCompositionSourceAnchor[] = [];
+        let chainedBaseEntryAnchor: AutomaticCompositionSourceAnchor | null =
+            null;
+
+        for (const anchor of componentLayer.anchors || []) {
+            if (!anchor.name) {
+                continue;
+            }
+
+            const anchorData = {
+                name: anchor.name,
+                x: anchor.x,
+                y: anchor.y
+            };
+
+            if (isChainedBaseEntryAnchor(anchor.name)) {
+                chainedBaseEntryAnchor = anchorData;
+            }
+
+            if (isAutomaticAttachmentAnchor(anchor.name)) {
+                incomingAnchors.push(anchorData);
+                continue;
+            }
+
+            outgoingAnchors.push(anchorData);
+        }
+
+        const sourceData: AutomaticCompositionSourceData = {
+            shapes: componentLayer.toJSON().shapes,
+            width: componentLayer.width,
+            incomingAnchors,
+            outgoingAnchors,
+            chainedBaseEntryAnchor
+        };
+
+        sourceDataCache?.set(cacheKey, sourceData);
+        return sourceData;
+    }
+
+    private collectAutomaticComponentAnchors(
+        sourceData: AutomaticCompositionSourceData,
         componentTransform: number[]
     ): AutomaticCompositionAnchorPoint[] {
         const anchorPoints: AutomaticCompositionAnchorPoint[] = [];
-        for (const anchor of componentLayer.anchors || []) {
+        for (const anchor of sourceData.outgoingAnchors) {
             if (!anchor.name || isAutomaticAttachmentAnchor(anchor.name)) {
                 continue;
             }
@@ -6085,7 +6147,9 @@ export class Layer extends ArrayElementBase {
         return true;
     }
 
-    private getAutomaticCompositionLayout(): AutomaticCompositionLayout | null {
+    private getAutomaticCompositionLayout(
+        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>
+    ): AutomaticCompositionLayout | null {
         if (this._cachedLayout !== undefined) {
             return this._cachedLayout;
         }
@@ -6123,6 +6187,11 @@ export class Layer extends ArrayElementBase {
                 continue;
             }
 
+            const sourceData = this.getAutomaticCompositionSourceData(
+                componentLayer,
+                sourceDataCache
+            );
+
             const originalTransform = Array.from(
                 DecomposedAffineTransform.toAffine(
                     getAutomaticComponentTransform(component)
@@ -6134,7 +6203,7 @@ export class Layer extends ArrayElementBase {
 
             const attachment = this.resolveAutomaticComponentAttachment(
                 component,
-                componentLayer,
+                sourceData,
                 availableAnchors
             );
 
@@ -6169,7 +6238,7 @@ export class Layer extends ArrayElementBase {
             appliedTransform[5] = translationY;
 
             if (contributesBaseMetrics) {
-                const componentShapes = componentLayer.toJSON().shapes;
+                const componentShapes = sourceData.shapes;
                 if (componentShapes) {
                     const componentBounds = Layer.calculateShapeBounds(
                         componentShapes,
@@ -6208,7 +6277,7 @@ export class Layer extends ArrayElementBase {
                 );
                 const advanceEnd = transformPointWithAffine(
                     appliedTransform,
-                    componentLayer.width,
+                    sourceData.width,
                     0
                 );
                 const advanceMin = Math.min(advanceStart.x, advanceEnd.x);
@@ -6231,7 +6300,7 @@ export class Layer extends ArrayElementBase {
             }
 
             for (const anchorPoint of this.collectAutomaticComponentAnchors(
-                componentLayer,
+                sourceData,
                 appliedTransform
             )) {
                 availableAnchors.set(anchorPoint.name, anchorPoint);
@@ -6320,8 +6389,11 @@ export class Layer extends ArrayElementBase {
             transform[4] = placement.translationX;
             transform[5] = placement.translationY;
 
+            const sourceData =
+                this.getAutomaticCompositionSourceData(componentLayer);
+
             for (const anchorPoint of this.collectAutomaticComponentAnchors(
-                componentLayer,
+                sourceData,
                 transform
             )) {
                 availableAnchors.set(anchorPoint.name, anchorPoint);
@@ -6355,8 +6427,10 @@ export class Layer extends ArrayElementBase {
         return [];
     }
 
-    rebuildAutomaticComposition(): boolean {
-        const layout = this.getAutomaticCompositionLayout();
+    rebuildAutomaticComposition(
+        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>
+    ): boolean {
+        const layout = this.getAutomaticCompositionLayout(sourceDataCache);
         if (!layout) {
             return false;
         }
@@ -6401,10 +6475,13 @@ export class Layer extends ArrayElementBase {
      * where component transforms are already edited on a working copy and only
      * the automatic translations and width need to be refreshed.
      */
-    applyAutomaticCompositionToLayerData(layerData: {
-        shapes?: Unsafe[];
-        width?: number;
-    }): boolean {
+    applyAutomaticCompositionToLayerData(
+        layerData: {
+            shapes?: Unsafe[];
+            width?: number;
+        },
+        sourceDataCache?: WeakMap<object, AutomaticCompositionSourceData>
+    ): boolean {
         if (
             !this.isAutomaticAlignedLayer() ||
             !Array.isArray(layerData.shapes)
@@ -6455,6 +6532,11 @@ export class Layer extends ArrayElementBase {
                 continue;
             }
 
+            const sourceData = this.getAutomaticCompositionSourceData(
+                componentLayer,
+                sourceDataCache
+            );
+
             const transformRaw = componentData.transform;
             const usesArrayTransform = Array.isArray(transformRaw);
             const originalTransform = !transformRaw
@@ -6478,9 +6560,7 @@ export class Layer extends ArrayElementBase {
                     : undefined;
 
             let attachment: AutomaticCompositionAttachment | null = null;
-            const chainedBaseEntryAnchor = (componentLayer.anchors || []).find(
-                (anchor) => isChainedBaseEntryAnchor(anchor.name)
-            );
+            const chainedBaseEntryAnchor = sourceData.chainedBaseEntryAnchor;
             if (chainedBaseEntryAnchor) {
                 const chainedBaseTargetAnchor = availableAnchors.get(
                     CHAINED_BASE_EXIT_ANCHOR
@@ -6496,10 +6576,7 @@ export class Layer extends ArrayElementBase {
             }
 
             if (!attachment) {
-                const incomingAnchors = (componentLayer.anchors || []).filter(
-                    (anchor) => isAutomaticAttachmentAnchor(anchor.name)
-                );
-                for (const incomingAnchor of incomingAnchors) {
+                for (const incomingAnchor of sourceData.incomingAnchors) {
                     if (!incomingAnchor.name) {
                         continue;
                     }
@@ -6571,7 +6648,7 @@ export class Layer extends ArrayElementBase {
                 : DecomposedAffineTransform.fromAffine(appliedTransform);
 
             if (contributesBaseMetrics) {
-                const componentShapesData = componentLayer.toJSON().shapes;
+                const componentShapesData = sourceData.shapes;
                 if (componentShapesData) {
                     const componentBounds = Layer.calculateShapeBounds(
                         componentShapesData,
@@ -6585,7 +6662,7 @@ export class Layer extends ArrayElementBase {
                         );
                         const advanceEnd = transformPointWithAffine(
                             appliedTransform,
-                            componentLayer.width,
+                            sourceData.width,
                             0
                         );
                         const advanceMin = Math.min(
@@ -6616,7 +6693,7 @@ export class Layer extends ArrayElementBase {
             }
 
             for (const anchorPoint of this.collectAutomaticComponentAnchors(
-                componentLayer,
+                sourceData,
                 appliedTransform
             )) {
                 availableAnchors.set(anchorPoint.name, anchorPoint);
@@ -10095,6 +10172,10 @@ export class Font extends ModelBase {
                       preferredLayerId
                   )
                 : null;
+        const sourceDataCache = new WeakMap<
+            object,
+            AutomaticCompositionSourceData
+        >();
 
         while (queue.size > 0) {
             const nextGlyphName = queue.values().next().value as string;
@@ -10130,6 +10211,7 @@ export class Font extends ModelBase {
                 }
 
                 let glyphChanged = false;
+                const changedLayers: Layer[] = [];
                 const layersToRebuild = preferredLayerId
                     ? [
                           candidateGlyphName === preferredSourceGlyphName
@@ -10142,14 +10224,23 @@ export class Font extends ModelBase {
                 for (const layer of layersToRebuild) {
                     if (layer.isAutomaticAlignedLayer()) {
                         layer.invalidateLayoutCache();
-                        if (layer.rebuildAutomaticComposition()) {
+                        if (
+                            layer.rebuildAutomaticComposition(sourceDataCache)
+                        ) {
                             glyphChanged = true;
+                            changedLayers.push(layer);
                         }
                     }
                 }
 
                 if (!glyphChanged) {
                     continue;
+                }
+
+                for (const layer of changedLayers) {
+                    sourceDataCache.delete(
+                        layer.getAutomaticCompositionSourceCacheKey()
+                    );
                 }
 
                 rebuiltGlyphNames.add(candidateGlyphName);

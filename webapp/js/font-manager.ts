@@ -3771,10 +3771,21 @@ class FontManager {
                     typeof modelLayer.toJSON === 'function'
                         ? modelLayer.toJSON()
                         : modelLayer;
+                const preserveExistingShapes =
+                    this.lastEditType === 'anchor' &&
+                    this.lastChangeSource === 'mouse-drag-anchor' &&
+                    !!window.glyphCanvas?.outlineEditor?.draggingSomething &&
+                    window.glyphCanvas?.outlineEditor?.currentGlyphName ===
+                        glyphName &&
+                    window.glyphCanvas?.outlineEditor?.selectedLayerId ===
+                        layerId;
                 const serializedLayer = this.serializeLayerForStorage(
                     glyphName,
                     layerId,
-                    rawLayerData
+                    rawLayerData,
+                    preserveExistingShapes
+                        ? { preserveExistingShapes: true }
+                        : undefined
                 );
                 if (!serializedLayer) {
                     return false;
