@@ -9,7 +9,11 @@ const {
     seedInterpolationRustCacheFromState,
     withSuppressedModelRecording
 } = require('../js/babelfont-model');
-const { jsonToYDoc, yDocToJson } = require('../js/change-bridge-ydoc');
+const {
+    deleteYPath,
+    jsonToYDoc,
+    yDocToJson
+} = require('../js/change-bridge-ydoc');
 const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
 
 function loadFontFile(filePath) {
@@ -1764,16 +1768,15 @@ describe('FontManager boundary-crossing budget', () => {
     });
 
     test('forwardWorkerYjsUpdate fails after applyYjsUpdate failure instead of repairing with a full resend', async () => {
+        const rawUpdate = fontManager.buildNormalizedWorkerYjsState();
         sendMessageSpy.mockRejectedValueOnce(
             new Error('RuntimeError: unreachable')
         );
 
         await expect(
-            fontManager.forwardWorkerYjsUpdate(
-                new Uint8Array([1, 2, 3]),
-                ['a'],
-                { invalidateLayoutClosure: false }
-            )
+            fontManager.forwardWorkerYjsUpdate(rawUpdate, ['a'], {
+                invalidateLayoutClosure: false
+            })
         ).resolves.toBe(false);
 
         expect(sendMessageSpy).toHaveBeenCalledTimes(1);
@@ -1784,6 +1787,103 @@ describe('FontManager boundary-crossing budget', () => {
                 invalidateLayoutClosure: false
             })
         );
+    });
+
+    test('forwardWorkerYjsUpdate reuses the authoritative raw Yjs delta when layer targets are supplied', async () => {
+        const rawUpdate = fontManager.buildNormalizedWorkerYjsState();
+        const buildWorkerYjsLayerUpdateSpy = jest.spyOn(
+            fontManager,
+            'buildWorkerYjsLayerUpdate'
+        );
+        const applyMirrorSpy = jest.spyOn(
+            fontManager,
+            'applyWorkerYjsUpdateToMirror'
+        );
+        const glyph = fontManager.currentFont.fontModel.findGlyph('a');
+        const layerId = glyph.layers[0].id;
+
+        expect(rawUpdate).toBeInstanceOf(Uint8Array);
+
+        await expect(
+            fontManager.forwardWorkerYjsUpdate(rawUpdate, ['a'], {
+                invalidateLayoutClosure: false,
+                layerTargets: [{ glyphName: 'a', layerId }]
+            })
+        ).resolves.toBe(true);
+
+        expect(buildWorkerYjsLayerUpdateSpy).not.toHaveBeenCalled();
+        expect(applyMirrorSpy).toHaveBeenCalledWith(rawUpdate);
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                update: rawUpdate,
+                changedGlyphs: ['a'],
+                invalidateLayoutClosure: false
+            })
+        );
+        expect(fontManager.getBoundaryCrossingStats()).toEqual({
+            submitBatchCalls: 1,
+            layersTransmitted: 1,
+            glyphsTransmitted: 1,
+            fullFontCrossings: 0
+        });
+
+        buildWorkerYjsLayerUpdateSpy.mockRestore();
+        applyMirrorSpy.mockRestore();
+    });
+
+    test('forwardWorkerYjsUpdate keeps the raw Yjs path alive for glyph removals', async () => {
+        const glyphName = 'a';
+        const removedGlyphEntry =
+            fontManager.currentFont.babelfontData.glyphs.find(
+                (entry) => entry.name === glyphName
+            );
+        const removedLayerIds = removedGlyphEntry.layers.map(
+            (layer) => layer.id
+        );
+        const doc = new Y.Doc();
+        const fontMap = doc.getMap('font');
+
+        doc.transact(() => {
+            jsonToYDoc(
+                cloneJson(fontManager.currentFont.babelfontData),
+                fontMap
+            );
+        });
+        const previousStateVector = Y.encodeStateVector(doc);
+        doc.transact(() => {
+            deleteYPath(fontMap, ['glyphs', glyphName]);
+        });
+        const rawUpdate = Y.encodeStateAsUpdate(doc, previousStateVector);
+
+        for (const layerId of removedLayerIds) {
+            fontManager.workerLayerFingerprintCache.set(
+                `${glyphName}::${layerId}`,
+                'stale-fingerprint'
+            );
+        }
+
+        fontManager.currentFont.fontModel.removeGlyph(glyphName);
+
+        await expect(
+            fontManager.forwardWorkerYjsUpdate(rawUpdate, [glyphName], {
+                invalidateLayoutClosure: false
+            })
+        ).resolves.toBe(true);
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'applyYjsUpdate',
+                update: rawUpdate,
+                changedGlyphs: [glyphName],
+                invalidateLayoutClosure: false
+            })
+        );
+        expect(
+            Array.from(fontManager.workerLayerFingerprintCache.keys()).some(
+                (key) => key.startsWith(`${glyphName}::`)
+            )
+        ).toBe(false);
     });
 
     test('updateWorkerFontCache waits for worker Yjs sync when no incremental layer target is available', async () => {

@@ -24,6 +24,7 @@ import {
     deriveGlyphNamesFromPaths,
     deriveGlyphName,
     deriveLayerId,
+    getPathSegments,
     normalizeWorkerReplayTargets,
     type ChangeLogEntry,
     type HistoryStackItem,
@@ -171,6 +172,30 @@ function collectCascadeTriggerSourceTargets(
             applyPath[0] === 'glyphs'
         ) {
             targets.push(...collectGlyphSnapshotCascadeTargets(operation));
+        }
+    }
+
+    return normalizeWorkerReplayTargets(targets);
+}
+
+function collectWorkerLayerTargetsFromChangeLogEntries(
+    changeLogEntries: ChangeLogEntry[]
+): WorkerReplayTarget[] {
+    const targets: WorkerReplayTarget[] = [];
+
+    for (const entry of changeLogEntries) {
+        if (Array.isArray(entry.workerReplayTargets)) {
+            targets.push(...entry.workerReplayTargets);
+        }
+
+        const entryPath =
+            typeof entry.path === 'string' && entry.path.length > 0
+                ? getPathSegments(entry.path)
+                : [];
+        const glyphName = deriveGlyphName(entryPath);
+        const layerId = deriveLayerId(entryPath);
+        if (glyphName && layerId) {
+            targets.push({ glyphName, layerId });
         }
     }
 
@@ -1937,6 +1962,8 @@ function initializeBridge(detail: {
         const changedGlyphs = deriveGlyphNamesFromPaths(
             changeLogEntries.map((e) => e.path).filter(Boolean)
         );
+        const layerTargets =
+            collectWorkerLayerTargetsFromChangeLogEntries(changeLogEntries);
 
         void applyInterpolationRustYjsUpdate(update, changedGlyphs);
 
@@ -1944,7 +1971,8 @@ function initializeBridge(detail: {
             update,
             changedGlyphs,
             {
-                invalidateLayoutClosure: !isDragging
+                invalidateLayoutClosure: !isDragging,
+                ...(layerTargets.length ? { layerTargets } : undefined)
             }
         );
 

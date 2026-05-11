@@ -447,6 +447,104 @@ describe('bridge Yjs worker callback', () => {
             }
         );
     });
+
+    test('forwards layer-scoped Yjs updates with derived layer targets', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const interpolationUpdateSpy = jest
+            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
+            .mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildNormalizedWorkerYjsState: jest.fn(
+                () => new Uint8Array([1, 2, 3])
+            ),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+
+        bridge._yjsWorkerCallback(new Uint8Array([7, 7]), [
+            {
+                path: 'glyphs.alef:layers.A.0:anchors.0.x',
+                workerReplayTargets: [
+                    { glyphName: 'beh', layerId: 'A.0' },
+                    { glyphName: 'alef', layerId: 'A.0' }
+                ]
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['alef']
+        );
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['alef'],
+            {
+                invalidateLayoutClosure: true,
+                layerTargets: [
+                    { glyphName: 'beh', layerId: 'A.0' },
+                    { glyphName: 'alef', layerId: 'A.0' }
+                ]
+            }
+        );
+    });
+
+    test('forwards glyph-removal Yjs updates without layer targets', async () => {
+        const forwardWorkerYjsUpdate = jest.fn().mockResolvedValue(true);
+        const interpolationUpdateSpy = jest
+            .spyOn(babelfontModel, 'applyInterpolationRustYjsUpdate')
+            .mockResolvedValue(true);
+        const workerSeedSpy = jest
+            .spyOn(fontCompilation, 'sendMessage')
+            .mockResolvedValue({ success: true });
+
+        fontCompilation.isInitialized = true;
+        window.windowRole = {
+            isLinkedWindow: () => false
+        };
+        window.fontManager = {
+            buildNormalizedWorkerYjsState: jest.fn(
+                () => new Uint8Array([1, 2, 3])
+            ),
+            replaceWorkerYjsMirrorFromState: jest.fn(),
+            forwardWorkerYjsUpdate
+        };
+
+        const bridge = initializeBridgeHarness();
+        workerSeedSpy.mockClear();
+
+        bridge._yjsWorkerCallback(new Uint8Array([5, 5]), [
+            {
+                path: 'glyphs.alef'
+            }
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(interpolationUpdateSpy).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['alef']
+        );
+        expect(forwardWorkerYjsUpdate).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            ['alef'],
+            {
+                invalidateLayoutClosure: true
+            }
+        );
+    });
 });
 
 describe('buildCascadingRecompositionOperations', () => {

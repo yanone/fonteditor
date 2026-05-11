@@ -301,7 +301,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly apply_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly clear_font_cache: () => void;
     readonly compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
@@ -319,6 +318,7 @@ export interface InitOutput {
     readonly seed_ydoc: (a: number, b: number) => [number, number];
     readonly store_font: (a: number, b: number) => [number, number];
     readonly version: () => [number, number];
+    readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features: (a: number, b: number) => [number, number, number, number];
     readonly get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];

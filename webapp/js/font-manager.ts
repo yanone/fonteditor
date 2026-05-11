@@ -37,7 +37,10 @@ import {
 } from './perf-timeline';
 import { beginLoadingCursor, endLoadingCursor } from './loading-cursor';
 import { ensureStartupStateReady } from './state-restore';
-import type { WorkerReplayTarget } from './change-log';
+import {
+    normalizeWorkerReplayTargets,
+    type WorkerReplayTarget
+} from './change-log';
 import {
     beginStartupInteractionLock,
     endStartupInteractionLock
@@ -3422,13 +3425,88 @@ class FontManager {
         return this.recoverWorkerCacheFromAuthoritativeState(reason);
     }
 
+    private collectLayerUpdatesForTargetsFromModel(
+        targets: Iterable<WorkerReplayTarget>
+    ): {
+        updates: LayerCacheUpdate[];
+        removedFingerprintKeys: string[];
+    } | null {
+        const currentFont = this.currentFont;
+        if (!currentFont) {
+            return null;
+        }
+
+        const updates: LayerCacheUpdate[] = [];
+        const removedFingerprintKeys: string[] = [];
+        const seenTargets = new Set<string>();
+
+        for (const target of targets) {
+            const glyphName = target?.glyphName;
+            const layerId = target?.layerId;
+            if (!glyphName || !layerId) {
+                continue;
+            }
+
+            const fingerprintKey = this.getWorkerLayerFingerprintKey(
+                glyphName,
+                layerId
+            );
+            if (seenTargets.has(fingerprintKey)) {
+                continue;
+            }
+            seenTargets.add(fingerprintKey);
+
+            const modelGlyph = currentFont.fontModel?.glyphs?.find(
+                (entry: any) => entry?.name === glyphName
+            );
+            const modelLayer = modelGlyph?.layers?.find(
+                (entry: any) => entry?.id === layerId
+            );
+
+            if (!modelLayer) {
+                removedFingerprintKeys.push(fingerprintKey);
+                continue;
+            }
+
+            const rawLayerData =
+                typeof modelLayer.toJSON === 'function'
+                    ? modelLayer.toJSON()
+                    : modelLayer;
+            const serializedLayer = this.serializeLayerForStorage(
+                glyphName,
+                layerId,
+                rawLayerData
+            );
+            if (!serializedLayer) {
+                return null;
+            }
+
+            updates.push({
+                glyphName,
+                layerId,
+                layerData: serializedLayer
+            });
+        }
+
+        return {
+            updates,
+            removedFingerprintKeys
+        };
+    }
+
     async forwardWorkerYjsUpdate(
         update: Uint8Array,
         changedGlyphs: string[],
-        options?: { invalidateLayoutClosure?: boolean }
+        options?: {
+            invalidateLayoutClosure?: boolean;
+            layerTargets?: WorkerReplayTarget[];
+        }
     ): Promise<boolean> {
         const normalizedChangedGlyphs = Array.from(
             new Set(changedGlyphs.filter((glyphName) => !!glyphName))
+        );
+        const normalizedLayerTargets = normalizeWorkerReplayTargets(
+            options?.layerTargets || []
         );
 
         if (!normalizedChangedGlyphs.length) {
@@ -3439,41 +3517,78 @@ class FontManager {
             );
         }
 
-        // Rebuild glyph-scoped updates from the normalized object model so
-        // Rust never receives array-format outline nodes. Font-wide edits with
-        // no affected glyphs can flow through the raw Yjs update path above.
-        const pendingLayerUpdates = this.collectChangedLayerUpdatesFromModel(
+        const targetLayerUpdates = normalizedLayerTargets.length
+            ? this.collectLayerUpdatesForTargetsFromModel(
+                  normalizedLayerTargets
+              )
+            : null;
+        const fingerprintUpdates = normalizedLayerTargets.length
+            ? targetLayerUpdates?.updates || []
+            : this.collectChangedLayerUpdatesFromModel(
+                  normalizedChangedGlyphs,
+                  null,
+                  { skipFingerprintBaseline: true }
+              ) || [];
+        const removedFingerprintKeys =
+            targetLayerUpdates?.removedFingerprintKeys || [];
+
+        this.applyWorkerYjsUpdateToMirror(update);
+
+        const sent = await this.sendWorkerYjsUpdate(
+            update,
             normalizedChangedGlyphs,
-            null,
-            { skipFingerprintBaseline: true }
+            options?.invalidateLayoutClosure !== false
         );
 
-        if (!pendingLayerUpdates) {
+        if (!sent) {
             return this.recoverWorkerCacheFromAuthoritativeState(
-                'failed to collect changed layers for forwarded Yjs update'
+                'forwarded Yjs update failed'
             );
         }
 
-        if (pendingLayerUpdates.length === 0) {
-            // Fingerprint already up to date (main window's own edit already sent).
-            return true;
+        for (const fingerprintKey of removedFingerprintKeys) {
+            this.workerLayerFingerprintCache.delete(fingerprintKey);
         }
 
-        const sent = await this.submitLayerUpdatesToWorkerCache(
-            pendingLayerUpdates,
-            {
-                invalidateLayoutClosure:
-                    options?.invalidateLayoutClosure !== false
+        const missingGlyphNames = normalizedChangedGlyphs.filter(
+            (glyphName) => !this.currentFont?.fontModel?.findGlyph(glyphName)
+        );
+        if (missingGlyphNames.length > 0) {
+            for (const fingerprintKey of Array.from(
+                this.workerLayerFingerprintCache.keys()
+            )) {
+                if (
+                    missingGlyphNames.some((glyphName) =>
+                        fingerprintKey.startsWith(`${glyphName}::`)
+                    )
+                ) {
+                    this.workerLayerFingerprintCache.delete(fingerprintKey);
+                }
             }
-        );
-
-        if (sent) {
-            return true;
         }
 
-        return this.recoverWorkerCacheFromAuthoritativeState(
-            'forwarded Yjs update failed'
-        );
+        if (fingerprintUpdates.length > 0) {
+            this._boundaryCrossingStats.submitBatchCalls++;
+            this._boundaryCrossingStats.layersTransmitted +=
+                fingerprintUpdates.length;
+            for (const layerUpdate of fingerprintUpdates) {
+                const normalizedLayer = this.normalizeLayerForRust(
+                    layerUpdate.layerData
+                );
+                this.workerLayerFingerprintCache.set(
+                    this.getWorkerLayerFingerprintKey(
+                        layerUpdate.glyphName,
+                        layerUpdate.layerId
+                    ),
+                    JSON.stringify(normalizedLayer)
+                );
+                this._boundaryCrossingStats.transmittedGlyphs.add(
+                    layerUpdate.glyphName
+                );
+            }
+        }
+
+        return true;
     }
 
     private collectChangedLayerUpdatesFromModel(

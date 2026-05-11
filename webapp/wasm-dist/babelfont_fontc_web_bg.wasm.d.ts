@@ -1,7 +1,6 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const apply_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const clear_font_cache: () => void;
 export const compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
@@ -19,6 +18,7 @@ export const prime_layout_closure_cache: (a: number, b: number, c: number, d: nu
 export const seed_ydoc: (a: number, b: number) => [number, number];
 export const store_font: (a: number, b: number) => [number, number];
 export const version: () => [number, number];
+export const run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const get_font_axes: (a: number, b: number) => [number, number, number, number];
 export const get_font_features: (a: number, b: number) => [number, number, number, number];
 export const get_font_features_with_tables: (a: number, b: number) => [number, number, number, number];

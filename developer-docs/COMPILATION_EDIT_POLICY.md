@@ -218,9 +218,10 @@ The fast path depends on these rules staying true:
 1. Drag and keyboard layer edits use the incremental sentinel JSON path in `font-compilation.ts` rather than sending the full babelfont JSON to the worker.
 2. `applyYjsUpdate` is the authoritative edit-time worker update channel for both local and remote changes.
 3. `applyJsonPatches` is not part of the edit-time worker path. Interactive cache updates must reach Rust through the already-issued Yjs worker sync rather than a parallel JSON-patch channel.
-4. The editing subset key is reused when unchanged and the worker font-cache epoch is unchanged so layout closure does not get rebuilt unnecessarily.
-5. Full `store_font()`, `storeFontJson`, `seedYdoc`, or `initYdoc` are reserved for font open or external reload, not for interactive editing, undo, redo, Python execution, feature-code commits, or linked-window edit replay.
-6. Dormant compatibility branches that resend a full document during normal editing must be deleted rather than retained as safety valves. If the incremental pipeline is insufficient, fix the pipeline.
+4. When the bridge already holds the authoritative binary Yjs delta plus layer replay metadata, the worker path must forward that original delta directly. It may derive local fingerprint bookkeeping from the object model, but it must not rebuild a second Yjs update for the same edit.
+5. The editing subset key is reused when unchanged and the worker font-cache epoch is unchanged so layout closure does not get rebuilt unnecessarily.
+6. Full `store_font()`, `storeFontJson`, `seedYdoc`, or `initYdoc` are reserved for font open or external reload, not for interactive editing, undo, redo, Python execution, feature-code commits, or linked-window edit replay.
+7. Dormant compatibility branches that resend a full document during normal editing must be deleted rather than retained as safety valves. If the incremental pipeline is insufficient, fix the pipeline.
 
 Any change that introduces or increases any full-document transfer during normal editing is a regression unless explicitly documented and approved for bootstrap-only behavior.
 
