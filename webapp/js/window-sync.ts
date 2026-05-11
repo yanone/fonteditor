@@ -407,10 +407,10 @@ export class WindowSync {
                             );
                         }
 
+                        fontManager.recordFullFontCrossing?.();
                         fontManager.replaceWorkerYjsMirrorFromState?.(
                             normalizedState
                         );
-                        fontManager.recordFullFontCrossing?.();
                         await window.fontCompilation!.sendMessage({
                             type: 'storeFontJson',
                             babelfontJson: fontManager.currentFont.babelfontJson

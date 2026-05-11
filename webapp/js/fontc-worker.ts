@@ -1408,8 +1408,21 @@ self.onmessage = async (event) => {
                         : new Uint8Array(update),
                     changedGlyphsJson
                 );
+                // Parse the result to check whether the update was skipped
+                // (e.g. Y.Doc not yet seeded). Avoid mutating JS-side caches
+                // when Rust did not actually apply the update — keeping the JS
+                // fontCacheEpoch in sync with Rust's FONT_CACHE_EPOCH prevents
+                // the next compile from forcing a layout-closure re-prime with
+                // stale CANONICAL_JSON_CACHE.
+                let parsedResult: { skipped?: string } | null = null;
+                try {
+                    parsedResult = JSON.parse(resultJson);
+                } catch {
+                    // Ignore parse errors — treat as non-skipped
+                }
+                const wasSkipped = parsedResult?.skipped != null;
                 cachedBabelfontJson = null;
-                if (invalidateLayoutClosure !== false) {
+                if (invalidateLayoutClosure !== false && !wasSkipped) {
                     cachedBaseSubsetKey = null;
                     cachedClosureGlyphCount = null;
                     fontCacheEpoch += 1;
@@ -1418,7 +1431,8 @@ self.onmessage = async (event) => {
                     id,
                     type: 'applyYjsUpdate',
                     success: true,
-                    result: resultJson
+                    result: resultJson,
+                    skipped: wasSkipped ? parsedResult!.skipped : undefined
                 });
             } catch (e: any) {
                 console.error('[Fontc Worker] applyYjsUpdate error:', e);

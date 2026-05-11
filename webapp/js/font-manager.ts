@@ -3276,6 +3276,9 @@ class FontManager {
                 invalidateLayoutClosure
             });
 
+            // The worker surfaces the skipped reason at the top level of the
+            // response message (added alongside the result JSON string) so
+            // this check does not need to parse response.result.
             if (response?.skipped === 'ydoc_not_initialized') {
                 this.workerCacheYDoc = null;
                 fontCompilation.setWorkerCacheDocumentReady(false);
@@ -3342,8 +3345,11 @@ class FontManager {
                 return false;
             }
 
-            this.replaceWorkerYjsMirrorFromState(normalizedState);
+            // Reset boundary-crossing bookkeeping before installing the fresh
+            // mirror so the new authoritative state remains available for the
+            // next incremental worker update.
             this.recordFullFontCrossing();
+            this.replaceWorkerYjsMirrorFromState(normalizedState);
             await fontCompilation.sendMessage({
                 type: 'storeFontJson',
                 babelfontJson: currentFont.babelfontJson
@@ -4189,8 +4195,11 @@ class FontManager {
                 if (!normalizedState?.length) {
                     throw new Error('Missing normalized worker Yjs state');
                 }
-                this.replaceWorkerYjsMirrorFromState(normalizedState);
+                // Clear fingerprint/cache bookkeeping first, then keep the
+                // rebuilt mirror so subsequent incremental updates diff
+                // against the same authoritative state sent to Rust.
                 this.recordFullFontCrossing();
+                this.replaceWorkerYjsMirrorFromState(normalizedState);
                 await fontCompilation.sendMessage({
                     type: 'storeFontJson',
                     babelfontJson: currentFont.babelfontJson
