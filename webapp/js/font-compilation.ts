@@ -851,6 +851,7 @@ class FontCompilation {
         const spanId = timelineSpanStart(
             'fontCompilation.compileEditingFromJsonCached'
         );
+        let sentFullFontJson = false;
 
         try {
             if (!this.isInitialized) {
@@ -889,6 +890,7 @@ class FontCompilation {
                 this.lastStoredFontJson === babelfontJson
                     ? '__incremental_layer__'
                     : babelfontJson;
+            sentFullFontJson = jsonForWorker !== '__incremental_layer__';
 
             const compileResult = await this.sendMessage({
                 type: 'compileEditingCached',
@@ -903,7 +905,7 @@ class FontCompilation {
                 _forceStoreFontJson: false
             });
 
-            if (jsonForWorker !== '__incremental_layer__') {
+            if (sentFullFontJson) {
                 this.lastStoredFontJson = babelfontJson;
             }
 
@@ -917,6 +919,16 @@ class FontCompilation {
                 closureGlyphCount: compileResult.closureGlyphCount,
                 compileSource: compileResult.compileSource
             };
+        } catch (error) {
+            if (sentFullFontJson) {
+                // The worker stores full JSON before compiling. If compilation
+                // then fails, the worker cache may already hold that payload
+                // while this main-thread hint still points at an older value.
+                // Invalidate the hint so the next compile re-sends full JSON
+                // instead of incorrectly taking the incremental sentinel path.
+                this.lastStoredFontJson = null;
+            }
+            throw error;
         } finally {
             timelineSpanEnd(spanId);
         }

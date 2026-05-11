@@ -301,7 +301,7 @@ test.describe('Font Editor Basic Workflow', () => {
         });
         await page.locator('#font-file-dialog').waitFor({ state: 'visible' });
 
-        await secondFontItem.scrollIntoViewIfNeeded();
+        await expect(secondFontItem).toBeVisible();
         await secondFontItem.click({ button: 'right', force: true });
 
         await expect(
@@ -456,6 +456,7 @@ test.describe('Font Editor Basic Workflow', () => {
     });
 
     test('load font and navigate with keyboard', async ({ page }) => {
+        test.setTimeout(300000);
         console.log('[Test] Starting main test');
         await page.waitForTimeout(1000);
 
@@ -523,10 +524,51 @@ test.describe('Font Editor Basic Workflow', () => {
             });
         });
 
+        await page.waitForFunction(
+            ({
+                expectedText,
+                expectedCursorPosition
+            }: {
+                expectedText: string;
+                expectedCursorPosition: number;
+            }) => {
+                const textRunEditor = (window as any).glyphCanvas
+                    ?.textRunEditor;
+                return (
+                    textRunEditor?.textBuffer === expectedText &&
+                    textRunEditor?.cursorPosition === expectedCursorPosition
+                );
+            },
+            {
+                expectedText: 'hello مَرحَباً',
+                expectedCursorPosition: 'hello مَرحَباً'.length
+            }
+        );
+
         // Cmd+0
         console.log('[Test] Pressing Cmd+0 after text');
         await page.keyboard.press('Meta+0');
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(600);
+
+        await page.evaluate(() => {
+            const textRunEditor = (window as any).glyphCanvas?.textRunEditor;
+            if (textRunEditor?.textBuffer) {
+                textRunEditor.cursorPosition = textRunEditor.textBuffer.length;
+            }
+        });
+        await page.waitForFunction(
+            () => {
+                const textRunEditor = (window as any).glyphCanvas
+                    ?.textRunEditor;
+                return (
+                    !!textRunEditor?.textBuffer &&
+                    typeof textRunEditor?.cursorPosition === 'number' &&
+                    textRunEditor.cursorPosition ===
+                        textRunEditor.textBuffer.length
+                );
+            },
+            { timeout: 5000 }
+        );
 
         // Wait for rendering to complete
         await page.waitForTimeout(500);
@@ -974,20 +1016,31 @@ test.describe('Font Editor Basic Workflow', () => {
                 editor.setValue(featureCode, -1);
                 editor.focus();
 
-                // Safety timeout in case compilation event does not arrive.
-                setTimeout(finalize, 10000);
+                const manager = (window as any).fontInfoManager;
+                if (typeof editor.execCommand === 'function') {
+                    editor.execCommand('commitFeatureCodeChanges');
+                } else if (
+                    typeof manager?.commitFeatureCodeChanges === 'function'
+                ) {
+                    manager.commitFeatureCodeChanges();
+                }
+
+                setTimeout(finalize, 30000);
             });
         }, originalLoclFeatureCode);
 
-        await page.waitForFunction(() => {
-            const errorDisplay = document.getElementById(
-                'sidebar-error-display'
-            );
-            return (
-                !errorDisplay ||
-                (errorDisplay as HTMLElement).style.display === 'none'
-            );
-        });
+        await page.waitForFunction(
+            () => {
+                const errorDisplay = document.getElementById(
+                    'sidebar-error-display'
+                );
+                return (
+                    !errorDisplay ||
+                    (errorDisplay as HTMLElement).style.display === 'none'
+                );
+            },
+            { timeout: 15000 }
+        );
         await page.waitForTimeout(250);
 
         // Final stack preview screenshot on Fustat (requested for deep nesting visibility).

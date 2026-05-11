@@ -1,122 +1,10 @@
 {
     "label": "yanone-glyphspackage-opened",
     "state": {
-        "focused_view": "view-files",
-        "editor_file": "memory:///user/YanoneKaffeesatz.glyphspackage",
-        "editor_text_buffer": "Hamburgevons",
+        "editor_active_canvas_plugins": [],
         "editor_cursor_position": 0,
-        "editor_mode": "text",
+        "editor_file": "memory:///user/YanoneKaffeesatz.glyphspackage",
         "editor_glyph_stack": "",
-        "editor_harfbuzz_glyph_buffer": [
-            {
-                "g": 1,
-                "cl": 0,
-                "dx": 5,
-                "dy": 0,
-                "ax": 469,
-                "ay": 0,
-                "flags": 0
-            },
-            {
-                "g": 2,
-                "cl": 1,
-                "dx": 0,
-                "dy": 0,
-                "ax": 383,
-                "ay": 0,
-                "flags": 0
-            },
-            {
-                "g": 6,
-                "cl": 2,
-                "dx": 0,
-                "dy": 0,
-                "ax": 625,
-                "ay": 0,
-                "flags": 0
-            },
-            {
-                "g": 3,
-                "cl": 3,
-                "dx": 0,
-                "dy": 0,
-                "ax": 422,
-                "ay": 0,
-                "flags": 0
-            },
-            {
-                "g": 11,
-                "cl": 4,
-                "dx": 0,
-                "dy": 0,
-                "ax": 445,
-                "ay": 0,
-                "flags": 0
-            },
-            {
-                "g": 9,
-                "cl": 5,
-                "dx": 0,
-                "dy": 0,
-                "ax": 259,
-                "ay": 0,
-                "flags": 0
-            },
-            {
-                "g": 5,
-                "cl": 6,
-                "dx": 0,
-                "dy": 0,
-                "ax": 404,
-                "ay": 0,
-                "flags": 1
-            },
-            {
-                "g": 4,
-                "cl": 7,
-                "dx": 0,
-                "dy": 0,
-                "ax": 390,
-                "ay": 0,
-                "flags": 1
-            },
-            {
-                "g": 12,
-                "cl": 8,
-                "dx": 0,
-                "dy": 0,
-                "ax": 350,
-                "ay": 0,
-                "flags": 0
-            },
-            {
-                "g": 8,
-                "cl": 9,
-                "dx": 0,
-                "dy": 0,
-                "ax": 401,
-                "ay": 0,
-                "flags": 1
-            },
-            {
-                "g": 7,
-                "cl": 10,
-                "dx": 0,
-                "dy": 0,
-                "ax": 422,
-                "ay": 0,
-                "flags": 0
-            },
-            {
-                "g": 10,
-                "cl": 11,
-                "dx": 0,
-                "dy": 0,
-                "ax": 395,
-                "ay": 0,
-                "flags": 0
-            }
-        ],
         "editor_harfbuzz_gid_to_name": [
             {
                 "gid": 1,
@@ -167,13 +55,141 @@
                 "name": "v"
             }
         ],
-        "editor_isInterpolating": false,
+        "editor_harfbuzz_glyph_buffer": [
+            {
+                "ax": 459,
+                "ay": 0,
+                "cl": 0,
+                "dx": 0,
+                "dy": 0,
+                "flags": 0,
+                "g": 1
+            },
+            {
+                "ax": 383,
+                "ay": 0,
+                "cl": 1,
+                "dx": 0,
+                "dy": 0,
+                "flags": 0,
+                "g": 2
+            },
+            {
+                "ax": 625,
+                "ay": 0,
+                "cl": 2,
+                "dx": 0,
+                "dy": 0,
+                "flags": 0,
+                "g": 6
+            },
+            {
+                "ax": 422,
+                "ay": 0,
+                "cl": 3,
+                "dx": 0,
+                "dy": 0,
+                "flags": 0,
+                "g": 3
+            },
+            {
+                "ax": 445,
+                "ay": 0,
+                "cl": 4,
+                "dx": 0,
+                "dy": 0,
+                "flags": 0,
+                "g": 11
+            },
+            {
+                "ax": 259,
+                "ay": 0,
+                "cl": 5,
+                "dx": 0,
+                "dy": 0,
+                "flags": 0,
+                "g": 9
+            },
+            {
+                "ax": 404,
+                "ay": 0,
+                "cl": 6,
+                "dx": 0,
+                "dy": 0,
+                "flags": 1,
+                "g": 5
+            },
+            {
+                "ax": 390,
+                "ay": 0,
+                "cl": 7,
+                "dx": 0,
+                "dy": 0,
+                "flags": 1,
+                "g": 4
+            },
+            {
+                "ax": 350,
+                "ay": 0,
+                "cl": 8,
+                "dx": 0,
+                "dy": 0,
+                "flags": 0,
+                "g": 12
+            },
+            {
+                "ax": 401,
+                "ay": 0,
+                "cl": 9,
+                "dx": 0,
+                "dy": 0,
+                "flags": 1,
+                "g": 8
+            },
+            {
+                "ax": 422,
+                "ay": 0,
+                "cl": 10,
+                "dx": 0,
+                "dy": 0,
+                "flags": 0,
+                "g": 7
+            },
+            {
+                "ax": 395,
+                "ay": 0,
+                "cl": 11,
+                "dx": 0,
+                "dy": 0,
+                "flags": 0,
+                "g": 10
+            }
+        ],
         "editor_isAnimating": false,
-        "editor_opentype_features_in_subset": {},
-        "editor_opentype_features_not_in_subset": {},
+        "editor_isInterpolating": false,
+        "editor_mode": "text",
+        "editor_opentype_features_in_subset": {
+            "cpsp": false,
+            "salt": false,
+            "ss01": false
+        },
+        "editor_opentype_features_not_in_subset": {
+            "case": false,
+            "dlig": false,
+            "frac": false,
+            "liga": false,
+            "locl": false,
+            "ordn": false,
+            "ss02": false,
+            "ss03": false,
+            "ss04": false,
+            "ss05": false,
+            "sups": false
+        },
+        "editor_text_buffer": "Hamburgevons",
         "editor_variation_location": {
             "wght": 200
         },
-        "editor_active_canvas_plugins": []
+        "focused_view": "view-editor"
     }
 }

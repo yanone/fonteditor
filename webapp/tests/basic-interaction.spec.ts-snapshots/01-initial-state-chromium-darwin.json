@@ -1,19 +1,19 @@
 {
     "label": "initial-state",
     "state": {
-        "focused_view": "view-editor",
-        "editor_file": "",
-        "editor_text_buffer": "Hamburgevons",
+        "editor_active_canvas_plugins": [],
         "editor_cursor_position": 0,
-        "editor_mode": "text",
+        "editor_file": "",
         "editor_glyph_stack": "",
-        "editor_harfbuzz_glyph_buffer": [],
         "editor_harfbuzz_gid_to_name": [],
-        "editor_isInterpolating": false,
+        "editor_harfbuzz_glyph_buffer": [],
         "editor_isAnimating": false,
+        "editor_isInterpolating": false,
+        "editor_mode": "text",
         "editor_opentype_features_in_subset": {},
         "editor_opentype_features_not_in_subset": {},
+        "editor_text_buffer": "Hamburgevons",
         "editor_variation_location": {},
-        "editor_active_canvas_plugins": []
+        "focused_view": "view-editor"
     }
 }
