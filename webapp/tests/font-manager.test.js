@@ -1,10 +1,15 @@
 const fs = require('fs');
 const path = require('path');
+const Y = require('yjs');
 
 const fontManager = require('../js/font-manager').default;
 const { fontCompilation } = require('../js/font-compilation');
-const { Font } = require('../js/babelfont-model');
-const { yDocToJson } = require('../js/change-bridge-ydoc');
+const {
+    Font,
+    seedInterpolationRustCacheFromState,
+    withSuppressedModelRecording
+} = require('../js/babelfont-model');
+const { jsonToYDoc, yDocToJson } = require('../js/change-bridge-ydoc');
 const { open_font_file } = require('../wasm-dist/babelfont_fontc_web');
 
 function loadFontFile(filePath) {
@@ -20,6 +25,15 @@ function loadFontFile(filePath) {
 
 function cloneJson(value) {
     return JSON.parse(JSON.stringify(value));
+}
+
+function encodeYjsStateFromFontData(fontData) {
+    const doc = new Y.Doc();
+    const fontMap = doc.getMap('font');
+    doc.transact(() => {
+        jsonToYDoc(JSON.parse(JSON.stringify(fontData)), fontMap);
+    });
+    return Y.encodeStateAsUpdate(doc);
 }
 
 describe('FontManager saveLayerData', () => {
@@ -1272,6 +1286,14 @@ describe('FontManager loadFont', () => {
         );
 
         const currentFont = fontManager.currentFont;
+        await seedInterpolationRustCacheFromState(
+            fontManager.buildNormalizedWorkerYjsState()
+        );
+        withSuppressedModelRecording(() => {
+            currentFont.fontModel.recomputeMetricsKeys();
+        });
+        currentFont.syncJsonFromModel();
+
         const glyph = currentFont.fontModel.findGlyph('a');
         const braceLayer = glyph.layers.find(
             (layer) => layer.id === '1FA54028-AD2E-4209-AA7B-72DF2DF16264'

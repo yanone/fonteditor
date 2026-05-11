@@ -3,6 +3,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const Y = require('yjs');
+const { yDocToJson } = require('../../js/change-bridge-ydoc');
+const { serializeGlyphNodes } = require('../../js/glyph-path-geometry');
 
 // The init function that's called to initialize WASM (default export)
 const initBabelfontWasm = jest.fn(() => {
@@ -22,6 +25,37 @@ const initBabelfontWasm = jest.fn(() => {
 const { execFileSync } = require('child_process');
 const os = require('os');
 let storedFontJson = null;
+let storedYDoc = null;
+
+function updateStoredFontJsonFromYDoc() {
+    if (!storedYDoc) {
+        storedFontJson = null;
+        return;
+    }
+
+    const jsonValue = yDocToJson(storedYDoc.getMap('font'));
+    if (Array.isArray(jsonValue?.glyphs)) {
+        for (const glyph of jsonValue.glyphs) {
+            if (!Array.isArray(glyph?.layers)) {
+                continue;
+            }
+
+            for (const layer of glyph.layers) {
+                if (!Array.isArray(layer?.shapes)) {
+                    continue;
+                }
+
+                for (const shape of layer.shapes) {
+                    if (Array.isArray(shape?.nodes)) {
+                        shape.nodes = serializeGlyphNodes(shape.nodes);
+                    }
+                }
+            }
+        }
+    }
+
+    storedFontJson = JSON.stringify(jsonValue);
+}
 
 function normalizeLayerMaster(master, isBackground) {
     if (!master || typeof master !== 'object') {
@@ -114,19 +148,40 @@ initBabelfontWasm.compile_babelfont = jest.fn(
 initBabelfontWasm.compile_cached_font = jest.fn(
     (options) => new Uint8Array(100)
 );
-initBabelfontWasm.apply_yjs_update = jest.fn((update, changedGlyphsJson) =>
-    JSON.stringify({
+initBabelfontWasm.apply_yjs_update = jest.fn((update, changedGlyphsJson) => {
+    if (!storedYDoc) {
+        return JSON.stringify({
+            changedGlyphs: JSON.parse(changedGlyphsJson || '[]'),
+            changedLayerIds: [],
+            skipped: 'ydoc_not_initialized'
+        });
+    }
+
+    Y.applyUpdate(storedYDoc, new Uint8Array(update));
+    updateStoredFontJsonFromYDoc();
+
+    return JSON.stringify({
         changedGlyphs: JSON.parse(changedGlyphsJson || '[]'),
         changedLayerIds: []
-    })
-);
-initBabelfontWasm.init_ydoc_from_state = jest.fn(() => {});
-initBabelfontWasm.seed_ydoc = jest.fn(() => {});
+    });
+});
+initBabelfontWasm.init_ydoc_from_state = jest.fn((stateUpdate) => {
+    storedYDoc = new Y.Doc();
+    Y.applyUpdate(storedYDoc, new Uint8Array(stateUpdate));
+    updateStoredFontJsonFromYDoc();
+});
+initBabelfontWasm.seed_ydoc = jest.fn((stateUpdate) => {
+    storedYDoc = new Y.Doc();
+    Y.applyUpdate(storedYDoc, new Uint8Array(stateUpdate));
+    updateStoredFontJsonFromYDoc();
+});
 initBabelfontWasm.store_font = jest.fn((json) => {
     storedFontJson = json;
+    storedYDoc = null;
 });
 initBabelfontWasm.clear_font_cache = jest.fn(() => {
     storedFontJson = null;
+    storedYDoc = null;
 });
 initBabelfontWasm.interpolate_glyph = jest.fn((glyphName, locationJson) => {
     if (!storedFontJson) {

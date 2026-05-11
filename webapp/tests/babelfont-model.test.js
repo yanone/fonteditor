@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const Y = require('yjs');
 const { Bezier } = require('bezier-js');
 const {
     Font,
@@ -8,6 +9,7 @@ const {
     seedInterpolationRustCacheFromState,
     applyInterpolationRustYjsUpdate
 } = require('../js/babelfont-model');
+const { jsonToYDoc } = require('../js/change-bridge-ydoc');
 const {
     open_font_file,
     store_font,
@@ -104,6 +106,34 @@ function expectNodesToMatch(actualNodes, expectedNodes) {
     }
 }
 
+function encodeYjsStateFromFontData(fontData) {
+    const doc = new Y.Doc();
+    const fontMap = doc.getMap('font');
+    doc.transact(() => {
+        jsonToYDoc(JSON.parse(JSON.stringify(fontData)), fontMap);
+    });
+    return Y.encodeStateAsUpdate(doc);
+}
+
+async function seedInterpolationFromFontData(fontData) {
+    return seedInterpolationRustCacheFromState(
+        encodeYjsStateFromFontData(fontData)
+    );
+}
+
+function encodeIncrementalYjsUpdateFromFontData(fontData, mutateDoc) {
+    const doc = new Y.Doc();
+    const fontMap = doc.getMap('font');
+    doc.transact(() => {
+        jsonToYDoc(JSON.parse(JSON.stringify(fontData)), fontMap);
+    });
+    const previousStateVector = Y.encodeStateVector(doc);
+    doc.transact(() => {
+        mutateDoc(fontMap, doc);
+    });
+    return Y.encodeStateAsUpdate(doc, previousStateVector);
+}
+
 describe('Babelfont interpolation Rust cache', () => {
     beforeEach(async () => {
         await seedInterpolationRustCacheFromState(null);
@@ -124,7 +154,9 @@ describe('Babelfont interpolation Rust cache', () => {
         expect(apply_yjs_update).not.toHaveBeenCalled();
 
         await expect(
-            seedInterpolationRustCacheFromState(new Uint8Array([4, 5, 6]))
+            seedInterpolationRustCacheFromState(
+                encodeYjsStateFromFontData(font.toJSON())
+            )
         ).resolves.toBe(true);
         expect(init_ydoc_from_state).toHaveBeenCalledWith(
             expect.any(Uint8Array)
@@ -132,9 +164,15 @@ describe('Babelfont interpolation Rust cache', () => {
         expect(ensureFontStoredForInterpolation(font)).toBe(true);
 
         await expect(
-            applyInterpolationRustYjsUpdate(new Uint8Array([7, 8]), [
-                'testGlyph'
-            ])
+            applyInterpolationRustYjsUpdate(
+                encodeIncrementalYjsUpdateFromFontData(
+                    font.toJSON(),
+                    (fontMap) => {
+                        fontMap.set('note', 'updated');
+                    }
+                ),
+                ['testGlyph']
+            )
         ).resolves.toBe(true);
         expect(apply_yjs_update).toHaveBeenCalledWith(
             expect.any(Uint8Array),
@@ -187,11 +225,16 @@ describe('Babelfont Object Model', () => {
         intermediateLayerData = loadFontFile(intermediateLayerFixturePath);
     });
 
-    beforeEach(() => {
+    beforeEach(async () => {
         // Create a fresh font instance for each test
         font = Font.fromData(fontData);
         metricsKeysFont = Font.fromData(metricsKeysData);
         intermediateLayerFont = Font.fromData(intermediateLayerData);
+        await seedInterpolationRustCacheFromState(null);
+        await seedInterpolationFromFontData(intermediateLayerData);
+        init_ydoc_from_state.mockClear();
+        apply_yjs_update.mockClear();
+        store_font.mockClear();
     });
 
     describe('parent() method', () => {
@@ -1056,7 +1099,7 @@ describe('Babelfont Object Model', () => {
             expect(braceLayer.rsb).toBe(50);
         });
 
-        test('keeps using the last stored interpolation snapshot when refresh fails after an edit', () => {
+        test('keeps using the last seeded interpolation snapshot after a local edit', () => {
             const glyphA = intermediateLayerFont.findGlyph('a');
             const braceLayer = glyphA.layers.find(
                 (layer) => layer.location && Object.keys(layer.location).length
@@ -1066,13 +1109,11 @@ describe('Babelfont Object Model', () => {
             expect(braceLayer.resolveMetricsKey('right').value).toBe(50);
 
             pathShape.nodes[0].x += 1;
-            store_font.mockImplementationOnce(() => {
-                throw new Error('store failed');
-            });
 
             const resolution = braceLayer.resolveMetricsKey('right');
             expect(resolution.error).toBeNull();
             expect(resolution.value).toBe(50);
+            expect(store_font).not.toHaveBeenCalled();
         });
 
         test('reuses the interpolation snapshot during an intermediate-layer =50 lsb edit', () => {
@@ -1092,8 +1133,8 @@ describe('Babelfont Object Model', () => {
             expect(resolution.error).toBeNull();
             expect(resolution.value).toBe(50);
             expect(Number.isInteger(braceLayer.width)).toBe(true);
-            expect(serializeSpy).toHaveBeenCalledTimes(1);
-            expect(store_font).toHaveBeenCalledTimes(1);
+            expect(store_font).not.toHaveBeenCalled();
+            expect(serializeSpy).not.toHaveBeenCalled();
 
             serializeSpy.mockRestore();
         });
