@@ -1949,6 +1949,46 @@ function initializeBridge(detail: {
         );
     }
 
+    // ── Wire Yjs updates → Rust compilation worker ───────────────────────
+    // Every local edit and remote change emits a small binary Yjs update.
+    // Forward it to the WASM worker so the Rust Y.Doc + CANONICAL_JSON_CACHE
+    // stay current without the expensive full-JSON round-trip.
+    bridge.setYjsWorkerCallback((update, changeLogEntries) => {
+        if (!fontCompilation?.isInitialized) return;
+
+        // Skip layout-closure invalidation during active drag — the
+        // subset cache is kept current by the existing apply_patch_batch path.
+        // During drag, also skip apply_yjs_update entirely: queueing it in the
+        // worker before applyJsonPatches would delay drag compilation.
+        const isDragging =
+            window.glyphCanvas?.outlineEditor?.draggingSomething === true;
+        if (isDragging) return;
+
+        // Extract affected glyph names from the change-log entries so Rust can
+        // perform a targeted partial update instead of a full JSON rebuild.
+        // ChangeLogEntry.path uses dot-delimited format: "glyphs.A.layers.uuid.shapes.0.nodes"
+        const changedGlyphs = deriveGlyphNamesFromPaths(
+            changeLogEntries.map((e) => e.path).filter(Boolean)
+        );
+
+        void fontCompilation.sendMessage({
+            type: 'applyYjsUpdate',
+            update,
+            changedGlyphs,
+            invalidateLayoutClosure: true
+        });
+    });
+
+    // Seed the Rust Y.Doc immediately after bridge initialisation so that the
+    // first `apply_yjs_update` call has a baseline. For linked windows the
+    // full state arrives via WindowSync, so skip the initial seed there.
+    if (!isSyncWindow() && fontCompilation?.isInitialized) {
+        void fontCompilation.sendMessage({
+            type: 'seedYdoc',
+            state: bridge.encodeBridgeState()
+        });
+    }
+
     const sync = new WindowSync(bridge, channelName);
     window.windowSync = sync;
     sync.onMainWindowClosing(() => {

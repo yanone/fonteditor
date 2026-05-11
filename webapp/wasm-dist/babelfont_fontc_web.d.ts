@@ -17,6 +17,23 @@
 export function apply_patch_batch(patches_json: string): void;
 
 /**
+ * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
+ * update the CANONICAL_JSON_CACHE.
+ *
+ * `changed_glyphs_json` is a JSON array of glyph name strings that the JS
+ * side knows were affected by this update (extracted from ChangeLogEntry paths).
+ * When non-empty the function performs a targeted update — only those glyphs
+ * are re-serialised from the Y.Doc and replaced in CANONICAL_JSON_CACHE,
+ * making drag-step updates cheap even for large fonts.
+ * When empty or "[]" the function falls back to a full JSON rebuild from the
+ * Y.Doc.
+ *
+ * Returns a JSON string `{ "changedGlyphs": ["a", …], "changedLayerIds": [] }`
+ * that the JS side can use to drive subset-cache replay.
+ */
+export function apply_yjs_update(update: Uint8Array, changed_glyphs_json: string): string;
+
+/**
  * Clear the cached font from memory
  */
 export function clear_font_cache(): void;
@@ -217,6 +234,20 @@ export function get_stylistic_set_names(font_bytes: Uint8Array): string;
 export function init(): void;
 
 /**
+ * Initialize (or re-initialize) the Rust Y.Doc from a full Yjs binary state
+ * and rebuild all font caches from the resulting JSON.
+ *
+ * Use this:
+ * - After undo/redo (instead of the expensive `store_font` full-JSON path)
+ * - After receiving a remote full-state sync from another window
+ *
+ * The Yjs binary state is typically 20-40 % smaller than the equivalent
+ * babelfont JSON string, so data transfer from the JS thread to the WASM
+ * worker is significantly cheaper.
+ */
+export function init_ydoc_from_state(state_update: Uint8Array): void;
+
+/**
  * Interpolate a glyph at a specific location in design space
  *
  * Requires that a font has been stored via store_font() first.
@@ -254,6 +285,15 @@ export function prime_layout_closure_cache(font_revision: string, glyph_names_js
 export function run_fontspector(font_bytes: Uint8Array, profile: string): string;
 
 /**
+ * Seed the Rust Y.Doc from a full Yjs binary state (v1 encoding) without
+ * rebuilding all caches. Called immediately after `openFont` so that
+ * subsequent `apply_yjs_update` calls have a baseline Y.Doc, while the
+ * heavy `store_font` cache population (FeatureFile, FONT_CACHE, …) already
+ * happened in the `openFont` worker handler.
+ */
+export function seed_ydoc(state_update: Uint8Array): void;
+
+/**
  * Store a font in memory from babelfont JSON.
  *
  * Populates both the canonical serde_json::Value cache and the
@@ -278,6 +318,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly run_fontspector: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly apply_patch_batch: (a: number, b: number) => [number, number];
+    readonly apply_yjs_update: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly clear_font_cache: () => void;
     readonly compile_babelfont: (a: number, b: number, c: any) => [number, number, number, number];
     readonly compile_cached_font: (a: any) => [number, number, number, number];
@@ -287,9 +328,11 @@ export interface InitOutput {
     readonly get_layout_closure: (a: number, b: number) => [number, number, number, number];
     readonly get_layout_closure_cached: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly init: () => void;
+    readonly init_ydoc_from_state: (a: number, b: number) => [number, number];
     readonly interpolate_glyph: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly open_font_file: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly prime_layout_closure_cache: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly seed_ydoc: (a: number, b: number) => [number, number];
     readonly store_font: (a: number, b: number) => [number, number];
     readonly version: () => [number, number];
     readonly get_font_axes: (a: number, b: number) => [number, number, number, number];

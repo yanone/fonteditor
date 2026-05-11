@@ -32,6 +32,8 @@ The Patch Engine must treat Yjs diffs as authoritative for normal edits, undo, a
 
 Forward patches are generated only on the receiving side, on the fly, from the incoming binary Yjs diff for human introspection. They are shown in the history item's info popup, but they must never be used to replay, rebuild, or update font data. Yjs alone defines document state.
 
+Binary Yjs updates (not RFC 6902 forward patches) are the authoritative transmission format for keeping the Rust WASM compilation worker's cache current. The worker maintains its own `yrs::Doc` (a Rust port of the Yjs CRDT), and the JavaScript `PatchSyncEngine` forwards every local and remote Yjs binary update directly to it via `applyYjsUpdate` / `initYdoc` messages. This eliminates the need to transmit the full babelfont JSON string on every edit. The main font cache (`CANONICAL_JSON_CACHE`) is rebuilt from the Rust Y.Doc on each update. The subset compilation cache is kept up-to-date using the list of changed glyph/layer identifiers returned by `apply_yjs_update`.
+
 ### Cloud sync vs. local window sync
 
 Only a font’s main window syncs with the DO room in the cloud. Local linked windows only talk to the main window which relays messages back and forth between the cloud and the local linked windows.

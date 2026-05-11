@@ -3956,9 +3956,38 @@ class FontManager {
         }
 
         const cacheUpdatePromise = (async () => {
-            // Clear incremental-drag flag so updateWorkerFontCache takes the full path.
             this.pendingBabelfontJsonSyncAfterDrag = false;
-            // Invalidate the "already stored" sentinel so fontCompilation doesn't skip the send.
+
+            // Prefer Yjs-based full-state sync (much cheaper than full JSON):
+            // encode the current JS Y.Doc as a binary Yjs state and let the
+            // Rust worker reinitialise its Y.Doc from that, rebuilding all
+            // caches without the JS side serialising the full babelfontJson.
+            const yjsState = (
+                window.changeBridge as
+                    | (typeof window.changeBridge & {
+                          encodeBridgeState?: () => Uint8Array;
+                      })
+                    | undefined
+            )?.encodeBridgeState?.();
+
+            if (yjsState && yjsState.length > 0) {
+                try {
+                    await fontCompilation.sendMessage({
+                        type: 'initYdoc',
+                        state: yjsState
+                    });
+                    fontCompilation.lastStoredFontJson = null;
+                    return;
+                } catch (error) {
+                    console.error(
+                        '[FontManager] forceFullWorkerCacheUpdate: initYdoc failed, falling back to storeFontJson:',
+                        error
+                    );
+                }
+            }
+
+            // Fallback: send full babelfont JSON (old path, used when Y.Doc not
+            // available, e.g. very early in startup or after a worker reset).
             fontCompilation.lastStoredFontJson = null;
             try {
                 this.recordFullFontCrossing();

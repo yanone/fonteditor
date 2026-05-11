@@ -24,6 +24,47 @@ export function apply_patch_batch(patches_json) {
 }
 
 /**
+ * Apply an incremental Yjs binary update (v1 encoding) to the Rust Y.Doc and
+ * update the CANONICAL_JSON_CACHE.
+ *
+ * `changed_glyphs_json` is a JSON array of glyph name strings that the JS
+ * side knows were affected by this update (extracted from ChangeLogEntry paths).
+ * When non-empty the function performs a targeted update — only those glyphs
+ * are re-serialised from the Y.Doc and replaced in CANONICAL_JSON_CACHE,
+ * making drag-step updates cheap even for large fonts.
+ * When empty or "[]" the function falls back to a full JSON rebuild from the
+ * Y.Doc.
+ *
+ * Returns a JSON string `{ "changedGlyphs": ["a", …], "changedLayerIds": [] }`
+ * that the JS side can use to drive subset-cache replay.
+ * @param {Uint8Array} update
+ * @param {string} changed_glyphs_json
+ * @returns {string}
+ */
+export function apply_yjs_update(update, changed_glyphs_json) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passArray8ToWasm0(update, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(changed_glyphs_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.apply_yjs_update(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
  * Clear the cached font from memory
  */
 export function clear_font_cache() {
@@ -461,6 +502,28 @@ export function init() {
 }
 
 /**
+ * Initialize (or re-initialize) the Rust Y.Doc from a full Yjs binary state
+ * and rebuild all font caches from the resulting JSON.
+ *
+ * Use this:
+ * - After undo/redo (instead of the expensive `store_font` full-JSON path)
+ * - After receiving a remote full-state sync from another window
+ *
+ * The Yjs binary state is typically 20-40 % smaller than the equivalent
+ * babelfont JSON string, so data transfer from the JS thread to the WASM
+ * worker is significantly cheaper.
+ * @param {Uint8Array} state_update
+ */
+export function init_ydoc_from_state(state_update) {
+    const ptr0 = passArray8ToWasm0(state_update, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.init_ydoc_from_state(ptr0, len0);
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
  * Interpolate a glyph at a specific location in design space
  *
  * Requires that a font has been stored via store_font() first.
@@ -586,6 +649,23 @@ export function run_fontspector(font_bytes, profile) {
 }
 
 /**
+ * Seed the Rust Y.Doc from a full Yjs binary state (v1 encoding) without
+ * rebuilding all caches. Called immediately after `openFont` so that
+ * subsequent `apply_yjs_update` calls have a baseline Y.Doc, while the
+ * heavy `store_font` cache population (FeatureFile, FONT_CACHE, …) already
+ * happened in the `openFont` worker handler.
+ * @param {Uint8Array} state_update
+ */
+export function seed_ydoc(state_update) {
+    const ptr0 = passArray8ToWasm0(state_update, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.seed_ydoc(ptr0, len0);
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
  * Store a font in memory from babelfont JSON.
  *
  * Populates both the canonical serde_json::Value cache and the
@@ -640,6 +720,15 @@ function __wbg_get_imports() {
             const ret = arg0 === null;
             return ret;
         },
+        __wbg___wbindgen_is_object_f8b6723c60349a13: function(arg0) {
+            const val = arg0;
+            const ret = typeof(val) === 'object' && val !== null;
+            return ret;
+        },
+        __wbg___wbindgen_is_string_89134e23eba104e4: function(arg0) {
+            const ret = typeof(arg0) === 'string';
+            return ret;
+        },
         __wbg___wbindgen_is_undefined_1296fcc83c2da07a: function(arg0) {
             const ret = arg0 === undefined;
             return ret;
@@ -663,6 +752,10 @@ function __wbg_get_imports() {
             const ret = arg0.call(arg1, arg2, arg3, arg4);
             return ret;
         }, arguments); },
+        __wbg_crypto_38df2bab126b63dc: function(arg0) {
+            const ret = arg0.crypto;
+            return ret;
+        },
         __wbg_error_a6fa202b58aa1cd3: function(arg0, arg1) {
             let deferred0_0;
             let deferred0_1;
@@ -676,6 +769,9 @@ function __wbg_get_imports() {
         },
         __wbg_getRandomValues_3dda8830c2565714: function() { return handleError(function (arg0, arg1) {
             globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
+        }, arguments); },
+        __wbg_getRandomValues_c44a50d8cfdaebeb: function() { return handleError(function (arg0, arg1) {
+            arg0.getRandomValues(arg1);
         }, arguments); },
         __wbg_getTime_4b23931c93d819bb: function(arg0) {
             const ret = arg0.getTime();
@@ -693,12 +789,20 @@ function __wbg_get_imports() {
             const ret = Array.isArray(arg0);
             return ret;
         },
+        __wbg_length_f875d3a041bab91a: function(arg0) {
+            const ret = arg0.length;
+            return ret;
+        },
         __wbg_length_feaf2a40e5f9755a: function(arg0) {
             const ret = arg0.length;
             return ret;
         },
         __wbg_log_240aa86e7eb48d31: function(arg0) {
             console.log(arg0);
+        },
+        __wbg_msCrypto_bd5a034af96bcba6: function(arg0) {
+            const ret = arg0.msCrypto;
+            return ret;
         },
         __wbg_new_0_e8782c8df6122565: function() {
             const ret = new Date();
@@ -708,6 +812,28 @@ function __wbg_get_imports() {
             const ret = new Error();
             return ret;
         },
+        __wbg_new_with_length_3217a89bbca17214: function(arg0) {
+            const ret = new Uint8Array(arg0 >>> 0);
+            return ret;
+        },
+        __wbg_node_84ea875411254db1: function(arg0) {
+            const ret = arg0.node;
+            return ret;
+        },
+        __wbg_process_44c7a14e11e9f69e: function(arg0) {
+            const ret = arg0.process;
+            return ret;
+        },
+        __wbg_prototypesetcall_37f00e1be5c4015a: function(arg0, arg1, arg2) {
+            Uint8Array.prototype.set.call(getArrayU8FromWasm0(arg0, arg1), arg2);
+        },
+        __wbg_randomFillSync_6c25eac9869eb53c: function() { return handleError(function (arg0, arg1) {
+            arg0.randomFillSync(arg1);
+        }, arguments); },
+        __wbg_require_b4edbdcf3e2a1ef0: function() { return handleError(function () {
+            const ret = module.require;
+            return ret;
+        }, arguments); },
         __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
             const ret = arg1.stack;
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
@@ -731,10 +857,23 @@ function __wbg_get_imports() {
             const ret = typeof window === 'undefined' ? null : window;
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
+        __wbg_subarray_a61f483a625b1793: function(arg0, arg1, arg2) {
+            const ret = arg0.subarray(arg1 >>> 0, arg2 >>> 0);
+            return ret;
+        },
+        __wbg_versions_276b2795b1c6a219: function(arg0) {
+            const ret = arg0.versions;
+            return ret;
+        },
         __wbg_warn_998077100f0e7387: function(arg0) {
             console.warn(arg0);
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
+            // Cast intrinsic for `Ref(Slice(U8)) -> NamedExternref("Uint8Array")`.
+            const ret = getArrayU8FromWasm0(arg0, arg1);
+            return ret;
+        },
+        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
             return ret;

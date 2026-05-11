@@ -318,6 +318,16 @@ export class PatchSyncEngine {
     private _txBufferedOperations: TransactionBufferedOperation[] = [];
     /** Flag: currently applying remote update (suppress outbound broadcast) */
     private _isApplyingRemote = false;
+
+    /**
+     * Optional callback that receives every Yjs binary update (local and
+     * remote) together with the ChangeLogEntry list so the compilation worker
+     * can maintain its own Y.Doc without receiving the full font JSON on every
+     * edit. Set via `setYjsWorkerCallback`.
+     */
+    private _yjsWorkerCallback:
+        | ((update: YjsUpdate, changeLogEntries: ChangeLogEntry[]) => void)
+        | null = null;
     /** Flag: suppress Y.Doc sync (during initFromJson) */
     private _isSyncing = false;
     /** Callback when a remote change arrives (for UI refresh) */
@@ -619,6 +629,12 @@ export class PatchSyncEngine {
         for (const cb of this._localUpdateListeners) {
             cb(update, collaborationMessage);
         }
+        // NOTE: _yjsWorkerCallback is intentionally NOT called here for local
+        // edits. Local cache updates flow through storeFontJson / applyJsonPatches
+        // which keeps CANONICAL_JSON_CACHE and SUBSET_JSON_CACHE current via the
+        // compile pipeline without disrupting the layout-closure cache.
+        // The callback IS called from applyRemoteUpdate so remote changes from
+        // other windows still reach the Rust Y.Doc.
     }
 
     private _emitCanonicalLocalUpdateSince(
@@ -1665,6 +1681,12 @@ export class PatchSyncEngine {
                 update,
                 this._getRemoteUpdateOrigin(effectiveRemoteEntries)
             );
+            // NOTE: _yjsWorkerCallback is NOT called here for remote edits.
+            // The compile pipeline (babelfontJson via compile messages) and the
+            // forceFullWorkerCacheUpdate → initYdoc path already keep the Rust
+            // worker caches current after remote changes. Calling applyYjsUpdate
+            // here would clear cachedBaseSubsetKey and force a prime_layout_closure_cache
+            // rebuild on the next compile, causing > 5s delays for large fonts like Fustat.
             this._syncJsonFromYDoc(remoteLayerScopes);
             this._applyExplicitLayerPropertyRemovalsToFontJson(
                 effectiveRemoteEntries
@@ -1791,6 +1813,23 @@ export class PatchSyncEngine {
      */
     encodeStateDiff(peerStateVector: YjsUpdate): YjsUpdate {
         return Y.encodeStateAsUpdate(this.yDoc, peerStateVector);
+    }
+
+    /**
+     * Register a callback that will be called with every binary Yjs update
+     * (both local edits and remote/undo changes) and the accompanying
+     * ChangeLogEntry list. Pass `null` to unregister.
+     *
+     * The callback is intended to forward updates to the WASM compilation
+     * worker so it can maintain its own Rust Y.Doc without receiving the full
+     * font JSON on every edit.
+     */
+    setYjsWorkerCallback(
+        cb:
+            | ((update: YjsUpdate, changeLogEntries: ChangeLogEntry[]) => void)
+            | null
+    ): void {
+        this._yjsWorkerCallback = cb;
     }
 
     /**

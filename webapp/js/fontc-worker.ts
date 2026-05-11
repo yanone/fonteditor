@@ -7,6 +7,9 @@ import init, {
     compile_cached_font_from_last_layout_closure,
     store_font,
     apply_patch_batch,
+    init_ydoc_from_state,
+    seed_ydoc,
+    apply_yjs_update,
     prime_layout_closure_cache,
     interpolate_glyph,
     clear_font_cache,
@@ -1380,6 +1383,94 @@ self.onmessage = async (event) => {
                 timelineSpanEnd(applyPatchesSpanId);
             }
 
+            return;
+        }
+
+        // ── Yjs-based cache initialisation ──────────────────────────────────
+        // seedYdoc: initialise the Rust Y.Doc from a full binary Yjs state
+        // without rebuilding all caches (called immediately after openFont).
+        if (data.type === 'seedYdoc') {
+            const { id, state } = data;
+            try {
+                if (!initialized) {
+                    await initializeWasm();
+                }
+                seed_ydoc(state instanceof Uint8Array ? state : new Uint8Array(state));
+                self.postMessage({ id, type: 'seedYdoc', success: true });
+            } catch (e: any) {
+                console.error('[Fontc Worker] seedYdoc error:', e);
+                self.postMessage({ id, type: 'seedYdoc', success: false, error: e.toString() });
+            }
+            return;
+        }
+
+        // initYdoc: reinitialise the Rust Y.Doc from a full binary Yjs state
+        // AND rebuild all caches (used after undo/redo/remote full-state sync
+        // instead of the heavy storeFontJson path).
+        if (data.type === 'initYdoc') {
+            const spanId = timelineSpanStart('font.worker.initYdoc');
+            const { id, state } = data;
+            try {
+                timelineMark('font.worker.initYdoc.started');
+                if (!initialized) {
+                    await initializeWasm();
+                }
+                init_ydoc_from_state(
+                    state instanceof Uint8Array ? state : new Uint8Array(state)
+                );
+                cachedBabelfontJson = null; // CANONICAL_JSON_CACHE rebuilt from Y.Doc
+                cachedBaseSubsetKey = null;
+                cachedClosureGlyphCount = null;
+                fontCacheEpoch += 1;
+                self.postMessage({ id, type: 'initYdoc', success: true });
+                timelineMark('font.worker.initYdoc.success');
+            } catch (e: any) {
+                timelineMark('font.worker.initYdoc.failed');
+                console.error('[Fontc Worker] initYdoc error:', e);
+                self.postMessage({ id, type: 'initYdoc', success: false, error: e.toString() });
+            } finally {
+                timelineSpanEnd(spanId);
+            }
+            return;
+        }
+
+        // applyYjsUpdate: apply an incremental binary Yjs update to the Rust Y.Doc
+        // and update CANONICAL_JSON_CACHE (partial or full rebuild depending on
+        // whether changedGlyphs were supplied).
+        if (data.type === 'applyYjsUpdate') {
+            const { id, update, changedGlyphs, invalidateLayoutClosure } = data;
+            try {
+                if (!initialized) {
+                    await initializeWasm();
+                }
+                const changedGlyphsJson = JSON.stringify(
+                    Array.isArray(changedGlyphs) ? changedGlyphs : []
+                );
+                const resultJson = apply_yjs_update(
+                    update instanceof Uint8Array ? update : new Uint8Array(update),
+                    changedGlyphsJson
+                );
+                cachedBabelfontJson = null;
+                if (invalidateLayoutClosure !== false) {
+                    cachedBaseSubsetKey = null;
+                    cachedClosureGlyphCount = null;
+                    fontCacheEpoch += 1;
+                }
+                self.postMessage({
+                    id,
+                    type: 'applyYjsUpdate',
+                    success: true,
+                    result: resultJson
+                });
+            } catch (e: any) {
+                console.error('[Fontc Worker] applyYjsUpdate error:', e);
+                self.postMessage({
+                    id,
+                    type: 'applyYjsUpdate',
+                    success: false,
+                    error: e.toString()
+                });
+            }
             return;
         }
 
